@@ -972,7 +972,8 @@ impl App {
                 // not chosen, as `watch --interactive` sends it: without it the
                 // daemon's live profile took the turn, another model without a
                 // word (theseus-nu3z, theseus-0n1v).
-                let mut params = json!({ "session_id": sid, "input": text, "author": AUTHOR });
+                let mut params =
+                    json!({ "session_id": sid, "input": text, "author": AUTHOR, "via": "tui" });
                 if let Some(profile) = self.board.info(&sid).and_then(|i| i.profile.clone()) {
                     params["profile"] = json!(profile);
                     params["carried"] = json!(true);

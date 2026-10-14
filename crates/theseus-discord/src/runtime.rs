@@ -2114,6 +2114,7 @@ impl Place {
                         reply_to: anchor.map(|a| a.to_string()),
                         opened_from: None,
                         thread: None,
+                        via: None,
                     },
                 )
                 .await
@@ -2997,6 +2998,7 @@ pub(crate) mod tests {
                     reply_to: None,
                     opened_from: None,
                     thread: None,
+                    via: None,
                 },
             )
             .await

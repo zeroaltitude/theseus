@@ -733,7 +733,7 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
                 Tag::Reply,
                 &format!(
                     "[{t}] {}:{body}{}",
-                    s("model"),
+                    theseus_protocol::surface::reply_label(s("model")),
                     if calls > 0 && n.text.is_empty() {
                         format!(" ({calls} tool call(s))")
                     } else {

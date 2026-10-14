@@ -156,7 +156,7 @@ async fn the_input_line_sends_the_sessions_last_profile_carried() {
     let d = rig.daemon();
     assert_eq!(
         d.asked("turn.submit")[0],
-        json!({"session_id": "ses_dm0001", "input": "and tomorrow?", "author": "the TUI",
+        json!({"session_id": "ses_dm0001", "input": "and tomorrow?", "author": "the TUI", "via": "tui",
                "profile": "glm", "carried": true})
     );
     // Its next turn ran on another profile (another surface chose it): once

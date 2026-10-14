@@ -61,6 +61,7 @@ pub mod sessions;
 pub mod signals;
 pub mod standing;
 mod submit;
+pub mod surface;
 pub mod tasks;
 pub mod term;
 #[cfg(test)]

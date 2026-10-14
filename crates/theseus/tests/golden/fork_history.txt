@@ -6,11 +6,11 @@ session.wait {"session_id":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e0f00d","timeout_ms":0
 ── ses_0198d3a0b1c2d3e4f5a6b7c8d9e0f00d · "refactor the writer (fork)" · 1 turn(s) · 0 tool call(s) · $0.0010 · glm-x · waiting
 ── inherited from ses_…6664, by reference (nothing of it is copied)
 [23:26:50.000] msg·00000a operator: Refactor the writer.
-[23:26:51.000] msg·00000b : Done: it now streams.
+[23:26:51.000] msg·00000b Theseus: Done: it now streams.
       ↳  · in 0 out 0
 ── this session's own turns
 [23:27:00.000] msg·000014 operator: Take the other road: batch it.
-[23:27:01.000] msg·000015 : Batched.
+[23:27:01.000] msg·000015 Theseus: Batched.
       ↳  · in 0 out 0
 --- stderr
 --- exit 0

@@ -976,7 +976,8 @@ impl Core {
             self.bus.clone(),
             &session.session_id,
             Some((conn.client.to_string(), conn.tx.clone())),
-        );
+        )
+        .from_surface(self.surface_of(conn.surface, p.via.as_deref(), &session.session_id));
         let result = self
             .runner
             .run(TurnRequest {

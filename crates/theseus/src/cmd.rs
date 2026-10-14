@@ -90,6 +90,7 @@ pub async fn ask(
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
         thread: a.thread,
+        via: Some("ask".into()),
     })?;
     let follow_for = spawned.then_some(a.follow_for);
     let shown = (a.thinking, a.trace);

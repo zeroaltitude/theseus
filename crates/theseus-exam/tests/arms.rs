@@ -414,19 +414,20 @@ fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<Str
         // The baseline daemon's request: the task's block, then its Recall's
         // (`+activation`'s may admit more, so any one of them).
         assert!(
-            seen.iter().any(|t| t.len() == 2 && t[0] == item.task),
+            seen.iter()
+                .any(|t| t.len() == 2 && t[0].ends_with(&item.task)),
             "no request with {}'s recall: {seen:?}",
             item.id
         );
         assert!(
             seen.iter()
-                .any(|t| t.len() == 2 && t[0] == item.task && t[1] == note),
+                .any(|t| t.len() == 2 && t[0].ends_with(&item.task) && t[1] == note),
             "{}: the core rendered another note: {seen:?}",
             item.id
         );
         let oracle = format!("{}\n\n{note}", item.task);
         assert!(
-            seen.iter().any(|t| t.len() == 1 && t[0] == oracle),
+            seen.iter().any(|t| t.len() == 1 && t[0].ends_with(&oracle)),
             "no oracle request for {}: {seen:?}",
             item.id
         );

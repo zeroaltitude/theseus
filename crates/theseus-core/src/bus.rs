@@ -169,6 +169,9 @@ pub struct EventSink {
     pub direct: Option<(String, Outbound)>,
     pub bus: Arc<SessionBus>,
     pub session_id: String,
+    /// The code of the surface the requester wrote from
+    /// (`surface::code_of`), which the turn's input node records.
+    pub surface: Option<String>,
 }
 
 impl EventSink {
@@ -177,7 +180,14 @@ impl EventSink {
             direct,
             bus,
             session_id: session_id.to_string(),
+            surface: None,
         }
+    }
+
+    /// The sink of a requester who wrote from `surface`.
+    pub fn from_surface(mut self, surface: Option<String>) -> Self {
+        self.surface = surface;
+        self
     }
 
     /// To the requester and every watcher, as one line serialized once.

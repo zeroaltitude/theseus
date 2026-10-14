@@ -55,6 +55,7 @@ impl Place {
                         reply_to: Some(anchor.to_string()),
                         opened_from: None,
                         thread: None,
+                        via: None,
                     },
                 )
                 .await

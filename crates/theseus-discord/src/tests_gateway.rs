@@ -397,7 +397,10 @@ async fn a_pdf_attached_to_a_typed_message_reaches_the_model_as_a_document() {
         theseus_core::blobs::decode(blocks[1]["source"]["data"].as_str().unwrap()).unwrap(),
         pdf
     );
-    assert_eq!(blocks[2]["text"], "Who is the harbour master?");
+    assert_eq!(
+        blocks[2]["text"],
+        "[Discord #lab · private] Who is the harbour master?"
+    );
 }
 
 #[tokio::test]

@@ -50,6 +50,7 @@ impl TurnRunner {
                 text: text.clone(),
                 attachments: req.attachments.clone(),
                 author: req.author.clone(),
+                surface: req.sink.surface.clone(),
                 reply_to: req.reply_to.clone(),
                 arrived,
             },
@@ -90,7 +91,8 @@ impl TurnRunner {
         let mut waited_ms = 0;
         for m in taken.messages() {
             let files = self.accept_files(t, m.attachments.clone());
-            let node = Node::user_with(sid, Some(turn_id), &m.author, &m.text, files);
+            let mut node = Node::user_with(sid, Some(turn_id), &m.author, &m.text, files);
+            node.surface.clone_from(&m.surface);
             records.push(node.record()?);
             if let Some(id) = &m.reply_to {
                 records.extend(crate::recall::cite::origin_record(&node.id, "discord", id));

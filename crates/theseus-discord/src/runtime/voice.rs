@@ -669,6 +669,7 @@ impl Place {
                         reply_to: None,
                         opened_from: None,
                         thread: None,
+                        via: Some(theseus_core::surface::VOICE.into()),
                     },
                 )
                 .await;

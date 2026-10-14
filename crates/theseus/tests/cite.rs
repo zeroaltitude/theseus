@@ -164,7 +164,7 @@ fn history_marks_the_replies_it_shows() {
         &["history", S],
         vec![("session.history", history(vec![cite("m:a1b2c3")]), vec![])],
     );
-    assert!(out.contains("glm-x: We chose oak [1]."), "{out}");
+    assert!(out.contains("Theseus (glm-x): We chose oak [1]."), "{out}");
     assert!(
         out.contains(&format!("  [1] {HEADER}\n      theseus history m:a1b2c3\n")),
         "{out}"
@@ -174,7 +174,10 @@ fn history_marks_the_replies_it_shows() {
         &["history", S],
         vec![("session.history", history(vec![]), vec![])],
     );
-    assert!(plain.contains("glm-x: We chose oak [m:a1b2c3]."), "{plain}");
+    assert!(
+        plain.contains("Theseus (glm-x): We chose oak [m:a1b2c3]."),
+        "{plain}"
+    );
     assert!(!plain.contains("theseus history m:"), "{plain}");
 }
 

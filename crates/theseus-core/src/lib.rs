@@ -92,6 +92,7 @@ pub mod startup;
 pub mod store;
 pub mod stub;
 pub mod succession;
+pub mod surface;
 pub mod sweep;
 pub mod task;
 pub mod task_graph;

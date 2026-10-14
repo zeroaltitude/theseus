@@ -406,6 +406,12 @@ const SAMPLES: &[Sample] = &[
         bytes: r#"{"at_unix_ms":1790000000075,"kind":"label.held_post_answered","session_id":"ses_lighthouse","data":{"approve":false,"by":"the CLI","question":"act_00000000000000000000000000000074"}}"#,
         kept: Kept::All,
     },
+    Sample {
+        kind: kinds::NODE,
+        layout: "a user message as format 33 wrote it (theseus-nhew's build; the layout is unchanged since 7), before the surface it was written from (`surface`, format 34, theseus-slvl.3): it reads with none and renders with no tag; by hand, in the layout the build before it (e354320) writes",
+        bytes: r#"{"id":"msg_00000000000000000000000000000341","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t34","loop_index":null,"origin":"operator","author":"sock#3","created_at_ms":1790000000341,"body":{"kind":"user_message","text":"quick one: is the tide in?"}}"#,
+        kept: Kept::All,
+    },
 ];
 
 /// A payload of `kind`, decoded as this build's reader decodes it, and
@@ -527,7 +533,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +585,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,7 +640,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -686,11 +692,27 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
     let got = board.get("tide-gauges").unwrap();
     assert_eq!(got.state, ThreadState::Paused);
     assert_eq!(got.card, t.card);
+}
+
+/// A message that records its surface (format 34) writes the code beside its
+/// author and reads it back; a node written before it has none, and keeps
+/// its bytes whatever the build (the sample above).
+#[test]
+fn a_user_message_records_its_surface_and_an_old_one_has_none() {
+    let old = r#"{"id":"msg_00000000000000000000000000000341","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t34","loop_index":null,"origin":"operator","author":"sock#3","created_at_ms":1790000000341,"body":{"kind":"user_message","text":"quick one: is the tide in?"}}"#;
+    let n: Node = serde_json::from_str(old).unwrap();
+    assert_eq!(n.surface, None);
+    let mut n = n;
+    n.surface = Some("terminal:tui".into());
+    let v = serde_json::to_value(&n).unwrap();
+    assert_eq!(v["surface"], "terminal:tui");
+    let back: Node = serde_json::from_value(v).unwrap();
+    assert_eq!(back.surface.as_deref(), Some("terminal:tui"));
 }

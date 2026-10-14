@@ -64,4 +64,12 @@ dir?: string,
  * on its first use. The thread's slug; only the owner, from a private
  * place, and not with a `session_id`.
  */
-thread?: string, };
+thread?: string, 
+/**
+ * Which of its programs the client is, for the surface tag at the head
+ * of the message (theseus-slvl.3): `ask`, `tui`, or `voice`. A label for
+ * the model's register, never an authority: the connection's own
+ * surface decides the rest, and a word this build does not know is
+ * read as none.
+ */
+via?: string, };

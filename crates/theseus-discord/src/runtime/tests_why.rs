@@ -87,6 +87,7 @@ async fn turn_that_asks(core: &Arc<Core>) -> String {
                 opened_from: None,
                 dir: None,
                 thread: None,
+                via: None,
             },
         )
         .await

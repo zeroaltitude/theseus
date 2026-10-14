@@ -378,6 +378,13 @@ pub struct Node {
     /// The client or principal that wrote it (`web#3`, `harness`).
     #[serde(default)]
     pub author: Option<String>,
+    /// Where a person's message was written from (`terminal:tui`,
+    /// `discord:dm`; `surface::code_of`, theseus-slvl.3, store format 34).
+    /// The compiler renders it as the tag at the head of the message in the
+    /// user turn; the text stays as typed. Absent on any other node, so
+    /// stored nodes keep their bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
     pub created_at_ms: u64,
     pub body: Body,
     // A node from 19a to the place rule carries a `label` (NODE schemas 5
@@ -400,6 +407,7 @@ impl Node {
             loop_index: None,
             origin,
             author: None,
+            surface: None,
             created_at_ms: theseus_protocol::now_unix_ms(),
             body,
         }
@@ -567,6 +575,7 @@ impl Node {
             loop_index: None,
             origin: Origin::Import,
             author: Some(author.into()),
+            surface: None,
             created_at_ms: at_ms,
             body,
         }
