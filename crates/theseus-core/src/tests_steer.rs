@@ -371,6 +371,48 @@ async fn a_foreground_command_goes_to_the_background_for_a_message() {
     assert!(r.request(1).contains("how is it going"));
 }
 
+/// A batch's step waits the same way: past `STEER_AFTER` a message sends the
+/// running step to the background at once, the result says a message arrived
+/// and that the steps after it will not run, and the message joins the turn
+/// (a planted revert of the batch's yield was missed before this test).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batch_step_goes_to_the_background_for_a_message() {
+    let r = rig(
+        vec![
+            Scripted::tools(
+                "Running the steps.",
+                &[(
+                    "t1",
+                    "proc_run",
+                    json!({"steps": [{"argv": ["true"]}, {"argv": ["sleep", "30"]}, {"argv": ["true"]}]}),
+                )],
+            ),
+            Scripted::text("Heard you."),
+        ],
+        40,
+        0,
+        |_| {},
+    );
+    let s = r.session();
+    let a = r.submit(&s, "run the steps");
+    r.until_calls(1).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let sent = Instant::now();
+    let b = r.submit(&s, "how far along");
+    let (a, b) = (a.await.unwrap(), b.await.unwrap());
+    assert!(
+        sent.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        sent.elapsed()
+    );
+    assert_eq!(a.turn_id, b.turn_id, "the message joined the running turn");
+    let (status, text, meta) = r.result(&s.session_id, "t1");
+    assert_eq!(status, ResultStatus::Background, "{text}");
+    assert!(text.contains("because a message arrived"), "{text}");
+    assert_eq!(meta["interrupted_by"], "message");
+    assert!(r.request(1).contains("how far along"));
+}
+
 /// With `steer_queued` off a message waits for the turn to end and runs as
 /// the next turn, as it always did: the wait is not interrupted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
