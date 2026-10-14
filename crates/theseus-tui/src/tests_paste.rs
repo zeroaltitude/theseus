@@ -96,7 +96,7 @@ async fn a_paste_on_a_card_answers_nothing_and_quits_nothing() {
     assert!(
         !methods
             .iter()
-            .any(|m| m == "action.confirm" || m == "execution.stop" || m == "task.cancel"),
+            .any(|m| m == "work.answer" || m == "execution.stop" || m == "task.cancel"),
         "a paste answered or stopped: {methods:?}"
     );
     assert!(!rig.runner.quitting(), "a pasted q is not the quit key");
@@ -112,10 +112,10 @@ async fn a_paste_on_a_card_answers_nothing_and_quits_nothing() {
     assert!(rig.screen().iter().any(|l| l.contains("[y] approve")));
     // Typed keys are kept as they were: esc leaves the line, y approves.
     rig.press(&[KeyCode::Esc, KeyCode::Char('y')]).await;
-    rig.asked("action.confirm", 1).await;
+    rig.asked("work.answer", 1).await;
     assert_eq!(
-        rig.daemon().asked("action.confirm"),
-        [json!({"correlation_id": "cor_spec01", "approve": true, "author": "the TUI"})]
+        rig.daemon().asked("work.answer"),
+        [json!({"question_id": "cor_spec01", "option": "approve", "author": "the TUI"})]
     );
     // And q quits.
     rig.press(&[KeyCode::Char('q')]).await;
@@ -396,13 +396,13 @@ async fn a_paste_in_a_declines_note_is_sent_with_the_decline() {
     assert!(matches!(rig.runner.app.mode, Mode::Note(_)));
     paste(&mut rig, "after the\r\ntide turns").await;
     rig.settle().await;
-    assert!(rig.daemon().asked("action.confirm").is_empty());
+    assert!(rig.daemon().asked("work.answer").is_empty());
     rig.press(&[KeyCode::Enter]).await;
-    rig.asked("action.confirm", 1).await;
+    rig.asked("work.answer", 1).await;
     assert_eq!(
-        rig.daemon().asked("action.confirm"),
+        rig.daemon().asked("work.answer"),
         [
-            json!({"correlation_id": "cor_spec01", "approve": false, "author": "the TUI",
+            json!({"question_id": "cor_spec01", "option": "decline", "author": "the TUI",
                 "note": "after the\ntide turns"})
         ]
     );

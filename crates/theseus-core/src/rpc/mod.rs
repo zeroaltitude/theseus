@@ -10,6 +10,7 @@
 //! (`policy`), what the harness loop drives (`driver`), and channel bindings
 //! (`bindings`).
 
+pub(crate) mod answer;
 mod aws;
 mod bindings;
 mod books;
@@ -17,6 +18,7 @@ mod budgets;
 mod cites;
 mod confirms;
 mod context;
+pub(crate) use answer::offer;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
 mod disk_watch;
 mod driver;

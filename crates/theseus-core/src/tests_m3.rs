@@ -1662,6 +1662,9 @@ mod stops_and_expiry;
 /// The MCP server's surface (step 41b).
 mod mcp_surface;
 
+/// `work.answer` (theseus-ds5os).
+mod answer;
+
 /// theseus-667d: a stopped job's raw output is kept while its wrapper still
 /// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
 /// guard in `remove_job_output`). The stop comes before the job's
@@ -5364,7 +5367,7 @@ fn origin(discord: Option<(&str, Option<&str>)>) -> Option<theseus_protocol::Dis
 
 /// One request over a real protocol connection, accepted as `client`: the
 /// result, or the error.
-async fn rpc_as(
+pub(crate) async fn rpc_as(
     core: &Arc<Core>,
     client: crate::approval::Client,
     method: &str,
@@ -5395,7 +5398,7 @@ async fn rpc_as(
     out
 }
 
-fn surface(label: &str, s: crate::approval::Surface) -> crate::approval::Client {
+pub(crate) fn surface(label: &str, s: crate::approval::Surface) -> crate::approval::Client {
     crate::approval::Client::new(label, s)
 }
 

@@ -506,6 +506,58 @@ async fn an_ack_from_a_shared_place_is_refused() {
     assert_eq!(r.rows("extend.acked")[0]["via"], "discord:dm");
 }
 
+/// An extension's ack is answered through `work.answer` (theseus-ds5os) with
+/// its own two options: `ack` loads it as `action.confirm` would, a call's
+/// `approve` is refused with the valid ones, and `decline` settles it with
+/// its note. The option rides the ack's row.
+#[tokio::test]
+async fn an_extensions_ack_is_answered_with_ack_or_decline() {
+    let answer = |r: &Rig, id: &str, option: &str, note: Option<&str>| {
+        let core = r.core.clone();
+        let params = json!({"question_id": id, "option": option, "note": note});
+        async move {
+            crate::tests_m3::rpc_as(
+                &core,
+                crate::tests_m3::surface("sock#1", crate::approval::Surface::Cli),
+                theseus_protocol::method::WORK_ANSWER,
+                params,
+            )
+            .await
+        }
+    };
+    let r = rig();
+    let src = r.server("wc", "ok");
+    let sid = r.session();
+    r.turn(&sid, "propose", Some(proposal(&src))).await;
+    let q = r.core.confirm_list().unwrap().remove(0);
+    assert_eq!(
+        q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+        ["ack", "decline"]
+    );
+    let e = answer(&r, &q.correlation_id, "approve", None)
+        .await
+        .expect_err("a call's approve");
+    assert!(e.message.contains("ack, decline"), "{}", e.message);
+    let done = answer(&r, &q.correlation_id, "ack", None).await.unwrap();
+    assert_eq!(done["option"], "ack");
+    assert!(done.get("resumes").is_none(), "{done}");
+    assert_eq!(r.manifests()[0].state, "acked");
+    assert_eq!(r.rows("extend.acked").len(), 1);
+    assert_eq!(r.rows("action.confirm_answered")[0]["option"], "ack");
+
+    let r = rig();
+    let src = r.server("wc", "ok");
+    let sid = r.session();
+    r.turn(&sid, "propose", Some(proposal(&src))).await;
+    let q = r.core.confirm_list().unwrap().remove(0);
+    answer(&r, &q.correlation_id, "decline", Some("not today"))
+        .await
+        .unwrap();
+    assert_eq!(r.manifests()[0].state, "declined");
+    assert_eq!(r.rows("extend.declined").len(), 1);
+    assert_eq!(r.rows("action.confirm_answered")[0]["option"], "decline");
+}
+
 /// A decline settles the question declined, loads nothing, and wakes
 /// nothing: no turn runs after it. A question nobody answers expires the
 /// same way.

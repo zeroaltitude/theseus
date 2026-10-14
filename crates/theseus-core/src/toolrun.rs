@@ -1363,7 +1363,7 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         // Asked at its plan's time, and expiring then plus the TTL, as
         // `confirm.list`, the watch's snapshot, and the board say.
-        let req = ConfirmRequest {
+        let req = crate::rpc::offer(ConfirmRequest {
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
             execution_id: tc.execution_id.into(),
@@ -1383,7 +1383,8 @@ impl ToolRuntime {
             }),
             external_text: g.decision.external,
             change: crate::task_graph::tools::change_of(tc.store, tool, &call.input),
-        };
+            ..Default::default()
+        });
         tc.record(&fact::tool::CallAsked { request: &req });
         // It expires at its plan's time and the TTL, as `confirm.list` says
         // (theseus-830): the driver reads the questions by then.

@@ -583,6 +583,11 @@ impl Core {
             by,
             via,
             trust: false,
+            option: (by != super::confirms::EXPIRY).then_some(if approve {
+                "approve"
+            } else {
+                "decline"
+            }),
         };
         let session = Some(a.session_id.as_str());
         let rows = vec![fact::row(&answered, session, None)?, record];
@@ -627,7 +632,7 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         .as_ref()
         .map(|p| p.args.clone())
         .unwrap_or_default();
-    ConfirmRequest {
+    super::answer::offer(ConfirmRequest {
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),
@@ -643,5 +648,7 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         task: crate::task::task_ref(session),
         external_text: None,
         change: None,
-    }
+        options: Vec::new(),
+        may_answer: None,
+    })
 }

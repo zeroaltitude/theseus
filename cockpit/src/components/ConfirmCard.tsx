@@ -13,6 +13,7 @@ import { useTick } from '@/lib/hooks'
 import { decisionWords, diffLines, previewOf } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
+import { answerParams, buttonsOf } from '@/lib/answers'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
 
@@ -67,8 +68,8 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
   const left = c.expires_at_ms ? c.expires_at_ms - now : null
   const span = c.expires_at_ms && c.requested_at_ms ? c.expires_at_ms - c.requested_at_ms : 0
   const budget = c.budget
-  const answer = (key: string, approve: boolean, trust = false) =>
-    run(key, 'action.confirm', { correlation_id: c.correlation_id, approve, trust: trust || undefined, note: (!budget && note) || undefined })
+  const buttons = buttonsOf(c)
+  const answer = (option: string) => run(option, 'work.answer', answerParams(c, option, note))
   // The card leads with its decision (theseus-hnof.5): what pressing the first button does, in the daemon's own words.
   // It was the fourth line, after the tool, the policy's sentence and the path.
   const d = budget || c.change ? null : decisionWords(c.tool, c.input, c.reason)
@@ -114,10 +115,13 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
           {c.external_text && <div className="num mt-1 text-[11.5px] text-wait">this session read {c.external_text.tool} {c.external_text.url} {ago(c.external_text.since_ms, now)}, so a call that acts waits</div>}
           {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
           {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <Btn tone="ok" busy={busy === 'yes'} onClick={() => answer('yes', true)}><CircleCheck size={13} /> {budget ? 'Reset to $0 and continue' : c.change ? 'Accept' : 'Approve'}</Btn>
-            {c.external_text && <Btn tone="wait" busy={busy === 'trust'} title="Approve this call, and trust the session again: its later calls that act run at their postures, until it reads external text again" onClick={() => answer('trust', true, true)}><ShieldCheck size={13} /> Approve and trust session</Btn>}
-            <Btn tone="fault" busy={busy === 'no'} onClick={() => answer('no', false)}><OctagonX size={13} /> {budget ? 'Keep waiting' : 'Decline'}</Btn>
-            {!budget && <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional; the model sees it on a decline)"
+            {buttons.map((b) => (
+              <Btn key={b.id} tone={b.tone} busy={busy === b.id} title={b.title} onClick={() => answer(b.id)}>
+                {b.tone === 'fault' ? <OctagonX size={13} /> : b.id === 'approve_trust' ? <ShieldCheck size={13} /> : <CircleCheck size={13} />} {b.label}
+              </Btn>
+            ))}
+            {buttons.length === 0 && <span className="text-[11.5px] text-wait">this connection may not answer it: answer from the CLI (theseus answer {short(c.correlation_id)}), or a private place</span>}
+            {buttons.some((b) => b.takesNote) && <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional; the model sees it on a decline)"
               className="min-w-40 flex-1 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />}
             <span className="text-[11px] text-ink-faint">by {c.by}</span>
           </div>}

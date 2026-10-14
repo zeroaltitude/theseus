@@ -10,10 +10,11 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde_json::{json, Value};
 use theseus_client::render::{self, Tag};
+use theseus_protocol::answer::{approves, WorkAnswerResult};
 use theseus_protocol::{
-    error_code, method, ActionConfirmResult, ConfirmListResult, Event, EventsLost,
-    ExecutionStopResult, ExecutionView, ExecutionsWatchResult, RpcError, SessionHistoryResult,
-    SessionKind, SessionListResult, TaskCancelResult,
+    error_code, method, ConfirmListResult, Event, EventsLost, ExecutionStopResult, ExecutionView,
+    ExecutionsWatchResult, RpcError, SessionHistoryResult, SessionKind, SessionListResult,
+    TaskCancelResult,
 };
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
@@ -561,8 +562,8 @@ impl App {
             }
             Purpose::Answer { correlation_id, .. } => {
                 self.refused.remove(&correlation_id);
-                if let Ok(r) = serde_json::from_value::<ActionConfirmResult>(v) {
-                    self.flash = Some(if r.approved {
+                if let Ok(r) = serde_json::from_value::<WorkAnswerResult>(v) {
+                    self.flash = Some(if approves(&r.option) {
                         (Tag::Ok, format!("✓ approved {correlation_id}"))
                     } else {
                         (Tag::Warn, format!("✗ declined {correlation_id}"))
@@ -617,7 +618,7 @@ impl App {
             Purpose::Submit(_) => method::TURN_SUBMIT,
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
-            Purpose::Answer { .. } => method::ACTION_CONFIRM,
+            Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
         };
@@ -834,6 +835,15 @@ impl App {
             return Vec::new();
         };
         let (id, trusts) = (q.correlation_id().to_string(), q.trusts());
+        if !q.may_answer() {
+            self.flash = Some((
+                Tag::Bad,
+                "refused: not from here; answer from the CLI (`theseus answer`), the web UI, or a private place"
+                    .to_string(),
+            ));
+            return Vec::new();
+        }
+        let yes = if trust { "approve_trust" } else { q.yes() }.to_string();
         if trust && !trusts {
             self.flash = Some((
                 Tag::Dim,
@@ -846,7 +856,7 @@ impl App {
             self.mode = Mode::Note(id);
             return Vec::new();
         }
-        vec![answer(&id, true, trust, None)]
+        vec![answer(&id, &yes, None)]
     }
 
     /// The decline's note: `enter` sends the decline, with the note if one
@@ -864,12 +874,7 @@ impl App {
             KeyCode::Enter => {
                 self.mode = Mode::Normal;
                 let note = std::mem::take(&mut self.note).trim().to_string();
-                return vec![answer(
-                    id,
-                    false,
-                    false,
-                    Some(note).filter(|n| !n.is_empty()),
-                )];
+                return vec![answer(id, "decline", Some(note).filter(|n| !n.is_empty()))];
             }
             _ => {}
         }
@@ -1178,22 +1183,20 @@ fn read_session(sid: &str) -> Vec<Effect> {
     ]
 }
 
-/// An answer to a question (design §2.9, "Answering"): `action.confirm` as
-/// the TUI, so `[approval]` judges it as the `cli` channel's.
-fn answer(id: &str, approve: bool, trust: bool, note: Option<String>) -> Effect {
+/// An answer to a question (design §2.9, "Answering"): `work.answer` with
+/// one of its options, as the TUI, so `[approval]` judges it as the `cli`
+/// channel's. One path for every kind of question.
+fn answer(id: &str, option: &str, note: Option<String>) -> Effect {
     let mut params = json!({
-        "correlation_id": id,
-        "approve": approve,
+        "question_id": id,
+        "option": option,
         "author": AUTHOR,
     });
-    if trust {
-        params["trust"] = json!(true);
-    }
     if let Some(n) = note {
         params["note"] = json!(n);
     }
     call(
-        method::ACTION_CONFIRM,
+        method::WORK_ANSWER,
         params,
         Purpose::Answer {
             correlation_id: id.to_string(),

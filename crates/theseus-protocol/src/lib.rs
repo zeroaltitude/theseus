@@ -9,6 +9,7 @@
 //! state and are also ledger rows on the server side.
 
 mod actions;
+pub mod answer;
 pub mod arrangement;
 mod aws;
 pub mod bench;
@@ -238,6 +239,8 @@ pub mod method {
         /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a
         /// reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
+        /// One answer verb for every question (theseus-ds5os).
+        WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs
         /// someone or works, then `execution.changed`, `confirm.requested`,
         /// and `confirm.resolved` for every session, until
@@ -2367,7 +2370,7 @@ pub struct CatalogListResult {
 
 /// A tool call waiting for the operator (spec §3.9: confirmation is bound to
 /// the exact tool, arguments, resource, and an expiry).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfirmRequest {
     pub correlation_id: String,
@@ -2408,6 +2411,16 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub change: Option<tasks::TaskChange>,
+    /// Its answers, worded once (`work::answer_options`): what `work.answer`
+    /// takes. Absent from a daemon that does not say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<work::AnswerOption>,
+    /// This connection may answer it (the place rule). Set where a read is
+    /// for one connection (`confirm.list`); absent on a push, which every
+    /// connection hears alike. A daemon's refusal still says where to answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub may_answer: Option<bool>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its

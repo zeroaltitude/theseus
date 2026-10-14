@@ -431,6 +431,8 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         task: None,
         external_text: None,
         change: None,
+        options: Vec::new(),
+        may_answer: None,
     }
 }
 
@@ -446,7 +448,7 @@ pub fn info(sid: &str, kind: SessionKind, label: Option<&str>, title: Option<&st
     .unwrap()
 }
 
-fn input() -> Option<WaitingOn> {
+pub fn input() -> Option<WaitingOn> {
     Some(WaitingOn::Input)
 }
 
@@ -575,7 +577,7 @@ pub fn dm_history() -> Value {
     })
 }
 
-fn changed(v: &ExecutionView) -> Value {
+pub fn changed(v: &ExecutionView) -> Value {
     serde_json::to_value(v).unwrap()
 }
 
@@ -1348,10 +1350,10 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
         rig.screen()
     );
     rig.press(&[KeyCode::Char('y')]).await;
-    rig.asked("action.confirm", 1).await;
+    rig.asked("work.answer", 1).await;
     assert_eq!(
-        rig.daemon().asked("action.confirm"),
-        [json!({"correlation_id": "cor_spec01", "approve": true, "author": "the TUI"})]
+        rig.daemon().asked("work.answer"),
+        [json!({"question_id": "cor_spec01", "option": "approve", "author": "the TUI"})]
     );
 }
 
@@ -1431,7 +1433,7 @@ async fn n_declines_with_a_note_and_t_trusts_external_text() {
     rig.press(&[KeyCode::Tab, KeyCode::Char('n')]).await;
     rig.type_text("not before the review").await;
     rig.press(&[KeyCode::Enter]).await;
-    rig.asked("action.confirm", 1).await;
+    rig.asked("work.answer", 1).await;
     rig.press(&[KeyCode::Tab]).await;
     rig.shows("[t] approve + trust").await;
     assert!(rig
@@ -1439,14 +1441,13 @@ async fn n_declines_with_a_note_and_t_trusts_external_text() {
         .iter()
         .any(|l| l.contains("web.search \"harbour tide tables\"")));
     rig.press(&[KeyCode::Char('t')]).await;
-    rig.asked("action.confirm", 2).await;
+    rig.asked("work.answer", 2).await;
     assert_eq!(
-        rig.daemon().asked("action.confirm"),
+        rig.daemon().asked("work.answer"),
         [
-            json!({"correlation_id": "cor_spec01", "approve": false, "author": "the TUI",
+            json!({"question_id": "cor_spec01", "option": "decline", "author": "the TUI",
                    "note": "not before the review"}),
-            json!({"correlation_id": "cor_tide01", "approve": true, "author": "the TUI",
-                   "trust": true}),
+            json!({"question_id": "cor_tide01", "option": "approve_trust", "author": "the TUI"}),
         ]
     );
 }
@@ -1457,7 +1458,7 @@ async fn n_declines_with_a_note_and_t_trusts_external_text() {
 async fn a_refusal_shows_its_reason_on_the_card() {
     let world = harbour_world();
     world.lock().unwrap().answers.insert(
-        "action.confirm".into(),
+        "work.answer".into(),
         Err((
             -32005,
             "it came from a shared place, and only a private one counts".into(),

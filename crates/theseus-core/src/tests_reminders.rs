@@ -443,3 +443,57 @@ async fn the_models_say_only_reminder_for_the_owner_is_a_notice_and_takes_no_tur
     assert_eq!(n[0].note, "stretch");
     assert_eq!(n[0].session_id, sid);
 }
+
+/// A reminder is answered through `work.answer` (theseus-ds5os): a fired one
+/// by its whole id, a pending one by a unique end of it; Done and the
+/// snoozes are the wake owner's verbs, with their rows, and an option a
+/// reminder lacks is refused with the four it has.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reminder_is_answered_through_work_answer() {
+    let mut r = rig(true, |_| {});
+    dm_session(&r.core);
+    rpc(
+        &r.core,
+        "wake.create",
+        json!({"when": "2s", "note": "stretch"}),
+    )
+    .await
+    .unwrap();
+    until("the first post", 10, || posts(&r.core).len() == 1).await;
+    let id = posts(&r.core)[0].1["wake_id"].as_str().unwrap().to_string();
+    let _ = noticed(&mut r);
+    let answer = |id: String, option: &'static str| {
+        let core = r.core.clone();
+        async move {
+            rpc(
+                &core,
+                "work.answer",
+                json!({"question_id": id, "option": option}),
+            )
+            .await
+        }
+    };
+    let e = answer(id.clone(), "approve")
+        .await
+        .expect_err("not a reminder's");
+    assert!(e.contains("done, snooze_10m, snooze_1h, tomorrow_9"), "{e}");
+    // Fired: snoozed by its whole id; it is pending again.
+    let moved = answer(id.clone(), "snooze_1h").await.unwrap();
+    assert_eq!(
+        (moved["option"].as_str(), moved["question_id"].as_str()),
+        (Some("snooze_1h"), Some(id.as_str()))
+    );
+    assert_eq!(rows(&r.core, "wake.snoozed").len(), 1);
+    let list = rpc(&r.core, "wake.list", json!({})).await.unwrap();
+    assert_eq!(list["wakes"].as_array().unwrap().len(), 1, "{list}");
+    // Pending: named by a unique end, set again for ten minutes.
+    let end = id[id.len() - 6..].to_string();
+    answer(end.clone(), "snooze_10m").await.unwrap();
+    assert_eq!(rows(&r.core, "wake.snoozed").len(), 2);
+    // Done settles it.
+    let done = answer(end, "done").await.unwrap();
+    assert_eq!(done["option"], "done");
+    let settled = rows(&r.core, "wake.done");
+    assert_eq!(settled.len(), 1);
+    assert_eq!(settled[0]["wake_id"], id.as_str());
+}

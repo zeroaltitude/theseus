@@ -110,6 +110,30 @@ impl Question<'_> {
         }
     }
 
+    /// Whether this connection may answer it (the place rule). A question
+    /// heard on the push says nothing, and reads yes: the daemon's refusal
+    /// still says where to answer instead.
+    pub fn may_answer(&self) -> bool {
+        !matches!(self, Question::Whole(c) if c.may_answer == Some(false))
+    }
+
+    /// The option a plain yes sends (`work.answer`): the first it offers, or
+    /// by its kind when the daemon sent none (a brief).
+    pub fn yes(&self) -> &str {
+        match self {
+            Question::Whole(c) => c.yes_option().map_or(
+                if c.budget.is_some() {
+                    "reset"
+                } else {
+                    "approve"
+                },
+                |o| o.id.as_str(),
+            ),
+            Question::Brief(p) if p.budget => "reset",
+            Question::Brief(_) => "approve",
+        }
+    }
+
     /// Approving it can trust its session again: it waits because the
     /// session read external text.
     pub fn trusts(&self) -> bool {

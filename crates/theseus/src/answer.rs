@@ -1,0 +1,59 @@
+//! `theseus answer ID OPTION [--note WORDS]` (theseus-ds5os): one verb for
+//! every question that waits for the owner. ID is the question's id, whole or
+//! a unique end of at least four characters (the daemon resolves it, and an
+//! end that names two questions is refused, naming both); OPTION is one of
+//! its answers (`approve`, `approve_trust`, `decline`, `reset`, `accept`,
+//! `ack`, or a reminder's `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`).
+//! `theseus confirm` still lists what waits and answers a call with its
+//! flags and follows the turn it resumes; both reach the same handlers.
+
+use anyhow::Result;
+use theseus_client::Conn;
+use theseus_protocol::answer::{WorkAnswerParams, WorkAnswerResult};
+use theseus_protocol::method;
+
+use crate::cmd::output;
+
+/// `theseus answer`'s arguments.
+#[derive(clap::Args, Debug)]
+pub struct AnswerArgs {
+    /// The question: its id, or a unique end of it (four characters at least).
+    pub question: String,
+    /// The answer: `approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or a
+    /// reminder's `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`. A wrong one is refused with
+    /// the question's own.
+    pub option: String,
+    /// Words with the answer; the model reads a decline's.
+    #[arg(long)]
+    pub note: Option<String>,
+}
+
+/// `theseus answer`: one `work.answer`.
+pub async fn answer(conn: &mut Conn, json: bool, a: AnswerArgs) -> Result<()> {
+    let v = conn
+        .request(
+            method::WORK_ANSWER,
+            WorkAnswerParams {
+                question_id: a.question,
+                option: a.option,
+                note: a.note,
+                ..Default::default()
+            },
+        )
+        .await?;
+    if let Some(sid) = v["resumes"]["session_id"].as_str() {
+        theseus_client::shown::shown(conn, &[sid.to_string()]).await;
+    }
+    output(json, v, |r: WorkAnswerResult| {
+        match r.resumes {
+            Some(w) => println!(
+                "answered {} · {} · {} resumes",
+                r.question_id,
+                r.option,
+                w.session_id.unwrap_or(w.id)
+            ),
+            None => println!("answered {} · {}", r.question_id, r.option),
+        }
+        Ok(())
+    })
+}

@@ -12,6 +12,7 @@
 //! (`render`) are this package's library, which the TUI shares, and
 //! `print.rs` writes the lines they return.
 
+mod answer;
 mod budgets;
 mod cite;
 mod cmd;
@@ -69,6 +70,7 @@ Quick start:
   theseus watch --all                        every session's executions as they change, with what needs you
   theseus tui                                every session in one terminal: what needs you, answered inline
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
+  theseus answer <id> <option> [--note ..]   answer any question waiting for you by one of its options, from the last four characters of its id
   theseus budgets                            where the money is: each session's limit and its source, spend, tasks' carves
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
@@ -307,6 +309,9 @@ enum Cmd {
     /// (approve resets its spend to $0), then follow the turn it resumes.
     /// Without an id, list everything waiting.
     Confirm(ConfirmArgs),
+    /// Answer any question waiting for you, with one of its answers: a call, a spend limit, a
+    /// task change, an extension, a reminder. `theseus answer 7f3a approve`.
+    Answer(answer::AnswerArgs),
     /// The toollets: class, backend, what policy does with each, and calls so far.
     Tools {
         /// Also print each tool's description and input schema.
@@ -1121,6 +1126,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Remind(a) => remind::remind(c, json, a).await,
+        Cmd::Answer(a) => answer::answer(c, json, a).await,
         Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
         Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
         Cmd::Resume { wake } => remind::resume(c, json, wake).await,

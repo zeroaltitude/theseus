@@ -19,6 +19,8 @@ mod ui;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_answer;
+#[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
 mod tests_names;

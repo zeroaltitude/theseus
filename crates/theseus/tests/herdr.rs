@@ -513,7 +513,7 @@ fn interactive_answers_the_question_and_sends_messages() {
     d.push(
         "confirm.resolved",
         json!({"session_id": S, "correlation_id": "act_m3", "approved": true,
-               "by": "theseus watch"}),
+               "by": "theseus watch", "option": "approve"}),
     );
     d.push(
         "execution.changed",

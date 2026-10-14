@@ -386,6 +386,12 @@ pub struct ConfirmResolved {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub trust: Option<bool>,
+    /// The answer's option (`work::AnswerOption.id`: `approve`, `decline`,
+    /// `reset`, `accept`, `ack`, `approve_trust`), whichever verb gave it.
+    /// Absent from a close that was no answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub option: Option<String>,
     /// New input came before an answer.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub superseded: bool,
