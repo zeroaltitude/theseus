@@ -1109,6 +1109,8 @@ async fn run(cli: Cli) -> Result<()> {
         (None, _) => Conn::socket(&cli.socket).await?,
     };
     let (c, json, spawned) = (&mut conn, cli.json, cli.spawn.is_some());
+    // `herdr sync`'s own socket, for its panes: none for a spawned daemon.
+    let herdr_socket = cli.spawn.is_none().then_some(cli.socket.as_str());
     let result = match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a, spawned).await,
         Cmd::Prompt(a) => prompt::run(c, json, cli.no_stream, a, spawned).await,
@@ -1174,10 +1176,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ledger {
             n, kind, session, ..
         } => cmd::ledger(c, json, n, kind, session).await,
-        Cmd::Herdr { cmd } => {
-            let socket = cli.spawn.is_none().then_some(cli.socket.as_str());
-            herdr_sync::run(c, json, cmd, socket).await
-        }
+        Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, herdr_socket).await,
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
