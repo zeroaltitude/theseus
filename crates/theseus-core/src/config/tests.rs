@@ -53,6 +53,22 @@ fn example_template_parses_and_validates() {
     assert_eq!(cfg.telemetry.otlp_endpoint, None);
 }
 
+/// theseus-0hufe: the template's three caps of a response's calls are the
+/// defaults a config without them gets, so neither drifts from the other
+/// (a planted default of 8 for `parallel_runs` passed every test before).
+#[test]
+fn the_templates_parallel_caps_are_the_defaults() {
+    let t = Config::example().tools;
+    assert_eq!(t.parallel_runs, default_parallel_runs());
+    assert_eq!(t.parallel_reads, default_parallel_reads());
+    assert_eq!(t.parallel_writes, default_parallel_writes());
+    let d = ToolsConfig::default();
+    assert_eq!(
+        (d.parallel_runs, d.parallel_reads, d.parallel_writes),
+        (t.parallel_runs, t.parallel_reads, t.parallel_writes)
+    );
+}
+
 /// theseus-n88g.1 (D6): a secret may come from outside the vault, from
 /// the daemon's environment or a private file, and a malformed entry is
 /// refused by its name.
