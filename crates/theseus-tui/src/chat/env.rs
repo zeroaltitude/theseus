@@ -2,6 +2,8 @@
 //! directory it opens in and its git branch, and the history of what was
 //! typed there (a file of the client's, like the seen file).
 
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -82,7 +84,9 @@ pub fn load_history(path: &Path, dir: &str) -> Vec<String> {
 }
 
 /// Write this directory's messages, keeping the other directories' as the file
-/// holds them: a temporary file beside it, then a rename.
+/// holds them: a temporary file beside it, then a rename. The file is the
+/// owner's alone (0600): a message or a paste can hold what no one else on the
+/// machine should read.
 pub fn save_history(path: &Path, dir: &str, messages: &[String]) -> std::io::Result<()> {
     let mut all: serde_json::Map<String, Value> = std::fs::read_to_string(path)
         .ok()
@@ -94,7 +98,14 @@ pub fn save_history(path: &Path, dir: &str, messages: &[String]) -> std::io::Res
         std::fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(&all)?)?;
+    let _ = std::fs::remove_file(&tmp);
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)?;
+    f.write_all(&serde_json::to_vec(&all)?)?;
+    drop(f);
     std::fs::rename(&tmp, path)
 }
 
@@ -146,5 +157,15 @@ mod tests {
         assert!(load_history(&p, "/a").is_empty());
         save_history(&p, "/a", &["three".into()]).unwrap();
         assert_eq!(load_history(&p, "/a"), ["three"]);
+    }
+
+    #[test]
+    fn the_history_file_is_the_owners_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("state/chat-history.json");
+        save_history(&p, "/a", &["a pasted token".into()]).unwrap();
+        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{mode:o}");
     }
 }
