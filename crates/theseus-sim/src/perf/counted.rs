@@ -45,8 +45,10 @@ use crate::walcount::Tail;
 pub const SYNCS_BEFORE_FIRST_BYTE: f64 = super::PLAIN_SYNCS_BEFORE_CALL;
 
 /// A fresh session's first request, with the bench's tools, in KB (1,024
-/// bytes): the head-to-head's bar.
-pub const FIRST_REQUEST_KB: f64 = 40.0;
+/// bytes): the head-to-head's bar. 42 since 2026-10-14 (40 before), the
+/// owner's temporary raise for three new tools, until a token budget
+/// replaces this byte line (theseus-to0xw).
+pub const FIRST_REQUEST_KB: f64 = 42.0;
 
 /// How long the lockstep stand-in holds a chunk for the client to see the
 /// last: far past any delta's way to the client, so only a delta held for
