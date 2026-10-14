@@ -166,7 +166,7 @@
    "sources": [
     "2026-10-13-terminal-bench-harness-arms.md"
    ],
-   "rows": [
+   "points": [
     {
      "arm": "theseus",
      "label": "Theseus",
@@ -207,7 +207,19 @@
      "ylo": 0.6585,
      "yhi": 0.7661
     }
-   ]
+   ],
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.05
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0.6,
+    "max": 0.85
+   },
+   "rows": []
   },
   {
    "name": "frontier",
