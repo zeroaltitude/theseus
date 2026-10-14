@@ -18,6 +18,13 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/work.rs` (theseus-hkx30): `theseus work`, the work board as a tree (`work.watch`), and `--watch`, a line for each
   `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
   the real tree on the same wire. Tests inside it.
+- `src/digest.rs` (theseus-qkoi3): `theseus digest [--since 2h | --since-seen] [--session S]`, one `work.digest` read (the
+  default is `--since-seen`: the machine's last look, else the last 24 hours). It prints the protocol's summary, a line
+  each, what the board holds, and the questions waiting (`theseus answer`), and records the look (`seen::record_looked`)
+  unless it was scoped to a session or ran in a job. `theseus status` ends with its summary and ` · theseus digest`
+  when something happened since that look and says nothing on a first start (status is not a look). `seen.rs` holds
+  the look: the board's position and time, one for the machine, merged by the later (`Looked`), which the TUI also writes.
+  Tests: `digest_tests.rs`, `tests/digest.rs`.
 - `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
   `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
   row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`

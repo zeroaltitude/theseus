@@ -1,0 +1,87 @@
+{
+  "from": 0,
+  "from_ledger": false,
+  "lines": [
+    {
+      "at_ms": 1792008514328,
+      "count": 1,
+      "kind": "reported",
+      "words": "📋 Count to three. reported",
+      "work": {
+        "id": "exe_01a13c07eab874f4a8d5f53ede1c098c",
+        "kind": "task",
+        "session_id": "ses_01a13c07eab874f4a8d5f53ede1c098c",
+        "title": "Count to three."
+      }
+    },
+    {
+      "at_ms": 1792008514413,
+      "count": 1,
+      "kind": "reported",
+      "words": "📋 Count to three. reported",
+      "work": {
+        "id": "exe_01a13c07eb167279a31d2af8202686fd",
+        "kind": "task",
+        "session_id": "ses_01a13c07eb167279a31d2af8202686fd",
+        "title": "Count to three."
+      }
+    },
+    {
+      "at_ms": 1792008514452,
+      "count": 1,
+      "kind": "reported",
+      "words": "📋 Count to three. reported",
+      "work": {
+        "id": "exe_01a13c07eb6375e0aaea6223eeab8927",
+        "kind": "task",
+        "session_id": "ses_01a13c07eb6375e0aaea6223eeab8927",
+        "title": "Count to three."
+      }
+    },
+    {
+      "at_ms": 1792008514528,
+      "count": 1,
+      "kind": "cancelled",
+      "words": "⊘ Run the slow job. was cancelled",
+      "work": {
+        "id": "exe_01a13c07ebb37059929993fb41a1b749",
+        "kind": "task",
+        "session_id": "ses_01a13c07ebb37059929993fb41a1b749",
+        "title": "Run the slow job."
+      }
+    },
+    {
+      "at_ms": 1792008514577,
+      "count": 1,
+      "kind": "answered",
+      "words": "✓ you answered: fs.write /work/note.txt",
+      "work": {
+        "id": "act_01a13c07ec0376fcbf095e4587cace5a",
+        "kind": "question",
+        "session_id": "ses_01a13c07ebe27372a8a7f12a0fc86714",
+        "title": "fs.write /work/note.txt"
+      }
+    },
+    {
+      "at_ms": 1792008515689,
+      "count": 1,
+      "kind": "woke",
+      "words": "⏰ Please set a timer. woke",
+      "work": {
+        "id": "exe_01a13c07ec1277aca6f10b4593d23895",
+        "kind": "conversation",
+        "session_id": "ses_01a13c07ec1277aca6f10b44727f2c51",
+        "title": "Please set a timer."
+      }
+    }
+  ],
+  "now": {
+    "done": 8,
+    "failed": 0,
+    "needs_you": 0,
+    "total": 12,
+    "working": 1
+  },
+  "questions": [],
+  "to": 549
+}

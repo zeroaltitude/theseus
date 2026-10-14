@@ -1666,10 +1666,10 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave"]);
-        // The binding registers them after its own fourteen (`/why` the eleventh, `/orders` the twelfth, `/thread` the thirteenth, `/remind` the fourteenth).
+        // The binding registers them after its own fifteen (`/why` the eleventh, `/digest` the twelfth, `/orders` the thirteenth, `/thread` the fourteenth, `/remind` the fifteenth).
         let all = super::super::commands();
-        let last: Vec<&str> = all[14..].iter().map(|c| c.name.as_str()).collect();
-        assert_eq!((all.len(), last), (16, vec!["join", "leave"]));
+        let last: Vec<&str> = all[15..].iter().map(|c| c.name.as_str()).collect();
+        assert_eq!((all.len(), last), (17, vec!["join", "leave"]));
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

@@ -16,6 +16,7 @@ mod answer;
 mod budgets;
 mod cite;
 mod cmd;
+mod digest;
 mod earned;
 mod extend;
 mod follow;
@@ -82,6 +83,7 @@ Quick start:
   theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
   theseus wait --any --until blocked         return once any session needs you
   theseus status [--short] [--watch]         what needs you, what works, what failed: a screen, a prompt segment, a status bar
+  theseus digest [--since 2h]                what finished, failed or was answered since you last looked, in a few lines
   theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
@@ -415,6 +417,11 @@ enum Cmd {
     /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
     /// for. `--watch` keeps it current from the push: a line for each change and each notice.
     Work(work::WorkArgs),
+    /// What finished, failed, was answered or woke since you last looked, in a few lines
+    /// (work.digest). `--since 2h` names a time; the default is since the last time a terminal
+    /// client showed you the board, and with none yet, the last 24 hours. `--session` is one
+    /// conversation's or task's own timeline.
+    Digest(digest::DigestArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -1067,6 +1074,11 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
+/// The socket `herdr sync` reconciles against: the daemon's own, never a spawned one's.
+fn own<'a>(spawn: &Option<String>, socket: &'a str) -> Option<&'a str> {
+    spawn.is_none().then_some(socket)
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
@@ -1146,16 +1158,14 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
         Cmd::Work(a) => work::run(c, json, a).await,
+        Cmd::Digest(a) => digest::run(c, json, a).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => unreachable!("returned above"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
         Cmd::Ledger {
             n, kind, session, ..
         } => cmd::ledger(c, json, n, kind, session).await,
-        Cmd::Herdr { cmd } => {
-            let socket = cli.spawn.is_none().then_some(cli.socket.as_str());
-            herdr_sync::run(c, json, cmd, socket).await
-        }
+        Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, own(&cli.spawn, &cli.socket)).await,
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,

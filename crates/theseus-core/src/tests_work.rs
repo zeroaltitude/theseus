@@ -618,3 +618,6 @@ fn check_golden(got: &str) {
         path.display()
     );
 }
+
+#[path = "tests_work_digest.rs"]
+mod digest;

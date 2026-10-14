@@ -115,6 +115,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         }
     }
     drop(out);
+    crate::digest::status_line(&mut conn, a.short || json).await;
     // The long form shows the sessions that need you or work: recorded as seen
     // after its output, as `history` does. `--short` and `--json` are a status
     // bar's and a script's polls, and show no one anything.

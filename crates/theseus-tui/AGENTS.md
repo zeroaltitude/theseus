@@ -29,6 +29,12 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays
   raw until the history is read again. Tests: `src/tests_cite.rs`.
 
+- Since you last looked (theseus-qkoi3): while the terminal has focus, each view the board takes moves the machine's
+  look (`Seen::look`, written with the seen file); a blur writes it. At each connect, and when focus returns after
+  `AWAY_MS` (60 s), the app asks `work.digest {since}` (never on a first start) and shows the summary as the footer's
+  notice line, then moves the look to the digest's end. A daemon that does not know the method is not complained of.
+  Tests: `src/tests_digest.rs`.
+
 ## Invariants
 
 - **The protocol is the only way in.** What needs you is each view's `attention`, which the daemon computes; an

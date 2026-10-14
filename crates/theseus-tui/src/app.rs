@@ -63,6 +63,8 @@ pub enum Purpose {
     Typing,
     /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
     Health,
+    /// `work.digest`: what happened since the operator last looked (theseus-qkoi3).
+    Digest,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -179,10 +181,16 @@ pub struct App {
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
+    /// The newest board position applied: what "looked at the board" is
+    /// recorded at (theseus-qkoi3).
+    position: u64,
 }
 
 /// How long after a change of focus the seen file is written.
 const SAVE_AFTER_MS: u64 = 1_000;
+
+/// A terminal that had lost focus this long, regaining it, hears the digest.
+pub const AWAY_MS: u64 = 60_000;
 
 impl App {
     pub fn new(hm: fn(u64) -> String) -> Self {
@@ -212,6 +220,7 @@ impl App {
             quiet: false,
             title: String::new(),
             save_at: None,
+            position: 0,
             sync_warn: None,
         }
     }
@@ -241,6 +250,12 @@ impl App {
     fn took(&mut self, v: &ExecutionView, moved: Option<Moved>) {
         let watching = self.watching(&v.session_id);
         self.seen.applied(v, watching);
+        // A board on a terminal that has focus is being looked at: the
+        // digest starts after the last such moment (theseus-qkoi3).
+        self.position = self.position.max(v.position);
+        if self.term_focus {
+            self.seen.look(self.position, self.now_ms);
+        }
         let title = self.board.name(&v.session_id);
         match moved {
             Some(_) => self.notices.moved(v, &title, self.now_ms, &self.hm),
@@ -260,12 +275,50 @@ impl App {
     }
 
     /// The terminal gained or lost focus.
-    pub fn term_focused(&mut self, focused: bool) {
+    /// Regaining it after `AWAY_MS` asks for the digest: what happened while
+    /// the operator was elsewhere (theseus-qkoi3).
+    pub fn term_focused(&mut self, focused: bool) -> Vec<Effect> {
+        let regained = !self.term_focus && focused;
+        let away = self.now_ms.saturating_sub(self.blurred_at);
         if self.term_focus && !focused {
             self.blurred_at = self.now_ms;
+            // The last look is now, and the file follows a second later.
+            self.seen.look(self.position, self.now_ms);
+            self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
         }
         self.term_focus = focused;
         self.mark_shown();
+        if regained && away >= AWAY_MS {
+            return self.digest_call().into_iter().collect();
+        }
+        Vec::new()
+    }
+
+    /// `work.digest` since the last look; none before there is one (a first
+    /// start has nothing to be told).
+    fn digest_call(&self) -> Option<Effect> {
+        let since = self.seen.looked().position;
+        (since > 0).then(|| {
+            call(
+                method::WORK_DIGEST,
+                json!({ "since": since }),
+                Purpose::Digest,
+            )
+        })
+    }
+
+    /// The digest's one notice line, and the look it ends: the board is shown
+    /// now (theseus-qkoi3).
+    fn digest_said(&mut self, v: Value) {
+        let Ok(r) = serde_json::from_value::<theseus_protocol::WorkDigestResult>(v) else {
+            return;
+        };
+        let since = self.seen.looked().at_ms;
+        if let Some(line) = theseus_protocol::digest_summary(&r.lines, since, &self.hm) {
+            self.flash = Some((Tag::Ok, format!("{line} · theseus digest")));
+        }
+        self.seen.look(r.to, self.now_ms);
+        self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
     }
 
     /// The session whose pane is on screen: the focused one, beside the list
@@ -384,6 +437,7 @@ impl App {
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
         }
+        out.extend(self.digest_call());
         out
     }
 
@@ -496,8 +550,14 @@ impl App {
                     // notices: a notice is for a transition seen as it
                     // happens. The first board of a first start counts as
                     // seen (`Seen`).
+                    self.position = self.position.max(snap.position);
                     for v in self.board.snapshot(snap) {
                         self.took(&v, None);
+                    }
+                    // A first start has been shown nothing yet, and is
+                    // told nothing of what came before it.
+                    if self.seen.looked().position == 0 && self.term_focus {
+                        self.seen.look(self.position, self.now_ms);
                     }
                     self.seen.first_board_read();
                     return self.follow_up();
@@ -580,6 +640,7 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
+            Purpose::Digest => self.digest_said(v),
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -588,7 +649,7 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(purpose, Purpose::Typing | Purpose::Health | Purpose::Digest) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -621,6 +682,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::Digest => method::WORK_DIGEST,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {

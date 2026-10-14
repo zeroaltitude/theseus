@@ -32,7 +32,7 @@ use board::{parent_session, seed_inputs, Board};
 #[cfg(test)]
 use board::{seed, seed_from, seed_recent};
 use work::WorkBoard;
-pub use work::{Out as WorkOut, Scope as WorkScope};
+pub use work::{DigestRead as WorkDigestRead, Out as WorkOut, Scope as WorkScope};
 
 /// A time on the daemon's clock, `14:00`: how a label says a due time. One
 /// a day or more ahead names its weekday, `Fri 09:00`, so a deferred task's
@@ -403,6 +403,20 @@ impl Push {
     /// since (`work-digest`).
     pub fn notices_since(&self, position: u64) -> (Vec<theseus_protocol::notices::Notice>, bool) {
         self.work.lock().unwrap().notices_since(position)
+    }
+
+    /// The board as `work.digest` reads it (`WorkBoard::digest_read`).
+    pub fn work_digest_read(
+        &self,
+        since: u64,
+        scope: &WorkScope,
+        named: &std::collections::HashSet<String>,
+        scrubber: &crate::scrub::Scrubber,
+    ) -> WorkDigestRead {
+        self.work
+            .lock()
+            .unwrap()
+            .digest_read(since, scope, named, scrubber)
     }
 
     /// The root (an execution id) of the tree a session's execution is in.

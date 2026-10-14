@@ -75,6 +75,7 @@ pub mod warm;
 pub mod why;
 mod window;
 pub mod work;
+mod work_digest;
 mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -111,6 +112,10 @@ pub use wakes::{
     WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
 };
 pub use window::*;
+pub use work_digest::{
+    digest_line, digest_words, fold as fold_digest, summary as digest_summary, DigestKind,
+    DigestLine, WorkDigestParams, WorkDigestResult,
+};
 pub use work_watch::{WorkChanged, WorkUnwatchResult, WorkWatchParams, WorkWatchResult};
 
 use serde::{Deserialize, Serialize};
@@ -251,8 +256,9 @@ pub mod method {
         EXECUTIONS_UNWATCH = "executions.unwatch",
         /// The work board (theseus-hkx30): every root that needs you or works with
         /// its open subtree, then `work.changed` and `work.notice` until
-        /// `work.unwatch` (`work_watch.rs`). A read.
-        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
+        /// `work.unwatch` (`work_watch.rs`). A read. `work.digest` (`work_digest.rs`,
+        /// theseus-qkoi3) is what happened since a position, in a few lines. A read.
+        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch", WORK_DIGEST = "work.digest",
         /// Wait until a session needs someone, settles, or ends (theseus-in3).
         /// The daemon owns the wait; it answers at once when it is satisfied
         /// already. A read.

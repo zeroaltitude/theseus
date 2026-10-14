@@ -24,6 +24,7 @@
 //! - **No timer.** A question's reminder (rule 2 of the policy) is a view
 //!   against itself later; nothing wakes the board for it.
 
+mod digest;
 mod eta;
 mod place;
 mod views;
@@ -37,6 +38,7 @@ use theseus_protocol::work::{Question, Rollup, Woke, WorkKind, WorkState, WorkVi
 use theseus_protocol::{ExecutionView, Level, SessionKind};
 use theseus_store::kinds;
 
+pub use digest::DigestRead;
 pub use place::Scope;
 
 use super::board::Board;
