@@ -1,0 +1,9 @@
+{
+  "model": "claude-sonnet-5-5",
+  "places": {
+    "cli": 16006,
+    "dm": 16006,
+    "harness": 15997,
+    "task": 16006
+  }
+}

@@ -20,6 +20,7 @@ pub mod bus;
 pub mod cancel;
 pub mod catalog;
 pub mod ceiling;
+pub mod census;
 pub mod cgroup;
 pub mod check;
 pub mod commitments;
@@ -182,6 +183,8 @@ mod tests_cancel;
 mod tests_categorize;
 #[cfg(test)]
 mod tests_ceilings;
+#[cfg(test)]
+mod tests_census;
 #[cfg(test)]
 mod tests_check;
 #[cfg(test)]

@@ -77,6 +77,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   (each section's top items and a count of the rest, cut to a budget) from a `ContextExplainResult`, the turn's
   `route.decided` row, `ToolCalled`s (`tools_called` over `node.list`) and `policy.explain`. A shared place's class
   hides a private or imported source's words (`hide_sources`). No wire type; its goldens are `tests/why/`.
+- `census.rs` (theseus-7m7w.1): `context.census`'s params and result (`ContextCensusParams`, `ContextCensusResult` with a
+  `CensusBlock` of `CensusPart`s for the system and a `CensusTool` for each tool, `CensusExact`), and `PLACES`, the kinds of
+  place a fresh session's first request is counted for. Counts are tokens at the model's figures, apportioned to add up.
 - `retract.rs` (theseus-2ced): `fact.retract`'s params and result, one `RetractExposure` for each place a node went, and
   `exposure_kind`, the five kinds in table order.
 - `wakes.rs` (theseus-lherl): `WakeInfo`, moved out of lib.rs and re-exported (the bytes are unchanged; `days`,

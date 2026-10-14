@@ -13,6 +13,7 @@
 //! `print.rs` writes the lines they return.
 
 mod budgets;
+mod census;
 mod cite;
 mod cmd;
 mod earned;
@@ -191,6 +192,20 @@ enum Cmd {
         /// The session; defaults to the most recently active, as `history` does.
         #[arg(long, value_name = "SESSION")]
         session: Option<String>,
+    },
+    /// What the next request holds, counted part by part down to each tool: the system's blocks
+    /// and sections, every tool's description, schema and total with its use (calls planned in the
+    /// last 30 days across every session, and the last one's date), the messages, and the total
+    /// against the window. SESSION is that session's next request; with none, a fresh session's
+    /// first request for --place (cli, dm, task or harness; default cli). It compiles once and
+    /// sends nothing. --exact also asks the provider's token counter (not a model) when a key
+    /// resolves. --json prints what the daemon answered.
+    Census {
+        session: Option<String>,
+        #[arg(long, value_name = "KIND")]
+        place: Option<String>,
+        #[arg(long)]
+        exact: bool,
     },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
@@ -1076,6 +1091,7 @@ async fn run(cli: Cli) -> Result<()> {
             full,
         } => cmd::history(c, json, session, (n, after, before), full).await,
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
+        cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         Cmd::Places => cmd::places(c, json).await,

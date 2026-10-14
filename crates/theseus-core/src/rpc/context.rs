@@ -54,11 +54,22 @@ impl Core {
     /// `context.explain`, off the serving workers.
     pub(super) async fn rpc_context(
         self: Arc<Self>,
+        name: &str,
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        let p: ContextExplainParams = parse(params)?;
         let private = conn.surface.reads_private();
+        if name == theseus_protocol::method::CONTEXT_CENSUS {
+            let mut r = self
+                .context_census_exact(parse(params)?)
+                .await
+                .map_err(RpcFailure::invalid)?;
+            if !private {
+                crate::census::withhold_names(&mut r);
+            }
+            return serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()));
+        }
+        let p: ContextExplainParams = parse(params)?;
         let core = self.clone();
         let r = tokio::task::spawn_blocking(move || core.context_explain(&p, private))
             .await

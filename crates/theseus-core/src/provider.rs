@@ -743,10 +743,20 @@ pub trait Provider: Send + Sync {
             })
         })
     }
+    /// The provider's own count of the request's input tokens, sent and billed as no model call
+    /// (`theseus census --exact`, theseus-7m7w.1). A provider with no counter says so.
+    fn count_tokens<'a>(&'a self, _req: &'a ProviderRequest) -> CountFuture<'a> {
+        Box::pin(async { Err(anyhow::anyhow!("this provider has no token counter")) })
+    }
 }
+
+pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 // --------------------------------------------------------------- anthropic
 
+mod count;
+#[cfg(test)]
+mod tests_count;
 #[cfg(test)]
 mod tests_warm;
 
@@ -1035,6 +1045,9 @@ impl Provider for Anthropic {
     }
     fn warm(&self) -> WarmFuture<'_> {
         Box::pin(self.warm_impl())
+    }
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        Box::pin(self.count_impl(req))
     }
 }
 
@@ -1374,6 +1387,10 @@ impl FakeProvider {
 impl Provider for FakeProvider {
     fn name(&self) -> &str {
         "fake"
+    }
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        let n = req.estimate_tokens();
+        Box::pin(async move { Ok(n) })
     }
     fn warm(&self) -> WarmFuture<'_> {
         self.warms

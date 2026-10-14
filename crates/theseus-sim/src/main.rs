@@ -321,6 +321,10 @@ enum BenchCmd {
     Status(perf::StatusArgs),
     /// The release binaries' sizes, against §9's 60 MB (theseus-goa8).
     Size(perf::SizeArgs),
+    /// A fresh session's first request in tokens for each kind of place (cli, dm, task, and the
+    /// benchmark's harness), counted by `context.census` on scratch daemons and compared with a
+    /// committed baseline: a warning past +5 %, never a failure (theseus-7m7w.1).
+    Prompt(perf::PromptArgs),
     /// What a job's start costs, by class (M4 17b): `/bin/true` through the
     /// real job wrapper, at L0 and in L1; an L1 start's p95 against 25 ms.
     Jobs(jobs::JobsArgs),
@@ -507,6 +511,9 @@ fn main() -> Result<()> {
         Cmd::Bench {
             bench: BenchCmd::Size(args),
         } => perf::size_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Prompt(args),
+        } => perf::prompt_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::Jobs(args),
         } => jobs::jobs_cmd(args),
