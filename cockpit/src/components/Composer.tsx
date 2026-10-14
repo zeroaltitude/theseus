@@ -67,7 +67,7 @@ export function Composer({ sessionId, busy, draft: drafting }: { sessionId: stri
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           rows={Math.min(6, Math.max(1, text.split('\n').length))}
-          placeholder={drafting ? 'Your first message opens the session… (Enter to send, Shift+Enter for a new line)' : busy ? 'a turn is running… (a message you send now queues behind it)' : 'Continue this session… (Enter to send, Shift+Enter for a new line)'}
+          placeholder={drafting ? 'Your first message opens the session… (Enter to send, Shift+Enter for a new line)' : busy ? 'a turn is running… (a message you send now reaches it at its next step)' : 'Continue this session… (Enter to send, Shift+Enter for a new line)'}
           className="min-h-9 flex-1 resize-none rounded-lg bg-white/[0.04] px-3 py-2 text-[13px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40"
         />
         <select value={profile} onChange={(e) => setProfile(e.target.value)} title="profile for this turn"
@@ -76,7 +76,7 @@ export function Composer({ sessionId, busy, draft: drafting }: { sessionId: stri
           {(pl?.profiles ?? []).filter((p) => !p.live).map((p) => <option key={p.name} value={p.name}>{p.name} · {p.model}</option>)}
         </select>
         {!drafting && <PromptPicker sessionId={sessionId} profile={profile} onError={setError} />}
-        <button onClick={send} disabled={!text.trim()} title={busy || pending > 0 ? 'Send (queues behind the running turn)' : 'Send'}
+        <button onClick={send} disabled={!text.trim()} title={busy || pending > 0 ? 'Send (reaches the running turn at its next step)' : 'Send'}
           className={cn('grid h-9 w-9 place-items-center rounded-lg ring-1 transition-colors',
             text.trim() ? 'bg-live/15 text-live ring-live/40 hover:bg-live/25' : 'text-ink-faint ring-line')}>
           <SendHorizontal size={16} />

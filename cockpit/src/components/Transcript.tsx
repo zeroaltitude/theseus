@@ -201,8 +201,8 @@ function QueuedItem({ use, at }: { use: Use; at: number }) {
   )
 }
 
-/** A send the session has not written yet (the Observatory's draft bubble): waiting for admission (a turn may run
- *  before it), or why it was never admitted, until dismissed. */
+/** A send the session has not written yet (the Observatory's draft bubble): waiting to be read (a running turn takes
+ *  it in at its next step, else a turn of its own follows it), or why it was never admitted, until dismissed. */
 function DraftItem({ d }: { d: Draft }) {
   return (
     <div className="flex gap-3">
@@ -211,7 +211,7 @@ function DraftItem({ d }: { d: Draft }) {
         <div className="mb-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider">
           {d.error
             ? <span className="text-fault">not admitted</span>
-            : <span className="flex items-center gap-1.5 text-wait"><LiveDot tone="wait" size={5} /> waiting for admission…</span>}
+            : <span className="flex items-center gap-1.5 text-wait"><LiveDot tone="wait" size={5} /> sent, not read yet…</span>}
           {d.error && <button onClick={() => dropDraft(d.id)} title="dismiss" className="ml-auto text-ink-faint hover:text-ink"><X size={12} /></button>}
         </div>
         <div className="whitespace-pre-wrap text-[13px] text-ink-dim">{d.text}</div>
