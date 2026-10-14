@@ -56,6 +56,7 @@ mod server;
 mod session_dir;
 mod sessions;
 mod standing;
+mod stop_all;
 mod task_start;
 mod threads;
 mod wake_owner;
@@ -94,6 +95,8 @@ mod tests_self_exams;
 mod tests_self_graduate;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_stop_all;
 #[cfg(test)]
 mod tests_thread_context;
 #[cfg(test)]

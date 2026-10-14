@@ -1662,6 +1662,14 @@ pub struct ExecutionStopParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
+    /// Also cancel every task under the conversation, depth first (theseus-cdcwr).
+    /// An owner's act: refused from a shared place.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tasks: bool,
+    /// Where a Discord caller asked from; the place rule reads it for `tasks`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1683,6 +1691,9 @@ pub struct ExecutionStopResult {
     /// running tasks and its pending wakes.
     pub tasks_running: u32,
     pub wakes_pending: u32,
+    /// With `tasks`: the tasks cancelled, depth first (theseus-cdcwr).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancelled: Vec<String>,
 }
 
 /// A task (DD7, theseus-qn2): a child session a conversation opened with

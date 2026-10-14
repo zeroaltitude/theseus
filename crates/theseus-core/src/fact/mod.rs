@@ -394,6 +394,7 @@ facts![
     driver::ExecutionCancelled<'static>,
     driver::QuestionStopped<'static>,
     driver::ExecutionStopped<'static>,
+    driver::ExecutionStoppedAll<'static>,
     driver::WrapperLost<'static>,
     driver::WrapperGone<'static>,
     cancel::CancelVerified<'static>,

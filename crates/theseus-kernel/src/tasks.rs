@@ -415,6 +415,29 @@ impl Kernel {
             .collect())
     }
 
+    /// The tasks below `root`, children before the task they belong to (depth first, oldest first among
+    /// siblings), whatever their state: a task that has ended is walked through, since a task below it is still
+    /// the root's (theseus-cdcwr). One index lookup per task, never a scan; a task met twice is named once.
+    pub fn task_tree(&self, root: &str) -> Result<Vec<Execution>> {
+        fn below(
+            k: &Kernel,
+            id: &str,
+            seen: &mut std::collections::HashSet<String>,
+            out: &mut Vec<Execution>,
+        ) -> Result<()> {
+            for t in k.tasks(Some(id))? {
+                if seen.insert(t.id.clone()) {
+                    below(k, &t.id.clone(), seen, out)?;
+                    out.push(t);
+                }
+            }
+            Ok(())
+        }
+        let mut out = Vec::new();
+        below(self, root, &mut std::collections::HashSet::new(), &mut out)?;
+        Ok(out)
+    }
+
     /// Every task execution, oldest first; only `parent`'s when it is given.
     /// Read by their terms (theseus-lv2), never every execution.
     pub fn tasks(&self, parent: Option<&str>) -> Result<Vec<Execution>> {

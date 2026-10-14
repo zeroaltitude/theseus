@@ -511,6 +511,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " esc        back to the list (narrow screens); clear the filters",
         " i          type to the open session: enter sends, esc leaves",
         " s          stop the open conversation (s twice)",
+        " S          stop it and cancel every task under it (S or y to confirm)",
         " c          cancel the open task (c twice)",
         " N          start a task (no model turn) under the conversation under the cursor",
         " PgUp PgDn  scroll the open session (End: back to its end)",

@@ -1200,6 +1200,7 @@ async fn stop_and_cancel_each_ask_for_a_second_key() {
         turn_running: true,
         tasks_running: 1,
         wakes_pending: 0,
+        cancelled: vec![],
     };
     world.lock().unwrap().answers.insert(
         "execution.stop".into(),

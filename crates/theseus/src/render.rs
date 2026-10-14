@@ -1266,7 +1266,20 @@ pub fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
             r.tasks_running, r.wakes_pending
         ));
     }
+    if !r.cancelled.is_empty() {
+        let shorts: Vec<&str> = r.cancelled.iter().map(|id| id_tail(id)).collect();
+        out.push_str(&format!(
+            " · cancelled {} task(s): {}",
+            r.cancelled.len(),
+            shorts.join(" ")
+        ));
+    }
     out
+}
+
+/// The last six characters of an id, how people name a task.
+fn id_tail(id: &str) -> &str {
+    id.get(id.len().saturating_sub(6)..).unwrap_or(id)
 }
 
 /// `in 9m`, `in 2h`, or `due 3m ago` (a wake waiting for its busy session).

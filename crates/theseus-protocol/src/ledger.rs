@@ -122,6 +122,7 @@ ledger_kinds! {
     ExecutionResultsConsumed = "execution.results_consumed",
     ExecutionRunning = "execution.running",
     ExecutionStopped = "execution.stopped",
+    ExecutionStoppedAll = "execution.stopped_all",
     ExecutionWaiting = "execution.waiting",
     ExtendAcked = "extend.acked",
     ExtendDeclined = "extend.declined",

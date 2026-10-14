@@ -171,6 +171,33 @@ impl Fact for ExecutionStopped<'_> {
     }
 }
 
+/// A stop that also cancelled the conversation's tasks (theseus-cdcwr, `execution.stop { tasks }`): the tasks it
+/// cancelled, deepest first. The conversation's wakes stay.
+pub struct ExecutionStoppedAll<'a> {
+    pub execution: &'a Execution,
+    pub by: &'a str,
+    pub cancelled: &'a [String],
+}
+
+impl Fact for ExecutionStoppedAll<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ExecutionStoppedAll);
+
+    fn row(&self) -> Value {
+        json!({"execution_id": self.execution.id, "by": self.by, "cancelled": self.cancelled})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Stop all by {}: {} cancelled with the conversation's stop; its wakes stay.",
+                self.by,
+                narrative::count(self.cancelled.len() as u64, "task", "tasks"),
+            ),
+        );
+    }
+}
+
 /// A job's wrapper was killed before it reported (theseus-6uo): its outcome
 /// is unknown (`job.wrapper_lost`), a security event.
 pub struct WrapperLost<'a> {

@@ -763,3 +763,122 @@ fn a_deferred_task_survives_a_kill_and_a_restart_and_starts_once() {
         notes[0]
     );
 }
+
+/// A process whose command line holds `needle`, by `/proc` (the sleep a task's job runs).
+fn running(needle: &str) -> bool {
+    std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
+        std::fs::read(e.path().join("cmdline")).is_ok_and(|c| {
+            let line = String::from_utf8_lossy(&c).replace('\0', " ");
+            line.contains(needle) && !line.contains("theseusd")
+        })
+    })
+}
+
+/// `execution.stop` with `tasks` (theseus-cdcwr): a conversation with two tasks running a job each and a deferred
+/// task (a task starts no task: depth one, so the walk's depth is the kernel's test). The stop ends the turn and
+/// cancels all three, the jobs' processes gone, and leaves the conversation's own wake; a plain `execution.stop` of
+/// the same shape cancels none.
+#[test]
+fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
+    let r = Rig::new(vec![
+        (
+            "Alpha: run the sleeping job",
+            vec![(
+                "proc_run",
+                json!({"argv": ["sleep", "4711"], "timeout_secs": 3600}),
+            )],
+        ),
+        (
+            "Beta: run the other sleeping job",
+            vec![(
+                "proc_run",
+                json!({"argv": ["sleep", "4712"], "timeout_secs": 3600}),
+            )],
+        ),
+        (
+            "Begin the stop-all scenario",
+            vec![
+                (
+                    "task_create",
+                    json!({"brief": "Alpha: run the sleeping job.", "arrangement":
+                           {"pieces": [{"quote": "Begin the stop-all scenario", "role": "objective"}]}}),
+                ),
+                (
+                    "task_create",
+                    json!({"brief": "Beta: run the other sleeping job.", "arrangement":
+                           {"pieces": [{"quote": "Begin the stop-all scenario", "role": "objective"}]}}),
+                ),
+                (
+                    "task_create",
+                    json!({"brief": "Delta: report in an hour.", "start_after": "1h", "arrangement":
+                           {"pieces": [{"quote": "Begin the stop-all scenario", "role": "objective"}]}}),
+                ),
+                (
+                    "wake_at",
+                    json!({"after": "2h", "note": "the conversation's own check-in"}),
+                ),
+            ],
+        ),
+    ]);
+    let _daemon = r.spawn();
+    let sid = r.session();
+    let first = r.ask(&sid, "Begin the stop-all scenario");
+    assert_eq!(first["output"], "Done.", "{first}");
+    r.wait("three tasks, two waiting on jobs", || {
+        let t = r.tasks();
+        (t.len() == 3 && t.iter().filter(|t| t["waiting_on"] == "a job").count() == 2).then_some(t)
+    });
+    assert!(running("sleep 4711") && running("sleep 4712"));
+    let exec = execution_of(&r, &sid)["execution_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A plain stop leaves every task as it was (today's `/stop`).
+    let plain = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": exec, "author": "test"}),
+        )
+        .unwrap();
+    assert!(plain.get("cancelled").is_none(), "{plain}");
+    assert_eq!(plain["tasks_running"], 3, "{plain}");
+    assert_eq!(
+        r.tasks().iter().filter(|t| t["state"] == "waiting").count(),
+        3,
+        "its tasks run on: {:?}",
+        r.tasks()
+    );
+    assert!(running("sleep 4711"));
+
+    // With `tasks`: all three, the sleeps gone, the wake kept.
+    let res = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": exec, "author": "test", "tasks": true}),
+        )
+        .unwrap();
+    assert_eq!(res["cancelled"].as_array().unwrap().len(), 3, "{res}");
+    assert_eq!(res["tasks_running"], 0, "{res}");
+    r.wait("the sleeps gone", || {
+        (!running("sleep 4711") && !running("sleep 4712")).then_some(())
+    });
+    for t in r.tasks() {
+        assert_eq!(t["state"], "cancelled", "{t}");
+    }
+    let wakes = r.call("wake.list", json!({})).unwrap();
+    assert!(
+        wakes["wakes"].to_string().contains("own check-in"),
+        "{wakes}"
+    );
+    // The conversation goes on: its next message is answered.
+    assert_eq!(r.ask(&sid, "Hello again")["output"], "Done.");
+    // Again: nothing more to cancel.
+    let again = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": exec, "author": "test", "tasks": true}),
+        )
+        .unwrap();
+    assert!(again.get("cancelled").is_none(), "{again}");
+}

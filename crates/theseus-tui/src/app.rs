@@ -105,10 +105,12 @@ pub enum Link {
     },
 }
 
-/// What a second key would do: `s` and `c` each ask for one.
+/// What a second key would do: `s`, `S` and `c` each ask for one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arm {
     Stop,
+    /// `S`: the stop that also cancels every task under the conversation (theseus-cdcwr).
+    StopAll,
     Cancel,
 }
 
@@ -832,6 +834,7 @@ impl App {
             KeyCode::Char('t') => return self.answer_key(true, true),
             KeyCode::Char('n') => return self.answer_key(false, false),
             KeyCode::Char('s') => self.arm(Arm::Stop),
+            KeyCode::Char('S') => self.arm(Arm::StopAll),
             KeyCode::Char('c') => self.arm(Arm::Cancel),
             KeyCode::PageUp => self.scroll(true),
             KeyCode::PageDown => self.scroll(false),
@@ -857,14 +860,14 @@ impl App {
         }
     }
 
-    /// `s` or `c`, once: the footer asks for the same key again.
+    /// `s`, `S` or `c`, once: the footer asks for the same key again (`S` also takes `y`).
     fn arm(&mut self, arm: Arm) {
         let Some(sid) = self.on_screen() else {
             return;
         };
         let kind = self.board.view(&sid).map(|v| v.kind);
         let refusal = match (arm, kind) {
-            (Arm::Stop, Some(SessionKind::Task)) => {
+            (Arm::Stop | Arm::StopAll, Some(SessionKind::Task)) => {
                 Some("a task is not stopped but cancelled: c, then c again")
             }
             (Arm::Cancel, Some(SessionKind::Conversation)) => {
@@ -989,13 +992,15 @@ impl App {
         self.mode = Mode::Normal;
         let again = matches!(
             (arm, k.code),
-            (Arm::Stop, KeyCode::Char('s')) | (Arm::Cancel, KeyCode::Char('c'))
+            (Arm::Stop, KeyCode::Char('s'))
+                | (Arm::StopAll, KeyCode::Char('S' | 'y'))
+                | (Arm::Cancel, KeyCode::Char('c'))
         );
         if !again {
             self.flash = Some((
                 Tag::Dim,
                 match arm {
-                    Arm::Stop => "not stopped",
+                    Arm::Stop | Arm::StopAll => "not stopped",
                     Arm::Cancel => "not cancelled",
                 }
                 .to_string(),
@@ -1003,13 +1008,17 @@ impl App {
             return Vec::new();
         }
         match arm {
-            Arm::Stop => {
+            Arm::Stop | Arm::StopAll => {
                 let Some(exe) = self.board.view(sid).map(|v| v.execution_id.clone()) else {
                     return Vec::new();
                 };
+                let mut params = json!({ "execution_id": exe, "author": AUTHOR });
+                if arm == Arm::StopAll {
+                    params["tasks"] = json!(true);
+                }
                 vec![call(
                     method::EXECUTION_STOP,
-                    json!({ "execution_id": exe, "author": AUTHOR }),
+                    params,
                     Purpose::Stop(sid.to_string()),
                 )]
             }
@@ -1104,7 +1113,7 @@ impl App {
             Mode::Normal | Mode::Help | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
-                        Arm::Stop => "not stopped",
+                        Arm::Stop | Arm::StopAll => "not stopped",
                         Arm::Cancel => "not cancelled",
                     };
                     self.flash = Some((Tag::Dim, not.to_string()));
@@ -1190,6 +1199,10 @@ impl App {
         Some(match arm {
             Arm::Stop => format!(
                 "stop {name} (…{})? s again to stop; any other key: no",
+                short(sid)
+            ),
+            Arm::StopAll => format!(
+                "stop {name} (…{}) and cancel all its tasks? S or y again to do it; any other key: no",
                 short(sid)
             ),
             Arm::Cancel => {

@@ -405,6 +405,7 @@ impl Core {
                 turn_running: false,
                 tasks_running: 0,
                 wakes_pending: 0,
+                cancelled: vec![],
             });
         };
         // The model call the running turn waits on is cut now, and not left to
@@ -467,6 +468,7 @@ impl Core {
             tasks_running,
             wakes_pending: e.wakes.len() as u32,
             verdicts,
+            cancelled: vec![],
         })
     }
 

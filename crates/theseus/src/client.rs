@@ -372,6 +372,19 @@ pub fn refuse_in_a_job(method: &str, session: Option<&str>) -> Result<()> {
     )
 }
 
+/// Refuse `stop --all` inside a Theseus job (theseus-cdcwr): stopping a conversation's tasks is the operator's, as
+/// `refuse_in_a_job` says of the others, and the same speed bump. A plain `stop` is not refused.
+pub fn refuse_stop_all_in_a_job(session: Option<&str>) -> Result<()> {
+    let Some(session) = session else {
+        return Ok(());
+    };
+    bail!(
+        "theseus stop --all refused: it is the operator's to run, and this shell is a Theseus job's \
+         (THESEUS_SESSION={session} is set), so it would cancel tasks for the operator. Run it from \
+         your own shell."
+    )
+}
+
 /// `job_session` of the variable's value: an empty one names none.
 fn job_session_in(value: Option<String>) -> Option<String> {
     value
@@ -408,6 +421,22 @@ mod tests {
         ] {
             assert!(refuse_in_a_job(m, Some("ses_0000aa1b2c3")).is_ok(), "{m}");
         }
+    }
+
+    /// `stop --all` is refused inside a job and goes outside one (theseus-cdcwr).
+    #[test]
+    fn stop_all_is_refused_inside_a_job() {
+        let e = refuse_stop_all_in_a_job(Some("ses_0000aa1b2c3"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.starts_with("theseus stop --all refused:"), "{e}");
+        assert!(
+            e.contains("(THESEUS_SESSION=ses_0000aa1b2c3 is set)"),
+            "{e}"
+        );
+        assert!(e.ends_with("Run it from your own shell."), "{e}");
+        assert!(refuse_stop_all_in_a_job(None).is_ok());
+        assert!(refuse_in_a_job(method::EXECUTION_STOP, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     /// A job's process cannot write guidance (theseus-8kk.1): guidance

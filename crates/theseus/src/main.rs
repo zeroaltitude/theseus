@@ -472,10 +472,14 @@ enum Cmd {
     /// Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and
     /// what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks
     /// and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its
-    /// last four characters.
+    /// last four characters. With `--all` (`--tasks`) it also cancels every task under the
+    /// conversation, a task's own tasks and jobs first; its wakes stay.
     Stop {
         #[arg(value_name = "SESSION")]
         session: String,
+        /// Also cancel every task under the conversation (an owner's act; refused inside a job).
+        #[arg(long, visible_alias = "tasks")]
+        all: bool,
     },
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
@@ -1188,7 +1192,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
         Cmd::Resume { wake } => remind::resume(c, json, wake).await,
         Cmd::Done { wake } => remind::done(c, json, wake).await,
-        Cmd::Stop { session } => cmd::stop(c, json, session).await,
+        Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
         Cmd::Wait {
             session: Some(session),
             until,

@@ -1607,7 +1607,34 @@ impl Core {
             ));
         }
         let by = conn.actor(p.author.as_deref());
-        match self.stop_execution(&p.execution_id, &by).await {
+        // With `tasks` it is an owner's act (theseus-cdcwr): a shared place may stop a conversation, not its tasks.
+        if p.tasks {
+            let what = format!("the stop of {} and its tasks", p.execution_id);
+            self.judge_act(
+                &conn.answerer(p.author.clone(), p.discord.clone()),
+                super::confirms::Act::Session {
+                    method: theseus_protocol::method::EXECUTION_STOP,
+                    what: &what,
+                },
+            )
+            .map_err(|e| match e.downcast::<crate::approval::Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: format!(
+                        "stopping a conversation's tasks from {} does not count: {}. Nothing was stopped.",
+                        r.who, r.why
+                    ),
+                    data: json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })?;
+        }
+        let stopped = if p.tasks {
+            self.stop_execution_all(&p.execution_id, &by).await
+        } else {
+            self.stop_execution(&p.execution_id, &by).await
+        };
+        match stopped {
             Ok(r) => Ok(r),
             Err(e) => match e.downcast_ref::<theseus_kernel::KernelError>() {
                 Some(theseus_kernel::KernelError::StopTask { .. }) => {

@@ -121,6 +121,8 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   `node.written` marked, above a reply that streamed while it was read (theseus-v6yc); and a fired reminder
   (`wake.noticed`, theseus-8ux6x) rings once with the policy's words (`notices::reminder_notice`), a check-in rings
   nothing, and `--notify off` rings nothing.
+- `src/tests_stop_all.rs` (theseus-cdcwr): `S` asks once more (`S` or `y` confirms, any other key keeps the conversation) and sends
+  `execution.stop` with `tasks`; `s` is unchanged.
 - `src/tests_typing.rs` (theseus-tnky): the input line's first key sends one `session.typing` per idle spell (not
   one a key, none from the filter's keys), and an older daemon's refusal says nothing.
 - `src/tests_sync.rs` (theseus-pjmj7): `health` is read at each connect (`Purpose::Health`) and the OpenClaw sync's `warn`, a
