@@ -184,6 +184,17 @@ class Arms(unittest.TestCase):
         self.assertRegex(v, r"^\d+\.\d+\.\d+$")
         self.assertIn(f'PINNED_VERSION = "{v}"', (HERE.parent / "harbor" / "claude_code_agent.py").read_text())
 
+    def test_a_claude_off_the_pin_is_refused_unless_drift_is_allowed(self):
+        with tempfile.TemporaryDirectory() as t:
+            stub = Path(t) / "claude"
+            stub.write_text("#!/bin/sh\necho '0.0.1 (Claude Code)'\n")
+            stub.chmod(0o755)
+            with self.assertRaises(SystemExit) as e:
+                drv.check_claude(args(arm="claude-code", claude=str(stub)))
+            self.assertIn("the bench pins", str(e.exception))
+            v = drv.check_claude(args(arm="claude-code", claude=str(stub), allow_version_drift=True))
+            self.assertEqual(v, "0.0.1")
+
     def test_claude_cost_from_its_json(self):
         self.assertEqual(drv.claude_cost(json.dumps({"type": "result", "total_cost_usd": 0.0731})), 0.0731)
         self.assertEqual(drv.claude_cost(json.dumps([{"type": "system"}, {"type": "result", "total_cost_usd": 1}])), 1.0)
