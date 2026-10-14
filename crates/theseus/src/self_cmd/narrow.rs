@@ -22,8 +22,8 @@ pub enum NarrowCmd {
         /// The proposal's id, or the end of it (four characters or more).
         proposal: String,
     },
-    /// Look at a role now instead of at the weekly pass: the owner's. Reads only; a proposal
-    /// goes to your card.
+    /// Look at a role now instead of at the weekly pass: the owner's. A proposal goes to your
+    /// card; `--dry` only prints it.
     Run {
         /// `owner` or `read`; both when left out.
         #[arg(long)]

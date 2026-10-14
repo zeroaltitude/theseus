@@ -23,6 +23,34 @@ use crate::aws::{stack_tags, Account, Request, Signer};
 pub const BASICS: &str = "theseus-hand-basics";
 const SETTLE: Duration = Duration::from_secs(10 * 60);
 
+/// `LookupEvents`' input for a page.
+fn lookup_input(start_s: u64, end_s: u64, token: Option<&str>) -> Value {
+    let mut input =
+        json!({"StartTime": start_s, "EndTime": end_s, "MaxResults": super::usage::PAGE});
+    if let Some(t) = token {
+        input["NextToken"] = json!(t);
+    }
+    input
+}
+
+/// Access Analyzer's `ValidatePolicy` input for an identity policy.
+fn validate_input(doc: &Value) -> Value {
+    json!({
+        "policyDocument": doc.to_string(),
+        "policyType": "IDENTITY_POLICY",
+        "maxResults": 100,
+    })
+}
+
+/// IAM's `SimulateCustomPolicy` input.
+fn simulate_input(docs: &[String], actions: &[&str], arns: &[String]) -> Value {
+    let mut input = json!({"PolicyInputList": docs, "ActionNames": actions});
+    if !arns.is_empty() {
+        input["ResourceArns"] = json!(arns);
+    }
+    input
+}
+
 pub struct Live {
     pub account: Arc<Account>,
     pub region: String,
@@ -81,11 +109,7 @@ impl Source for Live {
         end_s: u64,
         token: Option<&str>,
     ) -> Result<(Vec<Value>, Option<String>), String> {
-        let mut input =
-            json!({"StartTime": start_s, "EndTime": end_s, "MaxResults": super::usage::PAGE});
-        if let Some(t) = token {
-            input["NextToken"] = json!(t);
-        }
+        let input = lookup_input(start_s, end_s, token);
         let out = self.call("cloudtrail", "LookupEvents", &input, 1).await?;
         let events = out.body["Events"].as_array().cloned().unwrap_or_default();
         let next = out
@@ -100,11 +124,7 @@ impl Source for Live {
 
 impl Checker for Live {
     async fn validate(&self, doc: &Value) -> Result<Vec<Finding>, String> {
-        let input = json!({
-            "policyDocument": doc.to_string(),
-            "policyType": "IDENTITY_POLICY",
-            "maxResults": 100,
-        });
+        let input = validate_input(doc);
         let out = self
             .call("accessanalyzer", "ValidatePolicy", &input, 5)
             .await?;
@@ -124,13 +144,7 @@ impl Checker for Live {
         let docs: Vec<String> = policies.iter().map(Value::to_string).collect();
         let mut out = Vec::new();
         let mut bare: Vec<&str> = Vec::new();
-        let run = |actions: Vec<&str>, arns: &[String]| {
-            let mut input = json!({"PolicyInputList": docs, "ActionNames": actions});
-            if !arns.is_empty() {
-                input["ResourceArns"] = json!(arns);
-            }
-            input
-        };
+        let run = |actions: Vec<&str>, arns: &[String]| simulate_input(&docs, &actions, arns);
         let mut inputs = Vec::new();
         for c in calls {
             if c.resources.is_empty() {
@@ -384,5 +398,90 @@ pub trait Stack {
 impl Stack for Live {
     async fn apply(&self, body: &str, expect: &[String], why: &str) -> Result<Applied, String> {
         apply_template(self, body, expect, why).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_aws::{Attribution, Call, Client, ClientConfig};
+
+    use super::*;
+
+    /// Every request `Live` makes is one the catalog knows, with the input
+    /// members its shape names: the client checks each with no network.
+    #[test]
+    fn every_request_the_narrowing_makes_is_one_the_catalog_takes() {
+        let client = Client::new(ClientConfig::new("us-west-2"));
+        let attribution = Attribution {
+            execution: None,
+            call: None,
+        };
+        let doc = json!({"Version": "2012-10-17", "Statement": [
+            {"Effect": "Allow", "Action": ["ec2:DescribeVpcs"], "Resource": ["*"]}]});
+        let docs = vec![doc.to_string()];
+        let policy = "arn:aws:iam::111122223333:policy/p";
+        let calls: Vec<(&str, &str, Value)> = vec![
+            (
+                "cloudtrail",
+                "LookupEvents",
+                lookup_input(1_000, 2_000, Some("tok")),
+            ),
+            (
+                "cloudtrail",
+                "LookupEvents",
+                lookup_input(1_000, 2_000, None),
+            ),
+            ("accessanalyzer", "ValidatePolicy", validate_input(&doc)),
+            (
+                "iam",
+                "SimulateCustomPolicy",
+                simulate_input(&docs, &["ec2:DescribeVpcs"], &[]),
+            ),
+            (
+                "iam",
+                "SimulateCustomPolicy",
+                simulate_input(&docs, &["s3:GetObject"], &["arn:aws:s3:::b/k".to_string()]),
+            ),
+            (
+                "iam",
+                "ListAttachedRolePolicies",
+                json!({"RoleName": "theseus-hand-owner"}),
+            ),
+            ("iam", "GetPolicy", json!({"PolicyArn": policy})),
+            (
+                "iam",
+                "GetPolicyVersion",
+                json!({"PolicyArn": policy, "VersionId": "v1"}),
+            ),
+            (
+                "iam",
+                "ListRolePolicies",
+                json!({"RoleName": "theseus-hand-owner"}),
+            ),
+            (
+                "iam",
+                "GetRolePolicy",
+                json!({"RoleName": "theseus-hand-owner", "PolicyName": "p"}),
+            ),
+            (
+                "cloudformation",
+                "GetTemplate",
+                json!({"StackName": "theseus-hands", "TemplateStage": "Original"}),
+            ),
+        ];
+        for (service, operation, input) in &calls {
+            let call = Call {
+                service,
+                operation,
+                input,
+                region: Some("us-west-2"),
+                pages: 1,
+                attribution: &attribution,
+            };
+            let checked = client
+                .check(&call)
+                .unwrap_or_else(|e| panic!("{service}:{operation} {input}: {e}"));
+            assert_eq!(&checked.operation, operation);
+        }
     }
 }
