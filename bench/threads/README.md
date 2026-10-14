@@ -55,7 +55,7 @@ From the shapes the owner described, not from what favours threads (`th_generate
 - **Personas**: five (`security`, `builder`, `research`, `ops`, `generalist`), each a ~60-token card; each message is
   labelled with the persona its specialty calls for; about a quarter call for another than the stream's lean, a tenth
   address one by name, three scripted corrections follow ("No, I wanted the ops angle on that last one").
-- **Sizes**: `standard` (6 streams, about 143 owner messages, 55 questions, 43 facts) and `smoke` (5 streams, their
+- **Sizes**: `standard` (6 streams, about 143 owner messages, 47 questions and about 100 label probes, 43 facts) and `smoke` (5 streams, their
   first 6 messages each, 41 messages, 11 questions). The development seed is 11; the held-out seed is 29: tune
   against the first, report the second once.
 

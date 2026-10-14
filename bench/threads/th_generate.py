@@ -23,7 +23,7 @@ favours threads:
   in-stream ones while the stream is active and cross-stream ones while
   another is.
 
-`size`: `standard` (6 streams, about 150 owner turns, about 60 probes) or
+`size`: `standard` (6 streams, 143 owner turns, 47 questions and about 100 label probes) or
 `smoke` (5 streams, their first 6 messages each, 11 probes: the stand-in
 smoke). The development seed is DEV_SEED and a held-out seed HELD_OUT_SEED:
 tune against the first, report the second once.
