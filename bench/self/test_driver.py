@@ -212,6 +212,12 @@ class Arms(unittest.TestCase):
                                env={"PATH": os.environ["PATH"], "H2H_STANDIN_KEY": "k"})
             self.assertNotIn("unknown", p.stdout + p.stderr)
 
+    def test_spend_is_read_from_health(self):
+        self.assertEqual(drv.spend_of({"day_spend": {"spent_usd": 0.4}, "cost_usd_total": 9}), 0.4)
+        self.assertEqual(drv.spend_of({"cost_usd_total": 0.25}), 0.25)
+        self.assertIsNone(drv.spend_of({"name": "x"}))
+        self.assertIsNone(drv.spend_of(None))
+
     def test_missing_head_resolves_to_none(self):
         self.assertIsNone(drv.resolve_head(HERE, None, None))
         self.assertIsNone(drv.resolve_head(HERE, "deadbeefdeadbeef", "no/such-branch"))

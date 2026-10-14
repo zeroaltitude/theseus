@@ -155,9 +155,19 @@ class SelfDaemon(h2h_theseus.Daemon):
         return list(r.get("rows", [])) if isinstance(r, dict) else []
 
     def day_spend(self) -> float | None:
-        h = self.json("health")
-        ds = h.get("day_spend") if isinstance(h, dict) else None
-        return float(ds["spent_usd"]) if isinstance(ds, dict) and "spent_usd" in ds else None
+        """What the scratch daemon has spent: health's day spend where it shows one, else its total cost (a fresh
+        daemon's total is this gap's)."""
+        return spend_of(self.json("health"))
+
+
+def spend_of(h: Any) -> float | None:
+    if not isinstance(h, dict):
+        return None
+    ds = h.get("day_spend")
+    if isinstance(ds, dict) and isinstance(ds.get("spent_usd"), (int, float)):
+        return float(ds["spent_usd"])
+    c = h.get("cost_usd_total")
+    return float(c) if isinstance(c, (int, float)) else None
 
 
 def terminal(rows: list[dict[str, Any]], gap: Any, landed: dict[str, bool]) -> str | None:
