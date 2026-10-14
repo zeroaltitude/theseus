@@ -387,6 +387,8 @@ class TheseusSmoke(unittest.TestCase):
             self.assertTrue((d / "docs" / "2026-10-14-threadbench-smoke.md").is_file())
             self.assertTrue(list((d / "docs" / "img" / "2026-10-14-threadbench-smoke").glob("*.svg")))
             self.assertIn("Improvement assessment", doc)
+            self.assertIn("A8 (OpenCode): not measurable", doc)  # no opencode binary on the test machine, and the report says why
+            self.assertIn("A1, A1n, A1p, A2: need threads", doc)
             # and from the scores on disk, as the command line runs it (the progression regenerated from the scores)
             (d / "scores.json").write_text(json.dumps({"runs": [scored["A3"], scored["A5"]]}))
             self.assertEqual(rep.main(["--scores", str(d / "scores.json"), "--date", "2026-10-15", "--slug", "cli",

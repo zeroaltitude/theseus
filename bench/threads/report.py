@@ -391,8 +391,17 @@ python3 -m unittest discover -s bench/threads    # every oracle at 1 on the stan
 """
 
 
+def not_measured(opencode: dict | None) -> str:
+    """The arms this report could not run, each with its reason."""
+    a8 = opencode or td.probe_opencode()
+    why8 = ("measurable: " if a8["measurable"] else "not measurable: ") + a8["why"]
+    return ("A1, A1n, A1p, A2: need threads, which are not built (their drivers refuse); "
+            f"A8 (OpenCode): {why8}")
+
+
 def write_report(runs: list[dict], prog: tf.Progression, out: Path, slug: str, date: str, scratch: bool = False,
-                 persona: dict | None = None, prefix_runs: list[dict] | None = None) -> str:
+                 persona: dict | None = None, prefix_runs: list[dict] | None = None,
+                 opencode: dict | None = None) -> str:
     name = draft.report_name(date, "threadbench", slug)
     figs = figures(runs, prog)
     figmd = {f["name"]: charts.picture(f"img/{name}", f) + f"\n\n*{f['question']}*\n" for f in figs}
@@ -400,6 +409,7 @@ def write_report(runs: list[dict], prog: tf.Progression, out: Path, slug: str, d
     title = f"Threadbench: the cost of not splitting ({date})" + (" - scratch, not a run" if scratch else "")
     glance = [("Suite", "threadbench (`bench/threads`): six interleaved streams with colliding facts"),
               ("Arms", "; ".join(f'{r["arm"]} {r["name"]}' for r in runs)),
+              ("Not measured", not_measured(opencode)),
               ("Progression", f"seed {prog.seed}, {prog.size}, digest `{prog.digest()[:12]}`"),
               ("Model", f'{runs[0]["model"]} at effort {runs[0]["effort"]}'),
               ("Data", f"[`{name}.json`]({name}.json), [`{name}.csv`]({name}.csv)")]
@@ -432,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--scores", type=Path, required=True)
     ap.add_argument("--progression", type=Path, default=None, help="default: regenerated from the scores' seed and size")
+    ap.add_argument("--opencode", default="opencode", help="the opencode binary, probed for A8")
     ap.add_argument("--prefix-scores", type=Path, default=None, help="th_score.py's output over the prefix track's runs")
     ap.add_argument("--persona", type=Path, default=None)
     ap.add_argument("--date", required=True)
@@ -447,7 +458,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("report: the scores are of another progression than the one given (digests differ)")
     prefix_runs = json.loads(a.prefix_scores.read_text())["runs"] if a.prefix_scores else None
     persona = json.loads(a.persona.read_text()) if a.persona else None
-    write_report(runs, prog, a.out, a.slug, a.date, persona=persona, prefix_runs=prefix_runs)
+    write_report(runs, prog, a.out, a.slug, a.date, persona=persona, prefix_runs=prefix_runs,
+                 opencode=td.probe_opencode(a.opencode))
     print(f"report: wrote {a.out}/{draft.report_name(a.date, 'threadbench', a.slug)}.md")
     return 0
 

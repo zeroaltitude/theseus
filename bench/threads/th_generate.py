@@ -61,7 +61,7 @@ MAX_GAP = 90.0
 OVERNIGHT = (600.0, 840.0)
 DAYS = 3
 FIRST_DAY = date(2026, 10, 27)  # before every deadline in the fixtures
-P_CUE_SWITCH, P_CUE_STAY = 0.90, 0.25
+P_CUE_SWITCH, P_CUE_STAY = 0.92, 0.28
 P_NAMED = 0.10  # of all messages; of the ones free to be addressed by name, about a third
 P_NAMED_FREE = 0.3
 P_AMB_AUTHORED, P_AMB_GENERIC = 0.75, 0.25
@@ -358,13 +358,15 @@ def build(seed: int, size: str = "standard") -> tf.Progression:
                 e.probe["file"] = rel
                 beat_key = f"probe.{pk}.{f.id}"
         # persona addressed by name, an ordinary work message that is not already a switch
-        if (e.kind == "beat" and not ambiguous and e.beat.probe in (None, "status") and not e.beat.ref and persona == lean
+        if (e.kind == "beat" and not ambiguous and e.beat.probe in (None, "status") and not e.beat.ref and not e.beat.intro
+                and persona == lean
                 and unit(rng) < P_NAMED_FREE):
             persona = tf.PERSONAS[(tf.PERSONAS.index(lean) + 1 + rng.below(len(tf.PERSONAS) - 1)) % len(tf.PERSONAS)]
             text = f"{tb.PERSONA_NAME[persona]}: {text}"
             named = True
         cue = None
-        if not ambiguous and not named and role in ("work", "probe") and e.kind != "corr":
+        opening = e.kind == "beat" and e.beat.key.endswith(".1")  # a stream's first message names it already
+        if not ambiguous and not named and not opening and role in ("work", "probe") and e.kind != "corr":
             p = P_CUE_SWITCH if prev_stream != s else P_CUE_STAY
             if unit(rng) < p:
                 cue = tb.CUES[s][rng.below(len(tb.CUES[s]))]
