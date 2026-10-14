@@ -20,6 +20,7 @@ use theseus_protocol::{
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
 use crate::notice::Notices;
+use crate::threads::ThreadBoard;
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
 
@@ -61,6 +62,9 @@ pub enum Purpose {
     /// `session.typing`: the input line's first key (theseus-tnky). Nothing
     /// waits for its answer.
     Typing,
+    /// `work.watch`: the threads on the board (theseus-5i8i). An older daemon's
+    /// refusal says nothing.
+    WorkWatch,
     /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
     Health,
     /// `execution.stop`.
@@ -117,6 +121,8 @@ pub enum Mode {
     Armed(Arm, String),
     /// `n` on a question (its correlation id): the decline's note.
     Note(String),
+    /// `T`: the keys move over the Threads block (theseus-5i8i).
+    Threads,
     /// `?`: the keys.
     Help,
 }
@@ -131,6 +137,8 @@ pub enum Pane {
 
 pub struct App {
     pub board: Board,
+    /// The threads on the work board (theseus-5i8i).
+    pub threads: ThreadBoard,
     /// The session under the cursor.
     pub selected: Option<String>,
     /// The session in focus: its history and its events, in the detail pane.
@@ -188,6 +196,7 @@ impl App {
     pub fn new(hm: fn(u64) -> String) -> Self {
         Self {
             board: Board::default(),
+            threads: ThreadBoard::default(),
             selected: None,
             detail: None,
             pane: Pane::List,
@@ -377,9 +386,11 @@ impl App {
         self.asking_questions = false;
         self.board.ask_again();
         self.board.reconnected();
+        self.threads.reset();
         let mut out = vec![
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
+            work_watch(),
         ];
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
@@ -435,6 +446,7 @@ impl App {
             }
             Event::EventsLost(lost) => out.extend(self.lost(&lost)),
             Event::WakeNoticed(n) => out.extend(self.noticed(&n)),
+            Event::WorkChanged(c) => self.threads.changed(c),
             _ => {}
         }
         out
@@ -470,6 +482,9 @@ impl App {
         let all = lost.streams.is_empty();
         if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
+        }
+        if all || lost.streams.iter().any(|s| s == "work") {
+            out.push(work_watch());
         }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             let stream = format!("session:{sid}");
@@ -580,6 +595,11 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
+            Purpose::WorkWatch => {
+                if let Ok(snap) = serde_json::from_value(v) {
+                    self.threads.snapshot(snap);
+                }
+            }
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -588,7 +608,10 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(
+            purpose,
+            Purpose::Typing | Purpose::Health | Purpose::WorkWatch
+        ) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -621,6 +644,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::WorkWatch => method::WORK_WATCH,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -714,6 +738,7 @@ impl App {
             Mode::Input => self.input_key(k),
             Mode::Armed(arm, sid) => self.armed_key(k, arm, &sid),
             Mode::Note(id) => self.note_key(k, &id),
+            Mode::Threads => self.threads_key(k),
             Mode::Normal => self.normal_key(k),
         }
     }
@@ -751,6 +776,10 @@ impl App {
                 return self.open_first();
             }
             KeyCode::Char('/') => self.mode = Mode::Filter,
+            KeyCode::Char('T') => match self.threads.is_empty() {
+                true => self.flash = Some((Tag::Dim, "no threads on the board".to_string())),
+                false => self.mode = Mode::Threads,
+            },
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -789,6 +818,34 @@ impl App {
             _ => {}
         }
         Vec::new()
+    }
+
+    /// The keys over the Threads block: the arrows move, enter folds a
+    /// thread or opens an item's session, esc and `T` go back to the list.
+    fn threads_key(&mut self, k: KeyEvent) -> Vec<Effect> {
+        let (now, width) = (self.now_ms, self.threads_width());
+        match k.code {
+            KeyCode::Down | KeyCode::Char('j') => self.threads.step(1, now, width),
+            KeyCode::Up | KeyCode::Char('k') => self.threads.step(-1, now, width),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(sid) = self.threads.session_at(now, width) {
+                    self.mode = Mode::Normal;
+                    return self.focus(&sid);
+                }
+                self.threads.toggle(now, width);
+            }
+            KeyCode::Esc | KeyCode::Char('T') | KeyCode::Char('q') => self.mode = Mode::Normal,
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// The columns the Threads block's lines have: the sidebar's.
+    pub fn threads_width(&self) -> usize {
+        match self.wide() {
+            true => crate::ui::sidebar_width(self.width) as usize,
+            false => self.width as usize,
+        }
     }
 
     /// The session the keys act on: the one in focus, if its pane is on
@@ -1020,7 +1077,7 @@ impl App {
             Mode::Input => self.input.push_str(&text),
             Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Note(_) => self.note.push_str(&text),
-            Mode::Normal | Mode::Help | Mode::Armed(..) => {
+            Mode::Normal | Mode::Help | Mode::Armed(..) | Mode::Threads => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop => "not stopped",
@@ -1162,6 +1219,15 @@ fn sync_warning(v: Value) -> Option<String> {
 }
 
 /// `executions.watch`: the board's snapshot, then its events.
+/// `work.watch`, for the threads: only the roots that need you or work.
+fn work_watch() -> Effect {
+    call(
+        method::WORK_WATCH,
+        json!({"limit": 0, "interactive": true}),
+        Purpose::WorkWatch,
+    )
+}
+
 fn snapshot() -> Effect {
     call(method::EXECUTIONS_WATCH, json!({}), Purpose::Snapshot)
 }

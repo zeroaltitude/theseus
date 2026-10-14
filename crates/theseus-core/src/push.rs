@@ -394,6 +394,25 @@ impl Push {
         self.work.lock().unwrap().snapshot(limit, scope)
     }
 
+    /// Take the thread groups (a thread's write or bind, or a person's read
+    /// of their stats) and send what changed to every `work.watch` subscriber
+    /// that reads private text. Memory only: no store read.
+    pub fn set_threads(&self, core: &Core, groups: Vec<theseus_protocol::ThreadGroup>) {
+        let out = self
+            .work
+            .lock()
+            .unwrap()
+            .set_threads(groups, theseus_protocol::now_unix_ms());
+        if let Some(out) = out {
+            core.bus.publish_work(&out, &core.tools.scrubber);
+        }
+    }
+
+    /// The thread groups the work board holds.
+    pub fn work_threads(&self) -> Vec<theseus_protocol::ThreadGroup> {
+        self.work.lock().unwrap().threads()
+    }
+
     /// The questions open on the work board, the longest waiting first: from
     /// memory, never the store (`work.answer` resolves against them).
     pub fn open_questions(&self) -> Vec<theseus_protocol::work::Question> {

@@ -64,6 +64,8 @@ pub fn sidebar_width(width: u16) -> u16 {
 
 fn header(app: &App, area: Rect, buf: &mut Buffer) {
     let (need, done) = app.board.counts(&|v| app.is_done(v));
+    // A seal waiting on the owner is a need the executions' count lacks.
+    let need = need + app.threads.seals_pending();
     let mut left = String::from(" theseus");
     if need > 0 {
         left.push_str(&format!(
@@ -107,7 +109,59 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
     buf.set_stringn(x, area.y, &right, right.width(), link_style);
 }
 
+/// The Threads block (theseus-5i8i) at the head of the sidebar: a group for
+/// each live thread, folded or open, over a rule. At most half the sidebar,
+/// scrolled to the cursor while the block has the keys. Returns the rows it
+/// took; nothing when no thread is on the board.
+fn threads_block(app: &App, area: Rect, buf: &mut Buffer) -> u16 {
+    let lines = app.threads.lines(app.now_ms, area.width as usize);
+    if lines.is_empty() || area.height < 6 {
+        return 0;
+    }
+    let room = (area.height / 2).max(2) as usize;
+    let top = match app.mode {
+        Mode::Threads if app.threads.cursor >= room => app.threads.cursor + 1 - room,
+        _ => 0,
+    };
+    let shown = lines.len().min(room);
+    for (i, line) in lines.iter().enumerate().skip(top).take(room) {
+        let y = area.y + (i - top) as u16;
+        let selected = app.mode == Mode::Threads && i == app.threads.cursor;
+        let base = if selected {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        let row = Rect::new(area.x, y, area.width, 1);
+        buf.set_style(row, base);
+        let style = match line.kind {
+            crate::threads::Kind::Header { .. } => {
+                level_style(line.level, false).add_modifier(Modifier::BOLD)
+            }
+            _ => level_style(line.level, false),
+        };
+        buf.set_stringn(
+            area.x + 1,
+            y,
+            &line.text,
+            area.width.saturating_sub(1) as usize,
+            base.patch(style),
+        );
+    }
+    let rule = area.y + shown as u16;
+    buf.set_stringn(
+        area.x,
+        rule,
+        "─".repeat(area.width as usize),
+        area.width as usize,
+        dim(),
+    );
+    shown as u16 + 1
+}
+
 fn sidebar(app: &App, area: Rect, buf: &mut Buffer) {
+    let used = threads_block(app, area, buf);
+    let area = Rect::new(area.x, area.y + used, area.width, area.height - used);
     let rows = &app.rows();
     if rows.is_empty() {
         let text = match (&app.link, app.only, app.filter.is_empty()) {
@@ -425,7 +479,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 16] = [
+    const KEYS: [&str; 17] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -438,6 +492,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",
+        " T          the threads: enter folds or opens; esc leaves",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",

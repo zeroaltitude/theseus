@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::threads::ThreadState;
 use crate::work::WorkView;
 
 /// `work.watch`'s params. All optional: no params watches every root.
@@ -50,6 +51,64 @@ pub struct WorkWatchResult {
     pub views: Vec<WorkView>,
     /// How many roots the board holds, the cold ones included.
     pub total: u64,
+    /// The threads that are not done, each a group of the board
+    /// (theseus-5i8i). Empty for a connection that reads no private text: a
+    /// thread is private always.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub threads: Vec<ThreadGroup>,
+}
+
+/// A thread as the board groups it: the record's words, and what its session
+/// holds. The views that belong to it say so (`WorkView.thread`); its open
+/// tasks, questions and wakes are those views, so a group carries no copy of
+/// them. A client keeps the groups by `slug`, and an update's `None` stat
+/// leaves the stat it holds (`ThreadGroup::merge`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadGroup {
+    pub slug: String,
+    pub title: String,
+    pub state: ThreadState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub persona: Option<String>,
+    /// The owner has sealed its boundary: its title shows a lock.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sealed: bool,
+    /// A seal recommended and not yet answered: the reason. It needs the owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub seal_pending: Option<String>,
+    /// The session the thread runs on now; none before its first message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_id: Option<String>,
+    /// The record's last activity; a client takes the later of it and its
+    /// session's conversation view.
+    #[serde(default)]
+    pub last_active_ms: u64,
+    /// The session's last compile, in tokens. Read when a watch begins and
+    /// when the thread is written; an update leaves it as it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub context_tokens: Option<u64>,
+    /// What the thread's sessions spent since local midnight; read as
+    /// `context_tokens` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub today_usd: Option<f64>,
+}
+
+impl ThreadGroup {
+    /// This group with a newer version of it: the newer one's words, the
+    /// stats it did not read kept, and the later activity.
+    pub fn merge(&mut self, newer: ThreadGroup) {
+        let (tokens, usd, active) = (self.context_tokens, self.today_usd, self.last_active_ms);
+        *self = newer;
+        self.context_tokens = self.context_tokens.or(tokens);
+        self.today_usd = self.today_usd.or(usd);
+        self.last_active_ms = self.last_active_ms.max(active);
+    }
 }
 
 /// `work.unwatch`'s answer.
@@ -70,4 +129,7 @@ pub struct WorkChanged {
     pub views: Vec<WorkView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gone: Vec<String>,
+    /// The thread groups this frame or a thread's write changed (theseus-5i8i).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub threads: Vec<ThreadGroup>,
 }

@@ -42,6 +42,7 @@ fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkVie
         report: None,
         woke: None,
         flagged: false,
+        thread: None,
     }
 }
 

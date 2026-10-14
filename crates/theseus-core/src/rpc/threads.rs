@@ -134,9 +134,44 @@ impl Core {
         })
     }
 
+    /// The threads as the work board groups them, with what their sessions
+    /// hold (context tokens, today's dollars): a read for a person, as
+    /// `thread.list` is, taken when a `work.watch` begins.
+    pub(super) fn thread_groups(&self) -> Vec<theseus_protocol::ThreadGroup> {
+        let board = self.threads();
+        let (mut live, done): (Vec<ThreadInfo>, Vec<ThreadInfo>) = board
+            .all()
+            .cloned()
+            .partition(|t| t.state != ThreadState::Done);
+        let mut out: Vec<theseus_protocol::ThreadGroup> = self
+            .thread_rows(&mut live)
+            .into_iter()
+            .map(|r| {
+                let mut g = crate::threads::group_of(&r.thread);
+                g.context_tokens = r.context_tokens;
+                g.today_usd = Some(r.today_usd);
+                g
+            })
+            .collect();
+        out.extend(done.iter().map(crate::threads::group_of));
+        out
+    }
+
+    /// Tell the work board of every change to the threads (theseus-5i8i),
+    /// once: a write or a bind sends the groups on to the watchers.
+    pub(super) fn install_thread_feed(self: &std::sync::Arc<Self>) {
+        let weak = std::sync::Arc::downgrade(self);
+        self.runner.threads.on_change(Box::new(move |board| {
+            if let Some(core) = weak.upgrade() {
+                core.push.set_threads(&core, board.groups());
+            }
+        }));
+    }
+
     /// Read the threads now, off the start path: after serving, on the
     /// blocking pool. A reader that comes sooner reads them itself, once.
     pub fn warm_threads(self: &std::sync::Arc<Self>) {
+        self.install_thread_feed();
         let core = std::sync::Arc::downgrade(self);
         tokio::task::spawn_blocking(move || {
             let Some(core) = core.upgrade() else { return };
@@ -314,7 +349,7 @@ impl Core {
     /// context's tokens, and today's dollars. Reads the sessions, the
     /// compilations and today's spend rows: a read for a person, never a
     /// turn's path.
-    fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
+    pub(super) fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
         let sessions: BTreeSet<String> = threads
             .iter()
             .filter_map(|t| t.session_id.clone())

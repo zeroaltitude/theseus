@@ -75,6 +75,7 @@ pub mod warm;
 pub mod why;
 mod window;
 pub mod work;
+mod work_threads;
 mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -111,7 +112,10 @@ pub use wakes::{
     WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
 };
 pub use window::*;
-pub use work_watch::{WorkChanged, WorkUnwatchResult, WorkWatchParams, WorkWatchResult};
+pub use work_threads::{group as group_threads, Grouped, GroupedThread, WARM_MS};
+pub use work_watch::{
+    ThreadGroup, WorkChanged, WorkUnwatchResult, WorkWatchParams, WorkWatchResult,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

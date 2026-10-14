@@ -91,6 +91,8 @@ mod tests_self_exams;
 #[cfg(test)]
 mod tests_session_states;
 #[cfg(test)]
+mod tests_thread_board;
+#[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
 mod tests_typing;

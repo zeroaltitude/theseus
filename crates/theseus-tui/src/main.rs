@@ -14,6 +14,7 @@ mod detail;
 mod notice;
 mod run;
 mod term;
+mod threads;
 mod ui;
 
 #[cfg(test)]
@@ -32,6 +33,8 @@ mod tests_order;
 mod tests_paste;
 #[cfg(test)]
 mod tests_sync;
+#[cfg(test)]
+mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
 

@@ -98,4 +98,10 @@ woke?: Woke,
 /**
  * The owner asked to hear when it is done ("tell me when it's done").
  */
-flagged?: boolean, };
+flagged?: boolean, 
+/**
+ * The thread (`threads::ThreadInfo.slug`) the view's tree belongs to:
+ * the thread whose session is the view's root conversation (theseus-5i8i).
+ * Absent for work that is in none; a wire field, not a stored one.
+ */
+thread?: string, };

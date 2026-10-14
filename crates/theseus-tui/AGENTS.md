@@ -21,6 +21,12 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.
+- `src/threads.rs` (theseus-5i8i): the threads on the board. `work.watch {limit: 0}` at each connect (and after `events.lost`
+  for stream `work`), views and `ThreadGroup`s applied by the position rule, and the sidebar's Threads block over
+  `theseus_protocol::group_threads`: a fold-able group per live thread (`▾`/`▸`, the one header wording the CLI shares), its
+  open work under it, a pending seal as a needs-you line. `T` gives the block the keys (up/down, enter folds a thread or
+  opens an item's session, esc leaves). A daemon that refuses `work.watch` costs no word and no block. Tests:
+  `src/tests_threads.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
   question's card), `src/notice.rs` (notices by the protocol's one policy, `theseus_protocol::notices`, delivered by
   the bell, OSC 9, OSC 777). Done until seen is `theseus_client::seen`, shared with the CLI.

@@ -59,6 +59,9 @@ const router = createBrowserRouter(
             { path: 'bridge', element: wrap(<Bridge />) },
             { path: 'fleet', element: wrap(<Fleet />) },
             { path: 'session/:id', element: wrap(<SessionDeck />) },
+            // The threads on the work board (theseus-5i8i), and one thread's view. The route loads its chunk.
+            { path: 'threads', lazy: async () => ({ Component: (await import('./views/Threads')).default }) },
+            { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
             { path: 'actions', element: wrap(<Actions />) },
             { path: 'ledger', element: wrap(<Ledger />) },
             { path: 'economics', element: wrap(<Economics />) },

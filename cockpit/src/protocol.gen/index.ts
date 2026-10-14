@@ -485,6 +485,7 @@ export type * from './TenderStatus';
 export type * from './TerminalInfo';
 export type * from './TerminalLeft';
 export type * from './ThreadEditParams';
+export type * from './ThreadGroup';
 export type * from './ThreadInfo';
 export type * from './ThreadListParams';
 export type * from './ThreadListResult';

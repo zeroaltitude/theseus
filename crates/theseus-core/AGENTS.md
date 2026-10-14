@@ -221,6 +221,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+  **On the work board** (theseus-5i8i; `push/work/threads.rs`, `rpc/work_board.rs`, `rpc/tests_thread_board.rs`): every view
+  carries `thread`, the thread whose session is its root conversation (`WorkBoard::thread_for_root`, stamped in `put`), and
+  the board holds the thread groups (`ThreadGroup`) with the session each serves. Both come from the threads' board in memory
+  only: `Threads::on_change` tells `Push::set_threads` after each write or bind (installed by `warm_threads` and by the first
+  `work.watch`), which diffs, restamps the views in place (and marks them stale, so the next frame sends them again) and
+  publishes the changed groups as `work.changed { threads }`; the seed reads the held board, never the store. A watch's
+  snapshot reads each thread's stats once (`Core::thread_groups`: context tokens, today's dollars) and a connection that
+  reads no private text is given and sent no group. A group's update leaves the stats it did not read.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
