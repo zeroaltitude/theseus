@@ -53,6 +53,7 @@ pub mod sessions;
 mod store;
 mod task_graph;
 mod tasks;
+pub mod thread;
 pub mod time;
 mod wakes;
 mod warm;

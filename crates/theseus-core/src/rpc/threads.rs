@@ -258,6 +258,7 @@ impl Core {
             thread: t,
             context_tokens: None,
             today_usd: 0.0,
+            cache_ttl_secs: None,
         })
     }
 
@@ -337,6 +338,11 @@ impl Core {
                     t.last_active_ms = t.last_active_ms.max(r.last_active_ms);
                 }
                 ThreadRow {
+                    cache_ttl_secs: rec
+                        .as_ref()
+                        .and_then(|r| r.last_target.as_ref())
+                        .and_then(|t| self.runner.cfg.ttl_of(&t.profile))
+                        .map(|(ttl, _)| ttl.secs()),
                     today_usd: t
                         .session_id
                         .as_ref()

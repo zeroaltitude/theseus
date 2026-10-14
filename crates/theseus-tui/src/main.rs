@@ -14,6 +14,7 @@ mod detail;
 mod notice;
 mod run;
 mod term;
+mod threads;
 mod ui;
 
 #[cfg(test)]
@@ -32,6 +33,8 @@ mod tests_order;
 mod tests_paste;
 #[cfg(test)]
 mod tests_sync;
+#[cfg(test)]
+mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
 
@@ -136,6 +139,10 @@ async fn tui(args: Args) -> Result<()> {
     });
     let mut app = App::new(local_hm);
     app.seen = Seen::open(Seen::default_path());
+    // The thread this terminal chose (theseus-j0yh): the environment's, else the one it kept.
+    app.thread = theseus_client::current::of_terminal();
+    app.thread_file =
+        theseus_client::current::default_path().map(|p| (p, theseus_client::current::terminal()));
     let signals = ending_signals()?;
     // Raw mode and the alternate screen, put back on exit and on a panic;
     // the loop turns on focus events and bracketed paste, and off again

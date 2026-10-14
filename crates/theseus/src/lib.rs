@@ -11,6 +11,7 @@
 //!   text, and the TUI styles it by its tag.
 //! - [`seen`]: what the operator has seen, one file per machine, shared by the
 //!   CLI and the TUI (theseus-yus0).
+//! - [`current`]: the current thread of a terminal (theseus-j0yh).
 //! - [`outcome`]: how a turn ended, as `theseus ask`'s exit code
 //!   (theseus-n88g.2).
 //! - [`names`]: what a session is called, in every client (theseus-0n1v).
@@ -18,6 +19,7 @@
 //!   execution or a question: its id, or a unique end of it (theseus-0n1v).
 
 pub mod client;
+pub mod current;
 pub mod names;
 pub mod outcome;
 pub mod render;

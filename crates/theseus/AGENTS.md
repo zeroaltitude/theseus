@@ -41,6 +41,14 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
+- `src/current.rs`, `render/thread.rs`, `interactive/thread.rs` (theseus-j0yh): a terminal's current thread. `theseus thread
+  switch SLUG|N|PREFIX|home` prints `export THESEUS_THREAD=…` (or `unset`) and remembers the choice per tty in
+  `$XDG_STATE_HOME/theseus/thread.json`; `ask` reads only the environment (a script without it asks home), and a reply made
+  in a thread prints `→ title`. `watch --interactive` starts on the terminal's thread, takes `/t` (list), `/t N|NAME`
+  (moves the watch to that thread's session), `/t home`, and prints a status line `[title · state · 41K ctx · warm]`
+  (`render::thread::status_line`; warm from `ThreadRow.cache_ttl_secs` and `last_active_ms`). With no current thread it
+  sends no `thread.*` request. Tests: `tests/thread_switch.rs`, `tests/thread_interactive.rs`. `theseus chat` (cli-tasks)
+  had not joined: its joiner ports `/t` and the status line from `interactive/thread.rs`.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

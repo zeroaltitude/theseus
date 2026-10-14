@@ -74,7 +74,15 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
-    let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || a.thread.is_some())?;
+    // The thread this shell chose (`thread switch`'s export) when none was named; a script that
+    // never set it asks the home conversation (theseus-j0yh).
+    let thread = a.thread.or_else(|| {
+        a.session
+            .is_none()
+            .then(theseus_client::current::from_env)
+            .flatten()
+    });
+    let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || thread.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
         dir,
         carried: false,
@@ -89,7 +97,7 @@ pub async fn ask(
         reply_to: None,
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
-        thread: a.thread,
+        thread,
     })?;
     let follow_for = spawned.then_some(a.follow_for);
     let shown = (a.thinking, a.trace);
@@ -123,6 +131,10 @@ pub(crate) async fn stream_turn(
     let stream = !no_stream && !json;
     let dir = params
         .get("dir")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let thread = params
+        .get("thread")
         .and_then(Value::as_str)
         .map(str::to_string);
     let mode = match (json, stream) {
@@ -186,6 +198,10 @@ pub(crate) async fn stream_turn(
         // (theseus-7gir.18, theseus-fh0u).
         for line in r.harness_lines() {
             eprintln!("{line}");
+        }
+        if let Some(slug) = &thread {
+            let title = crate::thread::title_of(conn, slug).await;
+            eprintln!("{}", render::thread::reply_tag(&title));
         }
         eprintln!("{}", render::status_line(&r));
     }

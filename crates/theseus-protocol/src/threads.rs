@@ -179,6 +179,12 @@ pub struct ThreadRow {
     /// What the thread's sessions spent since local midnight.
     #[serde(default)]
     pub today_usd: f64,
+    /// The prompt cache's lifetime for the profile the session's last turn ran
+    /// on, in seconds (theseus-j0yh): a client reads warm or cold from this and
+    /// the thread's `last_active_ms`. None before the session's first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cache_ttl_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

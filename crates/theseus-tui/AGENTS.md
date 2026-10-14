@@ -29,6 +29,12 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays
   raw until the history is read again. Tests: `src/tests_cite.rs`.
 
+- `src/threads.rs` (theseus-j0yh): the current thread, the header's status line (only once a thread is known), Ctrl-T's
+  picker (type to filter; `p` `r` `d` (twice) `a` act while the filter is empty, `/` types them; Enter switches), `/t` in the
+  input line, a thread's session tagged `→ title` in the pane header. Requests: `thread.list` on opening the picker, at a
+  connect with a thread current, and after a reply in a thread; keys in the picker send none but the acts. Tests:
+  `src/tests_threads.rs`.
+
 ## Invariants
 
 - **The protocol is the only way in.** What needs you is each view's `attention`, which the daemon computes; an

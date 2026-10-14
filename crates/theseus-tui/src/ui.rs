@@ -53,6 +53,9 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     if app.mode == Mode::Help {
         help(body, buf);
     }
+    if app.mode == Mode::Threads {
+        crate::threads::draw_picker(app, body, buf);
+    }
     cursor
 }
 
@@ -92,7 +95,12 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
         Link::Up => "socket ok".to_string(),
         Link::Down { attempt, .. } => format!("reconnecting ({attempt})"),
     };
-    let right = format!("{} · {link} ", (app.hm)(app.now_ms));
+    // The current thread, in the status line (theseus-j0yh): within half the width.
+    let status = app.thread_status(area.width as usize / 2);
+    let right = match status {
+        Some(t) => format!("{t} · {} · {link} ", (app.hm)(app.now_ms)),
+        None => format!("{} · {link} ", (app.hm)(app.now_ms)),
+    };
     let style = Style::default().add_modifier(Modifier::BOLD);
     buf.set_style(area, Style::default().bg(Color::Black));
     let room = (area.width as usize).saturating_sub(right.width() + 1);
@@ -285,6 +293,10 @@ fn detail_header(app: &App, sid: &str) -> String {
     if let Some(v) = app.board.view(sid) {
         parts.push(pill(&v.attention));
     }
+    // A thread's session says so (theseus-j0yh): the reply's tag, dim.
+    if let Some(t) = app.thread_of(sid) {
+        parts.push(theseus_client::render::thread::reply_tag(&t.thread.title));
+    }
     parts.join(" · ")
 }
 
@@ -425,7 +437,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 16] = [
+    const KEYS: [&str; 18] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -438,6 +450,8 @@ fn help(area: Rect, buf: &mut Buffer) {
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",
+        " ctrl-t     the threads: pick one (enter), pause p, resume r, done d",
+        " /t         in the input line: the threads; /t N or /t NAME picks one",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",
