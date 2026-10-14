@@ -67,6 +67,7 @@ pub mod route;
 pub mod rsi;
 pub mod rsi_backlog;
 pub mod rsi_budget;
+pub mod rsi_join;
 pub mod rsi_pr;
 pub mod rsi_sealed;
 pub mod sandbox;
@@ -471,6 +472,10 @@ facts![
     rsi_backlog::BacklogStarted,
     rsi_backlog::BacklogDropped,
     rsi_pr::SelfBranchBuilt<'static>,
+    rsi_join::SelfReviewVerdict,
+    rsi_join::SelfJoined,
+    rsi_join::SelfInstalled,
+    rsi_join::SelfJoinStopped,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
 ];

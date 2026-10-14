@@ -358,6 +358,16 @@ pub fn diffstat(p: &Place, tree: &Tree) -> Result<(u64, u64, u64)> {
 
 /// Run main's gate on the tree (the door), at the background priority.
 pub async fn gate(p: &Place, tree: &Tree) -> Result<GateRun> {
+    gate_with(p, tree, false).await
+}
+
+/// Main's gate on the tree with the benches too (`THESEUS_GATE_NO_BENCH`
+/// unset): the self-join's gate on the merge (theseus-pw1q.9).
+pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<GateRun> {
+    gate_with(p, tree, true).await
+}
+
+async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
     let (pc, t) = (p.clone(), tree.clone());
     let (script, may) = tokio::task::spawn_blocking(move || -> Result<_> {
         let script = pc
@@ -386,7 +396,7 @@ pub async fn gate(p: &Place, tree: &Tree) -> Result<GateRun> {
         .gates()
         .join(format!("{}.log", tree.branch.replace('/', "-")));
     let t0 = Instant::now();
-    let status = run_niced(p, tree, &script, &log, GATE_LIMIT).await?;
+    let status = run_niced(p, tree, &script, &log, GATE_LIMIT, benches).await?;
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let verdict = if status == Some(0) {
         Verdict::Green
@@ -413,7 +423,7 @@ async fn may_build(p: &Place, tree: &Tree, script: &Path) -> Result<()> {
     let until = Instant::now() + MAY_BUILD_WAIT;
     let log = p.gates().join("may-build.log");
     loop {
-        if run_niced(p, tree, script, &log, Duration::from_secs(120)).await? == Some(0) {
+        if run_niced(p, tree, script, &log, Duration::from_secs(120), false).await? == Some(0) {
             return Ok(());
         }
         if Instant::now() >= until {
@@ -434,6 +444,7 @@ async fn run_niced(
     script: &Path,
     log: &Path,
     limit: Duration,
+    benches: bool,
 ) -> Result<Option<i32>> {
     let out = std::fs::File::create(log)?;
     let err = out.try_clone()?;
@@ -455,8 +466,10 @@ async fn run_niced(
             c.env_remove(&k);
         }
     }
+    if !benches {
+        c.env("THESEUS_GATE_NO_BENCH", "1");
+    }
     c.env("THESEUS_GATE_ROOT", &tree.dir)
-        .env("THESEUS_GATE_NO_BENCH", "1")
         .env("CARGO_TARGET_DIR", &tree.target)
         .env("RUSTC_WRAPPER", "")
         .env("CARGO_BUILD_RUSTC_WRAPPER", "")

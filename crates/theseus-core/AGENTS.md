@@ -494,6 +494,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `self.branches` lists them (`theseus self branches`). Tests: `rsi/tests_tree.rs` (a throwaway repo and a stand-in
   gate), `rsi/tests_pr.rs` (through the core). While `[self] sealed_dir` is set, `self.propose_change` builds nothing:
   the gate runs the tree's own code outside L1, where it could read the sealed set.
+  **The self-join** (theseus-pw1q.9; `rsi/join.rs` and `rsi/join/`, `fact/rsi_join.rs`): `Core::self_join_pass(&Seams)`,
+  from its tender (`join/tender.rs`, only with `[self] mode = "act"`: a pass 10 minutes after serving, then every 15),
+  asks `rsi::gate` before every phase and writes `self.join.stopped { phase }` on a refusal. Each green
+  `self.branch.built` row is reviewed once per head: the reviewer's model (`[self] reviewer_profile`, `"fable"`) must
+  differ from the builder's session's last target (else `refused`); the planted revert (`join/planted.rs`, code, not
+  the reviewer: the branch's new and changed tests pass at its head, then fail with every non-test path put back as
+  the merge-base has it) runs before any reviewer is paid; the reviewer is a check turn in a new `"self"` session
+  (`join/review.rs`, the claim through `check::render`: the diff, the frozen report, the item's evidence, never the
+  builder's transcript), its verdict the reply's last `VERDICT:` line. One `self.review.verdict` row; a reject puts
+  the backlog item back to `proposed` with the reasons in its evidence, in the row's frame. An accepted head is
+  classified (`join/keel.rs`: `CLASSES`, one test a class, plus main's keel guard, a `MANIFEST_FORMAT` line and a
+  spend key) and a hit posts a `self_join` card to the owner's DM and holds the head (`numbers.held`). Then, one a
+  pass, under the mkdir lock (`join/lock.rs`, `[self] join_lock`, its `owner` file ending `done:`): fetch, the dry
+  run (`merge-tree`), a `--no-ff` merge in a detached tree, main's gate through the door with the benches
+  (`tree::gate_with_benches`), the signature with `[self] repo`'s `user.signingkey` (none: a card, nothing pushed),
+  the push of main never forced, main moved redoing the three (`TRIES`), `self.joined`. `[self] install` (false)
+  hands the build and the restart to a `systemd-run --user` unit (`join/install.rs`); the new daemon's
+  `self_installed_after_serving` writes `self.installed` and the notice once. Tests: `rsi/join/tests.rs` (a
+  throwaway origin, a stand-in gpg, stand-in tests and reviewer), and each module's own.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

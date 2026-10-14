@@ -79,7 +79,7 @@ impl Board {
         *self.env.lock().unwrap_or_else(PoisonError::into_inner) = env;
     }
 
-    fn place(&self, repo: &str) -> Place {
+    pub(crate) fn place(&self, repo: &str) -> Place {
         Place {
             repo: crate::config::expand(repo),
             state: self.state.clone(),

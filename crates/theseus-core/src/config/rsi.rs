@@ -27,6 +27,16 @@
 //!   with the credential git already has for it (none is read here). Unset,
 //!   the default: they stay in the repo. Choosing it is the owner's: a push
 //!   needs a credential, and choosing one is a permission change.
+//! - `reviewer_profile` (theseus-pw1q.9): the profile the self-join's
+//!   independent review runs on, `"fable"` by default. Its model must differ
+//!   from the branch builder's, or the review is refused with its reason.
+//! - `join_lock` (theseus-pw1q.9): the mkdir lock every self-join holds,
+//!   `<state>/self/join.lock` when unset. The owner's machine points it at
+//!   the outer loop's join lock, so the two never join at once.
+//! - `install` (theseus-pw1q.9): `false` by default. `true` (the owner's
+//!   standing OK) builds and installs a joined merge on this machine and
+//!   restarts the daemon onto it, through a transient `systemd-run --user`
+//!   unit.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -53,6 +63,19 @@ pub struct SelfConfig {
     /// Open items the backlog keeps; the lowest-ranked past it are dropped.
     #[serde(default = "default_backlog_max_open")]
     pub backlog_max_open: u32,
+    /// The self-join's reviewer (theseus-pw1q.9).
+    #[serde(default = "default_reviewer_profile")]
+    pub reviewer_profile: String,
+    /// The self-join's lock directory; none: `<state>/self/join.lock`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_lock: Option<String>,
+    /// Build, install and restart onto a joined merge (theseus-pw1q.9).
+    #[serde(default)]
+    pub install: bool,
+}
+
+fn default_reviewer_profile() -> String {
+    "fable".into()
 }
 
 fn default_backlog_starts() -> u32 {
@@ -74,6 +97,9 @@ impl Default for SelfConfig {
             sealed_dir: None,
             backlog_starts: default_backlog_starts(),
             backlog_max_open: default_backlog_max_open(),
+            reviewer_profile: default_reviewer_profile(),
+            join_lock: None,
+            install: false,
         }
     }
 }
@@ -378,5 +404,30 @@ mod tests {
                 .self_improve;
         assert_eq!(cfg.repo.as_deref(), Some("/srv/ship"));
         assert_eq!(cfg.remote.as_deref(), Some("fleet"));
+    }
+
+    /// The self-join's keys (theseus-pw1q.9): the reviewer is fable, the lock
+    /// unset (the state dir's), no install; the template names all three.
+    #[test]
+    fn the_join_keys_default_to_fable_the_state_dirs_lock_and_no_install() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!(none.reviewer_profile, "fable");
+        assert_eq!(none.join_lock, None);
+        assert!(!none.install);
+        let t = Config::EXAMPLE_TOML;
+        assert!(
+            t.contains("\n# reviewer_profile = \"fable\"")
+                && t.contains("\n# join_lock = \"")
+                && t.contains("\n# install = false"),
+            "the template names the join's keys with their defaults"
+        );
+        let cfg = Config::from_toml(
+            "[self]\nreviewer_profile = \"opus\"\njoin_lock = \"/srv/joins.lock\"\ninstall = true\n",
+        )
+        .unwrap()
+        .self_improve;
+        assert_eq!(cfg.reviewer_profile, "opus");
+        assert_eq!(cfg.join_lock.as_deref(), Some("/srv/joins.lock"));
+        assert!(cfg.install);
     }
 }
