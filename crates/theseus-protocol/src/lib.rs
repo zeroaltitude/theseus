@@ -345,7 +345,7 @@ pub mod method {
         /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
         /// Earned autonomy (theseus-uttu, `earned`): the number and the card, the owner's answer, a grant's revoke.
         POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke",
-        SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
+        SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest", SELF_EXAMS = "self.exams",
     }
 }
 

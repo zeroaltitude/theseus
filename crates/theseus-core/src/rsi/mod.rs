@@ -39,6 +39,7 @@
 //! why, its numbers and its undo. `digest.rs` makes the week's text of them.
 
 mod digest;
+pub mod exams;
 mod log;
 mod switch;
 

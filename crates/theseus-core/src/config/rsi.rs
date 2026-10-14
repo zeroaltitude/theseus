@@ -8,6 +8,8 @@
 //! - `digest`: `"weekly"` (the default: with `mode = "act"`, the week's
 //!   "What Theseus changed about itself" goes to the owner's DM once a week)
 //!   or `"off"`.
+//! - `exams_day_max`: the most exam candidates the nightly exam pass writes
+//!   a day (default 10; theseus-pw1q.11).
 //! - `[self.budget]`: the self budget's lines, an empty table until the
 //!   self-budget row gives it `branch_usd` and `day_usd`.
 
@@ -15,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
 
 /// `[self]`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelfConfig {
     #[serde(default, deserialize_with = "mode")]
@@ -24,6 +26,27 @@ pub struct SelfConfig {
     pub digest: SelfDigest,
     #[serde(default)]
     pub budget: SelfBudgetConfig,
+    /// The most exam candidates written a night.
+    #[serde(default = "default_exams_day_max")]
+    pub exams_day_max: u32,
+}
+
+/// `[self] exams_day_max`'s default.
+pub const EXAMS_DAY_MAX: u32 = 10;
+
+fn default_exams_day_max() -> u32 {
+    EXAMS_DAY_MAX
+}
+
+impl Default for SelfConfig {
+    fn default() -> Self {
+        Self {
+            mode: SelfMode::default(),
+            digest: SelfDigest::default(),
+            budget: SelfBudgetConfig::default(),
+            exams_day_max: EXAMS_DAY_MAX,
+        }
+    }
 }
 
 /// `[self] digest`.
@@ -101,6 +124,7 @@ mod tests {
         assert!(
             t.contains("# [self]\n# mode = \"off\"")
                 && t.contains("# digest = \"weekly\"")
+                && t.contains("# exams_day_max = 10")
                 && t.contains("# [self.budget]"),
             "the template names [self], its two keys and [self.budget]"
         );
@@ -125,5 +149,8 @@ mod tests {
         );
         assert!(e.contains("[self] digest must be"), "{e}");
         assert!(Config::from_toml("[self]\nbudget_usd = 1.0\n").is_err());
+        assert_eq!(none.self_improve.exams_day_max, 10);
+        let capped = Config::from_toml("[self]\nexams_day_max = 3\n").unwrap();
+        assert_eq!(capped.self_improve.exams_day_max, 3);
     }
 }

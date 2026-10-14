@@ -964,6 +964,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self]
 # mode = "off"                            # "off" or "act"
 # digest = "weekly"                       # "weekly" or "off"
+# exams_day_max = 10                      # the most exam items written a night from your corrections, wrong labels, failed tasks and over-budget turns
 # [self.budget]                           # the self budget's lines (none yet: the self-budget step adds them)
 
 # ---------------------------------------------------------------- sandbox

@@ -444,6 +444,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`post_self_digest_if_due`, kind `self_digest`, META `self.digest.posted`) only while `posts_digest()` (mode act,
   digest weekly): with the mode off it reads and writes nothing. Methods in `rpc/rsi.rs`, routed through
   `rpc_prefixed`. Tests: `rpc/tests_self.rs`.
+  **Self-exams** (theseus-pw1q.11; `rsi/exams.rs` and `rsi/exams/`): the nightly pass, after the learning report and
+  `rsi::gate` (`Core::self_exams_nightly`; nothing with the mode off), turns the owner's corrections
+  (`route.corrected`, `fact.corrected`), the judge's wrong labels on the train split (a judgment older than the
+  holdout window), failed tasks (`task.ended`) and over-budget turns (`budget.reached`) into items of its own
+  versioned format (`self-exam-v1`; theseus-exam's check language), scrubbed (the daemon's scrubber, handle shapes,
+  held people's names). A keyed hash (META `self.exams.key`) splits each family into an open half (written to
+  `<state>/self/exams/open/<family>/<id>.json`, `Shelf`) and a sealed half (a `SealedSink`: none until
+  `rsi::sealed` joins, so sealed items are dropped with a count, unreviewed and unwritten). An item counts only after
+  a reviewer on another model (`CoreReviewer`, profile `fable`) calls it fair; then `self.exam.counted`, else
+  `self.exam.rejected` with the reason (a sealed item's reason names the failed questions only). `[self]
+  exams_day_max` (10) caps reviews a local day. The proposer rule: `Writer::SelfBranch` is refused by every
+  `Shelf` write, and `exams::touches_exams` names the paths a self branch's push must refuse (`self/exams/`,
+  `crates/theseus-exam/exam/`). `self.exams` / `theseus self exams` show counts by family and half and today's
+  reviews, never a sealed item's text. Tests: `rsi/exams/tests.rs`, `rpc/tests_self_exams.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
