@@ -33,13 +33,22 @@ fn release(target: &Path, bytes: u64, stamped: Option<&str>) {
 }
 
 fn step(target: &Path, history: &Path) -> Output {
-    Command::new(root().join("scripts/size-step.sh"))
-        .arg(history)
+    step_as(target, history, None)
+}
+
+/// `step`, judging the tree as `tree` instead of reading its stamp now: the gate's suite runs beside this test and
+/// may touch the working tree (the protocol generator rewrites its files) between the stamp `release` wrote and the
+/// one the step reads.
+fn step_as(target: &Path, history: &Path, tree: Option<&str>) -> Output {
+    let mut c = Command::new(root().join("scripts/size-step.sh"));
+    c.arg(history)
         .arg("lane abc123")
         .env("THESEUS_SIZE_TARGET", target)
-        .env("THESEUS_SIM", env!("CARGO_BIN_EXE_theseus-sim"))
-        .output()
-        .unwrap()
+        .env("THESEUS_SIM", env!("CARGO_BIN_EXE_theseus-sim"));
+    if let Some(t) = tree {
+        c.env("THESEUS_SIZE_STAMP", t);
+    }
+    c.output().unwrap()
 }
 
 fn text(o: &Output) -> String {
@@ -69,6 +78,10 @@ fn no_release_build_of_this_tree_is_a_skip_that_says_so() {
 fn growth_over_a_megabyte_fails_and_the_sixty_megabyte_miss_does_not() {
     let d = tempfile::tempdir().unwrap();
     let history = d.path().join("h.csv");
+    // One stamp for the whole test: the tree as it was when the test began.
+    let tree = stamp();
+    let step = |target: &Path, history: &Path| step_as(target, history, Some(&tree));
+    let release = |target: &Path, bytes: u64, _: Option<&str>| release(target, bytes, Some(&tree));
     // The first run has no baseline: over 60 MB, a miss with its gap, and a pass.
     release(d.path(), 77_000_000, None);
     let first = step(d.path(), &history);
