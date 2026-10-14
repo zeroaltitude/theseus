@@ -964,6 +964,12 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self]
 # mode = "off"                            # "off" or "act"
 # digest = "weekly"                       # "weekly" or "off"
+# sealed_dir = "/srv/theseus-sealed"      # unset: no sealed set. Where sealed holdout sets live, out of
+#                                         # Theseus's reach: an absolute path outside every workspace root,
+#                                         # the state dir, the repository and [sandbox] ro_paths (refused at
+#                                         # load otherwise). No tool, job, extension or hand can open it; the
+#                                         # daemon writes items in and gets scores back, never an item. Seeded
+#                                         # by you; changing a set or the scorer is the owner's call.
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day

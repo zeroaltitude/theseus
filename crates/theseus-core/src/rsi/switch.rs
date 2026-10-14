@@ -23,7 +23,10 @@ impl Core {
 
     /// The mode, the switch, and the gate, as every surface shows them.
     pub fn self_state(&self) -> SelfState {
-        let mut s = super::state(&self.self_ctx());
+        let mut s = SelfState {
+            sealed: self.sealed_state(),
+            ..super::state(&self.self_ctx())
+        };
         if let Some(b) = self.runner.self_budget.view() {
             s.day_spent_usd = Some(b.day_spent_usd);
             s.day_line_usd = Some(b.day_line_usd);

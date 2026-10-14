@@ -39,6 +39,9 @@ impl ToolRuntime {
         input: &Value,
         seen: &mut dyn FnMut(Layer, &Decision),
     ) -> Result<(Decision, Bound), Turned> {
+        if let Some(why) = self.sealed.refusal_of_input(input) {
+            return Err(Turned::Place(why));
+        }
         let Some(steps) = tool.steps(input) else {
             if let Some(why) = self.refusal(at.place, tool.name(), plan) {
                 return Err(Turned::Place(why));

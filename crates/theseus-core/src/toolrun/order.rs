@@ -67,7 +67,10 @@ impl ToolRuntime {
     /// Why the place refuses a planned call: the place rule's word, then the
     /// ceiling's. None: the order decides it.
     pub(crate) fn refusal(&self, place: PlaceView, tool: &str, plan: &Plan) -> Option<String> {
-        crate::places::refusal(place.class, tool, plan, &self.public_roots)
+        // The sealed holdout sets come first, in every place (theseus-pw1q.5).
+        self.sealed
+            .refusal(plan)
+            .or_else(|| crate::places::refusal(place.class, tool, plan, &self.public_roots))
             .or_else(|| place.ceiling.and_then(|c| c.refusal(tool)))
     }
 

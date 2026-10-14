@@ -28,7 +28,24 @@ pub fn self_state_line(s: &SelfState) -> String {
         ),
         (false, _) => format!("released by {}{at}", s.by.as_deref().unwrap_or("?")),
     };
-    format!("{mode}; the kill switch is {switch}")
+    format!("{mode}; the kill switch is {switch}; {}", sealed_words(s))
+}
+
+/// Whether a sealed dir is set and how many items each set holds: counts
+/// only (theseus-pw1q.5).
+fn sealed_words(s: &SelfState) -> String {
+    let Some(sealed) = &s.sealed else {
+        return "no sealed dir set".into();
+    };
+    if sealed.sets.is_empty() {
+        return "sealed dir set, no set in it yet".into();
+    }
+    let sets: Vec<String> = sealed
+        .sets
+        .iter()
+        .map(|(set, n)| format!("{set} {n} item{}", if *n == 1 { "" } else { "s" }))
+        .collect();
+    format!("sealed dir set: {}", sets.join(", "))
 }
 
 /// Money as the self budget shows it: to the cent, four places under a cent.
@@ -104,6 +121,7 @@ mod tests {
             gate: gate.into(),
             day_spent_usd: None,
             day_line_usd: None,
+            sealed: None,
         }
     }
 
@@ -117,7 +135,7 @@ mod tests {
     fn health_has_a_self_line_with_the_gate_the_mode_and_the_switch() {
         assert_eq!(
             lines(Some(&state(SelfMode::Off, true, true, "off"))),
-            ["self: off · mode off: nothing self-directed runs; the kill switch is halted (never resumed)"]
+            ["self: off · mode off: nothing self-directed runs; the kill switch is halted (never resumed); no sealed dir set"]
         );
         let halted = lines(Some(&state(SelfMode::Act, true, false, "halted")));
         assert_eq!(halted.len(), 1);
@@ -126,7 +144,10 @@ mod tests {
                 .starts_with("self: halted · mode act; the kill switch is halted by the CLI at "),
             "{halted:?}"
         );
-        assert!(halted[0].ends_with(": the gate went red"), "{halted:?}");
+        assert!(
+            halted[0].ends_with(": the gate went red; no sealed dir set"),
+            "{halted:?}"
+        );
         let allowed = lines(Some(&state(SelfMode::Act, false, false, "allowed")));
         assert!(
             allowed[0].starts_with(
@@ -135,6 +156,19 @@ mod tests {
             "{allowed:?}"
         );
         assert!(lines(None).is_empty(), "a daemon before it shows no line");
+        // A sealed dir: counts only, a set's name and how many items.
+        let mut sealed = state(SelfMode::Off, true, true, "off");
+        sealed.sealed = Some(theseus_protocol::rsi::SealedState::default());
+        assert!(lines(Some(&sealed))[0].ends_with("; sealed dir set, no set in it yet"));
+        let sets = [("core".to_string(), 40), ("tools".to_string(), 1)];
+        sealed.sealed = Some(theseus_protocol::rsi::SealedState {
+            sets: sets.into_iter().collect(),
+        });
+        assert!(
+            lines(Some(&sealed))[0].ends_with("; sealed dir set: core 40 items, tools 1 item"),
+            "{:?}",
+            lines(Some(&sealed))
+        );
     }
 
     #[test]

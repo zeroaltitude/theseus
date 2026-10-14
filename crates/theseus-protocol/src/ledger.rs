@@ -224,6 +224,7 @@ ledger_kinds! {
     SelfBudgetReserved = "self.budget.reserved",
     SelfBudgetSettled = "self.budget.settled",
     SelfBudgetStopped = "self.budget.stopped",
+    SelfExamCounted = "self.exam.counted",
     SelfHalted = "self.halted",
     SelfResumed = "self.resumed",
     ServerCrashed = "server.crashed",

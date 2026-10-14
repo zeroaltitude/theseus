@@ -1298,6 +1298,7 @@ impl Config {
             );
         }
         self.sandbox.validate()?;
+        self.self_improve.validate(self)?;
         self.judge.validate(&self.secrets)?;
         let providers = self.all_providers();
         for (name, prof) in &self.profiles {

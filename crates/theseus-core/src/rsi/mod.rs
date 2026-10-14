@@ -41,6 +41,7 @@
 pub mod budget;
 mod digest;
 mod log;
+pub mod sealed;
 mod switch;
 #[cfg(test)]
 mod tests_budget;
@@ -195,5 +196,6 @@ pub fn state(ctx: &Ctx<'_>) -> SelfState {
         gate: g.name().into(),
         day_spent_usd: None,
         day_line_usd: None,
+        sealed: None,
     }
 }

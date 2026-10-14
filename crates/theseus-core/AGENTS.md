@@ -452,6 +452,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `origin.principal == rsi::SELF_PRINCIPAL` reserves each model call in `turn/self_budget_step.rs` (its branch is the
   root task's id; a failure of class `self_budget` ends the turn with the budget's words); other sessions pay one
   `Option` test. Mode off: every call refuses, reads and writes nothing. Tests: `rsi/tests_budget.rs`, `tests_self_budget.rs`.
+  **Sealed holdout sets** (theseus-pw1q.5; the hard keel: Theseus gets a score, never an item): `[self] sealed_dir`
+  (unset: none; checked at load to sit outside every root, `cwd`, the state dir, the repository and `[sandbox]
+  ro_paths`, neither inside nor holding one: `config/rsi.rs`). `rsi/sealed.rs`: `Sealed::put(set, family, bytes) ->
+  ItemId` (a keyed hash; write-only, no call returns an item) and `score(set, &dyn Runner) -> Scores` (per-family
+  counts and rates, cost, an opaque keyed id per failure), reached by `Core::sealed_put` (which writes the
+  `self.exam.counted` row, `sealed: true`, with the id alone) and `sealed_score`. The item is `{"v":1,"task","check",
+  "canary"?}` with the exam's check language, the part that reads a reply (`sealed/check.rs`); every output passes
+  `sealed/filter.rs` and an error is a fixed sentence. Out of reach: `ToolRuntime::refusal` asks `sealed::Guard`
+  first, for every tool in every place (a path the plan resolves into it, an argument that reaches it from the
+  call's directory, or its path written anywhere in the call's input: `judge`), and the path is a floor path, so
+  no L1 view (a job's, an MCP server's, a proposed extension's) shows it. An L0 job can still build the path from
+  pieces: L1 is the boundary, as for the socket. Health's `self` line gives counts per set (`SelfState.sealed`).
+  The paths the keel guard should hold are `sealed::KEEL_PATHS`. Tests: `rsi/sealed/tests.rs`, `tests_reach.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
