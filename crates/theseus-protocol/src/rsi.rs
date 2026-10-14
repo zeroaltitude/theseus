@@ -74,6 +74,12 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "A joined build installed: what was swapped in.",
     },
     SelfRowKind {
+        name: "self.join.stopped",
+        fields: &["branch", "head", "phase"],
+        doc: "A self-join stopped before a phase (theseus-pw1q.9): a halt, a keel class waiting \
+              on the owner's card, a red gate on the merge, no signing key, or a lost race.",
+    },
+    SelfRowKind {
         name: "self.reverted",
         fields: &["merge", "revert", "signal", "window"],
         doc: "A join reverted on its own after a red: the signal that turned red, and the revert \
