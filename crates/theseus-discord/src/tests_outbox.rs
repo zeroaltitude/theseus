@@ -136,6 +136,7 @@ async fn ask(rpc: &RpcClient, sid: &str, input: &str) -> TurnSubmitResult {
             attachments: vec![],
             reply_to: None,
             opened_from: None,
+            thread: None,
         },
     )
     .await

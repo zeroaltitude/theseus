@@ -76,6 +76,7 @@ pub mod start;
 pub mod synthesis;
 pub mod task_graph;
 pub mod term;
+pub mod thread;
 pub mod tool;
 pub mod turn;
 pub mod wake;
@@ -473,6 +474,12 @@ facts![
     rsi_pr::SelfBranchBuilt<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
+    thread::ThreadCreated<'static>,
+    thread::ThreadEdited<'static>,
+    thread::ThreadPaused<'static>,
+    thread::ThreadResumed<'static>,
+    thread::ThreadDone<'static>,
+    thread::ThreadReopened<'static>,
 ];
 
 #[cfg(test)]

@@ -538,6 +538,7 @@ impl Place {
                         attachments: Vec::new(),
                         reply_to: None,
                         opened_from: None,
+                        thread: None,
                     },
                 )
                 .await

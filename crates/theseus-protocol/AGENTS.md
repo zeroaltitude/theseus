@@ -97,6 +97,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   created or appended sessions), and the timer's minute and the missed-night grace.
 - `fork.rs` (theseus-2qzx): `session.fork`'s params and result, and the stored `ForkOrigin` (a session record's
   `forked_from`), `Inherits` (a compilation's inherited run) and `ReachFork` (`node.reach`'s `forks`).
+- `threads.rs` (theseus-nhew): threads on virtual places `thread:<slug>`: `ThreadInfo` (the seam the context, recall and
+  routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
+  session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
+  `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

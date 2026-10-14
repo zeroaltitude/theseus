@@ -32,8 +32,10 @@ pub(crate) mod people;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
+mod threads;
 mod wake_limits;
 pub use sessions::SessionsConfig;
+pub use threads::ThreadsConfig;
 mod sparse;
 pub mod term;
 mod web;
@@ -146,6 +148,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
+    #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
+    pub threads: ThreadsConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1356,6 +1361,7 @@ impl Config {
             .validate(|p| self.all_profiles().contains_key(p))?;
         self.lsp.validate()?;
         self.sessions.validate()?;
+        self.threads.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

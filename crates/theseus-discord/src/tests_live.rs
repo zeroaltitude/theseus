@@ -108,6 +108,7 @@ impl Rig {
             attachments: vec![],
             reply_to: None,
             opened_from: None,
+            thread: None,
         };
         rpc.call(theseus_protocol::method::TURN_SUBMIT, p)
             .await

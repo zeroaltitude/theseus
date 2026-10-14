@@ -910,6 +910,16 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # empty_grace_minutes = 60.0              # a session never used reads retired this long after it opened
 # retitle_within_turns = 3                # 0: titles stay the first prompt's
 
+# ---------------------------------------------------------------- threads
+# A thread is a durable record of one line of work, bound to a virtual place
+# `thread:<slug>` and so to a chain of sessions of its own (`theseus thread
+# new`, then `theseus ask --thread <slug>`). Two threads are two executions and
+# run at once; a thread is private always, and a shared place never lists or
+# addresses one. max_live bounds the active and paused threads together.
+# [threads]
+# enabled = true                          # false: no thread is made or addressed (the records stay)
+# max_live = 50                           # active and paused threads at once
+
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
 # human-facing text and returns candidate people through a tool schema; Jev

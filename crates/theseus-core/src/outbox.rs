@@ -170,6 +170,13 @@ struct Counts {
 }
 
 /// The binding a target belongs to: `discord` for `discord:dm:1`.
+/// Whether `place` is a thread's virtual place (`thread:<slug>`, theseus-nhew):
+/// its record says which session it runs on, but no binding delivers to it, so
+/// its session has no target and posts nowhere, as a CLI session's.
+fn virtual_place(place: &str) -> bool {
+    theseus_protocol::threads::slug_of_place(place).is_some()
+}
+
 fn binding_of(target: &str) -> &str {
     target.split_once(':').map_or(target, |(b, _)| b)
 }
@@ -396,6 +403,9 @@ impl Outbox {
             let Some(place) = key.strip_prefix(PLACE_META_PREFIX) else {
                 continue;
             };
+            if virtual_place(place) {
+                continue;
+            }
             if let Ok(sid) = r.decode::<String>() {
                 ix.targets.insert(sid, format!("discord:{place}"));
             }
@@ -471,6 +481,9 @@ impl Outbox {
 
     /// Where a place's posts go, once its record is written.
     pub fn place_bound(&self, place: &str, session_id: &str) -> Result<()> {
+        if virtual_place(place) {
+            return Ok(());
+        }
         let target = format!("discord:{place}");
         self.with(|ix| {
             ix.targets.retain(|_, t| *t != target);

@@ -43,6 +43,7 @@ mod retract;
 mod self_cmd;
 mod standing_cmd;
 mod status;
+mod thread;
 mod why;
 
 use std::path::PathBuf;
@@ -525,6 +526,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
     },
+    /// Threads (theseus-nhew): lines of work on virtual places `thread:<slug>`, each with a session
+    /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
+    /// resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone
+    /// (refused inside a job).
+    Thread {
+        #[command(subcommand)]
+        cmd: Option<thread::ThreadCmd>,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -540,6 +549,10 @@ struct AskArgs {
     /// Continue an existing session instead of opening a new one.
     #[arg(long, short)]
     session: Option<String>,
+    /// Run in this thread's session (theseus-nhew), opened at its first message: the slug
+    /// `theseus thread list` shows.
+    #[arg(long, value_name = "SLUG", conflicts_with = "session")]
+    thread: Option<String>,
     /// Profile for this turn (default: the live profile).
     #[arg(long = "profile", short = 'P')]
     profile: Option<String>,
@@ -1140,6 +1153,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

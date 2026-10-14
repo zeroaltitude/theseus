@@ -174,6 +174,8 @@ pub struct TurnRunner {
     pub ontology: crate::ontology::Board,
     /// The owner's standing records (theseus-a7vi), in memory.
     pub standing: crate::standing::Board,
+    /// The threads (theseus-nhew), in memory.
+    pub threads: crate::threads::Threads,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,

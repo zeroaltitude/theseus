@@ -668,6 +668,7 @@ impl Place {
                         attachments: Vec::new(),
                         reply_to: None,
                         opened_from: None,
+                        thread: None,
                     },
                 )
                 .await;
@@ -1665,10 +1666,10 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave"]);
-        // The binding registers them after its own thirteen (`/why` the eleventh, `/orders` the twelfth, `/remind` the thirteenth).
+        // The binding registers them after its own fourteen (`/why` the eleventh, `/orders` the twelfth, `/thread` the thirteenth, `/remind` the fourteenth).
         let all = super::super::commands();
-        let last: Vec<&str> = all[13..].iter().map(|c| c.name.as_str()).collect();
-        assert_eq!((all.len(), last), (15, vec!["join", "leave"]));
+        let last: Vec<&str> = all[14..].iter().map(|c| c.name.as_str()).collect();
+        assert_eq!((all.len(), last), (16, vec!["join", "leave"]));
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

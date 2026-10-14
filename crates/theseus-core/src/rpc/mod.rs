@@ -53,6 +53,7 @@ mod server;
 mod session_dir;
 mod sessions;
 mod standing;
+mod threads;
 mod wake_owner;
 #[cfg(test)]
 pub(crate) use server::write_item;
@@ -84,6 +85,8 @@ mod tests_self;
 mod tests_self_backlog;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
 #[cfg(test)]
@@ -739,6 +742,7 @@ impl Core {
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
             standing: Default::default(),
+            threads: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
             spend_marks: Default::default(),

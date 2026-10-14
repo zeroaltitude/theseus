@@ -162,8 +162,8 @@ impl Shared {
             .map_err(|e| e.message)
     }
 
-    /// An interaction of `/orders` or `/extensions` or a Revoke button of
-    /// either: true when it was one, and answered. One call from
+    /// An interaction of `/orders`, `/thread` or `/extensions` or a Revoke
+    /// button of either: true when it was one, and answered. One call from
     /// `on_interaction`, which clippy holds to its complexity.
     pub(super) async fn revokable_interaction(
         &self,
@@ -173,6 +173,7 @@ impl Shared {
         discord: Option<DiscordOrigin>,
     ) -> bool {
         self.orders_interaction(i, tx, who, discord.clone()).await
+            || self.thread_interaction(i, who, discord.clone()).await
             || self.extensions_interaction(i, tx, who, discord).await
     }
 
