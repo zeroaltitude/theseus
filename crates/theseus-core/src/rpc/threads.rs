@@ -121,6 +121,10 @@ impl Core {
             method::THREAD_SEAL | method::THREAD_UNSEAL | method::THREAD_SEAL_DISMISS => {
                 super::thread_seal::route_seal(self, name, params, conn)
             }
+            method::THREAD_ANSWER => route(
+                params,
+                |p: theseus_protocol::thread_route::ThreadAnswerParams| self.thread_answer(p, conn),
+            ),
             _ => route(params, |p: ThreadNameParams| {
                 self.thread_reopen(&p.slug, conn.answerer(p.author, p.discord))
             }),
@@ -166,6 +170,12 @@ impl Core {
             },
         )
         .map_err(failure)
+    }
+
+    /// Judge an answer to a waiting "which thread?" (theseus-rha2): the owner,
+    /// from a private place, as every move of a thread is.
+    pub(super) fn judge_thread_answer(&self, who: &Answerer, ask: &str) -> Result<(), RpcFailure> {
+        self.judge_thread(who, method::THREAD_ANSWER, ask)
     }
 
     pub(super) fn threads_on(&self) -> Result<(), RpcFailure> {
@@ -692,6 +702,13 @@ impl Core {
             ));
         }
         self.thread_session_of(slug, target, "discord")
+    }
+
+    /// `thread_session`, the owner already judged: the router's own call, for a
+    /// message in a private place (the board offers a shared place none), and a
+    /// move's, which judged its presser (theseus-rha2).
+    pub(super) fn thread_session_open(&self, slug: &str) -> Result<SessionRecord, RpcFailure> {
+        self.thread_session_of(slug, "the owner", "the thread router")
     }
 
     fn thread_session_of(

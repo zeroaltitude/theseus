@@ -1559,7 +1559,11 @@ impl TurnRunner {
             session.failing = None;
         }
         let sid = session.session_id.clone();
-        let turn_id = crate::new_id("turn");
+        let turn_id = self
+            .threads
+            .route
+            .turn_id(&sid)
+            .unwrap_or_else(|| crate::new_id("turn"));
         let task_of = session.task.clone();
         let place = self.view_of(&sid);
         let dir = session.dir.clone();
@@ -3266,6 +3270,7 @@ impl TurnRunner {
             outside_roots: None,
             nudged: t.nudge.result(t.tool_calls),
             cites,
+            thread: None,
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,

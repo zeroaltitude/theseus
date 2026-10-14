@@ -88,7 +88,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (LOOP_PACK, PackMode::Live),
     (gate::SECURITY_PACK, PackMode::Shadow),
     (gate::SECURITY_CANDIDATE, PackMode::Live),
-    (inbound::CLASSIFY_PACK, PackMode::Shadow),
+    (inbound::CLASSIFY_PACK, PackMode::Live),
     (inbound::ROLE_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),
     (compile::CONTINUE_PACK, PackMode::Shadow),

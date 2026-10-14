@@ -120,6 +120,8 @@ impl Board {
 pub struct Threads {
     board: RwLock<Option<Arc<Board>>>,
     writes: Mutex<()>,
+    /// What the router remembers (theseus-rha2).
+    pub route: crate::thread_flow::State,
 }
 
 impl Threads {

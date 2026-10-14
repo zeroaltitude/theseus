@@ -1,0 +1,438 @@
+{
+ "threads": [
+  {
+   "slug": "pr-round",
+   "title": "pr round",
+   "goal": "Get the cache PR through review",
+   "refs": [
+    "#412"
+   ],
+   "repos": [
+    "tidewatch"
+   ],
+   "branches": [
+    "lane/pr-round"
+   ],
+   "files": [],
+   "hosts": []
+  },
+  {
+   "slug": "security-fix",
+   "title": "security fix",
+   "goal": "Close the token leak in the vault",
+   "refs": [
+    "#977"
+   ],
+   "repos": [
+    "vault"
+   ],
+   "branches": [],
+   "files": [
+    "src/vault.rs"
+   ],
+   "hosts": []
+  },
+  {
+   "slug": "tide-gauge",
+   "title": "tide gauge",
+   "goal": "Recalibrate the harbour gauges",
+   "refs": [
+    "gl-31"
+   ],
+   "repos": [
+    "gaugelog"
+   ],
+   "branches": [],
+   "files": [],
+   "hosts": [
+    "gauges.example.net"
+   ]
+  },
+  {
+   "slug": "release-notes",
+   "title": "release notes",
+   "goal": "Write the next release's notes",
+   "refs": [
+    "#1203"
+   ],
+   "repos": [],
+   "branches": [],
+   "files": [
+    "CHANGELOG.md"
+   ],
+   "hosts": []
+  }
+ ],
+ "messages": [
+  {
+   "text": "what is failing in PR 412 on the lint step",
+   "thread": "pr-round",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "and the formatter too",
+   "thread": "pr-round",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "does the migration need a feature flag",
+   "thread": "pr-round",
+   "kind": "plain",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "is #977 blocked on the key rotation",
+   "thread": "security-fix",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "who has to sign that off",
+   "thread": "security-fix",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "check src/vault.rs for the token leak",
+   "thread": "security-fix",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "gl-31 says gauge four drifts at low tide",
+   "thread": "tide-gauge",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "log the calibration offsets as well",
+   "thread": "tide-gauge",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "how often do we sample the sensor",
+   "thread": "tide-gauge",
+   "kind": "plain",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.94
+   },
+   "cold": false
+  },
+  {
+   "text": "the review comment about naming still stands",
+   "thread": "pr-round",
+   "kind": "plain",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "push it when the checks are green",
+   "thread": "pr-round",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "draft the CHANGELOG.md entry for the cache fix",
+   "thread": "release-notes",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "keep it to three lines",
+   "thread": "release-notes",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "release-notes",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "who reviews the wording before we publish",
+   "thread": "release-notes",
+   "kind": "plain",
+   "jev": {
+    "pick": "release-notes",
+    "p": 0.94
+   },
+   "cold": false
+  },
+  {
+   "text": "remind me what the rotation window is",
+   "thread": "security-fix",
+   "kind": "plain",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "and who gets the page if it fails",
+   "thread": "security-fix",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "gauges.example.net returns a 503 again",
+   "thread": "tide-gauge",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "is the harbour sensor wired to the same bus",
+   "thread": "tide-gauge",
+   "kind": "plain",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.94
+   },
+   "cold": false
+  },
+  {
+   "text": "PR 1203 needs a release label",
+   "thread": "release-notes",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "tag it for the next minor",
+   "thread": "release-notes",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "release-notes",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "rebase lane/pr-round before lunch",
+   "thread": "pr-round",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "can you read the thread on the merge queue",
+   "thread": "pr-round",
+   "kind": "plain",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.94
+   },
+   "cold": false
+  },
+  {
+   "text": "vault tokens expire at midnight so check #977",
+   "thread": "security-fix",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "and plot the last seven days",
+   "thread": "tide-gauge",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.93
+   },
+   "cold": false
+  },
+  {
+   "text": "what does the tide table say for friday",
+   "thread": "tide-gauge",
+   "kind": "plain",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "move the highlights above the fixes",
+   "thread": "release-notes",
+   "kind": "plain",
+   "jev": {
+    "pick": "release-notes",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "is that safe to merge",
+   "thread": "pr-round",
+   "kind": "unclear",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.45
+   },
+   "cold": true
+  },
+  {
+   "text": "did anyone audit the old keys",
+   "thread": "security-fix",
+   "kind": "plain",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "list them by age",
+   "thread": "security-fix",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "gaugelog needs a schema bump",
+   "thread": "tide-gauge",
+   "kind": "entity",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.93
+   },
+   "cold": false
+  },
+  {
+   "text": "write the migration first",
+   "thread": "tide-gauge",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "add the notes to CHANGELOG.md under fixes",
+   "thread": "release-notes",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "are the benchmarks stable now",
+   "thread": "pr-round",
+   "kind": "plain",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.94
+   },
+   "cold": false
+  },
+  {
+   "text": "rerun them with the warm cache",
+   "thread": "pr-round",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "ok go ahead with that",
+   "thread": "security-fix",
+   "kind": "unclear",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.45
+   },
+   "cold": true
+  },
+  {
+   "text": "ship the draft to the channel",
+   "thread": "release-notes",
+   "kind": "plain",
+   "jev": {
+    "pick": "release-notes",
+    "p": 0.94
+   },
+   "cold": false
+  },
+  {
+   "text": "pull the overnight readings",
+   "thread": "tide-gauge",
+   "kind": "plain",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "rotate the signing key tonight",
+   "thread": "security-fix",
+   "kind": "plain",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.7
+   },
+   "cold": false
+  },
+  {
+   "text": "also run the formatter on the tests",
+   "thread": "pr-round",
+   "kind": "follow_up",
+   "jev": {
+    "pick": "pr-round",
+    "p": 0.95
+   },
+   "cold": false
+  },
+  {
+   "text": "which version does this target",
+   "thread": "release-notes",
+   "kind": "plain",
+   "jev": {
+    "pick": "security-fix",
+    "p": 0.7
+   },
+   "cold": false
+  }
+ ]
+}

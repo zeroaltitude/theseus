@@ -70,6 +70,7 @@ mod live;
 mod orders;
 mod source;
 mod thread;
+mod thread_ask;
 mod thread_bind;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
@@ -595,6 +596,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(why::command());
     cmds.push(orders::command());
     cmds.push(thread::command());
+    cmds.push(thread_ask::command());
     cmds.push(remind::command());
     cmds.extend(voice::commands());
     cmds
@@ -1191,6 +1193,7 @@ impl Shared {
             channel: m.channel_id,
             guild: m.guild_id,
             thread,
+            reply_turn: self.reply_turn_of(m),
         }));
     }
 
@@ -1957,9 +1960,10 @@ impl Place {
             }
             PlaceMsg::Event(e) => {
                 let e = *e;
-                if matches!(e, CoreEvent::TurnFailed(_)) {
-                    self.saw_failure = true;
+                if self.thread_ask_card(&e) {
+                    return; // the router's question (theseus-rha2): its card, apart from the stream
                 }
+                self.saw_failure |= matches!(e, CoreEvent::TurnFailed(_));
                 // The turn a `/stop` stopped (W1) streams no more here, and
                 // what it proposes will not run; its tool messages still
                 // take their last state, and its end clears it.
@@ -2070,6 +2074,7 @@ impl Place {
         // The turn's first message replies to the last one it answers: the
         // stream's, or the reply's post when the stream posted nothing.
         let anchor = batch.last().map(|m| m.message);
+        let reply_turn = batch.last().and_then(|m| m.reply_turn.clone());
         if let Some(a) = anchor {
             let _ = self.lane.send(LaneMsg::Anchor(a.get()));
         }
@@ -2104,6 +2109,7 @@ impl Place {
                         opened_from: None,
                         thread: None,
                         speaking: None,
+                        in_reply_to: reply_turn,
                     },
                 )
                 .await
@@ -2987,6 +2993,7 @@ pub(crate) mod tests {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             )
             .await
@@ -3011,6 +3018,7 @@ pub(crate) mod tests {
             channel: Id::new(43),
             guild: None,
             thread: None,
+            reply_turn: None,
         }]);
         let done = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -3285,6 +3293,7 @@ pub(crate) mod tests {
                 channel: Id::new(444_444_444_444_444_444),
                 guild: None,
                 thread: None,
+                reply_turn: None,
             }))
             .await;
         assert!(held().is_none());

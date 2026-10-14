@@ -302,6 +302,15 @@ impl Corrections {
         lock(&self.layer).nearest(words, acting, cfg.similarity)
     }
 
+    /// The thread an entry of the layer says a message close to `words`
+    /// belongs in (theseus-rha2).
+    pub fn nearest_thread(&self, words: &[String], cfg: &CorrectionsConfig) -> Option<String> {
+        if !cfg.enabled || words.is_empty() {
+            return None;
+        }
+        lock(&self.layer).nearest_thread(words, cfg.similarity)
+    }
+
     /// The layer's entries under `acting`, newest first, and how many retired.
     pub fn list(&self, acting: &str) -> (Vec<Entry>, u64) {
         let mut l = lock(&self.layer);
@@ -364,6 +373,7 @@ pub fn steer_line(s: &Steer) -> String {
     match s {
         Steer::Mode(m) => format!("mode {m}"),
         Steer::Profile(p) => p.clone(),
+        Steer::Thread(t) => format!("thread {t}"),
     }
 }
 

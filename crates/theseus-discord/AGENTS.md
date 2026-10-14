@@ -80,6 +80,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `Buttons::Seal`); a press is `thread.seal` or `thread.seal_dismiss` as the presser, with the place it came from, so the
   core judges it (the owner, from a private place); a seal's reply to the presser says what had already crossed into other
   threads. `/thread list` marks a sealed thread 🔒 (🔒? while a seal is proposed).
+- **The thread router's question and `/move`** (theseus-rha2, `runtime/thread_ask.rs`): the core's `thread.asked` is posted
+  by the place's actor as one line with a button for each choice (`thr:<ask id>:<key>`); a press is `thread.answer` as
+  the presser (the core judges it: the owner, from a private place) and the card becomes the answer (an update-message
+  callback). The card is best effort: with none, the message runs at home when `[threads] ask_wait_secs` ends. `/move
+  thread:` is `thread.move` for the last message the core placed in this place. Tests: `tests_gateway/thread_ask.rs`.
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

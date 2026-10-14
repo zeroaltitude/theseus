@@ -164,6 +164,7 @@ async fn submit(core: &Arc<Core>, sid: &str, input: &str) -> theseus_protocol::R
         opened_from: None,
         thread: None,
         speaking: None,
+        in_reply_to: None,
     };
     let mut line =
         serde_json::to_string(&Request::new(Id::Num(1), method::TURN_SUBMIT, params)).unwrap();

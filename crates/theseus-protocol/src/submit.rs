@@ -91,6 +91,12 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub speaking: Option<crate::threads::Speaking>,
+    /// The turn whose reply this message replies to (a Discord reply to one
+    /// of this process's replies, theseus-rha2): when that turn ran in a
+    /// thread, so does this message, certain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub in_reply_to: Option<String>,
 }
 
 #[cfg(test)]

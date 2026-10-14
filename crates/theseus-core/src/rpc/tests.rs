@@ -151,6 +151,7 @@ fn submit(id: u64, input: &str) -> Request {
             opened_from: None,
             thread: None,
             speaking: None,
+            in_reply_to: None,
         },
     )
 }
@@ -426,6 +427,7 @@ async fn one_turn_is_one_loop_with_streamed_deltas() {
                 opened_from: None,
                 thread: None,
                 speaking: None,
+                in_reply_to: None,
             },
         )],
     )
@@ -567,6 +569,7 @@ async fn rejects_empty_input_and_unknown_session() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             ),
             Request::new(
@@ -587,6 +590,7 @@ async fn rejects_empty_input_and_unknown_session() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             ),
         ],
@@ -804,6 +808,7 @@ async fn same_session_serializes_turns() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             )
         })
@@ -857,6 +862,7 @@ async fn provider_failure_is_classified_and_ledgered() {
                 opened_from: None,
                 thread: None,
                 speaking: None,
+                in_reply_to: None,
             },
         )],
     )
@@ -959,6 +965,7 @@ async fn usage_accumulates_per_session_and_globally() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             )
         })
@@ -1067,6 +1074,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             )],
         )
@@ -1329,6 +1337,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
                 opened_from: None,
                 thread: None,
                 speaking: None,
+                in_reply_to: None,
             },
         )
     };
@@ -1512,6 +1521,7 @@ async fn per_turn_provider_and_model_selection() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             ),
             Request::new(
@@ -1532,6 +1542,7 @@ async fn per_turn_provider_and_model_selection() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             ),
             Request::new(
@@ -1552,6 +1563,7 @@ async fn per_turn_provider_and_model_selection() {
                     opened_from: None,
                     thread: None,
                     speaking: None,
+                    in_reply_to: None,
                 },
             ),
         ],
@@ -1644,6 +1656,7 @@ async fn live_profile_switch_persists_and_routes() {
                 opened_from: None,
                 thread: None,
                 speaking: None,
+                in_reply_to: None,
             },
         )
     };
@@ -1801,6 +1814,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
                 opened_from: None,
                 thread: None,
                 speaking: None,
+                in_reply_to: None,
             },
         )
     };

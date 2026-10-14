@@ -1,0 +1,106 @@
+# classify.v2 (CLASSIFY, theseus-rha2): classify.v1's questions word for word,
+# and a `thread` question: which live thread, if any, a message is about. At
+# `inbound`: every human message that starts a turn (not a slash command, a
+# wake's turn, a report's turn, or a task's first turn). Batched with role.v1:
+# the same `inbound` state, one request, so the thread question adds no call.
+# v1 stays embedded for its history; a state with no live threads asks v1's
+# questions and no more.
+id = "classify"
+version = 2
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "conversation"
+action = "thread_route"
+description = "CLASSIFY: a new ask, a follow-up, a correction, a control word, a message for a live task, or small talk; whether it should become a task; and which live thread, if any, it is about."
+
+[questions.kind]
+type = "choice"
+decides = true
+instructions = "What is the person's new message, in relation to the conversation so far?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "new_ask", means = "It asks for new work that does not continue the previous exchange." },
+  { id = "follow_up", means = "It continues the previous exchange: more detail, a next step, or a related question." },
+  { id = "correction", means = "It says the last reply or the work was wrong, or it changes what was asked." },
+  { id = "control", means = "It tells the assistant to stop, pause, wait, carry on, or change how it works, rather than asking for work." },
+  { id = "addressed_to_task", means = "It is meant for one of the live tasks listed in the state, not for this conversation." },
+  { id = "social", means = "It is a greeting, thanks, or small talk that asks for no work." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+[questions.addressed_task]
+type = "choice"
+instructions = "Which of the live tasks, if any, is the person's new message meant for?"
+act = 0.90
+confirm = 0.60
+options_from = "tasks"
+only_when = "tasks"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is not meant for any of the live tasks." },
+]
+
+[questions.should_promote]
+type = "noul"
+decides = true
+instructions = "Should the work this message asks for run as a separate background task rather than inside the conversation?"
+act = 0.90
+confirm = 0.60
+when_true = "The work is long or slow, can go on without the person watching, and the person would not want to wait in the conversation for it."
+when_false = "The work is quick, needs back-and-forth with the person, or the message asks for no work."
+
+[questions.fragment]
+type = "noul"
+instructions = "Is the person's new message an incomplete piece that only makes sense together with their previous message?"
+act = 0.90
+confirm = 0.60
+when_true = "It adds to or finishes the previous message (for example \"and the tests too\"), and read alone its meaning is unclear."
+when_false = "It stands on its own."
+
+[questions.mentions_other_conversation]
+type = "noul"
+instructions = "Does the person's new message refer to a different conversation, channel, or session than this one?"
+act = 0.90
+confirm = 0.60
+when_true = "It points at something said or done elsewhere (for example \"what we discussed in the other channel\")."
+when_false = "It refers only to this conversation, or to nothing earlier at all."
+
+[questions.wants_fresh_look]
+type = "noul"
+instructions = "Does the person want the assistant to set the conversation so far aside and start over?"
+act = 0.90
+confirm = 0.60
+when_true = "The message asks to start fresh, to forget the earlier discussion, or to look at the problem anew."
+when_false = "The message builds on the conversation so far."
+
+# v2's own question. Asked only when the place has live threads (the core lists
+# them, most recent first, at most fifty). It acts at the pack's bars: 0.90 and
+# above routes the message to the thread (the core fuses the deterministic
+# pre-router's score with this answer); 0.60 to 0.90 routes it with a visible
+# tag and a move handle; below that, or with two threads close, the person is
+# asked in one line. `home` is the place's own conversation, for a one-off.
+[questions.thread]
+type = "choice"
+decides = true
+instructions = "Which of the live threads, if any, is the person's new message about?"
+act = 0.90
+confirm = 0.60
+options_from = "threads"
+only_when = "threads"
+no_match = "home"
+options = [
+  { id = "new_thread", means = "The message starts a new line of work that none of the listed threads covers, and that will take more than this one exchange." },
+  { id = "home", means = "The message is a one-off, small talk, or about nothing the listed threads cover: it belongs in the ordinary conversation." },
+]
+
+# Moving a message the person says was routed wrong (their `/move`, or "that was
+# for ...") is the label on `thread`; a few in a day roll the pack back.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong thread"
+count = 3

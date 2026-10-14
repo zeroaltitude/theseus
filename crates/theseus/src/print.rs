@@ -217,6 +217,11 @@ impl<O: Write, E: Write> Printer<O, E> {
 
     /// One notification, as the connection hands it over.
     pub fn on(&mut self, m: &str, p: &Value) {
+        // The router's question: said, and on a terminal answered here.
+        if m == theseus_protocol::notify::THREAD_ASKED {
+            crate::thread::ask::on_asked(p);
+            return;
+        }
         if let Ok(Some(e)) = Event::from_notification(m, p) {
             self.on_event(&e);
         }

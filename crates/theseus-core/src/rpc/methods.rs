@@ -903,12 +903,15 @@ impl Core {
 
     /// Run one turn for a client, streaming its events to that connection.
     /// What the owner named is their choice, never routed (25e); the pane's
-    /// carried profile is not.
+    /// carried profile is not. `route` says whether a message that names no
+    /// thread finds its own (theseus-rha2); a move runs its message again
+    /// with it off, at the place the owner chose.
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) async fn turn_submit(
         &self,
-        p: TurnSubmitParams,
+        mut p: TurnSubmitParams,
         conn: Conn<'_>,
+        route: bool,
     ) -> Result<theseus_protocol::TurnSubmitResult, RpcFailure> {
         if p.prompt.is_some() && !(p.input.trim().is_empty() && p.attachments.is_empty()) {
             return Err(RpcFailure::new(
@@ -961,6 +964,19 @@ impl Core {
                 dir: dir.clone(),
                 ..SessionOpenParams::default()
             })?,
+        };
+        // "That was for the security fix": the owner moves the last message the
+        // router placed, and what comes back is the turn it ran again as.
+        if route {
+            if let Some(moved) = self.moved_by_words(&p, conn).await? {
+                return Ok(moved);
+            }
+        }
+        // A message that names no thread finds its own, in a place with threads
+        // (theseus-rha2); nothing else changes for a place without.
+        let routing = match route {
+            true => self.route_to_thread(&mut p, conn, &mut session).await?,
+            false => None,
         };
         // A directory it names moves the session there: the turn's session
         // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
@@ -1034,9 +1050,13 @@ impl Core {
                 answer_at,
             })
             .await;
+        if let Some(routing) = &routing {
+            self.thread_routed_turn(routing, result.as_ref().ok());
+        }
         match result {
             Ok(mut r) => {
                 r.outside_roots = outside;
+                r.thread = routing.map(|r| r.tag);
                 self.telemetry().record_turn(&r);
                 self.telemetry()
                     .record_node_cache(&self.store.node_cache().health());

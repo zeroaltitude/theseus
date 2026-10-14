@@ -49,6 +49,8 @@ pub const SECURITY_CALLS: usize = 5;
 pub const SECURITY_ARGV: usize = 64;
 pub const SECURITY_PATHS: usize = 32;
 pub const LIVE_TASKS: usize = 20;
+/// The most live threads the `thread` question offers (theseus-rha2).
+pub const LIVE_THREADS: usize = 50;
 pub const SIGNALS: usize = 16;
 pub const ROLES: usize = 30;
 pub const RECENT_MESSAGES: usize = 10;
@@ -197,8 +199,22 @@ pub struct RoleInput {
     pub stance: String,
 }
 
-/// The `inbound` state's input, shared by `classify.v1` and `role.v1`, so
-/// their states are byte-identical and they ride one request.
+/// One live thread a message may be about (`classify.v2`, theseus-rha2): its
+/// slug (the option's id), title, goal, and the top entities of its working
+/// set, as the core lists them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThreadInput {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub entities: Vec<String>,
+}
+
+/// The `inbound` state's input, shared by `classify.v1`, `classify.v2` and
+/// `role.v1`, so their states are byte-identical and they ride one request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InboundInput {
@@ -215,6 +231,11 @@ pub struct InboundInput {
     pub minutes_since_last_message: Option<u64>,
     #[serde(default)]
     pub live_tasks: Vec<TaskInput>,
+    /// The live threads, most recent first; left out of the state, and the
+    /// `thread` question not asked, when there are none (a state without
+    /// threads is byte for byte the one before threads).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub live_threads: Vec<ThreadInput>,
     #[serde(default)]
     pub current_role: Option<String>,
     /// The roles table, for `role.v1`'s options.
@@ -768,6 +789,8 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         left_out(&i.live_tasks, tasks.len()),
     )
     .cut_if("live_tasks", c.cut());
+    let threads = &i.live_threads[..i.live_threads.len().min(LIVE_THREADS)];
+    threads_state(&mut b, &c, cap, i, threads);
     let role = i
         .current_role
         .as_deref()
@@ -790,6 +813,18 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
             })
             .collect(),
     );
+    if !threads.is_empty() {
+        dynamic.sources.insert(
+            Source::Threads,
+            threads
+                .iter()
+                .map(|t| Item {
+                    key: t.id.clone(),
+                    text: thread_text(t, &clip),
+                })
+                .collect(),
+        );
+    }
     dynamic.sources.insert(
         Source::Roles,
         i.roles
@@ -805,6 +840,62 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         state: Arc::new(b.build()),
         dynamic,
     }
+}
+
+/// The live threads in the inbound state, when there are any.
+fn threads_state(
+    b: &mut StateBuilder,
+    c: &Clipper,
+    cap: u64,
+    i: &InboundInput,
+    threads: &[ThreadInput],
+) {
+    if threads.is_empty() {
+        return;
+    }
+    let items: Vec<Value> = threads
+        .iter()
+        .map(|t| {
+            json!({
+                "id": c.clip(&t.id, 40),
+                "title": c.clip(&t.title, 80),
+                "goal": c.clip(first_line(&t.goal), 160),
+                "works_on": t.entities.iter().take(THREAD_ENTITIES)
+                    .map(|e| c.clip(e, 60)).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    b.list_head(
+        "live_threads",
+        8,
+        share(cap, 30),
+        items,
+        left_out(&i.live_threads, threads.len()),
+    )
+    .cut_if("live_threads", c.cut());
+}
+
+/// The most working-set entities a thread's line names.
+pub const THREAD_ENTITIES: usize = 6;
+
+/// What Jev reads of a thread as an option: its title, goal and entities.
+fn thread_text(t: &ThreadInput, clip: &dyn Fn(&str, usize) -> String) -> String {
+    let mut out = format!("The thread \u{ab}{}\u{bb}", clip(&t.title, 80));
+    let goal = first_line(&t.goal);
+    if !goal.is_empty() {
+        out.push_str(&format!(", whose goal is: {}", clip(goal, 160)));
+    }
+    let ents: Vec<String> = t
+        .entities
+        .iter()
+        .take(THREAD_ENTITIES)
+        .map(|e| clip(e, 60))
+        .collect();
+    if !ents.is_empty() {
+        out.push_str(&format!(" (it works on {})", ents.join(", ")));
+    }
+    out.push('.');
+    out
 }
 
 /// `continue.v1`: the signals that fired, the compilation (strategy,
@@ -969,6 +1060,7 @@ mod tests {
             "security.v2",
             "security.v3",
             "classify.v1",
+            "classify.v2",
             "continue.v1",
             "categorize.v1",
             "rerank.v1",
@@ -1023,6 +1115,8 @@ mod tests {
         // and route.v4 (theseus-p8dy) ride the same request: the same state,
         // byte for byte.
         let cp = crate::pack::by_name("classify.v1").unwrap();
+        let (_, c2) = prepared("classify.v2");
+        assert_eq!(c.state.json, c2.state.json, "classify.v2");
         for route in ["route.v1", "route.v2", "route.v3", "route.v4"] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");
@@ -1267,6 +1361,7 @@ mod tests {
                             state: item.clone(),
                         })
                         .collect(),
+                    live_threads: Vec::new(),
                     current_role: Some(big.clone()),
                     roles: (0..2_000)
                         .map(|i| RoleInput {

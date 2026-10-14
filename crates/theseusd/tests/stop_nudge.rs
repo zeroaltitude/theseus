@@ -62,7 +62,7 @@ fn rig(model: &FakeModel, jev: &FakeJev, stop_nudge: bool) -> tempfile::TempDir 
     j.insert("total_secs".into(), 5.into());
     j.insert("stop_nudge".into(), stop_nudge.into());
     let packs = table(j, "packs");
-    for p in ["classify.v1", "role.v1", "route.v3"] {
+    for p in ["classify.v2", "role.v1", "route.v3"] {
         let mut off = toml::Table::new();
         off.insert("mode".into(), "off".into());
         packs.insert(p.into(), off.into());

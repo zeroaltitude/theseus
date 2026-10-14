@@ -540,6 +540,7 @@ impl Place {
                         opened_from: None,
                         thread: None,
                         speaking: None,
+                        in_reply_to: None,
                     },
                 )
                 .await

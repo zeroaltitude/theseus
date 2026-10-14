@@ -88,6 +88,7 @@ pub fn params(a: &PromptArgs) -> Result<TurnSubmitParams> {
         opened_from: theseus_client::client::job_session(),
         thread: None,
         speaking: None,
+        in_reply_to: None,
     })
 }
 
