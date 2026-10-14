@@ -87,6 +87,32 @@ fn no_offer_for_a_shell_a_wrapper_or_inline_code() {
     }
 }
 
+/// A launcher whose next word is an image, a container, a pod or a package's
+/// shell runs whatever follows it: no prefix of it is offered, and a grant
+/// stored on one covers nothing (the join's security review). A submodule's
+/// own subcommands still offer theirs.
+#[test]
+fn no_offer_for_a_launcher_that_runs_any_command() {
+    for argv in [
+        "git submodule foreach git pull",
+        "docker run ubuntu ls",
+        "docker exec web ls",
+        "podman run alpine ls",
+        "podman exec web ls",
+        "kubectl exec pod-1 ls",
+        "nix shell nixpkgs#hello",
+        "uv tool run ruff",
+    ] {
+        assert_eq!(prefix_of(&words(argv)), None, "{argv} must offer nothing");
+    }
+    assert_eq!(
+        prefix_of(&words("git submodule update --init")).map(|(p, _)| p),
+        Some(words("git submodule update"))
+    );
+    let g = prefix_grant("git submodule foreach", "git");
+    assert!(!run(&g, "git submodule foreach rm -rf x"));
+}
+
 #[test]
 fn prefix_ok_is_asked_again_of_every_grant() {
     assert!(prefix_ok(&words("python3 -m unittest")).is_ok());

@@ -58,4 +58,8 @@ may_answer?: boolean,
 /**
  * What the call would do, as the question shows it (theseus-z6au).
  */
-preview?: ConfirmPreview, };
+preview?: ConfirmPreview, 
+/**
+ * "Yes, and don't ask again" for this conversation (theseus-drjs).
+ */
+grant_offer?: GrantOffer, };

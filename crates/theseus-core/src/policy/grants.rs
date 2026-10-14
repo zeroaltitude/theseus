@@ -110,6 +110,21 @@ const LAUNCHERS: &[(&str, &str)] = &[
     ("git", "submodule"),
 ];
 
+/// A launcher's subcommands whose next word is a place, not a program (an
+/// image, a container, a pod, a package's shell, a tool runner): whatever
+/// follows it runs, so no prefix of theirs is stable. `git submodule foreach`
+/// is one too. A security review's finding (theseus-drjs's join).
+const RUNS_ANY_COMMAND: &[(&str, &str, Option<&str>)] = &[
+    ("docker", "run", None),
+    ("docker", "exec", None),
+    ("podman", "run", None),
+    ("podman", "exec", None),
+    ("kubectl", "exec", None),
+    ("nix", "shell", None),
+    ("uv", "tool", Some("run")),
+    ("git", "submodule", Some("foreach")),
+];
+
 /// One call, as a grant reads it.
 pub struct Call<'a> {
     pub tool: &'a str,
@@ -165,6 +180,19 @@ pub fn prefix_ok(prefix: &[String]) -> Result<(), String> {
         }
     }
     find::prefix_ok(prefix)?;
+    if let (Some(p), Some(sub)) = (prefix.first(), prefix.get(1)) {
+        let p = base(p);
+        let third = prefix.get(2).map(String::as_str);
+        if RUNS_ANY_COMMAND
+            .iter()
+            .any(|(lp, ls, w)| *lp == p && ls == sub && w.is_none_or(|w| Some(w) == third))
+        {
+            return Err(format!(
+                "`{}` runs whatever command follows it",
+                prefix.join(" ")
+            ));
+        }
+    }
     // A launcher's subcommand names the program it launches too.
     if let Some(i) = launched_at(prefix) {
         match prefix.get(i) {
