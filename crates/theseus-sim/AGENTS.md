@@ -79,7 +79,11 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by default): each turn's
     wall time, frames, and the nodes the daemon decoded for it (health's `store.node_cache` `decodes`, read around the
     turn; a build before tiering has none, and the row says so), and memory with the index tender's. No budget: its
-    frames include the turn that compacts the session.
+    frames include the turn that compacts the session. A list (`--session-nodes 2000,5000,10000`) runs each size on a fresh daemon,
+    and `--first-turn-ms N` exits 1 when a first turn passes N (theseus-0l3g). `--soak-turns N` (`src/perf/soak.rs`)
+    grows one session by N turns, every fifth with a call, and reads the daemon's CPU (`utime`+`stime`) and RSS every 50:
+    `--check` holds the last window's CPU a turn to 1.5× the turn-100 window's and RSS growth to 10 kB a turn; after
+    the turns it waits 12 s and reads RSS again, after the daemon's trim, which tells memory held from memory kept.
   - `bench idle`: an idle daemon over a window (30 s): CPU time, wakeups (its threads' voluntary context switches, from
     `src/procfs.rs`), frames written (a quiet daemon writes none), and memory, on an empty store or `--sessions N`.
     `--settle N` waits up to N s (default 60) for the daemon to go quiet before the window begins, and shows the CPU in
