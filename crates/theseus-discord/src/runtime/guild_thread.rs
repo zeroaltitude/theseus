@@ -62,9 +62,16 @@ pub(super) fn heard(shared: &Arc<Shared>, c: &ThreadChanged) {
     }
 }
 
-/// The syncer: each change in the order heard.
+/// The syncer: each change in the order heard, until the daemon stops (the
+/// task holds the binding, which holds its sender, so only the stop ends it).
 pub(super) async fn run(shared: Arc<Shared>, mut rx: mpsc::UnboundedReceiver<ThreadChanged>) {
-    while let Some(c) = rx.recv().await {
+    let stopped = shared.core.outbox.stopped();
+    tokio::pin!(stopped);
+    loop {
+        let c = tokio::select! {
+            c = rx.recv() => match c { Some(c) => c, None => break },
+            () = &mut stopped => break,
+        };
         if let Err(e) = shared.thread_changed(&c).await {
             shared.board.error(
                 "discord thread",
