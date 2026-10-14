@@ -65,6 +65,7 @@ pub mod recall;
 pub mod retract;
 pub mod route;
 pub mod rsi;
+pub mod rsi_backlog;
 pub mod rsi_budget;
 pub mod rsi_sealed;
 pub mod sandbox;
@@ -464,6 +465,10 @@ facts![
     rsi_budget::BudgetSettled<'static>,
     rsi_budget::BudgetStopped<'static>,
     rsi_sealed::SelfExamCounted<'static>,
+    rsi_backlog::BacklogFiled,
+    rsi_backlog::BacklogRanked,
+    rsi_backlog::BacklogStarted,
+    rsi_backlog::BacklogDropped,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
 ];

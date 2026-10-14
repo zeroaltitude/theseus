@@ -42,8 +42,14 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
     },
     SelfRowKind {
         name: "self.backlog.started",
-        fields: &["item", "branch", "reserved_usd"],
+        fields: &["item", "branch", "reserved_usd", "session"],
         doc: "The top item started: the branch it builds on and what its budget reserved.",
+    },
+    SelfRowKind {
+        name: "self.backlog.dropped",
+        fields: &["item", "cause", "by", "reason"],
+        doc: "An item left the backlog: the owner's drop (its cause is never filed again), or \
+              the lowest-ranked one past the backlog's size.",
     },
     SelfRowKind {
         name: "self.branch.built",
@@ -328,6 +334,124 @@ pub struct SelfBranchSpend {
 pub struct SealedState {
     /// Items per set, by the set's name.
     pub sets: std::collections::BTreeMap<String, u64>,
+}
+
+// ---- the backlog (self-backlog, theseus-pw1q.7) ----
+
+/// `self.backlog`'s params: a read.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBacklogParams {
+    /// Also the items that left the backlog (dropped, or started and ended).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub all: bool,
+}
+
+/// One item of the self backlog: a task Theseus filed for itself, with the
+/// evidence that filed it and its place.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBacklogItem {
+    /// `tsk_…`.
+    pub id: String,
+    /// Its place, from 1; 0 for an item that has left the backlog.
+    pub rank: u32,
+    /// The deterministic score that placed it (milli-points).
+    pub score: u64,
+    pub title: String,
+    pub objective: String,
+    /// The task's state: `proposed` (waiting its turn), `waiting_human` (a
+    /// keel item), `in_progress`, or a closed one.
+    pub state: String,
+    /// The cause's stable key; a dropped cause is never filed again.
+    pub cause: String,
+    /// The keel class that holds it for the owner's yes, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub keel: Option<String>,
+    /// How many times the cause was seen, over every night.
+    pub count: u64,
+    /// The rows and lines that filed it, oldest first.
+    pub evidence: Vec<String>,
+    /// The owner moved it to this rank.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session: Option<String>,
+    pub filed_ms: u64,
+}
+
+/// `self.backlog`'s answer: the ranked list, and the causes the owner dropped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBacklogResult {
+    pub items: Vec<SelfBacklogItem>,
+    /// Causes the owner dropped: never filed again.
+    pub dropped: Vec<String>,
+    pub state: SelfState,
+    /// The open items allowed (`[self] backlog_max_open`).
+    pub max_open: u32,
+    /// The last night's read, unix ms; none before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub read_ms: Option<u64>,
+}
+
+/// `self.drop`'s params: the owner's, by the item's id or the end of it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfDropParams {
+    pub item: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    /// The `THESEUS_SESSION` of the shell that sent it: a job's never counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// `self.drop`'s answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfDropResult {
+    pub item: String,
+    pub title: String,
+    /// The cause that is now never filed again.
+    pub cause: String,
+    /// False when the item had left the backlog already.
+    pub changed: bool,
+}
+
+/// `self.move`'s params: the owner's. Rank 1 is the top.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfMoveParams {
+    pub item: String,
+    pub rank: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// `self.move`'s answer: the item's rank before and after.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfMoveResult {
+    pub item: String,
+    pub title: String,
+    pub was: u32,
+    pub rank: u32,
 }
 
 #[cfg(test)]

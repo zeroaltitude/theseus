@@ -38,6 +38,7 @@
 //! corrections, consolidation's syntheses), newest first, each with what,
 //! why, its numbers and its undo. `digest.rs` makes the week's text of them.
 
+pub mod backlog;
 pub mod budget;
 mod digest;
 mod log;
@@ -151,6 +152,8 @@ pub struct Switch {
     /// When the weekly digest last went to the owner's DM (`digest.rs`):
     /// `None` until read, while `[self]` posts it.
     pub(crate) digest_at: Mutex<Option<u64>>,
+    /// One backlog move at a time: a night, a drop, a move (`backlog.rs`).
+    pub(crate) backlog: Mutex<()>,
 }
 
 impl Switch {

@@ -197,6 +197,7 @@ impl ActRefused<'_> {
             | Act::Import { .. }
             | Act::Session { .. }
             | Act::SelfResume { .. }
+            | Act::SelfBacklog { .. }
             | Act::Earned { .. }
             | Act::Retract { .. }
             | Act::Standing { .. } => None,
@@ -247,6 +248,10 @@ impl Fact for ActRefused<'_> {
             Act::SelfResume { from_job } => {
                 json!({"act": act.method(), "from_job": from_job, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
+            }
+            Act::SelfBacklog { what, from_job, .. } => {
+                json!({"act": act.method(), "what": what, "from_job": from_job, "who": r.who,
+                       "via": r.via, "why": r.why, "by": self.by})
             }
         }
     }
@@ -332,6 +337,11 @@ impl Fact for ActRefused<'_> {
                 Act::SelfResume { .. } => format!(
                     "A resume of self-improvement, from {} through {}, did not count: {}. It \
                      stays halted.",
+                    r.who, r.via, r.why
+                ),
+                Act::SelfBacklog { method, what, .. } => format!(
+                    "{method} of {what} on the self backlog, from {} through {}, did not count: \
+                     {}. The backlog is as it was.",
                     r.who, r.via, r.why
                 ),
                 Act::Revoke { name } => format!(

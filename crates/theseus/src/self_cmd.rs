@@ -16,6 +16,8 @@ use theseus_protocol::rsi::{
 
 use crate::cmd::output;
 
+mod backlog;
+
 #[derive(Subcommand, Debug)]
 pub enum SelfCmd {
     /// What Theseus changed about itself, newest first: the self steps' rows and today's
@@ -38,6 +40,23 @@ pub enum SelfCmd {
     Resume,
     /// The week's digest: what Theseus changed about itself this week.
     Digest,
+    /// Theseus's own backlog, ranked, with each item's evidence.
+    Backlog {
+        /// Also the items that left: dropped, done or failed.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Drop a backlog item: the owner's. Its cause is never filed again.
+    Drop {
+        /// The item's id, or the end of it.
+        item: String,
+    },
+    /// Move a backlog item to a rank (1 is the top): the owner's. It keeps the rank.
+    Move {
+        /// The item's id, or the end of it.
+        item: String,
+        rank: u32,
+    },
 }
 
 /// `7d`, `12h`, `30m`, `2w` in milliseconds.
@@ -123,6 +142,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
                 Ok(())
             })
         }
+        SelfCmd::Backlog { all } => backlog::list(conn, json, all).await,
+        SelfCmd::Drop { item } => backlog::drop_item(conn, json, item).await,
+        SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Digest => {
             let v = conn
                 .request(

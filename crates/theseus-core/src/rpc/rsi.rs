@@ -4,7 +4,9 @@
 //! `self.log` and `self.digest` (reads). The work is `crate::rsi`'s.
 
 use serde_json::Value;
-use theseus_protocol::rsi::{SelfHaltParams, SelfResumeParams};
+use theseus_protocol::rsi::{
+    SelfBacklogParams, SelfDropParams, SelfHaltParams, SelfMoveParams, SelfResumeParams,
+};
 use theseus_protocol::{error_code, method};
 
 use super::server::{or_empty, route, Conn, RpcFailure};
@@ -12,11 +14,14 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 4] = [
+pub(super) const OWN: [&str; 7] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
     method::SELF_DIGEST,
+    method::SELF_BACKLOG,
+    method::SELF_DROP,
+    method::SELF_MOVE,
 ];
 
 impl Core {
@@ -37,6 +42,17 @@ impl Core {
                 self.self_resume(&p, &who).map_err(refused)
             }),
             method::SELF_LOG => route(params, |p| Ok(self.self_log(&p)?)),
+            method::SELF_BACKLOG => {
+                route(params, |p: SelfBacklogParams| Ok(self.self_backlog(&p)?))
+            }
+            method::SELF_DROP => route(params, |p: SelfDropParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.self_drop(&p, &who).map_err(word_refused)
+            }),
+            method::SELF_MOVE => route(params, |p: SelfMoveParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.self_move(&p, &who).map_err(word_refused)
+            }),
             _ => route(params, |p| Ok(self.self_digest(&p)?)),
         }
     }
@@ -55,5 +71,24 @@ fn refused(e: anyhow::Error) -> RpcFailure {
             data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
         },
         Err(e) => e.into(),
+    }
+}
+
+/// A refused drop or move, as the owner's acts answer one; an item that is
+/// not on the backlog is the caller's mistake; any other error is the daemon's.
+fn word_refused(e: anyhow::Error) -> RpcFailure {
+    match e.downcast::<crate::rsi::backlog::BadItem>() {
+        Ok(b) => RpcFailure::new(error_code::INVALID_PARAMS, b.to_string()),
+        Err(e) => match e.downcast::<Refusal>() {
+            Ok(r) => RpcFailure {
+                code: error_code::REFUSED,
+                message: format!(
+                    "a word on the self backlog from {} does not count: {}. The backlog is as it was.",
+                    r.who, r.why
+                ),
+                data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+            },
+            Err(e) => e.into(),
+        },
     }
 }

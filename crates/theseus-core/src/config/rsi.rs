@@ -17,12 +17,15 @@
 //!   sealed set. It must be an absolute path outside every workspace root,
 //!   the state dir, the repository and every `[sandbox] ro_paths` entry
 //!   (neither inside one nor holding one), refused at load by the key's name.
+//! - `backlog_starts` (1) and `backlog_max_open` (20): the nightly backlog
+//!   (`crate::rsi::backlog`, theseus-pw1q.7) starts at most this many top
+//!   unmarked items a night, and keeps at most this many open.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
 
 /// `[self]`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelfConfig {
     #[serde(default, deserialize_with = "mode")]
@@ -33,6 +36,33 @@ pub struct SelfConfig {
     pub budget: SelfBudgetConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sealed_dir: Option<String>,
+    /// Items the nightly backlog starts a night (0 files and ranks only).
+    #[serde(default = "default_backlog_starts")]
+    pub backlog_starts: u32,
+    /// Open items the backlog keeps; the lowest-ranked past it are dropped.
+    #[serde(default = "default_backlog_max_open")]
+    pub backlog_max_open: u32,
+}
+
+fn default_backlog_starts() -> u32 {
+    1
+}
+
+fn default_backlog_max_open() -> u32 {
+    20
+}
+
+impl Default for SelfConfig {
+    fn default() -> Self {
+        Self {
+            mode: SelfMode::default(),
+            digest: SelfDigest::default(),
+            budget: SelfBudgetConfig::default(),
+            sealed_dir: None,
+            backlog_starts: default_backlog_starts(),
+            backlog_max_open: default_backlog_max_open(),
+        }
+    }
 }
 
 /// `[self] digest`.
@@ -298,5 +328,23 @@ mod tests {
         assert!(e.contains("must be an absolute path"), "{e}");
         let e = load(" ", &[]);
         assert!(e.contains("[self] sealed_dir is empty"), "{e}");
+    }
+
+    /// The backlog's two keys default to one start and twenty open items,
+    /// the template names them, and a value of the owner's loads.
+    #[test]
+    fn the_backlog_keys_default_to_one_start_and_twenty_open() {
+        let none = Config::from_toml("").unwrap();
+        assert_eq!(none.self_improve.backlog_starts, 1);
+        assert_eq!(none.self_improve.backlog_max_open, 20);
+        let t = Config::EXAMPLE_TOML;
+        assert!(
+            t.contains("# backlog_starts = 1") && t.contains("# backlog_max_open = 20"),
+            "the template names the backlog's keys with their defaults"
+        );
+        let cfg = Config::from_toml("[self]\nbacklog_starts = 0\nbacklog_max_open = 5\n").unwrap();
+        assert_eq!(cfg.self_improve.backlog_starts, 0);
+        assert_eq!(cfg.self_improve.backlog_max_open, 5);
+        assert!(Config::from_toml("[self]\nbacklog_starts = -1\n").is_err());
     }
 }
