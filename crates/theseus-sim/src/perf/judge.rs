@@ -297,7 +297,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     j.insert("total_secs".into(), 5.into());
     if arm == Arm::Loop {
         let packs = table(j, "packs")?;
-        for p in ["classify.v1", "role.v1", "route.v4"] {
+        for p in ["classify.v2", "role.v1", "route.v4"] {
             let mut off = toml::Table::new();
             off.insert("mode".into(), "off".into());
             packs.insert(p.into(), off.into());

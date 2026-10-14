@@ -40,8 +40,9 @@ use crate::learn::RollbackRule;
 /// `rerank.v1`, recall's `+rerank` arm (M6 step 32c), and `route.v1`, the
 /// model per interaction mode (M5 step 25e), with `route.v2`, its successor
 /// with a `quick` mode (theseus-3okf), `route.v3`, which asks the reply's
-/// effort beside v2's mode (theseus-qe3v), and `route.v4`, which adds a
-/// `review` mode to v3's (theseus-p8dy).
+/// effort beside v2's mode (theseus-qe3v), `route.v4`, which adds a
+/// `review` mode to v3's (theseus-p8dy), and `classify.v2`, which adds the
+/// `thread` question to v1's (theseus-rha2).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -49,6 +50,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("security.v2", include_str!("../packs/security.v2.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
     ("classify.v1", include_str!("../packs/classify.v1.toml")),
+    ("classify.v2", include_str!("../packs/classify.v2.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
@@ -147,6 +149,9 @@ pub enum Action {
     RoleHint,
     /// Runs the turn on the mode's profile (`route.v1`, 25e).
     Route,
+    /// Routes an unaddressed message to the thread the `thread` question
+    /// names (`classify.v2`, theseus-rha2).
+    ThreadRoute,
 }
 
 /// Where a question's dynamic options or per-item Nouls come from.
@@ -172,6 +177,9 @@ pub enum Source {
     /// The held people past the first ten (`people_seen.v1`, whose first
     /// ten are `People`): a per-item Noul asks at most ten.
     MorePeople,
+    /// The live threads a message may be about (`classify.v2`, theseus-rha2):
+    /// one option each, its title, goal and top working-set entities.
+    Threads,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1178,6 +1186,20 @@ mod tests {
                 ],
             ),
             (
+                "classify.v2",
+                &[
+                    "Inbound Inbound Conversation ThreadRoute",
+                    "addressed_task Choice from Tasks + [none] only_when Tasks",
+                    "fragment Noul",
+                    "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
+                    "mentions_other_conversation Noul",
+                    "should_promote Noul decides",
+                    "thread Choice decides from Threads + [new_thread home] only_when Threads",
+                    "wants_fresh_look Noul",
+                    "rollback [labels_per_day]",
+                ],
+            ),
+            (
                 "role.v1",
                 &[
                     "Inbound Inbound CurrentRole RoleHint",
@@ -1316,6 +1338,13 @@ mod tests {
             "route.v4 keeps v1's rules"
         );
         assert_eq!(
+            rules("classify.v2"),
+            vec![RollbackRule::LabelsPerDay {
+                label: "wrong thread".into(),
+                count: 3
+            }]
+        );
+        assert_eq!(
             rules("role.v1"),
             vec![
                 RollbackRule::SwitchesPerExchange { max: 2 },
@@ -1333,9 +1362,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            18,
+            19,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3 and v4, citation.v1, people.v1 and people_seen.v1"
+             v3 and v4, citation.v1, people.v1, people_seen.v1 and classify.v2"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

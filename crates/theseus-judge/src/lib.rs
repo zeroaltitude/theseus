@@ -53,6 +53,8 @@ pub mod probe;
 mod tests;
 #[cfg(test)]
 mod tests_prove;
+#[cfg(test)]
+mod tests_threads;
 
 pub use band::{Band, Banded, Thresholds};
 pub use builders::{prepare, Input, Prepared};
