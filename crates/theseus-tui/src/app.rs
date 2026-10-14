@@ -67,6 +67,8 @@ pub enum Purpose {
     Stop(String),
     /// `task.cancel`.
     Cancel(String),
+    /// `task.start`, from `N` (theseus-7oq0w).
+    NewTask,
     /// `action.confirm`: an answer to a question.
     Answer { correlation_id: String },
 }
@@ -117,6 +119,9 @@ pub enum Mode {
     Armed(Arm, String),
     /// `n` on a question (its correlation id): the decline's note.
     Note(String),
+    /// `N`: the brief of a new task, and the conversation it goes under
+    /// (none: Home), typed into `App::brief` (theseus-7oq0w).
+    NewTask(Option<String>),
     /// `?`: the keys.
     Help,
 }
@@ -145,6 +150,8 @@ pub struct App {
     typist: theseus_protocol::warm::Typist,
     /// The decline's note, while `n` waits for it.
     pub note: String,
+    /// The new task's brief, while `N` waits for it.
+    pub brief: String,
     /// Why an answer did not count, by its question: on its card until the
     /// question closes.
     pub refused: HashMap<String, String>,
@@ -197,6 +204,7 @@ impl App {
             input: String::new(),
             typist: Default::default(),
             note: String::new(),
+            brief: String::new(),
             refused: HashMap::new(),
             link: Link::Connecting,
             flash: None,
@@ -580,6 +588,7 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
+            Purpose::NewTask => self.task_started(v),
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -618,6 +627,7 @@ impl App {
             Purpose::Submit(_) => method::TURN_SUBMIT,
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
+            Purpose::NewTask => method::TASK_START,
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
@@ -714,6 +724,7 @@ impl App {
             Mode::Input => self.input_key(k),
             Mode::Armed(arm, sid) => self.armed_key(k, arm, &sid),
             Mode::Note(id) => self.note_key(k, &id),
+            Mode::NewTask(home) => self.new_task_key(k, home),
             Mode::Normal => self.normal_key(k),
         }
     }
@@ -751,6 +762,7 @@ impl App {
                 return self.open_first();
             }
             KeyCode::Char('/') => self.mode = Mode::Filter,
+            KeyCode::Char('N') => self.new_task_prompt(),
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -1020,6 +1032,7 @@ impl App {
             Mode::Input => self.input.push_str(&text),
             Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Note(_) => self.note.push_str(&text),
+            Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Normal | Mode::Help | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
@@ -1141,7 +1154,7 @@ fn pasted(text: &str) -> String {
     out
 }
 
-fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {
+pub(crate) fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {
     Effect::Call(Call {
         method,
         params,

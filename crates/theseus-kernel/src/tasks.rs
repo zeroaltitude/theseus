@@ -129,6 +129,44 @@ impl Kernel {
         how: Opening,
         extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
     ) -> Result<TaskOpen> {
+        self.open_task_in(
+            &guard.execution_id,
+            true,
+            correlation_id,
+            want_micros,
+            how,
+            extra,
+        )
+    }
+
+    /// `open_task_at` for the owner's own start (`task.start`, theseus-7oq0w): the
+    /// parent is a conversation `parent_id` names, and no turn of it need run.
+    /// Everything else is the model's open, in the same one frame: the carve,
+    /// the depth rule, the rows, and a call (here, `correlation_id`) run again
+    /// finds its task and writes nothing.
+    pub fn open_task_owned(
+        &self,
+        parent_id: &str,
+        correlation_id: &str,
+        want_micros: Micros,
+        how: Opening,
+        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
+    ) -> Result<TaskOpen> {
+        self.open_task_in(parent_id, false, correlation_id, want_micros, how, extra)
+    }
+
+    /// The one open both callers share. `needs_turn`: the parent must be
+    /// running the turn whose tool call opens the task (the model's side); the
+    /// owner's start needs only a parent that has not ended.
+    fn open_task_in(
+        &self,
+        parent_id: &str,
+        needs_turn: bool,
+        correlation_id: &str,
+        want_micros: Micros,
+        how: Opening,
+        extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
+    ) -> Result<TaskOpen> {
         self.require_accepting()?;
         let Opening {
             reports_to,
@@ -136,10 +174,10 @@ impl Kernel {
             start_at_ms,
         } = how;
         let (task_id, session_id) = task_ids(correlation_id);
-        let _w = self.lock(&[&guard.execution_id, &task_id]);
+        let _w = self.lock(&[parent_id, &task_id]);
         let mut parent = self
-            .execution(&guard.execution_id)?
-            .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
+            .execution(parent_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(parent_id.to_string()))?;
         let available_before = parent.budget.available();
         if let Some(task) = self.execution(&task_id)? {
             return Ok(TaskOpen {
@@ -151,7 +189,15 @@ impl Kernel {
         if parent.parent.is_some() || parent.kind == SessionKind::Task {
             return Err(KernelError::TaskDepth { id: parent.id }.into());
         }
-        crate::kernel::require_turn(&parent)?;
+        if needs_turn {
+            crate::kernel::require_turn(&parent)?;
+        } else if parent.state.is_terminal() {
+            return Err(KernelError::NoTurn {
+                id: parent.id,
+                state: parent.state.as_str(),
+            }
+            .into());
+        }
         // Under a limit that notifies, the carve is what the task asked for
         // up to the parent's whole limit, even past what the parent has left,
         // so the task notifies at its own limit (theseus-usei).

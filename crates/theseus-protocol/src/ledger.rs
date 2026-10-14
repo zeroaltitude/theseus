@@ -282,6 +282,7 @@ ledger_kinds! {
     TaskReportsRead = "task.reports_read",
     TaskSplit = "task.split",
     TaskStaleRefused = "task.stale_refused",
+    TaskStartedByOwner = "task.started_by_owner",
     TaskUpdated = "task.updated",
     TermClosed = "term.closed",
     TermLeft = "term.left",

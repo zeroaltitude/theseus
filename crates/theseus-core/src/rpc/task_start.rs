@@ -1,0 +1,637 @@
+//! `task.start` (theseus-7oq0w): the owner starts a task from any surface with no
+//! model turn. Today a task exists only when a model calls `task.create`; this is
+//! the same task, opened by the owner's word: the CLI's `theseus task start`, the
+//! terminal UI's `N`, and the rows that follow call this one method.
+//!
+//! - **The parent** is the conversation `home` names, else the owner's Home (made
+//!   on first use, as reminders make it: `wake_home.rs`). The carve is the
+//!   parent's, as `task.create`'s is: `budget_usd`, or a quarter of what the
+//!   parent has left. A `budget_usd` over what it has left is refused with the
+//!   numbers, and a parent with nothing left carves nothing.
+//! - **One frame.** `Kernel::open_task_owned` (the opening `task.create` shares
+//!   through `open_task_at`, no turn required) writes the task's execution, its
+//!   session, its brief, its graph record, its quotes' arrangement, and the rows,
+//!   as `task.create` does, and the `task.started_by_owner` row beside them. No
+//!   model call; a plain turn is untouched.
+//! - **A deferred start** (`start_at_ms`, `start_after_ms`, or `start_when`) opens
+//!   it asleep in `Waiting{DueAt}`, as `task.create { start_at }` does.
+//! - **Quotes** become the task's arrangement (role `context`) and are outside text:
+//!   the task's session holds them (`external::VIA_QUOTE`), so its calls that act
+//!   wait until the owner trusts it, as after web text.
+//! - **Authority** is `judge_act(Act::Task)`: the owner, from a private place. A
+//!   shared place, an MCP client and a job's shell are refused, each told where
+//!   to start it instead.
+//! - **The report** goes to the parent's place (`report_to: home`, the default)
+//!   or to nobody (`board`). It never starts a turn of the parent.
+
+use anyhow::anyhow;
+use serde_json::json;
+use theseus_kernel::{
+    micros_to_usd, task_ids, usd, usd_to_micros, KernelError, Opening, SessionKind,
+};
+use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
+use theseus_protocol::{error_code, method};
+use theseus_store::{kinds, NewRecord};
+
+use super::confirms::Act;
+use super::server::{Conn, RpcFailure};
+use super::Core;
+use crate::approval::{Answerer, Refusal};
+use crate::arrangement::{Piece, Role, MAX_PIECES, PIECE_CHARS};
+use crate::node::{Node, Origin};
+use crate::session::{title_from, SessionRecord, TargetRef, TaskOf};
+use crate::task::{short, DEFAULT_SHARE, MAX_BRIEF_CHARS};
+
+/// Where a refused start says to start it instead.
+const INSTEAD: &str =
+    "Start it from the owner's own shell (`theseus task start`), the terminal UI \
+                       (N), the web UI, or the owner's DM.";
+
+impl Core {
+    /// The wire method (`rpc_prefixed`'s `task.start`).
+    pub(super) fn task_start_rpc(
+        &self,
+        p: TaskStartParams,
+        conn: Conn<'_>,
+    ) -> Result<TaskStartResult, RpcFailure> {
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        self.task_start(&p, who)
+    }
+
+    /// Start the task `p` describes, for `who`.
+    pub fn task_start(
+        &self,
+        p: &TaskStartParams,
+        who: impl Into<Answerer>,
+    ) -> Result<TaskStartResult, RpcFailure> {
+        let who: Answerer = who.into();
+        let what = format!("starting a task ({})", title_from(&p.brief));
+        self.judge_act(&who, Act::Task { what: &what })
+            .map_err(failure)?;
+        let brief = checked(p)?;
+        let (quotes, now) = (quotes_of(&p.quotes)?, self.kernel.now_ms());
+        let start = self.start_of(p, now)?;
+        let (home_session, home_exec, parent_rec, home_target) = self.parent_of(p)?;
+        let parent = self
+            .kernel
+            .execution(&home_exec)?
+            .ok_or_else(|| invalid(format!("{home_session} has no conversation to carve from")))?;
+        let want = self.carve_of(p, &parent, &home_session)?;
+        let target = self.target_of(p, &parent_rec)?;
+        let report_to = p.report_to.unwrap_or_default();
+        let reports_to = match report_to {
+            ReportTo::Home => self.outbox.target(&home_session).or(home_target),
+            ReportTo::Board => None,
+        };
+        let title = title_of(p, brief);
+        let correlation_id = theseus_kernel::new_id("act");
+        let (_, task_session) = task_ids(&correlation_id);
+        let (brief_node, arrangement) = nodes_of(
+            &task_session,
+            &home_session,
+            brief,
+            &quotes,
+            &who.label,
+            now,
+        );
+        let graph = self.graph_of(&task_session, &title, brief, &home_session, &home_exec);
+        let created = crate::fact::task_graph::Change {
+            session_id: home_session.clone(),
+            task: graph.clone(),
+            from: None,
+            detail: json!({"session": task_session}),
+        };
+        let home_rec = self.rec(Some(&home_session));
+        let created_row = crate::fact::task_graph::row_of(&home_rec, "created", &created)?;
+        let hold = hold_of(
+            &parent_rec,
+            arrangement.as_ref(),
+            &home_session,
+            &brief_node.id,
+        );
+        let (by, via) = (who.who(), who.via());
+        let common = Common {
+            title: &title,
+            home_session: &home_session,
+            by: &by,
+            via: &via,
+            quotes: quotes.len(),
+            board: report_to == ReportTo::Board,
+            starts_at_ms: start,
+        };
+        let opening = Opening {
+            reports_to: reports_to.clone(),
+            wake_parent: false,
+            start_at_ms: start,
+        };
+        let draft = Draft {
+            title: &title,
+            parent_rec: &parent_rec,
+            target: target.as_ref(),
+            home_exec: &home_exec,
+            correlation_id: &correlation_id,
+            reports_to: reports_to.as_deref(),
+            arrangement: arrangement.as_ref(),
+            hold,
+            brief_node: &brief_node,
+            graph: &graph,
+            created_row: &created_row,
+            start,
+            now,
+            common: &common,
+            available: parent.budget.available(),
+        };
+        let opened =
+            self.kernel
+                .open_task_owned(&home_exec, &correlation_id, want, opening, |task| {
+                    self.owned_task_records(task, draft)
+                });
+        let opened = opened.map_err(open_refusal)?;
+        let task = &opened.task;
+        self.told(
+            &opened,
+            &common,
+            reports_to.as_deref(),
+            (&home_rec, &created),
+        );
+        Ok(TaskStartResult {
+            task_id: task.session_id.clone(),
+            session_id: task.session_id.clone(),
+            short: short(&task.session_id),
+            home_session,
+            limit_usd: micros_to_usd(task.budget.limit_micros),
+            starts_at_ms: start,
+        })
+    }
+
+    /// When the task starts: none for now, else the one time the params give,
+    /// inside `task.create { start_at }`'s bounds.
+    fn start_of(&self, p: &TaskStartParams, now: u64) -> Result<Option<u64>, RpcFailure> {
+        let kc = self.kernel.config();
+        let max = kc.wakes.max_ahead_ms;
+        let due = match (p.start_at_ms, p.start_after_ms, &p.start_when) {
+            (None, None, None) => return Ok(None),
+            (Some(at), None, None) => {
+                if at <= now {
+                    return Err(invalid(format!(
+                        "`start_at_ms` is {} ago; it is {} now. Give a later time",
+                        crate::wake::span(now - at),
+                        crate::wake::local(now).full()
+                    )));
+                }
+                at
+            }
+            (None, Some(after), None) => now.saturating_add(after),
+            (None, None, Some(when)) => {
+                crate::wake_when::parse_when(when, now, &kc.zone, max).map_err(invalid)?
+            }
+            _ => {
+                return Err(invalid(
+                    "give one of `start_at_ms`, `start_after_ms` and `start_when`, not several",
+                ))
+            }
+        };
+        crate::task_start::bounded(due, now, max)
+            .map(Some)
+            .map_err(|e| invalid(format!("Not started: {e}")))
+    }
+
+    /// The conversation the task goes under: the one `home` names, else the
+    /// owner's Home. Its id, its execution, its record, and Home's DM target.
+    fn parent_of(
+        &self,
+        p: &TaskStartParams,
+    ) -> Result<(String, String, SessionRecord, Option<String>), RpcFailure> {
+        match p.home.as_deref() {
+            Some(id) => {
+                let rec = self.session(id)?;
+                if rec.kind == SessionKind::Task || rec.task.is_some() {
+                    return Err(refused(
+                        "Not started: that session is itself a task, and a task cannot start \
+                         tasks (depth one). Start it under a conversation."
+                            .into(),
+                    ));
+                }
+                if rec.retired.is_some() {
+                    return Err(refused(format!(
+                        "Not started: session {} is retired. Reopen it (`theseus sessions \
+                         reopen`) or start the task under another conversation.",
+                        short(id)
+                    )));
+                }
+                let Some(exec) = rec.execution_id.clone() else {
+                    return Err(invalid(format!(
+                        "session {id} has no conversation to carve a task's budget from"
+                    )));
+                };
+                Ok((rec.session_id.clone(), exec, rec, None))
+            }
+            None => {
+                let h = self.home()?;
+                let rec = self.session(&h.session_id)?;
+                Ok((h.session_id, h.execution_id, rec, h.target))
+            }
+        }
+    }
+
+    /// The model the task runs on: the profile asked for, else the parent's.
+    fn target_of(
+        &self,
+        p: &TaskStartParams,
+        parent_rec: &SessionRecord,
+    ) -> Result<Option<TargetRef>, RpcFailure> {
+        match &p.profile {
+            Some(name) => self.profile_target(name).map(Some),
+            None => Ok(parent_rec.last_target.clone()),
+        }
+    }
+
+    /// The profile `name` names, as a task's model.
+    fn profile_target(&self, name: &str) -> Result<TargetRef, RpcFailure> {
+        self.tools.profiles.get(name).cloned().ok_or_else(|| {
+            invalid(format!(
+                "no profile is named `{name}`; configured: {}",
+                self.tools
+                    .profiles
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })
+    }
+}
+
+/// Everything the open's frame is built from.
+struct Draft<'a> {
+    title: &'a str,
+    parent_rec: &'a SessionRecord,
+    target: Option<&'a TargetRef>,
+    home_exec: &'a str,
+    correlation_id: &'a str,
+    reports_to: Option<&'a str>,
+    arrangement: Option<&'a Node>,
+    hold: Option<theseus_protocol::ExternalText>,
+    brief_node: &'a Node,
+    graph: &'a crate::task_graph::TaskRecord,
+    created_row: &'a NewRecord,
+    start: Option<u64>,
+    now: u64,
+    common: &'a Common<'a>,
+    available: theseus_kernel::Micros,
+}
+
+impl Core {
+    /// The records of the open's one frame, beside the kernel's own: the
+    /// task's session (holding external text when it must), its brief and
+    /// quotes, where it reports, its graph record, a deferred start, and the
+    /// owner's row.
+    fn owned_task_records(
+        &self,
+        task: &theseus_kernel::Execution,
+        d: Draft<'_>,
+    ) -> anyhow::Result<Vec<NewRecord>> {
+        let mut rec = SessionRecord::with_id(
+            task.session_id.clone(),
+            SessionKind::Task,
+            Some("task".into()),
+        );
+        rec.title = Some(d.title.to_string());
+        rec.execution_id = Some(task.id.clone());
+        // A task works where its parent does (theseus-aab7).
+        rec.dir = d.parent_rec.dir.clone();
+        rec.last_target = d.target.cloned();
+        rec.task = Some(TaskOf {
+            parent_session: d.common.home_session.to_string(),
+            parent_execution: d.home_exec.to_string(),
+            by: d.correlation_id.to_string(),
+            target: d.reports_to.map(str::to_string),
+            arrangement: d.arrangement.map(|a| a.id.clone()),
+            check: None,
+        });
+        let mut records = match d.hold {
+            Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),
+            None => vec![NewRecord::json(
+                kinds::SESSION,
+                Some(&rec.session_id),
+                &rec,
+            )?],
+        };
+        records.push(d.brief_node.record()?);
+        if let Some(a) = d.arrangement {
+            records.push(a.record()?);
+            records.push(
+                crate::graph::Edge::new(
+                    crate::graph::EdgeKind::DerivedFrom,
+                    &a.id,
+                    &d.brief_node.id,
+                    crate::graph::VIA_ARRANGEMENT,
+                )
+                .record()?,
+            );
+        }
+        if let Some(t) = d.reports_to {
+            records.push(self.outbox.task_record(&task.session_id, t)?);
+        }
+        records.push(crate::task_graph::record(d.graph)?);
+        records.push(d.created_row.clone());
+        if let Some(due) = d.start {
+            let times = crate::task_start::Deferred {
+                set_at_ms: d.now,
+                due_at_ms: due,
+                started_ms: None,
+            };
+            records.push(crate::task_start::record(&task.session_id, &times)?);
+        }
+        let short_id = short(&task.session_id);
+        let fact = started_fact(
+            d.common,
+            &short_id,
+            &task.session_id,
+            (task.budget.limit_micros, d.available),
+        );
+        records.push(self.rec(Some(&task.session_id)).row(&fact)?);
+        Ok(records)
+    }
+}
+
+/// The task's title: the one given, else the brief's first line.
+fn title_of(p: &TaskStartParams, brief: &str) -> String {
+    match p.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => t.to_string(),
+        None => title_from(brief),
+    }
+}
+
+/// The brief's node, and the node that carries the quotes after it (none
+/// without quotes).
+fn nodes_of(
+    task_session: &str,
+    home_session: &str,
+    brief: &str,
+    quotes: &[String],
+    author_label: &str,
+    now: u64,
+) -> (Node, Option<Node>) {
+    let author = format!("session:{home_session}");
+    let text = brief_text(task_session, home_session, brief);
+    let brief_node = Node::relayed(task_session, None, Origin::Agent, &author, &text);
+    let arrangement = (!quotes.is_empty()).then(|| {
+        let pieces = quotes
+            .iter()
+            .map(|q| piece_of(q, &brief_node.id, task_session, author_label, now))
+            .collect();
+        Node::arrangement(task_session, &author, pieces, false)
+    });
+    (brief_node, arrangement)
+}
+
+/// What a refused open says.
+fn open_refusal(e: anyhow::Error) -> RpcFailure {
+    match e.downcast_ref::<KernelError>() {
+        Some(KernelError::TaskDepth { .. }) => {
+            refused("Not started: a task cannot start tasks (depth one).".into())
+        }
+        Some(KernelError::NothingToCarve { .. }) => refused(format!(
+            "Not started: {e}. Start it under another conversation (`home`)."
+        )),
+        _ => RpcFailure::from(e),
+    }
+}
+
+impl Core {
+    /// Once the open's frame is written: bind where the task reports, and
+    /// announce the owner's row's sentence and the task graph's creation.
+    fn told(
+        &self,
+        opened: &theseus_kernel::TaskOpen,
+        common: &Common<'_>,
+        reports_to: Option<&str>,
+        (home_rec, created): (&crate::fact::Rec<'_>, &crate::fact::task_graph::Change),
+    ) {
+        let task = &opened.task;
+        if let Some(t) = reports_to {
+            self.outbox.task_bound(&task.session_id, t);
+        }
+        let short_id = short(&task.session_id);
+        let fact = started_fact(
+            common,
+            &short_id,
+            &task.session_id,
+            (task.budget.limit_micros, opened.available_before),
+        );
+        self.rec(Some(&task.session_id)).announce(&fact);
+        crate::fact::task_graph::announce(home_rec, "created", created);
+    }
+}
+
+/// The brief, trimmed, once it and the budget are in bounds.
+fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
+    let brief = p.brief.trim();
+    if brief.is_empty() {
+        return Err(invalid("the brief is empty: say what the task should do"));
+    }
+    let n = brief.chars().count();
+    if n > MAX_BRIEF_CHARS {
+        return Err(invalid(format!(
+            "the brief is {n} characters, over the {MAX_BRIEF_CHARS} a task takes"
+        )));
+    }
+    if let Some(b) = p.budget_usd {
+        if !(b.is_finite() && b > 0.0) {
+            return Err(invalid(format!("budget_usd must be more than $0, not {b}")));
+        }
+    }
+    Ok(brief)
+}
+
+/// The external-text hold the task's session starts with: its parent's, else
+/// the quotes'.
+fn hold_of(
+    parent_rec: &SessionRecord,
+    arrangement: Option<&Node>,
+    home_session: &str,
+    brief_id: &str,
+) -> Option<theseus_protocol::ExternalText> {
+    let now = theseus_protocol::now_unix_ms();
+    match (&parent_rec.external, arrangement) {
+        (Some(h), _) => Some(crate::external::taken(
+            h,
+            home_session,
+            crate::external::VIA_TASK,
+            brief_id,
+            now,
+        )),
+        (None, Some(a)) => {
+            let mut h = crate::external::read(&a.id, "task.start", "quoted text", None, now);
+            h.via = Some(crate::external::VIA_QUOTE.into());
+            Some(h)
+        }
+        (None, None) => None,
+    }
+}
+
+impl Core {
+    /// What the task is carved: `task.create`'s rule (under a limit that
+    /// notifies, from the parent's whole limit), with an explicit budget over
+    /// it refused with the numbers.
+    fn carve_of(
+        &self,
+        p: &TaskStartParams,
+        parent: &theseus_kernel::Execution,
+        home_session: &str,
+    ) -> Result<theseus_kernel::Micros, RpcFailure> {
+        let left = parent.budget.available();
+        let pool = match self.kernel.overdraws(parent) {
+            true => left.max(parent.budget.limit_micros),
+            false => left,
+        };
+        match p.budget_usd {
+            Some(b) if usd_to_micros(b) > pool => Err(refused(format!(
+                "Not started: a budget of {} is more than conversation {} has left: {} \
+                 (its limit is {}, and {} is spent or carved). Ask for less, or start it \
+                 under another conversation (`home`).",
+                usd(usd_to_micros(b)),
+                short(home_session),
+                usd(pool),
+                usd(parent.budget.limit_micros),
+                usd(parent.budget.limit_micros.saturating_sub(left)),
+            ))),
+            Some(b) => Ok(usd_to_micros(b)),
+            None => Ok(pool / DEFAULT_SHARE.1 * DEFAULT_SHARE.0),
+        }
+    }
+
+    /// The task's record in the task graph.
+    fn graph_of(
+        &self,
+        task_session: &str,
+        title: &str,
+        brief: &str,
+        home_session: &str,
+        home_exec: &str,
+    ) -> crate::task_graph::TaskRecord {
+        crate::task_graph::NewTask {
+            id: crate::task_graph::of_session(task_session),
+            title,
+            objective: brief.to_string(),
+            acceptance: vec![],
+            parent: None,
+            deps: vec![],
+            session: Some(task_session.to_string()),
+            origin: crate::task_graph::TaskOrigin {
+                session: home_session.to_string(),
+                principal: crate::task_graph::principal_of(&self.kernel, home_exec),
+                by_model: false,
+            },
+            state: crate::task_graph::TaskState::InProgress,
+        }
+        .build(theseus_protocol::now_unix_ms())
+    }
+}
+
+/// The quotes, trimmed, with the empty ones refused and the count and size capped.
+fn quotes_of(quotes: &[String]) -> Result<Vec<String>, RpcFailure> {
+    let out: Vec<String> = quotes
+        .iter()
+        .map(|q| q.trim().to_string())
+        .filter(|q| !q.is_empty())
+        .collect();
+    if out.len() > MAX_PIECES {
+        return Err(invalid(format!(
+            "{} quotes, over the {MAX_PIECES} a task takes",
+            out.len()
+        )));
+    }
+    if let Some(q) = out.iter().find(|q| q.chars().count() > PIECE_CHARS) {
+        return Err(invalid(format!(
+            "a quote is {} characters, over the {PIECE_CHARS} a piece takes",
+            q.chars().count()
+        )));
+    }
+    Ok(out)
+}
+
+/// A quote as the arrangement keeps it: context, said by the owner.
+fn piece_of(quote: &str, node: &str, session: &str, author: &str, at_ms: u64) -> Piece {
+    Piece {
+        role: Role::Context,
+        node: node.into(),
+        session_id: session.into(),
+        origin: Origin::Operator,
+        author: Some(author.into()),
+        at_ms,
+        text: Some(quote.into()),
+        first_line: title_from(quote),
+        trusted: false,
+        superseded_by: None,
+    }
+}
+
+/// What the task's first turn reads: the owner's brief.
+fn brief_text(task_session: &str, home_session: &str, brief: &str) -> String {
+    format!(
+        "[Task {}: a background task the owner started, under session {}. Work on the brief \
+         below on your own. Nobody reads this session while you work, and nobody answers \
+         questions asked in it: decide, and say what you decided. Your last message is your \
+         report, so end with what you did and what you found. You cannot start tasks of your \
+         own.]\n\n{brief}",
+        short(task_session),
+        crate::narrative::short(home_session)
+    )
+}
+
+/// What every row and sentence of one start shares.
+struct Common<'a> {
+    title: &'a str,
+    home_session: &'a str,
+    by: &'a str,
+    via: &'a str,
+    quotes: usize,
+    board: bool,
+    starts_at_ms: Option<u64>,
+}
+
+fn started_fact<'a>(
+    c: &Common<'a>,
+    short: &'a str,
+    session_id: &'a str,
+    (limit, available_before): (theseus_kernel::Micros, theseus_kernel::Micros),
+) -> crate::fact::task_start::TaskStartedByOwner<'a> {
+    crate::fact::task_start::TaskStartedByOwner {
+        short,
+        title: c.title,
+        session_id,
+        home_session: c.home_session,
+        limit,
+        available_before,
+        quotes: c.quotes,
+        board: c.board,
+        starts_at_ms: c.starts_at_ms,
+        by: c.by,
+        via: c.via,
+    }
+}
+
+fn invalid(e: impl std::fmt::Display) -> RpcFailure {
+    RpcFailure::new(error_code::INVALID_PARAMS, e.to_string())
+}
+
+fn refused(e: String) -> RpcFailure {
+    RpcFailure::new(error_code::REFUSED, e)
+}
+
+/// A judged refusal is `REFUSED`, with where to start it instead.
+fn failure(e: anyhow::Error) -> RpcFailure {
+    match e.downcast::<Refusal>() {
+        Ok(r) => RpcFailure {
+            code: error_code::REFUSED,
+            message: format!(
+                "a task start from {} does not count: {}. {INSTEAD}",
+                r.who, r.why
+            ),
+            data: json!({"who": r.who, "via": r.via, "why": r.why, "method": method::TASK_START}),
+        },
+        Err(e) => RpcFailure::invalid(anyhow!("{e:#}")),
+    }
+}

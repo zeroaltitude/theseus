@@ -1258,6 +1258,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`MIN_AHEAD_MS`, `MAX_AHEAD_MS`). `TaskInfo.starts_at_ms` is derived from the execution while it sleeps
   (`task_start::starts_at`), and the board, `theseus tasks` and `/tasks` say `▷ starts Fri 09:00`. A cancel before
   the start ends it and releases the carve. Tests: `tests_tasks_deferred.rs`, the kernel's `tests_deferred.rs`.
+- **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
+  start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
+  the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start
+  call it). It is `Kernel::open_task_owned`, the opening `task.create` shares (`open_task_at`, both on `open_task_in`), minus the
+  parent's turn: the parent is the conversation `home` names (not a task, not retired), else Home (`wake_home.rs`, made on first
+  use). The task's execution, session, brief, graph record, quotes' arrangement, the carve and the `task.started_by_owner` row
+  (`fact/task_start.rs`) are one frame; the model is not called, and the report waits on the parent (`wake_parent` is false, so
+  it never costs a turn). The carve is `task.create`'s: `budget_usd`, else a quarter of what the parent has left; an explicit
+  budget over what it has left is refused with the numbers (not capped silently), nothing left carves nothing. `start_*` opens
+  it asleep (`task.create`'s bounds, `task_start::bounded`; `start_when` is `wake.create`'s `when`, read in the daemon's zone).
+  `quotes` become one `Body::Arrangement` (role `context`) after the brief and hold the task's session as external text
+  (`external::VIA_QUOTE`, the web text's hold and policy; a parent that already holds passes its own). Authority is
+  `judge_act(Act::Task)`: the owner, from a private place; a shared place and an MCP client (`mcp_server::JUDGED`) are refused with
+  where to start it instead, a job's shell by the CLI (`client::OPERATORS`). Tests: `tests_task_start.rs`, theseusd's
+  `tests/task_start.rs`, the CLI's `tests/task_start.rs`.
 - **Forks** (theseus-2qzx, the killer-features plan's R19; store format 32): `session.fork { session, at, title?,
   profile?, budget_usd? }` (`rpc/fork.rs`; the stored parts and reads are `fork.rs`) makes a conversation from any
   moment of another, by reference, in one frame: the new execution (the source's authority, a pinned limit of

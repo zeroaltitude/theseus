@@ -11,6 +11,7 @@ mod app;
 mod board;
 mod card;
 mod detail;
+mod new_task;
 mod notice;
 mod run;
 mod term;
@@ -24,6 +25,8 @@ mod tests_answer;
 mod tests_cite;
 #[cfg(test)]
 mod tests_names;
+#[cfg(test)]
+mod tests_new_task;
 #[cfg(test)]
 mod tests_notice;
 #[cfg(test)]

@@ -103,7 +103,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         BudgetInfo, ExecutionListResult, ExecutionListParams, ActionInfo, ActionListParams, ActionListResult,
         ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult,
         TaskInfo, TaskListParams, TaskListResult, TaskCancelParams, TaskCancelResult, WakeInfo,
-        WakeListParams, WakeListResult, WakeCancelParams, WakeCancelResult, wakes::WakeCreateParams, wakes::WakeEditResult, wakes::WakeSnoozeParams, wakes::WakePauseParams, wakes::WakeNameParams, wakes::WakeDoneResult, wakes::WakeAnswer, wakes::WakeNoticed, TaskRef, SessionKind,
+        WakeListParams, WakeListResult, WakeCancelParams, WakeCancelResult, wakes::WakeCreateParams, wakes::WakeEditResult, wakes::WakeSnoozeParams, wakes::WakePauseParams, wakes::WakeNameParams, wakes::WakeDoneResult, wakes::WakeAnswer, wakes::WakeNoticed, task_start::TaskStartParams, task_start::TaskStartResult, task_start::ReportTo, TaskRef, SessionKind,
         SessionOpenParams, SessionInfo, SessionListResult, TurnSubmitParams, Attachment, sessions::SessionRetireParams, sessions::SessionReopenParams,
         ProfileInfo, ProfileListResult, ProfileUseParams, ProfileChanged, Span, Usage,
         TurnSubmitResult, LedgerTailParams, LedgerEntry, LedgerTailResult, LedgerWindowParams, LedgerWindowResult, LedgerVerifyParams, LedgerVerifyResult, LedgerBreak, LedgerHead, SessionRef,

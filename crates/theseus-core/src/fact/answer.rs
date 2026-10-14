@@ -207,6 +207,7 @@ impl ActRefused<'_> {
             | Act::SelfBacklog { .. }
             | Act::Earned { .. }
             | Act::Retract { .. }
+            | Act::Task { .. }
             | Act::Standing { .. }
             | Act::Thread { .. } => None,
         }
@@ -238,6 +239,7 @@ impl Fact for ActRefused<'_> {
             Act::Ontology { what, .. }
             | Act::Label { what }
             | Act::Retract { what }
+            | Act::Task { what }
             | Act::JudgeLabel { what }
             | Act::RouteCorrect { what }
             | Act::JudgeRun { what, .. }
@@ -314,6 +316,10 @@ impl Fact for ActRefused<'_> {
                 Act::Session { what, .. } => format!(
                     "{what}, from {} through {}, did not count: {}. The session is as it was.",
                     r.who, r.via, r.why
+                ),
+                Act::Task { what } => format!(
+                    "{what}, from {who} through {via}, did not count: {why}. No task was started \
+                     and nothing was carved."
                 ),
                 Act::Retract { what } => format!(
                     "{what}, from {who} through {via}, did not count: {why}. Nothing was labeled \

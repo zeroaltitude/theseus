@@ -78,6 +78,9 @@ impl Mode {
     }
 }
 
+/// `quote`: text the owner handed a task when starting it (`task.start`'s
+/// `quotes`, theseus-7oq0w): a message, a pasted log. It is held as web text is.
+pub const VIA_QUOTE: &str = "quote";
 /// `task.create`: a task that a session holding external text started.
 pub const VIA_TASK: &str = "task.create";
 /// `task.report`: a report from a task that held external text.
