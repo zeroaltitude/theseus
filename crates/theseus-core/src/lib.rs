@@ -100,6 +100,7 @@ pub mod telemetry;
 pub mod tender;
 pub mod term;
 pub mod threads;
+pub mod threads_import;
 pub mod tighten;
 pub mod toolrun;
 pub mod trace;

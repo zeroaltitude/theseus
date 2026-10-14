@@ -256,6 +256,7 @@ ledger_kinds! {
     ThreadCreated = "thread.created",
     ThreadDone = "thread.done",
     ThreadEdited = "thread.edited",
+    ThreadImported = "thread.imported",
     ThreadPaused = "thread.paused",
     ThreadReopened = "thread.reopened",
     ThreadResumed = "thread.resumed",

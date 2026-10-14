@@ -79,6 +79,7 @@ pub mod synthesis;
 pub mod task_graph;
 pub mod term;
 pub mod thread;
+pub mod thread_import;
 pub mod tool;
 pub mod turn;
 pub mod wake;
@@ -486,6 +487,7 @@ facts![
     thread::ThreadResumed<'static>,
     thread::ThreadDone<'static>,
     thread::ThreadReopened<'static>,
+    thread_import::ThreadImported<'static>,
 ];
 
 #[cfg(test)]

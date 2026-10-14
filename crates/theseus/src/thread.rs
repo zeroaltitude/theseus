@@ -78,6 +78,11 @@ pub enum ThreadCmd {
     Done { slug: String },
     /// Take a finished thread up again: its next message opens a successor session.
     Reopen { slug: String },
+    /// Candidate threads from your earlier harness (theseus-71ib): `--from openclaw` is the dry
+    /// run (a table and a plan file to tick, nothing written); `--apply 1,3,5` or `--apply
+    /// all-ticked` makes those threads, each with a card written from its episodes (a Haiku call,
+    /// under `[threads] import_day_usd`). `--vestige PATH` imports a Vestige dump as notes, once.
+    Import(crate::thread_import::Args),
 }
 
 impl Default for ThreadCmd {
@@ -190,6 +195,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Resume { slug } => moved(conn, json, method::THREAD_RESUME, slug).await,
         ThreadCmd::Done { slug } => moved(conn, json, method::THREAD_DONE, slug).await,
         ThreadCmd::Reopen { slug } => moved(conn, json, method::THREAD_REOPEN, slug).await,
+        ThreadCmd::Import(a) => crate::thread_import::run(conn, json, a).await,
     }
 }
 

@@ -221,6 +221,33 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+- **Threads from the owner's earlier harness** (theseus-71ib, T11; no format bump: a ledger kind and two META keys):
+  `thread.import` (`rpc/thread_import.rs`, `threads_import/`), `judge_act(Act::Thread)`, the owner from a private place.
+  With no `apply` it is the dry run: `source::scan` reads the imported sessions of every tag holding a source that
+  starts with `from` (`openclaw` takes `openclaw-store`, `openclaw-sync`) that ended in the window, their owner
+  messages (`Integrity::Operator`) and summary; `candidates::candidates` (pure) makes one candidate of each channel
+  conversation (a Slack or Discord channel, by its id) with an owner message in the last `since_days` (30) and, for the
+  DMs, one of each topic cluster (an episode's first topic label cut to two path parts) with at least `min_cluster`
+  (8) owner messages. The title is the channel's label, the persona the agent's only if `[personas]` has it, the
+  topics the episodes' labels (3), the working set what `extract.rs` finds by rules in the owner's lines and
+  summaries (repos, `#N` and `owner/name#N` and Beads ids, branches, files, hosts; no model). **A partner-confidential
+  episode counts and gives no text**: its messages are in the numbers and the sensitivity counts, and in no title,
+  topic, working set or model request; a stream of nothing else is titled `confidential <kind> conversation`.
+  With `apply` (slugs, looked up in a fresh scan) each thread is made one at a time: the card's call
+  (`card.rs`: Haiku by `[threads] import_profile`, one tool, `write_card`, scrubbed input, the newest 30 episodes within
+  24,000 characters), then `thread.new` and `thread.edit` (card, working set, persona), then one `thread.imported` row
+  (cost, tokens, the citations as handle, node and session; a day-ceiling spend kind) with the day's spend
+  (META `threads.import.day`) in one frame. A call whose worst case passes `[threads] import_day_usd` (2.0) or that the
+  day ceiling refuses is not made: the thread is made without a card, the result says why. A card line must cite
+  episodes the call offered (`E1`…) and ends in their recall handles (`[m:a1b2c3]`, `cite::handles_for` over the
+  episodes' anchor nodes); a line citing none, or repeating a message of 60 characters or more, is dropped and counted
+  (`dropped`). **Imported history stays testimony**: no node is written into any session and the thread has no session
+  of its own until its first message. The Vestige dump (`--vestige`) is the CLI's: each memory an episode of source
+  `vestige` (`episode::VESTIGE_SOURCE`, scrubbed as the harnesses' are), its id the digest of its text. Not here: the
+  Discord channel's bind (T6; `ThreadCandidate.channel` and a note say it can be the thread's place), and the
+  card's reach into a turn (T2). Tests: `threads_import/tests.rs`, `rpc/tests_thread_import.rs`, theseusd's
+  `tests/thread_import.rs`; the invented export is `threads_import/fixture.rs` and
+  `tests/fixtures/threads-import/openclaw.jsonl` (`THESEUS_GOLDEN=write` rewrites it).
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

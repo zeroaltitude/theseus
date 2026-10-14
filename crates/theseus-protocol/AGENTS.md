@@ -106,6 +106,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
   session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
+- `threads_import.rs` (theseus-71ib): `thread.import`'s params (`from`, `since_days`, `min_cluster`, `apply`: none is the dry
+  run) and result (`ThreadCandidate` rows, `ThreadApplied` with the card and its cited handles, `ThreadSkipped`, the spend).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

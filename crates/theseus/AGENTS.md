@@ -41,6 +41,13 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
+- `src/thread_import.rs`, `src/vestige.rs` (theseus-71ib): `theseus thread import --from openclaw` is the dry run (a numbered
+  table, `render`'s words in `table_lines`, and a plan file, `thread-import-plan.txt` by default, of `[ ] N slug title` lines);
+  `--apply 1,3,5` (numbers of a fresh table) or `--apply all-ticked --plan FILE` (the `[x]` lines, read by slug) makes those
+  threads through `thread.import`; `--since-days` (30), `--min-cluster` (8). `--vestige PATH` (a dump file, or a directory's
+  `vestige*.json`) turns each memory into an episode (`vestige::episode`, the id the digest of its text) and sends it with
+  `import.episodes`; a note seen again is skipped. `thread.import` is in `client::OPERATORS`. Tests: `thread_import/tests.rs`,
+  `vestige/tests.rs`, theseusd's `tests/thread_import.rs`.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

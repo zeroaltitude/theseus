@@ -920,6 +920,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
+# import_day_usd = 2.0                    # what the cards of `theseus thread import --apply` may spend a local day (one Haiku call a thread, cited to its episodes); past it a thread is made without a card
+# import_profile = "haiku"                # the profile whose model writes those cards
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

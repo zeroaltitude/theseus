@@ -45,6 +45,8 @@ mod self_cmd;
 mod standing_cmd;
 mod status;
 mod thread;
+mod thread_import;
+mod vestige;
 mod why;
 
 use std::path::PathBuf;
