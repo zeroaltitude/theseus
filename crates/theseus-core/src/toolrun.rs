@@ -721,11 +721,13 @@ impl ToolRuntime {
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
+             - {}\n\
              - A declined call is final for that request: tell the operator and do not route around it.\n\
              - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.{}",
             roots.join(", "),
             postures.join("; "),
             if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
+            crate::task_graph::PLAN_NOTE,
             self.proc_sync_secs,
             self.mcp_note(offered) + &ceiling_note,
         )

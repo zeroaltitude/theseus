@@ -55,6 +55,7 @@ use crate::Config;
 
 pub mod admission;
 mod admit_step;
+pub(crate) mod advance_step;
 #[cfg(test)]
 pub(crate) use admit_step::admit_hook;
 pub(crate) mod budget_step;
@@ -1978,7 +1979,7 @@ impl TurnRunner {
             }
             // A refusal goes once to its model's fallback (theseus-7gir.18).
             let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
-            run_model = Self::advance(t, &resp, uses.len(), answered, i, window_retry || fell);
+            run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
             t.last = Some(resp);
             // A stop that announced more work goes on once (theseus-fh0u).
@@ -3072,63 +3073,6 @@ impl TurnRunner {
         }
         t.awaiting = batch.awaiting;
         Ok(answered)
-    }
-
-    /// The Advancer decides whether the turn continues; the loop's end is
-    /// recorded either way. `retry`: the call is made again, an answer cut at
-    /// the window (theseus-9p88) or a refusal's fallback (theseus-7gir.18),
-    /// which the retry's own line has said.
-    fn advance(
-        t: &mut Turn<'_>,
-        resp: &ModelResponse,
-        uses: usize,
-        answered: u32,
-        i: u32,
-        retry: bool,
-    ) -> bool {
-        let advancer = UntilNoToolCalls {
-            max_loops: t.target.max_loops,
-            notify: t.target.max_loops_mode == crate::config::MaxLoopsMode::Notify,
-        };
-        let stop = resp.stop_reason.as_deref();
-        let outcome = LoopOutcome {
-            loop_index: i,
-            provider_stop_reason: resp.stop_reason.clone(),
-            tool_calls: answered,
-            output_chars: resp.text.chars().count(),
-        };
-        let a0 = t.trace.now_us();
-        let decision = if t.awaiting.is_some() {
-            Decision::EndTurn("awaiting_confirm".into())
-        } else if retry {
-            Decision::Continue
-        } else if matches!(
-            stop,
-            Some("refusal") | Some("max_tokens") | Some(WINDOW_EXCEEDED)
-        ) {
-            Decision::EndTurn(stop.unwrap_or_default().to_string())
-        } else {
-            advancer.decide(&outcome)
-        };
-        t.record(&fact::turn::LoopEnded {
-            turn_id: t.tc.turn_id,
-            outcome: &outcome,
-            advancer: advancer.name(),
-            decision: &decision,
-            usage: &resp.usage,
-            provider_stop_reason: resp.stop_reason.as_deref(),
-            uses,
-            answered,
-            retry,
-            a0,
-        });
-        match decision {
-            Decision::Continue => true,
-            Decision::EndTurn(reason) => {
-                t.stop_reason = reason;
-                false
-            }
-        }
     }
 
     /// End a turn that failed after it began, the one exit of every turn

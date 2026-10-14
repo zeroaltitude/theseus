@@ -183,8 +183,8 @@ fn view_line(v: &WorkView) -> String {
         glyph(v.attention.level),
         v.attention.label
     );
-    if let Some(p) = &v.progress {
-        s.push_str(&format!("  [{}/{} steps]", p.steps_done, p.steps_total));
+    if let Some(line) = v.progress.as_ref().and_then(|p| p.line()) {
+        s.push_str(&format!("  [{line}]"));
     }
     if let Some(e) = &v.eta {
         s.push_str(&format!("  [usually {} s]", e.usual_ms / 1000));
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(
             tree_lines(&views),
             vec![
-                "◐ Beta summary  turn 3  [1/3 steps]  (1 need you, 1 working, 0 done, 0 failed)",
+                "◐ Beta summary  turn 3  [1/3]  (1 need you, 1 working, 0 done, 0 failed)",
                 "  ◐ Read the buoys  turn 1",
                 "    ◐ cargo test -p core  running  [usually 94 s]",
                 "  ● fs.write notes.txt  confirm fs.write: notes.txt",

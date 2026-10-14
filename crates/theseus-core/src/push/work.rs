@@ -26,6 +26,7 @@
 
 mod eta;
 mod place;
+mod progress;
 mod views;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -105,6 +106,9 @@ struct ExecIn {
     title: String,
     turn_started_ms: u64,
     loop_index: u32,
+    /// The newest `say` of a `loop.ended` row: the model's own line before
+    /// its tool calls (theseus-xlias). Kept until the next one.
+    said: Option<String>,
     woke: Option<Woke>,
 }
 
@@ -401,6 +405,9 @@ impl WorkBoard {
                         let id = id.to_string();
                         if let Some(e) = self.execs.get_mut(&id) {
                             e.loop_index += 1;
+                            if let Some(say) = s("say").filter(|x| !x.is_empty()) {
+                                e.said = Some(say.to_string());
+                            }
                             d.execs.insert(id);
                         }
                     }
@@ -828,6 +835,7 @@ impl WorkBoard {
                 title,
                 turn_started_ms: 0,
                 loop_index: 0,
+                said: None,
                 woke: None,
             },
         );

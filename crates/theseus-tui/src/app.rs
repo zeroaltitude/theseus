@@ -63,6 +63,8 @@ pub enum Purpose {
     Typing,
     /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
     Health,
+    /// `work.watch`: each task's progress line (theseus-xlias).
+    Work,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -380,6 +382,7 @@ impl App {
         let mut out = vec![
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
+            work_watch(),
         ];
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
@@ -397,6 +400,13 @@ impl App {
 
     /// A notification from the daemon.
     pub fn notified(&mut self, method_name: &str, params: &Value) -> Vec<Effect> {
+        // The work board's changes carry each task's progress line.
+        if method_name == "work.changed" {
+            if let Ok(c) = serde_json::from_value::<theseus_protocol::WorkChanged>(params.clone()) {
+                self.board.work_views(&c.views);
+            }
+            return Vec::new();
+        }
         let event = match Event::from_notification(method_name, params) {
             Ok(Some(e)) => e,
             // A newer daemon's notification, or one that does not decode.
@@ -470,6 +480,9 @@ impl App {
         let all = lost.streams.is_empty();
         if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
+        }
+        if all || lost.streams.iter().any(|s| s == "work") {
+            out.push(work_watch());
         }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             let stream = format!("session:{sid}");
@@ -580,6 +593,11 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
+            Purpose::Work => {
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
+                    self.board.work_views(&r.views);
+                }
+            }
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -588,7 +606,7 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(purpose, Purpose::Typing | Purpose::Health | Purpose::Work) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -621,6 +639,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::Work => method::WORK_WATCH,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -1159,6 +1178,15 @@ fn sync_warning(v: Value) -> Option<String> {
     }
     let h: Sync = serde_json::from_value(v).unwrap_or_default();
     h.imported.and_then(|i| i.sync).and_then(|s| s.warn)
+}
+
+/// `work.watch`: the work board's views, whose progress lines the rows show.
+fn work_watch() -> Effect {
+    call(
+        method::WORK_WATCH,
+        json!({ "interactive": true }),
+        Purpose::Work,
+    )
 }
 
 /// `executions.watch`: the board's snapshot, then its events.

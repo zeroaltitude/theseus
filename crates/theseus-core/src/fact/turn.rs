@@ -768,6 +768,10 @@ pub struct LoopEnded<'a> {
     pub retry: bool,
     /// When the Advancer began deciding, on the trace's clock.
     pub a0: u64,
+    /// The first line of the text the loop wrote before its tool calls,
+    /// scrubbed and cut (`turn::advance_step::say_of`); none when the loop
+    /// made no call (theseus-xlias).
+    pub say: Option<&'a str>,
 }
 
 impl Fact for LoopEnded<'_> {
@@ -775,7 +779,11 @@ impl Fact for LoopEnded<'_> {
     const METHOD: Option<&'static str> = Some(notify::LOOP_ENDED);
 
     fn row(&self) -> Value {
-        json!({"loop": self.outcome.loop_index, "outcome": self.outcome, "advancer": self.advancer, "decision": self.decision, "usage": self.usage})
+        let mut row = json!({"loop": self.outcome.loop_index, "outcome": self.outcome, "advancer": self.advancer, "decision": self.decision, "usage": self.usage});
+        if let Some(say) = self.say {
+            row["say"] = json!(say);
+        }
+        row
     }
 
     fn event(&self) -> Option<Event> {

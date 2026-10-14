@@ -294,6 +294,8 @@ mod tests_people_proposals;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]
+mod tests_progress;
+#[cfg(test)]
 mod tests_prove;
 #[cfg(test)]
 mod tests_push;

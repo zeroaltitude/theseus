@@ -106,6 +106,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         let titles = if a.short || json {
             HashMap::new()
         } else {
+            board.progress = crate::status_progress::lines(&mut conn).await;
             titles(&mut conn, &board).await.unwrap_or_default()
         };
         anyhow::Ok(Answer::Full(board, titles))
@@ -212,6 +213,9 @@ pub struct Board {
     /// The snapshot's position: a view at or before it is in the snapshot.
     floor: u64,
     confirms: Vec<ConfirmRequest>,
+    /// Each session's progress line from the work board, when the long form
+    /// read it (theseus-xlias).
+    pub progress: HashMap<String, String>,
 }
 
 impl Board {
@@ -433,10 +437,14 @@ pub fn long_lines(
                 .filter(|t| !t.is_empty())
                 .cloned()
                 .unwrap_or_else(|| format!("({})", v.kind.as_str()));
+            let mut tail = tail(v, now, hm);
+            if let Some(p) = board.progress.get(&v.session_id).filter(|_| group(v) != 1) {
+                tail = format!("{tail} · {p}");
+            }
             (
                 format!("{} {}", mark(v), short_id(&v.session_id)),
                 first_line(&title),
-                cut(&tail(v, now, hm), tail_cap),
+                cut(&tail, tail_cap),
             )
         })
         .collect();

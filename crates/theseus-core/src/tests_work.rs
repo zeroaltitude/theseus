@@ -18,15 +18,15 @@ use crate::tests_tasks::{
 use crate::Core;
 
 /// What a `work.watch` connection holds and has heard.
-struct Watcher {
+pub(crate) struct Watcher {
     rx: UnboundedReceiver<Message>,
-    changed: Vec<WorkChanged>,
+    pub(crate) changed: Vec<WorkChanged>,
     notices: Vec<Notice>,
 }
 
 impl Watcher {
     /// Watch the whole board, the way `work.watch` does: subscribe, then read.
-    async fn start(core: &Arc<Core>, scope: WorkScope) -> (Self, Vec<WorkView>) {
+    pub(crate) async fn start(core: &Arc<Core>, scope: WorkScope) -> (Self, Vec<WorkView>) {
         core.push.ensure(core).await.unwrap();
         let (tx, rx) = unbounded_channel();
         core.bus.watch_work("w", tx, scope.clone(), false);
@@ -42,7 +42,7 @@ impl Watcher {
     }
 
     /// Take what has arrived.
-    fn drain(&mut self) {
+    pub(crate) fn drain(&mut self) {
         while let Ok(m) = self.rx.try_recv() {
             let Message::Notification(n) = m else {
                 continue;
@@ -58,7 +58,7 @@ impl Watcher {
     }
 
     /// The newest version of each view heard, by the position rule.
-    fn held(&mut self) -> std::collections::BTreeMap<String, WorkView> {
+    pub(crate) fn held(&mut self) -> std::collections::BTreeMap<String, WorkView> {
         self.drain();
         let mut out: std::collections::BTreeMap<String, WorkView> = Default::default();
         for c in &self.changed {
@@ -521,6 +521,8 @@ fn shape_of(w: &mut Watcher) -> String {
             let progress = v
                 .progress
                 .as_ref()
+                // The model's own line moves with timing; the golden holds the plan's count.
+                .filter(|p| p.steps_total > 0)
                 .map(|p| format!(" steps {}/{}", p.steps_done, p.steps_total))
                 .unwrap_or_default();
             let below = v

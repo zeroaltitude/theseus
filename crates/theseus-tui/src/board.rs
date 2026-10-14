@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use theseus_client::names;
+use theseus_protocol::work::{WorkKind, WorkView};
 use theseus_protocol::{
     Attention, ConfirmRequest, ConfirmResolved, ExecutionView, ExecutionsWatchResult, Level,
     PendingConfirm, SessionInfo, SessionKind,
@@ -41,6 +42,9 @@ pub struct Board {
     /// updated on the new connection. That snapshot is the truth for every
     /// other session, even at a lower position (a daemon on another store).
     reconnected: Option<HashSet<String>>,
+    /// Each session's progress line from the work board (`work.watch`), by
+    /// the view's position (theseus-xlias).
+    progress: HashMap<String, (u64, Option<String>)>,
 }
 
 /// One row of the sidebar.
@@ -60,6 +64,8 @@ pub struct Row {
     pub spent_usd: f64,
     /// Idle tasks folded under this row.
     pub folded: usize,
+    /// `3/5 · Running the tests again with the fix…`, from the work board.
+    pub progress: Option<String>,
 }
 
 /// Which sessions the sidebar shows: all of them as a tree, or only one level
@@ -516,7 +522,31 @@ impl Board {
             name: self.name(&v.session_id),
             spent_usd: v.spent_usd,
             folded,
+            progress: self.progress_line(&v.session_id).map(str::to_string),
         }
+    }
+
+    /// Take work views (`work.watch`'s snapshot or a `work.changed`): each
+    /// session's progress line, by the position rule.
+    pub fn work_views(&mut self, views: &[WorkView]) {
+        for v in views {
+            let Some(sid) = v.session_id.as_ref() else {
+                continue;
+            };
+            if v.kind == WorkKind::Step || v.kind == WorkKind::Job {
+                continue;
+            }
+            let known = self.progress.get(sid).map_or(0, |p| p.0);
+            if v.position >= known {
+                let line = v.progress.as_ref().and_then(|p| p.line());
+                self.progress.insert(sid.clone(), (v.position, line));
+            }
+        }
+    }
+
+    /// A session's progress line, when the work board has one.
+    pub fn progress_line(&self, sid: &str) -> Option<&str> {
+        self.progress.get(sid)?.1.as_deref()
     }
 
     fn matches(&self, v: &ExecutionView, text: &str) -> bool {

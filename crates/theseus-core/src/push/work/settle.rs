@@ -195,7 +195,7 @@ impl WorkBoard {
         // until the rollup pass makes them again.
         if let Some(o) = &old {
             new.below = o.below;
-            new.progress = o.progress.clone();
+            new.progress = super::progress::carried(o.progress.as_ref(), &new, f.at_ms);
         }
         new.position = f.position;
         new.at_ms = f.at_ms;
@@ -291,6 +291,7 @@ impl WorkBoard {
             }
         }
         let new_below = (r.total > 0).then_some(r);
+        let said = v.progress.as_ref().and_then(|p| p.said.clone());
         let progress = (kind != WorkKind::Question && !steps.is_empty()).then(|| {
             let counted: Vec<&&WorkView> = steps
                 .iter()
@@ -309,16 +310,22 @@ impl WorkBoard {
                 steps_done: done,
                 steps_total: counted.len() as u32,
                 current: open.first().map(|s| s.title.clone()),
-                said: None,
+                said: said.clone(),
                 at_ms: steps.iter().map(|s| s.at_ms).max().unwrap_or(f.at_ms),
             }
         });
+        // A task with no plan still shows its own line.
+        let progress = match (progress, kind != WorkKind::Question) {
+            (None, true) => super::progress::said_only(said.as_deref(), f.at_ms),
+            (p, _) => p,
+        };
         let v = self.views.get(id).expect("read above");
         let progress = match (progress, &v.progress) {
             (Some(mut p), Some(o))
                 if p.steps_done == o.steps_done
                     && p.steps_total == o.steps_total
-                    && p.current == o.current =>
+                    && p.current == o.current
+                    && p.said == o.said =>
             {
                 p.at_ms = o.at_ms;
                 Some(p)
