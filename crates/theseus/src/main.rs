@@ -14,6 +14,7 @@
 
 mod answer;
 mod budgets;
+mod chat_cmd;
 mod cite;
 mod cmd;
 mod earned;
@@ -71,6 +72,7 @@ Quick start:
   theseus history [session]                  a session's transcript: messages, tool calls, results
   theseus watch [session]                    follow a session live (turns started anywhere)
   theseus watch --all                        every session's executions as they change, with what needs you
+  theseus                                    on a terminal: a conversation in this directory, inline (same as `theseus chat`)
   theseus tui                                every session in one terminal: what needs you, answered inline
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
   theseus answer <id> <option> [--note ..]   answer any question waiting for you by one of its options, from the last four characters of its id
@@ -307,6 +309,13 @@ enum Cmd {
             value_name = "ARGS"
         )]
         args: Vec<String>,
+    },
+    /// An inline conversation in this directory: a new one, or SESSION's (an id, or a unique end
+    /// of one). The same as `theseus` alone on a terminal. It runs `theseus-tui chat`, found
+    /// beside this binary or else on PATH.
+    Chat {
+        /// A conversation to go on with.
+        session: Option<String>,
     },
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
@@ -1059,6 +1068,11 @@ fn main() {
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
+    // Bare `theseus` on a terminal opens a conversation here; a pipe, a
+    // script, or any argument keeps today's usage text and exit 2.
+    if let Some(code) = chat_cmd::bare() {
+        std::process::exit(code);
+    }
     let cli = Cli::parse();
     // `status --short` runs on every prompt draw: one connection and one
     // request, so one thread, not a pool (theseus-8kn12).
@@ -1090,9 +1104,9 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
-    // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
-    if let Cmd::Tui { args } = &cli.cmd {
-        return cmd::tui(&cli.socket, cli.spawn.is_some(), args);
+    // `theseus tui` and `theseus chat` connect nothing: they become `theseus-tui` (10f).
+    if let Some(r) = chat_cmd::exec_tui(&cli.cmd, &cli.socket, cli.spawn.is_some()) {
+        return r;
     }
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
     if let Cmd::Status(a) = &cli.cmd {
@@ -1170,7 +1184,9 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
         Cmd::Work(a) => work::run(c, json, a).await,
-        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => unreachable!("returned above"),
+        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
+            unreachable!("returned above")
+        }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
         Cmd::Ledger {

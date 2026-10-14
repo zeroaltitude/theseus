@@ -6,7 +6,7 @@ focus, with its history and its input line. A client like the CLI, over the same
 and the CLI's library (`theseus_client`), never the core. An installed binary of its own (`tool` in its manifest),
 which `theseus tui` execs.
 
-Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read by: `theseus tui`, which execs it.
+Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `chat/` (the inline conversation). Read by: `theseus tui` and `theseus chat` (and bare `theseus` on a terminal), which exec it.
 
 ## What's here
 
@@ -31,6 +31,46 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   footnote block under them (`session.history`'s `cites`, the CLI's `render::cite`), and `Detail::cited` does the same
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays
   raw until the history is read again. Tests: `src/tests_cite.rs`.
+
+## The chat (theseus-cyha)
+
+`theseus-tui chat [SESSION]` is a second mode of this binary: an inline conversation in the current directory, which
+bare `theseus` on a terminal and `theseus chat [SID]` exec (the CLI's `chat_cmd.rs`; a pipe or any argument keeps the
+usage text and exit 2). It is **inline and append-only**: a finished line is written once into the terminal's own
+scrollback (so search, copy and scroll work as always, in tmux too), and only the dock at the bottom is ever redrawn.
+It uses no ratatui `Terminal`: `chat/screen.rs` writes the bytes (cursor up to the dock's first row, erase down, the
+new lines, the dock again, in synchronized-output mode 2026).
+
+- `chat/state.rs`, `events.rs`: the state and every change to it, no I/O (as `app.rs`). A key, a paste, a daemon message
+  or the clock goes in; requests come out as `Effect`s and finished lines in `Chat::out`. A turn's events (the session's
+  alone, whoever sent the turn) become dock rows while they run and one scrollback line when they end; a turn is ended
+  once however it is told (`turn.ended` or `turn.submit`'s answer).
+- `chat/keys.rs`: the one key map (`Action`). `chat/commands.rs`: the one command registry (`COMMANDS`; `/help`,
+  `/quit`; a debug build also has `/panic`, the test that proves the panic hook). A later row adds an entry and its
+  handler in a module of its own. `/` lists them, filtered as you type.
+- `chat/dock.rs`: the dock's rows, from provider functions (`ABOVE_INPUT`: the live line, calls in flight, a question,
+  a notice) a later row adds to (cli-tasks puts its task rows there), the input, the command list, and the status line
+  as a list of `Segment`s (mode · directory · model · cost; the lowest `keep` goes first when it is too wide).
+- `chat/render_seam.rs`: the one place a reply and a tool call are worded (`reply_lines`, `tool_line`). Plain stand-ins,
+  **replaced at term-render's and tool-words' joins**; nothing else renders text.
+- `chat/editor.rs`: the multi-line input (Ctrl-J, Alt/Shift-Enter, `\` then Enter), this directory's history
+  (`$XDG_STATE_HOME/theseus/chat-history.json`, `chat/env.rs`), and the folded paste: more than 5 lines is one chip
+  (a private-use character in the buffer, written back whole by `take`), so the whole message is one `turn.submit`.
+- `chat/run.rs`: the loop, as `run.rs`: quiet by construction (a deadline only while something runs: the dock's clock
+  at 10 Hz, the banner's 250 ms wait, a notice), at most 30 frames a second. `chat/guard.rs`: raw mode and bracketed
+  paste on, put back on every way out; on a panic the hook alone does it (`Drop` skips it, as a release build's abort
+  would).
+- It does one `session.open` ({dir}) and one `session.watch` at start (and `session.list {n: 100}` for the banner's last
+  conversation here); `theseus chat SID` reads `session.list` to find the session, then `session.history` once.
+  A message typed before the session opens is held and sent once it does. `session.typing` goes once per idle spell.
+- A question shows in the dock; `y`/`n`/`t` answer it (`work.answer`) while the line is empty, so a `y` typed into a
+  message is text. chat-ask replaces this.
+
+Tests: `chat/tests.rs` (a scripted daemon through `Conn::over`, its bytes read back as a screen by `vt100`, a dev-dependency
+only; the paused clock and the chat's wall clock move together; goldens `tests/golden/chat_80.txt`, `chat_120.txt`,
+rewritten by `THESEUS_GOLDEN=write`), and `tests/chat_pty.rs` (the real binary on a pseudo-terminal against a fake daemon
+on a Unix socket: the first screen, a bracketed paste of 60 lines as one message, and the terminal put back after SIGTERM,
+SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scrollback: keep a test's transcript within it.
 
 ## Invariants
 

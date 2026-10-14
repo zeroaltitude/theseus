@@ -18,6 +18,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/work.rs` (theseus-hkx30): `theseus work`, the work board as a tree (`work.watch`), and `--watch`, a line for each
   `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
   the real tree on the same wire. Tests inside it.
+- `src/chat_cmd.rs` (theseus-cyha): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION]` exec `theseus-tui chat [SESSION]` as `tui` execs the board; a pipe, a script or any argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
 - `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
   `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
   row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`
