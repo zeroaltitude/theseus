@@ -1235,6 +1235,7 @@ async fn the_board_is_one_message_edited_in_place_and_pinned() {
     ];
     let core = core_at(d.path(), &fake, script, |c| {
         c.policy.enforcement = Posture::Open;
+        c.discord.live_board = false;
     });
     let rpc = bind(&core, d.path(), &dm_only()).await;
     let sid = session(&core);
@@ -1281,7 +1282,10 @@ async fn a_refused_pin_leaves_the_board_unpinned_and_edited() {
             plan("t_reef", "Chart the reef"),
             Scripted::text("Recorded."),
         ],
-        |c| c.policy.enforcement = Posture::Open,
+        |c| {
+            c.policy.enforcement = Posture::Open;
+            c.discord.live_board = false;
+        },
     );
     let rpc = bind(&core, d.path(), &dm_only()).await;
     let sid = session(&core);
@@ -1370,7 +1374,7 @@ async fn a_change_from_an_unwatched_session_reaches_its_homes_board() {
     use theseus_core::task_graph::{record, NewTask, TaskOrigin, TaskState};
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
-    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let core = core_at(d.path(), &fake, vec![], |c| c.discord.live_board = false);
     let _rpc = bind(&core, d.path(), &dm_only()).await;
     let sid = session(&core);
     let t = NewTask {

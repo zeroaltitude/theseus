@@ -344,6 +344,44 @@ mod tests {
         }
     }
 
+    /// The chat's pings are what they were before the live board
+    /// (theseus-2j2ka): the owner's decision of 2026-10-08, a lively chat,
+    /// holds, and the board and the needs-you card (task status) add no row
+    /// here: the board has none, and a card is the table's `Card`.
+    #[test]
+    fn the_chats_pings_are_unchanged_by_the_live_board() {
+        let before: &[(Event, Option<Category>)] = &[
+            (Event::Card, Some(Category::Cards)),
+            (Event::CardNote, Some(Category::Cards)),
+            (Event::CardClosed, None),
+            (Event::TurnFailed, Some(Category::Failures)),
+            (Event::TaskFailed, Some(Category::Failures)),
+            (Event::DiskCritical, Some(Category::Failures)),
+            (Event::Answer, Some(Category::Answer)),
+            (Event::ReplyPart, Some(Category::LaterParts)),
+            (Event::Woken, Some(Category::Woken)),
+            (Event::ToolLine, Some(Category::ToolLines)),
+            (Event::TaskEnded, Some(Category::Reports)),
+            (Event::Hands, Some(Category::Reports)),
+            (Event::Note, Some(Category::Notices)),
+            (Event::Jev, Some(Category::Notices)),
+            (Event::Glide, Some(Category::Notices)),
+            (Event::Restarted, Some(Category::Ops)),
+            (Event::Mcp, Some(Category::Ops)),
+            (Event::Disk, Some(Category::Ops)),
+            (Event::Thinking, None),
+            (Event::Board, None),
+        ];
+        assert_eq!(TABLE, before);
+        // With no config every chat message pings but the ones with no
+        // category: a closed card, the thinking, and the board.
+        for (e, c) in before {
+            assert_eq!(pings(*e, &[]), c.is_some(), "{e:?}");
+        }
+        // The reminder is in no category and always pings.
+        assert!(pings(Event::Reminder, &[]));
+    }
+
     /// Each category silences its own writes and nothing else; a closed card
     /// and the board are silent whatever the list.
     #[test]

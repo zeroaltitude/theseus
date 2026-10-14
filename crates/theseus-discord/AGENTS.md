@@ -87,7 +87,56 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `render::BOARD_KEY` (`render/board.rs`); `courier/board.rs` pins it once (a refusal logged once a lane) and, after
   a restart, finds the pinned board by `BOARD_HEAD` before making another. `/tasks` is the records' tree, then the
   task sessions of today. The layer-1 card is `render::board::change_card`, with Accept and Decline on Approve's
-  and Decline's ids (`Buttons::Accept`, `runtime::accept_buttons`). The fake Discord pins (`refuse_pins`).
+  and Decline's ids (`Buttons::Accept`, `runtime::accept_buttons`). The fake Discord pins (`refuse_pins`). This text
+  board is the fallback: the live board below replaces it while `[discord] live_board` is on and the bot can send V2.
+- **The live board, the needs-you card and the status line** (theseus-2j2ka; the owner's target: lots of tasks going,
+  always in the loop on status and on when feedback is needed). The chat stays as lively as before (`policy.rs`'s
+  table is unchanged: thinking and tool lines on, every chat message may ping); this is **task status only**.
+  - **The binding hears the engine** (`runtime/tasks.rs`): `work.watch` from the binding's own connection
+    (`interactive: false`), roots named (the Discord surface reads no private text; the core lets it watch a session
+    that speaks in a Discord place of any class, `rpc/work_board.rs::may_watch`, scrubbed, `may_answer` false), kept by
+    `work.changed` under the position rule, asked again after `events.lost` and whenever the places' sessions change
+    (`Tasks::rewatch`, once for a burst). A view goes to the place of its root's conversation (`PlaceMsg::Tasks`), which
+    draws its own board. Nothing is stored; "since you looked" is one in-memory time a place (`Clear done`).
+  - **The board** (`render/board_v2.rs`, `render/v2.rs`, `runtime/live_board.rs`, `courier/v2.rs`): one Components V2
+    message a place, pinned, **edited and never posted anew**, so it never pings; a header with the counts, **Needs you**
+    (title, short id, the question, `[ Answer ↗ ]`), **Now** (what it does, turn, `$spent of $limit`), **Done, not yet
+    seen** (24 h, until Clear), `[ ✓ Clear done ] [ 🔕 Quiet 1 h ]` and a select "Open a task…". Times are Discord's
+    `<t:…:R>`, which tick by themselves, so a quiet board is never edited for the clock. At most 40 components and 4,000
+    characters (`v2::validate`): a part folds its tail into `+N more · /tasks` (needs you keeps the longest waiting
+    first, now and done their newest). The lane writes it at most once in `BOARD_EVERY` (2 s: the latest state
+    replaces those waiting; the worst minute is 30 edits and one create a place), finds its pin after a restart
+    (`find_board_v2`: a bot message with the V2 flag and the Clear button), and writes a place's *idle* board (nothing
+    to show: `LaneMsg::BoardIdle`) only where one is pinned, so no place gets a board for nothing and a restart cannot
+    leave "3 running" behind. A V2 write's `content` is its components as JSON with `Buttons::V2` (the lane's
+    `sent` dedup and the nonce follow). Discord refusing V2 (a 400) flips the process to the text board and the
+    classic card (`Tasks::refuse_v2`), said once.
+  - **The needs-you card** (`render/card_v2.rs`): today's approval card, its words kept (`render::card`), as one V2 box
+    with a button for each of the question's `answer_options` on `wa:<last 6>:<option>`; a press is `work.answer` as the
+    presser (`runtime/live_board.rs::answer_press`), so the core judges it as it judges the CLI's: a refusal is told to
+    the presser alone (a follow-up) and the card keeps its buttons; a counted answer is settled by the outbox's settle
+    post on every surface that shows the card (the settle edits a V2 card as a V2 box, `detail.v2`), so an answer
+    from the CLI settles it too. The card is still the outbox post it was (durable, exactly once); a card posted
+    before this build settles as the classic card it is. **One ping per 30 s a place** for these cards, counted only
+    while the card that pinged still waits (`State::card_may_ping`: a question answered and a next one asked buzzes
+    again): a burst's later cards are created silent, and when the window ends with any still open one message says
+    `🔴 N questions need you` (edited to "answered" when none is). Quiet 1 h makes the place's cards silent.
+  - **The status line** (`runtime/presence.rs`): the presence reads counts only, `🔴 1 needs you · ⚙️ 3 running`
+    (everyone who can see the bot sees it), cleared when nothing works or waits, never twice inside 10 s (`Pacer`, a pure
+    state machine; the latest wins), sent again after READY. `[discord] status_line`. The bot's About Me (the developer
+    portal's text, not set by the binding): "I run your tasks. The 📋 board pinned in our DM shows what's going; I ping
+    when I need you."
+  - **A task's view** (`render/task_view.rs`): the select and `[ Answer ↗ ]` open an ephemeral V2 view of the task for
+    the presser: its title, what it does, plan, last words (`progress.said`), the commands of its last jobs, its
+    question with the answer buttons, and `Stop`, which asks once more (`tb:yes:`), then the `/cancel` call.
+  - Tests: `render/v2.rs`, `render/board_v2.rs` (the cases for 0, 1, 8 and 30 tasks, a needs-you board, a done board,
+    and the property: any board is at most 40 components and 4,000 characters with unique ids), `render/card_v2.rs`,
+    `render/task_view.rs`, `runtime/tasks.rs` (the model), `runtime/presence.rs` (the pacer), `courier/tests_v2.rs` (the
+    lane: made once, pinned, silent, then edited; the interval; 200 transitions; the pin found after a restart; an idle
+    board; a refused V2), and `tests_board.rs` (end to end through the real work engine and the stand-ins: three
+    tasks, one asking; an answer pressed; an answer from the CLI; a refused press; a burst; the status line). The fake
+    Discord holds V2 messages to Discord's rules (40 components, 4,000 characters, no `content` beside the flag,
+    unique ids) in a validator of its own.
 - **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its
   `private` beside it) and format 2 (a `[[guild]]` each, with its own `private`, and each `[[channel]]` naming its
   `guild`); a file that mixes them is refused, naming the line. `runtime/guilds.rs` tells the core each guild's word
@@ -151,7 +200,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   chat, and nothing said in channel not worth a buzz). Every `Write` says whether its create `ping`s, and a create
   that doesn't carries `flags: 4096` (`SUPPRESS_NOTIFICATIONS`; mentions notify no one either), as does a notice
   embed. With no config every chat message pings, as before. `policy::TABLE` (data) gives each write its chat
-  category: `cards`, `failures` (a failed turn or task, disk below the floor), `answer` (the first text part of the
+  category: `cards` (a needs-you card also pays the 30 s rule above), `failures` (a failed turn or task, disk below the floor), `answer` (the first text part of the
   reply to an owner's own message: `Lane::owed`, set with the anchor when the author is an owner, taken when that
   part is written, live or by the post, ping or not; a reply's post classes its first text part the answer whenever
   `owed` is still set, whatever else of the turn the stream wrote, a loop's process message included), `later_parts`, `woken`, `tool_lines` (and notice embeds),

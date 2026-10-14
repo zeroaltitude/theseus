@@ -232,6 +232,15 @@ pub struct DiscordConfig {
     /// At most one ping per place in this many seconds; 0, the default, is off.
     #[serde(default)]
     pub ping_window_secs: u64,
+    /// The task board as one pinned Components V2 message that follows the
+    /// work engine's tasks and never pings (theseus-2j2ka); off, or on a bot
+    /// that cannot send V2, the plain-text board of the task records.
+    #[serde(default = "default_true")]
+    pub live_board: bool,
+    /// The bot's presence reads the counts of what needs you and what runs
+    /// (`🔴 1 needs you · ⚙️ 3 running`); everyone who can see the bot sees it.
+    #[serde(default = "default_true")]
+    pub status_line: bool,
     /// A local stand-in for Discord's REST API, `host:port` over plain http
     /// (twilight's proxy base): tests and scratch daemons only, so that no
     /// request and no token leaves the machine (theseus-q4v).

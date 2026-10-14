@@ -68,6 +68,8 @@ impl Default for DiscordConfig {
             notice_embeds: false,
             silent: Vec::new(),
             ping_window_secs: 0,
+            live_board: true,
+            status_line: true,
             rest_proxy: None,
             gateway_proxy: None,
         }

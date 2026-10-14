@@ -9,6 +9,11 @@
 # from anyone else are ignored and counted in health. Read at startup; restart
 # theseusd after editing. The file's digest is the binding revision.
 #
+# The bot's About Me (the developer portal: General Information) is not set from
+# here. Suggested: "I run your tasks. The 📋 board pinned in our DM shows what's
+# going; I ping when I need you." The board, the needs-you card and the status
+# line are `[discord] live_board` and `status_line` in the config.
+#
 # This is format 2. A format-1 file (one guild, as guild_id = "…" at the top,
 # its private beside it, and channels that name no guild) still loads with its
 # meaning; a file that mixes the two is refused.
