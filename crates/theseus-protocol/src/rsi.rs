@@ -129,6 +129,21 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               where it stood.",
     },
     SelfRowKind {
+        name: "self.graduate.proposed",
+        fields: &[
+            "item",
+            "extension",
+            "digest",
+            "calls",
+            "failures",
+            "window_days",
+            "keel",
+        ],
+        doc: "A loaded extension used often and never failing became a self item to port it into \
+              core: its counts over the window, the manifest digest it was counted for, and the \
+              keel class that holds the port for the owner, if any.",
+    },
+    SelfRowKind {
         name: "self.halted",
         fields: &["by", "place"],
         doc: "The kill switch thrown: every self step stops before its next phase.",

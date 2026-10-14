@@ -27,6 +27,22 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<ExtensionRevokeResult> {
         let who = who.into();
+        self.revoke_loaded(&p.name, None, (&who.who(), &who.via()), None, || {
+            self.judge_act(&who, Act::Revoke { name: &p.name })
+        })
+    }
+
+    /// The revoke every path shares: `name` (at `digest`, when one is named)
+    /// leaves the loaded set after `allowed` says yes; `reason` rides the
+    /// `extend.revoked` row when there is one (theseus-pw1q.13: `graduated`).
+    pub(crate) fn revoke_loaded(
+        &self,
+        name: &str,
+        digest: Option<&str>,
+        (by, via): (&str, &str),
+        reason: Option<&str>,
+        allowed: impl FnOnce() -> Result<()>,
+    ) -> Result<ExtensionRevokeResult> {
         let _writes = self
             .tools
             .extend
@@ -34,14 +50,18 @@ impl Core {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut set = LoadedSet::read(&self.store)?;
-        let Some(l) = set.loaded.remove(&p.name) else {
+        if let Some(d) = digest {
+            if set.loaded.get(name).is_some_and(|l| l.digest != d) {
+                anyhow::bail!("the extension {name:?} loaded now is not the version {d}");
+            }
+        }
+        let Some(l) = set.loaded.remove(name) else {
             anyhow::bail!(
                 "no extension named {:?} is loaded (`theseus extend list` lists them)",
-                p.name
+                name
             );
         };
-        self.judge_act(&who, Act::Revoke { name: &p.name })?;
-        let (by, via) = (who.who(), who.via());
+        allowed()?;
         let manifest = self
             .store
             .get_meta::<Manifest>(&manifest_key(&l.name, &l.digest))?
@@ -54,8 +74,9 @@ impl Core {
             name: &l.name,
             digest: &l.digest,
             tools: &l.tools,
-            by: &by,
-            via: &via,
+            by,
+            via,
+            reason,
         };
         let session = l.proposed_by.session_id.as_str();
         let mut rows = vec![crate::fact::row(&fact, Some(session), None)?, set.record()?];

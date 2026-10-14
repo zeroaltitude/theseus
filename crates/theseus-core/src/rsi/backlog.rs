@@ -46,6 +46,7 @@
 //!
 //! What it keeps beside the tasks is one META record ([`state`]).
 
+mod graduate;
 mod keel;
 mod rank;
 mod read;
@@ -137,6 +138,9 @@ fn min_count(key: &str) -> usize {
 
 /// The objective a filed item carries: the problem, its evidence, what to do.
 fn objective_of(c: &Candidate, item: &str) -> String {
+    if let Some(g) = &c.graduate {
+        return g.brief.replace("{item}", item);
+    }
     format!(
         "Fix the cause `{}`: {}.\n\nSeen {} times; the evidence is on this task. Find the root \
          cause, fix it with a test that fails without the fix, and call \
@@ -284,6 +288,10 @@ impl Work {
             count: meta.count,
             keel: meta.keel.clone(),
         }));
+        if let Some(g) = &c.graduate {
+            self.said
+                .push(Spoken::Graduate(g.row_of(&id, meta.keel.clone())));
+        }
         if keel.is_some() {
             night.waiting.push(id.clone());
         }
@@ -465,6 +473,7 @@ impl Core {
             .max(now_ms.saturating_sub(MAX_WINDOW_MS));
         let mut obs = read::from_ledger(&self.store, since, now_ms)?;
         obs.extend(read::from_health(&self.health(), now_ms, &date(now_ms)));
+        obs.extend(self.graduate_obs(&st, now_ms));
         let cands = read::group(obs);
         night.candidates = cands.len();
         st.read_ms = Some(now_ms);

@@ -46,6 +46,7 @@ pub mod revoke;
 mod tests;
 #[cfg(test)]
 mod tests_load;
+pub mod usage;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
@@ -248,6 +249,9 @@ pub struct Extensions {
     /// Held across each read and write of the `extensions` record: a load
     /// and a revoke never interleave.
     pub(crate) writes: std::sync::Mutex<()>,
+    /// The last usage read `extend.list` made: when, for how many days, and
+    /// what it read (`usage.rs`).
+    pub(crate) usage_cache: std::sync::Mutex<Option<(u64, u32, Arc<usage::Calls>)>>,
 }
 
 impl Extensions {
@@ -258,6 +262,7 @@ impl Extensions {
             board: OnceLock::new(),
             floors: Default::default(),
             writes: Default::default(),
+            usage_cache: Default::default(),
         }
     }
 

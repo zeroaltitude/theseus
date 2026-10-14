@@ -565,6 +565,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `self.branches` lists them (`theseus self branches`). Tests: `rsi/tests_tree.rs` (a throwaway repo and a stand-in
   gate), `rsi/tests_pr.rs` (through the core). While `[self] sealed_dir` is set, `self.propose_change` builds nothing:
   the gate runs the tree's own code outside L1, where it could read the sealed set.
+  **Graduation** (theseus-pw1q.13; `extend/usage.rs`, `rsi/backlog/graduate.rs`, `fact/rsi_graduate.rs`): `Core::extension_usage`
+  counts an extension's calls, failures (an error result, a timeout, a crash, an unknown outcome) and p50/p95 from the
+  ledger's `action.*` rows by kind (producer `async:mcp:ext-<name>/<tool>`); no counter on the call path. `extend.list
+  {usage: true}` carries it (cached 60 s; `theseus extend list`, the cockpit card). The night's backlog reads it too: a
+  loaded extension with `[self] graduate_min_calls` (20) calls in `graduate_window_days` (14) since it was loaded, no
+  failure and a whole read, once per digest, is the item `graduate ext-<name>` with a brief (source path, schemas,
+  declared tests, what done is) and a `self.graduate.proposed` row; a network extension's key (`graduate.ext.net:`) is
+  keel-marked. `extension_revoke_graduated` is the join's revoke (`extend.revoked` with reason `graduated`), for self-join.
   **Self-exams** (theseus-pw1q.11; `rsi/exams.rs` and `rsi/exams/`): the nightly pass, after the learning report and
   `rsi::gate` (`Core::self_exams_nightly`; nothing with the mode off), turns the owner's corrections
   (`route.corrected`, `fact.corrected`), the judge's wrong labels on the train split (a judgment older than the

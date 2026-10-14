@@ -176,6 +176,7 @@ pub enum Spoken {
     Ranked(BacklogRanked),
     Started(BacklogStarted),
     Dropped(BacklogDropped),
+    Graduate(super::rsi_graduate::GraduateProposed),
 }
 
 impl Spoken {
@@ -186,6 +187,7 @@ impl Spoken {
             Spoken::Ranked(f) => &f.item,
             Spoken::Started(f) => &f.item,
             Spoken::Dropped(f) => &f.item,
+            Spoken::Graduate(f) => &f.item,
         }
     }
 
@@ -196,6 +198,7 @@ impl Spoken {
             Spoken::Ranked(f) => super::row(f, None, None),
             Spoken::Started(f) => super::row(f, None, None),
             Spoken::Dropped(f) => super::row(f, None, None),
+            Spoken::Graduate(f) => super::row(f, None, None),
         }
     }
 
@@ -206,6 +209,7 @@ impl Spoken {
             Spoken::Ranked(f) => rec.announce(f),
             Spoken::Started(f) => rec.announce(f),
             Spoken::Dropped(f) => rec.announce(f),
+            Spoken::Graduate(f) => rec.announce(f),
         }
     }
 }

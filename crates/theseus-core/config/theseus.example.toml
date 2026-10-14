@@ -1001,6 +1001,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # remote = "origin"                       # where self/* branches are pushed, with the credential
 #                                         # that remote already has; unset: they stay local
 # exams_day_max = 10                      # the most exam items written a night from your corrections, wrong labels, failed tasks and over-budget turns
+# graduate_min_calls = 20                 # calls with no failure that graduate a loaded extension into a self item to port it into core
+# graduate_window_days = 14               # the days those calls are counted over
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day
