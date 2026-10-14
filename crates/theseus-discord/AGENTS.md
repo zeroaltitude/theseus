@@ -40,6 +40,32 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `/thread new slug: [title:]` and `/thread list` (`runtime/thread.rs`, theseus-nhew): `thread.new` and `thread.list` as the presser
   (ephemeral), which the core judges: threads are private always, so only the owner, from a private place, makes or lists
   them. Registered after `/orders`; answered in the `revokable_interaction` chain.
+  **Threads on Discord** (theseus-sjzm; `runtime/thread_bind.rs`, `runtime/guild_thread.rs`, `courier/persona.rs`,
+  `courier/thread.rs`). `/thread bind slug:` and `/thread unbind` (`runtime/thread.rs`): a channel the bindings file names
+  private, or a Discord thread under one (or under `[threads] discord_channel`), runs the thread as its place (the core
+  judges the presser: the owner, from a private place; for a Discord thread that is not a place yet it judges from the
+  parent). The thread's `surfaces` records it (`thread.edit { surfaces }`; one Discord surface to a thread), a shared
+  place refuses, and `[[discord.thread]]` (config) binds a named channel when its thread exists. A bound place takes the
+  thread's session (`Core::thread_place_session`, in `Place::ready`) and its posts (`Outbox::place_bound`, in memory,
+  asserted again at each start by `revive_thread_lanes` and `start_threads`); its own plain session is left as it was
+  (never superseded), so `unbind` gives it back, and `/new` there says so. `State` (`Shared.threads`) maps channel to
+  slug. **The DM**: a message that begins `thread:<slug> ` (provisional until `thread-route`'s explicit form joins) or
+  replies to a message carrying a thread's tag (`Shared::thread_of_reply`, the one lookup `thread-route`'s rule (c)
+  calls: message, turn, thread, in `Replies`) is `Inbound.thread`, run by `Place::thread_turn` as `turn.submit {
+  thread, speaking { discord, answer_at: the DM } }`, answered in the DM by the outbox post (no live stream), and
+  pointed at from the thread's surface by a quiet notice (`-# from the DM: <first 80 chars> · <link>`, body `quiet`,
+  never a ping; kept in `State` until the thread has a surface). A thread's reply in the DM opens with `-# → <title>`
+  (`render::thread_tag`); in a bound place it carries none. **One Discord thread per activity thread**: with `[threads]
+  discord_channel`, `thread.changed { opened }` (the first message, from anywhere) makes one (a text channel's public
+  thread, a forum's post), run as a dynamic place (`dynamic_lane`, `PlaceRule::bind_more`, private) and recorded in
+  `surfaces` (`Core::thread_surfaces`); pause and done archive it, resume and reopen unarchive, an edit renames
+  (🔒 first when sealed). The syncer applies changes in the order heard (`guild_thread::run`), and `guild_thread.rs` holds
+  the one helper for making, archiving and naming a Discord thread: a row that wants a Discord thread uses it. **Persona**:
+  a text part in a place that runs a thread with a persona is signed (`courier/persona.rs`): a channel webhook sent under
+  the persona's name where the bot may manage webhooks (found or made once a lane), else a bold name at the head of the
+  loop's text; a DM's is always the bold name, under the tag. A reply to a message this binding posted counts as a reply
+  to the bot even when a webhook wrote it. Tests: `tests_gateway/threads.rs`; the stand-in's threads, webhooks and
+  `command` are `theseus_sim::fake_discord`.
   Jev's live notices (`runtime/jev.rs`, theseus-0j2.13): the operator lane posts a `jev_notice` to the owner's DM
   alone (`Lane::owner_dm`: never `to_operator`'s fallback, which may be a shared place) with right / wrong / noise,
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).

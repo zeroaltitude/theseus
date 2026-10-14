@@ -273,6 +273,7 @@ async fn a_pending_confirms_card_is_on_every_page() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

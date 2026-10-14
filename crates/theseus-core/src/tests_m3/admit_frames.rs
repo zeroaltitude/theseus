@@ -141,6 +141,7 @@ async fn held_with(
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await;
     (res, sid, exec)
@@ -259,6 +260,7 @@ async fn a_failed_input_frame_writes_neither_half_and_the_turn_ends_waiting() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await;
     assert!(

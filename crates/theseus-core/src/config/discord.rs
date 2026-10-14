@@ -70,7 +70,51 @@ impl Default for DiscordConfig {
             ping_window_secs: 0,
             rest_proxy: None,
             gateway_proxy: None,
+            thread: Vec::new(),
         }
+    }
+}
+
+/// `[[discord.thread]]` (theseus-sjzm): the channel `channel` (an id the
+/// bindings file names, bound private) runs as the thread `thread`'s place:
+/// its messages go to that thread's session. `/thread bind` does the same
+/// from Discord and records it in the thread's surfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThreadBind {
+    pub channel: String,
+    pub thread: String,
+}
+
+impl ThreadBind {
+    /// Each channel and each thread named once, the channel a Discord id and
+    /// the thread a slug.
+    pub fn validate_all(list: &[Self]) -> anyhow::Result<()> {
+        let mut seen = std::collections::BTreeSet::new();
+        for b in list {
+            let id_ok = (15..=21).contains(&b.channel.len())
+                && b.channel.bytes().all(|c| c.is_ascii_digit());
+            if !id_ok {
+                anyhow::bail!(
+                    "discord.thread: channel {:?} is not a Discord id (15-21 digits, as a string)",
+                    b.channel
+                );
+            }
+            if !theseus_protocol::threads::slug_ok(&b.thread) {
+                anyhow::bail!(
+                    "discord.thread: {:?} is not a thread slug (lower-case letters, digits and hyphens)",
+                    b.thread
+                );
+            }
+            if !seen.insert(("c", b.channel.clone())) || !seen.insert(("t", b.thread.clone())) {
+                anyhow::bail!(
+                    "discord.thread: channel {} or thread {} is named twice",
+                    b.channel,
+                    b.thread
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -138,5 +182,32 @@ mod tests {
         let window = doc.replace("ping_window_secs = 0 ", "ping_window_secs = 30 ");
         let cfg = crate::Config::parse(&window).unwrap().0;
         assert_eq!(cfg.discord.ping_window_secs, 30);
+    }
+
+    /// `[[discord.thread]]` loads, and a bad id, a bad slug or a channel or
+    /// thread named twice is refused (theseus-sjzm).
+    #[test]
+    fn a_discord_thread_binding_loads_and_a_bad_one_is_refused() {
+        let ok = parse(
+            "[[discord.thread]]\nchannel = \"123456789012345678\"\nthread = \"tide-gauges\"\n",
+        )
+        .unwrap();
+        assert_eq!(ok.discord.thread.len(), 1);
+        assert_eq!(ok.discord.thread[0].thread, "tide-gauges");
+        assert!(crate::Config::example().discord.thread.is_empty());
+        let one =
+            |c: &str, t: &str| format!("[[discord.thread]]\nchannel = \"{c}\"\nthread = \"{t}\"\n");
+        let twice = format!(
+            "{}{}",
+            one("123456789012345678", "a"),
+            one("123456789012345678", "b")
+        );
+        for bad in [
+            one("lab", "a"),
+            one("123456789012345678", "Bad Slug"),
+            twice,
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
     }
 }

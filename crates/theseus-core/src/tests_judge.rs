@@ -169,6 +169,7 @@ pub(crate) async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap()

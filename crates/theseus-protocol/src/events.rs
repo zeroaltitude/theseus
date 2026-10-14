@@ -559,6 +559,10 @@ events! {
     WorkChanged(crate::work_watch::WorkChanged) = notify::WORK_CHANGED,
     /// The notification policy's notice for a work view's change.
     WorkNotice(crate::notices::Notice) = notify::WORK_NOTICE,
+    /// A thread changed (theseus-sjzm).
+    ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
+    /// A message waits for the owner to say which thread it is about.
+    ThreadAsked(crate::thread_route::ThreadAsk) = notify::THREAD_ASKED,
 }
 
 impl Event {
@@ -583,6 +587,7 @@ impl Event {
             Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
+            Event::ThreadAsked(e) => Some(&e.session_id),
             Event::WorkChanged(_)
             | Event::WorkNotice(_)
             | Event::LoopStarted(_)
@@ -593,6 +598,7 @@ impl Event {
             | Event::ProfileChanged(_)
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
+            | Event::ThreadChanged(_)
             | Event::EventsLost(_) => None,
         }
     }
@@ -628,6 +634,8 @@ impl Event {
             | Event::WakeNoticed(_)
             | Event::WorkChanged(_)
             | Event::WorkNotice(_)
+            | Event::ThreadChanged(_)
+            | Event::ThreadAsked(_)
             | Event::EventsLost(_) => None,
         }
     }

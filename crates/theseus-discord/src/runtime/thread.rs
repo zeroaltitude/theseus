@@ -24,6 +24,8 @@ use twilight_model::http::interaction::{
 };
 use twilight_util::builder::command::{CommandBuilder, StringBuilder, SubCommandBuilder};
 
+use std::sync::Arc;
+
 use super::Shared;
 
 /// What a message's text may hold, with room for the lines after it.
@@ -46,6 +48,14 @@ pub(super) fn command() -> Command {
     .option(SubCommandBuilder::new(
         "list",
         "Your threads, with their context and today's spend",
+    ))
+    .option(
+        SubCommandBuilder::new("bind", "Run this channel, or Discord thread, as a thread")
+            .option(StringBuilder::new("slug", "The thread this place runs").required(true)),
+    )
+    .option(SubCommandBuilder::new(
+        "unbind",
+        "Stop running a thread here; the place has its own session again",
     ))
     .build()
 }
@@ -129,9 +139,50 @@ fn parsed(options: &[CommandDataOption]) -> Option<(&str, Vec<(&str, String)>)> 
 }
 
 impl Shared {
+    /// An interaction, from the gateway: `/thread bind` typed in a Discord
+    /// thread that is not a place yet, under one that is (or under `[threads]
+    /// discord_channel`), is answered here (theseus-sjzm; the core judges the
+    /// presser as it does everywhere); every other goes to its place.
+    pub(super) async fn interacted(self: Arc<Self>, i: Interaction) {
+        if !self.unplaced_thread_bind(&i).await {
+            self.on_interaction(i).await;
+        }
+    }
+
+    async fn unplaced_thread_bind(self: &Arc<Self>, i: &Interaction) -> bool {
+        let Some(InteractionData::ApplicationCommand(c)) = &i.data else {
+            return false;
+        };
+        let bind = parsed(&c.options).is_some_and(|(sub, _)| sub == "bind");
+        let channel = i.channel.as_ref().map(|c| c.id.get());
+        let parent = i
+            .channel
+            .as_ref()
+            .and_then(|c| c.parent_id)
+            .map(|p| p.get());
+        let (placed, under) = {
+            let r = self.routes.lock().unwrap();
+            let placed = channel.is_some_and(|c| r.by_channel.contains_key(&c));
+            let under = parent.is_some_and(|p| {
+                r.by_channel.contains_key(&p)
+                    || self.core.cfg.threads.discord_channel.as_deref() == Some(&p.to_string())
+            });
+            (placed, under)
+        };
+        if c.name != "thread" || !bind || placed || !under {
+            return false;
+        }
+        let user = i.author().map(|u| (u.id.get(), u.name.clone()));
+        let who = user
+            .as_ref()
+            .map_or("discord".into(), |(_, n)| format!("discord:{n}"));
+        let origin = super::origin_of(user.map(|(u, _)| u), channel, i.guild_id);
+        self.thread_interaction(i, &who, origin).await
+    }
+
     /// An interaction of `/thread`: true when it was one, and answered.
     pub(super) async fn thread_interaction(
-        &self,
+        self: &Arc<Self>,
         i: &Interaction,
         who: &str,
         discord: Option<DiscordOrigin>,
@@ -177,7 +228,23 @@ impl Shared {
                     Err(e) => format!("⚠️ {}", e.message),
                 }
             }
-            _ => "⚠️ `/thread new slug:` or `/thread list`.".to_string(),
+            Some(("bind", args)) => {
+                let slug = args
+                    .iter()
+                    .find(|(n, _)| *n == "slug")
+                    .map(|(_, v)| v.as_str());
+                let place = i
+                    .channel
+                    .as_ref()
+                    .map(|c| (c.id.get(), c.parent_id.map(|p| p.get())));
+                self.thread_bind(slug.unwrap_or(""), discord, who, place)
+                    .await
+            }
+            Some(("unbind", _)) => {
+                let channel = i.channel.as_ref().map(|c| c.id.get());
+                self.thread_unbind(discord, who, channel).await
+            }
+            _ => "⚠️ `/thread new`, `list`, `bind slug:` or `unbind`.".to_string(),
         };
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,
@@ -232,13 +299,13 @@ mod tests {
         }
     }
 
-    /// The command has the two subcommands, `new` with a required slug.
+    /// The command has its subcommands, `new` and `bind` with a required slug.
     #[test]
     fn the_command_has_new_and_list() {
         let c = command();
         assert_eq!(c.name, "thread");
         let names: Vec<&str> = c.options.iter().map(|o| o.name.as_str()).collect();
-        assert_eq!(names, ["new", "list"]);
+        assert_eq!(names, ["new", "list", "bind", "unbind"]);
     }
 
     /// The list says each thread's state, activity, context and spend, and

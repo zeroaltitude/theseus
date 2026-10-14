@@ -250,6 +250,7 @@ async fn a_cited_discord_message_names_its_id() {
             attachments: vec![],
             arrived: None,
             reply_to: Some("200000000000000002".into()),
+            answer_at: None,
         })
         .await
         .unwrap();

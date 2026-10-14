@@ -29,7 +29,12 @@ pub(crate) const KEPT: usize = 512;
 
 /// The replies this process posted, by Discord message, with their turns.
 #[derive(Default)]
-pub(crate) struct Replies(Mutex<VecDeque<(u64, String)>>);
+pub(crate) struct Replies(
+    Mutex<VecDeque<(u64, String)>>,
+    /// The turns that ran in a thread and carried its tag in the DM, with
+    /// the thread's slug (theseus-sjzm).
+    Mutex<VecDeque<(String, String)>>,
+);
 
 impl Replies {
     /// A message a write landed, under its key: a turn's reply when its key
@@ -44,6 +49,26 @@ impl Replies {
         while r.len() > KEPT {
             r.pop_front();
         }
+    }
+
+    /// `turn` ran in the thread `slug` and its reply carries the thread's tag.
+    pub(crate) fn thread_turn(&self, turn: &str, slug: &str) {
+        let mut t = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        if t.iter().any(|(x, _)| x == turn) {
+            return;
+        }
+        t.push_back((turn.to_string(), slug.to_string()));
+        while t.len() > KEPT {
+            t.pop_front();
+        }
+    }
+
+    /// The thread a reply to `message` addresses: the one whose tag the
+    /// message carried.
+    pub(crate) fn thread_of(&self, message: u64) -> Option<String> {
+        let turn = self.turn(message)?;
+        let t = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        t.iter().find(|(x, _)| *x == turn).map(|(_, s)| s.clone())
     }
 
     /// The turn whose reply `message` is.

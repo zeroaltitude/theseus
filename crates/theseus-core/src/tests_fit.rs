@@ -76,6 +76,7 @@ impl Rig {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
+                answer_at: None,
             })
             .await
             .unwrap()

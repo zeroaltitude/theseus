@@ -111,6 +111,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap()
@@ -2774,6 +2775,7 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
+                answer_at: None,
             })
             .await
             .expect_err("the turn faults");
@@ -3008,6 +3010,7 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .expect_err("the second call fails");
@@ -3517,6 +3520,7 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .expect_err("the turn fails")
@@ -3828,6 +3832,7 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap()
@@ -4001,6 +4006,7 @@ async fn a_model_with_no_price_is_not_called() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap_err();
@@ -4517,6 +4523,7 @@ fn submit_params(
         reply_to: None,
         opened_from: None,
         thread: None,
+        speaking: None,
     }
 }
 
@@ -5061,6 +5068,7 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             attachments: files,
             arrived: None,
             reply_to: None,
+            answer_at: None,
         };
         let core = core.clone();
         async move { core.runner.run(req).await }
@@ -6864,6 +6872,7 @@ mod parallel {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
+                answer_at: None,
             })
             .await
     }
@@ -7833,6 +7842,7 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await;
     assert!(out.is_err());

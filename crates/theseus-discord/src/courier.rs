@@ -23,6 +23,8 @@
 
 mod board;
 mod held;
+mod persona;
+mod thread;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -193,6 +195,7 @@ pub fn nonce(key: &str) -> String {
 }
 
 /// One message a post writes: created, or edited when its message is known.
+#[derive(Clone)]
 struct Write {
     key: String,
     channel: u64,
@@ -306,6 +309,9 @@ pub(crate) struct Lane {
     pub board_sought: bool,
     /// A pin of the board was refused, and said so once.
     pub pin_refused: bool,
+    /// A persona's signature: its webhook and the messages it wrote
+    /// (theseus-sjzm).
+    signing: persona::Signing,
 }
 
 impl Lane {
@@ -344,6 +350,7 @@ impl Lane {
             stream_first: false,
             board_sought: false,
             pin_refused: false,
+            signing: Default::default(),
         }
     }
 
@@ -731,14 +738,11 @@ impl Lane {
             "notice" => {
                 let channel = self.place_channel().await?;
                 let t = body["text"].as_str().unwrap_or("").to_string();
+                let mut w = text(t, format!("note:{corr}"), channel, reply_to, Event::Note);
+                // A pointer (theseus-sjzm) is history, not news: no ping.
+                w.ping &= !body["quiet"].as_bool().unwrap_or(false);
                 Ok(Plan {
-                    writes: vec![text(
-                        t,
-                        format!("note:{corr}"),
-                        channel,
-                        reply_to,
-                        Event::Note,
-                    )],
+                    writes: vec![w],
                     extra: json!({}),
                 })
             }
@@ -827,6 +831,12 @@ impl Lane {
             .filter_map(|w| w["text"].as_str().map(str::to_string))
             .collect();
         render::wake_header(&mut parts, &wakes);
+        if let Some((tag, persona)) = self.thread_tag(body, &turn_id) {
+            if let Some(p) = persona {
+                persona::sign_parts(&mut parts, &p);
+            }
+            render::thread_tag(&mut parts, &tag);
+        }
         // Replying to the turn's message once: only when the stream posted
         // nothing of it.
         let prefix = format!("{turn_id}:");
@@ -1366,6 +1376,9 @@ impl Lane {
         if w.content.trim().is_empty() {
             return Ok(None);
         }
+        // A persona's text is signed (theseus-sjzm).
+        let signed = self.sign(w).await;
+        let w = signed.as_ref().map_or(w, |s| &s.write);
         let known = w
             .message
             .map(|m| (w.channel, m))
@@ -1374,7 +1387,11 @@ impl Lane {
             if self.sent.get(&w.key) == Some(&w.content) && w.buttons == Buttons::Keep {
                 return Ok(Some((c, m)));
             }
-            match self.edit(c, m, &w.content, &w.buttons).await {
+            let edited = match self.edit_hooked(m, &w.content).await {
+                Some(r) => r,
+                None => self.edit(c, m, &w.content, &w.buttons).await,
+            };
+            match edited {
                 Ok(()) => {
                     self.touch(&w.key);
                     self.sent.insert(w.key.clone(), w.content.clone());
@@ -1393,16 +1410,23 @@ impl Lane {
         // Discord never took leaves it open.
         let (now, window) = (tokio::time::Instant::now(), self.window());
         let ping = w.ping && self.shared.pings.open(w.channel, now, window);
-        let (m, landed) = self
-            .create(
-                w.channel,
-                &w.key,
-                &w.content,
-                &w.buttons,
-                w.reply_to,
-                (&w.mentions, w.ping, ping),
-            )
-            .await?;
+        let (m, landed) = match signed
+            .as_ref()
+            .and_then(|s| Some((s.hook.as_ref()?, &s.name)))
+        {
+            Some((hook, name)) => self.create_hooked(hook, name, w, ping).await?,
+            None => {
+                self.create(
+                    w.channel,
+                    &w.key,
+                    &w.content,
+                    &w.buttons,
+                    w.reply_to,
+                    (&w.mentions, w.ping, ping),
+                )
+                .await?
+            }
+        };
         if ping {
             self.shared.pings.mark(w.channel, now, window);
         }

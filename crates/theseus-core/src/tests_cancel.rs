@@ -125,6 +125,7 @@ async fn a_cancel_aborts_an_async_tools_task_and_verifies_it() {
                     attachments: vec![],
                     arrived: None,
                     reply_to: None,
+                    answer_at: None,
                 })
                 .await
         })

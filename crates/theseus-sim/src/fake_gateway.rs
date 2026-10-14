@@ -321,6 +321,22 @@ pub fn component_press(i: &Interaction<'_>, message: Value, custom_id: &str) -> 
     d
 }
 
+/// `INTERACTION_CREATE` for the slash command `data`, typed in `i.at`: in a
+/// Discord thread under `parent` when that is given (theseus-sjzm).
+pub fn slash_command(i: &Interaction<'_>, parent: Option<u64>, data: Value) -> Value {
+    let mut d = component_press(i, Value::Null, "");
+    d["type"] = json!(2);
+    if let Some(o) = d.as_object_mut() {
+        o.remove("message");
+    }
+    d["data"] = data;
+    if let Some(p) = parent {
+        d["channel"]["type"] = json!(11);
+        d["channel"]["parent_id"] = json!(p.to_string());
+    }
+    d
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

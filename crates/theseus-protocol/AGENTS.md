@@ -127,6 +127,11 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `routines.rs` (theseus-pvm5c): routines on the wire: `RoutineSpec` (the META record `routine:<session id>`, no store
   format of its own), `RoutineInfo`, `RunRow`, the eight `routine.*` methods' params, `CatchUp` and `Speak`, and `NOTHING_NEW`
   (the marker a `when_notable` routine's report ends with when there is nothing to say).
+  `slug_of_place`; since theseus-sjzm also `Speaking` (`turn.submit`'s `speaking`: the Discord origin of a thread turn, and `answer_at`), `ThreadChanged` (the `thread.changed` notification) and `channel_surface`/`surface_channel` (`discord:channel:<id>`). `turn.submit`'s `thread` is in `submit.rs`.
+- `threads_import.rs` (theseus-71ib): `thread.import`'s params (`from`, `since_days`, `min_cluster`, `apply`: none is the dry
+  run) and result (`ThreadCandidate` rows, `ThreadApplied` with the card and its cited handles, `ThreadSkipped`, the spend).
+  `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0: `thread.seal` (`ThreadSealParams`, `ThreadSealResult`,
+  `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

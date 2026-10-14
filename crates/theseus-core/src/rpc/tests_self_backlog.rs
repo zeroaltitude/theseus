@@ -551,6 +551,7 @@ async fn a_started_items_turn_spends_on_the_self_budget_under_the_item() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();
@@ -577,6 +578,7 @@ async fn a_started_items_turn_spends_on_the_self_budget_under_the_item() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

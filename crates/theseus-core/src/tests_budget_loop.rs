@@ -57,6 +57,7 @@ async fn the_loop_that_asks_the_budget_question_writes_its_loop_ended_row() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

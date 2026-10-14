@@ -30,6 +30,7 @@ fn message(text: &str) -> Inbound {
         message: Id::new(7),
         channel: Id::new(43),
         guild: None,
+        thread: None,
     }
 }
 

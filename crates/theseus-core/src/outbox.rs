@@ -491,6 +491,14 @@ impl Outbox {
         })
     }
 
+    /// `session_id` posts nowhere now: a place that ran a thread's session
+    /// stopped (in memory; the place's own record is not touched).
+    pub fn place_unbound(&self, session_id: &str) {
+        let _ = self.with(|ix| {
+            ix.targets.remove(session_id);
+        });
+    }
+
     /// A task's record of where it reports, for the frame that opens it
     /// (DD7); `task_bound` once that frame is written.
     pub fn task_record(&self, task_session: &str, target: &str) -> Result<NewRecord> {

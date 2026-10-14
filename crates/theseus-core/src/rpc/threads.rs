@@ -26,7 +26,8 @@ use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
 use crate::fact::thread::{
-    Change, ThreadCreated, ThreadDone, ThreadEdited, ThreadPaused, ThreadReopened, ThreadResumed,
+    Change, ThreadCreated, ThreadDone, ThreadEdited, ThreadOpened, ThreadPaused, ThreadReopened,
+    ThreadResumed,
 };
 use crate::ledger::LedgerRow;
 use crate::node::{Node, Origin};
@@ -252,8 +253,7 @@ impl Core {
             )
             .map_err(RpcFailure::invalid)?;
         let t = written.into_iter().next().expect("one thread");
-        self.rec(None)
-            .announce(&ThreadCreated(change(&t, &who_s, &via, &[])));
+        self.announce_thread(&t.slug, &ThreadCreated(change(&t, &who_s, &via, &[])));
         Ok(ThreadRow {
             thread: t,
             context_tokens: None,
@@ -432,16 +432,12 @@ impl Core {
         let topics = p.topics.as_deref().map(topics_of).transpose()?;
         let working_set = p.working_set.as_ref().map(working_set_of).transpose()?;
         let card = p.card.as_deref().map(card_of).transpose()?;
-        let persona = match p.persona.as_deref().map(str::trim) {
-            Some(x) if x.chars().count() > MAX_PERSONA => {
-                return Err(RpcFailure::invalid(anyhow!(
-                    "a persona's name is at most {MAX_PERSONA} characters"
-                )))
-            }
-            Some("") => Some(None),
-            Some(x) => Some(Some(x.to_string())),
-            None => None,
-        };
+        let surfaces = p
+            .surfaces
+            .as_deref()
+            .map(super::thread_surface::surfaces_of)
+            .transpose()?;
+        let persona = persona_of(p.persona.as_deref())?;
         let (who_s, via) = (who.who(), who.via());
         let changed = RefCell::new(Vec::<&'static str>::new());
         let written = self
@@ -489,6 +485,11 @@ impl Core {
                             next.persona = x.clone()
                         });
                     }
+                    if let Some(x) = &surfaces {
+                        set("surfaces", *x != next.surfaces, &mut || {
+                            next.surfaces = x.clone()
+                        });
+                    }
                     if ch.is_empty() {
                         return Ok(vec![]);
                     }
@@ -510,8 +511,10 @@ impl Core {
             let t = self.thread_named(&p.slug)?;
             return Ok(self.thread_rows(&mut [t]).pop().expect("one row"));
         };
-        self.rec(None)
-            .announce(&ThreadEdited(change(&t, &who_s, &via, &changed.borrow())));
+        self.announce_thread(
+            &t.slug,
+            &ThreadEdited(change(&t, &who_s, &via, &changed.borrow())),
+        );
         Ok(self.thread_rows(&mut [t]).pop().expect("one row"))
     }
 
@@ -606,12 +609,11 @@ impl Core {
             return Ok(self.thread_rows(&mut [t]).pop().expect("one row"));
         };
         let c = change(&t, &who_s, &via, &[]);
-        let rec = self.rec(None);
         match mv {
-            Move::Pause => rec.announce(&ThreadPaused(c)),
-            Move::Resume => rec.announce(&ThreadResumed(c)),
-            Move::Done => rec.announce(&ThreadDone(c)),
-            Move::Reopen => rec.announce(&ThreadReopened(c)),
+            Move::Pause => self.announce_thread(&slug, &ThreadPaused(c)),
+            Move::Resume => self.announce_thread(&slug, &ThreadResumed(c)),
+            Move::Done => self.announce_thread(&slug, &ThreadDone(c)),
+            Move::Reopen => self.announce_thread(&slug, &ThreadReopened(c)),
         }
         if mv == Move::Done {
             self.finish_thread_session(&t, &who);
@@ -662,13 +664,43 @@ impl Core {
     /// new one opened and bound to the virtual place (`bind_place_to`, which
     /// supersedes the one it replaces). Only for the owner, from a private
     /// place, and only while the thread is active.
-    pub(super) fn thread_session(
+    pub fn thread_session(
         &self,
         slug: &str,
         who: impl Into<Answerer>,
     ) -> Result<SessionRecord, RpcFailure> {
         let who = who.into();
         self.judge_thread(&who, method::TURN_SUBMIT, slug)?;
+        self.thread_session_of(slug, &who.who(), &who.via())
+    }
+
+    /// The same session for a place the Discord binding runs as the thread
+    /// (a bound channel, a Discord thread; theseus-sjzm): judged by the
+    /// place, not by a person, as any message in a place is, since the
+    /// binding admits who may drive it. Only a private place, and only while
+    /// the thread is active.
+    pub fn thread_place_session(
+        &self,
+        slug: &str,
+        target: &str,
+    ) -> Result<SessionRecord, RpcFailure> {
+        if self.runner.place_rule.class(&self.cfg, Some(target))
+            != crate::places::PlaceClass::Private
+        {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!("{target} is not a private place, and a thread is private always"),
+            ));
+        }
+        self.thread_session_of(slug, target, "discord")
+    }
+
+    fn thread_session_of(
+        &self,
+        slug: &str,
+        by: &str,
+        via: &str,
+    ) -> Result<SessionRecord, RpcFailure> {
         self.threads_on()?;
         let slug = slug.trim();
         let t = self.thread_named(slug)?;
@@ -685,7 +717,9 @@ impl Core {
                 ),
             ));
         }
-        self.runner
+        let opened = std::cell::Cell::new(false);
+        let rec = self
+            .runner
             .threads
             .bind(&self.store, slug, |board| {
                 let cur = board.get(slug).and_then(|t| t.session_id.clone());
@@ -702,9 +736,18 @@ impl Core {
                 })?;
                 self.bind_place_to(&place_of(slug), &rec.session_id)?;
                 let bound = rec.session_id.clone();
+                opened.set(true);
                 Ok((rec, Some(bound)))
             })
-            .map_err(RpcFailure::invalid)
+            .map_err(RpcFailure::invalid)?;
+        if opened.get() {
+            // The thread's first message (or its first after a retired
+            // session): the Discord binding shows it on a Discord thread.
+            let now = self.thread_named(slug)?;
+            let c = change(&now, by, via, &[]);
+            self.announce_thread(slug, &ThreadOpened(c));
+        }
+        Ok(rec)
     }
 }
 
@@ -749,6 +792,18 @@ fn line(text: &str, what: &str) -> Result<String, RpcFailure> {
         )));
     }
     Ok(l)
+}
+
+/// A persona's name as an edit gives it: `Some(None)` clears it.
+fn persona_of(p: Option<&str>) -> Result<Option<Option<String>>, RpcFailure> {
+    match p.map(str::trim) {
+        Some(x) if x.chars().count() > MAX_PERSONA => Err(RpcFailure::invalid(anyhow!(
+            "a persona's name is at most {MAX_PERSONA} characters"
+        ))),
+        Some("") => Ok(Some(None)),
+        Some(x) => Ok(Some(Some(x.to_string()))),
+        None => Ok(None),
+    }
 }
 
 fn topics_of(topics: &[String]) -> Result<Vec<String>, RpcFailure> {

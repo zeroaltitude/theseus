@@ -269,12 +269,79 @@ pub struct ThreadEditParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
+    /// The places the thread is shown on (`discord:channel:<id>`, `cli`),
+    /// whole: `/thread bind` and `unbind` edit it (theseus-sjzm).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub surfaces: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub discord: Option<DiscordOrigin>,
+}
+
+/// Who is speaking and where the answer goes, for a turn that runs in a
+/// thread (theseus-sjzm): the Discord binding names the person and place the
+/// core judges (a thread is the owner's, from a private place), and the
+/// place the reply is posted to when it is not the thread's own surface (a
+/// message in the owner's DM answered there, `discord:dm:<user>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Speaking {
+    pub discord: DiscordOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub answer_at: Option<String>,
+}
+
+/// `thread.changed`: a thread was made, edited, paused, resumed, finished or
+/// reopened, or opened its session (its first message). To every connection,
+/// so a surface that shows threads (the Discord binding's one Discord thread
+/// each) follows them without polling.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadChanged {
+    pub slug: String,
+    pub title: String,
+    pub state: ThreadState,
+    pub sealed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub persona: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<String>,
+    /// `created`, `edited`, `paused`, `resumed`, `done`, `reopened` or
+    /// `opened` (the thread's session was opened by its first message).
+    pub change: String,
+    pub who: String,
+}
+
+impl ThreadChanged {
+    /// The notification for `t` after `change`.
+    pub fn of(t: &ThreadInfo, change: &str, who: &str) -> Self {
+        Self {
+            slug: t.slug.clone(),
+            title: t.title.clone(),
+            state: t.state,
+            sealed: t.sealed.is_some(),
+            persona: t.persona.clone(),
+            surfaces: t.surfaces.clone(),
+            change: change.into(),
+            who: who.into(),
+        }
+    }
+}
+
+/// The surface string of a Discord channel or Discord thread.
+pub fn channel_surface(channel: u64) -> String {
+    format!("discord:channel:{channel}")
+}
+
+/// The Discord channel a surface string names.
+pub fn surface_channel(surface: &str) -> Option<u64> {
+    surface.strip_prefix("discord:channel:")?.parse().ok()
 }
 
 #[cfg(test)]
