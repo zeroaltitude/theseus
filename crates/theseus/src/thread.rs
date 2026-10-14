@@ -10,8 +10,8 @@ use theseus_client::render::time::fmt_stamp;
 use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::threads::{
-    ThreadEditParams, ThreadListParams, ThreadListResult, ThreadNameParams, ThreadNewParams,
-    ThreadRow, ThreadState, WorkingSet,
+    crossed_words, ThreadEditParams, ThreadListParams, ThreadListResult, ThreadNameParams,
+    ThreadNewParams, ThreadRow, ThreadSealParams, ThreadSealResult, ThreadState, WorkingSet,
 };
 
 use crate::cmd::output;
@@ -37,6 +37,12 @@ pub enum ThreadCmd {
         /// A topic (at most three; repeat the flag).
         #[arg(long = "topic")]
         topics: Vec<String>,
+        /// Make it sealed: its notes never come into another thread.
+        #[arg(long)]
+        sealed: bool,
+        /// The thread this one splits from; a split from a sealed thread starts sealed.
+        #[arg(long = "split-from")]
+        split_from: Option<String>,
     },
     /// One thread: its record, its session, its context and today's spend.
     Show { slug: String },
@@ -78,6 +84,22 @@ pub enum ThreadCmd {
     Done { slug: String },
     /// Take a finished thread up again: its next message opens a successor session.
     Reopen { slug: String },
+    /// Seal a thread: its notes never come into another thread's recall, and `thread.read` of it
+    /// asks you first. Says what had already crossed into other threads. Only you, from a private
+    /// place. `--not-needed` answers a proposed seal "not needed" instead.
+    Seal {
+        slug: String,
+        #[arg(long)]
+        reason: Option<String>,
+        /// Also leave a note in each session the thread's notes crossed into: they are withdrawn.
+        #[arg(long)]
+        redirect: bool,
+        /// Dismiss the seal Theseus proposed: not proposed again until the thread's content changes.
+        #[arg(long = "not-needed")]
+        not_needed: bool,
+    },
+    /// Open a sealed thread again. Only you, from a private place.
+    Unseal { slug: String },
 }
 
 impl Default for ThreadCmd {
@@ -130,12 +152,16 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
             title,
             goal,
             topics,
+            sealed,
+            split_from,
         } => {
             let p = ThreadNewParams {
                 slug,
                 title,
                 goal,
                 topics: (!topics.is_empty()).then_some(topics),
+                sealed,
+                split_from,
                 ..Default::default()
             };
             let v = conn
@@ -190,6 +216,66 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Resume { slug } => moved(conn, json, method::THREAD_RESUME, slug).await,
         ThreadCmd::Done { slug } => moved(conn, json, method::THREAD_DONE, slug).await,
         ThreadCmd::Reopen { slug } => moved(conn, json, method::THREAD_REOPEN, slug).await,
+        seal @ (ThreadCmd::Seal { .. } | ThreadCmd::Unseal { .. }) => {
+            sealing(conn, json, seal).await
+        }
+    }
+}
+
+/// `thread seal` and `thread unseal`.
+async fn sealing(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
+    match cmd {
+        ThreadCmd::Seal {
+            slug,
+            not_needed: true,
+            ..
+        } => {
+            let v = conn
+                .request(
+                    method::THREAD_SEAL_DISMISS,
+                    serde_json::to_value(name(slug))?,
+                )
+                .await?;
+            output(json, v, |r: ThreadRow| {
+                println!(
+                    "Not needed: the thread {} is not proposed for sealing again until its content changes.",
+                    r.thread.slug
+                );
+                Ok(())
+            })
+        }
+        ThreadCmd::Seal {
+            slug,
+            reason,
+            redirect,
+            ..
+        } => {
+            let p = ThreadSealParams {
+                slug,
+                reason,
+                redirect,
+                ..Default::default()
+            };
+            let v = conn
+                .request(method::THREAD_SEAL, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: ThreadSealResult| {
+                for l in seal_lines(&r) {
+                    println!("{l}");
+                }
+                Ok(())
+            })
+        }
+        ThreadCmd::Unseal { slug } => {
+            let v = conn
+                .request(method::THREAD_UNSEAL, serde_json::to_value(name(slug))?)
+                .await?;
+            output(json, v, |r: ThreadRow| {
+                println!("The thread {} is unsealed.", r.thread.slug);
+                Ok(())
+            })
+        }
+        _ => unreachable!("only the seal commands come here"),
     }
 }
 
@@ -237,6 +323,46 @@ async fn moved(conn: &mut Conn, json: bool, m: &str, slug: String) -> Result<()>
     })
 }
 
+/// What a seal said: the thread sealed, then each place its notes had crossed
+/// into, with the offer to leave a redirect note there.
+pub fn seal_lines(r: &ThreadSealResult) -> Vec<String> {
+    let t = &r.thread.thread;
+    let mut out = vec![match &t.sealed {
+        Some(s) => format!("🔒 The thread {} is sealed ({}).", t.slug, s.reason),
+        None => format!("The thread {} is not sealed.", t.slug),
+    }];
+    if r.crossed.is_empty() {
+        out.push("None of its notes had crossed into another session.".into());
+        return out;
+    }
+    for (c, words) in r.crossed.iter().zip(crossed_words(&r.crossed)) {
+        out.push(format!(
+            "  {words}{}",
+            if c.redirected {
+                " (a redirect note is there now)"
+            } else {
+                ""
+            }
+        ));
+    }
+    if r.crossed.iter().any(|c| !c.redirected) {
+        out.push(format!(
+            "  `theseus thread seal {} --redirect` leaves a note in each, withdrawing them.",
+            t.slug
+        ));
+    }
+    out
+}
+
+/// A thread's name in a list, with its seal: `🔒 tides`, and `🔒? tides` while a seal is proposed.
+fn marked(t: &theseus_protocol::threads::ThreadInfo) -> String {
+    match (&t.sealed, &t.seal_pending) {
+        (Some(_), _) => format!("🔒 {}", t.slug),
+        (None, Some(_)) => format!("🔒? {}", t.slug),
+        _ => t.slug.clone(),
+    }
+}
+
 /// A context size as `12.4k`.
 fn tokens(t: Option<u64>) -> String {
     match t {
@@ -258,7 +384,7 @@ pub fn list_lines(r: &ThreadListResult) -> Vec<String> {
     let w = r
         .threads
         .iter()
-        .map(|t| t.thread.slug.len())
+        .map(|t| marked(&t.thread).chars().count())
         .max()
         .unwrap_or(4)
         .max(4);
@@ -269,7 +395,7 @@ pub fn list_lines(r: &ThreadListResult) -> Vec<String> {
     for t in &r.threads {
         out.push(format!(
             "{:<w$}  {:<6}  {:<16}  {:>7}  {:>7}  {}",
-            t.thread.slug,
+            marked(&t.thread),
             t.thread.state.as_str(),
             fmt_stamp(t.thread.last_active_ms),
             tokens(t.context_tokens),
@@ -283,7 +409,19 @@ pub fn list_lines(r: &ThreadListResult) -> Vec<String> {
 /// `thread show`'s lines.
 pub fn show_lines(r: &ThreadRow) -> Vec<String> {
     let t = &r.thread;
-    let mut out = vec![format!("{} ({}): {}", t.slug, t.state.as_str(), t.title)];
+    let mut out = vec![format!("{} ({}): {}", marked(t), t.state.as_str(), t.title)];
+    if let Some(s) = &t.sealed {
+        out.push(format!(
+            "  🔒 sealed by {}: {} (`theseus thread unseal {}` opens it)",
+            s.by, s.reason, t.slug
+        ));
+    }
+    if let Some(why) = &t.seal_pending {
+        out.push(format!(
+            "  🔒? a seal is proposed: {why} (`theseus thread seal {0}` seals it; `theseus thread seal {0} --not-needed` dismisses it)",
+            t.slug
+        ));
+    }
     if !t.goal.is_empty() {
         out.push(format!("  goal: {}", t.goal));
     }
@@ -388,6 +526,83 @@ mod tests {
             total: 2,
         });
         assert!(none[0].contains("No threads here (2 in all)"), "{none:?}");
+    }
+
+    /// A sealed thread's name carries a lock in the list and its card says
+    /// who sealed it and why; a proposal carries a lock and a question mark.
+    #[test]
+    fn a_seal_shows_in_the_list_and_on_the_card() {
+        theseus_client::render::time::pin_for_tests();
+        let mut sealed = row("fix", ThreadState::Active, None, 0.0);
+        sealed.thread.sealed = Some(theseus_protocol::threads::Seal {
+            by: "the CLI".into(),
+            at_ms: 1,
+            reason: "embargoed".into(),
+        });
+        let mut maybe = row("maybe", ThreadState::Active, None, 0.0);
+        maybe.thread.seal_pending = Some("looks embargoed".into());
+        let list = list_lines(&ThreadListResult {
+            threads: vec![sealed.clone(), maybe.clone()],
+            total: 2,
+        })
+        .join("\n");
+        assert!(
+            list.contains("🔒 fix") && list.contains("🔒? maybe"),
+            "{list}"
+        );
+        let card = show_lines(&sealed).join("\n");
+        assert!(
+            card.contains("🔒 sealed by the CLI: embargoed (`theseus thread unseal fix` opens it)"),
+            "{card}"
+        );
+        let card = show_lines(&maybe).join("\n");
+        assert!(
+            card.contains("a seal is proposed: looks embargoed"),
+            "{card}"
+        );
+        assert!(card.contains("seal maybe --not-needed"), "{card}");
+    }
+
+    /// The seal's report names where its facts had crossed, and offers the
+    /// redirect until it is taken.
+    #[test]
+    fn the_seals_report_names_the_crossed_facts_and_offers_a_redirect() {
+        let mut r = row("fix", ThreadState::Active, None, 0.0);
+        r.thread.sealed = Some(theseus_protocol::threads::Seal {
+            by: "the CLI".into(),
+            at_ms: 1,
+            reason: "embargoed".into(),
+        });
+        let crossed = |redirected| theseus_protocol::threads::ThreadCrossed {
+            session_id: "ses_pr".into(),
+            thread: Some("pr-round".into()),
+            title: Some("pr round".into()),
+            facts: 2,
+            redirected,
+        };
+        let lines = seal_lines(&ThreadSealResult {
+            thread: r.clone(),
+            crossed: vec![crossed(false)],
+        });
+        assert_eq!(lines[0], "🔒 The thread fix is sealed (embargoed).");
+        assert_eq!(lines[1], "  2 facts were already used in «pr round»");
+        assert!(lines[2].contains("seal fix --redirect"), "{lines:?}");
+        let done = seal_lines(&ThreadSealResult {
+            thread: r.clone(),
+            crossed: vec![crossed(true)],
+        });
+        assert!(
+            done[1].ends_with("(a redirect note is there now)") && done.len() == 2,
+            "{done:?}"
+        );
+        let none = seal_lines(&ThreadSealResult {
+            thread: r,
+            crossed: vec![],
+        });
+        assert!(
+            none[1].contains("None of its notes had crossed"),
+            "{none:?}"
+        );
     }
 
     #[test]

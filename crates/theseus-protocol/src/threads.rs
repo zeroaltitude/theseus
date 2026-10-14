@@ -194,6 +194,14 @@ pub struct ThreadNewParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub topics: Option<Vec<String>>,
+    /// Made sealed (theseus-f2g0): its notes never reach another thread.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sealed: bool,
+    /// The thread this one splits from: a split from a sealed thread
+    /// starts sealed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub split_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
@@ -271,9 +279,97 @@ pub struct ThreadEditParams {
     pub discord: Option<DiscordOrigin>,
 }
 
+/// `thread.seal` (theseus-f2g0; the owner seals, Jev only recommends): the
+/// thread's notes stop reaching any other thread's recall; `redirect` also
+/// leaves a note in each session that already used them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadSealParams {
+    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub redirect: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// A session that used a sealed thread's notes before it was sealed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadCrossed {
+    pub session_id: String,
+    /// The thread that session belongs to; none for an unthreaded one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub thread: Option<String>,
+    /// That thread's title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title: Option<String>,
+    /// How many of the sealed thread's notes it was given.
+    pub facts: u32,
+    /// Whether a redirect note now stands in that session.
+    #[serde(default)]
+    pub redirected: bool,
+}
+
+/// `thread.seal`'s answer: the thread as sealed, and what had crossed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadSealResult {
+    pub thread: ThreadRow,
+    pub crossed: Vec<ThreadCrossed>,
+}
+
+/// The word a seal's report says for `crossed`: "2 facts were already used
+/// in «pr round»", one clause for each session.
+pub fn crossed_words(c: &[ThreadCrossed]) -> Vec<String> {
+    c.iter()
+        .map(|x| {
+            let facts = if x.facts == 1 {
+                "fact was"
+            } else {
+                "facts were"
+            };
+            let n = x.facts;
+            match (&x.title, &x.thread) {
+                (Some(t), _) => format!("{n} {facts} already used in «{t}»"),
+                (None, Some(s)) => format!("{n} {facts} already used in «{s}»"),
+                (None, None) => {
+                    format!("{n} {facts} already used in the session {}", x.session_id)
+                }
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_seals_report_names_where_the_facts_crossed() {
+        let c = |facts, title: Option<&str>| ThreadCrossed {
+            session_id: "ses_x".into(),
+            thread: title.map(|_| "pr-round".into()),
+            title: title.map(str::to_string),
+            facts,
+            redirected: false,
+        };
+        assert_eq!(
+            crossed_words(&[c(2, Some("pr round")), c(1, None)]),
+            [
+                "2 facts were already used in «pr round»",
+                "1 fact was already used in the session ses_x"
+            ]
+        );
+    }
 
     #[test]
     fn a_slug_is_lower_case_words_joined_by_hyphens() {

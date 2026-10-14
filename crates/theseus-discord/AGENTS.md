@@ -46,6 +46,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
   (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
   owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
+- **A proposed seal's card** (theseus-f2g0, `runtime/seal.rs`): the core's `seal_card` post ("🔒 This looks embargoed: <reason>")
+  goes to the owner's DM alone (`jev_post`) with **Seal this thread** and **Not needed** (`seal:<yes|no>:<slug>`,
+  `Buttons::Seal`); a press is `thread.seal` or `thread.seal_dismiss` as the presser, with the place it came from, so the
+  core judges it (the owner, from a private place); a seal's reply to the presser says what had already crossed into other
+  threads. `/thread list` marks a sealed thread 🔒 (🔒? while a seal is proposed).
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

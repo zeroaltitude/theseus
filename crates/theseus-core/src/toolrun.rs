@@ -390,6 +390,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
+    /// What `thread.read` reads (theseus-f2g0): the core, once built.
+    pub thread_read: crate::thread_read::Board,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
     /// `self.propose_change`'s core and trees (theseus-pw1q.8).
@@ -529,6 +531,7 @@ impl ToolRuntime {
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
+            thread_read: Default::default(),
             jobs: Default::default(),
             self_pr: Arc::new(crate::rsi::pr::Board::new(tmp.join("state"))),
             extend: Arc::new(crate::extend::Extensions::new(
@@ -1679,6 +1682,8 @@ impl ToolRuntime {
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
+                // Another thread, read on purpose (theseus-f2g0).
+                crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // A job's handle needs its session (theseus-n8gk).
                 theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),
@@ -2209,6 +2214,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
+        // Another thread's card and notes, read on purpose (theseus-f2g0).
+        r.register(Arc::new(crate::thread_read::ThreadRead));
         crate::rsi::pr::register(cfg, &mut r);
         r
     } else {
@@ -2333,6 +2340,7 @@ pub fn build_runtime(
         extend,
         judge: Default::default(),
         lookup: Default::default(),
+        thread_read: Default::default(),
         jobs: Default::default(),
         self_pr,
         profiles: cfg

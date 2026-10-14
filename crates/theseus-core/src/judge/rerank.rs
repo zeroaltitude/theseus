@@ -89,6 +89,9 @@ pub struct Recalled {
     /// retention when it reads it (32a): the repack ranks as the recall did.
     pub science: Arc<dyn MemoryScience>,
     pub retention: BTreeMap<String, Retention>,
+    /// What the threads do to the recall (theseus-f2g0): the rerank holds the
+    /// seal and the distance as the pipeline did.
+    pub threads: Option<theseus_memory::ThreadLens>,
     /// What the fused pack admitted, by key (`<node>#<chunk>`).
     pub admitted: Vec<String>,
     pub now_ms: u64,
@@ -104,6 +107,7 @@ impl Recalled {
             links: &self.links,
             now_ms: self.now_ms,
             retention: &self.retention,
+            threads: self.threads.as_ref(),
         }
     }
 }

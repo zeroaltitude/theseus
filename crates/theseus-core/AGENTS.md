@@ -200,6 +200,29 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+  **Thread recall and seals** (theseus-f2g0; no store change; owner D12: Jev recommends, the owner seals).
+  `thread_recall.rs` maps a candidate's session to its thread (`Board::of_session`, else the record's supersession
+  link naming `thread:<slug>`, else its task parent, kept in `Memory::thread_memo`) and builds the pure
+  `theseus_memory::ThreadLens` over a recall's candidates (`Scene.threads`, `TurnRunner::thread_scene`: none while no
+  thread exists, so a daemon without threads recalls as before). In a threaded session a candidate of *another*
+  thread pays `[threads] cross_recall_penalty` (0.35 of its score, in the pack's rank) and is dropped as `thread`
+  unless its fused score is above `cross_recall_bar` (0.75) of the query's best, unless the message names its thread
+  (slug, title, or a working-set entity: `thread_recall::named`). A sealed thread's notes, or one with a seal
+  proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
+  rerank and `thread.read`-less lookups included (`memory.lookup`'s words ask with the seal and no distance). The
+  `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`
+  (`render::thread_mark`). `rpc/thread_seal.rs`: `thread.seal` (+`redirect`: a harness note in each session the
+  notes had crossed into, found from the `derived_from` edges, via `recall`, of `Recall` nodes), `thread.unseal`,
+  `thread.seal_dismiss` ("Not needed": a `thread.seal_dismissed` row, a label for the judge's report, and META
+  `thread.seal_dismissed.<slug>` holding the content digest, so one proposal per thread until its card, goal, title or
+  working set changes), `Core::thread_recommend_seal` (the entry point a later Jev pack calls, row theseus-c1uz: sets
+  `seal_pending`, writes `thread.seal_proposed` and posts a `seal_card` to the owner's DM, Discord's Seal this thread /
+  Not needed), and `seal_by_word` (the owner's `/seal` or "seal this thread" in a thread's session, before the turn).
+  `thread.new { sealed, split_from }`: a split from a sealed thread starts sealed; a task's session is its parent's
+  thread; `threads::merged_seal` is the rule for a merge. `thread_read.rs`: the model tool `thread.read {thread,
+  query?}` (private places; the card and the top hits, cited by thread and position; `gate` raises it to `approve`
+  when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
+
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

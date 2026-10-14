@@ -21,6 +21,12 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   then the science's rank,
   and a greedy pack under the tokens and items (`budget`). A second chunk of an admitted node is `in_context`. The
   core reads each candidate's place (`TurnRunner::place_of`).
+- `threads.rs` (theseus-f2g0): `ThreadLens`, what the threads do to a recall (the core builds it; `Asker.threads`).
+  `judge(session, fused)`: a candidate of a held thread (sealed, or a seal proposed) is `sealed` for every asker but
+  its own thread; in a threaded session (`distance`) another thread's candidate is `thread` unless its fused score is
+  above `bar` of `top_fused` (the index's best), else it pays `penalty` in the pack's rank; naming the thread
+  (`waived`) waives the distance and never a seal. Reasons `sealed` and `thread` join `Reason::ALL`.
+  Tests: `tests_threads.rs` (a property over generated recalls: a sealed note is never admitted).
 - `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
   order (only it may reach Jev); `reorder` re-sorts the top 20 by Jev's probabilities (an unanswered item keeps its
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order

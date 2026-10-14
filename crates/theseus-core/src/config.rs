@@ -1460,6 +1460,7 @@ impl Config {
                 .chain(crate::term::NAMES)
                 .chain(crate::lsp::NAMES)
                 .chain(crate::memory_lookup::NAMES)
+                .chain(crate::thread_read::NAMES)
                 .chain(crate::rsi::pr::NAMES)
         };
         for name in self.policy.tools.keys() {

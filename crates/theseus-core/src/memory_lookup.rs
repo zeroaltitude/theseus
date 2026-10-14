@@ -597,6 +597,8 @@ async fn by_words(
         budget_tokens: Some(BUDGET_MAX * 4),
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
+        // Asked for, so no distance; a sealed thread's notes stay out.
+        threads: core.runner.thread_scene(session, &words, false),
     };
     let m = memory.manifest(
         &scene,

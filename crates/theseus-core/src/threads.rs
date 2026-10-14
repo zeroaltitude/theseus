@@ -236,6 +236,29 @@ impl Threads {
     }
 }
 
+/// The seal a merge of two threads has (theseus-f2g0): sealed if either was
+/// (the first's when both are). The merge itself is the router's row's
+/// (T4); the rule is here, for it to call.
+pub fn merged_seal(a: &ThreadInfo, b: &ThreadInfo) -> Option<theseus_protocol::threads::Seal> {
+    a.sealed.clone().or_else(|| b.sealed.clone())
+}
+
+/// The seal a split from `parent` starts with.
+pub fn inherited_seal(
+    parent: &ThreadInfo,
+    who: &str,
+    now_ms: u64,
+) -> Option<theseus_protocol::threads::Seal> {
+    parent
+        .sealed
+        .as_ref()
+        .map(|_| theseus_protocol::threads::Seal {
+            by: who.to_string(),
+            at_ms: now_ms,
+            reason: format!("inherited from the sealed thread {}", parent.slug),
+        })
+}
+
 /// The virtual place of `slug` (`thread:<slug>`), as `bind_place_to` names it.
 pub fn place(slug: &str) -> String {
     place_of(slug)

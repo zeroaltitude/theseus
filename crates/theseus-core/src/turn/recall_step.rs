@@ -192,7 +192,13 @@ impl TurnRunner {
     /// them), and the labels. An arm that reads retention builds the
     /// projection when nothing has yet (off the turn's path: this recall
     /// ranks without).
-    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str, arm: MemoryArm) -> Scene<'a> {
+    pub(super) fn scene<'a>(
+        &self,
+        t: &'a Turn<'_>,
+        mode: &'a str,
+        arm: MemoryArm,
+        message: &str,
+    ) -> Scene<'a> {
         if arm.reads_retention() {
             crate::recall::retention::warm(&self.memory, &self.store);
         }
@@ -217,6 +223,7 @@ impl TurnRunner {
                 .then(|| self.memory.cfg().assembled_budget_tokens),
             science: self.memory.science_for(arm),
             activation: None,
+            threads: self.thread_scene(Some(t.tc.session_id), message, true),
         }
     }
 
@@ -248,7 +255,7 @@ impl TurnRunner {
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
-        let scene = self.scene(t, "shadow", MemoryArm::Baseline);
+        let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.query);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
@@ -261,6 +268,7 @@ impl TurnRunner {
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
         let retention = self.memory.retention_of(&*scene.science, &candidates);
+        let lens = scene.lens(&candidates);
         let Scene {
             place,
             in_context,
@@ -296,6 +304,7 @@ impl TurnRunner {
                 params: self.memory.cfg().params(),
                 science,
                 retention,
+                threads: lens,
                 admitted: m
                     .admitted
                     .iter()
@@ -466,6 +475,7 @@ impl TurnRunner {
         let mut items = Vec::new();
         let ids: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
         let handles = theseus_protocol::cite::handles_for(&ids);
+        let threads = self.thread_scene(Some(t.tc.session_id), "", false);
         for (item, handle) in m.admitted.iter().zip(&handles) {
             let probe = RecalledRef {
                 node_id: item.node_id.clone(),
@@ -482,12 +492,19 @@ impl TurnRunner {
             let excerpt = item.text.as_deref().unwrap_or_default();
             let chunk = render::frozen_range(&text_of(&source), excerpt);
             let place = self.place_name(&item.session_id);
+            let mut header = render::item_header(&source, item.position, &place, chunk);
+            if let Some(title) = threads
+                .as_ref()
+                .and_then(|th| th.other_title(&item.session_id))
+            {
+                header = format!(
+                    "{} {header}",
+                    render::thread_mark(&title, &source, item.position)
+                );
+            }
             items.push(RecalledRef {
                 chunk,
-                header: theseus_protocol::cite::header_with(
-                    handle,
-                    &render::item_header(&source, item.position, &place, chunk),
-                ),
+                header: theseus_protocol::cite::header_with(handle, &header),
                 ..probe
             });
         }

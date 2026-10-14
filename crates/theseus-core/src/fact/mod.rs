@@ -77,6 +77,7 @@ pub mod synthesis;
 pub mod task_graph;
 pub mod term;
 pub mod thread;
+pub mod thread_seal;
 pub mod tool;
 pub mod turn;
 pub mod wake;
@@ -480,6 +481,10 @@ facts![
     thread::ThreadResumed<'static>,
     thread::ThreadDone<'static>,
     thread::ThreadReopened<'static>,
+    thread_seal::ThreadSealed<'static>,
+    thread_seal::ThreadUnsealed<'static>,
+    thread_seal::ThreadSealProposed<'static>,
+    thread_seal::ThreadSealDismissed<'static>,
 ];
 
 #[cfg(test)]

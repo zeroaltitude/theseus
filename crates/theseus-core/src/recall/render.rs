@@ -117,6 +117,25 @@ pub fn header(n: &Node, position: u64, place: &str) -> String {
     )
 }
 
+/// The mark an item from another thread begins its header with
+/// (theseus-f2g0): `[from thread «security fix», 2026-10-08, @4210]`, the
+/// thread's title, the source's day (UTC) and its position. An item of an
+/// unthreaded session, or of the asking thread, has none.
+pub fn thread_mark(title: &str, n: &Node, position: u64) -> String {
+    let title: String = title
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .filter(|c| !matches!(c, '«' | '»'))
+        .take(60)
+        .collect();
+    format!(
+        "[from thread «{title}», {}, @{position}]",
+        &utc(n.created_at_ms)[..10]
+    )
+}
+
 /// The place of a session no place runs on, in a header: the session, on
 /// the CLI or the web UI.
 pub fn unplaced(session_id: &str) -> String {

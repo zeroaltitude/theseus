@@ -348,6 +348,12 @@ fn retention_words(r: &RecallRetention) -> String {
 /// The drops by reason, each with the first of its nodes.
 fn drop_lines(o: &mut Vec<Line>, m: &RecallManifest) {
     for (reason, n) in &m.drops {
+        // A sealed thread's hits are counted and never listed.
+        if reason == "sealed" {
+            let hits = if *n == 1 { "hit" } else { "hits" };
+            push(o, Tag::Dim, &format!("  🔒 {n} sealed {hits} withheld"));
+            continue;
+        }
         let nodes: Vec<String> = m
             .dropped
             .iter()

@@ -76,13 +76,18 @@ pub(super) fn text(list: &ThreadListResult) -> String {
     let mut shown = 0;
     for t in &list.threads {
         let line = format!(
-            "\n{} `{}` · {} · <t:{}:R> · context {} · ${:.2} today · {}",
+            "\n{} `{}`{} · {} · <t:{}:R> · context {} · ${:.2} today · {}",
             match t.thread.state.as_str() {
                 "active" => "🧵",
                 "paused" => "⏸️",
                 _ => "✅",
             },
             t.thread.slug,
+            match (&t.thread.sealed, &t.thread.seal_pending) {
+                (Some(_), _) => " 🔒",
+                (None, Some(_)) => " 🔒?",
+                _ => "",
+            },
             t.thread.state.as_str(),
             t.thread.last_active_ms / 1000,
             tokens(t.context_tokens),
@@ -238,6 +243,27 @@ mod tests {
         assert_eq!(c.name, "thread");
         let names: Vec<&str> = c.options.iter().map(|o| o.name.as_str()).collect();
         assert_eq!(names, ["new", "list"]);
+    }
+
+    /// A sealed thread carries a lock in the list, and one with a seal
+    /// proposed a lock and a question mark (theseus-f2g0).
+    #[test]
+    fn a_sealed_thread_carries_a_lock() {
+        let mut sealed = row("fix", ThreadState::Active, None, 0.0);
+        sealed.thread.sealed = Some(theseus_protocol::threads::Seal {
+            by: "the CLI".into(),
+            at_ms: 1,
+            reason: "embargo".into(),
+        });
+        let mut pending = row("maybe", ThreadState::Active, None, 0.0);
+        pending.thread.seal_pending = Some("looks embargoed".into());
+        let t = text(&ThreadListResult {
+            threads: vec![sealed, pending, row("open", ThreadState::Active, None, 0.0)],
+            total: 3,
+        });
+        assert!(t.contains("`fix` 🔒 · active"), "{t}");
+        assert!(t.contains("`maybe` 🔒? · active"), "{t}");
+        assert!(t.contains("`open` · active"), "{t}");
     }
 
     /// The list says each thread's state, activity, context and spend, and

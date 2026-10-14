@@ -38,7 +38,7 @@ impl TurnRunner {
         answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
-        let mut scene = self.scene(t, mode, arm);
+        let mut scene = self.scene(t, mode, arm, &begun.query);
         scene.activation = activation;
         if rerank == PackMode::Off {
             return self.memory.manifest(
@@ -61,12 +61,14 @@ impl TurnRunner {
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
         let retention = self.memory.retention_of(&*scene.science, &candidates);
+        let lens = scene.lens(&candidates);
         let Scene {
             place,
             in_context,
             labeled,
             budget_tokens,
             science,
+            threads,
             ..
         } = scene;
         let live = rerank == PackMode::Live;
@@ -83,6 +85,7 @@ impl TurnRunner {
             params: self.memory.params_of(&m),
             science: science.clone(),
             retention: retention.clone(),
+            threads: lens.clone(),
             admitted: m
                 .admitted
                 .iter()
@@ -109,6 +112,7 @@ impl TurnRunner {
                 budget_tokens,
                 science,
                 activation: None,
+                threads,
             };
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);

@@ -54,6 +54,8 @@ pub enum Buttons {
     Reminder(String),
     /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
     Earned(Vec<(String, String)>),
+    /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).
+    Seal(String),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
     /// A reply's cited sources, for the session whose recall gave them.

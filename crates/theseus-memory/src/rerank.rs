@@ -254,6 +254,7 @@ mod tests {
             links: &[],
             now_ms: 0,
             retention: &BTreeMap::new(),
+            threads: None,
         };
         let mut second = cand("n1", Place::Private, 0.85);
         second.chunk = 1;
@@ -321,7 +322,7 @@ mod tests {
         ) {
             let science = Baseline { min_score: 0.01, ..Baseline::default() };
             let none = BTreeSet::new();
-            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0, retention: &BTreeMap::new() };
+            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0, retention: &BTreeMap::new(), threads: None };
             let cands: Vec<Candidate> = places
                 .iter()
                 .enumerate()

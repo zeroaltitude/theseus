@@ -31,6 +31,10 @@ pub mod recall;
 pub mod rerank;
 pub mod retention;
 pub mod science;
+pub mod threads;
+
+#[cfg(test)]
+mod tests_threads;
 
 pub use access::{Access, AccessEvent, Durability, Label, Outcome};
 pub use activated::Activated;
@@ -41,3 +45,4 @@ pub use recall::{
 };
 pub use retention::RetentionRank;
 pub use science::{Baseline, MemoryScience, ScienceId, SynthesisAdmit, WithSyntheses};
+pub use threads::{SessionThread, ThreadLens, Verdict as ThreadVerdict};

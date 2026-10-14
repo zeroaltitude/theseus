@@ -919,6 +919,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
+# cross_recall_penalty = 0.35             # in a threaded session, the share of its score a recalled note from another thread pays
+# cross_recall_bar = 0.75                 # ...and it is admitted only above this share of the query's best score, unless the message names that thread (slug, title, or a working-set entity)
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

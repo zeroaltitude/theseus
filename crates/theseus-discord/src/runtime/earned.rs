@@ -99,6 +99,8 @@ impl Shared {
             self.earned_press(i, press, who, discord).await;
         } else if let Some(press) = super::remind::parse(custom_id) {
             self.remind_press(i, press, who).await;
+        } else if let Some(press) = super::seal::parse(custom_id) {
+            self.seal_press(i, press, who, discord).await;
         } else {
             return false;
         }
