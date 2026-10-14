@@ -444,6 +444,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`post_self_digest_if_due`, kind `self_digest`, META `self.digest.posted`) only while `posts_digest()` (mode act,
   digest weekly): with the mode off it reads and writes nothing. Methods in `rpc/rsi.rs`, routed through
   `rpc_prefixed`. Tests: `rpc/tests_self.rs`.
+  **The self budget** (theseus-pw1q.3; `rsi/budget.rs`): one account for all self-improvement, `[self.budget] branch_usd`
+  ($10) and `day_usd` ($30, the local day), the owner's hard keel. `Budget::reserve(kind, branch, worst_usd)` before
+  spending, `settle(reservation, actual)` after; a refusal (`Stopped`: line, spent, left) writes `self.budget.stopped`
+  once per branch and line. The account is one META record (`self.budget`) written with each row's frame; the first use
+  after a start settles a hold the old process left open at its worst case. A task session whose record has
+  `origin.principal == rsi::SELF_PRINCIPAL` reserves each model call in `turn/self_budget_step.rs` (its branch is the
+  root task's id; a failure of class `self_budget` ends the turn with the budget's words); other sessions pay one
+  `Option` test. Mode off: every call refuses, reads and writes nothing. Tests: `rsi/tests_budget.rs`, `tests_self_budget.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

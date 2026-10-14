@@ -38,9 +38,12 @@
 //! corrections, consolidation's syntheses), newest first, each with what,
 //! why, its numbers and its undo. `digest.rs` makes the week's text of them.
 
+pub mod budget;
 mod digest;
 mod log;
 mod switch;
+#[cfg(test)]
+mod tests_budget;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 
@@ -52,6 +55,10 @@ use crate::store::Store;
 
 pub use digest::{digest_text, week_of, DIGEST_KEY, WEEK_MS};
 pub use log::{entry_of, TODAY};
+
+/// The principal of every self-directed task and its sessions (S1): a reserved
+/// string that holds no owner handle and can never ack anything.
+pub const SELF_PRINCIPAL: &str = "self";
 
 /// The switch's META record.
 pub const SWITCH_KEY: &str = "self.switch";
@@ -186,5 +193,7 @@ pub fn state(ctx: &Ctx<'_>) -> SelfState {
             .and_then(|r| r.why.clone())
             .or_else(|| r.is_none().then(|| NEVER_RESUMED.to_string())),
         gate: g.name().into(),
+        day_spent_usd: None,
+        day_line_usd: None,
     }
 }

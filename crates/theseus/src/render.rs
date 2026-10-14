@@ -75,7 +75,7 @@ pub use ontology::{
 };
 pub use parked::parked_lines;
 pub use places::{places_health_line, places_lines};
-pub use rsi::self_state_line;
+pub use rsi::{budget_lines, self_state_line};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, node_cache_line, store_lines, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};

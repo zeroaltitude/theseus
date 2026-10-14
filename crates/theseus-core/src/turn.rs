@@ -82,6 +82,7 @@ mod rerank_step;
 mod retract_step;
 mod retry_step;
 mod route_step;
+mod self_budget_step;
 pub(crate) mod situation_step;
 mod standing_step;
 pub mod stdio_step;
@@ -191,6 +192,8 @@ pub struct TurnRunner {
     /// cold rewrites decided (theseus-ezeg).
     pub keep_warm: crate::keep_warm::KeepWarm,
     pub stubs: crate::compiler::stubs::InForce,
+    /// The self budget's account (theseus-pw1q.3).
+    pub self_budget: crate::rsi::budget::Budget,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -371,6 +374,8 @@ struct Turn<'a> {
     /// same question again.
     retry_over_limit: bool,
     /// The burn-rate stop whose question is being asked (theseus-9e02).
+    /// The self budget's hold on the call in flight (theseus-pw1q.3).
+    self_hold: Option<self_budget_step::Hold>,
     braked: Option<theseus_kernel::BurnStop>,
     /// Jobs this turn started or resumed in the background.
     background: Vec<String>,
@@ -517,6 +522,7 @@ impl<'a> Turn<'a> {
             budget_question: None,
             retry_over_limit: false,
             braked: None,
+            self_hold: None,
             background: Vec::new(),
             stop_reason: String::new(),
             said: Vec::new(),
@@ -1819,6 +1825,7 @@ impl TurnRunner {
             self.spend_checked(t, session)?;
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
+            self.self_settled(t, &called);
             if let Some(r) = recall {
                 self.recall_end(t, r).await;
             }
@@ -2288,6 +2295,9 @@ impl TurnRunner {
         // The output cap at the output price, the input estimate's upper bound at the input price.
         let reserve = price.reserve_micros(target.max_tokens, compiled.estimate.upper);
         let o0 = t.trace.now_us();
+        if let Err(f) = self.self_reserved(t, reserve) {
+            return Ok(Called::Failed(f));
+        }
         // It never needs a confirm, so its plan, authorization, and dispatch
         // are one frame, with the loop's rows in front (theseus-qa0), and
         // a recall's node and edges (M6 30b).
