@@ -60,6 +60,7 @@ mod tasks;
 pub mod time;
 mod wakes;
 mod warm;
+mod watches;
 mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
@@ -86,6 +87,7 @@ pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::{task_check, task_pieces};
 pub use time::{fmt_date, fmt_time};
 pub use wakes::{wake_line, wakes_line};
+pub use watches::watch_line;
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the

@@ -861,6 +861,7 @@ mod tests {
             // (theseus-lherl); setting one is public.
             "wake.cancel",
             "wake.move",
+            "watch",
         ] {
             assert!(!offered(PlaceClass::Shared, name, &[]), "{name}");
             assert!(offered(PlaceClass::Private, name, &[]), "{name}");

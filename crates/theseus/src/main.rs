@@ -50,6 +50,9 @@ mod status;
 mod status_notify;
 mod task_start;
 mod thread;
+mod thread_import;
+mod vestige;
+mod watch_cmd;
 mod why;
 mod work;
 
@@ -565,6 +568,15 @@ enum Cmd {
     Standing {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
+    },
+    /// Watches (theseus-f2r2b): wait on the world with no model. `watches` lists them; `watches add
+    /// TITLE --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED' [--every 5m]
+    /// [--for 3d] [--then notice|turn|task]` checks on a timer until the condition holds, then tells
+    /// you; `watches rm ID` ends one. (`watch SESSION` is the session follower.) Adding one is yours
+    /// alone (refused inside a job).
+    Watches {
+        #[command(subcommand)]
+        cmd: Option<watch_cmd::WatchesCmd>,
     },
     /// Threads (theseus-nhew): lines of work on virtual places `thread:<slug>`, each with a session
     /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
@@ -1229,6 +1241,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,

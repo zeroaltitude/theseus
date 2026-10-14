@@ -168,8 +168,8 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
     // The two lines the model's wake.move and wake.cancel joined with (theseus-lherl), one (pw1q.8),
-    // and the model's routine.create (theseus-pvm5c).
-    assert_eq!(cfg.policy.tools.len(), 57);
+    // the model's routine.create (theseus-pvm5c) and `watch` (f2r2b).
+    assert_eq!(cfg.policy.tools.len(), 58);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());

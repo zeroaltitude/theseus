@@ -346,6 +346,12 @@ pub fn move_to(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), Strin
     let pending = pending_of(tc)?;
     let w = resolve_own(&pending, &i.id)?.clone();
     let short = crate::task::short(&w.id);
+    if w.probe().is_some() {
+        return Err(format!(
+            "Wake {short} is a watch: it checks on its own interval until it gives up, and its \
+             time is not moved. Cancel it (`wake.cancel`) and set another if it should differ."
+        ));
+    }
     let now = tc.kernel.now_ms();
     let kc = tc.kernel.config();
     let to = target(&w, &i, now, (&kc.zone, kc.wakes.max_ahead_ms))?;

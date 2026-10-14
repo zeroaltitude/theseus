@@ -59,8 +59,14 @@ mod sessions;
 mod standing;
 mod stop_all;
 mod task_start;
+mod thread_flow;
+mod thread_import;
+mod thread_move;
+mod thread_seal;
+mod thread_surface;
 mod threads;
 mod wake_owner;
+mod watch;
 mod work_board;
 #[cfg(test)]
 pub(crate) use server::write_item;
@@ -100,6 +106,14 @@ mod tests_session_states;
 mod tests_stop_all;
 #[cfg(test)]
 mod tests_thread_context;
+#[cfg(test)]
+mod tests_thread_import;
+#[cfg(test)]
+mod tests_thread_recall;
+#[cfg(test)]
+mod tests_thread_route;
+#[cfg(test)]
+mod tests_thread_surface;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
@@ -218,6 +232,8 @@ pub struct Core {
     /// What a first keystroke warmed, and the sessions' idle spells
     /// (theseus-tnky).
     pub warmth: crate::warm::Warmth,
+    /// The open watches, in memory (theseus-f2r2b; `watch.rs`).
+    pub watches: Arc<crate::watch::Board>,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -798,6 +814,7 @@ impl Core {
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let sealed = crate::rsi::sealed::open(&cfg);
+        let watches = tools.watches.clone();
         let core = Arc::new(Self {
             cfg,
             store,
@@ -836,6 +853,7 @@ impl Core {
             rsi: Default::default(),
             sealed,
             warmth: Default::default(),
+            watches,
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));
@@ -846,6 +864,7 @@ impl Core {
         core.tools.extend.attach(&core.mcp);
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
+        core.tools.thread_read.attach(&core);
         core.tools.jobs.attach(&core);
         core.runner.judge.attach(&core);
         // The judge's sink writes between turns, as the pass does.

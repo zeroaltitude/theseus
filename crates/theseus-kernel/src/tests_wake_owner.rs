@@ -328,21 +328,16 @@ fn a_snooze_is_one_frame_and_sets_a_fired_reminder_again() {
 }
 
 #[test]
-fn a_task_or_a_probe_is_refused_with_words_and_nothing_is_written() {
+fn a_task_is_refused_with_words_and_a_probe_is_a_watch() {
     let w = world_with(cfg());
     let (e, _) = with_reminder(&w, DAY);
-    for (run, words) in [
+    {
         // A routine's task is built (theseus-pvm5c): one with no brief is the
-        // refusal; a probe still waits for the watches row.
-        (
+        // refusal.
+        let (run, words) = (
             WakeRun::Task(TaskRun::default()),
             ("needs a brief", "say what each run does"),
-        ),
-        (
-            WakeRun::Probe(WakeProbe::default()),
-            ("not built yet", "watches row"),
-        ),
-    ] {
+        );
         let before = theseus_store::frames_written_here();
         let err = w
             .kernel
@@ -366,6 +361,25 @@ fn a_task_or_a_probe_is_refused_with_words_and_nothing_is_written() {
             "nothing written"
         );
     }
+    // A probe is a watch since theseus-f2r2b: it is set, in one frame.
+    let before = theseus_store::frames_written_here();
+    let set = w
+        .kernel
+        .create_wake(
+            &e.id,
+            None,
+            NewWake {
+                due_at_ms: w.kernel.now_ms() + MIN,
+                note: "later".into(),
+                purpose: crate::wake_kinds::Purpose::Watch,
+                run: WakeRun::Probe(WakeProbe::default()),
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    assert!(set.wake.probe().is_some());
+    assert_eq!(theseus_store::frames_written_here(), before + 1);
 }
 
 #[test]

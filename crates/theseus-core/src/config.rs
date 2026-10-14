@@ -36,8 +36,10 @@ mod sessions;
 mod threads;
 mod wake_limits;
 pub use routines::RoutinesConfig;
+mod watches;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
+pub use watches::WatchesConfig;
 mod sparse;
 pub mod term;
 mod web;
@@ -163,6 +165,9 @@ pub struct Config {
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
+    /// `[watches]`: checks with no model until a condition holds (theseus-f2r2b), `config/watches.rs`.
+    #[serde(default, skip_serializing_if = "WatchesConfig::is_default")]
+    pub watches: WatchesConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -250,6 +255,10 @@ pub struct DiscordConfig {
     /// Discord's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway_proxy: Option<String>,
+    /// `[[discord.thread]]`: a channel the bindings file names, run as a
+    /// thread's place (theseus-sjzm); none by default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thread: Vec<discord::ThreadBind>,
 }
 
 fn default_discord_token_secret() -> String {
@@ -1385,6 +1394,8 @@ impl Config {
         self.sessions.validate()?;
         self.threads.validate()?;
         self.routines.validate()?;
+        self.watches.validate()?;
+        discord::ThreadBind::validate_all(&self.discord.thread)?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;
@@ -1484,6 +1495,7 @@ impl Config {
                 .chain(crate::term::NAMES)
                 .chain(crate::lsp::NAMES)
                 .chain(crate::memory_lookup::NAMES)
+                .chain(crate::thread_read::NAMES)
                 .chain(crate::rsi::pr::NAMES)
         };
         for name in self.policy.tools.keys() {

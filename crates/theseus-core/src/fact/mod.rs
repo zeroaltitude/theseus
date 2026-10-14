@@ -85,6 +85,7 @@ pub mod thread;
 pub mod tool;
 pub mod turn;
 pub mod wake;
+pub mod watch;
 
 /// A fact: what happened, and what each channel says of it.
 pub trait Fact {
@@ -261,6 +262,7 @@ facts![
     turn::Stopped<'static>,
     turn::WakeCameDue<'static>,
     wake::WakeFired<'static>,
+    watch::WatchEnded<'static>,
     turn::ReportWoke<'static>,
     turn::NoCall,
     turn::ContextFileMissing<'static>,

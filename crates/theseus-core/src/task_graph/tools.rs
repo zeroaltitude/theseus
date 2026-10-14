@@ -310,10 +310,12 @@ pub fn authority_for(
     input: &Value,
     mut plan: Plan,
 ) -> Plan {
-    // A routine's creation always waits (theseus-pvm5c); layer 1 only guards
-    // the owner's tasks.
-    if plan.authority.is_some() && name != crate::routine_tool::CREATE && !waits(store, name, input)
-    {
+    // A routine's creation always waits (theseus-pvm5c), and a command watch
+    // asks the owner once at its creation (theseus-f2r2b): neither is a task
+    // call, so this is not the place that clears their question; layer 1 only
+    // guards the owner's tasks.
+    let own = name == crate::routine_tool::CREATE || name == crate::watch_tool::WATCH;
+    if plan.authority.is_some() && !own && !waits(store, name, input) {
         plan.authority = None;
     }
     plan

@@ -249,7 +249,7 @@ pub fn next_reminder(v: &WorkView, rules: &Rules) -> Option<u64> {
 /// | 1 | a question appears, of any kind, at any depth | Interrupt |
 /// | 2 | a question reaches `remind_at` of its life unanswered (once) | Interrupt |
 /// | 3 | it fails or blocks (needs you, no question) | Interrupt |
-/// | 4 | a wake fires, by its purpose: a reminder | Interrupt, with its four answers (`reminder_notice`); a check-in, a routine, a watch: Inform; a wake that says no purpose: Interrupt on a root conversation, a task's own Inform |
+/// | 4 | a wake fires, by its purpose: a reminder | Interrupt, with its four answers (`reminder_notice`); a check-in, a routine: Inform; a wake that says no purpose: Interrupt on a root conversation, a task's own Inform. A watch's end (`wake.noticed` with purpose `watch.met`, `watch.expired` or `watch.failing`): met Interrupt, with sound; gave up and failing Inform |
 /// | 5 | a root the owner flagged, or one that worked `long_run_ms`, goes to ready or idle | Interrupt, no sound |
 /// | 6 | a question is answered, anywhere | Quiet, and `retracts` its ping |
 /// | 7 | a question expires unanswered | Inform, and `retracts` |
@@ -422,11 +422,22 @@ fn woke(c: &Change) -> Option<Said> {
 }
 
 /// Rule 4's ping by purpose: a reminder is for the owner, so it interrupts;
-/// the model's own check-ins, a routine's run and a watch's only inform.
+/// so does a watch that is met (`watch.met`, theseus-f2r2b: what the owner
+/// waited for). The model's own check-ins, a routine's run, and a watch that
+/// gave up (`watch.expired`) or keeps failing (`watch.failing`) only inform.
 pub fn wake_urgency(purpose: &str) -> Urgency {
     match purpose {
-        "remind" => Urgency::Interrupt,
+        "remind" | "watch.met" => Urgency::Interrupt,
         _ => Urgency::Inform,
+    }
+}
+
+/// The icon a wake notice's line begins with: a watch's eye, else the clock.
+fn icon_of(purpose: &str) -> &'static str {
+    if purpose == "watch" || purpose.starts_with("watch.") {
+        "👁"
+    } else {
+        "⏰"
     }
 }
 
@@ -464,7 +475,7 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
             session_id: Some(n.session_id.clone()),
             title: String::new(),
         },
-        line: format!("⏰ {title}{late}"),
+        line: format!("{} {title}{late}", icon_of(&n.purpose)),
         question: None,
         retracts: None,
         answers: if remind { reminder_answers() } else { vec![] },

@@ -72,7 +72,12 @@ pub struct TaskRun {
     pub tools: Vec<String>,
 }
 
-/// What a watch checks, with no model call (the watches row builds it).
+/// What a watch checks, with no model call (theseus-f2r2b; the core's
+/// `watch.rs` reads it). `kind` is the check: `run`, `fetch` or `file`.
+/// `subject` is a JSON object, the check's own fields and what happens when it
+/// is met (`then`); `until` is the condition (`equals MERGED`). How often it
+/// checks and when it gives up ride the wake's `repeat` (`every`, `until_ms`),
+/// and its title is the note, so the record gained no field.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct WakeProbe {
     /// What it looks at (`pr`, `url`, …).
@@ -95,7 +100,7 @@ pub enum WakeRun {
     Notice,
     /// A task of its own: a routine's run (`routines.rs`).
     Task(TaskRun),
-    /// A probe with no model (declared; refused until the watches row).
+    /// A probe with no model: a watch (theseus-f2r2b; `watch.rs`).
     Probe(WakeProbe),
 }
 
@@ -112,16 +117,11 @@ impl WakeRun {
     /// reads; none for the two that run today.
     pub fn refusal(&self) -> Option<&'static str> {
         match self {
-            WakeRun::Turn | WakeRun::Notice => None,
+            WakeRun::Turn | WakeRun::Notice | WakeRun::Probe(_) => None,
             WakeRun::Task(t) if t.brief.trim().is_empty() => {
                 Some("a routine's task needs a brief: say what each run does")
             }
             WakeRun::Task(_) => None,
-            WakeRun::Probe(_) => Some(
-                "a wake that runs a probe with no model (a watch) is not built yet: it lands with \
-                 the watches row, so nothing can set one today. Set a check-in with `after` and \
-                 look when it fires instead",
-            ),
         }
     }
 }

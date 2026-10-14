@@ -135,9 +135,8 @@ pub async fn drive(core: Arc<Core>) {
         // A task claim whose lease lapsed is freed, from the claims kept in
         // memory (39b).
         core.free_expired_leases_if_due();
-        // A reminder that is due is posted at once, whatever its conversation
-        // is doing: no turn, no model call (theseus-8ux6x).
-        core.fire_notices();
+        // Due reminders post at once, and due watches check: no model call.
+        core.due_without_turns();
         // The week's self-improvement digest, while `[self]` posts it (theseus-pw1q.4).
         core.post_self_digest_if_due();
         // The queued executions and those a due time may wake, by their

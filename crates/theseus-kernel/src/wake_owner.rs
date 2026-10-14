@@ -229,6 +229,10 @@ impl Kernel {
         };
         let (from, wake) = match (pending, record) {
             (Some(i), None) => {
+                anyhow::ensure!(
+                    e.wakes[i].probe().is_none(),
+                    "a watch is not snoozed: it checks on its own interval. Cancel it and set another"
+                );
                 let from = e.wakes[i].clone();
                 e.wakes[i].due_at_ms = due_at_ms;
                 e.wakes[i].paused_at_ms = None;
@@ -307,6 +311,10 @@ impl Kernel {
             return Ok(None);
         };
         let from = e.wakes[i].clone();
+        anyhow::ensure!(
+            from.probe().is_none(),
+            "a watch is not paused: it checks on its own interval. Cancel it and set another"
+        );
         let now = self.now_ms();
         match until_ms {
             None if from.paused_at_ms.is_some() => {

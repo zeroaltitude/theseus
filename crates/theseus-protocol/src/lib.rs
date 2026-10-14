@@ -69,13 +69,16 @@ pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod tests_task_info;
+pub mod thread_route;
 pub mod threads;
+pub mod threads_import;
 mod toolinfo;
 #[cfg(test)]
 mod ts;
 pub mod voice;
 pub mod wakes;
 pub mod warm;
+pub mod watches;
 pub mod why;
 mod window;
 pub mod work;
@@ -114,6 +117,10 @@ pub use toolinfo::{ToolInfo, ToolListResult};
 pub use wakes::{
     reminder_answers, WakeAnswer, WakeCreateParams, WakeDoneResult, WakeEditResult, WakeInfo,
     WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
+};
+pub use watches::{
+    WatchCheck, WatchCreateParams, WatchCreateResult, WatchInfo, WatchListParams, WatchListResult,
+    WatchThen,
 };
 pub use window::*;
 pub use work_watch::{WorkChanged, WorkUnwatchResult, WorkWatchParams, WorkWatchResult};
@@ -228,7 +235,7 @@ pub mod method {
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
         /// The owner's standing orders, preferences and facts (theseus-a7vi,
         /// `standing::StandingListParams`): a read, and the owner's two writes.
-        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen",
+        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move",
         STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// Tasks (DD7): the child sessions conversations started, with state and
@@ -248,9 +255,10 @@ pub mod method {
         /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a
         /// reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
-        /// Routines (theseus-pvm5c, `routines.rs`): recurring work that is its
-        /// own execution, every run a fresh task with a budget.
+        /// Routines (theseus-pvm5c, `routines.rs`): recurring work, every run a fresh task.
         ROUTINE_CREATE = "routine.create", ROUTINE_LIST = "routine.list", ROUTINE_RUNS = "routine.runs", ROUTINE_PAUSE = "routine.pause", ROUTINE_RESUME = "routine.resume", ROUTINE_RUN_NOW = "routine.run_now", ROUTINE_UPDATE = "routine.update", ROUTINE_DELETE = "routine.delete",
+        /// Watches (theseus-f2r2b): a check with no model until it holds; a cancel is `wake.cancel`'s.
+        WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs
@@ -441,6 +449,10 @@ pub mod notify {
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
+        /// A thread changed (theseus-sjzm): `threads::ThreadChanged`.
+        THREAD_CHANGED = "thread.changed",
+        /// The router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
+        THREAD_ASKED = "thread.asked",
     }
 }
 
@@ -1666,8 +1678,7 @@ pub struct ExecutionStopParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
-    /// Also cancel every task under the conversation, depth first (theseus-cdcwr).
-    /// An owner's act: refused from a shared place.
+    /// Also cancel every task under the conversation, depth first: an owner's act (theseus-cdcwr).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub tasks: bool,
     /// Where a Discord caller asked from; the place rule reads it for `tasks`.
@@ -2179,6 +2190,10 @@ pub struct TurnSubmitResult {
     /// shared place may not show.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cites: Vec<cite::Citation>,
+    /// Where the turn ran when its place had threads to choose between (theseus-rha2): its tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub thread: Option<thread_route::ThreadTag>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

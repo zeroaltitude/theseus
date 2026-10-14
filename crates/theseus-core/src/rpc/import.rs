@@ -57,6 +57,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::earned::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
         || super::routines::OWN.contains(&name)
+        || super::watch::OWN.contains(&name)
         || name.starts_with("standing.")
         || name.starts_with("thread.")
         || name.starts_with("work.")
@@ -99,6 +100,12 @@ impl Core {
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);
         }
+        if name == method::THREAD_IMPORT {
+            return self.rpc_thread_import(params, conn).await;
+        }
+        if name == method::THREAD_MOVE {
+            return super::server::reply(self.thread_move_message(parse(params)?, conn).await?);
+        }
         if name.starts_with("thread.") {
             return self.rpc_threads(name, params, conn);
         }
@@ -110,6 +117,9 @@ impl Core {
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);
+        }
+        if super::watch::OWN.contains(&name) {
+            return self.rpc_watches(name, params, conn);
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

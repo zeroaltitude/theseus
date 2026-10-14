@@ -114,6 +114,8 @@ pub mod wake_home;
 pub mod wake_tools;
 pub mod wake_when;
 pub mod warm;
+pub mod watch;
+pub mod watch_tool;
 pub mod web;
 pub mod webui;
 

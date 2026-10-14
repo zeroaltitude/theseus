@@ -90,6 +90,7 @@ impl TurnRunner {
             &routines,
             self.kernel.now_ms(),
             &mut compiled,
+            &|w| crate::watch::run::shown_value(&self.kernel, w),
         );
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));

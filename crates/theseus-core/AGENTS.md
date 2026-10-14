@@ -244,6 +244,93 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`rpc/confirms.rs`, which reads the files as they are then) both make it. `scrub_diff` scrubs a result's `meta["diff"]`
   as `result_node_in` writes it, and `fact::tool::ToolEnded` pushes it as `tool.ended`'s `diff`. Tests:
   `tests_tool_words.rs` (a preview equals the run's diff; a planted secret is in neither).
+  **On Discord** (theseus-sjzm; `rpc/thread_surface.rs`, `turn/reply_step.rs`): `ThreadInfo.surfaces` is edited whole by
+  `thread.edit { surfaces }` (a person, judged) and one at a time by `Core::thread_surfaces` (the Discord binding's own act: a
+  Discord thread it made, a channel the config binds; an edit row whose `who` is `discord`/`config`). Every thread fact
+  tells `thread.changed` (`created|edited|paused|resumed|done|reopened`, and `opened` when the thread's first message
+  opens its session: `ThreadOpened`, no row) to every connection that hears the wide notifications. `Core::thread_place_session(slug,
+  target)` is `thread_session` judged by the place (private only) instead of a person, for a channel the binding runs as
+  the thread. `turn.submit { thread, speaking { discord, answer_at } }` judges the speaker (a Discord thread turn needs the
+  origin) and posts the reply at `answer_at` (the speaker's own DM or channel; any other is refused) instead of the
+  session's place: `TurnRequest.answer_at`, read first by `stage_reply`; a retried or continued turn answers at the
+  session's place. `[threads] discord_channel` and `[[discord.thread]]` (`config/discord.rs`, `ThreadBind`);
+  `PlaceRule::bind_more` keeps a place the binding made while it runs across a new bindings file. Tests:
+  `rpc/tests_thread_surface.rs`.
+- **Threads from the owner's earlier harness** (theseus-71ib, T11; no format bump: a ledger kind and two META keys):
+  `thread.import` (`rpc/thread_import.rs`, `threads_import/`), `judge_act(Act::Thread)`, the owner from a private place.
+  With no `apply` it is the dry run: `source::scan` reads the imported sessions of every tag holding a source that
+  starts with `from` (`openclaw` takes `openclaw-store`, `openclaw-sync`) that ended in the window, their owner
+  messages (`Integrity::Operator`) and summary; `candidates::candidates` (pure) makes one candidate of each channel
+  conversation (a Slack or Discord channel, by its id) with an owner message in the last `since_days` (30) and, for the
+  DMs, one of each topic cluster (an episode's first topic label cut to two path parts) with at least `min_cluster`
+  (8) owner messages. The title is the channel's label, the persona the agent's only if `[personas]` has it, the
+  topics the episodes' labels (3), the working set what `extract.rs` finds by rules in the owner's lines and
+  summaries (repos, `#N` and `owner/name#N` and Beads ids, branches, files, hosts; no model). **A partner-confidential
+  episode counts and gives no text**: its messages are in the numbers and the sensitivity counts, and in no title,
+  topic, working set or model request; a stream of nothing else is titled `confidential <kind> conversation`.
+  With `apply` (slugs, looked up in a fresh scan) each thread is made one at a time: the card's call
+  (`card.rs`: Haiku by `[threads] import_profile`, one tool, `write_card`, scrubbed input, the newest 30 episodes within
+  24,000 characters), then `thread.new` and `thread.edit` (card, working set, persona), then one `thread.imported` row
+  (cost, tokens, the citations as handle, node and session; a day-ceiling spend kind) with the day's spend
+  (META `threads.import.day`) in one frame. A call whose worst case passes `[threads] import_day_usd` (2.0) or that the
+  day ceiling refuses is not made: the thread is made without a card, the result says why. A card line must cite
+  episodes the call offered (`E1`…) and ends in their recall handles (`[m:a1b2c3]`, `cite::handles_for` over the
+  episodes' anchor nodes); a line citing none, or repeating a message of 60 characters or more, is dropped and counted
+  (`dropped`). **Imported history stays testimony**: no node is written into any session and the thread has no session
+  of its own until its first message. The Vestige dump (`--vestige`) is the CLI's: each memory an episode of source
+  `vestige` (`episode::VESTIGE_SOURCE`, scrubbed as the harnesses' are), its id the digest of its text. Not here: the
+  Discord channel's bind (T6; `ThreadCandidate.channel` and a note say it can be the thread's place), and the
+  card's reach into a turn (T2). Tests: `threads_import/tests.rs`, `rpc/tests_thread_import.rs`, theseusd's
+  `tests/thread_import.rs`; the invented export is `threads_import/fixture.rs` and
+  `tests/fixtures/threads-import/openclaw.jsonl` (`THESEUS_GOLDEN=write` rewrites it).
+  **Thread recall and seals** (theseus-f2g0; no store change; owner D12: Jev recommends, the owner seals).
+  `thread_recall.rs` maps a candidate's session to its thread (`Board::of_session`, else the record's supersession
+  link naming `thread:<slug>`, else its task parent, kept in `Memory::thread_memo`) and builds the pure
+  `theseus_memory::ThreadLens` over a recall's candidates (`Scene.threads`, `TurnRunner::thread_scene`: none while no
+  thread exists, so a daemon without threads recalls as before). In a threaded session a candidate of *another*
+  thread pays `[threads] cross_recall_penalty` (0.35 of its score, in the pack's rank) and is dropped as `thread`
+  unless its fused score is above `cross_recall_bar` (0.75) of the query's best, unless the message names its thread
+  (slug, title, or a working-set entity: `thread_recall::named`). A sealed thread's notes, or one with a seal
+  proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
+  rerank and `thread.read`-less lookups included (`memory.lookup`'s words ask with the seal and no distance). The
+  `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`
+  (`render::thread_mark`). `rpc/thread_seal.rs`: `thread.seal` (+`redirect`: a harness note in each session the
+  notes had crossed into, found from the `derived_from` edges, via `recall`, of `Recall` nodes), `thread.unseal`,
+  `thread.seal_dismiss` ("Not needed": a `thread.seal_dismissed` row, a label for the judge's report, and META
+  `thread.seal_dismissed.<slug>` holding the content digest, so one proposal per thread until its card, goal, title or
+  working set changes), `Core::thread_recommend_seal` (the entry point a later Jev pack calls, row theseus-c1uz: sets
+  `seal_pending`, writes `thread.seal_proposed` and posts a `seal_card` to the owner's DM, Discord's Seal this thread /
+  Not needed), and `seal_by_word` (the owner's `/seal` or "seal this thread" in a thread's session, before the turn).
+  `thread.new { sealed, split_from }`: a split from a sealed thread starts sealed; a task's session is its parent's
+  thread; `threads::merged_seal` is the rule for a merge. `thread_read.rs`: the model tool `thread.read {thread,
+  query?}` (private places; the card and the top hits, cited by thread and position; `gate` raises it to `approve`
+  when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
+
+- **The thread router** (theseus-rha2; no store change): an unaddressed message in a place with live threads finds its
+  thread. `rpc/thread_flow.rs` (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order:
+  addressing by place, an explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
+  (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
+  against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
+  noisy-or; `thread_flow.rs` holds its `State`: the last thread per home session, routed turns, pending asks,
+  correction memory); then `classify.v2`'s `thread` question (`Source::Threads`, at most 50 options plus `new_thread`
+  and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
+  the point before the turn and the turn takes the handed-off `Early` (keyed by session, with a pre-minted turn id), so
+  routing adds no model call (`tests_thread_route::jevs_thread_answer_rides_the_one_inbound_request…` holds
+  `jev.seen().len() == 1`). `thread_route::decide` is the table: bar 0.90 quiet (a tag in the reply), 0.60 to 0.90 a
+  visible tag with a move handle, below that one question (`thread.asked`, answered by `thread.answer`, with `[1] [2]
+  [n]ew [h]ome` in the CLI and buttons on Discord), a new-thread offer on one tap, a one-off at home, and only two or
+  more live threads wait. `[threads] route_wait_ms` (400) bounds the wait: a timeout keeps the pre-router's pick as a
+  `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
+  `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
+  working-set roots is held through the Approve posture, once. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus
+  thread move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
+  one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
+  layer, so the next close message follows). A thread session's replies go to the place the message came from through
+  the outbox overlay (`Outbox::show_at`). Known limits: pending asks, router memory and thread corrections are in memory
+  (lost at a restart); a thread session's live stream does not reach the Discord place actor (its durable post does); the
+  early judgment's rows carry the home session. Tests: `rpc/tests_thread_route.rs`, `thread_route::tests`,
+  theseus-judge's `tests_threads.rs`; the 40-message fixture `fixtures/thread_route_40.json` is also
+  `scripts/thread-route-check.py`'s input.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
@@ -1359,6 +1446,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`MIN_AHEAD_MS`, `MAX_AHEAD_MS`). `TaskInfo.starts_at_ms` is derived from the execution while it sleeps
   (`task_start::starts_at`), and the board, `theseus tasks` and `/tasks` say `▷ starts Fri 09:00`. A cancel before
   the start ends it and releases the carve. Tests: `tests_tasks_deferred.rs`, the kernel's `tests_deferred.rs`.
+- **Watches** (theseus-f2r2b; horizon HZ6): waiting on the world with no model. A watch is a pending wake of purpose
+  `Watch` and run `Probe(WakeProbe)` (`watch/spec.rs` says where each field rides: `kind` run|fetch|file, `subject` a
+  JSON object of the check's fields and `then`, `until` the condition as typed, the note the title, `repeat.every` the
+  interval and `repeat.until_ms` the expiry; no store field, no format bump), so `wake.list`, `wake.cancel`,
+  `[kernel] max_watches` (20) and a conversation's end already apply. `watch/cond.rs` (pure: `exit N`, `equals`,
+  `contains`, `matches` through `theseus_tools::rx`, `changes`, `above`, `below`, `exists`, and a JSON path),
+  `watch/step.rs` (pure: an `Entry` takes a check's result and says whether it is news; the first value, a different
+  one, a met condition, an expiry and a third failure in a row are news, an unchanged value is not, failures back off
+  x2 to an hour), `watch/check.rs` (a file read, a fetch through the web tool's client (`Web::get_text`), a command in
+  L1 through `theseus_kernel::probe_run`, each bounded to 30 s and 64 KiB and scrubbed before it is a value),
+  `watch/board.rs` (the open watches in memory, next check times and last values; `Core.watches`, shared with
+  `ToolRuntime.watches`), `watch/run.rs` (`Core::watch_tick`, which the driver's 500 ms tick calls: the first tick reads
+  the open watches in with `Kernel::open_watches`, each then checks once at once; at most four checks run at once, off
+  every turn's thread, the core held by `Weak`; `watch_finish` applies a result and writes news through
+  `Kernel::probe_result`: one frame, with `watch.checked|met|expired|failing`, the state in META `watch.state.<wake id>`,
+  and the post; `fact/watch.rs` announces `wake.noticed` with purpose `watch.met` (an Interrupt with sound),
+  `watch.expired` or `watch.failing` (Inform)). A `then: turn` or `task` turns the met wake into a due turn wake of the
+  same conversation whose node reads `👁 watch met: <title> → <value>, after 2 d 4 h and 611 checks` (`wake::fired_text`);
+  a task's brief rides that turn's text (a task needs an arrangement quoted from a transcript, which only a turn can
+  write). The model's tool is `watch` (`watch_tool.rs`): a command's watch plans with an authority, so the gate asks
+  once at every posture with the command shown (`task_graph::tools::authority_for` leaves the watch's alone), and
+  nothing edits a watch afterwards (`wake.move`, `wake.snooze` and `wake.pause` refuse one); not in a task. The owner's
+  `watch.create` and `watch.list` (`rpc/watch.rs`; `Act::Watch`, the owner from a private place, refused inside a job)
+  and `theseus watches add|list|rm`. The commitments block lists a watch as `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`
+  from its last frame's state. `[watches] default_every|min_every|max_days` (`config/watches.rs`). A `run` check needs
+  L1, so a root daemon's refuses it (theseus-pv6i) and the watch fails with that reason. Tests: `watch/tests_watch.rs`
+  (a real core: a file met within an interval, twenty unchanged checks write no frame, a planted secret scrubbed,
+  three failures inform once, expiry, a restart, the cap), `watch/tests_watch_tool.rs` (the approval and the command
+  that never changes, `then: turn`), and each pure module's own.
 - **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
   start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
   the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start

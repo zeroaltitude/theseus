@@ -108,6 +108,13 @@ impl Core {
             .or_else(|| w.target.clone())
     }
 
+    /// The driver's due scan for what needs no turn: the reminders that are due
+    /// post, and the watches that are due check (theseus-f2r2b).
+    pub fn due_without_turns(self: &std::sync::Arc<Self>) {
+        self.fire_notices();
+        self.watch_tick();
+    }
+
     /// The due scan's notice pass: every notice wake that is due, in any
     /// state of its conversation, taken in one frame each. Returns how many
     /// fired. A failure is logged and tried again on the next tick.

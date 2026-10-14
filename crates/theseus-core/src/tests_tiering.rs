@@ -72,19 +72,17 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// `wake.cancel` and `wake.move` joined the tools block (theseus-lherl: 40,400
 /// rings too early for these two, which need the first compile to fit), and
 /// 40,800 until `wake.at`'s `for` and `say_only` joined it (theseus-8ux6x), and
-/// 41,100 until `routine.create` joined it (theseus-pvm5c: 600 more).
+/// 41,100 until `routine.create` (theseus-pvm5c: 1,000 more), `watch`
+/// (theseus-f2r2b: 700 more) and `thread.read` (theseus-f2g0: 300 more) joined
+/// it (42,500 compacted with all three; 42,800 to 43,500 hold; their joins'
+/// review).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(
-                std::env::var("TW")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(42_100),
-            ),
+            context_window: Some(43_100),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },
@@ -127,6 +125,7 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

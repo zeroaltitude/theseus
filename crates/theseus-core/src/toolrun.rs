@@ -51,6 +51,7 @@ mod job;
 pub mod jobs_tools;
 mod kept;
 mod late;
+pub mod misroute;
 mod not_started;
 mod operands;
 pub(crate) mod order;
@@ -305,6 +306,8 @@ impl ResumeOutcome {
 }
 
 pub struct ToolRuntime {
+    /// The misroute guard: a turn placed in a thread on a guess (theseus-rha2).
+    pub misroute: misroute::Guards,
     pub registry: Registry,
     pub policy: ToolPolicy,
     pub ctx: ToolCtx,
@@ -365,6 +368,11 @@ pub struct ToolRuntime {
     pub question_due: std::sync::atomic::AtomicU64,
     /// The task claims that hold, kept in memory for the due pass (39b).
     pub leases: crate::task_graph::lease::Leases,
+    /// The open watches, in memory (theseus-f2r2b): the `watch` tool adds to
+    /// them, the driver's tick checks them. The core shares this board.
+    pub watches: Arc<crate::watch::Board>,
+    /// `[watches]`, for the tool's bounds.
+    pub watches_cfg: crate::config::WatchesConfig,
     /// L1 (M4 17b): `[sandbox]`, the class, an L1 job's view, the probe.
     pub sandbox: Arc<Sandbox>,
     /// What a cancel reaches besides jobs, and health's cancel counts (18a).
@@ -399,6 +407,8 @@ pub struct ToolRuntime {
     pub lookup: crate::memory_lookup::Board,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
     pub routines: crate::routine::Book,
+    /// What `thread.read` reads (theseus-f2g0): the core, once built.
+    pub thread_read: crate::thread_read::Board,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
     /// `self.propose_change`'s core and trees (theseus-pw1q.8).
@@ -486,6 +496,7 @@ impl ToolRuntime {
     pub fn disabled() -> Self {
         let tmp = std::env::temp_dir();
         Self {
+            misroute: Default::default(),
             registry: Registry::new(),
             // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
@@ -528,6 +539,8 @@ impl ToolRuntime {
             files: Arc::new(crate::file_read::Reader::disabled()),
             question_due: Default::default(),
             leases: crate::task_graph::lease::Leases::new(30 * 60_000),
+            watches: Default::default(),
+            watches_cfg: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
@@ -541,6 +554,7 @@ impl ToolRuntime {
             judge: Default::default(),
             lookup: Default::default(),
             routines: Default::default(),
+            thread_read: Default::default(),
             jobs: Default::default(),
             self_pr: Arc::new(crate::rsi::pr::Board::new(tmp.join("state"))),
             extend: Arc::new(crate::extend::Extensions::new(
@@ -1108,7 +1122,7 @@ impl ToolRuntime {
                 // A batch whose steps differ in class (theseus-nrvq).
                 Err(Turned::Invalid(e)) => return Err(e),
                 Err(Turned::Place(why)) => Err(why),
-                Ok(j) => Ok(j),
+                Ok((d, c)) => Ok((self.misroute_hold(tc, tool, &plan, d), c)),
             };
             judged
                 .and_then(|j| glided.map_or(Ok(j), Err))
@@ -1473,14 +1487,21 @@ impl ToolRuntime {
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
+            crate::routine_tool::CREATE => {
+                crate::routine_tool::run(tc, &self.routines, &call.input)
+            }
+            crate::watch_tool::WATCH => crate::watch_tool::set(
+                tc,
+                &self.watches,
+                &self.watches_cfg,
+                &call.input,
+                correlation_id,
+            ),
             crate::thread_context::NOTE => {
                 crate::thread_context::note(tc, &call.input).map(|(done, records)| {
                     edit.records.extend(records);
                     done
                 })
-            }
-            crate::routine_tool::CREATE => {
-                crate::routine_tool::run(tc, &self.routines, &call.input)
             }
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
@@ -1633,6 +1654,8 @@ impl ToolRuntime {
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
+                // Another thread, read on purpose (theseus-f2g0).
+                crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // A job's handle needs its session (theseus-n8gk).
                 theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),
@@ -2156,12 +2179,13 @@ pub fn build_runtime(
         r.register(Arc::new(crate::wake::WakeAt));
         r.register(Arc::new(crate::wake_tools::WakeCancel));
         r.register(Arc::new(crate::wake_tools::WakeMove));
-        r.register(Arc::new(crate::thread_context::ThreadNote));
         r.register(Arc::new(crate::routine_tool::RoutineCreate {
             zone: cfg.kernel.to_kernel_config().zone,
             cfg: cfg.routines.clone(),
             floor_ms: cfg.kernel.min_repeat_minutes.max(1) * 60_000,
         }));
+        r.register(Arc::new(crate::watch_tool::WatchTool));
+        r.register(Arc::new(crate::thread_context::ThreadNote));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
@@ -2169,6 +2193,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
+        // Another thread's card and notes, read on purpose (theseus-f2g0).
+        r.register(Arc::new(crate::thread_read::ThreadRead));
         crate::rsi::pr::register(cfg, &mut r);
         r
     } else {
@@ -2216,6 +2242,7 @@ pub fn build_runtime(
     }
     let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
     Ok(ToolRuntime {
+        misroute: Default::default(),
         registry,
         policy: ToolPolicy {
             roots: roots.clone(),
@@ -2280,6 +2307,8 @@ pub fn build_runtime(
         files,
         question_due: Default::default(),
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
+        watches: Default::default(),
+        watches_cfg: cfg.watches.clone(),
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
@@ -2296,6 +2325,7 @@ pub fn build_runtime(
         judge: Default::default(),
         lookup: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
+        thread_read: Default::default(),
         jobs: Default::default(),
         self_pr,
         profiles: cfg

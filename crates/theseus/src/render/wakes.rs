@@ -57,6 +57,10 @@ fn cadence(w: &WakeInfo) -> String {
 /// note is the message; the surface's ping is the notice
 /// (`notices::reminder_notice`).
 pub fn noticed_lines(n: &theseus_protocol::WakeNoticed) -> Vec<String> {
+    // A watch's end is its message, with no answers (theseus-f2r2b).
+    if n.purpose.starts_with("watch.") {
+        return vec![super::watches::noticed_line(&n.note)];
+    }
     let late = if n.late_ms > 5_000 {
         let down = if n.while_down {
             ", the daemon was down"

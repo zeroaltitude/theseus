@@ -328,6 +328,10 @@ ledger_kinds! {
     WakeSet = "wake.set",
     WakeSkipped = "wake.skipped",
     WakeSnoozed = "wake.snoozed",
+    WatchChecked = "watch.checked",
+    WatchExpired = "watch.expired",
+    WatchFailing = "watch.failing",
+    WatchMet = "watch.met",
     WebDevOrigin = "web.dev_origin",
     WebRefused = "web.refused",
 }

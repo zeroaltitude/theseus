@@ -296,9 +296,11 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 53] = [
+pub const OPERATORS: [(&str, &str); 60] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::WORK_ANSWER, "theseus answer"),
+    (method::THREAD_ANSWER, "theseus thread answer"),
+    (method::THREAD_MOVE, "theseus thread move"),
     (method::POLICY_EARNED_ANSWER, "theseus policy earned accept"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -346,19 +348,27 @@ pub const OPERATORS: [(&str, &str); 53] = [
     (method::STANDING_REVOKE, "theseus standing revoke"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),
+    (method::WATCH_CREATE, "theseus watches add"),
     (method::THREAD_NEW, "theseus thread new"),
     (method::THREAD_EDIT, "theseus thread edit"),
     (method::THREAD_PAUSE, "theseus thread pause"),
     (method::THREAD_RESUME, "theseus thread resume"),
     (method::THREAD_DONE, "theseus thread done"),
     (method::THREAD_REOPEN, "theseus thread reopen"),
-    (method::TASK_START, "theseus task start"),
     (method::ROUTINE_CREATE, "theseus routine add"),
     (method::ROUTINE_PAUSE, "theseus routine pause"),
     (method::ROUTINE_RESUME, "theseus routine resume"),
     (method::ROUTINE_RUN_NOW, "theseus routine run"),
     (method::ROUTINE_UPDATE, "theseus routine update"),
     (method::ROUTINE_DELETE, "theseus routine rm"),
+    (method::THREAD_IMPORT, "theseus thread import"),
+    (method::THREAD_SEAL, "theseus thread seal"),
+    (method::THREAD_UNSEAL, "theseus thread unseal"),
+    (
+        method::THREAD_SEAL_DISMISS,
+        "theseus thread seal --not-needed",
+    ),
+    (method::TASK_START, "theseus task start"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -490,6 +500,10 @@ mod tests {
             method::THREAD_RESUME,
             method::THREAD_DONE,
             method::THREAD_REOPEN,
+            method::THREAD_IMPORT,
+            method::THREAD_SEAL,
+            method::THREAD_UNSEAL,
+            method::THREAD_SEAL_DISMISS,
         ] {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
             assert!(e.to_string().contains("theseus thread"), "{e}");
