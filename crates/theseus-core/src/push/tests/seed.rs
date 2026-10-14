@@ -242,8 +242,23 @@ fn a_board_left_cold_answers_as_the_full_read() {
             b.recount(),
             "seed {s}: after the loads"
         );
+        let (kept, recount) = short_line(&b);
+        assert_eq!(kept, recount, "seed {s}: the short line after the loads");
     }
     assert!(cold_loaded > 0, "the run left some cold");
+}
+
+/// The short line the board keeps (theseus-8kn12) and a recount of the views it
+/// holds: equal after a seed, a load and any frame.
+fn short_line(
+    b: &Board,
+) -> (
+    theseus_protocol::StatusShortResult,
+    theseus_protocol::StatusShortResult,
+) {
+    let recount =
+        super::super::short::Short::of(b.entries.values().filter_map(|e| e.view.as_ref()));
+    (b.short.result(b.position), recount.result(b.position))
 }
 
 /// What a board shows of each execution, with its view's position apart:
@@ -299,6 +314,8 @@ fn the_seed_by_terms_holds_what_every_action_ever_gives() {
             "seed {s}"
         );
         assert_eq!((by_terms.views, by_terms.questions), by_terms.recount());
+        let (kept, recount) = short_line(&by_terms);
+        assert_eq!(kept, recount, "seed {s}: the seed's short line");
         for (id, e) in &by_terms.entries {
             if let Some(v) = &e.view {
                 assert_eq!(by_terms.by_session.get(&v.session_id), Some(id), "seed {s}");
@@ -347,6 +364,8 @@ fn the_kept_counts_equal_a_recount_after_mixed_frames() {
         let f = frame(records, &mut pos);
         b.apply(&core, &f);
         assert_eq!((b.views, b.questions), b.recount(), "step {step}");
+        let (kept, recount) = short_line(&b);
+        assert_eq!(kept, recount, "step {step}: the short line");
     }
     assert!(asked > 0 && b.views > 0, "the run asked and viewed");
 }
