@@ -56,6 +56,7 @@ pub(crate) mod order;
 mod parallel;
 mod peek;
 mod resume;
+mod self_pr;
 pub(crate) mod session_dir;
 mod steps;
 mod waits;
@@ -391,6 +392,8 @@ pub struct ToolRuntime {
     pub lookup: crate::memory_lookup::Board,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
+    /// `self.propose_change`'s core and trees (theseus-pw1q.8).
+    pub self_pr: Arc<crate::rsi::pr::Board>,
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
@@ -527,6 +530,7 @@ impl ToolRuntime {
             judge: Default::default(),
             lookup: Default::default(),
             jobs: Default::default(),
+            self_pr: Arc::new(crate::rsi::pr::Board::new(tmp.join("state"))),
             extend: Arc::new(crate::extend::Extensions::new(
                 tmp.join("extensions"),
                 vec![],
@@ -1443,6 +1447,10 @@ impl ToolRuntime {
                     .await
             }
             // A proposed extension's trial waits for its server (M7 43a).
+            Backend::Harness if tool.name() == crate::rsi::pr::PROPOSE => {
+                self.run_self_pr(tc, correlation_id, tool.as_ref(), call)
+                    .await
+            }
             Backend::Harness if tool.name() == crate::extend::PROPOSE => {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
@@ -1522,6 +1530,7 @@ impl ToolRuntime {
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
+            crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             name if crate::task_graph::tools::is_edit(name) => {
                 let how = (ran_at == Posture::Approve, self.leases.lease_ms());
                 crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
@@ -2200,6 +2209,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
+        crate::rsi::pr::register(cfg, &mut r);
         r
     } else {
         Registry::new()
@@ -2244,6 +2254,7 @@ pub fn build_runtime(
     if let Some(a) = &aws {
         broker.set_aws(a.clone());
     }
+    let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
     Ok(ToolRuntime {
         registry,
         policy: ToolPolicy {
@@ -2323,6 +2334,7 @@ pub fn build_runtime(
         judge: Default::default(),
         lookup: Default::default(),
         jobs: Default::default(),
+        self_pr,
         profiles: cfg
             .all_profiles()
             .iter()

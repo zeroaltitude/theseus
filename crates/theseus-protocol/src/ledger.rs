@@ -229,6 +229,7 @@ ledger_kinds! {
     SelfBacklogFiled = "self.backlog.filed",
     SelfBacklogRanked = "self.backlog.ranked",
     SelfBacklogStarted = "self.backlog.started",
+    SelfBranchBuilt = "self.branch.built",
     SelfHalted = "self.halted",
     SelfResumed = "self.resumed",
     ServerCrashed = "server.crashed",

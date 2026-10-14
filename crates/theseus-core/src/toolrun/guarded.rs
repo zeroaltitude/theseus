@@ -1,7 +1,9 @@
 //! The paths the gate guards and no L1 view shows: the workspace's roots,
 //! the floor (Theseus's own state, the vault's token, and the sealed
 //! holdout sets), and the approve list. Moved out of `toolrun.rs` to make
-//! room for the sealed dir's line (theseus-pw1q.5).
+//! room for the sealed dir's line (theseus-pw1q.5). While `[self]` builds
+//! (theseus-pw1q.8), the self trees join the roots, so a self session's file
+//! tools edit its tree (`crate::rsi::pr::trees_root`).
 
 use std::path::PathBuf;
 
@@ -23,6 +25,7 @@ pub(super) fn guarded_paths(
         .iter()
         .chain(t.roots.iter())
         .map(|r| canon(r))
+        .chain(crate::rsi::pr::trees_root(cfg, state))
         .collect();
     // The floor: Theseus's own state (its store, spool, and bindings file, in
     // the state dir actually in use) and the 1Password CLI's credentials.

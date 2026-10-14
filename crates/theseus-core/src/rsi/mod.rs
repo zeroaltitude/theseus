@@ -42,10 +42,16 @@ pub mod backlog;
 pub mod budget;
 mod digest;
 mod log;
+pub mod pr;
 pub mod sealed;
 mod switch;
 #[cfg(test)]
 mod tests_budget;
+#[cfg(test)]
+mod tests_pr;
+#[cfg(test)]
+mod tests_tree;
+pub mod tree;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 

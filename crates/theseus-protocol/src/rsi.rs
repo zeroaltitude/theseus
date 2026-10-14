@@ -474,3 +474,59 @@ mod tests {
         }
     }
 }
+
+// ---------------------------------------------------------------- self-pr (theseus-pw1q.8)
+// The branch builder: `self.branches`, the trees and the `self/*` branches
+// with their verdicts and frozen reports. `theseus self branches` reads it.
+
+/// `self.branches`'s params: none yet.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBranchesParams {}
+
+/// One self branch: its tree while one is open, its head, the gate's last
+/// verdict, and its frozen report.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBranch {
+    /// `self/<date>-<slug>`.
+    pub branch: String,
+    /// The backlog item it builds, as its report names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub item: Option<String>,
+    /// Its head commit in the repo; none once the branch is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub head: Option<String>,
+    /// The gate's verdict as its report records it: `green`, `red`, `keel`,
+    /// or where a halt stopped it; none before a gate ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub gate: Option<String>,
+    /// Its frozen report's path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub report: Option<String>,
+    /// Its open worktree's path, while one is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tree: Option<String>,
+}
+
+/// `self.branches`'s answer: the repo and remote it builds from and to, and
+/// every branch, newest name first.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfBranchesResult {
+    /// `[self] repo`; none: no self branches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub repo: Option<String>,
+    /// `[self] remote`; none: branches stay local.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub remote: Option<String>,
+    pub branches: Vec<SelfBranch>,
+    pub state: SelfState,
+}

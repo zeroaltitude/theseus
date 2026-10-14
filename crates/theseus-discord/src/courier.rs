@@ -798,9 +798,10 @@ impl Lane {
             }
             // Jev's notices (step 24's notices), the day ceiling's, the week's
             // self digest (theseus-pw1q.4), and a retraction's card of the tasks
-            // to re-run (theseus-2ced): the owner's DM alone.
+            // to re-run (theseus-2ced), and a self branch the keel stopped
+            // (theseus-pw1q.8): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
-            | "retraction" => self.jev_post(a, &body).await,
+            | "retraction" | "self_keel" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // A reminder fired (theseus-8ux6x): its note as it is, in the
             // place the core chose, with Done and Snooze.

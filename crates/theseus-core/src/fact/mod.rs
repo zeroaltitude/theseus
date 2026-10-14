@@ -67,6 +67,7 @@ pub mod route;
 pub mod rsi;
 pub mod rsi_backlog;
 pub mod rsi_budget;
+pub mod rsi_pr;
 pub mod rsi_sealed;
 pub mod sandbox;
 pub mod situation;
@@ -469,6 +470,7 @@ facts![
     rsi_backlog::BacklogRanked,
     rsi_backlog::BacklogStarted,
     rsi_backlog::BacklogDropped,
+    rsi_pr::SelfBranchBuilt<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
 ];

@@ -20,6 +20,13 @@
 //! - `backlog_starts` (1) and `backlog_max_open` (20): the nightly backlog
 //!   (`crate::rsi::backlog`, theseus-pw1q.7) starts at most this many top
 //!   unmarked items a night, and keeps at most this many open.
+//! - `repo` (theseus-pw1q.8): Theseus's own source checkout, which self
+//!   branches are cut from (its `origin/main`). Unset, the default: no self
+//!   branches, and `self.propose_change` says so.
+//! - `remote` (theseus-pw1q.8): the remote `self/*` branches are pushed to,
+//!   with the credential git already has for it (none is read here). Unset,
+//!   the default: they stay in the repo. Choosing it is the owner's: a push
+//!   needs a credential, and choosing one is a permission change.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -34,6 +41,10 @@ pub struct SelfConfig {
     pub digest: SelfDigest,
     #[serde(default)]
     pub budget: SelfBudgetConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sealed_dir: Option<String>,
     /// Items the nightly backlog starts a night (0 files and ranks only).
@@ -58,6 +69,8 @@ impl Default for SelfConfig {
             mode: SelfMode::default(),
             digest: SelfDigest::default(),
             budget: SelfBudgetConfig::default(),
+            repo: None,
+            remote: None,
             sealed_dir: None,
             backlog_starts: default_backlog_starts(),
             backlog_max_open: default_backlog_max_open(),
@@ -346,5 +359,24 @@ mod tests {
         assert_eq!(cfg.self_improve.backlog_starts, 0);
         assert_eq!(cfg.self_improve.backlog_max_open, 5);
         assert!(Config::from_toml("[self]\nbacklog_starts = -1\n").is_err());
+    }
+
+    /// `[self] repo` and `remote` are unset by default (no self branches,
+    /// none pushed), the template names both, and each reads as written.
+    #[test]
+    fn the_self_repo_and_remote_are_unset_by_default() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!((none.repo, none.remote), (None, None));
+        let t = Config::EXAMPLE_TOML;
+        assert!(
+            t.contains("\n# repo = \"") && t.contains("\n# remote = \"origin\""),
+            "the template names [self] repo and remote"
+        );
+        let cfg =
+            Config::from_toml("[self]\nmode = \"act\"\nrepo = \"/srv/ship\"\nremote = \"fleet\"\n")
+                .unwrap()
+                .self_improve;
+        assert_eq!(cfg.repo.as_deref(), Some("/srv/ship"));
+        assert_eq!(cfg.remote.as_deref(), Some("fleet"));
     }
 }
