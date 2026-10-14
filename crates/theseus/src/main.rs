@@ -45,6 +45,7 @@ mod self_cmd;
 mod standing_cmd;
 mod status;
 mod thread;
+mod watch_cmd;
 mod why;
 
 use std::path::PathBuf;
@@ -530,6 +531,15 @@ enum Cmd {
     Standing {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
+    },
+    /// Watches (theseus-f2r2b): wait on the world with no model. `watches` lists them; `watches add
+    /// TITLE --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED' [--every 5m]
+    /// [--for 3d] [--then notice|turn|task]` checks on a timer until the condition holds, then tells
+    /// you; `watches rm ID` ends one. (`watch SESSION` is the session follower.) Adding one is yours
+    /// alone (refused inside a job).
+    Watches {
+        #[command(subcommand)]
+        cmd: Option<watch_cmd::WatchesCmd>,
     },
     /// Threads (theseus-nhew): lines of work on virtual places `thread:<slug>`, each with a session
     /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
@@ -1062,6 +1072,11 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
+/// The socket a command talks to directly, when no daemon was spawned for the run.
+fn direct(spawned: bool, socket: &str) -> Option<&str> {
+    (!spawned).then_some(socket)
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus tui` connects nothing itself: it becomes `theseus-tui` (10f).
@@ -1146,10 +1161,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ledger {
             n, kind, session, ..
         } => cmd::ledger(c, json, n, kind, session).await,
-        Cmd::Herdr { cmd } => {
-            let socket = cli.spawn.is_none().then_some(cli.socket.as_str());
-            herdr_sync::run(c, json, cmd, socket).await
-        }
+        Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, direct(spawned, &cli.socket)).await,
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
@@ -1159,6 +1171,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,

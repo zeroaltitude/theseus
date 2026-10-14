@@ -853,6 +853,11 @@ pub(crate) enum Act<'a> {
     /// only the owner, from a private place, reads or writes one. `what`
     /// names it: `the thread tides`.
     Thread { method: &'static str, what: &'a str },
+    /// A watch's making (theseus-f2r2b, `watch.create`): it runs a command, reads a
+    /// file or fetches a URL by itself on a timer, so a job's process that
+    /// made one would schedule its own work. Only the owner, from a private
+    /// place. `what` names it: `the watch "PR 123 merged?"`.
+    Watch { method: &'static str, what: &'a str },
     /// The release of self-improvement's kill switch (theseus-pw1q.2,
     /// `self.resume`): only the owner turns it back on (the CLI, the web UI,
     /// or an author holding an owner handle, in any bound place:
@@ -902,6 +907,7 @@ impl Act<'_> {
             Act::Session { method, .. } => method,
             Act::Standing { method, .. } => method,
             Act::Thread { method, .. } => method,
+            Act::Watch { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::SelfBacklog { method, .. } => method,
             Act::Earned { method, .. } => method,

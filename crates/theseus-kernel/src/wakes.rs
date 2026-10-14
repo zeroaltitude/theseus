@@ -250,13 +250,14 @@ impl Kernel {
                 let held = self.count_purpose(purpose)?;
                 anyhow::ensure!(
                     held < cap,
-                    "the daemon already holds {held} pending {}s, the most it may ({cap}): cancel \
+                    "the daemon already holds {held} pending {}, the most it may ({cap}): cancel \
                      one before setting another",
-                    purpose.noun()
+                    plural(purpose)
                 );
             }
         }
-        if let Some(r) = &repeat {
+        // A watch's span has its own floor (`[watches] min_every`), checked by the core.
+        if let Some(r) = repeat.as_ref().filter(|_| purpose != Purpose::Watch) {
             let floor = self.config().min_repeat_ms;
             anyhow::ensure!(
                 r.every.nominal_ms() >= floor,
@@ -628,4 +629,12 @@ fn sort(wakes: &mut [PendingWake]) {
 /// A note as a ledger row carries it: its first 200 characters.
 fn clip(note: &str) -> String {
     note.chars().take(200).collect()
+}
+
+/// What a purpose's wakes are called together.
+fn plural(p: Purpose) -> String {
+    match p {
+        Purpose::Watch => "watches".to_string(),
+        p => format!("{}s", p.noun()),
+    }
 }

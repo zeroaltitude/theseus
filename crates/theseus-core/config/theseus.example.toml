@@ -396,7 +396,7 @@ max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder 
 max_wakes = 5                           # check-ins (wake.at) one conversation may hold at once; at least 1
 max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
 max_routines = 50                       # routines the daemon may hold (declared; they come with the routines row)
-max_watches = 20                        # watches the daemon may hold (declared; they come with the watches row)
+max_watches = 20                        # watches the daemon may hold (see [watches])
 steer_queued = true                     # a message sent while a turn runs interrupts its waits (job_wait, a command, a terminal) and joins the turn at its next loop; false: it waits for the turn to end
 
 # ---------------------------------------------------------------- tools
@@ -587,6 +587,7 @@ window_days = 7                         # the window the approvals are counted i
 # "wake.at" = "notify"
 # the model changing a wake it set (its own, from a private place): move it, or cancel it
 # "wake.move" = "notify"
+# "watch" = "notify"            # a watch that runs a command asks first, whatever this says
 # "wake.cancel" = "notify"
 # gliding (38b): a post into another bound place, and a read of one's recent
 # conversation. Both inherit enforcement; the place rule decides the rest:
@@ -920,6 +921,19 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
+
+# ---------------------------------------------------------------- watches
+# Waiting on the world with no model (theseus-f2r2b): `theseus watches add "PR 123
+# merged" --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED'`, or
+# the model's `watch` tool. A check (a command in L1, a fetch, a file) runs on a
+# timer until its condition holds, then the owner is told (or the conversation gets
+# a turn, or a task starts). An unchanged value writes nothing: three days at 5
+# minutes is hundreds of checks and a handful of frames, at no model cost. The most
+# watches the daemon holds is [kernel] max_watches.
+# [watches]
+# default_every = "5m"                    # how often a watch checks when it does not say
+# min_every = "1m"                        # the most often one may check (a minute at the least)
+# max_days = 30                           # the longest one waits before it gives up, and the default
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

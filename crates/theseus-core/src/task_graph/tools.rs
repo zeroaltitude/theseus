@@ -310,7 +310,10 @@ pub fn authority_for(
     input: &Value,
     mut plan: Plan,
 ) -> Plan {
-    if plan.authority.is_some() && !waits(store, name, input) {
+    // A command watch asks the owner once at its creation (theseus-f2r2b); it
+    // is no task call, so this is not the place that clears its question.
+    let watch = name == crate::watch_tool::WATCH;
+    if plan.authority.is_some() && !watch && !waits(store, name, input) {
         plan.authority = None;
     }
     plan

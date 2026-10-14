@@ -358,6 +358,11 @@ pub struct ToolRuntime {
     pub question_due: std::sync::atomic::AtomicU64,
     /// The task claims that hold, kept in memory for the due pass (39b).
     pub leases: crate::task_graph::lease::Leases,
+    /// The open watches, in memory (theseus-f2r2b): the `watch` tool adds to
+    /// them, the driver's tick checks them. The core shares this board.
+    pub watches: Arc<crate::watch::Board>,
+    /// `[watches]`, for the tool's bounds.
+    pub watches_cfg: crate::config::WatchesConfig,
     /// L1 (M4 17b): `[sandbox]`, the class, an L1 job's view, the probe.
     pub sandbox: Arc<Sandbox>,
     /// What a cancel reaches besides jobs, and health's cancel counts (18a).
@@ -517,6 +522,8 @@ impl ToolRuntime {
             files: Arc::new(crate::file_read::Reader::disabled()),
             question_due: Default::default(),
             leases: crate::task_graph::lease::Leases::new(30 * 60_000),
+            watches: Default::default(),
+            watches_cfg: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
@@ -1529,6 +1536,13 @@ impl ToolRuntime {
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
+            crate::watch_tool::WATCH => crate::watch_tool::set(
+                tc,
+                &self.watches,
+                &self.watches_cfg,
+                &call.input,
+                correlation_id,
+            ),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
@@ -2203,6 +2217,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::wake::WakeAt));
         r.register(Arc::new(crate::wake_tools::WakeCancel));
         r.register(Arc::new(crate::wake_tools::WakeMove));
+        r.register(Arc::new(crate::watch_tool::WatchTool));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
@@ -2319,6 +2334,8 @@ pub fn build_runtime(
         files,
         question_due: Default::default(),
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
+        watches: Default::default(),
+        watches_cfg: cfg.watches.clone(),
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),

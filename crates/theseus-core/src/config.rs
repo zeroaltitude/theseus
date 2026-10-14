@@ -34,8 +34,10 @@ pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+mod watches;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
+pub use watches::WatchesConfig;
 mod sparse;
 pub mod term;
 mod web;
@@ -151,6 +153,9 @@ pub struct Config {
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
+    /// `[watches]`: checks with no model until a condition holds (theseus-f2r2b), `config/watches.rs`.
+    #[serde(default, skip_serializing_if = "WatchesConfig::is_default")]
+    pub watches: WatchesConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1368,6 +1373,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.watches.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

@@ -181,6 +181,26 @@ fn text_like(probe: &[u8]) -> bool {
 }
 
 impl Web {
+    /// A watch's GET (theseus-f2r2b): the status and the body's text, at most
+    /// `cap` bytes, judged as a fetch is (a private address is refused unless
+    /// `[policy] private_addresses` is open). Within `secs`, or it says so.
+    pub async fn get_text(
+        &self,
+        url: &str,
+        cap: usize,
+        secs: u64,
+    ) -> Result<(u16, String), String> {
+        let first = web_url(url)?;
+        let got = tokio::time::timeout(Duration::from_secs(secs), self.get(&first, cap, false))
+            .await
+            .map_err(|_| format!("{first} took longer than {secs} s"))?
+            .map_err(|e| e.message)?;
+        Ok((
+            got.status.as_u16(),
+            String::from_utf8_lossy(&got.body).into_owned(),
+        ))
+    }
+
     async fn fetch(self: Arc<Self>, input: Value, approved: bool) -> AsyncMediaResult {
         let a: Args = parse(&input).map_err(ToolFailure::new)?;
         let first = web_url(&a.url).map_err(ToolFailure::new)?;

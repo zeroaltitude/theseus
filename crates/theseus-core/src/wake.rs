@@ -50,7 +50,12 @@ use crate::toolrun::TurnCtx;
 
 pub const AT: &str = "wake.at";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 3] = [AT, crate::wake_tools::CANCEL, crate::wake_tools::MOVE];
+pub const NAMES: [&str; 4] = [
+    AT,
+    crate::wake_tools::CANCEL,
+    crate::wake_tools::MOVE,
+    crate::watch_tool::WATCH,
+];
 /// The longest note a wake takes, in characters.
 pub const MAX_NOTE_CHARS: usize = 2_000;
 /// The soonest a wake may be set for, from now. The latest is `[kernel]
@@ -604,6 +609,10 @@ fn too_many(max: usize, pending: &[PendingWake], now_ms: u64) -> String {
 /// passed over (37a): `⏰ wake (every 1d, #4; 2 missed while the daemon was
 /// down): <note>`.
 pub fn fired_text(f: &FiredWake) -> String {
+    // A met watch's turn reads its message as it is (theseus-f2r2b).
+    if f.wake.purpose == Purpose::Watch {
+        return f.wake.note.clone();
+    }
     let set = local(f.wake.set_at_ms);
     let due = local(f.wake.due_at_ms);
     if f.wake.repeat.is_some() {

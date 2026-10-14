@@ -57,6 +57,7 @@ mod sessions;
 mod standing;
 mod threads;
 mod wake_owner;
+mod watch;
 #[cfg(test)]
 pub(crate) use server::write_item;
 #[cfg(test)]
@@ -207,6 +208,8 @@ pub struct Core {
     /// What a first keystroke warmed, and the sessions' idle spells
     /// (theseus-tnky).
     pub warmth: crate::warm::Warmth,
+    /// The open watches, in memory (theseus-f2r2b; `watch.rs`).
+    pub watches: Arc<crate::watch::Board>,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -786,6 +789,7 @@ impl Core {
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let sealed = crate::rsi::sealed::open(&cfg);
+        let watches = tools.watches.clone();
         let core = Arc::new(Self {
             cfg,
             store,
@@ -824,6 +828,7 @@ impl Core {
             rsi: Default::default(),
             sealed,
             warmth: Default::default(),
+            watches,
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));

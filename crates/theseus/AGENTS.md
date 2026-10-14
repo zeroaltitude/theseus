@@ -38,6 +38,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `snooze`, `pause`, `resume` and
   `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
   Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).
+- `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watches` (list), `watches add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watches rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.

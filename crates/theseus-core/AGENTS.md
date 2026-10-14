@@ -1258,6 +1258,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`MIN_AHEAD_MS`, `MAX_AHEAD_MS`). `TaskInfo.starts_at_ms` is derived from the execution while it sleeps
   (`task_start::starts_at`), and the board, `theseus tasks` and `/tasks` say `▷ starts Fri 09:00`. A cancel before
   the start ends it and releases the carve. Tests: `tests_tasks_deferred.rs`, the kernel's `tests_deferred.rs`.
+- **Watches** (theseus-f2r2b; horizon HZ6): waiting on the world with no model. A watch is a pending wake of purpose
+  `Watch` and run `Probe(WakeProbe)` (`watch/spec.rs` says where each field rides: `kind` run|fetch|file, `subject` a
+  JSON object of the check's fields and `then`, `until` the condition as typed, the note the title, `repeat.every` the
+  interval and `repeat.until_ms` the expiry; no store field, no format bump), so `wake.list`, `wake.cancel`,
+  `[kernel] max_watches` (20) and a conversation's end already apply. `watch/cond.rs` (pure: `exit N`, `equals`,
+  `contains`, `matches` through `theseus_tools::rx`, `changes`, `above`, `below`, `exists`, and a JSON path),
+  `watch/step.rs` (pure: an `Entry` takes a check's result and says whether it is news; the first value, a different
+  one, a met condition, an expiry and a third failure in a row are news, an unchanged value is not, failures back off
+  x2 to an hour), `watch/check.rs` (a file read, a fetch through the web tool's client (`Web::get_text`), a command in
+  L1 through `theseus_kernel::probe_run`, each bounded to 30 s and 64 KiB and scrubbed before it is a value),
+  `watch/board.rs` (the open watches in memory, next check times and last values; `Core.watches`, shared with
+  `ToolRuntime.watches`), `watch/run.rs` (`Core::watch_tick`, which the driver's 500 ms tick calls: the first tick reads
+  the open watches in with `Kernel::open_watches`, each then checks once at once; at most four checks run at once, off
+  every turn's thread, the core held by `Weak`; `watch_finish` applies a result and writes news through
+  `Kernel::probe_result`: one frame, with `watch.checked|met|expired|failing`, the state in META `watch.state.<wake id>`,
+  and the post; `fact/watch.rs` announces `wake.noticed` with purpose `watch.met` (an Interrupt with sound),
+  `watch.expired` or `watch.failing` (Inform)). A `then: turn` or `task` turns the met wake into a due turn wake of the
+  same conversation whose node reads `👁 watch met: <title> → <value>, after 2 d 4 h and 611 checks` (`wake::fired_text`);
+  a task's brief rides that turn's text (a task needs an arrangement quoted from a transcript, which only a turn can
+  write). The model's tool is `watch` (`watch_tool.rs`): a command's watch plans with an authority, so the gate asks
+  once at every posture with the command shown (`task_graph::tools::authority_for` leaves the watch's alone), and
+  nothing edits a watch afterwards (`wake.move`, `wake.snooze` and `wake.pause` refuse one); not in a task. The owner's
+  `watch.create` and `watch.list` (`rpc/watch.rs`; `Act::Watch`, the owner from a private place, refused inside a job)
+  and `theseus watches add|list|rm`. The commitments block lists a watch as `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`
+  from its last frame's state. `[watches] default_every|min_every|max_days` (`config/watches.rs`). A `run` check needs
+  L1, so a root daemon's refuses it (theseus-pv6i) and the watch fails with that reason. Tests: `watch/tests_watch.rs`
+  (a real core: a file met within an interval, twenty unchanged checks write no frame, a planted secret scrubbed,
+  three failures inform once, expiry, a restart, the cap), `watch/tests_watch_tool.rs` (the approval and the command
+  that never changes, `then: turn`), and each pure module's own.
 - **Forks** (theseus-2qzx, the killer-features plan's R19; store format 32): `session.fork { session, at, title?,
   profile?, budget_usd? }` (`rpc/fork.rs`; the stored parts and reads are `fork.rs`) makes a conversation from any
   moment of another, by reference, in one frame: the new execution (the source's authority, a pinned limit of

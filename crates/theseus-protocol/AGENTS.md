@@ -91,6 +91,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   each a direct call), and the `wake.noticed` notification (`WakeNoticed`). `notices::reminder_notice` makes its Interrupt,
   `wake_urgency` is rule 4 by purpose (a reminder interrupts; a check-in, a routine and a watch inform; a view that says none
   is read as before). `tests/wake_notice.rs` holds the bytes.
+- `watches.rs` (theseus-f2r2b): `watch.create` and `watch.list` (`WatchCreateParams` with its `WatchCheck` run|fetch|file and `WatchThen`, `WatchInfo`). A watch ending is the existing `wake.noticed` with purpose `watch.met` (`wake_urgency`: an Interrupt), `watch.expired` or `watch.failing` (Inform); the ledger kinds are `watch.checked|met|expired|failing`.
 - `cite.rs` (theseus-ejdk): a reply's citations. The handle a recalled item's header carries (`[m:a1b2c3]`:
   `handles_for` makes them unique in a pack, `header_with` and `split_header` write and read one), the handles a text
   holds (`handles_in`), the marks every surface draws (`mark_handles`, `mark_into`: `[1]`, numbered by first

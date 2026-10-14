@@ -87,10 +87,24 @@ fn when(due: &Local, due_ms: u64, now_ms: u64) -> String {
     }
 }
 
-/// One wake's line.
-fn line(w: &PendingWake, now_ms: u64, at: &dyn Fn(u64) -> Local) -> String {
+/// One wake's line. `shown` is what a watch's line says of its value.
+fn line(
+    w: &PendingWake,
+    now_ms: u64,
+    at: &dyn Fn(u64) -> Local,
+    shown: &dyn Fn(&PendingWake) -> Option<String>,
+) -> String {
     let due = at(w.due_at_ms);
     let short = crate::task::short(&w.id);
+    // A watch says what it last saw: `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`.
+    if w.probe().is_some() {
+        let title: String = crate::session::title_from(&w.note)
+            .chars()
+            .take(TITLE_CHARS)
+            .collect();
+        let seen = shown(w).map_or(String::new(), |v| format!(" ({v})"));
+        return format!("👁 {short} {title}{seen}");
+    }
     let title: String = crate::session::title_from(&w.note)
         .chars()
         .take(TITLE_CHARS)
@@ -132,6 +146,16 @@ fn line(w: &PendingWake, now_ms: u64, at: &dyn Fn(u64) -> Local) -> String {
 /// `at` reads; none when there are none. Pure: the clock and the zone are
 /// passed in.
 pub fn render(wakes: &[PendingWake], now_ms: u64, at: &dyn Fn(u64) -> Local) -> Option<Shown> {
+    render_with(wakes, now_ms, at, &|_| None)
+}
+
+/// `render`, with what a watch's line says of its value (`shown`).
+pub fn render_with(
+    wakes: &[PendingWake],
+    now_ms: u64,
+    at: &dyn Fn(u64) -> Local,
+    shown: &dyn Fn(&PendingWake) -> Option<String>,
+) -> Option<Shown> {
     if wakes.is_empty() {
         return None;
     }
@@ -145,7 +169,7 @@ pub fn render(wakes: &[PendingWake], now_ms: u64, at: &dyn Fn(u64) -> Local) -> 
     let mut lines: Vec<String> = Vec::new();
     let mut used = tokens(&head);
     for (i, w) in wakes.iter().enumerate() {
-        let l = line(w, now_ms, at);
+        let l = line(w, now_ms, at, shown);
         let rest = wakes.len() - i - 1;
         let reserve = if rest > 0 { tokens(&more(rest)) + 1 } else { 0 };
         if lines.len() >= MAX_LINES || used + tokens(&l) + 1 + reserve > MAX_TOKENS {
@@ -180,8 +204,9 @@ pub fn attach(
     pending: &Pending,
     now_ms: u64,
     compiled: &mut crate::compiler::Compiled,
+    watch_value: &dyn Fn(&PendingWake) -> Option<String>,
 ) -> Option<Shown> {
-    let shown = render(&pending.get(), now_ms, &local)?;
+    let shown = render_with(&pending.get(), now_ms, &local, watch_value)?;
     crate::task_graph::view::attach_text(&mut compiled.request, &shown.text);
     let t = shown.tokens;
     compiled.est_tokens += t;

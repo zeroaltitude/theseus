@@ -27,6 +27,7 @@ pub mod net;
 pub mod paths;
 pub mod proc;
 mod recount;
+pub mod rx;
 #[cfg(test)]
 mod tests_patch;
 #[cfg(test)]

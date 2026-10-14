@@ -72,6 +72,7 @@ mod ts;
 pub mod voice;
 pub mod wakes;
 pub mod warm;
+pub mod watches;
 pub mod why;
 mod window;
 pub mod work;
@@ -108,6 +109,10 @@ pub use toolinfo::{ToolInfo, ToolListResult};
 pub use wakes::{
     reminder_answers, WakeAnswer, WakeCreateParams, WakeDoneResult, WakeEditResult, WakeInfo,
     WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
+};
+pub use watches::{
+    WatchCheck, WatchCreateParams, WatchCreateResult, WatchInfo, WatchListParams, WatchListResult,
+    WatchThen,
 };
 pub use window::*;
 
@@ -239,6 +244,9 @@ pub mod method {
         /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a
         /// reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
+        /// Watches (theseus-f2r2b): a check with no model until a condition
+        /// holds. The owner's verbs; a cancel is `wake.cancel`'s.
+        WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs

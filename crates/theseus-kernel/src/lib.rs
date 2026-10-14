@@ -28,6 +28,7 @@ pub mod mcp_l1;
 pub mod outbox;
 mod overdraw;
 pub mod place_limit;
+pub mod probe_run;
 pub mod redact;
 mod reopen;
 pub mod repeat;
@@ -44,6 +45,7 @@ pub mod umask;
 pub mod wake_kinds;
 pub mod wake_owner;
 pub mod wakes;
+pub mod watch;
 pub mod when;
 
 #[cfg(test)]
@@ -111,3 +113,4 @@ pub use types::*;
 pub use wake_kinds::{NewWake, Purpose, TaskRun, WakeLimits, WakeProbe, WakeRun};
 pub use wake_owner::{NoticeFired, NoticePost};
 pub use wakes::{wake_id, FiredWake, MoveTo, WakeMoved, WakeSet, MAX_PENDING};
+pub use watch::{ProbeApplied, ProbeNews, ProbeVerdict, WatchState};

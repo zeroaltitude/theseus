@@ -5,6 +5,8 @@ theseus-core, whose `toolrun.rs` runs every call as a kernel action, and by thes
 
 Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 
+- `rx.rs` (theseus-f2r2b): `is_match`, a regular expression match with a size limit, for a pattern a person or a model wrote outside this crate (a watch's `matches`).
+
 ## What's here
 
 - `src/lib.rs`: the contract. A toollet parses and checks its input (`plan`), names the paths or argv it will touch
