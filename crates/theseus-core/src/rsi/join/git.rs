@@ -110,11 +110,38 @@ pub fn dry_run(p: &Place, base: &str, head: &str) -> Result<Result<(), String>> 
                 paths.join(", ")
             )))
         }
+        // A git before 2.38 has no `--write-tree` (a usage error): the system's
+        // git, which the daemon's PATH may find first. The dry run is then a
+        // merge in a throwaway tree.
+        Some(129) => dry_run_in_tree(p, base, head),
         _ => bail!(
             "git merge-tree failed: {}",
             String::from_utf8_lossy(&o.stderr).trim()
         ),
     }
+}
+
+/// The dry run with plain git: `head` merged into a throwaway detached tree at
+/// `base` without a commit, its conflicting paths read, the merge aborted and
+/// the tree closed.
+pub(super) fn dry_run_in_tree(p: &Place, base: &str, head: &str) -> Result<Result<(), String>> {
+    let t = detached(p, "dry", "dry-run", base)?;
+    let merged = p.git(&t.dir, &["merge", "--no-commit", "--no-ff", head]);
+    let r = match merged {
+        Ok(o) if o.status.success() => Ok(Ok(())),
+        Ok(_) => {
+            let paths = p.git_ok(&t.dir, &["diff", "--name-only", "--diff-filter=U"])?;
+            let paths: Vec<&str> = paths.lines().filter(|l| !l.is_empty()).collect();
+            Ok(Err(format!(
+                "it conflicts with main in {}",
+                paths.join(", ")
+            )))
+        }
+        Err(e) => Err(e),
+    };
+    let _ = p.git(&t.dir, &["merge", "--abort"]);
+    let _ = tree::close(p, &t);
+    r
 }
 
 /// A plain `--no-ff` merge of `head` into a detached tree at `base`, as

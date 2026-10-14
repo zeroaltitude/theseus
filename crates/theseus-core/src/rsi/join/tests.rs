@@ -268,6 +268,30 @@ impl Rig {
     }
 }
 
+/// The dry run on a git with no `merge-tree --write-tree` (before 2.38, the
+/// system git a daemon's PATH may find first) is a merge in a throwaway tree:
+/// a clean head merges, two heads that each add one file differently conflict
+/// on it, and no tree is left behind.
+#[tokio::test]
+async fn the_dry_run_in_a_tree_answers_without_merge_tree() {
+    let r = rig(SelfMode::Act);
+    let (_, clean) = r.seed("clean", &[("a.txt", "a\n")], SONNET);
+    let (_, one) = r.seed("one", &[("same.txt", "one\n")], SONNET);
+    let (_, two) = r.seed("two", &[("same.txt", "two\n")], SONNET);
+    let p = &r.f.place;
+    let base = git(&p.repo, &["rev-parse", "origin/main"]);
+    let trees = git(&p.repo, &["worktree", "list"]);
+    assert_eq!(
+        super::git::dry_run_in_tree(p, &base, &clean).unwrap(),
+        Ok(())
+    );
+    let why = super::git::dry_run_in_tree(p, &one, &two)
+        .unwrap()
+        .unwrap_err();
+    assert!(why.contains("same.txt"), "{why}");
+    assert_eq!(git(&p.repo, &["worktree", "list"]), trees, "no tree left");
+}
+
 /// The fix and the test that proves it: fails without `fix.txt`.
 const PROVED: &[(&str, &str)] = &[
     ("fix.txt", "fixed\n"),

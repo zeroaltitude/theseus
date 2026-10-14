@@ -366,6 +366,31 @@ mod tests {
         );
     }
 
+    /// Every path the sandbox and policy classes hold, named here apart from
+    /// [`CLASSES`], so a path dropped from the table fails a test.
+    #[test]
+    fn every_sandbox_and_policy_path_is_the_owners() {
+        for p in [
+            "crates/theseus-sandbox/src/lib.rs",
+            "crates/theseus-kernel/src/job_l1.rs",
+        ] {
+            assert_eq!(classes(&[p], ""), ["sandbox"], "{p}");
+        }
+        for p in [
+            "crates/theseus-core/src/policy.rs",
+            "crates/theseus-core/src/policy/earned.rs",
+            "crates/theseus-core/src/approval.rs",
+            "crates/theseus-core/src/places.rs",
+            "crates/theseus-core/src/ceiling.rs",
+            "crates/theseus-core/src/external.rs",
+            "crates/theseus-core/src/toolrun/order.rs",
+            "crates/theseus-core/src/sandbox.rs",
+            "crates/theseus-core/src/egress.rs",
+        ] {
+            assert_eq!(classes(&[p], ""), ["policy"], "{p}");
+        }
+    }
+
     #[test]
     fn aws_iam_and_policies_are_the_owners() {
         assert_eq!(classes(&["infra/aws/core.yaml"], ""), ["aws-iam"]);
