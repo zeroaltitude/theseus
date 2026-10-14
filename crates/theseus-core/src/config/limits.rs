@@ -150,3 +150,15 @@ pub(super) fn check_dollars(k: &super::KernelSection) -> anyhow::Result<()> {
 pub fn default_parallel_runs() -> usize {
     8
 }
+
+/// `[tools] parallel_reads` (theseus-0hufe): the most reads one group runs at
+/// once; the rest wait for a slot, the results in order. 0 reads as 1.
+pub fn default_parallel_reads() -> usize {
+    32
+}
+
+/// `[tools] parallel_writes` (theseus-0hufe): the most writes one group runs
+/// at once. 0 reads as 1.
+pub fn default_parallel_writes() -> usize {
+    16
+}

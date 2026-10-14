@@ -3,10 +3,12 @@
 //! declined, its later calls that would wait are not asked. Split from
 //! `toolrun.rs`.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
 use serde_json::json;
+use theseus_tools::{Tool, ToolClass};
 
 use super::{
     parallel, Admitted, Batch, Call, CallOutcome, Gated, Ran, ResultNode, ToolRuntime, TurnCtx,
@@ -17,6 +19,13 @@ use crate::provider::ToolUse;
 
 /// Why a call of a declined batch is not asked: the model reads it, and the
 /// operator is spared a card for a plan the model may change.
+/// Why a call started after an earlier one of its response: that call's
+/// index, and what both name; one per call of a group.
+type Held = Vec<Option<(usize, String)>>;
+
+/// A group's calls: index in the response, the tool, and its gate's verdict.
+type Group = Vec<(usize, Arc<dyn Tool>, Gated)>;
+
 pub(super) const NOT_ASKED: &str = "an earlier call in this batch was declined";
 
 impl ToolRuntime {
@@ -88,17 +97,27 @@ impl ToolRuntime {
         let mut group = Vec::new();
         let mut next = ran.len();
         let mut open = parallel::Open::default();
+        let mut held = Held::new();
         for (i, tool, g) in runnable {
             let touch = parallel::Touch::of(tool.as_ref(), &calls[i].call.input, &g.plan);
-            if !open.admit(&touch) {
-                let run = std::mem::take(&mut group);
-                self.run_group(tc, assistant_node, calls, run, &mut next, &mut ran)
+            let verdict = open.admit(i, &touch);
+            if !verdict.joins {
+                let (run, note) = (std::mem::take(&mut group), std::mem::take(&mut held));
+                self.run_group(tc, assistant_node, calls, (run, note), &mut next, &mut ran)
                     .await?;
             }
             group.push((i, tool, g));
+            held.push(verdict.held);
         }
-        self.run_group(tc, assistant_node, calls, group, &mut next, &mut ran)
-            .await?;
+        self.run_group(
+            tc,
+            assistant_node,
+            calls,
+            (group, held),
+            &mut next,
+            &mut ran,
+        )
+        .await?;
         let mut awaiting = None;
         if let Some((i, tool, g)) = ask {
             let started = Instant::now();
@@ -119,6 +138,73 @@ impl ToolRuntime {
         }
         ran.sort_by_key(|r| r.index);
         Ok(Batch { ran, awaiting })
+    }
+
+    /// A group of calls, each started at once in the caller's task, at most
+    /// `[tools] parallel_reads`, `parallel_writes` or `parallel_runs` (by
+    /// the group's class) at a time: the rest wait for a slot, and every
+    /// result is kept in call order. Every call finishes before the first
+    /// error is returned, so none is left between its dispatch and its
+    /// completion. `held` is, call by call, what it started after
+    /// (theseus-0hufe), which its result says.
+    async fn run_group(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        calls: &[Call<'_>],
+        (group, held): (Group, Held),
+        next: &mut usize,
+        ran: &mut Vec<Ran>,
+    ) -> Result<()> {
+        if group.is_empty() {
+            return Ok(());
+        }
+        let id = *next;
+        *next += 1;
+        // A group of writes or programs (theseus-d1hi): each result says how
+        // many ran beside it.
+        let (class, n) = (
+            group[0].2.plan.class.unwrap_or(group[0].1.class()),
+            group.len(),
+        );
+        let beside = if class == ToolClass::Read { 0 } else { n - 1 };
+        let cap = match class {
+            ToolClass::Read => self.parallel_reads,
+            ToolClass::Write => self.parallel_writes,
+            ToolClass::Run => self.parallel_runs,
+        };
+        let slots = &tokio::sync::Semaphore::new(cap.max(1));
+        let runs = group.into_iter().zip(held).map(|((i, tool, g), held)| {
+            let note = held.map(|(by, on)| parallel::held_note(by, &on));
+            async move {
+                let _slot = slots.acquire().await;
+                let started = Instant::now();
+                let call = self.start(tc, assistant_node, calls[i].call, tool, g);
+                let r = parallel::BESIDE.scope(beside, call);
+                let r = match note {
+                    Some(note) => parallel::HELD.scope(note, r).await,
+                    None => r.await,
+                };
+                (i, started, Instant::now(), r)
+            }
+        });
+        let mut failed = None;
+        for (index, started, ended, r) in futures_util::future::join_all(runs).await {
+            match r {
+                Ok((outcome, judged)) => ran.push(Ran {
+                    index,
+                    outcome,
+                    started,
+                    ended,
+                    group: id,
+                    judged,
+                }),
+                Err(e) => {
+                    failed.get_or_insert(e);
+                }
+            }
+        }
+        failed.map_or(Ok(()), Err)
     }
 
     /// A call that would wait, in a batch an earlier call of which was
