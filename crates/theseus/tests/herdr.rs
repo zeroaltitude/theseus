@@ -40,6 +40,8 @@ fn wait_until<T>(what: &str, mut ready: impl FnMut() -> Option<T>) -> T {
 struct FakeHerdr {
     sock: PathBuf,
     got: Arc<Mutex<Vec<Value>>>,
+    /// When each request in `got` arrived.
+    at: Arc<Mutex<Vec<Instant>>>,
 }
 
 impl FakeHerdr {
@@ -54,7 +56,8 @@ impl FakeHerdr {
         let sock = dir.join("herdr.sock");
         let listener = UnixListener::bind(&sock).unwrap();
         let got = Arc::new(Mutex::new(Vec::new()));
-        let g = got.clone();
+        let at = Arc::new(Mutex::new(Vec::new()));
+        let (g, t) = (got.clone(), at.clone());
         std::thread::spawn(move || {
             for s in listener.incoming() {
                 let Ok(s) = s else { break };
@@ -62,16 +65,19 @@ impl FakeHerdr {
                 if BufReader::new(&s).read_line(&mut line).unwrap_or(0) == 0 {
                     continue;
                 }
+                let arrived = Instant::now();
                 let req: Value = serde_json::from_str(&line).unwrap();
                 let out = match answer(&req) {
                     Ok(r) => json!({"id": req["id"], "result": r}),
                     Err(e) => json!({"id": req["id"], "error": e}),
                 };
+                // The time first, so a reader that sees the request sees its time.
+                t.lock().unwrap().push(arrived);
                 g.lock().unwrap().push(req);
                 let _ = writeln!(&s, "{out}");
             }
         });
-        Self { sock, got }
+        Self { sock, got, at }
     }
 
     fn requests(&self) -> Vec<Value> {
@@ -262,13 +268,20 @@ impl Watch {
     }
 
     fn start(d: &FakeDaemon, herdr: Option<&FakeHerdr>, extra: &[&str]) -> Self {
+        Self::start_at(&d.sock, herdr, extra)
+    }
+
+    /// The watch of `S` over the daemon socket `sock`.
+    fn start_at(sock: &Path, herdr: Option<&FakeHerdr>, extra: &[&str]) -> Self {
         let mut cmd = Command::new(THESEUS);
         cmd.arg("--socket")
-            .arg(&d.sock)
+            .arg(sock)
             .args(["watch", S])
             .args(extra)
             // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
-            .env("XDG_STATE_HOME", d.sock.with_file_name("xdg-state"))
+            .env("XDG_STATE_HOME", sock.with_file_name("xdg-state"))
+            // Times are the test's own zone, never the machine's.
+            .env("TZ", "<-07>7")
             .env_remove("THESEUS_SOCKET")
             .env_remove("HERDR_ENV")
             .env_remove("HERDR_PANE_ID")
@@ -313,6 +326,12 @@ impl Watch {
         unsafe {
             libc::kill(self.child.id() as i32, sig);
         }
+    }
+
+    /// Whether the watch still runs.
+    fn child_alive(&self) -> bool {
+        // SAFETY: signal 0 only asks whether the child this test spawned exists.
+        unsafe { libc::kill(self.child.id() as i32, 0) == 0 }
     }
 
     /// Its exit code and stderr, once it exits by itself.
@@ -364,7 +383,7 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
             first["params"]["source"].as_str(),
             first["params"]["agent"].as_str()
         ),
-        (Some(PANE), Some("custom:theseus"), Some("theseus"))
+        (Some(PANE), Some("custom:theseus"), Some("Tide notes"))
     );
     assert_eq!(got[1]["method"], "agent.rename");
     assert_eq!(
@@ -374,11 +393,14 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
     let meta = &got[2]["params"];
     // A session the operator labelled is titled by its label.
     assert_eq!(meta["title"], "Tide notes");
-    assert_eq!(meta["display_agent"], "theseus: ready");
+    assert_eq!(meta["display_agent"], "Tide notes");
+    let tokens = &meta["tokens"];
     assert_eq!(
-        meta["tokens"],
-        json!({"session": S, "cost": "$0", "confirm": null})
+        (tokens["session"].as_str(), tokens["cost"].as_str()),
+        (Some(S), Some("$0"))
     );
+    assert_eq!(tokens["confirm"], Value::Null);
+    assert_eq!(tokens["kind"], "conversation");
 
     // Each push waits for what it changes: the reporter may drop a report
     // that a later one, queued in the same batch, replaces.
@@ -386,7 +408,7 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
         "execution.changed",
         view(11, "running", "working", "turn 2", None, 0.0),
     );
-    herdr.wait_for("pane.report_metadata", 2);
+    herdr.wait_for("pane.report_agent", 2);
     // Old, then the same again, then spend alone: no report.
     d.push(
         "execution.changed",
@@ -400,7 +422,7 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
         "execution.changed",
         view(12, "running", "working", "turn 2", None, 0.42),
     );
-    let spend = herdr.wait_for("pane.report_metadata", 3);
+    let spend = herdr.wait_for("pane.report_metadata", 2);
     assert_eq!(spend.last().unwrap()["params"]["tokens"]["cost"], "$0.42");
     assert_eq!(reports(&spend).len(), 2, "spend alone is no report");
     d.push("confirm.requested", question("act_m3"));
@@ -415,7 +437,7 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
             0.42,
         ),
     );
-    let blocked = herdr.wait_for("pane.report_metadata", 4);
+    let blocked = herdr.wait_for("pane.report_metadata", 3);
     assert_eq!(
         blocked.last().unwrap()["params"]["tokens"]["confirm"],
         "act_m3"
@@ -449,7 +471,7 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
             got[release]["params"]["source"].as_str(),
             got[release]["params"]["agent"].as_str()
         ),
-        (Some(PANE), Some("custom:theseus"), Some("theseus"))
+        (Some(PANE), Some("custom:theseus"), Some("Tide notes"))
     );
     let cleared = &got[release + 1];
     assert_eq!(cleared["method"], "pane.report_metadata");
@@ -887,13 +909,13 @@ fn a_wake_is_one_notification_and_spend_is_none() {
         "execution.changed",
         view(11, "running", "working", "turn 2", None, 0.0),
     );
-    herdr.wait_for("pane.report_metadata", 2);
+    herdr.wait_for("pane.report_agent", 2);
     let before = herdr.requests().len();
     d.push(
         "execution.changed",
         view(12, "running", "working", "turn 2", None, 0.42),
     );
-    let got = herdr.wait_for("pane.report_metadata", 3);
+    let got = herdr.wait_for("pane.report_metadata", 2);
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(herdr.requests().len(), before + 1, "the metadata alone");
     assert!(shown(&got).is_empty());
@@ -906,4 +928,606 @@ fn a_wake_is_one_notification_and_spend_is_none() {
         [json!({"title": "Tide notes", "sound": "request",
                 "body": "⏰ Tide notes · its wake fired"})]
     );
+}
+
+// ---------------------------------------------------------------------------
+// herdr's slots, and a watch that outlives its daemon (theseus-qb1es)
+// ---------------------------------------------------------------------------
+
+const TITLE: &str = "Write the harbour log needs attention";
+const WRITTEN: u64 = 1_759_300_000_000;
+
+/// The answer to a read of the task session: its title, its model, its
+/// parent (`ses_dmroot`, whose label is `DM`), and when it was created.
+fn task_info(ids: &Value) -> Value {
+    if ids[0] == "ses_dmroot" {
+        return json!({"sessions": [{"session_id": "ses_dmroot", "kind": "conversation",
+            "label": "DM", "created_at_unix_ms": WRITTEN - 1000, "turns": 9}]});
+    }
+    json!({"sessions": [{"session_id": S, "kind": "task", "label": "task", "title": TITLE,
+        "created_at_unix_ms": WRITTEN, "turns": 3, "model": "glm-5.3",
+        "parent_session_id": "ses_dmroot"}]})
+}
+
+/// A view of the task, with the fields a state needs.
+fn task_view(position: u64, state: &str, level: &str, label: &str, extra: Value) -> Value {
+    let mut v = json!({"position": position, "at_ms": WRITTEN + position, "execution_id": X,
+        "session_id": S, "kind": "task", "parent_session_id": "ses_dmroot", "state": state,
+        "turns": 3, "spent_usd": 0.42, "limit_usd": 10.0,
+        "attention": {"level": level, "label": label, "since_ms": 0}});
+    for (k, e) in extra.as_object().into_iter().flatten() {
+        v[k] = e.clone();
+    }
+    v
+}
+
+/// What the daemon answers a watch of the task.
+fn task_answers(first: Value, req: &Value) -> Option<Result<Value, Value>> {
+    Some(Ok(match req["method"].as_str().unwrap() {
+        "session.watch" => json!({"watching": true}),
+        "session.wait" => json!({"reached": "settled", "already": true, "execution": first,
+                                 "confirms": []}),
+        "session.list" => task_info(&req["params"]["ids"]),
+        _ => return None,
+    }))
+}
+
+/// A daemon that finds the task at `first`.
+fn task_daemon(dir: &Path, first: Value) -> FakeDaemon {
+    FakeDaemon::start(dir, move |req| task_answers(first.clone(), req))
+}
+
+/// The reports alone, whole.
+fn report_requests(got: &[Value]) -> Vec<Value> {
+    got.iter()
+        .filter(|r| r["method"] == "pane.report_agent")
+        .cloned()
+        .collect()
+}
+
+/// A report's state and its one label.
+fn state_and_label(r: &Value) -> (String, String) {
+    let labels = r["params"]["state_labels"].as_object().unwrap();
+    assert_eq!(labels.len(), 1, "one state's label: {r}");
+    let label = labels.values().next().unwrap().as_str().unwrap();
+    (r["params"]["state"].as_str().unwrap().into(), label.into())
+}
+
+/// The last metadata herdr got.
+fn last_meta(got: &[Value]) -> Option<Value> {
+    got.iter()
+        .rev()
+        .find(|r| r["method"] == "pane.report_metadata")
+        .cloned()
+}
+
+/// Every request herdr got obeys its limits: at most 16 tokens, each at most
+/// 80 characters, an agent label of at most 22, and labels of at most 80.
+fn within_herdrs_limits(got: &[Value]) {
+    let chars = |v: &Value| v.as_str().map_or(0, |s| s.chars().count());
+    for r in got {
+        let p = &r["params"];
+        if r["method"] == "pane.report_metadata" {
+            let t = p["tokens"].as_object().unwrap();
+            assert!(t.len() <= 16, "{} tokens: {r}", t.len());
+            assert!(t.values().all(|v| chars(v) <= 80), "a long token: {r}");
+            assert!(chars(&p["title"]) <= 80, "{r}");
+        }
+        if r["method"] == "pane.report_agent" {
+            assert!(chars(&p["agent"]) <= 22, "{r}");
+            let labels = p["state_labels"].as_object().unwrap();
+            assert!(labels.values().all(|v| chars(v) <= 80));
+        }
+    }
+}
+
+/// The ten tokens a task's first report carries, and what they say.
+fn the_first_tokens_say(meta: &Value) {
+    assert_eq!(meta["params"]["title"], TITLE);
+    assert_eq!(meta["params"]["display_agent"], "Write the harbour log");
+    let tok = &meta["params"]["tokens"];
+    let names: Vec<&str> = tok
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    for want in [
+        "task", "kind", "session", "confirm", "cost", "parent", "since", "doing", "model", "report",
+    ] {
+        assert!(names.contains(&want), "token {want} missing from {names:?}");
+    }
+    assert_eq!(tok["task"], TITLE);
+    assert_eq!(tok["kind"], "task");
+    assert_eq!(tok["session"], S);
+    assert_eq!(tok["cost"], "$0.42");
+    assert_eq!(tok["parent"], "↳ DM");
+    assert_eq!(tok["since"], "23:26", "local time, at the test's zone");
+    assert_eq!(tok["model"], "glm-5.3");
+    assert_eq!(tok["confirm"], Value::Null);
+    assert_eq!(tok["doing"], Value::Null);
+}
+
+/// A view, herdr's state for it, and its label (`state_labels`).
+type Case = (Value, &'static str, &'static str);
+
+/// The task in each state its labels word.
+fn state_cases() -> Vec<Case> {
+    let mut all = needs_you_cases();
+    all.extend(working_cases());
+    all
+}
+
+/// A question, a budget question, a failure and a block: all `blocked`.
+fn needs_you_cases() -> Vec<Case> {
+    let pending = |cid: &str, tool: &str, reason: &str, budget: bool| {
+        json!({"pending": [{"correlation_id": cid, "tool": tool, "reason": reason,
+                            "budget": budget}]})
+    };
+    let mut budget = pending("act_b1", "budget.reset", "", true);
+    budget["spent_usd"] = json!(10.02);
+    vec![
+        (
+            task_view(
+                11,
+                "waiting",
+                "needs_you",
+                "confirm fs.write: log.md",
+                pending("act_w1", "fs.write", "log.md", false),
+            ),
+            "blocked",
+            "needs you · fs.write log.md",
+        ),
+        (
+            task_view(12, "waiting", "needs_you", "budget: $10.02 of $10", budget),
+            "blocked",
+            "budget · $10.02 of $10",
+        ),
+        (
+            task_view(
+                13,
+                "failed",
+                "needs_you",
+                "failed: timeout (provider)",
+                json!({"ended_reason": "timeout (provider)"}),
+            ),
+            "blocked",
+            "failed · timeout (provider)",
+        ),
+        (
+            task_view(
+                14,
+                "blocked",
+                "needs_you",
+                "blocked: no key",
+                json!({"ended_reason": "no key for the sandbox"}),
+            ),
+            "blocked",
+            "blocked · no key for the sandbox",
+        ),
+    ]
+}
+
+/// Running, queued, a job, a child and a sleep: all `working`.
+fn working_cases() -> Vec<Case> {
+    let past = |ms: u64| {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        u64::try_from(now.unwrap().as_millis()).unwrap() - ms
+    };
+    vec![
+        (
+            task_view(15, "running", "working", "turn 4", json!({})),
+            "working",
+            "turn 4",
+        ),
+        (
+            task_view(
+                16,
+                "queued",
+                "working",
+                "queued · wake",
+                json!({"why": "wake"}),
+            ),
+            "working",
+            "queued · wake",
+        ),
+        (
+            task_view(
+                17,
+                "waiting",
+                "working",
+                "waiting on 2 calls",
+                json!({
+                "waiting_on": {"on": "actions", "correlation_ids": ["a", "b"]},
+                "attention": {"level": "working", "label": "waiting on 2 calls",
+                              "since_ms": past(4 * 60_000 + 5_000)}}),
+            ),
+            "working",
+            "job · 4 m",
+        ),
+        (
+            task_view(
+                18,
+                "waiting",
+                "working",
+                "waiting on task a1b2c3",
+                json!({"waiting_on": {"on": "execution", "execution_id": "exe_a1b2c3"}}),
+            ),
+            "working",
+            "waiting on task a1b2c3",
+        ),
+        (
+            task_view(
+                19,
+                "waiting",
+                "working",
+                "sleeping until 16:00",
+                json!({"waiting_on": {"on": "due_at", "at_ms": 1_759_330_000_000u64}}),
+            ),
+            "working",
+            "sleeping until 16:00",
+        ),
+    ]
+}
+
+/// A call runs: the label and the `doing` token say what, and ending it
+/// takes them back.
+fn a_call_runs_and_ends(d: &FakeDaemon, herdr: &FakeHerdr) {
+    let call = |kind: &str, extra: Value| {
+        let mut p = json!({"session_id": S, "turn_id": "turn_a", "tool_use_id": "tu1",
+                           "tool": "proc.run"});
+        for (k, e) in extra.as_object().into_iter().flatten() {
+            p[k] = e.clone();
+        }
+        d.push(kind, p);
+    };
+    let argv = json!(["cargo", "nextest", "run"]);
+    call("tool.proposed", json!({"input": {"argv": argv}}));
+    call("tool.started", json!({"backend": "job", "argv": argv}));
+    let running = herdr.wait_for("pane.report_agent", 2);
+    let want = (
+        "working".to_string(),
+        "turn 3 · proc.run cargo nextest run".to_string(),
+    );
+    assert_eq!(state_and_label(&report_requests(&running)[1]), want);
+    let doing = wait_until("the doing token", || {
+        last_meta(&herdr.requests()).filter(|m| m["params"]["tokens"]["doing"].is_string())
+    });
+    let words = doing["params"]["tokens"]["doing"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        words.starts_with("proc.run cargo nextest run · "),
+        "{words}"
+    );
+    call("tool.ended", json!({"status": "ok"}));
+    let ended = herdr.wait_for("pane.report_agent", 3);
+    let want = ("working".to_string(), "turn 3".to_string());
+    assert_eq!(state_and_label(&report_requests(&ended)[2]), want);
+}
+
+/// Each state's labels, and the tokens beside them (theseus-qb1es): the agent
+/// is the task's short name, cut at a word, so herdr's own toast reads "Write
+/// the harbour log needs attention"; the state's label is worded once.
+#[test]
+fn every_state_has_its_label_and_the_tokens_beside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let d = task_daemon(
+        dir.path(),
+        task_view(10, "running", "working", "turn 3", json!({})),
+    );
+    let w = Watch::start(&d, Some(&herdr), &[]);
+    let got = herdr.wait_for("pane.report_metadata", 1);
+    let first = &report_requests(&got)[0];
+    assert_eq!(state_and_label(first), ("working".into(), "turn 3".into()));
+    // The agent is the short name, and so is what the sidebar row says.
+    assert_eq!(first["params"]["agent"], "Write the harbour log");
+    assert_eq!(first["params"]["display_agent"], "Write the harbour log");
+    the_first_tokens_say(&last_meta(&got).unwrap());
+    a_call_runs_and_ends(&d, &herdr);
+
+    // Each state, one view after another.
+    let mut n = 3;
+    for (view, state, text) in state_cases() {
+        d.push("execution.changed", view);
+        n += 1;
+        let got = report_requests(&herdr.wait_for("pane.report_agent", n));
+        assert_eq!(
+            state_and_label(&got[n - 1]),
+            (state.into(), text.into()),
+            "report {n}"
+        );
+    }
+    // The confirm token followed the open question.
+    let asked = herdr.requests().iter().any(|r| {
+        r["method"] == "pane.report_metadata" && r["params"]["tokens"]["confirm"] == "act_w1"
+    });
+    assert!(asked, "the question's id was a token while it waited");
+
+    // A finished task: its report's first line.
+    d.push(
+        "turn.ended",
+        json!({"session_id": S, "turn_id": "turn_a", "loops": 2,
+        "output": "Wrote the harbour log: 41 entries.\nThe rest is in log.md.",
+        "stop_reason": "end_turn", "model": "glm-5.3",
+        "usage": {"input_tokens": 1, "output_tokens": 1}, "elapsed_ms": 10, "cost_usd": null}),
+    );
+    d.push(
+        "execution.changed",
+        task_view(20, "complete", "idle", "complete", json!({})),
+    );
+    let done = wait_until("the done label", || {
+        let got = report_requests(&herdr.requests());
+        got.into_iter()
+            .rev()
+            .find(|r| r["params"]["state"] == "idle")
+    });
+    let want = (
+        "idle".to_string(),
+        "done · Wrote the harbour log: 41 entries.".to_string(),
+    );
+    assert_eq!(state_and_label(&done), want);
+    let report = wait_until("the report token", || {
+        last_meta(&herdr.requests()).filter(|m| m["params"]["tokens"]["report"].is_string())
+    });
+    assert_eq!(
+        report["params"]["tokens"]["report"],
+        "Wrote the harbour log: 41 entries."
+    );
+    within_herdrs_limits(&herdr.requests());
+    w.signal(libc::SIGTERM);
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
+/// A process's CPU time so far, in clock ticks (user and system).
+fn cpu_ticks(pid: u32) -> u64 {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    // After the command's closing parenthesis: state is field 3, utime 14, stime 15.
+    let rest: Vec<&str> = stat
+        .rsplit_once(')')
+        .unwrap()
+        .1
+        .split_whitespace()
+        .collect();
+    rest[11].parse::<u64>().unwrap() + rest[12].parse::<u64>().unwrap()
+}
+
+/// What a scripted daemon answers a request: nothing (never answered), a
+/// result, or an error.
+type Answer = Option<Result<Value, Value>>;
+
+/// A scripted daemon that goes away and comes back at the same socket, as a
+/// restart does: `stop` closes its connection and removes its socket,
+/// `restart` binds it again. It serves one connection at a time.
+struct Restarting {
+    sock: PathBuf,
+    answer: Arc<dyn Fn(&Value) -> Answer + Send + Sync>,
+    writer: Arc<Mutex<Option<UnixStream>>>,
+    got: Arc<Mutex<Vec<Value>>>,
+}
+
+impl Restarting {
+    fn start(dir: &Path, answer: impl Fn(&Value) -> Answer + Send + Sync + 'static) -> Self {
+        let d = Self {
+            sock: dir.join("theseusd.sock"),
+            answer: Arc::new(answer),
+            writer: Arc::new(Mutex::new(None)),
+            got: Arc::new(Mutex::new(Vec::new())),
+        };
+        d.listen();
+        d
+    }
+
+    fn listen(&self) {
+        let listener = UnixListener::bind(&self.sock).unwrap();
+        let (answer, writer, got) = (self.answer.clone(), self.writer.clone(), self.got.clone());
+        std::thread::spawn(move || {
+            for s in listener.incoming() {
+                let Ok(s) = s else { break };
+                *writer.lock().unwrap() = Some(s.try_clone().unwrap());
+                for line in BufReader::new(&s).lines() {
+                    let Ok(line) = line else { break };
+                    let req: Value = serde_json::from_str(&line).unwrap();
+                    let out = answer(&req).map(|a| match a {
+                        Ok(r) => json!({"jsonrpc": "2.0", "id": req["id"], "result": r}),
+                        Err(e) => json!({"jsonrpc": "2.0", "id": req["id"], "error": e}),
+                    });
+                    if let (Some(out), Some(w)) = (out, writer.lock().unwrap().as_mut()) {
+                        let _ = writeln!(w, "{out}");
+                    }
+                    got.lock().unwrap().push(req);
+                }
+            }
+        });
+    }
+
+    /// The daemon goes: the client reads EOF and finds no socket.
+    fn stop(&self) {
+        if let Some(w) = self.writer.lock().unwrap().take() {
+            let _ = w.shutdown(Shutdown::Both);
+        }
+        std::fs::remove_file(&self.sock).unwrap();
+    }
+
+    fn restart(&self) {
+        self.listen();
+    }
+
+    fn count(&self, method: &str) -> usize {
+        let got = self.got.lock().unwrap();
+        got.iter().filter(|r| r["method"] == method).count()
+    }
+}
+
+/// A restart takes every pane's watch with it no more (theseus-qb1es): the
+/// watch keeps its pane, says `· reconnecting` and never releases it, tries
+/// again from 100 ms, reads the session once more when the daemon is back,
+/// and says its state and tokens again, all within 2 s of the daemon's return.
+#[test]
+fn a_watch_keeps_its_pane_through_a_daemon_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let first = task_view(
+        10,
+        "waiting",
+        "needs_you",
+        "confirm fs.write: log.md",
+        json!({"pending": [{"correlation_id": "act_w1", "tool": "fs.write", "reason": "log.md"}]}),
+    );
+    let d = Restarting::start(dir.path(), move |req| task_answers(first.clone(), req));
+    let w = Watch::start_at(&d.sock, Some(&herdr), &["--interactive"]);
+    herdr.wait_for("pane.report_metadata", 1);
+    let asking = "needs you · fs.write log.md";
+    let reports = || report_requests(&herdr.requests());
+    assert_eq!(state_and_label(&reports()[0]).1, asking);
+    let tokens_before = last_meta(&herdr.requests()).unwrap()["params"]["tokens"].clone();
+    assert_eq!(d.count("session.wait"), 1);
+
+    // The daemon goes. The pane says so, and is not released.
+    d.stop();
+    let away = wait_until("the reconnecting label", || {
+        reports()
+            .into_iter()
+            .find(|r| state_and_label(r).1.ends_with("· reconnecting"))
+    });
+    assert_eq!(
+        away["params"]["state"], "blocked",
+        "the state stays as it was"
+    );
+    assert_eq!(state_and_label(&away).1, format!("{asking} · reconnecting"));
+    // Waiting costs a timer, not a loop: the watch's CPU time over the outage.
+    let cpu = cpu_ticks(w.child.id());
+    std::thread::sleep(Duration::from_millis(600));
+    let spent = cpu_ticks(w.child.id()) - cpu;
+    assert!(
+        spent <= 2,
+        "{spent} ticks of CPU (10 ms each) while it waited"
+    );
+    assert!(w.child_alive(), "the watch waits for the daemon");
+    let released = herdr
+        .requests()
+        .iter()
+        .any(|r| r["method"] == "pane.release_agent");
+    assert!(!released, "the pane is never released meanwhile");
+
+    // It comes back: within 2 s, one re-read, and the labels and tokens again.
+    let back = Instant::now();
+    d.restart();
+    let mended = wait_until("the label restored", || {
+        reports()
+            .into_iter()
+            .rev()
+            .find(|r| state_and_label(r).1 == asking)
+            .filter(|r| r["params"]["seq"].as_u64() > away["params"]["seq"].as_u64())
+    });
+    let took = back.elapsed();
+    assert!(took < Duration::from_secs(2), "mended in {took:?}");
+    assert_eq!(mended["params"]["state"], "blocked");
+    w.wait_err("the daemon is back", 1);
+    assert_eq!(
+        d.count("session.wait"),
+        2,
+        "read once at the start, once on return"
+    );
+    assert_eq!(d.count("session.watch"), 2);
+    let tokens_after = wait_until("the tokens restored", || {
+        let last = last_meta(&herdr.requests())?;
+        (last["params"]["tokens"]["session"] == S).then(|| last["params"]["tokens"].clone())
+    });
+    assert_eq!(tokens_after, tokens_before, "every token as it was");
+    assert!(w.child_alive());
+    // Ended by hand, it releases.
+    w.signal(libc::SIGTERM);
+    herdr.wait_for("pane.release_agent", 1);
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+    within_herdrs_limits(&herdr.requests());
+}
+
+/// A watch started on a session that already failed says why, in words, and
+/// waits: it neither exits nor stays silent, and the pane says it failed.
+#[test]
+fn a_watch_on_a_failed_session_says_why_and_waits() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let d = task_daemon(
+        dir.path(),
+        task_view(
+            10,
+            "failed",
+            "needs_you",
+            "failed: the provider refused the request (400)",
+            json!({"ended_reason": "the provider refused the request (400)"}),
+        ),
+    );
+    let w = Watch::start(&d, Some(&herdr), &["--interactive"]);
+    w.wait_err(
+        &format!("{S} failed: the provider refused the request (400)"),
+        1,
+    );
+    let got = herdr.wait_for("pane.report_metadata", 1);
+    let r = &report_requests(&got)[0];
+    assert_eq!(r["params"]["state"], "blocked");
+    assert_eq!(
+        r["params"]["state_labels"],
+        json!({"blocked": "failed · the provider refused the request (400)"})
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(w.child_alive(), "it waits");
+    w.signal(libc::SIGTERM);
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
+/// When the nth report reached herdr, after `sent`.
+fn nth_report_after(herdr: &FakeHerdr, n: usize, sent: Instant) -> Option<Duration> {
+    let (at, got) = (herdr.at.lock().unwrap(), herdr.got.lock().unwrap());
+    let mut reports = got
+        .iter()
+        .zip(at.iter())
+        .filter(|(r, _)| r["method"] == "pane.report_agent");
+    reports
+        .nth(n)
+        .map(|(_, t)| t.saturating_duration_since(sent))
+}
+
+/// From the daemon's frame to herdr's ear, 200 changes on the scripted rig:
+/// the 99th percentile within 10 ms (FAST). A change is one report.
+#[test]
+fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let d = task_daemon(
+        dir.path(),
+        task_view(10, "running", "working", "turn 1", json!({})),
+    );
+    let w = Watch::start(&d, Some(&herdr), &[]);
+    herdr.wait_for("pane.report_metadata", 1);
+    let mut lat = Vec::new();
+    for i in 0..200u64 {
+        let seen = report_requests(&herdr.requests()).len();
+        let sent = Instant::now();
+        let label = format!("turn {}", i + 2);
+        d.push(
+            "execution.changed",
+            task_view(11 + i, "running", "working", &label, json!({})),
+        );
+        lat.push(wait_until("the report", || {
+            nth_report_after(&herdr, seen, sent)
+        }));
+    }
+    lat.sort();
+    let p99 = lat[lat.len() * 99 / 100];
+    eprintln!(
+        "frame to herdr: p50 {:?}, p99 {p99:?}, max {:?}",
+        lat[lat.len() / 2],
+        lat[lat.len() - 1]
+    );
+    assert!(p99 <= Duration::from_millis(10), "p99 {p99:?}");
+    w.signal(libc::SIGTERM);
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
 }

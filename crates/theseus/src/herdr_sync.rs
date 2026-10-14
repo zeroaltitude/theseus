@@ -229,9 +229,12 @@ impl Herdr {
 struct Held {
     pane_id: String,
     session_id: String,
-    /// herdr's agent for the pane: `theseus` while a watch's state stands,
-    /// whether the watch lives or not.
+    /// herdr's agent for the pane while a watch's state stands, whether the
+    /// watch lives or not (the session's short name; none once released).
     agent: Option<String>,
+    /// The pane's `$kind` token: `task` or `conversation` marks it as
+    /// Theseus's own (theseus-qb1es), whatever agent name it reports under.
+    kind: Option<String>,
     occupant: Occupant,
 }
 
@@ -345,6 +348,7 @@ pub async fn run(
             pane_id: pane_id.to_string(),
             session_id: sid.to_string(),
             agent: p["agent"].as_str().map(str::to_string),
+            kind: p["tokens"]["kind"].as_str().map(str::to_string),
             occupant: occupant(&info["process_info"]),
         });
     }
@@ -356,7 +360,8 @@ pub async fn run(
         let Some(s) = known(&p.session_id) else {
             continue;
         };
-        if p.occupant != Occupant::Watch && p.agent.as_deref() == Some(herdr::AGENT) {
+        let ours = matches!(p.kind.as_deref(), Some("task" | "conversation"));
+        if p.occupant != Occupant::Watch && ours && p.agent.is_some() {
             h.call(
                 "pane.clear_agent_authority",
                 json!({"pane_id": p.pane_id, "source": herdr::SOURCE, "seq": herdr::next_seq()}),
@@ -411,7 +416,9 @@ pub async fn run(
                     h.call(
                         "pane.report_metadata",
                         json!({"pane_id": pane, "source": herdr::SOURCE, "agent": herdr::AGENT,
-                               "tokens": {"session": s.session_id}, "seq": herdr::next_seq()}),
+                               "tokens": {"session": s.session_id,
+                                          "kind": crate::herdr_slots::kind_token(s.kind)},
+                               "seq": herdr::next_seq()}),
                     )
                     .await?;
                     let why = format!(

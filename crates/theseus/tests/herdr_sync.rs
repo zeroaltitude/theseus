@@ -35,6 +35,8 @@ struct Pane {
     ws: String,
     session: Option<String>,
     agent: Option<String>,
+    /// The `$kind` token: a pane our watch reported has one.
+    kind: Option<String>,
     fg: Fg,
 }
 
@@ -42,7 +44,7 @@ impl Pane {
     /// As `pane.list` and `pane.split` give it.
     fn info(&self) -> Value {
         let tokens = match &self.session {
-            Some(s) => json!({ "session": s, "cost": "$0" }),
+            Some(s) => json!({ "session": s, "kind": self.kind, "cost": "$0" }),
             None => json!({}),
         };
         json!({"pane_id": self.id, "workspace_id": self.ws, "tab_id": format!("{}:t1", self.ws),
@@ -77,6 +79,7 @@ impl Model {
             ws: ws.to_string(),
             session: None,
             agent: None,
+            kind: None,
             fg: self.startup.map_or(Fg::Shell, Fg::Other),
         });
         id
@@ -160,7 +163,8 @@ impl Model {
                     let s = words[i + 1].to_string();
                     pane.fg = Fg::Watch(s.clone());
                     pane.session = Some(s);
-                    pane.agent = Some("theseus".into());
+                    pane.agent = Some("Tide notes".into());
+                    pane.kind = Some("conversation".into());
                 }
                 json!({"type": "ok"})
             }
@@ -170,7 +174,9 @@ impl Model {
             }
             "pane.report_metadata" => {
                 if let Some(s) = p["tokens"]["session"].as_str() {
-                    self.pane(&pane_id).session = Some(s.to_string());
+                    let pane = self.pane(&pane_id);
+                    pane.session = Some(s.to_string());
+                    pane.kind = p["tokens"]["kind"].as_str().map(str::to_string);
                 }
                 json!({"type": "ok"})
             }
@@ -336,12 +342,23 @@ fn sync_makes_mends_and_then_sends_only_reads() {
         ws: "w1".into(),
         session: s.map(str::to_string),
         agent: agent.map(str::to_string),
+        kind: s.map(|_| "conversation".to_string()),
         fg,
     };
     model.panes = vec![
         pane("w1:p1", None, None, Fg::Shell),
-        pane("w1:p2", Some("ses_done04"), Some("theseus"), Fg::Shell),
-        pane("w1:p3", Some("ses_crash5"), Some("theseus"), Fg::Shell),
+        pane(
+            "w1:p2",
+            Some("ses_done04"),
+            Some("Write the harbour log"),
+            Fg::Shell,
+        ),
+        pane(
+            "w1:p3",
+            Some("ses_crash5"),
+            Some("Write the harbour log"),
+            Fg::Shell,
+        ),
         pane("w1:p4", Some("ses_busy06"), None, Fg::Other("vim")),
         pane(
             "w1:p5",
@@ -546,4 +563,45 @@ fn sync_without_herdr_says_so() {
     assert_eq!(code, 1, "{out}{err}");
     assert!(err.contains("connecting to herdr at"), "{err}");
     assert!(err.contains("no-herdr.sock"), "{err}");
+}
+
+/// A pane is Theseus's by its `kind` token, not by its agent's name
+/// (theseus-qb1es): an agent the old build named `theseus`, with no `kind`
+/// token, is not swept; one with a task's short name and the token is.
+#[test]
+fn a_pane_is_ours_by_its_kind_token_not_its_agent_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = daemon(
+        dir.path(),
+        json!([
+            session("ses_done04", "idle", "complete"),
+            session("ses_crash5", "idle", "complete")
+        ]),
+    );
+    let pane = |id: &str, s: &str, agent: &str, kind: Option<&str>| Pane {
+        id: id.into(),
+        ws: "w1".into(),
+        session: Some(s.into()),
+        agent: Some(agent.into()),
+        kind: kind.map(str::to_string),
+        fg: Fg::Shell,
+    };
+    let model = Model {
+        workspaces: vec![("w1".into(), "theseus".into())],
+        next_ws: 1,
+        next_pane: 9,
+        panes: vec![
+            pane("w1:p2", "ses_done04", "theseus", None),
+            pane("w1:p3", "ses_crash5", "Write the harbour log", Some("task")),
+        ],
+        ..Model::default()
+    };
+    let herdr = FakeHerdr::start(dir.path(), model);
+    let (code, out, err) = sync(&d, &herdr.sock, &[]);
+    assert_eq!(code, 0, "{out}{err}");
+    let swept: Vec<String> = brief(&herdr.take())
+        .into_iter()
+        .filter(|r| r.starts_with("pane.clear_agent_authority"))
+        .collect();
+    assert_eq!(swept, ["pane.clear_agent_authority w1:p3"], "{out}");
 }

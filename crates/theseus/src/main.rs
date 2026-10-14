@@ -22,6 +22,7 @@ mod follow;
 mod fork;
 mod harness;
 mod herdr;
+mod herdr_slots;
 mod herdr_sync;
 mod import;
 mod import_sync;
