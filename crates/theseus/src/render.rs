@@ -1859,8 +1859,19 @@ pub fn push_line(p: &theseus_protocol::PushStatus) -> String {
         );
     }
     let s = |n: u64| if n == 1 { "" } else { "s" };
+    // The work board's watchers (theseus-hkx30), named only while one watches.
+    let work = if p.work_watchers == 0 {
+        String::new()
+    } else {
+        format!(
+            " · {} task watcher{} ({} interactive)",
+            p.work_watchers,
+            s(p.work_watchers),
+            p.interactive
+        )
+    };
     format!(
-        "push: {} watcher{} · {} waiting · board {} · {} question{} · {} event{} · lost {} · at \
+        "push: {} watcher{}{work} · {} waiting · board {} · {} question{} · {} event{} · lost {} · at \
          position {} · seeded in {}",
         p.watchers,
         s(p.watchers),

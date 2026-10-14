@@ -333,6 +333,12 @@ pub struct PushStatus {
     /// Connections with an `executions.watch`.
     #[serde(default)]
     pub watchers: u64,
+    /// Connections with a `work.watch`, and how many of them are screens a
+    /// person is looking at (`work.watch { interactive }`, theseus-hkx30).
+    #[serde(default)]
+    pub work_watchers: u64,
+    #[serde(default)]
+    pub interactive: u64,
     /// `execution.changed` notifications made since the daemon started.
     #[serde(default)]
     pub events: u64,

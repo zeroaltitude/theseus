@@ -104,6 +104,8 @@ impl Core {
             spool: self.spool_status(),
             push: Some(theseus_protocol::PushStatus {
                 connections: self.conns.status(),
+                work_watchers: self.bus.work_watchers() as u64,
+                interactive: self.bus.interactive_watchers() as u64,
                 ..self.push.status(self.bus.all_watchers())
             }),
             aws: self.tools.aws.as_ref().map(|a| a.status()),

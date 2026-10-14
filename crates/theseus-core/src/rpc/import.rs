@@ -57,6 +57,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::earned::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
         || name.starts_with("standing.")
+        || name.starts_with("work.")
         || name == method::LEDGER_VERIFY
 }
 
@@ -95,6 +96,9 @@ impl Core {
         }
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);
+        }
+        if name.starts_with("work.") {
+            return self.rpc_work(name, params, conn).await;
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);

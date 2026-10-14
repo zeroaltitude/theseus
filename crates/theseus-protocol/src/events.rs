@@ -536,6 +536,10 @@ events! {
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
     /// A reminder fired (theseus-8ux6x).
     WakeNoticed(crate::wakes::WakeNoticed) = notify::WAKE_NOTICED,
+    /// A frame changed the work board (theseus-hkx30).
+    WorkChanged(crate::work_watch::WorkChanged) = notify::WORK_CHANGED,
+    /// The notification policy's notice for a work view's change.
+    WorkNotice(crate::notices::Notice) = notify::WORK_NOTICE,
 }
 
 impl Event {
@@ -560,7 +564,9 @@ impl Event {
             Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
-            Event::LoopStarted(_)
+            Event::WorkChanged(_)
+            | Event::WorkNotice(_)
+            | Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
             | Event::ModelAnswered(_)
@@ -601,6 +607,8 @@ impl Event {
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
             | Event::WakeNoticed(_)
+            | Event::WorkChanged(_)
+            | Event::WorkNotice(_)
             | Event::EventsLost(_) => None,
         }
     }

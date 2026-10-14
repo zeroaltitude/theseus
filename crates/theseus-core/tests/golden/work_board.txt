@@ -1,0 +1,20 @@
+NOTICES
+  Inform Finished ✓ START: run this as a background task, please; and plan it is ready
+  Inform Finished ✓ sleep # ended
+  Inform Reported 📋 CHILD-A: do the A part reported: reported
+  Inform Reported 📋 CHILD-B: do the B part reported: cancelled by test
+  Inform Reported 📋 CHILD-C: do the C part reported: reported
+  Inform Woke ⏰ START: run this as a background task, please; and plan it · the tide turns
+  Interrupt Asked ● CHILD-C: do the C part asks: fs.write <work>/c.txt? · expires #:#
+  Quiet Answered ✓ approved by operator: CHILD-C: do the C part
+TREE
+  Conversation Ready START: run this as a background task, please; and plan it steps #/# below needs_you # working # done # failed #
+    Job Done sleep #
+    Step Done step #
+    Step Done step #
+    Step Done step #
+    Task Cancelled CHILD-B: do the B part
+    Task Done CHILD-A: do the A part
+    Task Done CHILD-C: do the C part below needs_you # working # done # failed #
+    Wake Done the tide turns
+      Question Done fs.write <work>/c.txt

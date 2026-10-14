@@ -1,0 +1,300 @@
+//! The work board over real connections (theseus-hkx30): what a client that
+//! lost events does, who counts as a screen a person is looking at, and what a
+//! connection that reads no private text may see.
+
+use theseus_protocol::{
+    work::{WorkKind, WorkView},
+    WorkWatchResult,
+};
+
+use super::*;
+use crate::approval::{Client, Surface};
+
+/// A connection that reads only when told to, as `surface`.
+fn connect(core: &Arc<Core>, name: &str, surface: Surface, buffer: usize) -> Raw {
+    let (client, server) = tokio::io::duplex(buffer);
+    let (sr, sw) = tokio::io::split(server);
+    tokio::spawn(
+        core.clone()
+            .serve_connection(sr, sw, Client::new(name, surface)),
+    );
+    let (cr, w) = tokio::io::split(client);
+    Raw {
+        lines: BufReader::new(cr).lines(),
+        w,
+        notes: Vec::new(),
+    }
+}
+
+fn snapshot(r: Response) -> WorkWatchResult {
+    serde_json::from_value(r.result.expect("a result")).unwrap()
+}
+
+/// What a snapshot says of each view, by id.
+fn key(s: &WorkWatchResult) -> BTreeMap<String, (u64, String, WorkKind)> {
+    s.views
+        .iter()
+        .map(|v| {
+            (
+                v.id.clone(),
+                (v.position, v.attention.label.clone(), v.kind),
+            )
+        })
+        .collect()
+}
+
+/// A client that stops reading hears what it lost, and its re-snapshot equals
+/// a fresh client's: the board's frames are streamed as `work`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_that_loses_work_events_catches_up_by_a_snapshot() {
+    const CAP: usize = 64;
+    const SESSIONS: usize = 120;
+    let r = rig_full(vec![], false, true);
+    r.core
+        .push
+        .backlog_cap
+        .store(CAP, std::sync::atomic::Ordering::Relaxed);
+    let mut slow = connect(&r.core, "slow", Surface::Cli, 16 * 1024);
+    let first = snapshot(
+        slow.call(1, method::WORK_WATCH, json!({"limit": 10_000}))
+            .await,
+    );
+    assert_eq!(first.total, 0);
+    // It stops reading. Each conversation's turn is several frames.
+    for _ in 0..SESSIONS {
+        turn(&r.core, None).await;
+    }
+    let last = last_kernel_position(&r.core);
+    r.core
+        .push
+        .feed()
+        .wait_for(|&p| p >= last)
+        .await
+        .expect("the board's feed");
+    assert!(r.core.push.status(0).lost > 0, "the cap dropped some");
+    let lost = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), slow.lines.next_line())
+            .await
+            .expect("a line in 30 s")
+            .unwrap()
+            .unwrap();
+        let Message::Notification(n) = serde_json::from_str::<Message>(&line).unwrap() else {
+            continue;
+        };
+        match n.method.as_str() {
+            notify::WORK_CHANGED | notify::WORK_NOTICE => {}
+            notify::EVENTS_LOST => break n.params,
+            other => panic!("unexpected {other}"),
+        }
+    };
+    assert_eq!(lost["streams"], json!(["work"]));
+    assert!(lost["dropped"].as_u64().unwrap() > 0);
+    let again = snapshot(
+        slow.call(2, method::WORK_WATCH, json!({"limit": 10_000}))
+            .await,
+    );
+    let mut fresh = connect(&r.core, "fresh", Surface::Cli, 1 << 20);
+    let fresh = snapshot(
+        fresh
+            .call(1, method::WORK_WATCH, json!({"limit": 10_000}))
+            .await,
+    );
+    assert_eq!(again.views.len(), SESSIONS);
+    assert_eq!(key(&again), key(&fresh));
+    assert_eq!(again.position, fresh.position);
+}
+
+/// `work.watch` with `interactive` is counted once, apart from the rest, and
+/// uncounted when the connection goes or watches again as a reader; health's
+/// push line says both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interactive_watchers_count_and_uncount() {
+    let r = rig();
+    let mut screen = connect(&r.core, "screen", Surface::Cli, 1 << 16);
+    let mut digest = connect(&r.core, "digest", Surface::Cli, 1 << 16);
+    snapshot(
+        screen
+            .call(1, method::WORK_WATCH, json!({"interactive": true}))
+            .await,
+    );
+    snapshot(digest.call(1, method::WORK_WATCH, json!({})).await);
+    assert_eq!(
+        (
+            r.core.bus.work_watchers(),
+            r.core.bus.interactive_watchers()
+        ),
+        (2, 1)
+    );
+    let push = r.core.health().push.unwrap();
+    assert_eq!(
+        (push.work_watchers, push.interactive),
+        (2, 1),
+        "health says both"
+    );
+    // The same connection watches again, no longer a screen.
+    snapshot(screen.call(2, method::WORK_WATCH, json!({})).await);
+    assert_eq!(r.core.bus.interactive_watchers(), 0);
+    snapshot(
+        digest
+            .call(2, method::WORK_WATCH, json!({"interactive": true}))
+            .await,
+    );
+    assert_eq!(r.core.bus.interactive_watchers(), 1);
+    // It goes away.
+    drop(digest);
+    for _ in 0..400 {
+        if r.core.bus.work_watchers() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        (
+            r.core.bus.work_watchers(),
+            r.core.bus.interactive_watchers()
+        ),
+        (1, 0),
+        "a closed connection is no screen"
+    );
+    let off = screen.call(3, method::WORK_UNWATCH, json!({})).await;
+    assert_eq!(off.result.unwrap()["watching"], false);
+    assert_eq!(r.core.bus.work_watchers(), 0);
+}
+
+/// What a connection that reads no private text hears: it must name its
+/// conversations, a private one named is left out without a word, the title it
+/// gets passes the scrubber, and it hears nothing of the others as they
+/// change. The owner's own surface sees the whole board.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_shared_places_watch_sees_no_private_title() {
+    use crate::places::BoundPlace;
+    use crate::tests_places::{session, turn as say, LAB};
+    let r = rig();
+    r.core.bind_places(vec![BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: false,
+        ..Default::default()
+    }]);
+    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
+    let private = session(&r.core, None);
+    // A token, built from parts so this file holds none whole.
+    let token = ["ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"].concat();
+    say(&r.core, &shared, &format!("deploy with {token} today")).await;
+    say(
+        &r.core,
+        &private,
+        "the owner's private plan for the quarter",
+    )
+    .await;
+
+    // A binding says which conversations it asks for.
+    let mut binding = Raw::connect(&r.core, "binding", 1 << 20);
+    let refused = binding.call(1, method::WORK_WATCH, json!({})).await;
+    assert!(
+        refused.error.is_some(),
+        "a surface that reads no private text names its roots"
+    );
+    let snap = snapshot(
+        binding
+            .call(2, method::WORK_WATCH, json!({"roots": [shared, private]}))
+            .await,
+    );
+    assert_eq!(
+        snap.views.len(),
+        1,
+        "the private root is left out: {:?}",
+        snap.views
+    );
+    let seen = &snap.views[0];
+    assert_eq!(seen.kind, WorkKind::Conversation);
+    assert!(seen.title.starts_with("deploy with "), "{}", seen.title);
+    assert!(
+        !seen.title.contains(&token),
+        "the scrubber ran: {}",
+        seen.title
+    );
+    let every_word = serde_json::to_string(&snap.views).unwrap();
+    assert!(!every_word.contains("private plan"), "{every_word}");
+
+    // The owner's surface sees both, and the token as typed.
+    let mut cli = connect(&r.core, "cli", Surface::Cli, 1 << 20);
+    let whole = snapshot(cli.call(1, method::WORK_WATCH, json!({})).await);
+    assert_eq!(whole.views.len(), 2);
+    assert!(whole.views.iter().any(|v| v.title.contains("private plan")));
+
+    // The private conversation changes: the binding hears nothing of it.
+    say(&r.core, &private, "another private thing").await;
+    say(&r.core, &shared, "and a public one").await;
+    let mut heard: Vec<String> = Vec::new();
+    while let Ok(Ok(Some(l))) =
+        tokio::time::timeout(Duration::from_millis(600), binding.lines.next_line()).await
+    {
+        heard.push(l);
+    }
+    let heard = heard.join("\n");
+    assert!(
+        heard.contains(notify::WORK_CHANGED),
+        "it hears its own root change"
+    );
+    assert!(!heard.contains("private"), "{heard}");
+    assert!(!heard.contains(&token), "{heard}");
+}
+
+/// A guarded scope cuts a question's power to answer and scrubs its words;
+/// the whole scope hands a view over as it is.
+#[test]
+fn a_guarded_scope_scrubs_and_cannot_answer() {
+    use crate::push::WorkScope;
+    use theseus_protocol::work::{AnswerOption, Question, QuestionKind, Style, WorkRef, WorkState};
+    let token = ["ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"].concat();
+    let scrubber = crate::scrub::Scrubber::default();
+    let who = WorkRef {
+        id: "exe_1".into(),
+        kind: WorkKind::Task,
+        session_id: None,
+        title: String::new(),
+    };
+    let mut view: WorkView = serde_json::from_value(json!({
+        "id": "act_1", "kind": "question", "position": 5, "at_ms": 1, "root": "exe_1",
+        "title": format!("curl -H {token}"), "state": "needs_you",
+        "attention": {"level": "needs_you", "label": "confirm", "since_ms": 1},
+        "started_at_ms": 1, "state_since_ms": 1
+    }))
+    .unwrap();
+    assert_eq!(view.state, WorkState::NeedsYou);
+    view.question = Some(Question {
+        id: "act_1".into(),
+        kind: QuestionKind::Approval,
+        asked_by: who,
+        prompt: format!("proc.run curl -H {token}"),
+        detail: None,
+        input: None,
+        options: vec![AnswerOption {
+            id: "approve".into(),
+            label: "Approve".into(),
+            style: Style::Primary,
+            takes_note: false,
+            effect: String::new(),
+        }],
+        on_expiry: None,
+        expires_at_ms: None,
+        floor: false,
+        may_answer: true,
+        tool: Some("proc.run".into()),
+        asked_at_ms: 1,
+        external_text: false,
+        choices: vec![],
+    });
+    let guarded = WorkScope {
+        roots: None,
+        guarded: true,
+    };
+    let shown = guarded.show(&view, &scrubber);
+    let words = serde_json::to_string(&shown).unwrap();
+    assert!(!words.contains(&token), "{words}");
+    assert!(!shown.question.as_ref().unwrap().may_answer);
+    let whole = WorkScope::default().show(&view, &scrubber);
+    assert!(whole.question.as_ref().unwrap().may_answer);
+    assert!(serde_json::to_string(&whole).unwrap().contains(&token));
+}

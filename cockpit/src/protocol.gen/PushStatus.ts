@@ -28,6 +28,11 @@ questions: number,
  */
 watchers: number, 
 /**
+ * Connections with a `work.watch`, and how many of them are screens a
+ * person is looking at (`work.watch { interactive }`, theseus-hkx30).
+ */
+work_watchers: number, interactive: number, 
+/**
  * `execution.changed` notifications made since the daemon started.
  */
 events: number, 

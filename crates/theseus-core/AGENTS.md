@@ -1264,7 +1264,30 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Facts**: `crates/theseus-core/src/fact/`: every ledger row, notification, narrative line, and span of the turn,
   its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
   `crates/theseus-protocol/src/ledger.rs`.
-- **The push's board**: `crates/theseus-core/src/push.rs`, fed by `Kernel::observe`; `attention()` is in
+- **The work board** (theseus-hkx30; `push/work.rs` and `push/work/`): one `WorkView` per conversation, task, plan step,
+  job, open question and pending wake, in one tree, kept as a projection of the frames the push already sees and
+  written nowhere. It is fed by the push's one applier pass, after the execution board (`push/board.rs`, the old
+  `push.rs` board moved whole) has taken the frame: its changed `ExecutionView`s, and the frame's ACTION, TASK, SESSION
+  and allow-listed LEDGER records (`work::wanted` finds a row's kind a few bytes in, on the committing thread; the rows
+  are `turn.started`, `loop.ended`, `tool.job_started`, `tool.confirm_requested`, `action.*`, `wake.*`, `task.*` and
+  `execution.queued`). The observer also sees what the core writes beside the kernel's frames: `Store::observe` calls it
+  for the core's own writes (a turn's rows, a session's and a task's record), and for the rows a turn defers that ride a
+  kernel frame (the kernel's observer has its records, the store's the waiting rows in front). `views.rs` builds a view
+  from its entity's inputs; `settle.rs` compares it with the one held (`same_work`), prunes the ended (the 50 newest
+  per root stay, older ones leave in `gone` and stay counted in the root's `below`), rolls the ancestors up (`below`,
+  `progress` from the plan steps), and asks `notices::policy` for a notice per changed view, at most one a frame, kept in
+  a ring of 4,096 (`notices_since`). One entity per action: a question's view has the correlation id as its id and, once
+  approved, the same id goes on as the job. A question is told by its own view only (`quiet_here`), a wake by the
+  conversation's `woke`. `seed.rs` seeds from what the execution board's seed read (no settled action), and `warm`
+  fills jobs' commands and usual times (`eta.rs`: the last 16 durations per program key, median) after serving, in place:
+  a client applies by the position rule, so the next frame sends those views again (`stale`). `place.rs` is the place
+  rule: a connection that reads no private text names its roots, hears only a shared place's, scrubbed, and cannot
+  answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
+  counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
+  question's reminder (rule 2 of the policy) is not made. Tests: `tests_work.rs` (the scenario and its golden,
+  `tests/golden/work_board.txt`), `tests_push/work.rs`, `push/work/tests.rs`, `push/tests/work.rs` (the seed equals the
+  replay).
+- **The push's board**: `crates/theseus-core/src/push/board.rs` (and `push.rs`), fed by `Kernel::observe`; `attention()` is in
   `crates/theseus-protocol/src/push.rs`. A view's `outstanding` counts tool calls only, never the model's own
   (`tool_calls`, as `park` counts them), and `same()` compares it; a queued view keeps its `why` until it leaves
   `queued`; `confirm.list` lists a question from its plan on (theseus-q5af).

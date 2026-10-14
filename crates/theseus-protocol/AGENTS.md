@@ -27,6 +27,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   policy before the daemon's work board fills views itself. `tests_work_join.rs` holds `attention_of()` to
   `attention()` over every view the push carries, but for what a work view does not carry (`· +1 more`, a ready
   session's wake time, an unknown state's name, a failed one's pending question).
+- `work_watch.rs` (theseus-hkx30): `work.watch`'s params and snapshot (`WorkWatchParams`: `limit`, `roots` (session
+  ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
+  frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries
+  `notices::Notice` as it is. Fixtures in `tests/wire/work/`.
 - `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
   is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
   how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's
