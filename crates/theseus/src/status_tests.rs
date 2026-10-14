@@ -411,3 +411,21 @@ async fn wait_any_does_not_answer_a_failure_that_was_there_before_it_began() {
     assert_eq!((r.reached.as_str(), r.already), ("blocked", false));
     assert_eq!(r.execution.unwrap().execution_id, "exe_b");
 }
+
+/// The daemon's own jobs running are on the first line, after the time and
+/// before the counts (theseus-jn17m); the short line is untouched.
+#[test]
+fn the_first_line_says_the_daemons_own_jobs_running() {
+    let b = five();
+    let mut s = b.summary(T0, 0, &HashMap::new());
+    assert_eq!(
+        header_line(&s, T0, &hm),
+        "theseus 06:26 · ● 1 needs you · ◐ 2 working · ✗ 1 failed"
+    );
+    s.system = Some("⚙ importing 41/120".into());
+    assert_eq!(
+        header_line(&s, T0, &hm),
+        "theseus 06:26 · ⚙ importing 41/120 · ● 1 needs you · ◐ 2 working · ✗ 1 failed"
+    );
+    assert_eq!(short_line(&s), "●1 ◐2 ✗1");
+}

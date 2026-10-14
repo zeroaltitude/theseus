@@ -125,7 +125,12 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         Err(_) => bail!("the daemon did not answer within {within:?}"),
     };
     let now = now_ms();
-    let sum = board.summary(now, new_since_seen(), &displayed());
+    let mut sum = board.summary(now, new_since_seen(), &displayed());
+    // The long form's first line says the daemon's own jobs running, from
+    // the work board (theseus-jn17m); `--short` and `--json` ask nothing more.
+    if !a.short && !json {
+        sum.system = system_words(&mut conn).await;
+    }
     let mut out = std::io::stdout().lock();
     if json {
         writeln!(out, "{}", serde_json::to_string(&board.json(&sum))?)?;
@@ -152,6 +157,33 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         theseus_client::shown::shown(&mut conn, &shown).await;
     }
     conn.close().await
+}
+
+/// The daemon's own jobs running (`⚙ importing 41/120`), from the work board,
+/// asked for within a second; none when it does not answer (a daemon that
+/// predates the board, or a busy one). The watch it opens is closed at once.
+async fn system_words(conn: &mut Conn) -> Option<String> {
+    use theseus_protocol::{WorkWatchParams, WorkWatchResult};
+    // The daemon's own work alone (`system`), not the whole board.
+    let p = WorkWatchParams {
+        limit: Some(0),
+        roots: Some(vec![theseus_protocol::work_system::ROOT.to_string()]),
+        interactive: None,
+    };
+    let ask = async {
+        let v = conn
+            .request(method::WORK_WATCH, serde_json::to_value(p).ok()?)
+            .await
+            .ok()?;
+        let _ = conn
+            .request(method::WORK_UNWATCH, serde_json::json!({}))
+            .await;
+        serde_json::from_value::<WorkWatchResult>(v).ok()
+    };
+    let snap = tokio::time::timeout(std::time::Duration::from_secs(1), ask)
+        .await
+        .ok()??;
+    theseus_protocol::work_system::status_words(&snap.views)
 }
 
 /// What the one-shot read brought back.
@@ -188,6 +220,7 @@ fn short_summary_with(r: &StatusShortResult, new: u32, shown: &HashMap<String, u
         new,
         wake_at_ms: None,
         first: r.first.clone(),
+        system: None,
     }
 }
 
@@ -301,6 +334,7 @@ impl Board {
                 .iter()
                 .find(|v| v.attention.level == Level::NeedsYou)
                 .map(|v| v.execution_id.clone()),
+            system: None,
         }
     }
 
@@ -355,6 +389,10 @@ pub struct Summary {
     pub wake_at_ms: Option<u64>,
     /// The execution that has needed you longest.
     pub first: Option<String>,
+    /// The daemon's own jobs running, in a few words (`⚙ importing 41/120`):
+    /// the long form asks the work board for them (theseus-jn17m).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
 }
 
 impl Summary {
@@ -386,6 +424,7 @@ pub fn short_line(s: &Summary) -> String {
 /// ✗ 1 failed · ◆ 2 new · ⏰ 18:20`.
 pub fn header_line(s: &Summary, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
     let mut parts = vec![format!("theseus {}", hm(now_ms))];
+    parts.extend(s.system.clone());
     for (text, n) in [
         ("● {} needs you", s.needs_you),
         ("◐ {} working", s.working),

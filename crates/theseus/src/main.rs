@@ -854,6 +854,10 @@ enum IndexCmd {
     /// The index and its tender: state, nodes and chunks, how far behind the store it is, its
     /// process, and its vectors.
     Status,
+    /// Drop the index and build it again from the WAL. The daemon watches it and writes its
+    /// start, progress and end, so `theseus work` and `theseus status` show it as the daemon's
+    /// own work. The owner's act, from their own shell.
+    Rebuild,
     /// The best chunks for QUERY, each with its node, session, WAL position, and the sources that
     /// ranked it (bm25, entity, vector), fused as recall fuses them, vectors weighing most.
     Search {

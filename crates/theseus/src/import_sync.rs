@@ -170,12 +170,19 @@ struct Sent {
     skipped: u64,
     rejected: Vec<ImportRejected>,
     touched: Vec<ImportTouched>,
+    /// Batches sent so far: each says its number, never a total (the
+    /// exporter streams), so the board shows `batch 41` until the run's
+    /// record ends it (theseus-jn17m).
+    batches: u32,
 }
 
 async fn send(conn: &mut Conn, name: &str, lines: Vec<ImportLine>, total: &mut Sent) -> Result<()> {
+    total.batches += 1;
     let p = ImportEpisodesParams {
         file: name.to_string(),
         lines,
+        batch: Some(total.batches),
+        batches: None,
     };
     let v = conn
         .request(method::IMPORT_EPISODES, serde_json::to_value(p)?)

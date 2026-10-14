@@ -42,6 +42,25 @@ pub const BATCH_BYTES: usize = 4 << 20;
 /// The pause between two batches.
 pub(crate) const PAUSE: Duration = Duration::from_millis(20);
 
+/// A batch's number in its run and the run's total, as the work board shows
+/// them (theseus-jn17m). Only the last batch says it is the last (`batches ==
+/// batch`), which ends the board's job; an earlier one's total is an estimate
+/// kept above its own number, so a low guess never ends the job early.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Numbered {
+    pub batch: u32,
+    pub batches: u32,
+}
+
+impl Numbered {
+    pub(crate) fn of(batch: u32, estimate: u32, last: bool) -> Self {
+        Self {
+            batch,
+            batches: if last { batch } else { estimate.max(batch + 1) },
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum ImportCmd {
     /// Import episode files (JSON Lines, episode format 1): each episode an imported session,
@@ -243,9 +262,12 @@ async fn file(conn: &mut Conn, path: &PathBuf) -> Result<ImportEpisodesResult> {
     let f = tokio::fs::File::open(path)
         .await
         .with_context(|| format!("opening {name}"))?;
+    let f_len = f.metadata().await.map_or(0, |m| m.len());
     let mut reader = BufReader::new(f);
     let mut total = ImportEpisodesResult::default();
     let mut batch: Vec<ImportLine> = Vec::new();
+    let estimate = f_len.div_ceil(BATCH_BYTES as u64).max(1) as u32;
+    let mut sent = 0u32;
     let mut bytes = 0;
     let mut number = 0u64;
     let mut buf = Vec::new();
@@ -274,13 +296,17 @@ async fn file(conn: &mut Conn, path: &PathBuf) -> Result<ImportEpisodesResult> {
             }
         }
         if batch.len() >= BATCH_LINES || bytes >= BATCH_BYTES {
-            send(conn, &name, std::mem::take(&mut batch), &mut total).await?;
+            sent += 1;
+            let n = Numbered::of(sent, estimate, false);
+            send(conn, &name, std::mem::take(&mut batch), &mut total, n).await?;
             bytes = 0;
             tokio::time::sleep(PAUSE).await;
         }
     }
     if !batch.is_empty() {
-        send(conn, &name, batch, &mut total).await?;
+        sent += 1;
+        let n = Numbered::of(sent, estimate, true);
+        send(conn, &name, batch, &mut total, n).await?;
     }
     Ok(total)
 }
@@ -290,10 +316,13 @@ async fn send(
     file: &str,
     lines: Vec<ImportLine>,
     total: &mut ImportEpisodesResult,
+    n: Numbered,
 ) -> Result<()> {
     let p = ImportEpisodesParams {
         file: file.to_string(),
         lines,
+        batch: Some(n.batch),
+        batches: Some(n.batches),
     };
     let v = conn
         .request(method::IMPORT_EPISODES, serde_json::to_value(p)?)

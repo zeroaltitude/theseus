@@ -63,6 +63,8 @@ pub enum Purpose {
     Typing,
     /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
     Health,
+    /// `work.watch` naming `system`: the daemon's own jobs (theseus-jn17m).
+    System,
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -176,6 +178,10 @@ pub struct App {
     /// The OpenClaw sync's warning, from `health` at each connect: a failed or
     /// a missed night (theseus-pjmj7).
     pub sync_warn: Option<String>,
+    /// The daemon's own work (theseus-jn17m): the `Theseus` root and its jobs,
+    /// from `work.watch` naming `system`, by id, kept by the position rule.
+    /// The header says the root collapsed (`⚙ importing 41/120`).
+    pub system: std::collections::BTreeMap<String, theseus_protocol::work::WorkView>,
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
@@ -213,6 +219,7 @@ impl App {
             title: String::new(),
             save_at: None,
             sync_warn: None,
+            system: Default::default(),
         }
     }
 
@@ -380,6 +387,7 @@ impl App {
         let mut out = vec![
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
+            system_watch(),
         ];
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
@@ -435,6 +443,26 @@ impl App {
             }
             Event::EventsLost(lost) => out.extend(self.lost(&lost)),
             Event::WakeNoticed(n) => out.extend(self.noticed(&n)),
+            Event::WorkChanged(c) => {
+                for v in c.views {
+                    if self
+                        .system
+                        .get(&v.id)
+                        .is_none_or(|o| v.position > o.position)
+                    {
+                        self.system.insert(v.id.clone(), v);
+                    }
+                }
+                for id in &c.gone {
+                    self.system.remove(id);
+                }
+            }
+            // A system job that failed or ended after a long run: a line in
+            // the footer, no ring (an Inform; the TUI's own notices are the
+            // executions').
+            Event::WorkNotice(n) if n.work.kind == theseus_protocol::work::WorkKind::System => {
+                self.flash = Some((Tag::Warn, n.line));
+            }
             _ => {}
         }
         out
@@ -470,6 +498,9 @@ impl App {
         let all = lost.streams.is_empty();
         if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
+        }
+        if all || lost.streams.iter().any(|s| s == "work") {
+            out.push(system_watch());
         }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             let stream = format!("session:{sid}");
@@ -580,6 +611,11 @@ impl App {
                 }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
+            Purpose::System => {
+                if let Ok(snap) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
+                    self.system = snap.views.into_iter().map(|v| (v.id.clone(), v)).collect();
+                }
+            }
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -588,7 +624,7 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(purpose, Purpose::Typing | Purpose::Health | Purpose::System) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -621,6 +657,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::System => method::WORK_WATCH,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -1159,6 +1196,16 @@ fn sync_warning(v: Value) -> Option<String> {
     }
     let h: Sync = serde_json::from_value(v).unwrap_or_default();
     h.imported.and_then(|i| i.sync).and_then(|s| s.warn)
+}
+
+/// The daemon's own work (theseus-jn17m): `work.watch` of the `system` root
+/// alone, so the TUI hears the daemon's jobs and none of the whole board.
+fn system_watch() -> Effect {
+    call(
+        method::WORK_WATCH,
+        json!({"roots": [theseus_protocol::work_system::ROOT], "limit": 0}),
+        Purpose::System,
+    )
 }
 
 /// `executions.watch`: the board's snapshot, then its events.

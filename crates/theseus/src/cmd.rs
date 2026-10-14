@@ -970,6 +970,20 @@ pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
                 Ok(())
             })
         }
+        IndexCmd::Rebuild => {
+            let v = conn.request(method::INDEX_REBUILD, Value::Null).await?;
+            output(json, v, |r: theseus_protocol::index::IndexRebuildResult| {
+                println!(
+                    "{}",
+                    if r.accepted {
+                        "the index is being rebuilt from the WAL: theseus work shows it"
+                    } else {
+                        "the tender did not accept the rebuild"
+                    }
+                );
+                Ok(())
+            })
+        }
         IndexCmd::Search {
             query,
             k,

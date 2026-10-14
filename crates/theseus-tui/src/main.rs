@@ -33,6 +33,8 @@ mod tests_paste;
 #[cfg(test)]
 mod tests_sync;
 #[cfg(test)]
+mod tests_system;
+#[cfg(test)]
 mod tests_typing;
 
 use std::io::Write;
