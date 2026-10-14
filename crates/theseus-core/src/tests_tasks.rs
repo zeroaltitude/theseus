@@ -33,9 +33,9 @@ const TARGET: &str = "discord:dm:42";
 pub(crate) struct Model {
     script: Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>,
     pub(crate) requests: Mutex<Vec<ProviderRequest>>,
-    hold: Mutex<Option<String>>,
+    pub(crate) hold: Mutex<Option<String>>,
     entered: tokio::sync::mpsc::UnboundedSender<String>,
-    gate: tokio::sync::Semaphore,
+    pub(crate) gate: tokio::sync::Semaphore,
 }
 
 impl Provider for Model {

@@ -14,12 +14,23 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use theseus_protocol::{notify, Event, Message};
+use theseus_protocol::{notify, Event, Message, WorkChanged};
 
 use crate::outbound::{Note, Outbound};
+use crate::push::{WorkOut, WorkScope};
+use crate::scrub::Scrubber;
 
 /// A watcher: its connection id and where its messages go.
 type Watcher = (String, Outbound);
+
+/// A `work.watch` connection (theseus-hkx30): what it sees, and whether a
+/// person is looking at its screen.
+struct WorkWatcher {
+    conn: String,
+    tx: Outbound,
+    scope: WorkScope,
+    interactive: bool,
+}
 
 #[derive(Default)]
 pub struct SessionBus {
@@ -27,6 +38,9 @@ pub struct SessionBus {
     /// The `executions.watch` subscribers (theseus-in3). The lock order is
     /// `subs`, then `all`.
     all: Mutex<Vec<Watcher>>,
+    /// The `work.watch` subscribers (theseus-hkx30), each with its scope.
+    /// Taken alone: never under `subs` or `all`.
+    work: Mutex<Vec<WorkWatcher>>,
     /// A test's tap: every message published, whoever watches (the output
     /// golden, theseus-j6qn).
     #[cfg(test)]
@@ -71,6 +85,103 @@ impl SessionBus {
         self.all.lock().unwrap().len()
     }
 
+    /// Watch the work board (`work.watch`), replacing an earlier watch of the
+    /// same connection. `interactive` marks a screen a person is looking at.
+    pub fn watch_work(
+        &self,
+        conn: &str,
+        tx: impl Into<Outbound>,
+        scope: WorkScope,
+        interactive: bool,
+    ) {
+        let mut w = self.work.lock().unwrap();
+        w.retain(|x| x.conn != conn);
+        w.push(WorkWatcher {
+            conn: conn.to_string(),
+            tx: tx.into(),
+            scope,
+            interactive,
+        });
+    }
+
+    /// End a connection's `work.watch`: true if it had one.
+    pub fn unwatch_work(&self, conn: &str) -> bool {
+        let mut w = self.work.lock().unwrap();
+        let before = w.len();
+        w.retain(|x| x.conn != conn);
+        w.len() < before
+    }
+
+    /// The connections with a `work.watch`.
+    pub fn work_watchers(&self) -> usize {
+        self.work.lock().unwrap().len()
+    }
+
+    /// The connections with a `work.watch` that are a screen a person is
+    /// looking at. Counted here and nowhere else: a connection that
+    /// closes, or watches again as a background reader, is no longer one.
+    pub fn interactive_watchers(&self) -> usize {
+        self.work
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| w.interactive)
+            .count()
+    }
+
+    /// Send a frame's work changes and notices: one serialized line to every
+    /// connection that sees the whole board, and to a scoped connection its
+    /// own, cut to its roots and scrubbed.
+    pub fn publish_work(&self, out: &WorkOut, scrubber: &Scrubber) {
+        if self.work.lock().unwrap().is_empty() {
+            return;
+        }
+        let changed = Message::from(Event::WorkChanged(WorkChanged {
+            position: out.position,
+            at_ms: out.at_ms,
+            views: out.views.clone(),
+            gone: out.gone.iter().map(|(id, _)| id.clone()).collect(),
+        }));
+        let notices: Vec<Message> = out
+            .notices
+            .iter()
+            .map(|n| Message::from(Event::WorkNotice(n.clone())))
+            .collect();
+        #[cfg(test)]
+        {
+            self.tapped(&changed);
+            notices.iter().for_each(|m| self.tapped(m));
+        }
+        let whole = Note::new(&changed);
+        let whole_notices: Vec<Note<'_>> = notices.iter().map(Note::new).collect();
+        self.work.lock().unwrap().retain(|w| {
+            if w.scope.is_whole() {
+                return w.tx.notify(&whole, "work")
+                    && whole_notices.iter().all(|n| w.tx.notify(n, "work"));
+            }
+            let views = w.scope.cut(&out.views, scrubber);
+            let gone = w.scope.gone(&out.gone);
+            if !views.is_empty() || !gone.is_empty() {
+                let msg = Message::from(Event::WorkChanged(WorkChanged {
+                    position: out.position,
+                    at_ms: out.at_ms,
+                    views,
+                    gone,
+                }));
+                if !w.tx.notify(&Note::new(&msg), "work") {
+                    return false;
+                }
+            }
+            for n in out.notices.iter().filter(|n| w.scope.sees(&n.root.id)) {
+                let msg = Message::from(Event::WorkNotice(w.scope.notice(n, scrubber)));
+                if !w.tx.notify(&Note::new(&msg), "work") {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
     pub fn watch(&self, session: &str, conn: &str, tx: impl Into<Outbound>) {
         let mut g = self.subs.lock().unwrap();
         let v = g.entry(session.to_string()).or_default();
@@ -92,6 +203,7 @@ impl SessionBus {
         }
         g.retain(|_, v| !v.is_empty());
         self.all.lock().unwrap().retain(|(c, _)| c != conn);
+        self.work.lock().unwrap().retain(|w| w.conn != conn);
     }
 
     /// Send to the session's watchers, but not to `except` (the connection

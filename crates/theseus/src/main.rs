@@ -46,6 +46,7 @@ mod standing_cmd;
 mod status;
 mod thread;
 mod why;
+mod work;
 
 use std::path::PathBuf;
 
@@ -410,6 +411,10 @@ enum Cmd {
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
     Status(status::StatusArgs),
+    /// The work board as a tree (work.watch): each conversation that needs you or works with its
+    /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
+    /// for. `--watch` keeps it current from the push: a line for each change and each notice.
+    Work(work::WorkArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -1140,6 +1145,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
+        Cmd::Work(a) => work::run(c, json, a).await,
         Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,

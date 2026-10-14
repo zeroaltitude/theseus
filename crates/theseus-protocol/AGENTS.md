@@ -32,6 +32,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording), `approves()` (which option ids approve), and `ConfirmRequest::question(kind, may_answer)`, the pure
   `Question` a request is. A `ConfirmRequest` carries its `options` (worded once by the daemon) and, in a read made for
   one connection (`confirm.list`), `may_answer`; `confirm.resolved` carries the `option` that answered.
+- `work_watch.rs` (theseus-hkx30): `work.watch`'s params and snapshot (`WorkWatchParams`: `limit`, `roots` (session
+  ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
+  frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries
+  `notices::Notice` as it is. Fixtures in `tests/wire/work/`.
 - `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
   is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
   how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's

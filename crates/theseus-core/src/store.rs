@@ -128,6 +128,8 @@ pub struct Store {
     /// The session records being written now (theseus-xeo), shared by every
     /// handle on this store.
     sessions: Arc<SessionLocks>,
+    /// Who watches this store's writes (the push), shared by every handle.
+    watcher: Seen,
     /// The task records being written now (39a): the same lock, by `tsk_…`
     /// id, taken after a session's and before an execution's.
     tasks: Arc<SessionLocks>,
@@ -287,6 +289,18 @@ impl Faults {
     }
 }
 
+/// The observer of the core's own writes (theseus-hkx30): the push's, which
+/// also sees the kernel's frames. Shared by every handle on a store.
+type Seen = Arc<Mutex<Option<theseus_kernel::Observer>>>;
+
+/// Hand a frame just written to the observer, if one watches.
+fn seen(seen: &Seen, records: &[NewRecord], positions: &[u64]) {
+    let Some(o) = seen.lock().unwrap().clone() else {
+        return;
+    };
+    o(theseus_kernel::Committed { records, positions });
+}
+
 /// A session's nodes with their WAL positions, in order (§4.1): each a
 /// stub until a reader touches its node (M6 step 33).
 pub type Transcript = Vec<(u64, crate::stub::Stub)>;
@@ -315,6 +329,8 @@ impl TurnState {
         &self,
         inner: &WalStore,
         cache: &NodeCache,
+        watcher: &Seen,
+        kernels: bool,
         records: &[NewRecord],
     ) -> Result<Vec<u64>> {
         #[cfg(test)]
@@ -332,6 +348,12 @@ impl TurnState {
             Ok(mut positions) => {
                 self.frames
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                // The kernel's own observer has the records its frame holds:
+                // a frame it wrote shows the waiting rows alone.
+                let shown = if kernels { n } else { frame.len() };
+                if shown > 0 {
+                    seen(watcher, &frame[..shown], &positions[..shown]);
+                }
                 let positions = positions.split_off(n);
                 self.wrote(records, &positions, cache);
                 Ok(positions)
@@ -389,11 +411,13 @@ struct TurnFrames {
     inner: Arc<WalStore>,
     cache: Arc<NodeCache>,
     turn: Arc<TurnState>,
+    watcher: Seen,
 }
 
 impl theseus_store::Store for TurnFrames {
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
-        self.turn.commit(&self.inner, &self.cache, batch)
+        self.turn
+            .commit(&self.inner, &self.cache, &self.watcher, true, batch)
     }
     fn get(&self, position: u64) -> Result<Option<Record>> {
         self.inner.get(position)
@@ -500,6 +524,7 @@ impl Store {
             turn: None,
             cache: Arc::default(),
             sessions: Arc::default(),
+            watcher: Arc::default(),
             tasks: Arc::default(),
             #[cfg(test)]
             reads: Default::default(),
@@ -577,7 +602,11 @@ impl Store {
                 t.waiting.lock().unwrap().push(record);
                 Ok(())
             }
-            None => self.inner.append(&[record]).map(|_| ()),
+            None => {
+                let positions = self.inner.append(std::slice::from_ref(&record))?;
+                seen(&self.watcher, &[record], &positions);
+                Ok(())
+            }
         }
     }
 
@@ -628,10 +657,26 @@ impl Store {
     /// Every write: one frame, with a turn's waiting rows in front.
     fn commit(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
         match &self.turn {
-            Some(t) => t.commit(&self.inner, &self.cache, records),
+            Some(t) => t.commit(&self.inner, &self.cache, &self.watcher, false, records),
             None if records.is_empty() => Ok(vec![]),
-            None => self.inner.append(records),
+            None => {
+                let positions = self.inner.append(records)?;
+                seen(&self.watcher, records, &positions);
+                Ok(positions)
+            }
         }
+    }
+
+    /// Watch what the core writes through this store (turn frames, session
+    /// and task records, ledger rows): the push's observer, which the kernel
+    /// has for its own frames. False when one watches already.
+    pub fn observe(&self, o: theseus_kernel::Observer) -> bool {
+        let mut w = self.watcher.lock().unwrap();
+        if w.is_some() {
+            return false;
+        }
+        *w = Some(o);
+        true
     }
 
     /// The store's image blobs (theseus-9g2).
@@ -654,6 +699,7 @@ impl Store {
                 inner: self.inner.clone(),
                 cache: self.cache.clone(),
                 turn: t.clone(),
+                watcher: self.watcher.clone(),
             }),
             None => self.inner.clone(),
         }
@@ -1247,6 +1293,7 @@ pub(crate) mod tests {
             turn: None,
             cache: Arc::default(),
             sessions: Arc::default(),
+            watcher: Arc::default(),
             tasks: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),

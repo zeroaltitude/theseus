@@ -57,6 +57,7 @@ mod sessions;
 mod standing;
 mod threads;
 mod wake_owner;
+mod work_board;
 #[cfg(test)]
 pub(crate) use server::write_item;
 #[cfg(test)]

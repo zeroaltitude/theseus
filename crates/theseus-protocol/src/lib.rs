@@ -75,6 +75,7 @@ pub mod warm;
 pub mod why;
 mod window;
 pub mod work;
+mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
 pub use arrangement::{ArrangementPiece, TaskArrangement};
@@ -110,6 +111,7 @@ pub use wakes::{
     WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
 };
 pub use window::*;
+pub use work_watch::{WorkChanged, WorkUnwatchResult, WorkWatchParams, WorkWatchResult};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -247,6 +249,10 @@ pub mod method {
         /// `executions.unwatch`. A read.
         EXECUTIONS_WATCH = "executions.watch",
         EXECUTIONS_UNWATCH = "executions.unwatch",
+        /// The work board (theseus-hkx30): every root that needs you or works with
+        /// its open subtree, then `work.changed` and `work.notice` until
+        /// `work.unwatch` (`work_watch.rs`). A read.
+        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
         /// Wait until a session needs someone, settles, or ends (theseus-in3).
         /// The daemon owns the wait; it answers at once when it is satisfied
         /// already. A read.
@@ -418,6 +424,9 @@ pub mod notify {
         TASK_CHANGED = "task.changed",
         /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
         WAKE_NOTICED = "wake.noticed",
+        /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
+        /// every `work.watch` subscriber; and the policy's `notices::Notice`.
+        WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
     }
 }
 

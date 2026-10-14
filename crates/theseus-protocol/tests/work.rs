@@ -241,3 +241,91 @@ fn an_older_peers_view_decodes() {
     .unwrap();
     assert_eq!((q.tool, q.asked_at_ms, q.external_text), (None, 0, false));
 }
+
+// ------------------------------------------------------------- work.watch
+
+/// `work.watch`'s params, its snapshot, and `work.changed` (theseus-hkx30),
+/// each compared with its fixture; the notification names are the table's.
+#[test]
+fn the_work_watch_shapes() {
+    use theseus_protocol::{notify, Event, WorkChanged, WorkWatchParams, WorkWatchResult};
+    wire(
+        "watch_params",
+        &WorkWatchParams {
+            limit: Some(20),
+            roots: Some(vec!["ses_q7f3k2".into()]),
+            interactive: Some(true),
+        },
+    );
+    let conversation = whole(
+        "exe_a1b2c3",
+        WorkKind::Conversation,
+        WorkState::Running,
+        "harbour survey",
+    );
+    let task = whole(
+        "exe_b2c3d4",
+        WorkKind::Task,
+        WorkState::NeedsYou,
+        "Alpha check",
+    );
+    wire(
+        "watch_result",
+        &WorkWatchResult {
+            position: 4_096,
+            views: vec![conversation, task],
+            total: 12,
+        },
+    );
+    let job = whole(
+        "act_d4e5f6",
+        WorkKind::Job,
+        WorkState::Done,
+        "cargo test -p core",
+    );
+    let changed = WorkChanged {
+        position: 4_097,
+        at_ms: AT,
+        views: vec![job],
+        gone: vec!["act_a0b1c2".into()],
+    };
+    wire("changed", &changed);
+    assert_eq!(
+        Event::WorkChanged(changed).notification().method,
+        notify::WORK_CHANGED
+    );
+    let mut prev = whole(
+        "exe_b2c3d4",
+        WorkKind::Task,
+        WorkState::Running,
+        "Beta summary",
+    );
+    prev.question = None;
+    let next = whole(
+        "exe_b2c3d4",
+        WorkKind::Task,
+        WorkState::NeedsYou,
+        "Beta summary",
+    );
+    let n = policy(Some(&prev), &next, &Rules::default(), &utc_hm).expect("it asks");
+    assert_eq!(
+        Event::WorkNotice(n).notification().method,
+        notify::WORK_NOTICE
+    );
+}
+
+/// A watch with no params watches everything, and a snapshot from a peer
+/// that sends no `gone` decodes.
+#[test]
+fn an_empty_watch_and_a_changed_without_gone_decode() {
+    use theseus_protocol::{WorkChanged, WorkWatchParams};
+    let p: WorkWatchParams = serde_json::from_str("{}").unwrap();
+    assert_eq!(p, WorkWatchParams::default());
+    assert_eq!(serde_json::to_string(&p).unwrap(), "{}");
+    let c: WorkChanged = serde_json::from_str(r#"{"position":5,"at_ms":9,"views":[]}"#).unwrap();
+    assert!(c.gone.is_empty());
+    assert_eq!(
+        serde_json::to_string(&c).unwrap(),
+        r#"{"position":5,"at_ms":9,"views":[]}"#
+    );
+}
