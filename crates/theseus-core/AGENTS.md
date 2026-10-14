@@ -228,10 +228,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   under the call's one correlation id, the next launched once one exits 0, the turn's wait held across them so
   the drain never settles the call between two; theseus-7gir.3) and its gate in `toolrun/batch.rs` (`judge`: each
   step as the call alone, the strictest taken), which calls of one response run together in `toolrun/parallel.rs`
-  (theseus-d1hi: reads with reads; writes with writes to other paths; programs with programs, at most `[tools]
-  parallel_runs` at once, two to one terminal or MCP server, or whose argvs name one file, in order; a class change a
-  barrier; each result of a group of writes or programs ends saying how many ran beside it, theseus-da46; tests
-  `tests_m3/parallel/runs.rs`), the continuation in `toolrun/resume.rs`, and the results
+  (theseus-d1hi: reads with reads; writes with writes to other paths; programs with programs; at most `[tools]
+  parallel_runs`, `parallel_reads` or `parallel_writes` of a group at once; two programs to one terminal or MCP server,
+  naming one file, or sharing an operand (a service, container, host, port, directory: `toolrun/operands.rs`, the rule
+  in parallel.rs's header, theseus-0hufe) in order, the later's result saying `[started after call N, which names `x`
+  too]`; a class change a barrier; each result of a group of writes or programs ends saying how many ran beside it, theseus-da46; tests
+  `tests_m3/parallel/runs.rs` and `order.rs`), the continuation in `toolrun/resume.rs`, and the results
   no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). A call's span is
   built in the turn that answers it (`turn/calls.rs`, theseus-8pei): `run_tools`'s calls in their loop, and the
   calls `resume` answered (`ResumeOutcome.ran`) and the late results `absorb` took (`LateCall`, a point with the

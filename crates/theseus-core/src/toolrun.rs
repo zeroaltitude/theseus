@@ -24,7 +24,7 @@ use theseus_kernel::{
     Accepted, Action, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
 };
 use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
-use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
+use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolCtx};
 
 use crate::broker::Broker;
 use crate::bus::EventSink;
@@ -52,6 +52,7 @@ pub mod jobs_tools;
 mod kept;
 mod late;
 mod not_started;
+mod operands;
 pub(crate) mod order;
 mod parallel;
 mod peek;
@@ -314,6 +315,10 @@ pub struct ToolRuntime {
     /// The most programs one group of a response's calls runs at once
     /// (`[tools] parallel_runs`, theseus-d1hi); the rest wait for a slot.
     pub parallel_runs: usize,
+    /// The most reads and writes of a group at once (`[tools] parallel_reads`,
+    /// `parallel_writes`, theseus-0hufe).
+    pub parallel_reads: usize,
+    pub parallel_writes: usize,
     /// The environment every job gets, resolved from the daemon's at startup.
     pub proc_env: Vec<(String, String)>,
     /// Calls per tool since the daemon started. Counting the store's history
@@ -501,6 +506,8 @@ impl ToolRuntime {
             result_max_chars: 30_000,
             proc_sync_secs: 60,
             parallel_runs: crate::config::default_parallel_runs(),
+            parallel_reads: crate::config::default_parallel_reads(),
+            parallel_writes: crate::config::default_parallel_writes(),
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
             fit_notes: Default::default(),
@@ -964,61 +971,6 @@ impl ToolRuntime {
             Ok(g) if g.decision.posture == Posture::Approve => Ok(Admitted::Asks(tool, g)),
             Ok(g) => Ok(Admitted::Runs(tool, g)),
         }
-    }
-
-    /// A group of calls, each started at once in the caller's task. Every call
-    /// finishes before the first error is returned, so none is left between
-    /// its dispatch and its completion.
-    async fn run_group(
-        &self,
-        tc: &TurnCtx<'_>,
-        assistant_node: &str,
-        calls: &[Call<'_>],
-        group: Vec<(usize, Arc<dyn Tool>, Gated)>,
-        next: &mut usize,
-        ran: &mut Vec<Ran>,
-    ) -> Result<()> {
-        if group.is_empty() {
-            return Ok(());
-        }
-        let id = *next;
-        *next += 1;
-        // A group of writes or programs (theseus-d1hi): each result says how
-        // many ran beside it, and programs take a slot of `parallel_runs`.
-        let (class, n) = (
-            group[0].2.plan.class.unwrap_or(group[0].1.class()),
-            group.len(),
-        );
-        let beside = if class == ToolClass::Read { 0 } else { n - 1 };
-        let cap = match class {
-            ToolClass::Run => self.parallel_runs,
-            _ => n,
-        };
-        let slots = &tokio::sync::Semaphore::new(cap.max(1));
-        let runs = group.into_iter().map(|(i, tool, g)| async move {
-            let _slot = slots.acquire().await;
-            let started = Instant::now();
-            let call = self.start(tc, assistant_node, calls[i].call, tool, g);
-            let r = parallel::BESIDE.scope(beside, call).await;
-            (i, started, Instant::now(), r)
-        });
-        let mut failed = None;
-        for (index, started, ended, r) in futures_util::future::join_all(runs).await {
-            match r {
-                Ok((outcome, judged)) => ran.push(Ran {
-                    index,
-                    outcome,
-                    started,
-                    ended,
-                    group: id,
-                    judged,
-                }),
-                Err(e) => {
-                    failed.get_or_insert(e);
-                }
-            }
-        }
-        failed.map_or(Ok(()), Err)
     }
 
     /// A gated call: planned (with its `ToolCall` node), its notice sent,
@@ -2293,6 +2245,8 @@ pub fn build_runtime(
         result_max_chars: t.result_max_chars,
         proc_sync_secs: t.proc_sync_secs,
         parallel_runs: t.parallel_runs.max(1),
+        parallel_reads: t.parallel_reads.max(1),
+        parallel_writes: t.parallel_writes.max(1),
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
         fit_notes: Default::default(),

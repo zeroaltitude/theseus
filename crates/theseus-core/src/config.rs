@@ -44,7 +44,10 @@ pub use aws::{
     AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
-pub use limits::{default_parallel_runs, DailyCeilingMode, MaxLoopsMode, SpendLimitMode};
+pub use limits::{
+    default_parallel_reads, default_parallel_runs, default_parallel_writes, DailyCeilingMode,
+    MaxLoopsMode, SpendLimitMode,
+};
 pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 // Where the config comes from when nothing names one (theseus-5aqz).
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
@@ -313,6 +316,10 @@ pub struct ToolsConfig {
     pub proc_sync_secs: u64,
     #[serde(default = "default_parallel_runs")]
     pub parallel_runs: usize,
+    #[serde(default = "default_parallel_reads")]
+    pub parallel_reads: usize,
+    #[serde(default = "default_parallel_writes")]
+    pub parallel_writes: usize,
     #[serde(default = "default_proc_timeout_secs")]
     pub proc_timeout_secs: u64,
     #[serde(default = "default_proc_timeout_max_secs")]
@@ -419,6 +426,8 @@ impl Default for ToolsConfig {
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
             parallel_runs: default_parallel_runs(),
+            parallel_reads: default_parallel_reads(),
+            parallel_writes: default_parallel_writes(),
             proc_timeout_secs: default_proc_timeout_secs(),
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),

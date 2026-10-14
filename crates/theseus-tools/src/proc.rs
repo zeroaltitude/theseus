@@ -144,7 +144,7 @@ impl Tool for Run {
         "proc.run"
     }
     fn description(&self) -> &'static str {
-        "Run a program: builds, tests, linters, git commands the git tools do not cover. `argv` runs one program with no shell; `command` runs a line in bash. Returns combined stdout and stderr with the exit code and the directory it ran in. The proc_run calls of one response run at once, each its own job, except that one naming a file an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. A run past its time limit goes on as a background job that job_read, job_wait and job_stop take, and its result arrives by itself when it ends; `background` starts one so at once."
+        "Run a program: builds, tests, linters, git commands the git tools do not cover. `argv` runs one program with no shell; `command` runs a line in bash. Returns combined stdout and stderr with the exit code and the directory it ran in. The proc_run calls of one response run at once, each its own job, except that one naming a file or other thing (a service, a container) an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. A run past its time limit goes on as a background job that job_read, job_wait and job_stop take, and its result arrives by itself when it ends; `background` starts one so at once."
     }
     fn input_schema(&self) -> Value {
         json!({

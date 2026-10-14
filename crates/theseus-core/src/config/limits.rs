@@ -146,7 +146,20 @@ pub(super) fn check_dollars(k: &super::KernelSection) -> anyhow::Result<()> {
 
 /// `[tools] parallel_runs` (theseus-d1hi): the most programs one group of a
 /// response's calls runs at once, each its own job; the rest wait for a slot
-/// in the same group, so the results keep their order. 0 reads as 1.
+/// in the same group, so the results keep their order. 0 reads as 1. Sixteen since
+/// theseus-0hufe: a response of sixteen `sleep 2` ends in one wave, not two.
 pub fn default_parallel_runs() -> usize {
-    8
+    16
+}
+
+/// `[tools] parallel_reads` (theseus-0hufe): the most reads one group runs at
+/// once; the rest wait for a slot, the results in order. 0 reads as 1.
+pub fn default_parallel_reads() -> usize {
+    32
+}
+
+/// `[tools] parallel_writes` (theseus-0hufe): the most writes one group runs
+/// at once. 0 reads as 1.
+pub fn default_parallel_writes() -> usize {
+    16
 }
