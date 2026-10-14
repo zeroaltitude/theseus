@@ -2,126 +2,28 @@
 //! tool did (theseus-cyha). Nothing else in the chat lays out reply text or
 //! words a tool call.
 //!
-//! Both functions are plain stand-ins, **replaced at term-render's and
-//! tool-words' joins** (theseus-rn7s renders the reply's markdown, theseus-z6au
-//! words each tool call): each join points its function here, about ten lines,
-//! and nothing else in the chat changes. Until then:
+//! [`reply_lines`] is term-render's renderer (theseus-rn7s, pointed here at its
+//! join). [`tool_line`] is a plain stand-in, **replaced at tool-words' join**
+//! (theseus-z6au words each tool call): that join points it here, about ten
+//! lines, and nothing else in the chat changes. Until then:
 //!
-//! - [`reply_lines`] wraps the reply at word boundaries by display width, keeps
-//!   a line's indentation on its continuations, and leaves blank lines and
-//!   fenced code as the model wrote them (a code line is cut at the edge, never
-//!   re-flowed).
 //! - [`tool_line`] words a call from its input's `path`, `command`, `argv`,
 //!   `url` or `query`: the verb for the tool, then what it touched.
 
 use serde_json::Value;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use theseus_client::render::md::Markdown;
+use theseus_client::render::style::Mode;
 
-/// The reply as lines no wider than `width` display columns. `ansi`: the
-/// caller's terminal takes colour (a renderer that styles its output asks).
-pub fn reply_lines(text: &str, width: usize, _ansi: bool) -> Vec<String> {
-    // One column short of the terminal's: a line that fills the last column
-    // leaves the terminal in a half-wrapped state some of them draw badly.
-    let width = width.saturating_sub(1).max(8);
-    let mut out = Vec::new();
-    let mut fenced = false;
-    for raw in text.trim_end().lines() {
-        let line = raw.trim_end();
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            out.extend(cut(line, width));
-        } else if fenced {
-            out.extend(cut(line, width));
-        } else if line.trim().is_empty() {
-            out.push(String::new());
-        } else {
-            out.extend(flow(line, width));
-        }
-    }
-    out
-}
-
-/// A code line, cut at the edge into rows of at most `width` columns.
-fn cut(line: &str, width: usize) -> Vec<String> {
-    let mut rows = vec![String::new()];
-    let mut w = 0;
-    for c in line.chars() {
-        let cw = c.width().unwrap_or(0);
-        if w + cw > width {
-            rows.push(String::new());
-            w = 0;
-        }
-        rows.last_mut().expect("a row").push(c);
-        w += cw;
-    }
-    rows
-}
-
-/// A prose line, wrapped at spaces; a continuation keeps the line's indent
-/// (and a list marker's width).
-fn flow(line: &str, width: usize) -> Vec<String> {
-    let lead = line.len() - line.trim_start().len();
-    let body = line.trim_start();
-    let marker = list_marker(body);
-    let indent = lead + marker;
-    let mut rows: Vec<String> = Vec::new();
-    let mut cur = " ".repeat(lead);
-    let mut w = lead;
-    let mut fresh = true;
-    for (i, word) in body.split(' ').enumerate() {
-        let ww = word.width();
-        if word.is_empty() {
-            continue;
-        }
-        if !fresh && w + 1 + ww > width {
-            rows.push(std::mem::replace(&mut cur, " ".repeat(indent)));
-            w = indent;
-            fresh = true;
-        }
-        if fresh && w + ww > width {
-            // A word wider than a row (a path, a URL): cut it.
-            for c in word.chars() {
-                let cw = c.width().unwrap_or(0);
-                if w + cw > width {
-                    rows.push(std::mem::replace(&mut cur, " ".repeat(indent)));
-                    w = indent;
-                }
-                cur.push(c);
-                w += cw;
-            }
-            fresh = false;
-            continue;
-        }
-        if !fresh {
-            cur.push(' ');
-            w += 1;
-        }
-        cur.push_str(word);
-        w += ww;
-        fresh = false;
-        let _ = i;
-    }
-    rows.push(cur);
-    rows
-}
-
-/// The width of a list marker at the start of `body` (`- `, `* `, `3. `), so
-/// a wrapped item hangs under its text; 0 for anything else.
-fn list_marker(body: &str) -> usize {
-    let b = body.as_bytes();
-    if b.len() > 1 && matches!(b[0], b'-' | b'*' | b'+') && b[1] == b' ' {
-        return 2;
-    }
-    let digits = b.iter().take_while(|c| c.is_ascii_digit()).count();
-    if digits > 0
-        && digits < 4
-        && b.len() > digits + 1
-        && b[digits] == b'.'
-        && b[digits + 1] == b' '
-    {
-        return digits + 2;
-    }
-    0
+/// The reply as lines no wider than `width` display columns, drawn by the
+/// CLI's markdown renderer (term-render's, theseus-rn7s: headings, emphasis,
+/// lists, tables, highlighted code), which keeps prose one column short of the
+/// edge. `ansi`: the caller's terminal takes colour; else no escape at all.
+pub fn reply_lines(text: &str, width: usize, ansi: bool) -> Vec<String> {
+    let mode = if ansi { Mode::Ansi } else { Mode::Plain };
+    Markdown::render(text.trim_end(), width.max(8), mode)
+        .iter()
+        .map(|l| if ansi { l.ansi() } else { l.plain() })
+        .collect()
 }
 
 /// A tool call in plain words: `Read README.md`, `Run ./survey.sh`. The
@@ -183,6 +85,7 @@ fn one_line(s: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn a_reply_wraps_at_words_by_display_width() {
