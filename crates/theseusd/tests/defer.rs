@@ -203,6 +203,16 @@ fn a_daemons_first_request_defers_what_its_place_does_not_load() {
     let r = Rig::start();
     r.turn("hello");
     r.turn("a second session");
+    // `THESEUS_DEFER_DUMP=<dir>` keeps the first request as the daemon sent it,
+    // for `count_tokens` against a real key (docs/notes of the row's report).
+    if let Ok(dir) = std::env::var("THESEUS_DEFER_DUMP") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            format!("{dir}/first-request-cli.json"),
+            &r.model.raw_requests()[0],
+        )
+        .unwrap();
+    }
     let reqs = r.model.requests();
     let (a, b) = (&reqs[0], &reqs[1]);
     assert_eq!(
