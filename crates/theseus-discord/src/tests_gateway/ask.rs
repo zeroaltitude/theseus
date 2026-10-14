@@ -58,7 +58,7 @@ async fn asked_from_the_cli(r: &Rig) -> (String, u64) {
 }
 
 fn is_it(m: &theseus_sim::fake_discord::Msg) -> bool {
-    m.versions[0].contains("needs you")
+    m.versions[0].contains("Needs you")
 }
 
 /// A CLI question that waited a minute reaches ana's DM: it pings, it has a

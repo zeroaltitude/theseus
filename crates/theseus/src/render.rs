@@ -18,6 +18,7 @@ use theseus_protocol::{
     TurnSubmitResult,
 };
 
+mod ask;
 mod aws;
 mod cache;
 mod cancel;
@@ -221,6 +222,9 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
         // A layer-1 task change (39b): the question in the card's words.
         Event::ConfirmRequested(c) if c.change.is_some() => {
             change_lines(&mut out, c);
+        }
+        Event::ConfirmRequested(c) if c.tool == theseus_protocol::work::ask::OWNER_ASK => {
+            ask::lines(&mut out, c);
         }
         Event::ConfirmRequested(c) => {
             push(
@@ -851,6 +855,10 @@ pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
     }
     if c.change.is_some() {
         change_lines(&mut out, c);
+        return out;
+    }
+    if c.tool == theseus_protocol::work::ask::OWNER_ASK {
+        ask::lines(&mut out, c);
         return out;
     }
     push(

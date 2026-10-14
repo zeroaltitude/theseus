@@ -25,7 +25,7 @@ pub fn settled(closed: &Closed, line: &str) -> String {
 pub fn needs_you(body: &serde_json::Value) -> String {
     let who = body["asked_by"].as_str().unwrap_or("A task");
     let prompt = body["prompt"].as_str().unwrap_or("");
-    let mut t = format!("🔔 **{who} needs you**: {}", clip(prompt, 500));
+    let mut t = format!("🔔 **Needs you** · {who}\n**{}**", clip(prompt, 500));
     for (i, c) in body["choices"].as_array().into_iter().flatten().enumerate() {
         t.push_str(&format!("\n{}. {}", i + 1, c.as_str().unwrap_or("")));
     }
