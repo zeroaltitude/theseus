@@ -968,9 +968,11 @@ impl crate::Core {
         // Nothing written on its own time after serving lands after this
         // checkpoint, where the next start would replay it (theseus-81kk).
         self.close_late_rows();
-        // Made durable by redb's close, as the stop's own is (theseus-02k).
+        // Durable by itself: redb's close may never come if a handle
+        // outlives the runtime (theseus-8ub95).
         // A frame a writer the stop never waited for appends after it is
         // checkpointed as the store closes (theseus-fts6).
+        theseus_store::leak::watch(self.store.inner());
         if let Err(e) = self.store.inner().checkpoint_for_close() {
             tracing::warn!(error = %format!("{e:#}"), "stopping: the last checkpoint failed; the next start replays the tail");
         }
@@ -989,6 +991,12 @@ impl crate::Core {
     /// close checkpoints it, so the next start replays nothing: theseusd's
     /// `tests/config_copy.rs` and `tests/versions.rs`.
     fn planted_late_write(&self) {
+        // A handle that is never dropped (theseus-8ub95): redb never closes,
+        // and the next start must still replay nothing.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("THESEUS_TEST_LEAK_STORE").is_some() {
+            std::mem::forget(self.store.inner().clone());
+        }
         #[cfg(debug_assertions)]
         if std::env::var_os("THESEUS_TEST_LATE_WRITE").is_some() {
             let at = theseus_protocol::now_unix_ms();
