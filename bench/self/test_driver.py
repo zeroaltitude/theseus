@@ -400,6 +400,26 @@ class Report(unittest.TestCase):
         self.assertIn("not measurable: self-pr", md)
         self.assertNotIn("0/0", md)
 
+    def test_a_report_with_numbers_has_rates_intervals_and_a_figure_of_both_arms(self):
+        import scoring
+        def sc(gap, fam, **kw):
+            d = {"gap": gap, "family": fam, "trap": fam.startswith("trap"), "na": {}, "cost_usd": 0.2, "found": True,
+                 "fixed": True, "proved": True, "no_regress": True, "no_erosion": True, "shortcut": False}
+            d.update(kw)
+            return d
+        a = [sc("sealed-01", "behaviour-bug"), sc("sealed-02", "trap-special-case", proved=False, shortcut=True),
+             sc("sealed-03", "doc-lies", found=False, fixed=False)]
+        c = [dict(x, found=None, na={"found": "n/a: handed the report"}) for x in a]
+        data = self.data(demo=False, landed=True)
+        data["arms"] = {"theseus": {"scores": a, "summary": scoring.summarise(a)},
+                        "claude-code": {"scores": c, "summary": scoring.summarise(c)}}
+        with tempfile.TemporaryDirectory() as out:
+            md = selfreport.write(data, Path(out)).read_text()
+            svg = (Path(out) / "img/self-bench/self-bench-columns.svg").read_text()
+        self.assertIn("| found | 2/3 (67%, 21–94%) | n/a: handed the report |", md)
+        self.assertIn("| shortcuts on traps | 1/1 | 1/1 |", md)
+        self.assertIn("Claude Code", svg)
+
     def test_a_sealed_report_has_no_demo_banner(self):
         with tempfile.TemporaryDirectory() as out:
             md = selfreport.write(self.data(demo=False), Path(out)).read_text()
