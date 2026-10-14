@@ -1076,11 +1076,13 @@ fn a_history_check_starts_at_the_last_checks_mark() {
     );
 }
 
-/// theseus-02k: a stop's checkpoint syncs nothing of its own, and redb's
-/// close makes it durable, so the next open replays nothing and repairs
-/// nothing, and a history check's mark rides along.
+/// theseus-02k, theseus-8ub95: a stop's checkpoint is durable by itself, so
+/// the next open replays nothing and repairs nothing even if the store is
+/// never dropped (a handle that outlives the runtime keeps redb from
+/// closing), and a history check's mark rides along. The files are copied
+/// while the store is still open, as a kill at that point leaves them.
 #[test]
-fn a_checkpoint_for_close_is_made_durable_by_the_close() {
+fn a_checkpoint_for_close_is_durable_without_the_close() {
     let dir = tempfile::tempdir().unwrap();
     let s = open(dir.path());
     for i in 0..5u32 {
@@ -1099,16 +1101,41 @@ fn a_checkpoint_for_close_is_made_durable_by_the_close() {
     };
     s.verified_slot().set(mark);
     assert_eq!(s.checkpoint_for_close().unwrap(), 6);
-    // A durable checkpoint after it is not free: nothing synced 6 yet.
-    assert_eq!(s.inner.durable_to.load(Ordering::Relaxed), 5);
+    assert_eq!(s.inner.durable_to.load(Ordering::Relaxed), 6);
     assert_eq!(s.checkpoint_for_close().unwrap(), 6, "and a second is free");
+    let copy = tempfile::tempdir().unwrap();
+    copy_store(dir.path(), copy.path());
+    let c = open(copy.path());
+    let st = c.stats().unwrap();
+    assert_eq!(st.checkpoint, Some(6));
+    assert_eq!(
+        st.replayed_into_index, 0,
+        "the stop's checkpoint was durable"
+    );
+    // (redb repairs a file it was never closed on: that is its own, not a replay.)
+    assert_eq!(c.verified(), Some(mark));
+    drop(c);
+    // And the close that follows has nothing left to repair or replay.
     drop(s);
     let s = open(dir.path());
     let st = s.stats().unwrap();
-    assert_eq!(st.checkpoint, Some(6));
-    assert_eq!(st.replayed_into_index, 0, "the close made it durable");
+    assert_eq!(st.replayed_into_index, 0);
     assert!(!st.index_repaired);
     assert_eq!(s.verified(), Some(mark));
+}
+
+/// The store's files, as they are now.
+fn copy_store(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to.join("wal")).unwrap();
+    for f in std::fs::read_dir(from).unwrap().flatten() {
+        let p = f.path();
+        if p.is_file() {
+            std::fs::copy(&p, to.join(f.file_name())).unwrap();
+        }
+    }
+    for f in std::fs::read_dir(from.join("wal")).unwrap().flatten() {
+        std::fs::copy(f.path(), to.join("wal").join(f.file_name())).unwrap();
+    }
 }
 
 /// theseus-fts6: a frame appended after a stop's checkpoint, as a writer

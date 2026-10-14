@@ -290,8 +290,7 @@ struct Inner {
     /// The position the index's last checkpoint claims: a checkpoint with
     /// nothing written since costs nothing (theseus-pfv).
     checkpointed: AtomicU64,
-    /// The position the last durable checkpoint claims: a stop's checkpoint
-    /// is made durable by redb's close, not by itself (theseus-02k).
+    /// The position the last durable checkpoint claims.
     durable_to: AtomicU64,
     /// A build after serving (`build_shape`) wrote index pages that no
     /// durable checkpoint has written since: until one has, no checkpoint is
@@ -1083,20 +1082,24 @@ impl WalStore {
         self.inner.pending_verified.clone()
     }
 
-    /// The checkpoint of a stop (theseus-02k): the index's checkpoint, its
-    /// terms' mark, and a history check's mark, in one commit with no sync of
-    /// its own. redb's close, which follows as the store drops, is a durable
-    /// commit, and makes this one durable with it: a stop then pays one
-    /// commit's syncs, not two. A kill between the two only makes the next
-    /// open replay from the checkpoint before.
+    /// The checkpoint of a stop (theseus-02k, theseus-8ub95): the index's
+    /// checkpoint, its terms' mark, and a history check's mark, in one
+    /// durable commit. It is durable by itself: redb's close would make a
+    /// non-durable one durable, but only if the store is ever dropped, and
+    /// anything that still holds a handle at the process's end (a thread,
+    /// a task, a connection) keeps it from closing. Install #26 to #28
+    /// replayed 63 to 246 records after clean stops, all from the periodic
+    /// checkpoint before. The commit's syncs are paid once here, and the
+    /// close that follows has nothing to make durable.
     ///
     /// The store's close then takes the stop's last checkpoint (theseus-fts6):
     /// a writer the stop never waited for, such as a task a stop right after
     /// serving meets, may append after this one, and every handle on the
-    /// store, so every writer, is gone by the close.
+    /// store, so every writer, is gone by the close. That one is not
+    /// durable by itself, as the close follows it for certain.
     pub fn checkpoint_for_close(&self) -> Result<u64> {
         self.inner.stopping.store(true, Ordering::Relaxed);
-        blocking(|| self.inner.checkpoint_as(false))
+        blocking(|| self.inner.checkpoint_as(true))
     }
 
     /// Appends handed to the writer and not yet answered.
@@ -1104,6 +1107,17 @@ impl WalStore {
     fn queued(&self) -> i64 {
         self.inner.queued.load(Ordering::SeqCst)
     }
+}
+
+/// The open's timed parts, at debug (theseus-8ub95): the index's open and the
+/// replay into it. The manifest's move is timed where it happens.
+fn open_phases(index_open_ms: f64, replay_from: std::time::Instant, replayed: u64) {
+    tracing::debug!(
+        index_open_ms,
+        replay_ms = replay_from.elapsed().as_secs_f64() * 1000.0,
+        replayed,
+        "store: open phases (the index's open, the replay into it)"
+    );
 }
 
 impl Drop for WalStore {
@@ -1145,7 +1159,9 @@ impl Inner {
             false
         };
 
+        let t_index = std::time::Instant::now();
         let (index, moved_aside) = open_index(&dir.join("index.redb"))?;
+        let index_open_ms = t_index.elapsed().as_secs_f64() * 1000.0;
         // The WAL from the frame after the checkpoint's record: the index
         // knows where that record lies.
         let cp = index.checkpoint()?.unwrap_or(0);
@@ -1178,6 +1194,7 @@ impl Inner {
         };
         // Rebuild whatever the index lost since its checkpoint.
         let replayed = missing.len() as u64;
+        let t_replay = std::time::Instant::now();
         if !missing.is_empty() {
             let entries: Vec<IndexEntry> = missing
                 .iter()
@@ -1201,6 +1218,7 @@ impl Inner {
                 index.apply(&entries, false)?;
             }
         }
+        open_phases(index_open_ms, t_replay, replayed);
         let last = wal.last_position();
         if cp > last {
             // Index claims more than the WAL has (WAL truncated below a durable
@@ -1298,6 +1316,7 @@ impl Inner {
         if !self.behind.load(Ordering::Relaxed) {
             return Ok(());
         }
+        let t = std::time::Instant::now();
         if self.fsync {
             self.wal
                 .sync_own_dir()
@@ -1307,6 +1326,7 @@ impl Inner {
             .context("moving the store's manifest to this build's format")?;
         tracing::info!(
             format = MANIFEST_FORMAT,
+            ms = t.elapsed().as_secs_f64() * 1000.0,
             "store: manifest moved to this build's format at its first write"
         );
         self.behind.store(false, Ordering::Relaxed);

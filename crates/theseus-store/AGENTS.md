@@ -121,9 +121,10 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   writer holds it shared from a batch's first write to its index. Don't take a checkpoint while holding that lock.
   The periodic one (every 1,000 records) runs on the writer, after it has answered the batch that crossed the
   mark, so no append's call pays it (theseus-avvb); an append that queues meanwhile waits for it, as it would
-  wherever it ran. A stop's checkpoint (`checkpoint_for_close`) syncs nothing of
-  its own: redb's close, a durable commit, makes it durable (theseus-02k). Only a durable checkpoint advances
-  `durable_to`, so a durable one after it is never skipped as free. A store a stop checkpointed takes the stop's
+  wherever it ran. A stop's checkpoint (`checkpoint_for_close`) is durable by
+  itself (theseus-8ub95): it used to count on redb's close, which never comes when a handle outlives the runtime, and
+  the next start replayed from the periodic checkpoint. `leak::holders` says after the runtime drops how many
+  handles are left (the daemon warns). Only a durable checkpoint advances `durable_to`. A store a stop checkpointed takes the stop's
   last checkpoint again as it closes (`WalStore`'s drop, once the writer has answered every frame), free when
   nothing came since: a frame a writer the stop never waited for appended after it is checkpointed, not replayed,
   and no writer is left by then (theseus-fts6). A store no stop checkpointed takes none at its close.

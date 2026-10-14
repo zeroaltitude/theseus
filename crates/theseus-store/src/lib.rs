@@ -30,6 +30,7 @@ pub mod chain;
 pub mod chain_walk;
 pub mod frame_times;
 pub mod index;
+pub mod leak;
 pub mod pages;
 pub mod pressure;
 pub mod record;

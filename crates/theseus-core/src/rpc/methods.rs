@@ -1741,10 +1741,9 @@ impl Core {
 
     /// The stop's row, then the checkpoint. From here no post is dispatched,
     /// and the posts already sent have until the stop's grace ends to settle
-    /// (`Core::finish_stop`, theseus-pfv). The checkpoint syncs nothing of
-    /// its own: redb's close, as the store drops, makes it durable in its
-    /// own commit (theseus-02k), and a kill before that only lengthens the
-    /// next start's replay by the stop's own frames.
+    /// (`Core::finish_stop`, theseus-pfv). The checkpoint is durable by
+    /// itself (theseus-8ub95), so a kill after it, or a handle that keeps
+    /// redb from closing, costs the next start no replay.
     fn stop_record(&self, data: Value) {
         crate::startup::stop_began();
         self.outbox.stop_sending();

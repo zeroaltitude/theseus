@@ -277,6 +277,15 @@ fn main() -> Result<()> {
     // run.
     drop(rt);
     stop_phase("runtime dropped");
+    let held = theseus_store::leak::holders();
+    if held > 0 {
+        // The stop's checkpoint is durable by itself, so the next start still
+        // replays nothing; but redb never closes, and the holder should join.
+        tracing::warn!(
+            held,
+            "stop: handles on the store outlived the runtime, so it is not closed (the stop's checkpoint was durable by itself)"
+        );
+    }
     if stdio {
         // What the core wrote last, the stop's answer included, reaches
         // stdout, before the process ends or the exec cuts a line short.
