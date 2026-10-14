@@ -256,13 +256,7 @@ impl Place {
         let words = self
             .cancel_task(target, &p.who, "no wake of that name either")
             .await;
-        s.respond(
-            &p.i,
-            InteractionResponseType::UpdateMessage,
-            Some(words),
-            true,
-        )
-        .await;
+        s.respond_v2(&p.i, 7, &card_v2::closed(&words), true).await;
     }
 
     /// An answer pressed: `work.answer` as the presser.

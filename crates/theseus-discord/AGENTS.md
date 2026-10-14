@@ -129,12 +129,14 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   - **A task's view** (`render/task_view.rs`): the select and `[ Answer ↗ ]` open an ephemeral V2 view of the task for
     the presser: its title, what it does, plan, last words (`progress.said`), the commands of its last jobs, its
     question with the answer buttons, and `Stop`, which asks once more (`tb:yes:`), then the `/cancel` call.
-  - Tests: `render/v2.rs`, `render/board_v2.rs` (the cases for 0, 1, 8 and 30 tasks, a needs-you board, a done board,
-    and the property: any board is at most 40 components and 4,000 characters with unique ids), `render/card_v2.rs`,
+  - Tests: `render/v2.rs`, `render/board_v2.rs` (a golden for 0, 1, 8 and 30 tasks, a needs-you board and an all-done
+    one, `render/golden/board_v2.txt`, `THESEUS_GOLDEN=write` rewrites it; and the property: any board is at most 40
+    components and 4,000 characters with unique ids), `render/card_v2.rs`,
     `render/task_view.rs`, `runtime/tasks.rs` (the model), `runtime/presence.rs` (the pacer), `courier/tests_v2.rs` (the
     lane: made once, pinned, silent, then edited; the interval; 200 transitions; the pin found after a restart; an idle
     board; a refused V2), and `tests_board.rs` (end to end through the real work engine and the stand-ins: three
-    tasks, one asking; an answer pressed; an answer from the CLI; a refused press; a burst; the status line). The fake
+    tasks, one asking; an answer pressed; an answer from the CLI; a refused press; a burst; the status line; a
+    task opened from the Answer button and the select, an answer pressed in its view, and Stop asking twice). The fake
     Discord holds V2 messages to Discord's rules (40 components, 4,000 characters, no `content` beside the flag,
     unique ids) in a validator of its own.
 - **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its

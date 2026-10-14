@@ -496,6 +496,10 @@ struct State {
     replies: Vec<Reply>,
     /// Each interaction `press` sent, by id, and its channel.
     pressed: BTreeMap<String, u64>,
+    /// The messages the binding answered an interaction with (an ephemeral
+    /// view, say), by the interaction's id: kept apart from the channel's
+    /// messages, and pressable (`press_reply`).
+    ephemerals: BTreeMap<String, Msg>,
     /// The guild's member list answers 403 (M4 19c): who can view a channel
     /// cannot be read.
     refuse_members: bool,
@@ -844,6 +848,45 @@ impl FakeDiscord {
     /// be sent (no such message, or no such button on it).
     pub fn press(&self, p: &Pressed<'_>) -> Result<String, String> {
         self.press_values(p, &[])
+    }
+
+    /// The message the binding answered interaction `interaction` with, if it
+    /// answered with one (an ephemeral view).
+    pub fn reply_message(&self, interaction: &str) -> Option<Msg> {
+        self.state
+            .lock()
+            .unwrap()
+            .ephemerals
+            .get(interaction)
+            .cloned()
+    }
+
+    /// A press of a button on the message the binding answered `interaction`
+    /// with, as `user` (an ephemeral view's Stop, say).
+    pub fn press_reply(
+        &self,
+        interaction: &str,
+        button: &str,
+        user: u64,
+        name: &str,
+    ) -> Result<String, String> {
+        let m = self
+            .reply_message(interaction)
+            .ok_or_else(|| format!("no message answered interaction {interaction}"))?;
+        {
+            let mut st = self.state.lock().unwrap();
+            // Pressable like a posted message, found by its id.
+            st.messages.push(m.clone());
+        }
+        let r = self.press(&Pressed {
+            message: &m.id,
+            button,
+            user,
+            name,
+        });
+        // It was never a channel message.
+        self.state.lock().unwrap().messages.retain(|x| x.id != m.id);
+        r
     }
 
     /// A pick in a select menu: `p.button` names the menu by its custom id (or
@@ -1460,7 +1503,41 @@ impl FakeDiscord {
             ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
         };
         let content = r.content.clone().unwrap_or_default();
-        self.state.lock().unwrap().replies.push(r);
+        {
+            let mut st = self.state.lock().unwrap();
+            if kind == "callback"
+                && matches!(r.response_type, Some(4 | 7))
+                && data["components"].is_array()
+            {
+                // A message the binding answered with: kept to be pressed.
+                st.next_id += 1;
+                let channel = interaction
+                    .and_then(|i| st.pressed.get(i).copied())
+                    .unwrap_or(1);
+                let m = Msg {
+                    id: st.next_id.to_string(),
+                    channel: channel.to_string(),
+                    content: content.clone(),
+                    nonce: None,
+                    components: rows(&data["components"]),
+                    reply_to: None,
+                    edits: 0,
+                    created_ms: now_ms(),
+                    allowed_mentions: Value::Null,
+                    mentions: vec![],
+                    author: BOT_ID.to_string(),
+                    versions: vec![content.clone()],
+                    buttons: buttons(&data["components"]),
+                    components_json: data["components"].clone(),
+                    pinned: false,
+                    flags: data["flags"].as_u64().unwrap_or(0),
+                };
+                if let Some(i) = interaction {
+                    st.ephemerals.insert(i.to_string(), m);
+                }
+            }
+            st.replies.push(r);
+        }
         if kind == "callback" {
             return reply_empty(stream);
         }

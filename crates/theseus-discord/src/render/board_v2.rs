@@ -525,6 +525,70 @@ mod tests {
         assert_eq!(render(&parts(&[], &w, &[])), render(&parts(&[], &w, &[])));
     }
 
+    /// The board for each case the design names, as a person reads it, with the
+    /// counts Discord limits and the ids a press sends: 0, 1, 8 and 30 tasks, a
+    /// needs-you board, and all done. `THESEUS_GOLDEN=write` rewrites the file.
+    #[test]
+    fn the_boards_for_0_1_8_and_30_tasks_needs_you_and_all_done_are_as_they_were() {
+        type Case = (&'static str, Vec<WorkView>, Vec<WorkView>, Vec<WorkView>);
+        let cases: Vec<Case> = vec![
+            ("0 tasks", vec![], vec![], vec![]),
+            ("1 task", vec![], vec![working(1)], vec![]),
+            (
+                "8 tasks",
+                (0..2).map(asking).collect(),
+                (10..15).map(working).collect(),
+                vec![view(20, WorkState::Done)],
+            ),
+            (
+                "30 tasks",
+                (0..10).map(asking).collect(),
+                (100..114).map(working).collect(),
+                (200..206).map(|i| view(i, WorkState::Done)).collect(),
+            ),
+            ("needs you", vec![asking(1)], vec![], vec![]),
+            (
+                "all done",
+                vec![],
+                vec![],
+                vec![view(1, WorkState::Done), view(2, WorkState::Cancelled), {
+                    let mut f = view(3, WorkState::Failed);
+                    f.report = Some(theseus_protocol::work::WorkReport {
+                        outcome: "failed".into(),
+                        first_line: None,
+                        reason: Some("the provider refused the request (400)".into()),
+                    });
+                    f
+                }],
+            ),
+        ];
+        let mut out = String::new();
+        for (name, n, w, d) in &cases {
+            let c = render(&parts(n, w, d));
+            out.push_str(&format!(
+                "=== {name}: components={} chars={}\n{}\nids: {}\n\n",
+                count(&c),
+                text_len(&c),
+                texts(&c).join("\n---\n"),
+                crate::render::v2::custom_ids(&c).join(" ")
+            ));
+        }
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/render/golden/board_v2.txt"
+        );
+        if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
+            std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
+            std::fs::write(path, &out).unwrap();
+        }
+        let golden =
+            std::fs::read_to_string(path).expect("the golden: THESEUS_GOLDEN=write writes it");
+        assert_eq!(
+            out, golden,
+            "THESEUS_GOLDEN=write rewrites it, for a change you mean"
+        );
+    }
+
     #[test]
     fn a_short_id_is_the_last_six_characters() {
         assert_eq!(short("exe_01J0000000000000000000abcdef"), "abcdef");

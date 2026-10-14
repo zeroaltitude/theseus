@@ -509,3 +509,182 @@ async fn the_status_line_reads_the_counts_and_clears_when_nothing_works() {
         );
     }
 }
+
+/// The ids of the options in the board's select.
+fn picks(board: &Msg) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![board.components_json.clone()];
+    while let Some(v) = stack.pop() {
+        match v {
+            Value::Array(a) => stack.extend(a),
+            Value::Object(o) => {
+                if o.get("custom_id").and_then(Value::as_str) == Some("tb:pick") {
+                    for opt in o["options"].as_array().into_iter().flatten() {
+                        out.push(opt["value"].as_str().unwrap_or("").to_string());
+                    }
+                }
+                stack.extend(o.into_iter().map(|(_, v)| v));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A task that asks and one that runs for a while, on a board that says so.
+async fn one_asking_one_running() -> Rig {
+    let r = Rig::start_tweaked(
+        |dir, _| {
+            model(
+                vec![start_all(&[REEF, BUOY]), Scripted::text("Started both.")],
+                vec![(REEF, asks(dir, "reef.txt")), (BUOY, sleeps(30))],
+            )
+        },
+        guild(),
+        &bindings(),
+        &[],
+        tweak,
+    )
+    .await;
+    r.say((ANA, "ana"), None, ASK);
+    r.until("the board with a question and a running task", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| b.content.contains("🔴 1 needs you · ⚙️ 1 running"))
+    })
+    .await;
+    r
+}
+
+/// The asking task's id (the Answer button's) and the running one's (the other
+/// option of the select).
+fn ids_of(board: &Msg) -> (String, String) {
+    let asking = board
+        .buttons
+        .iter()
+        .find_map(|b| b.custom_id.strip_prefix(board_v2::OPEN).map(str::to_string))
+        .unwrap();
+    let running = picks(board).into_iter().find(|v| *v != asking).unwrap();
+    (asking, running)
+}
+
+#[tokio::test]
+async fn the_answer_button_and_the_select_open_a_task_for_the_presser_alone() {
+    let r = one_asking_one_running().await;
+    let board = boards(&r, ANA_DM).remove(0);
+    // Answer ↗ opens the asking task: ephemeral, with the question and its answers.
+    let iid = r.press(&board.id, "Answer ↗", (ANA, "ana"));
+    r.until("the task's view", || r.fake.reply_message(&iid).is_some())
+        .await;
+    let view = r.fake.reply_message(&iid).unwrap();
+    assert!(
+        view.flags & 64 != 0 && view.flags & IS_COMPONENTS_V2 != 0,
+        "ephemeral V2: {}",
+        view.flags
+    );
+    assert!(
+        view.content.contains("Reef-chart: chart the reef"),
+        "{}",
+        view.content
+    );
+    assert!(view.content.contains("**Asks**"), "{}", view.content);
+    let ids: Vec<&str> = view.buttons.iter().map(|b| b.custom_id.as_str()).collect();
+    assert!(
+        ids.iter().any(|i| i.ends_with(":approve"))
+            && ids.iter().any(|i| i.starts_with("tb:stop:")),
+        "{ids:?}"
+    );
+    // The view is the presser's alone: nothing was posted in the channel for it.
+    assert!(r
+        .posted(ANA_DM)
+        .iter()
+        .all(|m| !m.content.contains("**Asks**")));
+    // The select opens the running one, which has Stop and no question.
+    let (_, running) = ids_of(&board);
+    let pick = r
+        .fake
+        .press_values(
+            &theseus_sim::fake_discord::Pressed {
+                message: &board.id,
+                button: "tb:pick",
+                user: ANA,
+                name: "ana",
+            },
+            &[&running],
+        )
+        .unwrap();
+    r.until("the running task's view", || {
+        r.fake.reply_message(&pick).is_some()
+    })
+    .await;
+    let view2 = r.fake.reply_message(&pick).unwrap();
+    assert!(
+        view2.content.contains("Buoy-paint: paint the buoy"),
+        "{}",
+        view2.content
+    );
+    assert!(!view2.content.contains("**Asks**"));
+    // The question is still waiting: answer it from the view.
+    let card_id = cards(&r, ANA_DM)[0].id.clone();
+    r.fake.press_reply(&iid, "Approve", ANA, "ana").unwrap();
+    r.until("the card settled by an answer pressed in the view", || {
+        r.fake
+            .messages(ANA_DM)
+            .into_iter()
+            .find(|m| m.id == card_id)
+            .is_some_and(|c| c.buttons.is_empty() && c.content.contains("Approved"))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn stop_asks_twice_and_the_second_press_stops_the_task() {
+    let r = one_asking_one_running().await;
+    let board = boards(&r, ANA_DM).remove(0);
+    let (_, running) = ids_of(&board);
+    let pick = r
+        .fake
+        .press_values(
+            &theseus_sim::fake_discord::Pressed {
+                message: &board.id,
+                button: "tb:pick",
+                user: ANA,
+                name: "ana",
+            },
+            &[&running],
+        )
+        .unwrap();
+    r.until("the running task's view", || {
+        r.fake.reply_message(&pick).is_some()
+    })
+    .await;
+    // Stop asks once more...
+    let stop = r.fake.press_reply(&pick, "Stop", ANA, "ana").unwrap();
+    r.until("the second question", || {
+        r.fake
+            .reply_message(&stop)
+            .is_some_and(|m| m.content.contains("Stop **Buoy-paint"))
+    })
+    .await;
+    let state = |exe: &str| r.core.kernel.execution(exe).unwrap().unwrap().state;
+    assert_ne!(
+        state(&running).as_str(),
+        "cancelled",
+        "one press stops nothing"
+    );
+    // ...and the second press stops it.
+    let yes = r
+        .fake
+        .press_reply(&stop, "Yes, stop it", ANA, "ana")
+        .unwrap();
+    r.until("the task cancelled", || {
+        state(&running).as_str() == "cancelled"
+    })
+    .await;
+    r.until("the answer to the second press", || {
+        r.fake
+            .reply_message(&yes)
+            .is_some_and(|m| m.content.contains("stopped"))
+    })
+    .await;
+}

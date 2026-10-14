@@ -113,6 +113,14 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
   - `fake-discord`: a stand-in for Discord's REST API, and with `--gateway` its gateway (theseus-6g62); `--guild`
     gives it a guild for the viewer check (theseus-ck0k).
+    It holds Components V2 messages to Discord's own rules (theseus-2j2ka; `v2_refusal`, written apart from the binding's
+    validator): at most 40 components (boxes, sections and accessories counted), 4,000 characters of text, no
+    `content` beside `IS_COMPONENTS_V2`, unique `custom_id`s, V2 types only with the flag, the flag not removable on an
+    edit; a refusal is a 400. A V2 message's `content` is its text displays joined, `buttons` lists the buttons and
+    selects inside boxes and sections, and `components` counts the rows (so a card whose buttons are gone reads 0). A
+    select is pressed with `press_values`; a message the binding answered an interaction with (an ephemeral view,
+    type 4 or 7) is kept by interaction (`reply_message`) and its buttons are pressed with `press_reply`. The
+    gateway records each presence update (opcode 3) with its time (`GatewayState.presences`).
   - `fake-model --rules <file>` (`src/fake_model.rs`, 37b): a scripted stand-in for the Messages API, for a scratch
     daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
     holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets the
