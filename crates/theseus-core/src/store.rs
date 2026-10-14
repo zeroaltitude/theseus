@@ -981,17 +981,17 @@ impl Store {
                 (nodes, through)
             }
             None => {
-                let own = self.node_records(session_id)?;
-                let through = own.last().map_or(0, |r| r.position);
-                let mut records = match crate::fork::origin_of(self, session_id)? {
-                    Some(o) => crate::fork::prefix_records(self, &o)?,
-                    None => Vec::new(),
-                };
-                records.extend(own);
+                let records = self.transcript_records(session_id)?;
                 #[cfg(test)]
                 self.kept
                     .scanned
                     .fetch_add(records.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                // A fork's own records follow the ones it inherits.
+                let through = records
+                    .iter()
+                    .rev()
+                    .find(|r| r.scope.as_deref() == Some(session_id))
+                    .map_or(0, |r| r.position);
                 (stubs(records)?, through)
             }
         };
