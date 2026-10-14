@@ -9,20 +9,29 @@
 //!   place (`Control::Unorder`), so the core judges it: only the owner, from
 //!   a private place. The presser hears how it went, and the list is shown
 //!   again without it.
+//! - **`/orders add:<text> [kind:] [surface:]`** adds a record as the presser
+//!   (`standing.add`, which the core judges as it judges the CLI's: the owner,
+//!   from a private place). `surface:` scopes it to the turns that came
+//!   through that surface (`terminal`, `discord`, `voice`, `cockpit`,
+//!   `mcp`); left out, it holds everywhere. The list follows the add.
 
 use theseus_protocol::standing::{
-    StandingChanged, StandingListParams, StandingListResult, StandingRevokeParams,
+    StandingAddParams, StandingChanged, StandingKind, StandingListParams, StandingListResult,
+    StandingRevokeParams, StandingScope, SURFACES,
 };
 use theseus_protocol::{DiscordOrigin, LedgerKind};
 use tokio::sync::mpsc;
 use twilight_model::application::command::{Command, CommandType};
+use twilight_model::application::interaction::application_command::{
+    CommandDataOption, CommandOptionValue,
+};
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle};
 use twilight_model::channel::message::{AllowedMentions, Component, MessageFlags};
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
-use twilight_util::builder::command::CommandBuilder;
+use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
 use super::{Control, Place, PlaceMsg, Shared};
 
@@ -40,7 +49,62 @@ pub(super) fn command() -> Command {
         "Your standing orders, preferences and facts, kept in every prompt of their scope, with Revoke",
         CommandType::ChatInput,
     )
+    .option(StringBuilder::new("add", "Add a record: what to hold to"))
+    .option(
+        StringBuilder::new("kind", "With add: an order (default), a preference, or a fact")
+            .choices(
+                [StandingKind::Order, StandingKind::Preference, StandingKind::Fact]
+                    .map(|k| (k.name(), k.name())),
+            ),
+    )
+    .option(
+        StringBuilder::new("surface", "With add: hold only on turns that came through this surface")
+            .choices(SURFACES.map(|s| (s, s))),
+    )
     .build()
+}
+
+/// The record `/orders add:` asks for, as the presser: its text, and the kind
+/// and the surface when given. None when the command asks for no add.
+pub(super) fn add_of(
+    options: &[CommandDataOption],
+    who: &str,
+    discord: Option<DiscordOrigin>,
+) -> Option<StandingAddParams> {
+    let get = |name: &str| {
+        options
+            .iter()
+            .find_map(|o| match (&o.value, o.name == name) {
+                (CommandOptionValue::String(s), true) => Some(s.as_str()),
+                _ => None,
+            })
+    };
+    let text = get("add")?.trim();
+    Some(StandingAddParams {
+        kind: get("kind")
+            .and_then(StandingKind::parse)
+            .unwrap_or_default(),
+        text: text.to_string(),
+        scope: get("surface").map_or(StandingScope::Everywhere, |s| {
+            StandingScope::Surface(s.to_string())
+        }),
+        author: Some(who.to_string()),
+        discord,
+        ..Default::default()
+    })
+}
+
+/// What an add said.
+fn added(r: Result<StandingChanged, crate::rpc_client::CallError>) -> String {
+    match r {
+        Ok(r) => format!(
+            "📌 Added {} `{}` for {}: every prompt of that scope carries it from its next turn.",
+            r.record.kind.name(),
+            r.record.id,
+            r.record.scope.words()
+        ),
+        Err(e) => format!("⚠️ Nothing was added: {}", e.message),
+    }
 }
 
 /// The list's text: a line a record, then the manifests' tally.
@@ -193,7 +257,15 @@ impl Shared {
                     None,
                     serde_json::json!({"command": c.name, "by": who}),
                 );
-                let data = match self.orders_list(who, discord).await {
+                let mut said = None;
+                if let Some(p) = add_of(&c.options, who, discord.clone()) {
+                    let r = self
+                        .rpc
+                        .call::<_, StandingChanged>(theseus_protocol::method::STANDING_ADD, p)
+                        .await;
+                    said = Some(added(r));
+                }
+                let mut data = match self.orders_list(who, discord).await {
                     Ok(list) => list_data(&list),
                     Err(e) => InteractionResponseData {
                         content: Some(format!("⚠️ {e}")),
@@ -201,6 +273,9 @@ impl Shared {
                         ..Default::default()
                     },
                 };
+                if let Some(said) = said {
+                    data.content = Some(format!("{said}\n\n{}", data.content.unwrap_or_default()));
+                }
                 self.orders_answer(i, InteractionResponseType::ChannelMessageWithSource, data)
                     .await;
                 true
@@ -282,7 +357,10 @@ mod tests {
 
     use super::super::tests::{core_with, place_for_tests, OWNER};
     use super::super::Control;
-    use super::{buttons, revoke_of, text};
+    use super::{add_of, buttons, revoke_of, text};
+    use twilight_model::application::interaction::application_command::{
+        CommandDataOption, CommandOptionValue,
+    };
 
     fn cli() -> theseus_core::approval::Answerer {
         theseus_core::approval::Answerer {
@@ -426,5 +504,48 @@ mod tests {
             .standing_list(&theseus_protocol::StandingListParams::default(), cli())
             .unwrap();
         assert!(live.records.is_empty());
+    }
+
+    fn opt(name: &str, v: &str) -> CommandDataOption {
+        CommandDataOption {
+            name: name.into(),
+            value: CommandOptionValue::String(v.into()),
+        }
+    }
+
+    /// `/orders add:` with a surface asks for a record scoped to it, as the
+    /// presser; with no surface it holds everywhere; with no add it asks for
+    /// nothing (the command lists).
+    #[test]
+    fn an_add_with_a_surface_is_scoped_to_it_and_no_add_is_a_list() {
+        let origin = Some(DiscordOrigin {
+            user_id: "7".into(),
+            channel_id: "8".into(),
+            guild_id: None,
+        });
+        let p = add_of(
+            &[
+                opt("add", " code first, no pleasantries "),
+                opt("kind", "preference"),
+                opt("surface", "terminal"),
+            ],
+            "discord:wren",
+            origin.clone(),
+        )
+        .unwrap();
+        assert_eq!(p.text, "code first, no pleasantries");
+        assert_eq!(p.kind, StandingKind::Preference);
+        assert_eq!(p.scope, StandingScope::Surface("terminal".into()));
+        assert_eq!(
+            (p.author.as_deref(), p.discord),
+            (Some("discord:wren"), origin)
+        );
+        let q = add_of(&[opt("add", "never push to main")], "u", None).unwrap();
+        assert_eq!(
+            (q.kind, q.scope),
+            (StandingKind::Order, StandingScope::Everywhere)
+        );
+        assert!(add_of(&[opt("surface", "voice")], "u", None).is_none());
+        assert!(add_of(&[], "u", None).is_none());
     }
 }

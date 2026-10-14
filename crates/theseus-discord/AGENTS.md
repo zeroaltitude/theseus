@@ -30,7 +30,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `/extensions` (`runtime/extensions.rs`, M7 43b): the loaded extensions from `extend.list`, ephemeral, each with a
   Revoke button (`ext-revoke:<name>`); the text and a press go through the place (`Control::Extensions`,
   `Control::Revoke`), a press as `extension.revoke` with the presser's ids, which the core judges.
-  `/orders` (`runtime/orders.rs`, theseus-a7vi): the owner's standing records from `standing.list` as the presser
+  `/orders` (`runtime/orders.rs`, theseus-a7vi; `add:<text> [kind:] [surface:]`, theseus-slvl.4, is `standing.add` as the presser): the owner's standing records from `standing.list` as the presser
   (the core gives the text of a preference or a fact only to the owner in a private place), ephemeral, each with a
   Revoke button (`orders-revoke:<id>`); a press goes through the place (`Control::Unorder`) as `standing.revoke` with
   the presser's ids, which the core judges. The command is registered after `/extensions`, before the voice ones.
