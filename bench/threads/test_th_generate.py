@@ -109,6 +109,20 @@ class Generator(unittest.TestCase):
                 if q.fact:
                     self.assertGreater(q.msg, facts[q.fact].msg)
 
+    def test_cross_questions_come_while_another_stream_is_active_and_in_stream_ones_while_it_is(self):
+        for p in STD.values():
+            for q in p.probes:
+                if q.kind not in ("in_direct", "in_indirect", "cross"):
+                    continue
+                before = [m for m in p.messages[: q.msg] if not m.beat.startswith(("probe.", "abstain."))]
+                active = before[-1].stream
+                if q.kind == "cross":
+                    self.assertNotEqual(active, q.stream, q.id)
+                else:
+                    self.assertEqual(active, q.stream, q.id)
+                # and far enough from the fact that it is recall, not echo: at least three messages on
+                self.assertGreaterEqual(q.msg - p.facts_by_id()[q.fact].msg, 3, q.id)
+
     def test_facts_collide_by_design(self):
         p = STD[gen.DEV_SEED]
         for kind in ("port", "branch", "test", "ticket", "deadline", "host", "path", "version"):
@@ -161,8 +175,14 @@ class Validator(unittest.TestCase):
 
     def test_a_probe_before_its_fact_is_refused(self):
         p = self.fresh()
-        q = next(x for x in p.probes if x.fact)
-        q.msg = p.facts_by_id()[q.fact].msg
+        q = next(x for x in p.probes if x.fact and p.facts_by_id()[x.fact].msg > 0)
+        j = p.facts_by_id()[q.fact].msg - 1  # a question, in every other way as it was, but asked a message early
+        p.messages[j].role = "probe"
+        q.msg = j
+        with self.assertRaises(tf.Invalid) as cm:
+            tf.validate(p)
+        self.assertIn("not after its fact", str(cm.exception))
+        q.msg = p.facts_by_id()[q.fact].msg  # and asked at the fact's own message
         with self.assertRaises(tf.Invalid):
             tf.validate(p)
 

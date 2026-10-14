@@ -64,6 +64,26 @@ class Price(unittest.TestCase):
             price.rates("no-such-model")
 
 
+class Calls(unittest.TestCase):
+    def test_a_turns_calls_are_what_the_harness_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "raw").mkdir()
+            (d / "raw" / "t0000.json").write_text(json.dumps({"loops": 3, "first_token_ms": 12, "tool_calls": 9}))
+            (d / "raw" / "t0001.json").write_text(json.dumps({"num_turns": 4}))
+            ev = lambda role, u: json.dumps({"type": "message_end", "message": {"role": role, **({"usage": {"input": 1}} if u else {})}})  # noqa: E731
+            (d / "raw" / "t0002.jsonl").write_text("\n".join([ev("user", 0), ev("assistant", 1), ev("toolResult", 0), ev("assistant", 1)]))
+            self.assertEqual(ts.read_calls(d, "theseus", 0, {}), (3, 12.0))
+            self.assertEqual(ts.read_calls(d, "claude-code", 1, {}), (4, None))
+            self.assertEqual(ts.read_calls(d, "pi", 2, {}), (2, None))
+            self.assertEqual(ts.read_calls(d, "theseus", 7, {}), (None, None))
+        # the per-call request is the turn's usage over its calls; without a report, tool calls + 1
+        t = {"tokens": {"input": 30000, "cache_read": 6000, "cache_write": 0}, "calls": 2, "tool_calls": 8}
+        self.assertEqual(ts.request_tokens(t, "theseus"), 18000)
+        del t["calls"]
+        self.assertEqual(ts.request_tokens(t, "theseus"), 4000)
+
+
 class Scoring(unittest.TestCase):
     def run_dict(self, replies: dict[int, str], files: dict[str, str] | None = None, delivered=None) -> dict:
         d = Path(tempfile.mkdtemp(prefix="tb-score-"))

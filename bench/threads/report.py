@@ -117,8 +117,8 @@ def figures(runs: list[dict], prog: tf.Progression) -> list[dict]:
                      "x": {"label": "owner message", "type": "number", "format": "int"},
                      "y": {"label": "tokens in the request (input, cache read, cache write)", "format": "int", "min": 0},
                      "series": series, "legend_labels": lab, "height_plot": 260,
-                     "note": "Provider usage fields over the turn's model calls; a turn's calls are tool calls + 1 "
-                             "(Claude Code reports its own count)."})
+                     "note": "Provider usage fields divided by the turn's model calls, as the harness reports them (Theseus "
+                             "`loops`, Claude Code `num_turns`, Pi's assistant messages)."})
     # dollars
     cats = ["measured", "modelled, 5 min cache", "modelled, 1 h cache"]
     figs.append({"name": "dollars", "form": "bars", "title": "Dollars for the whole run", "orientation": "h",
@@ -255,8 +255,8 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
              if r.get("resources") else "–") for r in runs],
     ])
     out["Latency"] = figs.get("latency", "") + "\n\n" + lat + (
-        "\nFirst-token latency is the provider's, which these drivers' records do not carry (they time the whole "
-        "message); a T0r that needs it reads each harness's own trace. CPU and RSS are the driven processes' "
+        "\nFirst-token latency is carried by Theseus's turn result only; Claude Code and Pi report none, so their cells say "
+        "so (a T0r that needs it reads each harness's own trace). CPU and RSS are the driven processes' "
         "(`getrusage` of the children: the harness's CLI, and a Theseus daemon), apart from the model's work.\n")
     return out
 
@@ -322,8 +322,9 @@ def threats(runs: list[dict]) -> str:
   a leak is any sealed marker in another stream's files, a deliberately blunt test.
 - **Synthetic names and chores.** Six streams of a developer's invented repositories; the shapes (gaps, run lengths,
   cues) are the owner's description, not a measurement of a population.
-- **Claude Code's and Pi's token fields** are their own accounts of a turn's calls; the per-call split here divides
-  by the calls they report (Claude Code) or tool calls + 1 (Theseus, Pi), an approximation.
+- **Token fields are each harness's own account of a turn**: summed over its model calls. The per-call split divides by
+  the calls the harness reports (Theseus `loops`, Claude Code `num_turns`, Pi's assistant messages), tool calls + 1
+  where a run did not keep them (an upper bound); a harness that compacts or trims inside a call is not seen.
 - **Harness faults** at the time of the run are named in the run directory's `run.json`, not here.
 """
 

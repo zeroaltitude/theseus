@@ -154,6 +154,29 @@ class Plan(unittest.TestCase):
         self.assertIn("th_drive:", str(cm.exception))
 
 
+class StandInService(unittest.TestCase):
+    def test_a_service_the_arm_left_in_the_workspace_is_stopped_by_its_pid_and_named(self):
+        import subprocess
+        import types
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d) / "workspace"
+            ws.mkdir()
+            svc = subprocess.Popen(["sleep", "60"], cwd=ws, start_new_session=True)
+            other = subprocess.Popen(["sleep", "60"], cwd=d, start_new_session=True)  # not in the workspace: left alone
+            try:
+                stopped = td.stop_stand_in_services(types.SimpleNamespace(workspace=ws))
+                self.assertEqual(len(stopped), 1)
+                self.assertTrue(stopped[0].endswith(str(svc.pid)), stopped)
+                self.assertEqual(svc.wait(10), -9)
+                self.assertIsNone(other.poll())
+                self.assertEqual(td.stop_stand_in_services(types.SimpleNamespace(workspace=ws)), [])
+            finally:
+                other.kill()
+                other.wait()
+                svc.kill()
+                svc.wait()
+
+
 class Layouts(unittest.TestCase):
     def test_one_session_or_one_per_stream_in_arrival_order(self):
         one = td.view(SMOKE, "one")
@@ -354,13 +377,26 @@ class TheseusSmoke(unittest.TestCase):
                 scored[arm] = sc
             # One session's requests carry the whole history; a session per stream carries its own stream's only.
             self.assertLess(scored["A5"]["tokens"]["request_mean"], scored["A3"]["tokens"]["request_mean"])
-            self.assertGreater(scored["A3"]["tokens"]["request_curve"][-1], scored["A3"]["tokens"]["request_curve"][2])
+            curve = scored["A3"]["tokens"]["request_curve"]
+            self.assertEqual(sorted(curve), curve)  # one session's request only grows (calls are the harness's `loops`)
+            self.assertGreater(curve[-1], curve[2])
+            self.assertIsNotNone(scored["A3"]["latency"]["first_token_ms_mean"])  # Theseus's turn result carries one
             # The report renders into a scratch directory.
             doc = rep.write_report([scored["A3"], scored["A5"]], SMOKE, d / "docs", slug="smoke", date="2026-10-14",
                                    scratch=True)
             self.assertTrue((d / "docs" / "2026-10-14-threadbench-smoke.md").is_file())
             self.assertTrue(list((d / "docs" / "img" / "2026-10-14-threadbench-smoke").glob("*.svg")))
             self.assertIn("Improvement assessment", doc)
+            # and from the scores on disk, as the command line runs it (the progression regenerated from the scores)
+            (d / "scores.json").write_text(json.dumps({"runs": [scored["A3"], scored["A5"]]}))
+            self.assertEqual(rep.main(["--scores", str(d / "scores.json"), "--date", "2026-10-15", "--slug", "cli",
+                                       "--out", str(d / "docs2")]), 0)
+            self.assertTrue((d / "docs2" / "2026-10-15-threadbench-cli.md").is_file())
+            self.assertTrue((d / "docs2" / "2026-10-15-threadbench-cli.csv").is_file())
+            data = json.loads((d / "docs2" / "2026-10-15-threadbench-cli.json").read_text())
+            self.assertEqual([r["arm"] for r in data["runs"]], ["A3", "A5"])
+            self.assertEqual(len(data["figures"]), 5)
+            self.assertFalse(list((REPO / "docs" / "benchmarks").glob("*threadbench*")), "nothing is committed under docs/benchmarks")
 
 
 if __name__ == "__main__":

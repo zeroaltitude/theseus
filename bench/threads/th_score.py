@@ -51,6 +51,33 @@ def quantile(xs: list[float], q: float) -> float | None:
     return round(stats.quantile(xs, q), 1) if xs else None
 
 
+def read_calls(path: Path, harness: str, index: int, turn: dict) -> tuple[int | None, float | None]:
+    """A turn's model calls and its first token, from what the harness itself reported (the driver kept its raw
+    answer): Theseus's `loops` and `first_token_ms`; Claude Code's `num_turns`; Pi's assistant messages. None
+    where the harness reports none."""
+    raw = path / "raw" / f"t{index:04d}.json{'l' if harness == 'pi' else ''}"
+    try:
+        text = raw.read_text()
+    except OSError:
+        return None, None
+    try:
+        if harness == "pi":
+            n = 0
+            for line in text.splitlines():
+                ev = json.loads(line)
+                m = ev.get("message") or {}
+                if ev.get("type") == "message_end" and m.get("role") == "assistant" and m.get("usage"):
+                    n += 1
+            return (n or None), None
+        v = json.loads(text)
+    except (ValueError, AttributeError):
+        return None, None
+    if harness == "claude-code":
+        return (v.get("num_turns") if isinstance(v.get("num_turns"), int) else None), None
+    ftl = v.get("first_token_ms")
+    return (v.get("loops") if isinstance(v.get("loops"), int) else None), (float(ftl) if ftl is not None else None)
+
+
 def load_run(path: Path) -> dict:
     path = Path(path)
     run = json.loads((path / "run.json").read_text())
@@ -62,11 +89,21 @@ def load_run(path: Path) -> dict:
     if (path / "routing.jsonl").exists():
         routing = [json.loads(x) for x in (path / "routing.jsonl").read_text().splitlines() if x.strip()]
     view = json.loads((path / "progression.json").read_text())
+    for t in turns:
+        c, f = read_calls(path, arm["harness"], t["index"], t)
+        if c is not None:
+            t["calls"] = c
+        if f is not None and t.get("first_token_ms") is None:
+            t["first_token_ms"] = f
     return {"dir": path, "run": run, "arm": arm, "prog": prog, "turns": turns, "delivered": delivered,
             "routing": routing, "session_of": [t["session"] for t in view["turns"]]}
 
 
 def calls_of(turn: dict, harness: str) -> int:
+    """The model calls of a turn: what the harness reported (`calls`, read from its raw answer), else tool calls + 1
+    (an upper bound: parallel tool calls share a call), and Claude Code's own count."""
+    if isinstance(turn.get("calls"), int) and turn["calls"] >= 1:
+        return turn["calls"]
     n = turn.get("tool_calls")
     n = n if isinstance(n, int) else (len(n) if isinstance(n, list) else 0)
     return max(1, n) if harness == "claude-code" else n + 1
@@ -257,7 +294,7 @@ def score_run(run: dict) -> dict:
         "latency": {"wall_ms_mean": round(sum(lat) / len(lat), 1) if lat else None, "wall_ms_p50": quantile(lat, 0.5),
                     "wall_ms_p90": quantile(lat, 0.9),
                     "first_token_ms_mean": round(sum(ftl) / len(ftl), 1) if ftl else None,
-                    "first_token_note": None if ftl else "the drivers record wall time, not first token"},
+                    "first_token_note": None if ftl else "no first token recorded: only Theseus's turn result carries one"},
         "resources": meta.get("resources"),
         "compactions": len(meta.get("compactions") or []),
         "harness_version": meta.get("version"),

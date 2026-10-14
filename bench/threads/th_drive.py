@@ -29,9 +29,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import resource
+import signal
 import subprocess
+import time
 import sys
 import types
 from pathlib import Path
@@ -121,6 +124,24 @@ def check_plan(path: Path, arm: str, prog: tf.Progression) -> dict:
         raise SystemExit(f"th_drive: this progression ({prog.digest()[:12]}) is not one the plan {plan['file']} "
                          "pins: generate it again, or change the plan and commit it first")
     return {k: plan[k] for k in ("file", "sha256", "commit", "head", "name")}
+
+
+def stop_stand_in_services(run) -> list[str]:
+    """The local-ops stream asks its arm to restart a stand-in service, which stays up in the workspace when the work
+    is done. The recall drivers fail a run that leaves a process working in it, so the service is stopped here, by
+    the pids found in the run's own workspace (never by name), and named in run.json. What is still running after
+    this is a real leftover, and the exit code says so."""
+    killed = []
+    for pid, prog in rd.processes_naming(run.workspace):
+        try:
+            os.kill(pid, signal.SIGKILL)
+            killed.append(f"{prog} {pid}")
+        except ProcessLookupError:
+            pass
+    t0 = time.monotonic()
+    while rd.processes_naming(run.workspace) and time.monotonic() - t0 < 5:
+        time.sleep(0.05)
+    return killed
 
 
 def refuse(arm: str) -> None:
@@ -309,10 +330,13 @@ def main(argv: list[str] | None = None) -> int:
         run.turns_f.close()
         return 3
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    stopped = stop_stand_in_services(run)
     # The driven processes' own work (the harness's CLI, and a Theseus daemon, which is a child), apart from the
     # model's: CPU seconds, and the largest peak RSS of any one of them.
     run.meta["resources"] = {"cpu_user_s": round(after.ru_utime - before.ru_utime, 2),
                              "cpu_sys_s": round(after.ru_stime - before.ru_stime, 2), "max_rss_kb": after.ru_maxrss}
+    run.meta["stand_in_services_stopped"] = stopped
+    run.meta["left_running"] = [f"{p} {pid}" for pid, p in rd.processes_naming(run.out)]
     run.finish(transcript)
     m = run.meta
     print(f"th_drive: {a.arm} ({spec['name']}) ran {m['turns']} turns in {len(m.get('sessions', []))} session(s); "

@@ -105,6 +105,12 @@ fields); dollars **measured** (the harness's count, with a cache that never expi
 gaps** (`th_price.py`, below); cache-read share; wall latency per message (first token only where a driver records it);
 harness CPU and peak RSS (`getrusage` of the driven processes).
 
+Theseus's scratch config is the recall bench's: the bench profile, `[memory] arm = "baseline"`, a catalog window of
+1,000,000 (Sonnet 5.5's own, so a run of this size does not compact) and an output cap of 16,000 (`output_cap`). A
+turn's model calls are read from what each harness reported (Theseus's `loops`, Claude Code's `num_turns`, Pi's
+assistant messages), so the per-call request is the turn's usage over them; a stand-in service the local-ops arm leaves
+running in the workspace is stopped by pid after the drive and named in `run.json`.
+
 The oracle of a stream is relative to the ideal arm's work on *the progression scored*: the smoke stops each stream
 early, and an arm is correct when it holds every check the ideal holds there. On a standard run that is every check.
 
@@ -141,7 +147,7 @@ python3 bench/threads/th_score.py /tmp/tb-a3 --out /tmp/tb-scores
 python3 bench/threads/report.py --scores /tmp/tb-scores/scores.json --progression /tmp/tb-smoke --date 2026-10-14 --slug smoke --out /tmp/tb-docs
 ```
 
-The stand-in smoke (`test_smoke.py`) runs A3 and A5 end to end on a scratch daemon with `bench/recall/standin.py`, scores
+The stand-in smoke (`test_th_smoke.py`) runs A3 and A5 end to end on a scratch daemon with `bench/recall/standin.py`, scores
 them and renders the report into a scratch directory; nothing is committed under `docs/benchmarks/`. **Run a real arm
 only in a throwaway container or VM**: the tools are not confined to the workspace.
 
