@@ -38,7 +38,9 @@ impl Core {
                 self.self_resume(&p, &who).map_err(refused)
             }),
             method::SELF_LOG => route(params, |p| Ok(self.self_log(&p)?)),
-            method::SELF_EXAMS => route(params, |p| Ok(self.self_exams(&p)?)),
+            method::SELF_EXAMS => route(params, |p| {
+                Ok(self.self_exams(&p, conn.surface.reads_private())?)
+            }),
             _ => route(params, |p| Ok(self.self_digest(&p)?)),
         }
     }

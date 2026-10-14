@@ -13,17 +13,23 @@ use super::{Family, Shelf};
 use crate::rpc::Core;
 
 impl Core {
-    /// The counts and today's candidates.
-    pub fn self_exams(&self, _p: &SelfExamsParams) -> Result<SelfExamsResult> {
+    /// The counts and today's candidates. An open item's task is built from
+    /// the owner's own material (scrubbed), so only a surface that reads
+    /// private text (`private`) is shown it; any other sees ids and verdicts.
+    pub fn self_exams(&self, _p: &SelfExamsParams, private: bool) -> Result<SelfExamsResult> {
         let now = theseus_protocol::now_unix_ms();
         let midnight = crate::learning::local_midnight(now);
         let mut counts: BTreeMap<Family, (u64, u64)> =
             Family::ALL.into_iter().map(|f| (f, (0, 0))).collect();
-        let tasks: BTreeMap<String, String> = Shelf::new(&self.cfg.state_dir())
-            .items()
-            .into_iter()
-            .map(|i| (i.id.0, i.task))
-            .collect();
+        let tasks: BTreeMap<String, String> = if private {
+            Shelf::new(&self.cfg.state_dir())
+                .items()
+                .into_iter()
+                .map(|i| (i.id.0, i.task))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
         let mut today = Vec::new();
         for (_, row) in super::harvest::rows_of(self, LedgerKind::SelfExamCounted, 0, now)? {
             let d = &row.data;

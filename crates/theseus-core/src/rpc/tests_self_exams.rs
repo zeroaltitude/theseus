@@ -21,7 +21,9 @@ use super::{Core, Parts};
 use crate::approval::Answerer;
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
-use crate::rsi::exams::{Family, Item, Reviewer, SplitKey, Verdict, KEY_META};
+use crate::rsi::exams::{
+    half, Family, Half, Item, Raw, Reviewer, Scrub, SplitKey, Verdict, KEY_META,
+};
 
 const DAY: u64 = 86_400_000;
 const T: Thresholds = Thresholds {
@@ -169,6 +171,26 @@ fn seed(c: &Core, now: u64) {
     );
 }
 
+/// A split key under which two or three of `raws` are open and the rest
+/// sealed, so a test sees both halves.
+fn mixed_key(raws: &[Raw]) -> SplitKey {
+    let plain = |s: &str| s.to_string();
+    let scrub = Scrub {
+        secrets: &plain,
+        names: &[],
+    };
+    (0..=255u8)
+        .map(|b| SplitKey([b; 32]))
+        .find(|k| {
+            let open = raws
+                .iter()
+                .filter(|r| half(k, r.family, &Item::scrubbed(r, &scrub).id) == Half::Open)
+                .count();
+            (2..=3).contains(&open)
+        })
+        .expect("some key splits four items both ways")
+}
+
 fn count(c: &Core, kind: &str) -> usize {
     c.store
         .ledger_tail::<LedgerRow>(10_000)
@@ -198,6 +220,9 @@ async fn a_seeded_day_makes_four_candidates_in_the_right_families() {
     assert!(raws
         .iter()
         .all(|r| r.source_rows.iter().all(|s| s.starts_with("ledger:"))));
+    c.store
+        .put_meta(KEY_META, &json!({"key": mixed_key(&raws).hex()}))
+        .unwrap();
     let reviewer = Kind(Mutex::new(Vec::new()));
     let rep = c.self_exams_pass(now, &reviewer).await.unwrap().unwrap();
     assert_eq!(rep.candidates, 4, "{rep:?}");
@@ -213,6 +238,10 @@ async fn a_seeded_day_makes_four_candidates_in_the_right_families() {
         ]
     );
     let open = rep.outcomes.iter().filter(|o| !o.sealed).count();
+    assert!(
+        (2..=3).contains(&open),
+        "both halves are exercised: {open} open"
+    );
     assert_eq!(rep.counted() as usize, open);
     assert_eq!(rep.sealed_dropped() as usize, 4 - open);
     assert_eq!(
@@ -227,14 +256,16 @@ async fn a_seeded_day_makes_four_candidates_in_the_right_families() {
     assert!(shelved
         .iter()
         .all(|i| i.provenance.iter().all(|p| p.starts_with("ledger:"))));
-    // The wrong label's item holds the right answer and no ids.
     let again = c.self_exams_pass(now + 1000, &reviewer).await.unwrap();
     assert!(again.is_none_or(|r| r.candidates == 0), "nothing new");
-    let shown = c.self_exams(&SelfExamsParams::default()).unwrap();
+    let shown = c.self_exams(&SelfExamsParams::default(), true).unwrap();
     let total: u64 = shown.families.iter().map(|f| f.open).sum();
     assert_eq!(total as usize, open);
     assert_eq!(shown.sealed_dropped as usize, 4 - open);
     assert!(shown.today.iter().all(|t| t.sealed || t.task.is_some()));
+    // A surface that reads no private text sees ids and verdicts, no task.
+    let shown = c.self_exams(&SelfExamsParams::default(), false).unwrap();
+    assert!(!shown.today.is_empty() && shown.today.iter().all(|t| t.task.is_none()));
 }
 
 /// Mode off, and a switch never resumed, make nothing: no row, no file, no
@@ -299,7 +330,7 @@ async fn self_exams_shows_a_sealed_item_as_a_number_alone() {
     c.store
         .append(&[crate::fact::row(&f, None, None).unwrap()])
         .unwrap();
-    let shown = c.self_exams(&SelfExamsParams::default()).unwrap();
+    let shown = c.self_exams(&SelfExamsParams::default(), true).unwrap();
     let fam = shown
         .families
         .iter()
