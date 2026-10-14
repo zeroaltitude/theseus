@@ -20,6 +20,7 @@ use theseus_protocol::{
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
 use crate::notice::Notices;
+use crate::standing::{self, Standing};
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
 
@@ -63,6 +64,9 @@ pub enum Purpose {
     Typing,
     /// `health`, for the OpenClaw sync's warning in the header (theseus-pjmj7).
     Health,
+    /// `standing.list` for the session in focus on this surface, for the
+    /// header's pill and the list `p` opens (theseus-slvl.4).
+    Standing(String),
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -119,6 +123,8 @@ pub enum Mode {
     Note(String),
     /// `?`: the keys.
     Help,
+    /// `p`: the standing records that hold in the session in focus.
+    Standing,
 }
 
 /// Which pane a narrow screen shows: the list, or the session in focus.
@@ -176,6 +182,8 @@ pub struct App {
     /// The OpenClaw sync's warning, from `health` at each connect: a failed or
     /// a missed night (theseus-pjmj7).
     pub sync_warn: Option<String>,
+    /// The standing records that hold in the session in focus here.
+    pub standing: Option<Standing>,
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
@@ -213,6 +221,7 @@ impl App {
             title: String::new(),
             save_at: None,
             sync_warn: None,
+            standing: None,
         }
     }
 
@@ -383,6 +392,7 @@ impl App {
         ];
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
+            out.push(read_standing(&sid));
         }
         out
     }
@@ -578,6 +588,13 @@ impl App {
                         d.cited(&r.cites);
                     }
                 }
+                // The records may have changed while the turn ran.
+                return vec![read_standing(&sid)];
+            }
+            Purpose::Standing(sid) => {
+                if self.detail.as_ref().is_some_and(|d| d.session_id == sid) {
+                    self.standing = Standing::read(&sid, v);
+                }
             }
             Purpose::Health => self.sync_warn = sync_warning(v),
             Purpose::Watch | Purpose::Typing => {}
@@ -588,7 +605,10 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(
+            purpose,
+            Purpose::Typing | Purpose::Health | Purpose::Standing(_)
+        ) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -621,6 +641,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::Standing(_) => method::STANDING_LIST,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -683,6 +704,8 @@ impl App {
         self.mark_shown();
         self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
         out.extend(read_session(sid));
+        self.standing = None;
+        out.push(read_standing(sid));
         out.extend(self.follow_up());
         out
     }
@@ -703,7 +726,7 @@ impl App {
             return vec![Effect::Quit];
         }
         match self.mode.clone() {
-            Mode::Help => {
+            Mode::Help | Mode::Standing => {
                 self.mode = Mode::Normal;
                 Vec::new()
             }
@@ -716,6 +739,25 @@ impl App {
             Mode::Note(id) => self.note_key(k, &id),
             Mode::Normal => self.normal_key(k),
         }
+    }
+
+    /// `p`: the standing records of the session in focus, read again.
+    fn standing_key(&mut self) -> Vec<Effect> {
+        let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
+            self.flash = Some((Tag::Dim, "open a session first (enter)".to_string()));
+            return Vec::new();
+        };
+        self.mode = Mode::Standing;
+        vec![read_standing(&sid)]
+    }
+
+    /// The header's pill: the live records that hold in the session in focus.
+    pub fn standing_pill(&self) -> Option<String> {
+        let d = self.detail.as_ref()?;
+        self.standing
+            .as_ref()
+            .filter(|s| s.session == d.session_id)?
+            .pill()
     }
 
     fn normal_key(&mut self, k: KeyEvent) -> Vec<Effect> {
@@ -733,6 +775,7 @@ impl App {
         match k.code {
             KeyCode::Char('q') => return vec![Effect::Quit],
             KeyCode::Char('?') => self.mode = Mode::Help,
+            KeyCode::Char('p') => return self.standing_key(),
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
             KeyCode::Enter => {
@@ -1020,7 +1063,7 @@ impl App {
             Mode::Input => self.input.push_str(&text),
             Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Note(_) => self.note.push_str(&text),
-            Mode::Normal | Mode::Help | Mode::Armed(..) => {
+            Mode::Normal | Mode::Help | Mode::Standing | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop => "not stopped",
@@ -1139,6 +1182,15 @@ fn pasted(text: &str) -> String {
         }
     }
     out
+}
+
+/// `standing.list` for `sid` on this surface (theseus-slvl.4).
+fn read_standing(sid: &str) -> Effect {
+    call(
+        method::STANDING_LIST,
+        standing::params(sid),
+        Purpose::Standing(sid.to_string()),
+    )
 }
 
 fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {
