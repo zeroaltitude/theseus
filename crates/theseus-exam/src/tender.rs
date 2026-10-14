@@ -31,6 +31,8 @@ use crate::client::Client;
 use crate::fixture::Manifest;
 use crate::item::Exam;
 use crate::probe::{self, ItemProbe, KS};
+use theseus_core::recall::temporal;
+use theseus_memory::{Candidate, Place};
 
 /// The sources a tender ranks.
 pub const SOURCES: [&str; 3] = ["bm25", "entity", "vector"];
@@ -150,6 +152,12 @@ pub struct Plan {
     /// How long to wait for the tender to read the whole store, and to embed
     /// it when an arm uses vectors.
     pub settle: Duration,
+    /// Read each task as a turn would (theseus-q1tbn): a question about
+    /// time searches on its subject, and its hits are ranked by the time of
+    /// their events, as recall ranks them.
+    pub temporal: bool,
+    /// Tasks asked in place of the exam's own, by item id.
+    pub tasks: BTreeMap<String, String>,
 }
 
 /// The tender's own times for one arm's queries, in ms.
@@ -246,6 +254,39 @@ pub fn node_ranks(hits: &[Value]) -> Result<HashMap<String, usize>> {
     Ok(rank)
 }
 
+/// Each node's rank when the hits are ordered as recall orders them for a
+/// question about time: the first [`temporal::SUBJECT_TOP`] distinct nodes
+/// by the kind's order, the rest as they came.
+pub fn temporal_ranks(kind: temporal::Kind, hits: &[Value]) -> Result<HashMap<String, usize>> {
+    let mut seen = std::collections::HashSet::new();
+    let mut cands = Vec::new();
+    for h in hits {
+        let id = h["node_id"].as_str().context("a hit without a node_id")?;
+        if !seen.insert(id.to_string()) {
+            continue;
+        }
+        cands.push(Candidate {
+            node_id: id.into(),
+            chunk: h["chunk"].as_u64().unwrap_or(0),
+            session_id: h["session_id"].as_str().unwrap_or("").into(),
+            position: h["position"].as_u64().unwrap_or(0),
+            kind: h["kind"].as_str().unwrap_or("").into(),
+            origin: h["origin"].as_str().unwrap_or("").into(),
+            external: false,
+            text: h["text"].as_str().unwrap_or("").into(),
+            fused: h["fused"].as_f64().unwrap_or(0.0),
+            index_rank: cands.len() + 1,
+            place: Place::Private,
+            time_ms: h["time_ms"].as_u64().unwrap_or(0),
+        });
+    }
+    Ok(temporal::order(kind, &cands)
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.split('#').next().unwrap_or("").to_string(), i + 1))
+        .collect())
+}
+
 /// Ask the tender every item of `plan.half` with gold, under every arm.
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) -> Result<TenderRun> {
@@ -297,8 +338,10 @@ pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) ->
             })
             .collect::<Result<_>>()?;
         for r in &mut runs {
+            let task = plan.tasks.get(&item.id).unwrap_or(&item.task);
+            let asked = plan.temporal.then(|| temporal::read(task)).flatten();
             let mut p = json!({
-                "text": item.task,
+                "text": asked.as_ref().map_or_else(|| task.clone(), |_| temporal::subject(task)),
                 "k": plan.k,
                 "sources": r.arm.sources,
                 "wait_ms": plan.wait_ms,
@@ -322,7 +365,10 @@ pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) ->
             let hits = a["hits"]
                 .as_array()
                 .with_context(|| format!("{}: an answer without hits", item.id))?;
-            let rank = node_ranks(hits)?;
+            let rank = match &asked {
+                Some(a) => temporal_ranks(a.kind, hits)?,
+                None => node_ranks(hits)?,
+            };
             let trap = rank
                 .iter()
                 .filter_map(|(id, &n)| {
@@ -676,7 +722,26 @@ text = "held out gold"
             half,
             wait_ms: 1000,
             settle: Duration::from_secs(5),
+            temporal: false,
+            tasks: BTreeMap::new(),
         }
+    }
+
+    /// A question about time ranks the note that states the event first,
+    /// as recall does (theseus-q1tbn); the tender's own order stands for a
+    /// question that is not about time.
+    #[test]
+    fn a_temporal_question_ranks_the_event_note_first() {
+        let hit = |id: &str, at: u64, text: &str| json!({"node_id": id, "chunk": 0, "time_ms": at, "text": text, "fused": 0.03});
+        let hits = vec![
+            hit("late", 3_000_000, "The weir gauge is fine."),
+            hit("event", 2_000_000, "We replaced the weir gauge."),
+            hit("early", 1_000_000, "Does the weir gauge need a look?"),
+        ];
+        let plain = node_ranks(&hits).unwrap();
+        assert_eq!((plain["late"], plain["event"]), (1, 2));
+        let timed = temporal_ranks(temporal::Kind::When, &hits).unwrap();
+        assert_eq!((timed["event"], timed["early"], timed["late"]), (1, 2, 3));
     }
 
     fn written() -> (Exam, Manifest, tempfile::TempDir) {

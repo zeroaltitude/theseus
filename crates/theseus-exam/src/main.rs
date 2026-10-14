@@ -190,6 +190,14 @@ enum Cmd {
         /// the store.
         #[arg(long, default_value_t = 900)]
         settle_secs: u64,
+        /// Read each task as a turn does (theseus-q1tbn): a question about
+        /// time searches on its subject and ranks by the time of its events.
+        #[arg(long)]
+        temporal: bool,
+        /// A JSON file of `{"<item id>": "<task>"}` asked in place of the
+        /// exam's own tasks.
+        #[arg(long)]
+        tasks: Option<PathBuf>,
     },
 }
 
@@ -366,6 +374,8 @@ fn main() -> Result<()> {
             k,
             json,
             settle_secs,
+            temporal,
+            tasks,
         } => {
             let m = Manifest::read(&manifest)?;
             let arms: Vec<String> = if arms.is_empty() {
@@ -383,6 +393,11 @@ fn main() -> Result<()> {
                 half: tender::Half::parse(half.as_deref().unwrap_or("in"))?,
                 wait_ms: 60_000,
                 settle: Duration::from_secs(settle_secs),
+                temporal,
+                tasks: match tasks {
+                    Some(p) => serde_json::from_slice(&std::fs::read(&p)?)?,
+                    None => Default::default(),
+                },
             };
             let run = tender::run(&exam, &m, &plan, &mut |line| eprintln!("{line}"))?;
             if let Some(path) = json {

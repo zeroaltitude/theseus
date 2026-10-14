@@ -657,6 +657,7 @@ async fn the_synthesis_arm_admits_a_checked_one_alone() {
         fused: 0.5,
         index_rank: 1,
         place,
+        time_ms: 0,
     };
     let none = std::collections::BTreeSet::new();
     let pack = |s: &dyn theseus_memory::MemoryScience, here: &theseus_memory::Place| {

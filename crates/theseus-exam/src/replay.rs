@@ -449,6 +449,7 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
             fused: h["fused"].as_f64().unwrap_or(0.0),
             index_rank: i + 1,
             place: Place::Private,
+            time_ms: h["time_ms"].as_u64().unwrap_or(0),
         });
     }
     let in_context: BTreeSet<String> = rec

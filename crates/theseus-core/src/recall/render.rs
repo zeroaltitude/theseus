@@ -13,6 +13,8 @@ use theseus_store::kinds;
 use crate::node::{Body, Node, RecalledRef};
 use crate::store::Store;
 
+use super::stamp;
+
 /// The sources a compilation's `Recall` nodes render, by node id.
 pub type Sources = HashMap<String, Arc<Node>>;
 
@@ -72,11 +74,25 @@ pub fn frozen_range(source: &str, excerpt: &str) -> (u32, u32) {
 
 /// An item's header, frozen when it is recalled (§2.11's testimony): its
 /// origin (what it is, whose: a message's author, a reply's model; and its
-/// place, `TurnRunner::place_name`), when (UTC), and as of which position:
-/// `a reply by glm-5.3-flash in #harbor, 2026-09-30 14:34 UTC (as of
-/// @18231)`. A node recalled before 35a keeps the header it was frozen with
-/// (`in <session>`, no model): its bytes never change.
+/// place, `TurnRunner::place_name`), when it was said (the owner's zone,
+/// with the weekday; and, where the text names a relative time, the date it
+/// resolves to, `stamp`), and as of which position: `a reply by glm-5.3-flash
+/// in #harbor, said Wed 2026-09-30 07:34 MST; "yesterday" = Tue 2026-09-29
+/// (as of @18231)`. A node recalled before 35a keeps the header it was
+/// frozen with (`in <session>`, no model, UTC): its bytes never change.
 pub fn header(n: &Node, position: u64, place: &str) -> String {
+    header_in(n, position, place, &super::text_of(n), &stamp::system)
+}
+
+/// `header`, resolving the times `shown` (the text the item shows) names,
+/// in `zone`.
+pub fn header_in(
+    n: &Node,
+    position: u64,
+    place: &str,
+    shown: &str,
+    zone: stamp::ZoneAt<'_>,
+) -> String {
     let what = match &n.body {
         Body::UserMessage { .. } => match n.author.as_deref() {
             Some(a) if !a.is_empty() => format!("a message from {a}"),
@@ -113,7 +129,7 @@ pub fn header(n: &Node, position: u64, place: &str) -> String {
     };
     format!(
         "{what} in {place}, {} (as of @{position})",
-        utc(n.created_at_ms)
+        stamp::header_time_in(n.created_at_ms, shown, zone)
     )
 }
 
@@ -131,8 +147,9 @@ pub fn unplaced(session_id: &str) -> String {
 /// `memory.labeled` row yet.
 pub fn volatile(n: &Node, shown: &str) -> Option<String> {
     let why = crate::memory_pass::labels::volatile(shown, &[]);
-    let day = utc(n.created_at_ms);
-    (!why.is_empty()).then(|| format!("volatile: as of {}, unverified", &day[..10]))
+    // The note's local day, as its header says it.
+    let day = stamp::date(n.created_at_ms);
+    (!why.is_empty()).then(|| format!("volatile: as of {day}, unverified"))
 }
 
 /// `n`'s text over `[start, end)`, as its item shows it, without the
@@ -147,23 +164,12 @@ pub fn shown_text(n: &Node, (start, end): (u32, u32)) -> String {
 /// An item's whole frozen header: `header`, ended by the volatile mark
 /// when the text it shows over `chunk` holds a volatile value (35a).
 pub fn item_header(n: &Node, position: u64, place: &str, chunk: (u32, u32)) -> String {
-    let header = header(n, position, place);
-    match volatile(n, &shown_text(n, chunk)) {
+    let shown = shown_text(n, chunk);
+    let header = header_in(n, position, place, &shown, &stamp::system);
+    match volatile(n, &shown) {
         Some(mark) => format!("{header}, {mark}"),
         None => header,
     }
-}
-
-/// `2026-09-30 14:34 UTC`.
-fn utc(ms: u64) -> String {
-    let secs = ms / 1000;
-    let (y, m, d) = crate::wake::civil_from_days((secs / 86_400) as i64);
-    let s = secs % 86_400;
-    format!(
-        "{y:04}-{m:02}-{d:02} {:02}:{:02} UTC",
-        s / 3600,
-        s / 60 % 60
-    )
 }
 
 /// The sources of every `Recall` node in `nodes` (`source`).
@@ -235,6 +241,14 @@ mod tests {
             chunk,
             header: header.into(),
             tokens: 9,
+        }
+    }
+
+    /// The owner's zone in the tests: Phoenix, UTC-7 all year.
+    fn phoenix(_: u64) -> stamp::Zone {
+        stamp::Zone {
+            offset_secs: -7 * 3600,
+            name: "MST".into(),
         }
     }
 
@@ -310,8 +324,8 @@ mod tests {
         let mut n = Node::user("ses_weir", None, "cli", "x");
         n.created_at_ms = 1_790_000_000_000;
         assert_eq!(
-            header(&n, 42, "#harbor"),
-            "a message from cli in #harbor, 2026-09-21 14:13 UTC (as of @42)"
+            header_in(&n, 42, "#harbor", "x", &phoenix),
+            "a message from cli in #harbor, said Mon 2026-09-21 07:13 MST (as of @42)"
         );
         let mut reply = Node::assistant(
             "ses_weir",
@@ -334,8 +348,8 @@ mod tests {
         );
         reply.created_at_ms = 1_790_000_040_000;
         assert_eq!(
-            header(&reply, 18231, "#harbor"),
-            "a reply by glm-5.3-flash in #harbor, 2026-09-21 14:14 UTC (as of @18231)"
+            header_in(&reply, 18231, "#harbor", "Low tide at noon.", &phoenix),
+            "a reply by glm-5.3-flash in #harbor, said Mon 2026-09-21 07:14 MST (as of @18231)"
         );
     }
 
@@ -356,14 +370,21 @@ mod tests {
         let all = shown_text(&gauge, (0, 73));
         assert_eq!(
             volatile(&gauge, &all).as_deref(),
-            Some("volatile: as of 2026-09-21, unverified")
+            Some(format!(
+                "volatile: as of {}, unverified",
+                stamp::date(gauge.created_at_ms)
+            ))
+            .as_deref()
         );
         let heron = Node::user("ses_weir", None, "cli", "The heron nests by the weir.");
         assert_eq!(volatile(&heron, "The heron nests by the weir."), None);
         assert_eq!(
             item_header(&gauge, 42, "#harbor", (0, 73)),
-            "a message from cli in #harbor, 2026-09-21 14:13 UTC (as of @42), \
-             volatile: as of 2026-09-21, unverified"
+            format!(
+                "a message from cli in #harbor, {} (as of @42), volatile: as of {}, unverified",
+                stamp::header_time(gauge.created_at_ms, &all),
+                stamp::date(gauge.created_at_ms)
+            )
         );
         assert!(!item_header(&gauge, 42, "#harbor", (0, 40)).contains("volatile"));
     }

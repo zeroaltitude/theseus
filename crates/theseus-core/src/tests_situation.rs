@@ -301,7 +301,8 @@ async fn a_recalled_items_header_names_its_place() {
         rest.starts_with("a message from test in #harbor, "),
         "{header}"
     );
-    assert!(header.contains(" UTC (as of @"), "{header}");
+    assert!(header.contains(", said "), "{header}");
+    assert!(header.contains(" (as of @"), "{header}");
 }
 
 /// A recalled item whose shown text holds a volatile value ends its
@@ -336,10 +337,8 @@ async fn a_volatile_item_is_as_of_and_unverified() {
     };
     let source = |sid: &str| core.store.session_nodes(sid).unwrap()[0].1.clone();
     let (g, h) = (source(&gauge), source(&heron));
-    let day = {
-        let (y, m, d) = crate::wake::civil_from_days((g.created_at_ms / 86_400_000) as i64);
-        format!("{y:04}-{m:02}-{d:02}")
-    };
+    // The note's day in the daemon's zone, as its header says it.
+    let day = crate::recall::stamp::date(g.created_at_ms);
     let of = |id: &str| {
         items
             .iter()

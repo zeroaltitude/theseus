@@ -98,4 +98,10 @@ activation?: RecallActivation,
  * The span of time the question named (theseus-w9qv), which kept the
  * candidates to the nodes inside it.
  */
-when?: RecallWhen, };
+when?: RecallWhen, 
+/**
+ * The kind of question about time the turn asked (`when`, `order`,
+ * `duration`, `latest`, `earliest`; theseus-q1tbn), which ordered the
+ * candidates by the time of their events.
+ */
+temporal?: string, };

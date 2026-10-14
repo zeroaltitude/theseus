@@ -126,6 +126,9 @@ pub struct Candidate {
     /// The index's rank, from 1.
     pub index_rank: usize,
     pub place: Place,
+    /// When the node was written (ms since the epoch): a question about
+    /// time orders by it (theseus-q1tbn).
+    pub time_ms: u64,
 }
 
 impl Candidate {
@@ -438,6 +441,7 @@ mod tests {
             fused,
             index_rank: 1,
             place,
+            time_ms: 0,
         }
     }
 

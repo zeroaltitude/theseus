@@ -777,6 +777,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     two queries go on one connection, the words' first (`tender/pair.rs`, `IndexTender::query_two`), which closes
     once no one waits (the deadline passed, or the turn dropped its `Begun`, which aborts its task), so the tender
     stops embedding. Tests: `tests_recall_deadline.rs` (a stand-in socket that counts connections).
+  - **Questions about time** (theseus-q1tbn; `recall/temporal.rs`, `recall/stamp.rs`): a turn whose new words ask
+    "when did / was / is", "what day / date / time did", "how long ago / since", "the first / last time", "the most
+    recent / earliest", or "before / after <event>" is read by a small deterministic reader (`temporal::read`, a
+    `Kind`: `When`, `Order`, `Duration`, `Latest`, `Earliest`; no model call; a time that is only the subject, "what
+    time zone do I use", is left alone, the table is `recall/tests_time.rs`). Its words go out as the event alone
+    (`temporal::subject`: the temporal words match every dated note), and the pack is ordered by the event's time
+    (`temporal::order`, applied in `Memory::manifest_ranked` through `rerank::eligible`/`repack`, so the filters and
+    the place rule run first): of the first 12 matches, notes that state the event (a time expression, or a change
+    verb) go before notes that only mention it, each tier oldest first for `When` and `Earliest`, newest first for
+    `Latest`, both ends first for `Order` and `Duration`. The manifest's `temporal` names the kind. A live rerank
+    (32d) orders by Jev, over this. A header's date is the note's own, in the daemon's zone with the weekday and zone
+    (`said Tue 2026-03-17 19:40 MST`), and where the shown text names a relative or partial time, the date it resolves
+    to against the note's own day (`; "yesterday" = Mon 2026-03-16`, `stamp::header_time_in`, which never reads the
+    clock); headers written before this one keep their UTC bytes. Tests: `recall/tests_time.rs`,
+    `tests_recall_time.rs`, `recall::render::tests`; the exam's `probe --temporal` applies the same reader and order.
   - **`memory.lookup`, the model's own read of memory** (theseus-w9qv; `memory_lookup.rs`, `memory_lookup/read.rs`):
     words through recall's pipeline, a span or a book or a topic through the import catalog, and since theseus-8c8s
     `session` (one session's messages in order, paged, tool calls and outside text left out and counted; with words, a
