@@ -30,6 +30,7 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
 | `report/friction.py` | T4 (tool friction per arm) and T5 (cost and calls per solve), read from the trials' ATIF trajectories; `draft.py` prints both in every report. |
 | `report/parallel.py` | The parallel-calls report's generator (theseus-2wxa): bench/async's Layer 1 and Layer 2 runs in, `docs/benchmarks/<date>-asyncbench-parallel-calls.md` with its data, CSV and figures out (bench/async/README.md, "The parallel-calls run"). |
+| `self/` | The self bench (theseus-pw1q.6): twelve seeded gaps (families public, items sealed) given to Theseus's self-improvement loop and to Claude Code; found, fixed, proved, no regressions, no erosion, cost; two traps that must score 0 shortcuts. `self/README.md`; an open demo set in `self/open/`. |
 | `async/layer1.py` | Layer 1's drivers: one stand-in model (`theseus-sim fake-model --rules`) asks for N calls of `sleep 2` in one response, in each harness's own tool names, and the wall is timed around each CLI (bench/async/README.md, "Layer 1"). |
 | `report/stats.py` | The statistics every report uses: Wilson intervals, a seeded bootstrap, the exact McNemar test, quantiles. |
 
@@ -382,6 +383,7 @@ python3 -m unittest discover -s bench/harbor                 # the standard libr
 .venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agents' load
 python3 -m unittest discover -s bench/report                 # the reports: efficiency, the drafting tool, the charts, the statistics
 python3 -m unittest discover -s bench/async                  # the async bench's driver and scorer
+python3 -m unittest discover -s bench/self                   # the self bench's driver, scorer and branch judge
 ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async   # with Harbor: the async arms' runs
 ```
 
