@@ -385,6 +385,7 @@ export type * from './RunningJob';
 export type * from './SandboxHealth';
 export type * from './SandboxLaunch';
 export type * from './SandboxUsage';
+export type * from './SealedState';
 export type * from './SecretFailed';
 export type * from './SecretSource';
 export type * from './SecretsStatus';

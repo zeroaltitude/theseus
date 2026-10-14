@@ -10,6 +10,11 @@
 //!   or `"off"`.
 //! - `[self.budget]`: the self budget's lines, an empty table until the
 //!   self-budget row gives it `branch_usd` and `day_usd`.
+//! - `sealed_dir` (theseus-pw1q.5): where sealed holdout sets live, out of
+//!   Theseus's reach (`crate::rsi::sealed`). Unset (the default) means no
+//!   sealed set. It must be an absolute path outside every workspace root,
+//!   the state dir, the repository and every `[sandbox] ro_paths` entry
+//!   (neither inside one nor holding one), refused at load by the key's name.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -24,6 +29,8 @@ pub struct SelfConfig {
     pub digest: SelfDigest,
     #[serde(default)]
     pub budget: SelfBudgetConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sealed_dir: Option<String>,
 }
 
 /// `[self] digest`.
@@ -49,6 +56,73 @@ impl SelfConfig {
     pub fn posts_digest(&self) -> bool {
         self.mode == SelfMode::Act && self.digest == SelfDigest::Weekly
     }
+}
+
+impl SelfConfig {
+    /// `[self] sealed_dir` against the config it sits in: absolute, and
+    /// apart from every place Theseus or a job may reach (theseus-pw1q.5).
+    pub fn validate(&self, cfg: &crate::Config) -> anyhow::Result<()> {
+        let Some(raw) = self.sealed_dir.as_deref() else {
+            return Ok(());
+        };
+        if raw.trim().is_empty() {
+            anyhow::bail!("[self] sealed_dir is empty: leave it out for no sealed set");
+        }
+        let expanded = crate::config::expand(raw);
+        if !expanded.is_absolute() {
+            anyhow::bail!("[self] sealed_dir must be an absolute path, not {raw:?}");
+        }
+        let canon = |p: &std::path::Path| theseus_tools::paths::canonical_best_effort(p);
+        let sealed = canon(&expanded);
+        let mut near: Vec<(String, std::path::PathBuf)> = Vec::new();
+        let t = &cfg.tools;
+        for (i, r) in t.projects_dir.iter().chain(t.roots.iter()).enumerate() {
+            let what = if i == 0 && t.projects_dir.is_some() {
+                "[tools] projects_dir"
+            } else {
+                "a [tools] root"
+            };
+            near.push((what.into(), canon(&crate::config::expand(r))));
+        }
+        if let Some(c) = &t.cwd {
+            near.push(("[tools] cwd".into(), canon(&crate::config::expand(c))));
+        }
+        near.push(("the state dir".into(), canon(&cfg.state_dir())));
+        for r in &cfg.sandbox.ro_paths {
+            near.push((
+                "a [sandbox] ro_paths entry".into(),
+                canon(&crate::config::expand(r)),
+            ));
+        }
+        let start = t
+            .cwd
+            .as_deref()
+            .map(crate::config::expand)
+            .or_else(|| std::env::current_dir().ok());
+        if let Some(repo) = start.as_deref().and_then(repo_of) {
+            near.push(("the repository".into(), canon(&repo)));
+        }
+        for (what, p) in near {
+            if theseus_tools::paths::within(&sealed, &p) {
+                anyhow::bail!(
+                    "[self] sealed_dir is inside {what}: the sealed set must sit outside it"
+                );
+            }
+            if theseus_tools::paths::within(&p, &sealed) {
+                anyhow::bail!("[self] sealed_dir holds {what}: the sealed set must sit outside it");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The git work tree that holds `start`, if any: the nearest ancestor with a
+/// `.git`.
+fn repo_of(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    start
+        .ancestors()
+        .find(|a| a.join(".git").exists())
+        .map(std::path::Path::to_path_buf)
 }
 
 /// One of `allowed`, or an error naming the key and its values.
@@ -125,5 +199,70 @@ mod tests {
         );
         assert!(e.contains("[self] digest must be"), "{e}");
         assert!(Config::from_toml("[self]\nbudget_usd = 1.0\n").is_err());
+    }
+
+    /// `[self] sealed_dir` is unset by default, the template carries the key
+    /// commented, and a path inside a workspace root, the state dir or the
+    /// repository (or holding one) is refused at load, by the key's name.
+    #[test]
+    fn a_sealed_dir_must_sit_outside_every_place_a_job_can_reach() {
+        let d = tempfile::tempdir().unwrap();
+        let base = d.path().canonicalize().unwrap();
+        let (work, state, repo) = (base.join("work"), base.join("state"), base.join("repo"));
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let load = |sealed: &str, ro: &[String]| {
+            let mut cfg = Config::example();
+            cfg.server.state_dir = state.to_string_lossy().into_owned();
+            cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
+            cfg.tools.roots = vec![];
+            cfg.tools.cwd = Some(repo.join("src").to_string_lossy().into_owned());
+            cfg.sandbox.ro_paths = ro.to_vec();
+            cfg.self_improve.sealed_dir = Some(sealed.to_string());
+            match cfg.validate() {
+                Ok(()) => "ok".to_string(),
+                Err(e) => format!("{e:#}"),
+            }
+        };
+        assert!(Config::from_toml("")
+            .unwrap()
+            .self_improve
+            .sealed_dir
+            .is_none());
+        assert!(Config::EXAMPLE_TOML.contains("# sealed_dir = \"/srv/theseus-sealed\""));
+        let outside = base.join("sealed");
+        assert_eq!(load(outside.to_str().unwrap(), &[]), "ok");
+        for (path, what) in [
+            (work.join("exams"), "inside [tools] projects_dir"),
+            (work.clone(), "inside [tools] projects_dir"),
+            (state.join("sealed"), "inside the state dir"),
+            (repo.join("tests").join("sealed"), "inside the repository"),
+            (repo.clone(), "holds [tools] cwd"),
+        ] {
+            let e = load(path.to_str().unwrap(), &[]);
+            assert!(
+                e.contains("[self] sealed_dir ") && e.contains(what),
+                "{path:?}: {e}"
+            );
+        }
+        // Holding a place is as bad as sitting in one.
+        let e = load(base.to_str().unwrap(), &[]);
+        assert!(e.contains("[self] sealed_dir holds"), "{e}");
+        // A link into a root resolves first.
+        std::os::unix::fs::symlink(&work, base.join("via")).unwrap();
+        let e = load(base.join("via").join("deep").to_str().unwrap(), &[]);
+        assert!(e.contains("[self] sealed_dir is inside"), "{e}");
+        // A read-only mount of the sealed dir is a bind into it.
+        let ro = [outside.join("core").to_string_lossy().into_owned()];
+        let e = load(outside.to_str().unwrap(), &ro);
+        assert!(
+            e.contains("[self] sealed_dir holds a [sandbox] ro_paths entry"),
+            "{e}"
+        );
+        // Relative, empty.
+        let e = load("sealed/here", &[]);
+        assert!(e.contains("must be an absolute path"), "{e}");
+        let e = load(" ", &[]);
+        assert!(e.contains("[self] sealed_dir is empty"), "{e}");
     }
 }

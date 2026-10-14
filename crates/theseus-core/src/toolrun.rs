@@ -38,6 +38,9 @@ use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
+mod guarded;
+use guarded::guarded_paths;
+pub use guarded::sandbox_for;
 mod batch;
 mod calls;
 pub mod fit;
@@ -361,6 +364,9 @@ pub struct ToolRuntime {
     /// `[places] public_paths`, expanded and canonical: all a shared place's
     /// file tools reach (the place rule, theseus-nbsh).
     pub public_roots: Vec<PathBuf>,
+    /// The sealed holdout sets' path, which the gate refuses every call that
+    /// reaches (theseus-pw1q.5).
+    pub sealed: crate::rsi::sealed::Guard,
     /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
     /// completion to its turn, and wakes it.
     pub job_waits: Arc<JobWaits>,
@@ -511,6 +517,7 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
+            sealed: Default::default(),
             job_waits: Arc::default(),
             outputs: crate::outputs::Outputs::off(),
             admission: crate::turn::admission::Admission::new(8, Duration::from_secs(600)),
@@ -2096,49 +2103,6 @@ fn unanswered(nodes: &[(u64, crate::stub::Stub)]) -> Option<(&Node, Vec<ToolUse>
     Some((&**last, pending))
 }
 
-/// The workspace's roots, the floor's paths, and the approve list's, from
-/// `cfg` with `state` the state dir in use: what the gate guards, and what
-/// no L1 view shows (M4 17b).
-fn guarded_paths(
-    cfg: &crate::Config,
-    state: &std::path::Path,
-) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
-    let t = &cfg.tools;
-    let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
-    // The workspace is what the config names: projects_dir first, then any
-    // more roots. Nothing is assumed about where an operator keeps projects.
-    let roots: Vec<PathBuf> = t
-        .projects_dir
-        .iter()
-        .chain(t.roots.iter())
-        .map(|r| canon(r))
-        .collect();
-    // The floor: Theseus's own state (its store, spool, and bindings file, in
-    // the state dir actually in use) and the 1Password CLI's credentials.
-    let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
-    let mut floor_paths = vec![
-        canon_path(state.join("store")),
-        canon_path(state.join("spool")),
-        canon_path(cfg.discord.bindings_path(state)),
-        canon("~/.config/op"),
-    ];
-    // The token file the daemon was given, by flag or by environment, and
-    // the config note's last-known-good copy (theseus-2fo).
-    for f in cfg.op_token_file.iter().chain(&cfg.config_copy) {
-        floor_paths.push(canon_path(f.clone()));
-    }
-    let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
-    (roots, floor_paths, approve)
-}
-
-/// L1's state for `cfg`, with `state` the state dir in use, as the runtime
-/// builds it: `theseusd check` runs the self-test over the view a job gets
-/// (theseus-gyin).
-pub fn sandbox_for(cfg: &crate::Config, state: &std::path::Path) -> Sandbox {
-    let (roots, floor, approve) = guarded_paths(cfg, state);
-    Sandbox::new(&cfg.sandbox, &roots, &floor, &approve)
-}
-
 /// The tool runtime from config: registry, canonical roots, policy, limits,
 /// the job environment resolved once from the daemon's own, and the secret
 /// broker over the daemon's board.
@@ -2346,6 +2310,7 @@ pub fn build_runtime(
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
+        sealed: crate::rsi::sealed::guard_of(cfg).unwrap_or_default(),
         job_waits: Arc::default(),
         admission: crate::turn::admission::Admission::new(
             cfg.kernel.admission_ceiling,

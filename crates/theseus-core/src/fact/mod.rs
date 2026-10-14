@@ -65,6 +65,7 @@ pub mod recall;
 pub mod retract;
 pub mod route;
 pub mod rsi;
+pub mod rsi_sealed;
 pub mod sandbox;
 pub mod situation;
 pub mod standing;
@@ -458,6 +459,7 @@ facts![
     extend::ExtendRevoked<'static>,
     rsi::SelfHalted<'static>,
     rsi::SelfResumed<'static>,
+    rsi_sealed::SelfExamCounted<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
 ];

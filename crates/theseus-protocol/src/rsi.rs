@@ -150,6 +150,11 @@ pub struct SelfState {
     pub why: Option<String>,
     /// What a self step would hear now: `off`, `halted` or `allowed`.
     pub gate: String,
+    /// The sealed holdout sets (theseus-pw1q.5): present when `[self]
+    /// sealed_dir` is set, as counts only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub sealed: Option<SealedState>,
 }
 
 /// `self.halt`'s params. Anyone who may speak to the daemon may halt.
@@ -266,6 +271,17 @@ pub struct SelfDigestResult {
     pub until_ms: u64,
     pub text: String,
     pub rows: u64,
+}
+
+// sealed-holdouts (theseus-pw1q.5): health's view of the sealed sets.
+
+/// `[self] sealed_dir` is set: how many items each sealed set holds. Counts
+/// only: an item's text, its id and its family never ride the wire.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SealedState {
+    /// Items per set, by the set's name.
+    pub sets: std::collections::BTreeMap<String, u64>,
 }
 
 #[cfg(test)]

@@ -193,6 +193,8 @@ pub struct Core {
     pub resident: crate::resident::Resident,
     /// Self-improvement's kill switch, cached (theseus-pw1q.2; `crate::rsi`).
     pub rsi: crate::rsi::Switch,
+    /// The sealed holdout sets, when `[self] sealed_dir` is set (theseus-pw1q.5).
+    pub sealed: Option<Arc<crate::rsi::sealed::Sealed>>,
     /// What a first keystroke warmed, and the sessions' idle spells
     /// (theseus-tnky).
     pub warmth: crate::warm::Warmth,
@@ -768,6 +770,7 @@ impl Core {
             None => (cfg.model.live.clone(), "config".to_string()),
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
+        let sealed = crate::rsi::sealed::open(&cfg);
         let core = Arc::new(Self {
             cfg,
             store,
@@ -804,6 +807,7 @@ impl Core {
             episodes: Default::default(),
             resident: Default::default(),
             rsi: Default::default(),
+            sealed,
             warmth: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));

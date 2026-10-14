@@ -23,7 +23,10 @@ impl Core {
 
     /// The mode, the switch, and the gate, as every surface shows them.
     pub fn self_state(&self) -> SelfState {
-        super::state(&self.self_ctx())
+        SelfState {
+            sealed: self.sealed_state(),
+            ..super::state(&self.self_ctx())
+        }
     }
 
     /// Halt every self step, by `who`, from wherever it came. Idempotent: a

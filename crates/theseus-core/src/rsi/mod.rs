@@ -40,6 +40,7 @@
 
 mod digest;
 mod log;
+pub mod sealed;
 mod switch;
 
 use std::sync::{Mutex, PoisonError, RwLock};
@@ -186,5 +187,6 @@ pub fn state(ctx: &Ctx<'_>) -> SelfState {
             .and_then(|r| r.why.clone())
             .or_else(|| r.is_none().then(|| NEVER_RESUMED.to_string())),
         gate: g.name().into(),
+        sealed: None,
     }
 }

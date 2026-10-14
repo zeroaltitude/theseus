@@ -55,6 +55,8 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# The sealed scorer's test reads what it logs (theseus-pw1q.5); in the lock already.
+tracing-subscriber.workspace = true
 # The fake Jev, for the judge's tests.
 theseus-judge = { path = "../theseus-judge", features = ["fake"] }
 # The paused clock for tests that prove a wait never happens (theseus-ksfu);
