@@ -38,7 +38,9 @@
 //! `extend.declined`, `extend.loaded`, and `extend.revoked` (`fact::extend`).
 
 pub mod answer;
+pub mod broker;
 pub mod freeze;
+pub mod hands;
 pub mod list;
 pub mod load;
 pub mod revoke;
@@ -139,6 +141,10 @@ pub struct Capabilities {
     pub network: Vec<String>,
     /// Scratch for its writes, which the view discards: always, as a job's.
     pub scratch: bool,
+    /// Hands in AWS through the daemon's broker, within a day's cap
+    /// (theseus-pw1q.14): none unless asked, and the owner's ack grants it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hands: Option<hands::HandsCap>,
 }
 
 /// Who proposed it.
@@ -198,14 +204,20 @@ impl Manifest {
     }
 
     /// The card's question: "Load wordcount 3f2a1c: 1 tool, 3 of 3 tests
-    /// passed, no network?"
+    /// passed, no network?", and with hands its sentence after it: "This
+    /// extension may run up to 20 hands at a time on Lambda, at most $2.00 a
+    /// day."
     pub fn question_text(&self) -> String {
         let network = match self.capabilities.network.as_slice() {
             [] => "no network".to_string(),
             hosts => format!("network to {}", hosts.join(", ")),
         };
+        let hands = match &self.capabilities.hands {
+            Some(h) => format!(" {}", h.words()),
+            None => String::new(),
+        };
         format!(
-            "Load {} {}: {}, {} of {} passed, {network}?",
+            "Load {} {}: {}, {} of {} passed, {network}?{hands}",
             self.name,
             short(&self.digest),
             crate::narrative::count(self.tools.len() as u64, "tool", "tools"),
@@ -248,6 +260,13 @@ pub struct Extensions {
     /// Held across each read and write of the `extensions` record: a load
     /// and a revoke never interleave.
     pub(crate) writes: std::sync::Mutex<()>,
+    /// Held across a hands launch of the broker's, and a revoke's sweep
+    /// (theseus-pw1q.14): one at a time.
+    pub(crate) launches: tokio::sync::Mutex<()>,
+    /// Each extension's refusals this minute, which bound its rows.
+    pub(crate) refusals: broker::Refusals,
+    /// The core, for the broker's channels: held weakly, as the board does.
+    core: OnceLock<Weak<crate::rpc::Core>>,
 }
 
 impl Extensions {
@@ -258,7 +277,27 @@ impl Extensions {
             board: OnceLock::new(),
             floors: Default::default(),
             writes: Default::default(),
+            launches: Default::default(),
+            refusals: Default::default(),
+            core: OnceLock::new(),
         }
+    }
+
+    /// The core, once built, for the channels the broker serves.
+    pub fn attach_core(&self, core: Weak<crate::rpc::Core>) {
+        let _ = self.core.set(core);
+    }
+
+    /// The channel of a loaded extension's connection: its hands broker
+    /// when its ack granted `hands`, none otherwise.
+    pub fn channel(&self, l: &load::Loaded) -> Option<theseus_mcp::client::Served> {
+        l.capabilities.hands.as_ref()?;
+        let core = self.core.get()?.clone();
+        Some(broker::Channel::served(core, &l.name))
+    }
+
+    pub(crate) fn core(&self) -> Option<Arc<crate::rpc::Core>> {
+        self.core.get().and_then(Weak::upgrade)
     }
 
     /// The board, once the core has one; held weakly, as the board holds
@@ -300,6 +339,8 @@ struct Input {
     tests: Vec<TestSpec>,
     #[serde(default)]
     network: Vec<String>,
+    #[serde(default)]
+    hands: Option<hands::HandsCap>,
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
@@ -334,6 +375,9 @@ fn input_of(input: &Value) -> Result<Input, String> {
     }
     if let Err(e) = crate::egress::check(&i.network) {
         return Err(format!("network has {e}"));
+    }
+    if let Some(h) = &i.hands {
+        h.check()?;
     }
     Ok(i)
 }
@@ -379,7 +423,17 @@ impl Tool for Propose {
                         "required": ["tool", "expect"]
                     }
                 },
-                "network": {"type": "array", "items": {"type": "string"}, "description": "Hosts it must reach (host or host:port, *.domain for every name under it). Leave it out for none."}
+                "network": {"type": "array", "items": {"type": "string"}, "description": "Hosts it must reach (host or host:port, *.domain for every name under it). Leave it out for none."},
+                "hands": {
+                    "type": "object",
+                    "description": "Only if its tools must run batch work as AWS hands: they ask its MCP connection for hands.run, hands.status and hands.cancel.",
+                    "properties": {
+                        "usd_cap": {"type": "number", "description": "Dollars a local day."},
+                        "backends": {"type": "array", "items": {"enum": ["lambda", "fargate"]}},
+                        "max_group": {"type": "integer", "description": "Hands at a time."}
+                    },
+                    "required": ["usd_cap", "backends", "max_group"]
+                }
             },
             "required": ["name", "dir", "command", "description"],
             "additionalProperties": false
@@ -562,10 +616,12 @@ pub async fn propose(
         .ok_or("the MCP board is not running, so nothing can be tried")?;
     let (root, name) = (ext.dir.clone(), i.name.clone());
     let from = src.clone();
-    let frozen = tokio::task::spawn_blocking(move || freeze::freeze(&from, &root, &name))
-        .await
-        .map_err(|e| format!("the freeze failed: {e}"))?
-        .map_err(|e| format!("{} could not be frozen: {e}", src.display()))?;
+    let caps = i.hands.as_ref().map(hands::HandsCap::canonical);
+    let frozen =
+        tokio::task::spawn_blocking(move || freeze::freeze(&from, &root, &name, caps.as_deref()))
+            .await
+            .map_err(|e| format!("the freeze failed: {e}"))?
+            .map_err(|e| format!("{} could not be frozen: {e}", src.display()))?;
     tc.record(&ExtendProposed {
         name: &i.name,
         digest: &frozen.digest,
@@ -606,6 +662,7 @@ pub async fn propose(
         capabilities: Capabilities {
             network: i.network.clone(),
             scratch: true,
+            hands: i.hands.clone(),
         },
         proposed_by: ProposedBy {
             session_id: tc.session_id.into(),
@@ -657,6 +714,7 @@ fn ask(rt: &ToolRuntime, tc: &TurnCtx<'_>, m: &mut Manifest) -> anyhow::Result<(
             "tools": m.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
             "passed": m.passed(), "tests": m.tests.len(),
             "network": m.capabilities.network, "frozen": m.frozen,
+            "hands": m.capabilities.hands,
             "question": m.question_text(),
         }),
         resource: Some(format!("{SERVER_PREFIX}{}", m.name)),

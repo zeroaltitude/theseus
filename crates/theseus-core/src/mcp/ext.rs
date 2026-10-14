@@ -55,6 +55,14 @@ impl McpBoard {
         self.loaded().get(name).map(|l| l.server.clone())
     }
 
+    /// Whether the loaded extension server `name`'s connection answers a
+    /// channel of the daemon's (its hands broker, theseus-pw1q.14).
+    pub fn has_channel(&self, name: &str) -> bool {
+        self.loaded()
+            .get(name)
+            .is_some_and(|l| l.server.serve.is_some())
+    }
+
     /// Whether `name` is a loaded extension's server.
     pub fn is_loaded(&self, name: &str) -> bool {
         self.loaded().contains_key(name)
@@ -63,14 +71,20 @@ impl McpBoard {
     /// Load the extension server `name` (`ext-<name>`) of `cfg`, offering
     /// `stored` at once (the tools its trial listed, or its last list), and
     /// start it if the board has started. A server of that name already
-    /// loaded (an older version) is replaced, then stopped.
+    /// loaded (an older version) is replaced, then stopped. `serve` is the
+    /// channel its connection alone answers: an extension acked for hands
+    /// (theseus-pw1q.14); none for any other.
     pub fn load_extension(
         self: &Arc<Self>,
         name: &str,
         cfg: McpServerConfig,
         stored: Option<StoredList>,
+        serve: Option<theseus_mcp::client::Served>,
     ) {
-        let server = Arc::new(Server::new(name, &cfg, stored));
+        let server = Arc::new(Server {
+            serve,
+            ..Server::new(name, &cfg, stored)
+        });
         // Under the list's lock, so `start` either sees it or has started.
         let old = {
             let mut loaded = self.loaded();

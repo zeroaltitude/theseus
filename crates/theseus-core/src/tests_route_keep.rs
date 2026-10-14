@@ -35,12 +35,13 @@ use crate::tests_route::{mode, rig, turn};
 /// the tools block (theseus-lherl: 700 more of window; 41,300 rang again), and
 /// 41,700 and 36,200 before `task_create`'s `start_at` and `start_after` joined it
 /// (theseus-rcgph: 200 more), and 41,900 and 36,400 before `wake.at`'s `for` and
-/// `say_only` joined it (theseus-8ux6x: 300 more).
-const WINDOW: u64 = 42_200;
+/// `say_only` joined it (theseus-8ux6x: 300 more), and 42,200 and 36,700 before
+/// `extend.propose`'s `hands` joined it (theseus-pw1q.14: 200 more).
+const WINDOW: u64 = 42_400;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 36_700;
+const BILLED: u64 = 36_900;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

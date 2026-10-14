@@ -209,7 +209,9 @@ impl crate::rpc::Core {
     /// `l` on the board, offering `stored`, and its floor at the gate.
     pub(crate) fn board_load(&self, l: &Loaded, stored: Option<StoredList>) {
         self.tools.extend.floors.set(l);
-        self.mcp.load_extension(&l.server(), l.server_cfg(), stored);
+        let serve = self.tools.extend.channel(l);
+        self.mcp
+            .load_extension(&l.server(), l.server_cfg(), stored, serve);
     }
 }
 

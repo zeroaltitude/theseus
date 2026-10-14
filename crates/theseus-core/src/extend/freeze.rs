@@ -11,6 +11,12 @@
 //! the workspace and run what an edit there writes. So the same tree always
 //! digests the same, wherever it lies, and any change to a name, a mode, or
 //! a byte is a new digest.
+//!
+//! An extension that asks for `hands` (theseus-pw1q.14) has its ask folded
+//! into the digest ([`with_caps`]): the tree's digest, then the ask's
+//! canonical JSON. So the ask the owner's Load card names is the frozen
+//! copy's, and an edit to it is a new digest, a new copy, and a new ack. An
+//! extension that asks for none digests as its tree alone, as before.
 
 use std::fs;
 use std::io::Read;
@@ -153,19 +159,42 @@ pub fn digest(root: &Path) -> Result<String, String> {
     digest_of(root).map(|(d, _)| d)
 }
 
+/// A tree's digest with the capabilities it asks for folded in: the tree's
+/// alone when `caps` is none.
+pub fn with_caps(tree: &str, caps: Option<&str>) -> String {
+    match caps {
+        None => tree.to_string(),
+        Some(c) => {
+            let mut h = Sha256::new();
+            h.update(b"theseus-extension-caps-v1\0");
+            h.update(tree.as_bytes());
+            h.update(b"\0");
+            h.update(c.as_bytes());
+            hex::encode(h.finalize())
+        }
+    }
+}
+
+/// The digest of a frozen copy under `root` that asked for `caps`.
+pub fn digest_with(root: &Path, caps: Option<&str>) -> Result<String, String> {
+    digest(root).map(|d| with_caps(&d, caps))
+}
+
 /// Copy `src` into `<root>/<name>/<digest>/`, read-only, and return the
 /// digest and the copy. A copy already there under the same digest is
 /// checked and kept; the copy is made beside it and renamed into place, so
 /// no reader sees half of one. The digest is of the copy as made, so a file
-/// changed while it was read fails the freeze.
-pub fn freeze(src: &Path, root: &Path, name: &str) -> Result<Frozen, String> {
-    let (digest, entries) = digest_of(src)?;
+/// changed while it was read fails the freeze. `caps`, the canonical JSON
+/// of what it asks for beyond its tools (`hands`), is folded into the digest.
+pub fn freeze(src: &Path, root: &Path, name: &str, caps: Option<&str>) -> Result<Frozen, String> {
+    let (tree, entries) = digest_of(src)?;
+    let digest = with_caps(&tree, caps);
     let files = entries.iter().filter(|e| !e.dir).count();
     let bytes = entries.iter().map(|e| e.len).sum();
     let parent = root.join(name);
     let dir = parent.join(&digest);
     if dir.is_dir() {
-        if self::digest(&dir)? == digest {
+        if digest_with(&dir, caps)? == digest {
             return Ok(Frozen {
                 digest,
                 dir,
@@ -183,7 +212,7 @@ pub fn freeze(src: &Path, root: &Path, name: &str) -> Result<Frozen, String> {
     let _ = fs::remove_dir_all(&tmp);
     let made = copy(src, &tmp, &entries).and_then(|()| {
         seal(&tmp, &entries)?;
-        if self::digest(&tmp)? != digest {
+        if self::digest(&tmp)? != tree {
             return Err("the tree changed while it was copied: propose it again".into());
         }
         fs::rename(&tmp, &dir).map_err(|e| format!("{}: {e}", dir.display()))
@@ -287,7 +316,7 @@ mod tests {
         let src = d.path().join("work/wc");
         tree(&src);
         let state = d.path().join("state/extensions");
-        let f = freeze(&src, &state, "wordcount").unwrap();
+        let f = freeze(&src, &state, "wordcount", None).unwrap();
         assert_eq!(f.dir, state.join("wordcount").join(&f.digest));
         assert_eq!((f.files, f.bytes), (2, 35));
         assert_eq!(digest(&f.dir).unwrap(), f.digest);
@@ -304,10 +333,35 @@ mod tests {
         assert_ne!(digest(&src).unwrap(), f.digest);
         // The same tree again: the same copy, kept.
         tree(&src);
-        assert_eq!(freeze(&src, &state, "wordcount").unwrap(), f);
+        assert_eq!(freeze(&src, &state, "wordcount", None).unwrap(), f);
         // No temporary copy is left beside it.
         let left: Vec<_> = fs::read_dir(state.join("wordcount")).unwrap().collect();
         assert_eq!(left.len(), 1);
+        make_writable(&state).unwrap();
+    }
+
+    /// An ask for hands is in the digest: the same tree with no ask digests
+    /// as its tree, with an ask as another digest and another copy, and a
+    /// changed ask as another still.
+    #[test]
+    fn an_ask_for_hands_is_in_the_digest() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("wc");
+        tree(&src);
+        let state = d.path().join("ext");
+        let bare = freeze(&src, &state, "wordcount", None).unwrap();
+        assert_eq!(bare.digest, digest(&src).unwrap());
+        let ask = r#"{"usd_cap":2.0,"backends":["lambda"],"max_group":20}"#;
+        let asked = freeze(&src, &state, "wordcount", Some(ask)).unwrap();
+        assert_ne!(asked.digest, bare.digest);
+        assert_eq!(asked.dir, state.join("wordcount").join(&asked.digest));
+        assert_eq!(digest_with(&asked.dir, Some(ask)).unwrap(), asked.digest);
+        assert_eq!(digest(&asked.dir).unwrap(), bare.digest, "the same tree");
+        let more = r#"{"usd_cap":20.0,"backends":["lambda"],"max_group":20}"#;
+        let raised = freeze(&src, &state, "wordcount", Some(more)).unwrap();
+        assert_ne!(raised.digest, asked.digest);
+        // Frozen again with the same ask: the same copy, kept.
+        assert_eq!(freeze(&src, &state, "wordcount", Some(ask)).unwrap(), asked);
         make_writable(&state).unwrap();
     }
 
@@ -320,7 +374,7 @@ mod tests {
         tree(&src);
         std::os::unix::fs::symlink(src.join("server.sh"), src.join("run.sh")).unwrap();
         let state = d.path().join("ext");
-        let e = freeze(&src, &state, "wordcount").unwrap_err();
+        let e = freeze(&src, &state, "wordcount", None).unwrap_err();
         assert!(e.contains("run.sh is a symbolic link"), "{e}");
         assert!(
             !state.join("wordcount").exists()

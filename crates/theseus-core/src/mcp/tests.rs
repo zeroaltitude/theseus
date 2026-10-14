@@ -74,6 +74,7 @@ impl Connect for InProcess {
         _cfg: &McpServerConfig,
         _env: Vec<(String, String)>,
         _bearer: Option<String>,
+        _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         self.connects.fetch_add(1, Ordering::SeqCst);
         let down = self.down.lock().unwrap().iter().any(|n| n == server);

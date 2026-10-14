@@ -70,6 +70,7 @@ impl Connect for FromDir {
         cfg: &McpServerConfig,
         _env: Vec<(String, String)>,
         _bearer: Option<String>,
+        _serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
         if let Some((p, text)) = self.edit.lock().unwrap().take() {
             std::fs::write(p, text).unwrap();
@@ -677,4 +678,73 @@ async fn a_stop_during_the_trial_ends_it_and_asks_nothing() {
     assert!(r.core.mcp.status().is_empty(), "{:?}", r.core.mcp.status());
     assert!(r.core.confirm_list().unwrap().is_empty());
     assert!(r.rows("extend.tested").is_empty());
+}
+
+/// An ask for hands (theseus-pw1q.14): frozen into the digest, named on the
+/// Load card in plain words with Load and Don't load, and, once the owner
+/// acks it, the loaded extension's connection alone gets the broker's
+/// channel. The same tree with no ask digests as its tree, and its load
+/// gets none.
+#[tokio::test]
+async fn an_ask_for_hands_is_frozen_named_on_the_card_and_granted_by_the_ack() {
+    let r = rig();
+    let src = r.server("wc", "ok");
+    let sid = r.session();
+    let mut p = proposal(&src);
+    p["hands"] = json!({"usd_cap": 2.0, "backends": ["lambda"], "max_group": 20});
+    r.turn(&sid, "propose", Some(p)).await;
+    let m = r.manifests().remove(0);
+    let ask = m
+        .capabilities
+        .hands
+        .clone()
+        .expect("the ask, in the manifest");
+    assert_eq!((ask.usd_cap, ask.max_group), (2.0, 20));
+    let tree = super::freeze::digest(&src).unwrap();
+    assert_ne!(m.digest, tree, "the ask is in the digest");
+    assert_eq!(
+        m.digest,
+        super::freeze::with_caps(&tree, Some(&ask.canonical()))
+    );
+    let q = r.core.confirm_list().unwrap().remove(0);
+    assert_eq!(
+        q.reason,
+        format!(
+            "Load wordcount {}: 5 tools, 2 of 3 tests passed, no network? This extension may \
+             run up to 20 hands at a time on Lambda, at most $2.00 a day.",
+            &m.digest[..6]
+        )
+    );
+    assert_eq!(q.input["hands"]["usd_cap"], 2.0);
+    let labels: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, ["Load", "Don't load"]);
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    let set = super::load::LoadedSet::read(&r.core.store).unwrap();
+    let l = &set.loaded["wordcount"];
+    assert_eq!(l.capabilities.hands.as_ref(), Some(&ask));
+    assert!(r.core.tools.extend.channel(l).is_some());
+    assert!(r.core.mcp.has_channel("ext-wordcount"));
+
+    // No ask: the tree's own digest, and no channel.
+    let r = rig();
+    let src = r.server("wc", "ok");
+    let sid = r.session();
+    r.turn(&sid, "propose", Some(proposal(&src))).await;
+    let m = r.manifests().remove(0);
+    assert_eq!(m.digest, super::freeze::digest(&src).unwrap());
+    assert!(m.capabilities.hands.is_none());
+    let q = r.core.confirm_list().unwrap().remove(0);
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    let set = super::load::LoadedSet::read(&r.core.store).unwrap();
+    assert!(r
+        .core
+        .tools
+        .extend
+        .channel(&set.loaded["wordcount"])
+        .is_none());
+    assert!(!r.core.mcp.has_channel("ext-wordcount"));
 }

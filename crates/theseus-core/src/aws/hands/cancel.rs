@@ -426,7 +426,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
             .resolution
             .clone()
             .unwrap_or_else(|| "cancelled".into());
-        let records = vec![
+        let mut records = vec![
             rec.record()?,
             fact::row(
                 &group::Settled {
@@ -439,6 +439,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
                 None,
             )?,
         ];
+        records.extend(group::extension_row(&rec, &t)?);
         ctx.kernel
             .frame(&[&rec.execution_id], |k| k.stage(&records))?;
     }

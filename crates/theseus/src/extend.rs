@@ -76,6 +76,14 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ExtendCmd) -> Result<()> {
 
 /// One loaded extension, in lines.
 pub fn loaded_lines(e: &ExtendLoadedInfo) -> Vec<String> {
+    let mut out = loaded_head(e);
+    if let Some(h) = &e.hands {
+        out.push(format!("  hands: {}", h.line()));
+    }
+    out
+}
+
+fn loaded_head(e: &ExtendLoadedInfo) -> Vec<String> {
     let short = &e.digest[..e.digest.len().min(6)];
     let network = match e.network.as_slice() {
         [] => "no network".to_string(),

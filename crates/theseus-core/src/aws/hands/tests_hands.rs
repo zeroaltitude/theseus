@@ -355,22 +355,38 @@ pub(super) fn config(dir: &Path, endpoint: &str) -> crate::Config {
 }
 
 pub(super) fn core_at(dir: &Path, endpoint: &str, script: Vec<Scripted>) -> Arc<crate::Core> {
+    core_with(dir, endpoint, script, |_| {})
+}
+
+fn core_with(
+    dir: &Path,
+    endpoint: &str,
+    script: Vec<Scripted>,
+    f: impl FnOnce(&mut crate::Config),
+) -> Arc<crate::Core> {
     let store = crate::store::Store::open(&dir.join("store")).unwrap();
     let model = Arc::new(crate::provider::FakeProvider::scripted(script));
+    let mut cfg = config(dir, endpoint);
+    f(&mut cfg);
     crate::Core::build(crate::rpc::Parts {
         secrets: board(),
-        ..crate::rpc::Parts::for_tests(config(dir, endpoint), model, store)
+        ..crate::rpc::Parts::for_tests(cfg, model, store)
     })
     .unwrap()
 }
 
 pub(super) fn rig(script: Vec<Scripted>) -> Rig {
+    rig_with(script, |_| {})
+}
+
+/// `rig`, its config changed by `f` first.
+pub(super) fn rig_with(script: Vec<Scripted>, f: impl FnOnce(&mut crate::Config)) -> Rig {
     let state = Arc::new(State::default());
     let s = state.clone();
     let fake = Fake::start(move |seen, n| answer(&s, seen, n));
     let dir = tempfile::tempdir().unwrap();
     std::env::set_var("THESEUS_HAND_DIR", dir.path());
-    let core = core_at(dir.path(), &fake.url, script);
+    let core = core_with(dir.path(), &fake.url, script, f);
     Rig {
         core,
         state,
