@@ -138,6 +138,11 @@ impl Place {
     /// fresh or its session was retired, a new one opened now. False, with
     /// a notice, when none could be opened.
     pub(super) async fn ready(&mut self) -> bool {
+        // A place that runs a thread takes the thread's session, not its own
+        // (theseus-sjzm).
+        if let Some(slug) = self.thread_slug() {
+            return self.thread_ready(&slug).await;
+        }
         if !self.fresh && !self.shared.core.session_retired(&self.session_id) {
             return true;
         }
@@ -189,11 +194,13 @@ impl Place {
     /// The place's next message opens a fresh session (`/new`, or a session
     /// that can take no more turns).
     pub(super) fn start_fresh(&mut self) {
-        self.fresh = true;
+        // A thread's place has the thread's session: `theseus thread done`
+        // ends it, `/thread unbind` gives the place back.
+        self.fresh = self.fresh || self.thread_slug().is_none();
     }
 
     /// Point this place at `sid`, the session just opened for it.
-    async fn adopt(&mut self, sid: String) {
+    pub(super) async fn adopt(&mut self, sid: String) {
         let old = std::mem::replace(&mut self.session_id, sid.clone());
         self.fresh = false;
         {
@@ -223,6 +230,13 @@ impl Place {
 
     /// What `/new` answers: nothing is opened until the next message.
     pub(super) fn new_answer(&self) -> String {
+        if let Some(slug) = self.thread_slug() {
+            return format!(
+                "This place runs the thread `{slug}`, whose session is the thread's: `/thread \
+                 unbind` gives the place its own session back, `theseus thread done {slug}` ends \
+                 the thread."
+            );
+        }
         if self.session_id.is_empty() {
             return "🆕 A fresh session starts here with your next message.".into();
         }

@@ -84,6 +84,7 @@ fn request(core: &Arc<Core>, session: &SessionRecord, input: &str) -> TurnReques
         attachments: vec![],
         arrived: None,
         reply_to: None,
+        answer_at: None,
     }
 }
 

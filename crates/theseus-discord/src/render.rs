@@ -29,7 +29,7 @@ pub(crate) mod process;
 mod reply;
 mod wakes;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
-pub use reply::{reply_parts, wake_header};
+pub use reply::{reply_parts, thread_tag, wake_header};
 pub use wakes::wakes;
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.

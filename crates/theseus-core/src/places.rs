@@ -156,6 +156,9 @@ impl Bound {
 #[derive(Default)]
 pub struct PlaceRule {
     bound: RwLock<Vec<Bound>>,
+    /// Places the binding made while it runs (a Discord thread for an
+    /// activity thread, theseus-sjzm): kept across a new bindings file.
+    more: RwLock<Vec<BoundPlace>>,
     /// The guilds the bindings file trusts whole (theseus-rdqg), by id.
     trusted_guilds: RwLock<BTreeSet<String>>,
     /// What the binding's start found wrong with its places (theseus-ext.11).
@@ -221,7 +224,21 @@ impl PlaceRule {
     /// The binding's places, from its bindings file: they replace any told
     /// before.
     pub fn bind(&self, places: Vec<BoundPlace>) {
-        *self.bound.write().unwrap() = places.into_iter().map(Bound::new).collect();
+        let more = self.more.read().unwrap().clone();
+        let all = places.into_iter().chain(more);
+        *self.bound.write().unwrap() = all.map(Bound::new).collect();
+    }
+
+    /// One more place the binding made while it runs (a Discord thread, a
+    /// private place by its creator's word): bound now, and again after each
+    /// `bind`. A place of the same target is replaced.
+    pub fn bind_more(&self, place: BoundPlace) {
+        let mut more = self.more.write().unwrap();
+        more.retain(|p| p.target != place.target);
+        more.push(place.clone());
+        let mut bound = self.bound.write().unwrap();
+        bound.retain(|b| b.place.target != place.target);
+        bound.push(Bound::new(place));
     }
 
     /// The bound place `to` names: its name (`#openclaw`, `openclaw`, `DM

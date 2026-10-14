@@ -66,6 +66,7 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
         attachments: vec![],
         arrived: Some(std::time::Instant::now()),
         reply_to: None,
+        answer_at: None,
     };
     let core = r.core.clone();
     let b2 = tokio::spawn(async move { core.runner.run(req).await.unwrap() });

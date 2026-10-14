@@ -604,6 +604,7 @@ impl Core {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
+                answer_at: None,
             })
             .await
             .inspect_err(|e| {

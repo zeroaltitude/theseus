@@ -238,6 +238,10 @@ pub struct DiscordConfig {
     /// Discord's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway_proxy: Option<String>,
+    /// `[[discord.thread]]`: a channel the bindings file names, run as a
+    /// thread's place (theseus-sjzm); none by default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thread: Vec<discord::ThreadBind>,
 }
 
 fn default_discord_token_secret() -> String {
@@ -1368,6 +1372,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        discord::ThreadBind::validate_all(&self.discord.thread)?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

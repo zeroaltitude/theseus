@@ -72,6 +72,7 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
 }

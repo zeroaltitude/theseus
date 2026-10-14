@@ -115,6 +115,7 @@ async fn the_block_survives_three_compactions() {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
+                answer_at: None,
             })
             .await
             .unwrap();

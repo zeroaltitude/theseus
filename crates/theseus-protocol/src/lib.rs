@@ -418,6 +418,8 @@ pub mod notify {
         TASK_CHANGED = "task.changed",
         /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
         WAKE_NOTICED = "wake.noticed",
+        /// A thread changed (theseus-sjzm): `threads::ThreadChanged`.
+        THREAD_CHANGED = "thread.changed",
     }
 }
 

@@ -23,9 +23,8 @@ use theseus_core::outbox::OPERATOR_TARGET;
 use theseus_core::Core;
 use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{
-    Attachment, BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams,
-    SessionInfo, SessionListResult, SessionRef, TightenResult, TrustResult, TurnSubmitParams,
-    TurnSubmitResult,
+    BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams, SessionInfo,
+    SessionListResult, SessionRef, TightenResult, TrustResult, TurnSubmitParams, TurnSubmitResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -59,13 +58,16 @@ pub(crate) use earned::{buttons as earned_buttons, candidates as earned_candidat
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use source::source_buttons;
 mod extensions;
+mod guild_thread;
 mod guilds;
 mod halt;
+mod inbound;
 mod jev;
 mod live;
 mod orders;
 mod source;
 mod thread;
+mod thread_bind;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -92,6 +94,7 @@ mod tests_succession;
 mod tests_why;
 mod voice;
 mod why;
+use inbound::{Inbound, Pending};
 use publish::PublishAsk;
 
 /// The connection label every Discord call carries; authors refine it per message.
@@ -333,6 +336,7 @@ async fn connect(
         place_bits: guilds::PlaceBits::new(bindings),
         replies: Default::default(),
         pings: Default::default(),
+        threads: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -366,6 +370,7 @@ async fn start_places(
     }
     tokio::spawn(route(shared.clone(), notes));
     board::hear_every_change(shared);
+    shared.start_threads();
     // A card whose question closed while the binding was away (a raise at
     // the vault's confirmation, an answer from the CLI) says how, and loses
     // its buttons: a settle each, delivered like any post (theseus-q4v).
@@ -493,7 +498,7 @@ async fn event_loop(
             Event::InteractionCreate(i) => {
                 let s = shared.clone();
                 let i = i.0;
-                tokio::spawn(async move { s.on_interaction(i).await });
+                tokio::spawn(async move { s.interacted(i).await });
             }
             // ⬆️ or ⬇️ on a reply: the owner's correction of its routing (theseus-q31l).
             Event::ReactionAdd(r) => drop(tokio::spawn(route::reacted(shared.clone(), r.0))),
@@ -623,49 +628,8 @@ pub(crate) struct Shared {
     pub(crate) replies: route::Replies,
     /// Each place's ping words, and its window's last pings (theseus-l1y1).
     pub(crate) pings: crate::policy::Pings,
-}
-
-/// One message for a turn: who wrote it, what it says, its files (still
-/// downloading, theseus-9g2), its Discord id, and where it was written.
-struct Inbound {
-    author: String,
-    author_id: u64,
-    text: String,
-    files: Option<Pending>,
-    message: Id<MessageMarker>,
-    channel: Id<ChannelMarker>,
-    /// None in a DM.
-    guild: Option<Id<GuildMarker>>,
-}
-
-impl Inbound {
-    /// Who wrote it and where, as the core judges an answer (a typed
-    /// `/trust`, T1b).
-    fn origin(&self) -> DiscordOrigin {
-        DiscordOrigin {
-            user_id: self.author_id.to_string(),
-            channel_id: self.channel.to_string(),
-            guild_id: self.guild.map(|g| g.to_string()),
-        }
-    }
-}
-
-/// A message's attachments, downloading in their own task: the gateway loop
-/// awaits each message's handler, so it never waits on a download.
-struct Pending {
-    metas: Vec<files::FileMeta>,
-    task: tokio::task::JoinHandle<Vec<Attachment>>,
-}
-
-impl Pending {
-    /// The entries for `turn.submit`. A task that never reported back lists
-    /// its files as failed downloads; the message itself still goes.
-    async fn wait(self) -> Vec<Attachment> {
-        match self.task.await {
-            Ok(v) => v,
-            Err(e) => files::lost(&self.metas, &e.to_string()),
-        }
-    }
+    /// The channels that run threads, and the pointers waiting (theseus-sjzm).
+    pub(crate) threads: thread_bind::State,
 }
 
 #[derive(Default)]
@@ -747,6 +711,8 @@ enum PlaceMsg {
     /// Someone is typing here: the core is told, with this session's id
     /// (theseus-tnky).
     Typing(DiscordOrigin),
+    /// The place runs a thread, or stops (theseus-sjzm).
+    Thread(thread_bind::ThreadMsg),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -874,6 +840,7 @@ impl Shared {
             None,
             None,
         );
+        self.revive_thread_lanes();
         Ok(())
     }
 
@@ -1156,7 +1123,15 @@ impl Shared {
         if mention_only {
             let mentions: Vec<u64> = m.mentions.iter().map(|u| u.id.get()).collect();
             let roles: Vec<u64> = m.mention_roles.iter().map(|r| r.get()).collect();
-            let replied = m.referenced_message.as_ref().map(|r| r.author.id.get());
+            // A reply to a message this binding posted counts, however it was
+            // sent: a webhook signs a persona's, under another author.
+            let said = m.reference.as_ref().and_then(|r| r.message_id);
+            let said = said.or(m.referenced_message.as_ref().map(|r| r.id));
+            let ours = said.is_some_and(|id| self.replies.turn(id.get()).is_some());
+            let replied = match ours {
+                true => Some(self.bot_id()),
+                false => m.referenced_message.as_ref().map(|r| r.author.id.get()),
+            };
             if !addressed(
                 &m.content,
                 &mentions,
@@ -1185,6 +1160,7 @@ impl Shared {
         } else {
             m.content.clone()
         };
+        let (thread, text) = self.addressed_thread(m, text);
         if text.trim().is_empty() && m.attachments.is_empty() {
             return;
         }
@@ -1209,6 +1185,7 @@ impl Shared {
             message: m.id,
             channel: m.channel_id,
             guild: m.guild_id,
+            thread,
         }));
     }
 
@@ -1228,7 +1205,8 @@ impl Shared {
         }) = found
         else {
             // Not a place of ours: no answer at all, so that a daemon on the
-            // same bot that binds it can give one.
+            // same bot that binds it can give one; but for `/thread bind`
+            // in a Discord thread under one of ours (`interacted`).
             return;
         };
         self.board.update(|s| s.interactions += 1);
@@ -1833,6 +1811,10 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
             board::route(&shared, c);
             continue;
         }
+        if let CoreEvent::ThreadChanged(c) = &e {
+            guild_thread::heard(&shared, c);
+            continue;
+        }
         if everywhere(&e) {
             let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
                 .routes
@@ -1913,7 +1895,7 @@ impl Place {
             tokio::select! {
                 m = rx.recv() => match m {
                     Some(PlaceMsg::Unbind) | None => break,
-                    Some(m) => self.handle(m).await,
+                    Some(m) => self.handle_in(m).await,
                 },
                 _ = tick.tick() => {
                     let mut ops = self.view.tick();
@@ -2034,7 +2016,7 @@ impl Place {
             PlaceMsg::Voice(t) => self.voice_when_ready(t).await,
             PlaceMsg::Board => self.board(),
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind => {}
+            PlaceMsg::Unbind | PlaceMsg::Thread(_) => {}
             PlaceMsg::Typing(origin) => typing::notice(&self.shared.rpc, &self.session_id, origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
@@ -2114,6 +2096,7 @@ impl Place {
                         reply_to: anchor.map(|a| a.to_string()),
                         opened_from: None,
                         thread: None,
+                        speaking: None,
                     },
                 )
                 .await
@@ -2378,6 +2361,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         place_bits: Default::default(),
         replies: Default::default(),
         pings: Default::default(),
+        threads: Default::default(),
     })
 }
 
@@ -2997,6 +2981,7 @@ pub(crate) mod tests {
                     reply_to: None,
                     opened_from: None,
                     thread: None,
+                    speaking: None,
                 },
             )
             .await
@@ -3020,6 +3005,7 @@ pub(crate) mod tests {
             message: Id::new(7),
             channel: Id::new(43),
             guild: None,
+            thread: None,
         }]);
         let done = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -3293,6 +3279,7 @@ pub(crate) mod tests {
                 message: Id::new(7),
                 channel: Id::new(444_444_444_444_444_444),
                 guild: None,
+                thread: None,
             }))
             .await;
         assert!(held().is_none());

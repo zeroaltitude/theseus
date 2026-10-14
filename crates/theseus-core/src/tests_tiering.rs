@@ -121,6 +121,7 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

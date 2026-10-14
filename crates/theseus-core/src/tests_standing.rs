@@ -125,6 +125,7 @@ async fn try_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<()
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .map(|_| ())

@@ -86,6 +86,11 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub thread: Option<String>,
+    /// Who is speaking and where the answer goes, for a `thread` turn from
+    /// the Discord binding (theseus-sjzm).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub speaking: Option<crate::threads::Speaking>,
 }
 
 #[cfg(test)]

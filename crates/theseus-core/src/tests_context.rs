@@ -76,6 +76,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap()

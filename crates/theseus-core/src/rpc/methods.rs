@@ -905,6 +905,7 @@ impl Core {
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
         let dir = super::session_dir::check(p.dir.as_deref())?;
+        let answer_at = Self::thread_answer_at(&p)?;
         let mut session = match (&p.session_id, &p.thread) {
             (Some(_), Some(_)) => {
                 return Err(RpcFailure::new(
@@ -913,9 +914,13 @@ impl Core {
                 ))
             }
             // The thread's current session, opened on first use (theseus-nhew).
-            (None, Some(slug)) => {
-                self.thread_session(slug, conn.answerer(p.author.clone(), None))?
-            }
+            (None, Some(slug)) => self.thread_session(
+                slug,
+                conn.answerer(
+                    p.author.clone(),
+                    p.speaking.as_ref().map(|s| s.discord.clone()),
+                ),
+            )?,
             (Some(id), None) => {
                 self.take_from_job(id, p.opened_from.as_deref())?;
                 self.session(id)?
@@ -993,6 +998,7 @@ impl Core {
                 arrived: Some(conn.arrived),
                 reply_to: p.reply_to,
                 prompt,
+                answer_at,
             })
             .await;
         match result {

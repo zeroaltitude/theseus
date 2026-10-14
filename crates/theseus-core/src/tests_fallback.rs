@@ -90,6 +90,7 @@ async fn turn(core: &Arc<Core>, sid: &str, model: Option<&str>) -> TurnSubmitRes
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .expect("the turn ends")

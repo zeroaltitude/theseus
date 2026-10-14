@@ -104,7 +104,11 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
   - `fake-discord`: a stand-in for Discord's REST API, and with `--gateway` its gateway (theseus-6g62); `--guild`
-    gives it a guild for the viewer check (theseus-ck0k).
+    gives it a guild for the viewer check (theseus-ck0k). Since theseus-sjzm (`src/fake_discord/threads.rs`) it makes threads
+    (`POST /channels/<id>/threads`, a forum's with its first message; `set_forum`), archives, locks and renames them
+    (`PATCH /channels/<id>`), lists and makes webhooks (`refuse_webhooks` answers 403, as a bot without Manage Webhooks
+    gets), runs and edits a webhook's messages (`Msg::hook` is the name, `author` the webhook's id), types a reply
+    (`say_reply`) and a slash command (`command`, in a thread under a `parent`).
   - `fake-model --rules <file>` (`src/fake_model.rs`, 37b): a scripted stand-in for the Messages API, for a scratch
     daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
     holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets the

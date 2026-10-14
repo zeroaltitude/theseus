@@ -405,6 +405,7 @@ pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmit
             arrived: None,
             reply_to: None,
             prompt: None,
+            answer_at: None,
         })
         .await
         .unwrap()

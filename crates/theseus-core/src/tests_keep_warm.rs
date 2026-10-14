@@ -78,6 +78,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

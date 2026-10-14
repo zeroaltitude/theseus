@@ -732,6 +732,11 @@ ping_window_secs = 0                    # at most one ping per place in this man
 # reaches Discord:
 # rest_proxy = "127.0.0.1:9447"         # REST at http://<this>/api/v10
 # gateway_proxy = "ws://127.0.0.1:9448" # the gateway's websocket
+# A channel the bindings file names (private) can run as a thread's place: its
+# messages go to that thread's session, as /thread bind does from Discord.
+# [[discord.thread]]
+# channel = "123456789012345678"
+# thread = "my-thread"
 
 # ---------------------------------------------------------------- voice
 # Voice in a Discord voice channel. Bind the voice channel in the bindings
@@ -920,6 +925,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
+# discord_channel = "123456789012345678"  # a channel (text or forum) in your guild: each active thread gets a Discord thread there, made at its first message; unset: none
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

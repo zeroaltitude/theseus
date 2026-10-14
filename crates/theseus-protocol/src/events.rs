@@ -542,6 +542,8 @@ events! {
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
     /// A reminder fired (theseus-8ux6x).
     WakeNoticed(crate::wakes::WakeNoticed) = notify::WAKE_NOTICED,
+    /// A thread changed (theseus-sjzm).
+    ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
 }
 
 impl Event {
@@ -574,6 +576,7 @@ impl Event {
             | Event::ProfileChanged(_)
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
+            | Event::ThreadChanged(_)
             | Event::EventsLost(_) => None,
         }
     }
@@ -607,6 +610,7 @@ impl Event {
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
             | Event::WakeNoticed(_)
+            | Event::ThreadChanged(_)
             | Event::EventsLost(_) => None,
         }
     }

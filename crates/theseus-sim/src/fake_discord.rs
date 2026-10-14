@@ -54,6 +54,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod threads;
+
+pub use threads::{FakeHook, FakeThread};
+
 use crate::fake_gateway::{self, FakeGateway, GatewayState, Where};
 
 /// The fake bot's user id, and its application's.
@@ -112,8 +116,13 @@ pub struct Msg {
     /// one whose `<@id>` the content carries and `allowed_mentions` allows.
     /// An edit notifies nobody, and the fake leaves this as the create set it.
     pub mentions: Vec<String>,
-    /// Who wrote it: the bot, or the user who typed it (`say`).
+    /// Who wrote it: the bot, or the user who typed it (`say`), or the webhook
+    /// (its id) that sent it.
     pub author: String,
+    /// The name a webhook's message was sent under (theseus-sjzm); none for
+    /// every other message.
+    #[serde(default)]
+    pub hook: Option<String>,
     /// Every content it has had, in order: the create's, then each edit's
     /// that changed it (theseus-qifw).
     pub versions: Vec<String>,
@@ -321,6 +330,18 @@ pub struct Typed<'a> {
     pub file: Option<&'a std::path::Path>,
 }
 
+/// A slash command a user types (`command`): `/command sub key:value…`.
+pub struct Command<'a> {
+    pub user: u64,
+    pub name: &'a str,
+    pub channel: u64,
+    /// The channel a Discord thread is under, when `channel` is a thread.
+    pub parent: Option<u64>,
+    pub command: &'a str,
+    pub sub: &'a str,
+    pub options: &'a [(&'a str, &'a str)],
+}
+
 /// A press of a button on a posted message, found by its label or its
 /// custom id, by `user`.
 pub struct Pressed<'a> {
@@ -411,6 +432,14 @@ struct State {
     /// Each typed message's attached file, by its URL's path
     /// (`attachments/<id>/<name>`): its type and bytes (theseus-c9l6).
     files: BTreeMap<String, (String, Vec<u8>)>,
+    /// The threads the bot made, and the webhooks (theseus-sjzm).
+    threads: BTreeMap<u64, FakeThread>,
+    webhooks: Vec<FakeHook>,
+    forums: std::collections::BTreeSet<u64>,
+    /// Listing or making a webhook answers 403.
+    refuse_webhooks: bool,
+    /// The last big id given a thread or a webhook.
+    next_big: u64,
 }
 
 pub struct FakeDiscord {
@@ -637,6 +666,16 @@ impl FakeDiscord {
     /// it, and kept with the channel's messages. Its id, or why it could
     /// not be sent.
     pub fn say(&self, t: &Typed<'_>) -> Result<String, String> {
+        self.say_to(t, None)
+    }
+
+    /// `say`, as a reply to the message `reply_to` (theseus-sjzm): the
+    /// gateway's payload carries the message reference, as Discord's does.
+    pub fn say_reply(&self, t: &Typed<'_>, reply_to: &str) -> Result<String, String> {
+        self.say_to(t, Some(reply_to))
+    }
+
+    fn say_to(&self, t: &Typed<'_>, reply_to: Option<&str>) -> Result<String, String> {
         let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
         let file = match t.file {
             Some(p) => Some((
@@ -671,12 +710,13 @@ impl FakeDiscord {
                 content: t.content.to_string(),
                 nonce: None,
                 components: 0,
-                reply_to: None,
+                reply_to: reply_to.map(str::to_string),
                 edits: 0,
                 created_ms: now_ms(),
                 allowed_mentions: Value::Null,
                 mentions: notified(t.content, &Value::Null),
                 author: t.user.to_string(),
+                hook: None,
                 versions: vec![t.content.to_string()],
                 buttons: vec![],
                 components_json: json!([]),
@@ -691,6 +731,11 @@ impl FakeDiscord {
             .map(|u| (u, u == BOT_ID))
             .collect();
         let mut d = fake_gateway::message_create(id, at, (t.user, t.name), t.content, &mentioned);
+        if let Some(to) = reply_to {
+            d["type"] = json!(19);
+            d["message_reference"] =
+                json!({"type": 0, "message_id": to, "channel_id": at.channel.to_string()});
+        }
         if let Some((name, bytes)) = file {
             let kind = if name.to_ascii_lowercase().ends_with(".pdf") {
                 "application/pdf"
@@ -794,6 +839,49 @@ impl FakeDiscord {
         Ok(iid.to_string())
     }
 
+    /// A slash command a user types, sent through the gateway as Discord
+    /// sends it (theseus-sjzm): `/<name> <sub> key:value…`, in a guild channel,
+    /// or in a Discord thread under `parent`. The interaction's id; what the
+    /// binding answered is `replies()`.
+    pub fn command(&self, c: &Command<'_>) -> Result<String, String> {
+        let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
+        let (at, iid) = {
+            let mut st = self.state.lock().unwrap();
+            st.next_id += 1;
+            let iid = st.next_id;
+            st.pressed.insert(iid.to_string(), c.channel);
+            let guild = Some(st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id));
+            (
+                Where {
+                    channel: c.channel,
+                    guild,
+                },
+                iid,
+            )
+        };
+        let token = format!("{TOKEN_PREFIX}{iid}");
+        let i = fake_gateway::Interaction {
+            id: iid,
+            app: APP_ID,
+            token: &token,
+            at,
+            user: (c.user, c.name),
+        };
+        let options: Vec<Value> = c
+            .options
+            .iter()
+            .map(|(k, v)| json!({"name": k, "type": 3, "value": v}))
+            .collect();
+        let sub = json!([{"name": c.sub, "type": 1, "options": options}]);
+        let data =
+            json!({"id": "1000000000000000003", "name": c.command, "type": 1, "options": sub});
+        let d = fake_gateway::slash_command(&i, c.parent, data);
+        if !gw.dispatch("INTERACTION_CREATE", d) {
+            return Err("no client is connected to the gateway".into());
+        }
+        Ok(iid.to_string())
+    }
+
     fn record(&self, s: Seen) {
         let mut st = self.state.lock().unwrap();
         if let Some(log) = &self.log {
@@ -869,6 +957,16 @@ impl FakeDiscord {
                 }
             }
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
+            ("POST", ["channels", c, "threads"]) => self.thread_create(stream, c, &body),
+            ("PATCH", ["channels", c]) => self.thread_update(stream, c, &body),
+            ("GET", ["channels", c, "webhooks"]) => self.hooks_read(stream, c),
+            ("POST", ["channels", c, "webhooks"]) => self.hook_make(stream, c, &body),
+            ("POST", ["webhooks", id, token]) if *id != APP_ID.to_string() => {
+                self.hook_execute(stream, (id, token), &full, &body)
+            }
+            ("PATCH", ["webhooks", id, token, "messages", m]) if *id != APP_ID.to_string() => {
+                self.hook_edit(stream, (id, token, m), &body)
+            }
             ("GET", ["guilds", g, rest @ ..]) => self.guild_read(stream, route, g, rest, &full),
             ("POST" | "PATCH", ["interactions" | "webhooks", ..]) => {
                 self.interaction_route(stream, &method, &segs, &body)
@@ -940,6 +1038,7 @@ impl FakeDiscord {
                         created_ms: now,
                         allowed_mentions: allowed,
                         author: BOT_ID.to_string(),
+                        hook: None,
                         buttons: buttons(&body["components"]),
                         components_json: body["components"].clone(),
                         pinned: false,
@@ -1186,14 +1285,18 @@ impl FakeDiscord {
         let found = {
             let st = self.state.lock().unwrap();
             let c: u64 = id.parse().unwrap_or(0);
-            match (&st.guild, st.dms.contains_key(&c)) {
-                (_, true) => Some(json!({"id": id, "type": 1})),
-                (Some(g), false) => g
-                    .channels
-                    .iter()
-                    .find(|ch| ch.id == c)
-                    .map(|ch| channel_json(g.id, ch)),
-                (None, false) => None,
+            let forum = st.forums.contains(&c);
+            match (&st.guild, st.dms.contains_key(&c), st.threads.get(&c)) {
+                (_, _, Some(t)) => Some(threads::thread_json(t)),
+                (_, true, _) => Some(json!({"id": id, "type": 1})),
+                (Some(g), false, None) => g.channels.iter().find(|ch| ch.id == c).map(|ch| {
+                    let mut j = channel_json(g.id, ch);
+                    if forum {
+                        j["type"] = json!(15);
+                    }
+                    j
+                }),
+                (None, false, None) => None,
             }
         };
         match found {
@@ -1468,15 +1571,16 @@ fn message_json(m: &Msg) -> Value {
         .iter()
         .map(|id| json!({"id": id, "username": format!("user-{id}"), "discriminator": "0000", "avatar": null, "bot": false, "public_flags": 0}))
         .collect();
-    let bot = m.author == BOT_ID.to_string();
-    let name = if bot {
-        "Theseus (fake)".to_string()
-    } else {
-        format!("user-{}", m.author)
+    let bot = m.author == BOT_ID.to_string() || m.hook.is_some();
+    let name = match &m.hook {
+        Some(h) => h.clone(),
+        None if bot => "Theseus (fake)".to_string(),
+        None => format!("user-{}", m.author),
     };
     json!({
         "id": m.id, "channel_id": m.channel, "content": m.content,
         "author": {"id": m.author, "username": name, "discriminator": "0000", "bot": bot},
+        "webhook_id": m.hook.as_ref().map(|_| m.author.clone()),
         "timestamp": "2026-09-30T00:00:00.000000+00:00", "edited_timestamp": null, "tts": false,
         "mention_everyone": false, "mentions": mentions, "mention_roles": [], "attachments": [], "embeds": [],
         "pinned": m.pinned, "type": 0, "nonce": m.nonce,

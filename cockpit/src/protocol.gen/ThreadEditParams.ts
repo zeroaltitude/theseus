@@ -9,4 +9,9 @@ export type ThreadEditParams = { slug: string, title?: string, goal?: string, to
 /**
  * A persona's name; an empty string clears it.
  */
-persona?: string, author?: string, discord?: DiscordOrigin, };
+persona?: string, 
+/**
+ * The places the thread is shown on (`discord:channel:<id>`, `cli`),
+ * whole: `/thread bind` and `unbind` edit it (theseus-sjzm).
+ */
+surfaces?: Array<string>, author?: string, discord?: DiscordOrigin, };

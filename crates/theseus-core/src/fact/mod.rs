@@ -486,6 +486,7 @@ facts![
     thread::ThreadResumed<'static>,
     thread::ThreadDone<'static>,
     thread::ThreadReopened<'static>,
+    thread::ThreadOpened<'static>,
 ];
 
 #[cfg(test)]

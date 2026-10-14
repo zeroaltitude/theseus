@@ -202,6 +202,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSu
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
 }

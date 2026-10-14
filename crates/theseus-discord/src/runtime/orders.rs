@@ -166,7 +166,7 @@ impl Shared {
     /// button of either: true when it was one, and answered. One call from
     /// `on_interaction`, which clippy holds to its complexity.
     pub(super) async fn revokable_interaction(
-        &self,
+        self: &std::sync::Arc<Self>,
         i: &Interaction,
         tx: &mpsc::UnboundedSender<PlaceMsg>,
         who: &str,

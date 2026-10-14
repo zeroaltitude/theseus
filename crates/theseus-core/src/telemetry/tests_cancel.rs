@@ -101,6 +101,7 @@ async fn turn(core: &Arc<Core>, input: &str) -> anyhow::Result<theseus_protocol:
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
 }

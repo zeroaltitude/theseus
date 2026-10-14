@@ -221,6 +221,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+  **On Discord** (theseus-sjzm; `rpc/thread_surface.rs`, `turn/reply_step.rs`): `ThreadInfo.surfaces` is edited whole by
+  `thread.edit { surfaces }` (a person, judged) and one at a time by `Core::thread_surfaces` (the Discord binding's own act: a
+  Discord thread it made, a channel the config binds; an edit row whose `who` is `discord`/`config`). Every thread fact
+  tells `thread.changed` (`created|edited|paused|resumed|done|reopened`, and `opened` when the thread's first message
+  opens its session: `ThreadOpened`, no row) to every connection that hears the wide notifications. `Core::thread_place_session(slug,
+  target)` is `thread_session` judged by the place (private only) instead of a person, for a channel the binding runs as
+  the thread. `turn.submit { thread, speaking { discord, answer_at } }` judges the speaker (a Discord thread turn needs the
+  origin) and posts the reply at `answer_at` (the speaker's own DM or channel; any other is refused) instead of the
+  session's place: `TurnRequest.answer_at`, read first by `stage_reply`; a retried or continued turn answers at the
+  session's place. `[threads] discord_channel` and `[[discord.thread]]` (`config/discord.rs`, `ThreadBind`);
+  `PlaceRule::bind_more` keeps a place the binding made while it runs across a new bindings file. Tests:
+  `rpc/tests_thread_surface.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

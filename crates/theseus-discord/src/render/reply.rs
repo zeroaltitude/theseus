@@ -44,6 +44,20 @@ pub fn reply_parts(
     out
 }
 
+/// A thread's reply in the owner's DM opens with the thread's title as small
+/// text (`-# → bh-ai pr`), so the owner sees which line of work spoke and can
+/// answer it by replying (theseus-sjzm). It rides on the first part when it
+/// fits.
+pub fn thread_tag(parts: &mut [(String, String)], title: &str) {
+    let title: String = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let head = format!("-# → {}", clip(&title, 80));
+    if let Some((_, first)) = parts.first_mut() {
+        if first.len() + head.len() < DISCORD_LIMIT {
+            *first = format!("{head}\n{first}");
+        }
+    }
+}
+
 /// A wake's turn (DD8): its reply opens with each wake's line, so the place
 /// sees why Theseus spoke unasked, and so does a turn a task's report started
 /// (W1: `📋 task a1b2c3 reported`). The lines ride on the first part when

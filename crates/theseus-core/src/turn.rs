@@ -78,6 +78,7 @@ mod noop_step;
 pub mod nudge_step;
 mod prompt_input;
 mod recall_step;
+mod reply_step;
 mod rerank_step;
 mod retract_step;
 mod retry_step;
@@ -319,6 +320,10 @@ pub struct TurnRequest {
     /// An MCP server's prompt as the input (M7 36c): its messages are the
     /// input's nodes, and `input` is their text. `None` for any other turn.
     pub prompt: Option<crate::mcp::prompts::PromptInput>,
+    /// Where the reply is posted when it is not the session's own place (a
+    /// message in the owner's DM answered there, in a thread's turn;
+    /// theseus-sjzm).
+    pub answer_at: Option<String>,
 }
 
 /// The principal of every local protocol client (file permissions are the auth).
@@ -388,6 +393,8 @@ struct Turn<'a> {
     said: Vec<(u32, String)>,
     /// The surface's message the turn answers (a Discord message id).
     reply_to: Option<String>,
+    /// Where its reply is posted instead of its session's place.
+    answer_at: Option<String>,
     /// The wakes this turn took (DD8): each one's id and line, which the
     /// reply's post shows above it.
     wakes: Vec<Value>,
@@ -530,6 +537,7 @@ impl<'a> Turn<'a> {
             stop_reason: String::new(),
             said: Vec::new(),
             reply_to: None,
+            answer_at: None,
             wakes: Vec::new(),
             wake_target: None,
             woke_by: Vec::new(),
@@ -1548,6 +1556,7 @@ impl TurnRunner {
             attachments,
             reply_to,
             prompt,
+            answer_at,
             ..
         } = req;
         // The caller's copy may be stale: re-read under the lock. Its
@@ -1624,6 +1633,7 @@ impl TurnRunner {
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
         t.reply_to = reply_to;
+        t.answer_at = answer_at;
         t.route.read = read;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
         let asked = Asked {
@@ -3343,104 +3353,6 @@ impl TurnRunner {
             end => end,
         };
         Ok((result, end, again, hold))
-    }
-
-    /// The turn's reply as an outbox post, when its session posts somewhere
-    /// (theseus-q4v): each loop's text, by node, and what its footer says.
-    /// It rides in the frame that ends the turn, so a turn that ended has its
-    /// reply written, whether or not a binding is connected.
-    fn stage_reply(&self, t: &Turn<'_>, result: &TurnSubmitResult) -> Result<()> {
-        // What the reply answers: the wakes and reports this turn took. The
-        // retry of a turn that failed before its reply took none, since the
-        // first took them, and their nodes are still unanswered in the
-        // session: it frames its reply from those, and finds the target the
-        // take kept (theseus-4lx).
-        let (mut wakes, mut reports) = (t.wakes.clone(), t.woke_by.clone());
-        let mut retried = false;
-        if wakes.is_empty() && reports.is_empty() {
-            (wakes, reports) = Self::unread_relays(t)?;
-            retried = !wakes.is_empty() || !reports.is_empty();
-        }
-        // A wake's turn in a session its place has moved on from (`/new`)
-        // still answers where the wake was set (DD8).
-        let Some(target) = self
-            .outbox
-            .target(t.tc.session_id)
-            .or_else(|| t.wake_target.clone())
-            .or_else(|| {
-                retried
-                    .then(|| self.outbox.wake_target(t.tc.session_id))
-                    .flatten()
-            })
-        else {
-            return Ok(());
-        };
-        let footer = TurnSubmitResult {
-            output: String::new(),
-            trace: None,
-            later: None,
-            ..result.clone()
-        };
-        let mut body = json!({
-            "kind": "reply",
-            "turn_id": result.turn_id,
-            "loops": t.said,
-            "result": footer,
-            "reply_to": t.reply_to,
-        });
-        if !wakes.is_empty() {
-            body["wakes"] = json!(wakes);
-        }
-        if !reports.is_empty() {
-            body["reports"] = json!(reports);
-        }
-        let (post, records) =
-            self.outbox
-                .stage(t.tc.session_id, t.tc.execution_id, &target, body)?;
-        for r in records {
-            t.tc.store.defer(r)?;
-        }
-        t.tc.posts.lock().unwrap().push(post);
-        Ok(())
-    }
-
-    /// The wakes and reports an earlier attempt took, which this turn answers
-    /// (theseus-4lx): the harness's wake and task-report nodes written by a
-    /// turn other than this one, after the last answer the session gave. Each
-    /// is the line the reply's header names: the node's own text for a wake,
-    /// and `task:<short>`'s report line, as the turn that took it would have
-    /// said.
-    fn unread_relays(t: &Turn<'_>) -> Result<(Vec<Value>, Vec<Value>)> {
-        let nodes = t.tc.store.transcript(t.tc.session_id)?;
-        let (mut wakes, mut reports) = (Vec::new(), Vec::new());
-        for (_, n) in nodes.iter().rev() {
-            if n.turn_id.as_deref() == Some(t.tc.turn_id) {
-                continue;
-            }
-            match &n.body {
-                // An answer: what comes before it was read.
-                Body::AssistantMessage { blocks, .. }
-                    if crate::provider::tool_uses_in(blocks).is_empty() =>
-                {
-                    break
-                }
-                Body::UserMessage { text, .. }
-                    if matches!(n.origin, crate::node::Origin::Harness) =>
-                {
-                    let author = n.author.as_deref().unwrap_or_default();
-                    if author.starts_with("wake:") {
-                        wakes.push(json!({"text": text}));
-                    } else if let Some(short) = author.strip_prefix("task:") {
-                        reports
-                            .push(json!({"short": short, "text": crate::task::woke_line(short)}));
-                    }
-                }
-                _ => {}
-            }
-        }
-        wakes.reverse();
-        reports.reverse();
-        Ok((wakes, reports))
     }
 
     /// A new compilation (it carries its own `derived_from`) and the
