@@ -961,10 +961,10 @@ impl FakeDiscord {
             ("PATCH", ["channels", c]) => self.thread_update(stream, c, &body),
             ("GET", ["channels", c, "webhooks"]) => self.hooks_read(stream, c),
             ("POST", ["channels", c, "webhooks"]) => self.hook_make(stream, c, &body),
-            ("POST", ["webhooks", id, token]) if *id != APP_ID.to_string() => {
+            ("POST", ["webhooks", id, token]) if self.is_hook(id) => {
                 self.hook_execute(stream, (id, token), &full, &body)
             }
-            ("PATCH", ["webhooks", id, token, "messages", m]) if *id != APP_ID.to_string() => {
+            ("PATCH", ["webhooks", id, token, "messages", m]) if self.is_hook(id) => {
                 self.hook_edit(stream, (id, token, m), &body)
             }
             ("GET", ["guilds", g, rest @ ..]) => self.guild_read(stream, route, g, rest, &full),

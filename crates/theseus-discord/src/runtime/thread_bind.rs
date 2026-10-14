@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde_json::json;
 use theseus_core::places::BoundPlace;
 use theseus_protocol::threads::{
-    channel_surface, surface_channel, Speaking, ThreadChanged, ThreadEditParams,
-    ThreadNameParams, ThreadRow, ThreadState,
+    channel_surface, surface_channel, Speaking, ThreadChanged, ThreadEditParams, ThreadNameParams,
+    ThreadRow, ThreadState,
 };
 use theseus_protocol::{method, DiscordOrigin, TurnSubmitParams, TurnSubmitResult};
 use tokio::sync::mpsc;

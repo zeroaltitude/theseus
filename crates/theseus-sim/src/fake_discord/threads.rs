@@ -78,6 +78,13 @@ impl FakeDiscord {
         self.state.lock().unwrap().webhooks.clone()
     }
 
+    /// Whether `id` is a webhook the bot made (any other `/webhooks/<id>` is
+    /// an interaction's).
+    pub(super) fn is_hook(&self, id: &str) -> bool {
+        let st = self.state.lock().unwrap();
+        st.webhooks.iter().any(|h| h.id.to_string() == id)
+    }
+
     /// `channel` is a forum: a thread made in it needs a first message.
     pub fn set_forum(&self, channel: u64) {
         self.state.lock().unwrap().forums.insert(channel);

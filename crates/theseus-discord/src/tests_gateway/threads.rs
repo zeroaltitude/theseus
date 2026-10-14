@@ -717,6 +717,8 @@ async fn a_paused_thread_addressed_from_the_dm_says_how_to_resume_it() {
     assert!(holding(&r, ANA_DM, "never said").is_none());
     // A name that is no thread is only words.
     dm(&r, "thread:nothing at all");
-    r.until("a plain reply", || holding(&r, ANA_DM, "never said").is_some())
-        .await;
+    r.until("a plain reply", || {
+        holding(&r, ANA_DM, "never said").is_some()
+    })
+    .await;
 }
