@@ -1,0 +1,423 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1244" viewBox="0 0 720 1244" role="img" aria-labelledby="t-lifecycle t-lifecycle-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-lifecycle">The lifecycle bench's p95 by phase, against each phase's budget (log scale)</title>
+<desc id="t-lifecycle-d">Has each lifecycle number held its budget across the span, and which joins moved it?</desc>
+<rect width="720" height="1244" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">The lifecycle bench's p95 by phase, against each phase's budget (log scale)</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#d03b3b"/>
+<path d="M22.0,50.0h6" stroke="#1a1a19" stroke-width="1.6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">over its budget in a failed run</text>
+<text x="18.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">cold start, p95</text>
+<line x1="56.4" y1="254.0" x2="343.0" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="56.4" y1="231.4" x2="343.0" y2="231.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="235.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="201.6" x2="343.0" y2="201.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="205.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="56.4" y1="179.0" x2="343.0" y2="179.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="183.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="56.4" y1="156.4" x2="343.0" y2="156.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="160.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="56.4" y1="126.6" x2="343.0" y2="126.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="130.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="56.4" y1="104.0" x2="343.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="124.1" y1="254.0" x2="124.1" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="124.1" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="221.2" y1="254.0" x2="221.2" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="221.2" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="318.4" y1="254.0" x2="318.4" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="318.4" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="56.4" y1="254.0" x2="343.0" y2="254.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 57.1 ms: 57.1 ms</title>
+<line x1="56.4" y1="197.3" x2="343.0" y2="197.3" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-1"><rect x="51.4" y="99.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-1)">
+<g><title>p95: 151 points, lowest 22.6 ms, median 32.2 ms, highest 311 ms</title>
+<polyline points="56.4,210.6 56.9,219.3 59.0,220.1 60.1,221.1 60.5,203.2 61.2,224.4 63.3,215.6 64.1,209.9 64.2,212.1 66.2,207.2 67.4,208.2 68.0,213.8 70.7,205.4 73.1,218.7 73.1,212.8 75.0,199.6 75.0,199.7 77.5,213.6 78.5,206.1 80.8,207.1 81.9,214.3 82.5,203.5 84.2,215.6 86.7,218.0 88.2,218.2 88.7,203.4 88.8,208.7 89.7,214.1 91.3,211.6 93.1,204.7 97.6,206.6 97.6,213.3 99.5,217.9 100.0,213.7 100.4,222.9 101.0,185.6 101.1,188.9 101.4,217.7 102.1,213.6 103.8,203.7 103.9,218.2 105.0,216.5 108.2,212.3 108.7,223.2 109.0,214.8 111.0,220.6 142.6,217.9 143.0,214.5 143.0,216.1 143.5,168.5 143.5,215.9 144.6,218.5 144.9,222.4 149.8,221.8 150.2,209.3 150.7,223.2 151.2,211.0 151.2,215.0 152.1,201.7 152.2,192.5 152.7,212.2 155.1,220.2 155.5,218.1 155.5,219.7 155.8,217.9 157.3,215.6 162.8,220.7 163.4,220.9 164.0,206.5 168.3,222.9 169.7,222.8 174.3,225.4 175.0,217.1 175.0,201.5 175.6,154.0 175.6,216.3 176.2,221.4 190.8,211.9 191.2,216.5 197.7,223.2 198.2,217.9 198.6,227.5 203.4,214.4 204.4,211.0 204.4,209.4 205.8,217.7 212.5,209.2 221.5,220.6 223.5,213.9 260.3,215.2 262.7,217.0 263.3,215.0 263.9,221.0 264.4,218.1 264.8,222.4 265.1,213.2 266.4,202.1 266.8,199.1 269.0,220.2 270.9,218.2 289.2,142.1 289.3,186.4 291.6,223.2 292.9,190.3 293.0,193.3 293.9,213.5 294.9,222.4 294.9,213.4 295.3,219.2 295.9,210.1 296.6,211.9 297.0,223.9 297.6,224.1 298.6,212.5 299.2,208.2 299.8,222.3 300.6,213.4 300.6,216.4 300.9,220.5 301.3,220.1 301.9,208.7 302.3,223.0 302.7,220.4 303.2,213.9 303.5,211.7 304.0,218.8 306.0,216.6 306.0,220.7 307.0,216.6 307.9,216.0 308.7,220.0 309.5,216.6 310.1,213.1 310.9,224.2 311.7,206.7 311.7,221.6 312.1,222.5 312.7,221.2 313.2,210.3 313.7,219.3 314.2,208.0 314.3,212.0 314.7,220.5 315.5,223.7 316.0,219.6 316.8,220.2 317.5,214.6 318.1,218.3 318.7,219.2 319.1,218.3 343.0,221.0" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="341.0" y="193.3" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 57.1 ms</text>
+<g><title>critical: 81.6 ms (main 84faf7d4 (load 10.18))</title>
+<circle cx="101.0" cy="185.6" r="10" fill="transparent"/>
+<circle cx="101.0" cy="185.6" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 73.9 ms (main 84faf7d4 (load 11.11))</title>
+<circle cx="101.1" cy="188.9" r="10" fill="transparent"/>
+<circle cx="101.1" cy="188.9" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 138 ms (main 5563a043 (load 6.2))</title>
+<circle cx="143.5" cy="168.5" r="10" fill="transparent"/>
+<circle cx="143.5" cy="168.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 66.1 ms (main cc66c9c6 (load 9.77))</title>
+<circle cx="152.2" cy="192.5" r="10" fill="transparent"/>
+<circle cx="152.2" cy="192.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 215 ms (main 4ffcc282 (load 4.11))</title>
+<circle cx="175.6" cy="154.0" r="10" fill="transparent"/>
+<circle cx="175.6" cy="154.0" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 311 ms (main e57a0a1a (load 18.25))</title>
+<circle cx="289.2" cy="142.1" r="10" fill="transparent"/>
+<circle cx="289.2" cy="142.1" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 79.6 ms (main e57a0a1a (load 8.46))</title>
+<circle cx="289.3" cy="186.4" r="10" fill="transparent"/>
+<circle cx="289.3" cy="186.4" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 70.6 ms (main 1f841a71 (load 20.97))</title>
+<circle cx="292.9" cy="190.3" r="10" fill="transparent"/>
+<circle cx="292.9" cy="190.3" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 64.5 ms (main 1f841a71 (load 16.36))</title>
+<circle cx="293.0" cy="193.3" r="10" fill="transparent"/>
+<circle cx="293.0" cy="193.3" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="373.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">vault start, p95</text>
+<line x1="411.4" y1="254.0" x2="698.0" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="411.4" y1="231.4" x2="698.0" y2="231.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="235.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="411.4" y1="201.6" x2="698.0" y2="201.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="205.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="411.4" y1="179.0" x2="698.0" y2="179.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="183.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="411.4" y1="156.4" x2="698.0" y2="156.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="160.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="411.4" y1="126.6" x2="698.0" y2="126.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="130.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="411.4" y1="104.0" x2="698.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="479.1" y1="254.0" x2="479.1" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="479.1" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="576.2" y1="254.0" x2="576.2" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="576.2" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="673.4" y1="254.0" x2="673.4" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="673.4" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="411.4" y1="254.0" x2="698.0" y2="254.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 57.1 ms: 57.1 ms</title>
+<line x1="411.4" y1="197.3" x2="698.0" y2="197.3" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-2"><rect x="406.4" y="99.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-2)">
+<g><title>p95: 151 points, lowest 23.1 ms, median 29.9 ms, highest 489 ms</title>
+<polyline points="411.4,221.8 411.9,221.2 414.0,218.6 415.1,219.2 415.5,206.3 416.2,220.0 418.3,223.1 419.1,185.4 419.2,219.2 421.2,204.4 422.4,209.9 423.0,215.2 425.7,204.7 428.1,214.8 428.1,218.7 430.0,196.5 430.0,200.0 432.5,212.5 433.5,204.0 435.8,218.9 436.9,217.7 437.5,208.2 439.2,220.1 441.7,219.3 443.2,209.1 443.7,208.5 443.8,211.0 444.7,218.8 446.3,221.9 448.1,199.8 452.6,204.6 452.6,216.5 454.5,222.6 455.0,218.3 455.4,199.4 456.0,198.3 456.1,179.4 456.4,216.5 457.1,216.6 458.8,178.0 458.9,189.6 460.0,218.1 463.2,210.8 463.7,222.1 464.0,224.8 466.0,220.7 497.6,218.3 498.0,216.1 498.0,216.8 498.5,127.3 498.5,215.0 499.6,210.6 499.9,218.6 504.8,224.4 505.2,223.3 505.7,223.6 506.2,206.8 506.2,212.1 507.1,206.5 507.2,203.9 507.7,222.0 510.1,220.9 510.5,144.5 510.5,214.8 510.8,221.7 512.3,199.8 517.8,217.8 518.4,221.1 519.0,223.7 523.3,222.0 524.7,223.0 529.3,222.0 530.0,201.9 530.0,219.0 530.6,213.7 530.6,213.8 531.2,222.5 545.8,225.3 546.2,225.8 552.7,214.0 553.2,220.6 553.6,222.5 558.4,217.3 559.4,213.8 559.4,214.2 560.8,226.7 567.5,224.3 576.5,223.6 578.5,224.1 615.3,213.1 617.7,220.8 618.3,216.2 618.9,217.3 619.4,223.4 619.8,219.3 620.1,215.8 621.4,212.1 621.8,203.3 624.0,223.9 625.9,225.5 644.2,149.2 644.3,212.7 646.6,222.5 647.9,186.8 648.0,194.5 648.9,221.9 649.9,225.2 649.9,220.3 650.3,212.7 650.9,217.6 651.6,212.5 652.0,219.8 652.6,225.2 653.6,217.2 654.2,221.3 654.8,219.2 655.6,204.4 655.6,216.8 655.9,221.6 656.3,220.9 656.9,213.9 657.3,223.0 657.7,224.0 658.2,221.7 658.5,217.7 659.0,212.6 661.0,218.1 661.0,223.4 662.0,225.6 662.9,224.9 663.7,221.3 664.5,225.6 665.1,218.5 665.9,217.2 666.7,220.7 666.7,223.6 667.1,222.2 667.7,218.9 668.2,219.6 668.7,221.5 669.2,219.5 669.3,217.6 669.7,220.2 670.5,217.7 671.0,220.5 671.8,211.7 672.5,217.7 673.1,221.5 673.7,213.0 674.1,221.9 698.0,216.9" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="696.0" y="193.3" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 57.1 ms</text>
+<g><title>critical: 82.1 ms (main e8120522 (load 4.49))</title>
+<circle cx="419.1" cy="185.4" r="10" fill="transparent"/>
+<circle cx="419.1" cy="185.4" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 58.5 ms (main fad08f32 (load 11.19))</title>
+<circle cx="430.0" cy="196.5" r="10" fill="transparent"/>
+<circle cx="430.0" cy="196.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 98.8 ms (main 84faf7d4 (load 11.11))</title>
+<circle cx="456.1" cy="179.4" r="10" fill="transparent"/>
+<circle cx="456.1" cy="179.4" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 103 ms (main 05aab496 (load 3.93))</title>
+<circle cx="458.8" cy="178.0" r="10" fill="transparent"/>
+<circle cx="458.8" cy="178.0" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 72.2 ms (main 05aab496 (load 3.8))</title>
+<circle cx="458.9" cy="189.6" r="10" fill="transparent"/>
+<circle cx="458.9" cy="189.6" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 489 ms (main 5563a043 (load 6.2))</title>
+<circle cx="498.5" cy="127.3" r="10" fill="transparent"/>
+<circle cx="498.5" cy="127.3" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 288 ms (main e3f8d6d8 (load 3.5))</title>
+<circle cx="510.5" cy="144.5" r="10" fill="transparent"/>
+<circle cx="510.5" cy="144.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 250 ms (main e57a0a1a (load 18.25))</title>
+<circle cx="644.2" cy="149.2" r="10" fill="transparent"/>
+<circle cx="644.2" cy="149.2" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 78.6 ms (main 1f841a71 (load 20.97))</title>
+<circle cx="647.9" cy="186.8" r="10" fill="transparent"/>
+<circle cx="647.9" cy="186.8" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 62.2 ms (main 1f841a71 (load 16.36))</title>
+<circle cx="648.0" cy="194.5" r="10" fill="transparent"/>
+<circle cx="648.0" cy="194.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="18.0" y="322.0" font-size="12" fill="#ffffff" font-weight="600">clean shutdown, p95</text>
+<line x1="56.4" y1="488.0" x2="343.0" y2="488.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="56.4" y1="465.4" x2="343.0" y2="465.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="469.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="435.6" x2="343.0" y2="435.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="439.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="56.4" y1="413.0" x2="343.0" y2="413.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="417.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="56.4" y1="390.4" x2="343.0" y2="390.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="394.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="56.4" y1="360.6" x2="343.0" y2="360.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="364.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="56.4" y1="338.0" x2="343.0" y2="338.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="342.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="124.1" y1="488.0" x2="124.1" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="124.1" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="221.2" y1="488.0" x2="221.2" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="221.2" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="318.4" y1="488.0" x2="318.4" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="318.4" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="56.4" y1="488.0" x2="343.0" y2="488.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 104 ms: 104 ms</title>
+<line x1="56.4" y1="411.7" x2="343.0" y2="411.7" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-3"><rect x="51.4" y="333.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-3)">
+<g><title>p95: 151 points, lowest 40.9 ms, median 49.2 ms, highest 719 ms</title>
+<polyline points="56.4,436.4 56.9,424.1 59.0,437.4 60.1,433.7 60.5,419.1 61.2,438.9 63.3,429.7 64.1,434.2 64.2,435.8 66.2,434.9 67.4,420.5 68.0,432.1 70.7,437.3 73.1,438.8 73.1,429.1 75.0,425.8 75.0,412.1 77.5,427.1 78.5,429.9 80.8,439.4 81.9,435.2 82.5,438.1 84.2,438.3 86.7,439.2 88.2,433.9 88.7,423.2 88.8,417.3 89.7,436.7 91.3,432.9 93.1,427.6 97.6,432.3 97.6,437.3 99.5,437.0 100.0,435.2 100.4,437.5 101.0,432.5 101.1,430.1 101.4,434.0 102.1,438.6 103.8,439.3 103.9,436.7 105.0,438.6 108.2,437.8 108.7,435.1 109.0,441.3 111.0,441.5 142.6,437.3 143.0,437.6 143.0,436.7 143.5,348.7 143.5,403.5 144.6,423.8 144.9,419.1 149.8,436.9 150.2,440.0 150.7,439.9 151.2,435.5 151.2,437.4 152.1,393.1 152.2,425.9 152.7,437.9 155.1,438.3 155.5,438.4 155.5,423.1 155.8,438.6 157.3,434.1 162.8,436.4 163.4,437.0 164.0,436.5 168.3,428.6 169.7,435.1 174.3,434.2 175.0,436.2 175.0,437.2 175.6,429.8 175.6,440.9 176.2,432.4 190.8,432.4 191.2,435.7 197.7,435.0 198.2,438.8 198.6,437.9 203.4,430.0 204.4,383.1 204.4,433.8 205.8,433.5 212.5,435.2 221.5,436.9 223.5,436.1 260.3,437.5 262.7,435.3 263.3,440.1 263.9,427.4 264.4,434.5 264.8,439.6 265.1,438.0 266.4,434.9 266.8,430.1 269.0,424.4 270.9,437.8 289.2,420.3 289.3,430.8 291.6,435.7 292.9,386.5 293.0,424.9 293.9,440.9 294.9,442.1 294.9,438.9 295.3,440.2 295.9,437.7 296.6,438.8 297.0,438.5 297.6,441.4 298.6,425.1 299.2,440.3 299.8,434.5 300.6,428.1 300.6,439.5 300.9,437.9 301.3,434.2 301.9,429.3 302.3,439.1 302.7,440.4 303.2,432.1 303.5,437.3 304.0,440.3 306.0,439.6 306.0,435.3 307.0,433.9 307.9,439.3 308.7,438.2 309.5,436.2 310.1,438.8 310.9,442.2 311.7,438.8 311.7,435.6 312.1,434.8 312.7,432.7 313.2,441.4 313.7,434.2 314.2,433.0 314.3,434.5 314.7,439.8 315.5,438.1 316.0,438.6 316.8,440.0 317.5,436.7 318.1,439.6 318.7,436.0 319.1,436.2 343.0,434.7" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="341.0" y="407.7" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 104 ms</text>
+<g><title>critical: 719 ms (main 5563a043 (load 6.2))</title>
+<circle cx="143.5" cy="348.7" r="10" fill="transparent"/>
+<circle cx="143.5" cy="348.7" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 134 ms (main 5563a043 (load 3.56))</title>
+<circle cx="143.5" cy="403.5" r="10" fill="transparent"/>
+<circle cx="143.5" cy="403.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 184 ms (main cc66c9c6 (load 9.95))</title>
+<circle cx="152.1" cy="393.1" r="10" fill="transparent"/>
+<circle cx="152.1" cy="393.1" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 250 ms (main 4882558a (load 3.94))</title>
+<circle cx="204.4" cy="383.1" r="10" fill="transparent"/>
+<circle cx="204.4" cy="383.1" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 226 ms (main 1f841a71 (load 20.97))</title>
+<circle cx="292.9" cy="386.5" r="10" fill="transparent"/>
+<circle cx="292.9" cy="386.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="373.0" y="322.0" font-size="12" fill="#ffffff" font-weight="600">the in-flight post, p95</text>
+<line x1="411.4" y1="488.0" x2="698.0" y2="488.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="411.4" y1="465.4" x2="698.0" y2="465.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="469.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="411.4" y1="435.6" x2="698.0" y2="435.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="439.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="411.4" y1="413.0" x2="698.0" y2="413.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="417.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="411.4" y1="390.4" x2="698.0" y2="390.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="394.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="411.4" y1="360.6" x2="698.0" y2="360.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="364.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="411.4" y1="338.0" x2="698.0" y2="338.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="342.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="479.1" y1="488.0" x2="479.1" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="479.1" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="576.2" y1="488.0" x2="576.2" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="576.2" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="673.4" y1="488.0" x2="673.4" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="673.4" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="411.4" y1="488.0" x2="698.0" y2="488.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-lifecycle-4"><rect x="406.4" y="333.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-4)">
+<g><title>p95: 151 points, lowest 80.5 ms, median 93.9 ms, highest 438 ms</title>
+<polyline points="411.4,417.9 411.9,415.1 414.0,420.1 415.1,419.9 415.5,415.7 416.2,417.3 418.3,416.4 419.1,413.8 419.2,412.6 421.2,414.1 422.4,405.3 423.0,416.9 425.7,414.7 428.1,412.0 428.1,415.1 430.0,404.4 430.0,409.9 432.5,407.2 433.5,409.8 435.8,416.2 436.9,414.0 437.5,364.9 439.2,412.1 441.7,415.3 443.2,405.6 443.7,382.5 443.8,415.5 444.7,412.2 446.3,415.9 448.1,410.5 452.6,412.0 452.6,415.4 454.5,416.9 455.0,416.3 455.4,415.9 456.0,408.1 456.1,394.8 456.4,417.1 457.1,414.4 458.8,415.3 458.9,413.0 460.0,415.2 463.2,405.8 463.7,416.1 464.0,414.5 466.0,415.3 497.6,415.6 498.0,368.9 498.0,414.5 498.5,393.5 498.5,391.7 499.6,416.4 499.9,413.5 504.8,414.1 505.2,415.7 505.7,416.7 506.2,412.9 506.2,414.3 507.1,406.8 507.2,399.0 507.7,416.7 510.1,415.9 510.5,416.5 510.5,415.2 510.8,415.0 512.3,414.5 517.8,402.6 518.4,417.1 519.0,417.3 523.3,416.1 524.7,417.8 529.3,417.2 530.0,415.9 530.0,414.3 530.6,415.7 530.6,413.0 531.2,416.3 545.8,415.5 546.2,412.8 552.7,415.5 553.2,417.7 553.6,417.4 558.4,417.0 559.4,415.4 559.4,411.5 560.8,416.6 567.5,415.5 576.5,413.1 578.5,414.6 615.3,413.4 617.7,409.4 618.3,411.1 618.9,413.1 619.4,415.6 619.8,416.6 620.1,414.7 621.4,416.3 621.8,407.5 624.0,416.1 625.9,411.1 644.2,402.9 644.3,405.4 646.6,414.6 647.9,407.2 648.0,403.9 648.9,406.7 649.9,416.9 649.9,416.0 650.3,416.4 650.9,415.2 651.6,414.8 652.0,416.0 652.6,415.9 653.6,414.0 654.2,414.3 654.8,415.4 655.6,412.3 655.6,413.1 655.9,412.9 656.3,414.8 656.9,417.0 657.3,416.8 657.7,413.4 658.2,414.8 658.5,410.6 659.0,416.9 661.0,414.8 661.0,416.8 662.0,416.8 662.9,414.9 663.7,417.8 664.5,416.3 665.1,417.5 665.9,417.6 666.7,418.3 666.7,414.3 667.1,400.2 667.7,415.0 668.2,411.0 668.7,416.5 669.2,417.6 669.3,414.9 669.7,417.3 670.5,416.4 671.0,412.9 671.8,417.4 672.5,415.1 673.1,415.4 673.7,409.1 674.1,416.5 698.0,416.2" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="18.0" y="556.0" font-size="12" fill="#ffffff" font-weight="600">SIGKILL then restart, p95</text>
+<line x1="56.4" y1="722.0" x2="343.0" y2="722.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="726.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="56.4" y1="699.4" x2="343.0" y2="699.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="703.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="669.6" x2="343.0" y2="669.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="673.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="56.4" y1="647.0" x2="343.0" y2="647.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="651.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="56.4" y1="624.4" x2="343.0" y2="624.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="628.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="56.4" y1="594.6" x2="343.0" y2="594.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="598.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="56.4" y1="572.0" x2="343.0" y2="572.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="576.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="124.1" y1="722.0" x2="124.1" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="124.1" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="221.2" y1="722.0" x2="221.2" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="221.2" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="318.4" y1="722.0" x2="318.4" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="318.4" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="56.4" y1="722.0" x2="343.0" y2="722.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 175 ms: 175 ms</title>
+<line x1="56.4" y1="628.8" x2="343.0" y2="628.8" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-5"><rect x="51.4" y="567.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-5)">
+<g><title>p95: 151 points, lowest 27.7 ms, median 34.7 ms, highest 205 ms</title>
+<polyline points="56.4,685.1 56.9,658.9 59.0,681.8 60.1,678.6 60.5,668.4 61.2,687.6 63.3,681.4 64.1,680.0 64.2,678.1 66.2,680.8 67.4,663.2 68.0,644.5 70.7,683.5 73.1,680.4 73.1,679.2 75.0,665.6 75.0,633.5 77.5,660.1 78.5,672.3 80.8,679.5 81.9,676.9 82.5,681.0 84.2,684.2 86.7,682.3 88.2,681.4 88.7,623.7 88.8,665.2 89.7,682.3 91.3,684.9 93.1,674.5 97.6,676.3 97.6,682.8 99.5,688.7 100.0,686.7 100.4,683.8 101.0,667.5 101.1,670.8 101.4,686.5 102.1,688.2 103.8,680.9 103.9,666.1 105.0,682.8 108.2,677.4 108.7,686.3 109.0,686.9 111.0,685.5 142.6,680.5 143.0,678.6 143.0,679.6 143.5,674.4 143.5,680.4 144.6,685.3 144.9,682.1 149.8,685.0 150.2,685.8 150.7,682.7 151.2,677.1 151.2,680.4 152.1,667.6 152.2,672.6 152.7,685.7 155.1,683.3 155.5,685.4 155.5,683.8 155.8,676.1 157.3,679.8 162.8,685.3 163.4,687.1 164.0,677.2 168.3,685.5 169.7,683.3 174.3,684.1 175.0,676.2 175.0,677.3 175.6,682.0 175.6,679.5 176.2,682.8 190.8,679.6 191.2,683.7 197.7,684.6 198.2,684.4 198.6,672.6 203.4,678.5 204.4,687.9 204.4,681.7 205.8,679.7 212.5,688.8 221.5,682.9 223.5,681.3 260.3,675.6 262.7,683.5 263.3,679.2 263.9,679.7 264.4,684.6 264.8,688.8 265.1,680.4 266.4,685.7 266.8,670.4 269.0,681.5 270.9,688.1 289.2,658.7 289.3,674.2 291.6,681.7 292.9,662.2 293.0,656.5 293.9,681.2 294.9,688.2 294.9,683.7 295.3,679.6 295.9,683.8 296.6,679.5 297.0,682.6 297.6,680.3 298.6,676.7 299.2,685.3 299.8,683.4 300.6,670.3 300.6,681.6 300.9,674.2 301.3,680.9 301.9,686.6 302.3,685.7 302.7,684.5 303.2,681.8 303.5,679.9 304.0,680.8 306.0,683.2 306.0,684.9 307.0,688.6 307.9,687.6 308.7,688.3 309.5,688.1 310.1,677.4 310.9,683.3 311.7,670.5 311.7,688.6 312.1,683.2 312.7,682.2 313.2,684.7 313.7,684.8 314.2,681.1 314.3,680.7 314.7,681.8 315.5,685.9 316.0,679.4 316.8,680.1 317.5,682.2 318.1,680.0 318.7,673.1 319.1,681.5 343.0,682.1" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="341.0" y="624.8" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 175 ms</text>
+<g><title>critical: 205 ms (main 92887981 (load 4.82))</title>
+<circle cx="88.7" cy="623.7" r="10" fill="transparent"/>
+<circle cx="88.7" cy="623.7" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="373.0" y="556.0" font-size="12" fill="#ffffff" font-weight="600">binary swap, p95</text>
+<line x1="411.4" y1="722.0" x2="698.0" y2="722.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="726.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="411.4" y1="699.4" x2="698.0" y2="699.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="703.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="411.4" y1="669.6" x2="698.0" y2="669.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="673.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="411.4" y1="647.0" x2="698.0" y2="647.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="651.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="411.4" y1="624.4" x2="698.0" y2="624.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="628.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="411.4" y1="594.6" x2="698.0" y2="594.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="598.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="411.4" y1="572.0" x2="698.0" y2="572.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="576.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="479.1" y1="722.0" x2="479.1" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="479.1" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="576.2" y1="722.0" x2="576.2" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="576.2" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="673.4" y1="722.0" x2="673.4" y2="726.0" stroke="#383835" stroke-width="1"/>
+<text x="673.4" y="738.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="411.4" y1="722.0" x2="698.0" y2="722.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 202 ms: 202 ms</title>
+<line x1="411.4" y1="624.1" x2="698.0" y2="624.1" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-6"><rect x="406.4" y="567.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-6)">
+<g><title>p95: 151 points, lowest 47.9 ms, median 58.4 ms, highest 666 ms</title>
+<polyline points="411.4,665.1 411.9,646.7 414.0,662.9 415.1,667.4 415.5,661.9 416.2,665.7 418.3,630.9 419.1,639.8 419.2,646.6 421.2,666.5 422.4,648.3 423.0,661.5 425.7,642.9 428.1,604.7 428.1,661.5 430.0,639.5 430.0,641.5 432.5,641.6 433.5,659.3 435.8,661.9 436.9,667.6 437.5,659.2 439.2,665.2 441.7,667.9 443.2,661.9 443.7,651.7 443.8,647.0 444.7,664.7 446.3,659.2 448.1,659.9 452.6,651.5 452.6,667.0 454.5,668.0 455.0,666.7 455.4,667.0 456.0,657.6 456.1,649.8 456.4,652.0 457.1,671.0 458.8,667.6 458.9,664.5 460.0,666.1 463.2,650.5 463.7,667.7 464.0,664.2 466.0,664.7 497.6,666.6 498.0,614.8 498.0,661.0 498.5,661.1 498.5,665.0 499.6,666.5 499.9,663.5 504.8,667.5 505.2,667.6 505.7,669.0 506.2,651.1 506.2,656.0 507.1,652.1 507.2,656.8 507.7,664.1 510.1,666.9 510.5,663.8 510.5,665.8 510.8,657.9 512.3,658.9 517.8,669.7 518.4,666.5 519.0,654.1 523.3,664.5 524.7,667.2 529.3,666.6 530.0,585.2 530.0,657.7 530.6,660.1 530.6,666.0 531.2,669.7 545.8,667.3 546.2,670.7 552.7,665.0 553.2,668.0 553.6,669.6 558.4,665.5 559.4,662.0 559.4,666.4 560.8,663.4 567.5,661.0 576.5,668.3 578.5,665.2 615.3,658.8 617.7,661.1 618.3,664.5 618.9,661.8 619.4,666.0 619.8,667.6 620.1,666.3 621.4,667.6 621.8,667.0 624.0,657.5 625.9,669.0 644.2,630.6 644.3,663.5 646.6,665.5 647.9,619.3 648.0,612.5 648.9,667.0 649.9,665.7 649.9,666.0 650.3,667.6 650.9,662.1 651.6,664.0 652.0,668.7 652.6,667.9 653.6,658.7 654.2,663.6 654.8,660.9 655.6,661.3 655.6,662.5 655.9,665.1 656.3,665.6 656.9,661.7 657.3,667.0 657.7,667.1 658.2,668.3 658.5,661.9 659.0,668.0 661.0,669.2 661.0,664.1 662.0,661.4 662.9,666.5 663.7,667.7 664.5,670.2 665.1,660.2 665.9,665.3 666.7,665.1 666.7,668.5 667.1,662.7 667.7,668.4 668.2,665.6 668.7,666.5 669.2,653.4 669.3,656.4 669.7,665.3 670.5,661.3 671.0,665.9 671.8,667.9 672.5,666.1 673.1,662.2 673.7,648.3 674.1,667.3 698.0,664.9" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="696.0" y="620.1" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 202 ms</text>
+<g><title>critical: 367 ms (main 5973419f (load 4.23))</title>
+<circle cx="428.1" cy="604.7" r="10" fill="transparent"/>
+<circle cx="428.1" cy="604.7" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 268 ms (main 57475d3d (load 6.61))</title>
+<circle cx="498.0" cy="614.8" r="10" fill="transparent"/>
+<circle cx="498.0" cy="614.8" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 666 ms (main 4f4820b7 (load 3.66))</title>
+<circle cx="530.0" cy="585.2" r="10" fill="transparent"/>
+<circle cx="530.0" cy="585.2" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 234 ms (main 1f841a71 (load 20.97))</title>
+<circle cx="647.9" cy="619.3" r="10" fill="transparent"/>
+<circle cx="647.9" cy="619.3" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 288 ms (main 1f841a71 (load 16.36))</title>
+<circle cx="648.0" cy="612.5" r="10" fill="transparent"/>
+<circle cx="648.0" cy="612.5" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="18.0" y="790.0" font-size="12" fill="#ffffff" font-weight="600">restore, p95</text>
+<line x1="56.4" y1="956.0" x2="343.0" y2="956.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="960.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="56.4" y1="910.8" x2="343.0" y2="910.8" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="914.8" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="56.4" y1="851.2" x2="343.0" y2="851.2" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="855.2" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="56.4" y1="806.0" x2="343.0" y2="806.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="810.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="124.1" y1="956.0" x2="124.1" y2="960.0" stroke="#383835" stroke-width="1"/>
+<text x="124.1" y="972.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="221.2" y1="956.0" x2="221.2" y2="960.0" stroke="#383835" stroke-width="1"/>
+<text x="221.2" y="972.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="318.4" y1="956.0" x2="318.4" y2="960.0" stroke="#383835" stroke-width="1"/>
+<text x="318.4" y="972.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="56.4" y1="956.0" x2="343.0" y2="956.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-lifecycle-7"><rect x="51.4" y="801.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-7)">
+<g><title>p95: 151 points, lowest 136 ms, median 166 ms, highest 817 ms</title>
+<polyline points="56.4,893.1 56.9,828.6 59.0,829.6 60.1,884.8 60.5,897.1 61.2,894.8 63.3,880.9 64.1,884.0 64.2,879.6 66.2,884.3 67.4,887.2 68.0,886.7 70.7,880.9 73.1,883.0 73.1,879.5 75.0,842.1 75.0,863.7 77.5,887.9 78.5,873.1 80.8,890.6 81.9,913.4 82.5,900.6 84.2,922.1 86.7,916.0 88.2,917.6 88.7,899.1 88.8,910.9 89.7,921.6 91.3,929.3 93.1,926.2 97.6,911.3 97.6,912.2 99.5,926.3 100.0,929.2 100.4,927.8 101.0,915.3 101.1,891.6 101.4,928.7 102.1,931.1 103.8,903.1 103.9,926.7 105.0,925.3 108.2,877.8 108.7,919.9 109.0,912.8 111.0,924.9 142.6,923.1 143.0,926.9 143.0,921.1 143.5,867.0 143.5,913.9 144.6,921.7 144.9,921.8 149.8,864.8 150.2,933.3 150.7,923.3 151.2,923.6 151.2,921.8 152.1,823.3 152.2,892.6 152.7,921.6 155.1,929.2 155.5,930.4 155.5,930.0 155.8,930.5 157.3,929.1 162.8,918.3 163.4,929.0 164.0,934.0 168.3,928.7 169.7,925.4 174.3,924.5 175.0,920.0 175.0,866.6 175.6,931.0 175.6,928.3 176.2,819.2 190.8,934.4 191.2,916.1 197.7,925.8 198.2,929.1 198.6,936.0 203.4,860.3 204.4,910.2 204.4,908.2 205.8,930.1 212.5,930.0 221.5,925.6 223.5,932.7 260.3,917.8 262.7,900.2 263.3,926.4 263.9,869.5 264.4,929.4 264.8,931.8 265.1,929.3 266.4,932.9 266.8,877.6 269.0,932.9 270.9,930.6 289.2,906.0 289.3,888.0 291.6,926.3 292.9,894.0 293.0,899.4 293.9,928.8 294.9,880.4 294.9,923.4 295.3,932.4 295.9,920.1 296.6,927.0 297.0,925.5 297.6,925.0 298.6,909.1 299.2,922.1 299.8,926.0 300.6,915.0 300.6,925.0 300.9,926.9 301.3,926.2 301.9,932.4 302.3,924.5 302.7,910.5 303.2,927.5 303.5,883.0 304.0,929.1 306.0,923.1 306.0,931.3 307.0,928.0 307.9,924.6 308.7,931.6 309.5,930.4 310.1,930.5 310.9,901.8 311.7,930.1 311.7,931.0 312.1,932.8 312.7,926.4 313.2,924.2 313.7,924.5 314.2,917.2 314.3,930.6 314.7,919.6 315.5,927.9 316.0,926.7 316.8,925.9 317.5,913.5 318.1,924.8 318.7,929.8 319.1,917.5 343.0,924.2" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="373.0" y="790.0" font-size="12" fill="#ffffff" font-weight="600">the push's seed, p95</text>
+<line x1="411.4" y1="956.0" x2="698.0" y2="956.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="960.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1</text>
+<line x1="411.4" y1="918.5" x2="698.0" y2="918.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="922.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="411.4" y1="881.0" x2="698.0" y2="881.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="885.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="411.4" y1="843.5" x2="698.0" y2="843.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="847.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="411.4" y1="806.0" x2="698.0" y2="806.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="405.4" y="810.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="479.1" y1="956.0" x2="479.1" y2="960.0" stroke="#383835" stroke-width="1"/>
+<text x="479.1" y="972.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="576.2" y1="956.0" x2="576.2" y2="960.0" stroke="#383835" stroke-width="1"/>
+<text x="576.2" y="972.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="673.4" y1="956.0" x2="673.4" y2="960.0" stroke="#383835" stroke-width="1"/>
+<text x="673.4" y="972.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="411.4" y1="956.0" x2="698.0" y2="956.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 250 ms: 250 ms</title>
+<line x1="411.4" y1="828.6" x2="698.0" y2="828.6" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-8"><rect x="406.4" y="801.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-8)">
+<g><title>p95: 151 points, lowest 0.50 ms, median 1.03 ms, highest 13.9 ms</title>
+<polyline points="411.4,911.1 411.9,915.0 414.0,916.5 415.1,920.4 415.5,905.1 416.2,925.8 418.3,923.9 419.1,912.2 419.2,906.3 421.2,911.2 422.4,912.3 423.0,912.1 425.7,913.0 428.1,915.3 428.1,914.9 430.0,882.5 430.0,905.1 432.5,915.7 433.5,906.8 435.8,915.9 436.9,915.7 437.5,906.8 439.2,918.0 441.7,918.0 443.2,914.6 443.7,909.8 443.8,905.1 444.7,916.5 446.3,912.7 448.1,910.6 452.6,916.1 452.6,921.3 454.5,921.7 455.0,924.5 455.4,924.1 456.0,875.7 456.1,893.9 456.4,917.2 457.1,921.9 458.8,925.3 458.9,922.3 460.0,916.2 463.2,915.7 463.7,919.5 464.0,915.4 466.0,920.2 497.6,916.4 498.0,915.9 498.0,916.4 498.5,910.0 498.5,913.3 499.6,926.8 499.9,919.5 504.8,918.8 505.2,919.7 505.7,922.1 506.2,913.1 506.2,913.3 507.1,910.1 507.2,909.6 507.7,918.0 510.1,918.8 510.5,917.7 510.5,923.0 510.8,915.3 512.3,914.5 517.8,919.5 518.4,920.0 519.0,917.7 523.3,925.5 524.7,924.8 529.3,928.8 530.0,919.9 530.0,913.9 530.6,896.1 530.6,912.9 531.2,915.5 545.8,922.1 546.2,924.3 552.7,922.8 553.2,918.7 553.6,929.8 558.4,924.3 559.4,927.7 559.4,919.7 560.8,922.5 567.5,916.2 576.5,927.1 578.5,921.1 615.3,918.0 617.7,920.4 618.3,918.0 618.9,919.7 619.4,914.5 619.8,924.8 620.1,916.4 621.4,913.0 621.8,887.6 624.0,917.7 625.9,922.3 644.2,884.2 644.3,917.1 646.6,915.7 647.9,909.9 648.0,901.0 648.9,920.0 649.9,926.0 649.9,893.3 650.3,918.7 650.9,918.7 651.6,917.4 652.0,919.5 652.6,925.8 653.6,916.7 654.2,919.5 654.8,918.5 655.6,912.1 655.6,915.3 655.9,918.8 656.3,916.2 656.9,917.6 657.3,918.5 657.7,924.8 658.2,922.5 658.5,920.6 659.0,923.2 661.0,921.1 661.0,924.3 662.0,925.5 662.9,927.4 663.7,925.0 664.5,919.3 665.1,921.3 665.9,928.2 666.7,912.0 666.7,923.0 667.1,919.9 667.7,924.8 668.2,915.9 668.7,905.2 669.2,923.6 669.3,921.9 669.7,918.5 670.5,920.0 671.0,919.9 671.8,920.4 672.5,922.3 673.1,922.5 673.7,918.0 674.1,906.2 698.0,922.3" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="696.0" y="824.6" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 250 ms</text>
+<text x="18.0" y="1024.0" font-size="12" fill="#ffffff" font-weight="600">cancel round trip, p95</text>
+<line x1="56.4" y1="1190.0" x2="343.0" y2="1190.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1194.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="56.4" y1="1167.4" x2="343.0" y2="1167.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1171.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="56.4" y1="1137.6" x2="343.0" y2="1137.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1141.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="56.4" y1="1115.0" x2="343.0" y2="1115.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1119.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="56.4" y1="1092.4" x2="343.0" y2="1092.4" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1096.4" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="56.4" y1="1062.6" x2="343.0" y2="1062.6" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1066.6" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">500</text>
+<line x1="56.4" y1="1040.0" x2="343.0" y2="1040.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="50.4" y="1044.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="124.1" y1="1190.0" x2="124.1" y2="1194.0" stroke="#383835" stroke-width="1"/>
+<text x="124.1" y="1206.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="221.2" y1="1190.0" x2="221.2" y2="1194.0" stroke="#383835" stroke-width="1"/>
+<text x="221.2" y="1206.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="318.4" y1="1190.0" x2="318.4" y2="1194.0" stroke="#383835" stroke-width="1"/>
+<text x="318.4" y="1206.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="56.4" y1="1190.0" x2="343.0" y2="1190.0" stroke="#383835" stroke-width="1"/>
+<g><title>budget 250 ms: 250 ms</title>
+<line x1="56.4" y1="1085.2" x2="343.0" y2="1085.2" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-lifecycle-9"><rect x="51.4" y="1035.0" width="296.6" height="160.0"/></clipPath>
+<g clip-path="url(#clip-lifecycle-9)">
+<g><title>p95: 151 points, lowest 28.0 ms, median 34.5 ms, highest 557 ms</title>
+<polyline points="56.4,1112.5 56.9,1108.3 59.0,1108.9 60.1,1112.1 60.5,1113.7 61.2,1112.4 63.3,1111.6 64.1,1099.1 64.2,1108.2 66.2,1110.8 67.4,1108.3 68.0,1110.4 70.7,1106.7 73.1,1109.9 73.1,1109.9 75.0,1147.2 75.0,1125.6 77.5,1146.6 78.5,1136.4 80.8,1152.7 81.9,1143.6 82.5,1150.3 84.2,1154.2 86.7,1149.5 88.2,1151.3 88.7,1144.7 88.8,1151.1 89.7,1153.6 91.3,1154.2 93.1,1150.2 97.6,1089.9 97.6,1147.3 99.5,1152.9 100.0,1152.9 100.4,1153.1 101.0,1128.9 101.1,1127.6 101.4,1144.5 102.1,1153.1 103.8,1152.5 103.9,1154.6 105.0,1153.5 108.2,1134.1 108.7,1144.3 109.0,1152.8 111.0,1152.7 142.6,1150.7 143.0,1148.9 143.0,1150.4 143.5,1146.2 143.5,1139.1 144.6,1152.5 144.9,1153.7 149.8,1132.2 150.2,1152.0 150.7,1147.4 151.2,1114.9 151.2,1146.1 152.1,1141.0 152.2,1139.0 152.7,1147.1 155.1,1152.3 155.5,1152.8 155.5,1153.9 155.8,1152.5 157.3,1146.7 162.8,1123.2 163.4,1154.8 164.0,1144.2 168.3,1154.0 169.7,1155.7 174.3,1153.5 175.0,1150.3 175.0,1151.3 175.6,1148.2 175.6,1146.7 176.2,1154.3 190.8,1153.3 191.2,1155.6 197.7,1154.6 198.2,1144.9 198.6,1155.1 203.4,1152.5 204.4,1147.4 204.4,1122.2 205.8,1151.4 212.5,1155.2 221.5,1150.8 223.5,1149.2 260.3,1148.8 262.7,1146.8 263.3,1151.2 263.9,1144.8 264.4,1148.9 264.8,1149.8 265.1,1152.1 266.4,1153.5 266.8,1153.2 269.0,1152.8 270.9,1151.3 289.2,1059.1 289.3,1142.9 291.6,1150.4 292.9,1136.5 293.0,1128.5 293.9,1152.1 294.9,1072.6 294.9,1152.9 295.3,1145.1 295.9,1150.7 296.6,1149.2 297.0,1153.5 297.6,1152.8 298.6,1154.4 299.2,1150.8 299.8,1151.4 300.6,1149.1 300.6,1149.7 300.9,1143.9 301.3,1150.9 301.9,1153.3 302.3,1146.2 302.7,1151.6 303.2,1152.4 303.5,1148.4 304.0,1153.1 306.0,1093.1 306.0,1149.5 307.0,1151.9 307.9,1156.4 308.7,1126.1 309.5,1128.5 310.1,1153.7 310.9,1155.2 311.7,1155.7 311.7,1152.8 312.1,1153.6 312.7,1152.6 313.2,1146.4 313.7,1151.9 314.2,1110.8 314.3,1154.1 314.7,1149.1 315.5,1139.7 316.0,1146.9 316.8,1147.6 317.5,1151.8 318.1,1135.9 318.7,1153.4 319.1,1147.9 343.0,1152.8" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="341.0" y="1081.2" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 250 ms</text>
+<g><title>critical: 216 ms (main b8b8ec51 (load 3.83))</title>
+<circle cx="97.6" cy="1089.9" r="10" fill="transparent"/>
+<circle cx="97.6" cy="1089.9" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 100 ms (main 0ac82ab6 (load 6.99))</title>
+<circle cx="151.2" cy="1114.9" r="10" fill="transparent"/>
+<circle cx="151.2" cy="1114.9" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 557 ms (main e57a0a1a (load 18.25))</title>
+<circle cx="289.2" cy="1059.1" r="10" fill="transparent"/>
+<circle cx="289.2" cy="1059.1" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 367 ms (main 38bb4c63 (load 7.0))</title>
+<circle cx="294.9" cy="1072.6" r="10" fill="transparent"/>
+<circle cx="294.9" cy="1072.6" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 196 ms (main 166447ea (load 5.02))</title>
+<circle cx="306.0" cy="1093.1" r="10" fill="transparent"/>
+<circle cx="306.0" cy="1093.1" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>critical: 114 ms (main 9188e7ac (load 4.63))</title>
+<circle cx="314.2" cy="1110.8" r="10" fill="transparent"/>
+<circle cx="314.2" cy="1110.8" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+</svg>

@@ -107,7 +107,7 @@
 <text x="542.9" y="178.7" font-size="11.5" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">OpenClaw · Codex CLI</text>
 <text x="90.6" y="342.4" font-size="11.5" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Aider</text>
 <text x="453.7" y="243.4" font-size="10.5" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">its shell commands all failed to start</text>
-<text x="453.7" y="256.4" font-size="10.5" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">(a container bug, since fixed): a rerun follows</text>
+<text x="453.7" y="256.4" font-size="10.5" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">(fixed Oct 8): rerun Oct 10 and Oct 13</text>
 <text x="18.0" y="444.0" font-size="12.5" fill="#0b0b0b" font-weight="600">Against tokens</text>
 <line x1="62.0" y1="714.0" x2="692.0" y2="714.0" stroke="#e1e0d9" stroke-width="1"/>
 <text x="54.0" y="718.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0%</text>
@@ -207,6 +207,6 @@
 <text x="146.8" y="664.4" font-size="11.5" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Aider</text>
 <text x="18.0" y="770.0" font-size="11" fill="#52514e">Oct 7, 2026; 14 tasks × 2 attempts an arm; Claude Sonnet 5.5 at medium effort in every arm but Codex CLI (*GPT-5.6-Sol,</text>
 <text x="18.0" y="785.0" font-size="11" fill="#52514e">an OpenAI model). Pass rates with Wilson 95% intervals; dollars and tokens are each arm's mean a trial at list prices.</text>
-<text x="18.0" y="800.0" font-size="11" fill="#52514e">Theseus's arm is not a fair measure: every shell command it started failed (a container bug, fixed Oct 8), and it is being</text>
-<text x="18.0" y="815.0" font-size="11" fill="#52514e">rerun.</text>
+<text x="18.0" y="800.0" font-size="11" fill="#52514e">Theseus's arm is not a fair measure: every shell command it started failed (a container bug, fixed Oct 8); it was rerun Oct</text>
+<text x="18.0" y="815.0" font-size="11" fill="#52514e">10 and on all 89 tasks Oct 13 (the next figure).</text>
 </svg>

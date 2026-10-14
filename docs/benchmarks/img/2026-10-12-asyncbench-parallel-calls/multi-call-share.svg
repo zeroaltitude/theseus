@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="248" viewBox="0 0 720 248" role="img" aria-labelledby="t-multi-call-share t-multi-call-share-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-multi-call-share">Layer 2: responses with more than one call, by arm</title>
+<desc id="t-multi-call-share-d">How often does each arm batch?</desc>
+<rect width="720" height="248" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Layer 2: responses with more than one call, by arm</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#1baf7a"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus, grouped + the sentence</text>
+<circle cx="265.3" cy="50.0" r="5" fill="#eb6834"/>
+<text x="280.3" y="54.0" font-size="12" fill="#52514e">Claude Code</text>
+<circle cx="383.1" cy="50.0" r="5" fill="#e87ba4"/>
+<text x="398.1" y="54.0" font-size="12" fill="#52514e">Pi</text>
+<circle cx="435.6" cy="50.0" r="5" fill="#898781"/>
+<text x="450.6" y="54.0" font-size="12" fill="#52514e">OpenCode</text>
+<line x1="232.3" y1="72.0" x2="232.3" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="301.4" y1="72.0" x2="301.4" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="370.6" y1="72.0" x2="370.6" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="439.7" y1="72.0" x2="439.7" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="508.9" y1="72.0" x2="508.9" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="578.0" y1="72.0" x2="578.0" y2="192.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="218.3" y="94.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus, grouped + the sentence</text>
+<g><title>Theseus, grouped + the sentence: 7.7%  [4.4%, 13.3%] (11 of 142)</title>
+<line x1="247.4" y1="90.0" x2="278.4" y2="90.0" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/>
+<line x1="247.4" y1="85.0" x2="247.4" y2="95.0" stroke="#1baf7a" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="278.4" y1="85.0" x2="278.4" y2="95.0" stroke="#1baf7a" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="259.0" cy="90.0" r="12" fill="transparent"/>
+<circle cx="259.0" cy="90.0" r="5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="592.0" y="94.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">7.7%  [4.4%, 13.3%]</text>
+<text x="218.3" y="122.0" font-size="12" fill="#0b0b0b" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 5.8%  [3.0%, 11.1%] (8 of 137)</title>
+<line x1="242.6" y1="118.0" x2="270.6" y2="118.0" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<line x1="242.6" y1="113.0" x2="242.6" y2="123.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="270.6" y1="113.0" x2="270.6" y2="123.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="252.4" cy="118.0" r="12" fill="transparent"/>
+<circle cx="252.4" cy="118.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="592.0" y="122.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">5.8%  [3.0%, 11.1%]</text>
+<text x="218.3" y="150.0" font-size="12" fill="#0b0b0b" text-anchor="end">Pi</text>
+<g><title>Pi: 1.5%  [0.4%, 5.4%] (2 of 130)</title>
+<line x1="233.7" y1="146.0" x2="251.1" y2="146.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="233.7" y1="141.0" x2="233.7" y2="151.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="251.1" y1="141.0" x2="251.1" y2="151.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="237.6" cy="146.0" r="12" fill="transparent"/>
+<circle cx="237.6" cy="146.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="592.0" y="150.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">1.5%  [0.4%, 5.4%]</text>
+<text x="218.3" y="178.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenCode</text>
+<g><title>OpenCode: 0.0%  [0.0%, 2.8%] (0 of 131)</title>
+<line x1="232.3" y1="174.0" x2="242.1" y2="174.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="232.3" y1="169.0" x2="232.3" y2="179.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="242.1" y1="169.0" x2="242.1" y2="179.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="232.3" cy="174.0" r="12" fill="transparent"/>
+<circle cx="232.3" cy="174.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="592.0" y="178.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 2.8%]</text>
+<line x1="232.3" y1="192.0" x2="578.0" y2="192.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="232.3" y="208.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="301.4" y="208.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="370.6" y="208.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="439.7" y="208.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="508.9" y="208.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="578.0" y="208.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="405.1" y="226.0" font-size="12" fill="#52514e" text-anchor="middle">share of tool-calling responses (95% Wilson)</text>
+</svg>

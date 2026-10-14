@@ -1,0 +1,19 @@
+{
+  "name": "night-set-routed",
+  "attempts": {
+    "build-pov-ray": 2,
+    "cobol-modernization": 2,
+    "gpt2-codegolf": 2,
+    "hf-model-inference": 2,
+    "install-windows-3.11": 2,
+    "large-scale-text-editing": 2,
+    "mailman": 2,
+    "model-extraction-relu-logits": 2,
+    "nginx-request-logging": 2,
+    "regex-chess": 2,
+    "reshard-c4-data": 2,
+    "schemelike-metacircular-eval": 2,
+    "torch-tensor-parallelism": 2,
+    "winning-avg-corewars": 2
+  }
+}

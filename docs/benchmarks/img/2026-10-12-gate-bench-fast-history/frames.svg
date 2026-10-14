@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="282" viewBox="0 0 720 282" role="img" aria-labelledby="t-frames t-frames-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-frames">Frames and decodes per turn (counts: the budget allows no slack)</title>
+<desc id="t-frames-d">Has each frames number held its budget across the span, and which joins moved it?</desc>
+<rect width="720" height="282" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Frames and decodes per turn (counts: the budget allows no slack)</text>
+<text x="18.0" y="62.0" font-size="12" fill="#0b0b0b" font-weight="600">plain turn's frames, p95</text>
+<line x1="32.8" y1="228.0" x2="343.0" y2="228.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="26.8" y="232.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="32.8" y1="178.0" x2="343.0" y2="178.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="26.8" y="182.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="32.8" y1="128.0" x2="343.0" y2="128.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="26.8" y="132.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="32.8" y1="78.0" x2="343.0" y2="78.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="26.8" y="82.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="106.1" y1="228.0" x2="106.1" y2="232.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="106.1" y="244.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="211.2" y1="228.0" x2="211.2" y2="232.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="211.2" y="244.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="316.4" y1="228.0" x2="316.4" y2="232.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="316.4" y="244.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="32.8" y1="228.0" x2="343.0" y2="228.0" stroke="#c3c2b7" stroke-width="1"/>
+<g><title>budget 5: 5</title>
+<line x1="32.8" y1="103.0" x2="343.0" y2="103.0" stroke="#52514e" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-frames-1"><rect x="27.8" y="73.0" width="320.2" height="160.0"/></clipPath>
+<g clip-path="url(#clip-frames-1)">
+<g><title>p95: 124 points, lowest 4, median 5, highest 5</title>
+<polyline points="32.8,103.0 33.4,103.0 35.7,103.0 36.9,103.0 37.4,103.0 38.1,103.0 40.4,103.0 41.3,103.0 43.5,103.0 44.8,103.0 45.5,103.0 48.3,103.0 51.0,103.0 53.0,103.0 55.8,103.0 56.8,103.0 59.3,103.0 60.5,103.0 61.1,103.0 62.9,103.0 65.6,103.0 67.3,103.0 67.9,103.0 68.9,103.0 70.7,103.0 72.6,103.0 77.5,103.0 79.5,103.0 80.1,103.0 80.5,103.0 81.5,103.0 82.3,103.0 85.5,103.0 88.9,103.0 89.5,103.0 89.8,103.0 91.9,103.0 126.1,103.0 126.6,103.0 128.3,103.0 128.6,103.0 133.9,103.0 134.4,103.0 134.9,103.0 135.5,103.0 137.1,103.0 139.7,103.0 140.1,103.0 140.5,103.0 142.1,103.0 148.0,103.0 148.6,103.0 149.3,103.0 153.9,103.0 155.5,103.0 160.4,103.0 161.2,103.0 161.9,103.0 162.5,103.0 178.3,103.0 178.8,103.0 185.7,103.0 186.3,103.0 186.7,103.0 192.0,103.0 193.0,103.0 194.5,103.0 201.8,103.0 211.6,103.0 213.7,103.0 253.5,103.0 256.1,103.0 256.8,103.0 257.4,103.0 258.0,103.0 258.4,103.0 258.7,103.0 260.1,103.0 260.6,103.0 262.9,103.0 265.0,103.0 287.4,103.0 288.9,128.0 289.9,128.0 291.0,128.0 291.4,128.0 292.1,128.0 292.8,128.0 293.2,128.0 293.9,128.0 295.0,128.0 295.6,128.0 296.2,128.0 297.1,128.0 297.5,128.0 297.9,128.0 298.5,128.0 298.9,128.0 299.3,128.0 299.9,128.0 300.3,128.0 300.8,128.0 303.0,128.0 304.0,128.0 305.0,128.0 305.9,128.0 306.7,128.0 307.4,128.0 308.2,128.0 309.2,128.0 309.6,128.0 310.2,128.0 310.7,128.0 311.3,128.0 311.9,128.0 312.4,128.0 313.2,128.0 313.8,128.0 314.6,128.0 315.4,128.0 316.1,128.0 316.7,128.0 317.1,128.0 343.0,128.0" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="341.0" y="99.0" font-size="10" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 5</text>
+<text x="373.0" y="62.0" font-size="12" fill="#0b0b0b" font-weight="600">tool-call turn's frames, p95</text>
+<line x1="394.7" y1="228.0" x2="698.0" y2="228.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="388.7" y="232.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="394.7" y1="198.0" x2="698.0" y2="198.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="388.7" y="202.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="394.7" y1="168.0" x2="698.0" y2="168.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="388.7" y="172.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="394.7" y1="138.0" x2="698.0" y2="138.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="388.7" y="142.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="394.7" y1="108.0" x2="698.0" y2="108.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="388.7" y="112.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">8</text>
+<line x1="394.7" y1="78.0" x2="698.0" y2="78.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="388.7" y="82.0" font-size="10" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="466.4" y1="228.0" x2="466.4" y2="232.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="466.4" y="244.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="569.1" y1="228.0" x2="569.1" y2="232.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="569.1" y="244.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="671.9" y1="228.0" x2="671.9" y2="232.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="671.9" y="244.0" font-size="10" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="394.7" y1="228.0" x2="698.0" y2="228.0" stroke="#c3c2b7" stroke-width="1"/>
+<g><title>budget 9: 9</title>
+<line x1="394.7" y1="93.0" x2="698.0" y2="93.0" stroke="#52514e" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-frames-2"><rect x="389.7" y="73.0" width="313.3" height="160.0"/></clipPath>
+<g clip-path="url(#clip-frames-2)">
+<g><title>p95: 124 points, lowest 8, median 9, highest 9</title>
+<polyline points="394.7,93.0 395.2,93.0 397.5,93.0 398.7,93.0 399.1,93.0 399.9,93.0 402.1,93.0 403.0,93.0 405.2,93.0 406.4,93.0 407.1,93.0 409.9,93.0 412.4,93.0 414.4,93.0 417.1,93.0 418.1,93.0 420.5,93.0 421.7,93.0 422.4,93.0 424.1,93.0 426.8,93.0 428.4,93.0 429.0,93.0 429.9,93.0 431.7,93.0 433.6,93.0 438.4,93.0 440.3,93.0 440.9,93.0 441.3,93.0 442.3,93.0 443.1,93.0 446.2,93.0 449.5,93.0 450.1,93.0 450.4,93.0 452.5,93.0 485.9,93.0 486.4,93.0 488.1,93.0 488.4,93.0 493.5,93.0 494.0,93.0 494.5,93.0 495.1,93.0 496.6,93.0 499.2,93.0 499.6,93.0 500.0,93.0 501.5,93.0 507.3,93.0 507.9,93.0 508.6,93.0 513.1,93.0 514.6,93.0 519.4,93.0 520.2,93.0 520.9,93.0 521.5,93.0 537.0,93.0 537.4,93.0 544.2,93.0 544.8,93.0 545.2,93.0 550.3,93.0 551.3,93.0 552.8,93.0 559.9,93.0 569.5,93.0 571.6,93.0 610.4,93.0 613.0,93.0 613.7,93.0 614.3,93.0 614.9,93.0 615.2,93.0 615.6,93.0 616.9,93.0 617.4,93.0 619.7,93.0 621.7,93.0 643.6,93.0 645.1,108.0 646.1,108.0 647.1,108.0 647.5,108.0 648.2,108.0 648.9,108.0 649.3,108.0 650.0,108.0 651.0,108.0 651.7,108.0 652.3,108.0 653.1,108.0 653.5,108.0 653.9,108.0 654.5,108.0 654.9,108.0 655.3,108.0 655.9,108.0 656.3,108.0 656.7,108.0 658.9,108.0 659.9,108.0 660.8,108.0 661.7,108.0 662.5,108.0 663.2,108.0 664.0,108.0 664.9,108.0 665.3,108.0 665.9,108.0 666.5,108.0 667.0,108.0 667.6,108.0 668.1,108.0 668.9,108.0 669.4,108.0 670.2,108.0 671.0,108.0 671.7,108.0 672.3,108.0 672.7,108.0 698.0,108.0" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="696.0" y="89.0" font-size="10" fill="#52514e" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 9</text>
+</svg>

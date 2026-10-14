@@ -1,0 +1,261 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="577" viewBox="0 0 720 577" role="img" aria-labelledby="t-layer1-wall t-layer1-wall-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-layer1-wall">Layer 1: the wall of N calls of `sleep 2` in one response, by harness</title>
+<desc id="t-layer1-wall-d">Does each harness run one response's independent calls together?</desc>
+<rect width="720" height="577" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Layer 1: the wall of N calls of `sleep 2` in one response, by harness</text>
+<line x1="18.0" y1="50.0" x2="34.0" y2="50.0" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">in turn: 2 s × N</text>
+<line x1="144.6" y1="50.0" x2="160.6" y2="50.0" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<text x="166.6" y="54.0" font-size="12" fill="#c3c2b7">Theseus, grouped + the sentence</text>
+<line x1="384.9" y1="50.0" x2="400.9" y2="50.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<text x="406.9" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<line x1="502.7" y1="50.0" x2="518.7" y2="50.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<text x="524.7" y="54.0" font-size="12" fill="#c3c2b7">Pi</text>
+<line x1="555.2" y1="50.0" x2="571.2" y2="50.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<text x="577.2" y="54.0" font-size="12" fill="#c3c2b7">OpenCode</text>
+<text x="18.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">Theseus</text>
+<line x1="39.7" y1="254.0" x2="343.0" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="39.7" y1="216.5" x2="343.0" y2="216.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="220.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="39.7" y1="179.0" x2="343.0" y2="179.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="183.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="39.7" y1="141.5" x2="343.0" y2="141.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="145.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">30</text>
+<line x1="39.7" y1="104.0" x2="343.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">40</text>
+<line x1="39.7" y1="254.0" x2="39.7" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="39.7" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="115.5" y1="254.0" x2="115.5" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="115.5" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="215.8" y1="254.0" x2="215.8" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="215.8" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="291.6" y1="254.0" x2="291.6" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="291.6" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="39.7" y1="254.0" x2="343.0" y2="254.0" stroke="#383835" stroke-width="1"/>
+<g><title>together: 2 s: 2 s</title>
+<line x1="39.7" y1="246.5" x2="343.0" y2="246.5" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-layer1-wall-1"><rect x="34.7" y="99.0" width="313.3" height="160.0"/></clipPath>
+<g clip-path="url(#clip-layer1-wall-1)">
+<g><title>in turn: 2 s × N: 5 points, lowest 2 s, median 8 s, highest 32 s</title>
+<polyline points="39.7,246.5 115.5,239.0 191.3,224.0 267.2,194.0 343.0,134.0" fill="none" stroke="#c3c2b7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>in turn: 2 s × N: 2 s</title>
+<circle cx="39.7" cy="246.5" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 4 s</title>
+<circle cx="115.5" cy="239.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 8 s</title>
+<circle cx="191.3" cy="224.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 16 s</title>
+<circle cx="267.2" cy="194.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 32 s</title>
+<circle cx="343.0" cy="134.0" r="8" fill="transparent"/>
+</g>
+<g><title>Theseus, grouped + the sentence: 5 points, lowest 2.48 s, median 2.53 s, highest 5.05 s</title>
+<polyline points="39.7,244.6 115.5,244.7 191.3,244.5 267.2,244.2 343.0,235.1" fill="none" stroke="#199e70" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>Theseus, grouped + the sentence: 2.49 s</title>
+<circle cx="39.7" cy="244.6" r="4" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Theseus, grouped + the sentence: 2.48 s</title>
+<circle cx="115.5" cy="244.7" r="4" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Theseus, grouped + the sentence: 2.53 s</title>
+<circle cx="191.3" cy="244.5" r="4" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Theseus, grouped + the sentence: 2.60 s</title>
+<circle cx="267.2" cy="244.2" r="4" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Theseus, grouped + the sentence: 5.05 s</title>
+<circle cx="343.0" cy="235.1" r="4" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+</g>
+</g>
+<text x="341.0" y="242.5" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">together: 2 s</text>
+<text x="373.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">Claude Code</text>
+<line x1="394.7" y1="254.0" x2="698.0" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="394.7" y1="216.5" x2="698.0" y2="216.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="220.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="394.7" y1="179.0" x2="698.0" y2="179.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="183.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="394.7" y1="141.5" x2="698.0" y2="141.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="145.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">30</text>
+<line x1="394.7" y1="104.0" x2="698.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">40</text>
+<line x1="394.7" y1="254.0" x2="394.7" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="394.7" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="470.5" y1="254.0" x2="470.5" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="470.5" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="570.8" y1="254.0" x2="570.8" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="570.8" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="646.6" y1="254.0" x2="646.6" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="646.6" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="394.7" y1="254.0" x2="698.0" y2="254.0" stroke="#383835" stroke-width="1"/>
+<g><title>together: 2 s: 2 s</title>
+<line x1="394.7" y1="246.5" x2="698.0" y2="246.5" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-layer1-wall-2"><rect x="389.7" y="99.0" width="313.3" height="160.0"/></clipPath>
+<g clip-path="url(#clip-layer1-wall-2)">
+<g><title>in turn: 2 s × N: 5 points, lowest 2 s, median 8 s, highest 32 s</title>
+<polyline points="394.7,246.5 470.5,239.0 546.3,224.0 622.2,194.0 698.0,134.0" fill="none" stroke="#c3c2b7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>in turn: 2 s × N: 2 s</title>
+<circle cx="394.7" cy="246.5" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 4 s</title>
+<circle cx="470.5" cy="239.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 8 s</title>
+<circle cx="546.3" cy="224.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 16 s</title>
+<circle cx="622.2" cy="194.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 32 s</title>
+<circle cx="698.0" cy="134.0" r="8" fill="transparent"/>
+</g>
+<g><title>Claude Code: 5 points, lowest 2.87 s, median 3.06 s, highest 7.74 s</title>
+<polyline points="394.7,225.0 470.5,225.1 546.3,243.2 622.2,242.5 698.0,242.8" fill="none" stroke="#d95926" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>Claude Code: 7.74 s</title>
+<circle cx="394.7" cy="225.0" r="4" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Claude Code: 7.71 s</title>
+<circle cx="470.5" cy="225.1" r="4" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Claude Code: 2.87 s</title>
+<circle cx="546.3" cy="243.2" r="4" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Claude Code: 3.06 s</title>
+<circle cx="622.2" cy="242.5" r="4" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Claude Code: 2.99 s</title>
+<circle cx="698.0" cy="242.8" r="4" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+</g>
+<text x="696.0" y="242.5" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">together: 2 s</text>
+<text x="18.0" y="322.0" font-size="12" fill="#ffffff" font-weight="600">Pi</text>
+<line x1="39.7" y1="488.0" x2="343.0" y2="488.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="39.7" y1="450.5" x2="343.0" y2="450.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="454.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="39.7" y1="413.0" x2="343.0" y2="413.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="417.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="39.7" y1="375.5" x2="343.0" y2="375.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="379.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">30</text>
+<line x1="39.7" y1="338.0" x2="343.0" y2="338.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="342.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">40</text>
+<line x1="39.7" y1="488.0" x2="39.7" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="39.7" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="115.5" y1="488.0" x2="115.5" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="115.5" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="215.8" y1="488.0" x2="215.8" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="215.8" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="291.6" y1="488.0" x2="291.6" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="291.6" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="39.7" y1="488.0" x2="343.0" y2="488.0" stroke="#383835" stroke-width="1"/>
+<g><title>together: 2 s: 2 s</title>
+<line x1="39.7" y1="480.5" x2="343.0" y2="480.5" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-layer1-wall-3"><rect x="34.7" y="333.0" width="313.3" height="160.0"/></clipPath>
+<g clip-path="url(#clip-layer1-wall-3)">
+<g><title>in turn: 2 s × N: 5 points, lowest 2 s, median 8 s, highest 32 s</title>
+<polyline points="39.7,480.5 115.5,473.0 191.3,458.0 267.2,428.0 343.0,368.0" fill="none" stroke="#c3c2b7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>in turn: 2 s × N: 2 s</title>
+<circle cx="39.7" cy="480.5" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 4 s</title>
+<circle cx="115.5" cy="473.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 8 s</title>
+<circle cx="191.3" cy="458.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 16 s</title>
+<circle cx="267.2" cy="428.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 32 s</title>
+<circle cx="343.0" cy="368.0" r="8" fill="transparent"/>
+</g>
+<g><title>Pi: 5 points, lowest 2.46 s, median 2.49 s, highest 2.56 s</title>
+<polyline points="39.7,478.4 115.5,478.4 191.3,478.8 267.2,478.7 343.0,478.7" fill="none" stroke="#d55181" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>Pi: 2.56 s</title>
+<circle cx="39.7" cy="478.4" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Pi: 2.56 s</title>
+<circle cx="115.5" cy="478.4" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Pi: 2.46 s</title>
+<circle cx="191.3" cy="478.8" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Pi: 2.48 s</title>
+<circle cx="267.2" cy="478.7" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>Pi: 2.49 s</title>
+<circle cx="343.0" cy="478.7" r="4" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+</g>
+<text x="341.0" y="476.5" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">together: 2 s</text>
+<text x="373.0" y="322.0" font-size="12" fill="#ffffff" font-weight="600">OpenCode (OpenCode: some counts not measurable)</text>
+<line x1="394.7" y1="488.0" x2="698.0" y2="488.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="394.7" y1="450.5" x2="698.0" y2="450.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="454.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="394.7" y1="413.0" x2="698.0" y2="413.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="417.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="394.7" y1="375.5" x2="698.0" y2="375.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="379.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">30</text>
+<line x1="394.7" y1="338.0" x2="698.0" y2="338.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="388.7" y="342.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">40</text>
+<line x1="394.7" y1="488.0" x2="394.7" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="394.7" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<line x1="470.5" y1="488.0" x2="470.5" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="470.5" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2</text>
+<line x1="570.8" y1="488.0" x2="570.8" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="570.8" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="646.6" y1="488.0" x2="646.6" y2="492.0" stroke="#383835" stroke-width="1"/>
+<text x="646.6" y="504.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="394.7" y1="488.0" x2="698.0" y2="488.0" stroke="#383835" stroke-width="1"/>
+<g><title>together: 2 s: 2 s</title>
+<line x1="394.7" y1="480.5" x2="698.0" y2="480.5" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-layer1-wall-4"><rect x="389.7" y="333.0" width="313.3" height="160.0"/></clipPath>
+<g clip-path="url(#clip-layer1-wall-4)">
+<g><title>in turn: 2 s × N: 5 points, lowest 2 s, median 8 s, highest 32 s</title>
+<polyline points="394.7,480.5 470.5,473.0 546.3,458.0 622.2,428.0 698.0,368.0" fill="none" stroke="#c3c2b7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>in turn: 2 s × N: 2 s</title>
+<circle cx="394.7" cy="480.5" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 4 s</title>
+<circle cx="470.5" cy="473.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 8 s</title>
+<circle cx="546.3" cy="458.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 16 s</title>
+<circle cx="622.2" cy="428.0" r="8" fill="transparent"/>
+</g>
+<g><title>in turn: 2 s × N: 32 s</title>
+<circle cx="698.0" cy="368.0" r="8" fill="transparent"/>
+</g>
+<g><title>OpenCode: 2 points, lowest 7.64 s, median 12.1 s, highest 12.1 s</title>
+<polyline points="394.7,459.3 470.5,442.5" fill="none" stroke="#898781" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>OpenCode: 7.64 s</title>
+<circle cx="394.7" cy="459.3" r="4" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<g><title>OpenCode: 12.1 s</title>
+<circle cx="470.5" cy="442.5" r="4" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+</g>
+<text x="696.0" y="476.5" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">together: 2 s</text>
+<text x="360.0" y="526.0" font-size="12" fill="#c3c2b7" text-anchor="middle">calls in the response (N)</text>
+<text x="18.0" y="554.0" font-size="11" fill="#c3c2b7">The stand-in model (theseus-sim fake-model --rules); the CLI's wall from spawn to exit, median of its runs.</text>
+</svg>

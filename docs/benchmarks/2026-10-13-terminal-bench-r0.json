@@ -1,0 +1,2832 @@
+{
+ "report": "2026-10-13-terminal-bench-r0",
+ "t5": {
+  "pairs": [
+   {
+    "task": "bn-fit-modify",
+    "attempt": 1
+   },
+   {
+    "task": "bn-fit-modify",
+    "attempt": 2
+   },
+   {
+    "task": "break-filter-js-from-html",
+    "attempt": 1
+   },
+   {
+    "task": "break-filter-js-from-html",
+    "attempt": 2
+   },
+   {
+    "task": "break-filter-js-from-html",
+    "attempt": 3
+   },
+   {
+    "task": "build-cython-ext",
+    "attempt": 1
+   },
+   {
+    "task": "build-cython-ext",
+    "attempt": 2
+   },
+   {
+    "task": "build-cython-ext",
+    "attempt": 3
+   },
+   {
+    "task": "build-pov-ray",
+    "attempt": 3
+   },
+   {
+    "task": "cancel-async-tasks",
+    "attempt": 3
+   },
+   {
+    "task": "circuit-fibsqrt",
+    "attempt": 1
+   },
+   {
+    "task": "circuit-fibsqrt",
+    "attempt": 2
+   },
+   {
+    "task": "circuit-fibsqrt",
+    "attempt": 3
+   },
+   {
+    "task": "cobol-modernization",
+    "attempt": 1
+   },
+   {
+    "task": "cobol-modernization",
+    "attempt": 2
+   },
+   {
+    "task": "cobol-modernization",
+    "attempt": 3
+   },
+   {
+    "task": "code-from-image",
+    "attempt": 1
+   },
+   {
+    "task": "code-from-image",
+    "attempt": 2
+   },
+   {
+    "task": "code-from-image",
+    "attempt": 3
+   },
+   {
+    "task": "configure-git-webserver",
+    "attempt": 2
+   },
+   {
+    "task": "constraints-scheduling",
+    "attempt": 1
+   },
+   {
+    "task": "constraints-scheduling",
+    "attempt": 2
+   },
+   {
+    "task": "constraints-scheduling",
+    "attempt": 3
+   },
+   {
+    "task": "count-dataset-tokens",
+    "attempt": 1
+   },
+   {
+    "task": "count-dataset-tokens",
+    "attempt": 2
+   },
+   {
+    "task": "count-dataset-tokens",
+    "attempt": 3
+   },
+   {
+    "task": "crack-7z-hash",
+    "attempt": 3
+   },
+   {
+    "task": "custom-memory-heap-crash",
+    "attempt": 2
+   },
+   {
+    "task": "custom-memory-heap-crash",
+    "attempt": 3
+   },
+   {
+    "task": "db-wal-recovery",
+    "attempt": 1
+   },
+   {
+    "task": "db-wal-recovery",
+    "attempt": 2
+   },
+   {
+    "task": "db-wal-recovery",
+    "attempt": 3
+   },
+   {
+    "task": "distribution-search",
+    "attempt": 1
+   },
+   {
+    "task": "distribution-search",
+    "attempt": 2
+   },
+   {
+    "task": "distribution-search",
+    "attempt": 3
+   },
+   {
+    "task": "extract-elf",
+    "attempt": 1
+   },
+   {
+    "task": "extract-elf",
+    "attempt": 2
+   },
+   {
+    "task": "extract-elf",
+    "attempt": 3
+   },
+   {
+    "task": "feal-differential-cryptanalysis",
+    "attempt": 1
+   },
+   {
+    "task": "feal-differential-cryptanalysis",
+    "attempt": 2
+   },
+   {
+    "task": "feal-differential-cryptanalysis",
+    "attempt": 3
+   },
+   {
+    "task": "feal-linear-cryptanalysis",
+    "attempt": 1
+   },
+   {
+    "task": "feal-linear-cryptanalysis",
+    "attempt": 2
+   },
+   {
+    "task": "financial-document-processor",
+    "attempt": 1
+   },
+   {
+    "task": "financial-document-processor",
+    "attempt": 2
+   },
+   {
+    "task": "financial-document-processor",
+    "attempt": 3
+   },
+   {
+    "task": "fix-code-vulnerability",
+    "attempt": 1
+   },
+   {
+    "task": "fix-code-vulnerability",
+    "attempt": 2
+   },
+   {
+    "task": "fix-code-vulnerability",
+    "attempt": 3
+   },
+   {
+    "task": "fix-git",
+    "attempt": 1
+   },
+   {
+    "task": "fix-git",
+    "attempt": 2
+   },
+   {
+    "task": "fix-git",
+    "attempt": 3
+   },
+   {
+    "task": "fix-ocaml-gc",
+    "attempt": 1
+   },
+   {
+    "task": "fix-ocaml-gc",
+    "attempt": 2
+   },
+   {
+    "task": "fix-ocaml-gc",
+    "attempt": 3
+   },
+   {
+    "task": "gcode-to-text",
+    "attempt": 1
+   },
+   {
+    "task": "gcode-to-text",
+    "attempt": 2
+   },
+   {
+    "task": "git-leak-recovery",
+    "attempt": 1
+   },
+   {
+    "task": "git-leak-recovery",
+    "attempt": 2
+   },
+   {
+    "task": "git-leak-recovery",
+    "attempt": 3
+   },
+   {
+    "task": "git-multibranch",
+    "attempt": 1
+   },
+   {
+    "task": "git-multibranch",
+    "attempt": 2
+   },
+   {
+    "task": "git-multibranch",
+    "attempt": 3
+   },
+   {
+    "task": "gpt2-codegolf",
+    "attempt": 1
+   },
+   {
+    "task": "gpt2-codegolf",
+    "attempt": 2
+   },
+   {
+    "task": "gpt2-codegolf",
+    "attempt": 3
+   },
+   {
+    "task": "headless-terminal",
+    "attempt": 1
+   },
+   {
+    "task": "headless-terminal",
+    "attempt": 3
+   },
+   {
+    "task": "hf-model-inference",
+    "attempt": 1
+   },
+   {
+    "task": "hf-model-inference",
+    "attempt": 2
+   },
+   {
+    "task": "hf-model-inference",
+    "attempt": 3
+   },
+   {
+    "task": "kv-store-grpc",
+    "attempt": 1
+   },
+   {
+    "task": "kv-store-grpc",
+    "attempt": 2
+   },
+   {
+    "task": "kv-store-grpc",
+    "attempt": 3
+   },
+   {
+    "task": "large-scale-text-editing",
+    "attempt": 1
+   },
+   {
+    "task": "large-scale-text-editing",
+    "attempt": 2
+   },
+   {
+    "task": "large-scale-text-editing",
+    "attempt": 3
+   },
+   {
+    "task": "largest-eigenval",
+    "attempt": 1
+   },
+   {
+    "task": "largest-eigenval",
+    "attempt": 2
+   },
+   {
+    "task": "largest-eigenval",
+    "attempt": 3
+   },
+   {
+    "task": "llm-inference-batching-scheduler",
+    "attempt": 1
+   },
+   {
+    "task": "llm-inference-batching-scheduler",
+    "attempt": 2
+   },
+   {
+    "task": "llm-inference-batching-scheduler",
+    "attempt": 3
+   },
+   {
+    "task": "log-summary-date-ranges",
+    "attempt": 1
+   },
+   {
+    "task": "log-summary-date-ranges",
+    "attempt": 2
+   },
+   {
+    "task": "log-summary-date-ranges",
+    "attempt": 3
+   },
+   {
+    "task": "mailman",
+    "attempt": 1
+   },
+   {
+    "task": "make-mips-interpreter",
+    "attempt": 1
+   },
+   {
+    "task": "make-mips-interpreter",
+    "attempt": 2
+   },
+   {
+    "task": "make-mips-interpreter",
+    "attempt": 3
+   },
+   {
+    "task": "mcmc-sampling-stan",
+    "attempt": 1
+   },
+   {
+    "task": "mcmc-sampling-stan",
+    "attempt": 2
+   },
+   {
+    "task": "mcmc-sampling-stan",
+    "attempt": 3
+   },
+   {
+    "task": "merge-diff-arc-agi-task",
+    "attempt": 1
+   },
+   {
+    "task": "merge-diff-arc-agi-task",
+    "attempt": 2
+   },
+   {
+    "task": "merge-diff-arc-agi-task",
+    "attempt": 3
+   },
+   {
+    "task": "model-extraction-relu-logits",
+    "attempt": 1
+   },
+   {
+    "task": "model-extraction-relu-logits",
+    "attempt": 2
+   },
+   {
+    "task": "modernize-scientific-stack",
+    "attempt": 1
+   },
+   {
+    "task": "modernize-scientific-stack",
+    "attempt": 2
+   },
+   {
+    "task": "modernize-scientific-stack",
+    "attempt": 3
+   },
+   {
+    "task": "multi-source-data-merger",
+    "attempt": 1
+   },
+   {
+    "task": "multi-source-data-merger",
+    "attempt": 2
+   },
+   {
+    "task": "multi-source-data-merger",
+    "attempt": 3
+   },
+   {
+    "task": "nginx-request-logging",
+    "attempt": 1
+   },
+   {
+    "task": "nginx-request-logging",
+    "attempt": 2
+   },
+   {
+    "task": "nginx-request-logging",
+    "attempt": 3
+   },
+   {
+    "task": "openssl-selfsigned-cert",
+    "attempt": 1
+   },
+   {
+    "task": "openssl-selfsigned-cert",
+    "attempt": 2
+   },
+   {
+    "task": "openssl-selfsigned-cert",
+    "attempt": 3
+   },
+   {
+    "task": "overfull-hbox",
+    "attempt": 2
+   },
+   {
+    "task": "overfull-hbox",
+    "attempt": 3
+   },
+   {
+    "task": "password-recovery",
+    "attempt": 1
+   },
+   {
+    "task": "password-recovery",
+    "attempt": 2
+   },
+   {
+    "task": "password-recovery",
+    "attempt": 3
+   },
+   {
+    "task": "path-tracing",
+    "attempt": 1
+   },
+   {
+    "task": "path-tracing",
+    "attempt": 2
+   },
+   {
+    "task": "path-tracing",
+    "attempt": 3
+   },
+   {
+    "task": "path-tracing-reverse",
+    "attempt": 1
+   },
+   {
+    "task": "path-tracing-reverse",
+    "attempt": 2
+   },
+   {
+    "task": "path-tracing-reverse",
+    "attempt": 3
+   },
+   {
+    "task": "portfolio-optimization",
+    "attempt": 1
+   },
+   {
+    "task": "portfolio-optimization",
+    "attempt": 2
+   },
+   {
+    "task": "portfolio-optimization",
+    "attempt": 3
+   },
+   {
+    "task": "prove-plus-comm",
+    "attempt": 1
+   },
+   {
+    "task": "prove-plus-comm",
+    "attempt": 2
+   },
+   {
+    "task": "prove-plus-comm",
+    "attempt": 3
+   },
+   {
+    "task": "pypi-server",
+    "attempt": 1
+   },
+   {
+    "task": "pypi-server",
+    "attempt": 2
+   },
+   {
+    "task": "pypi-server",
+    "attempt": 3
+   },
+   {
+    "task": "pytorch-model-cli",
+    "attempt": 1
+   },
+   {
+    "task": "pytorch-model-cli",
+    "attempt": 2
+   },
+   {
+    "task": "pytorch-model-cli",
+    "attempt": 3
+   },
+   {
+    "task": "pytorch-model-recovery",
+    "attempt": 1
+   },
+   {
+    "task": "pytorch-model-recovery",
+    "attempt": 2
+   },
+   {
+    "task": "pytorch-model-recovery",
+    "attempt": 3
+   },
+   {
+    "task": "query-optimize",
+    "attempt": 1
+   },
+   {
+    "task": "query-optimize",
+    "attempt": 3
+   },
+   {
+    "task": "regex-chess",
+    "attempt": 1
+   },
+   {
+    "task": "regex-chess",
+    "attempt": 2
+   },
+   {
+    "task": "regex-chess",
+    "attempt": 3
+   },
+   {
+    "task": "regex-log",
+    "attempt": 1
+   },
+   {
+    "task": "regex-log",
+    "attempt": 2
+   },
+   {
+    "task": "regex-log",
+    "attempt": 3
+   },
+   {
+    "task": "reshard-c4-data",
+    "attempt": 1
+   },
+   {
+    "task": "reshard-c4-data",
+    "attempt": 2
+   },
+   {
+    "task": "reshard-c4-data",
+    "attempt": 3
+   },
+   {
+    "task": "rstan-to-pystan",
+    "attempt": 3
+   },
+   {
+    "task": "sanitize-git-repo",
+    "attempt": 2
+   },
+   {
+    "task": "schemelike-metacircular-eval",
+    "attempt": 1
+   },
+   {
+    "task": "schemelike-metacircular-eval",
+    "attempt": 2
+   },
+   {
+    "task": "schemelike-metacircular-eval",
+    "attempt": 3
+   },
+   {
+    "task": "sparql-university",
+    "attempt": 1
+   },
+   {
+    "task": "sparql-university",
+    "attempt": 2
+   },
+   {
+    "task": "sparql-university",
+    "attempt": 3
+   },
+   {
+    "task": "sqlite-db-truncate",
+    "attempt": 1
+   },
+   {
+    "task": "sqlite-db-truncate",
+    "attempt": 2
+   },
+   {
+    "task": "sqlite-db-truncate",
+    "attempt": 3
+   },
+   {
+    "task": "sqlite-with-gcov",
+    "attempt": 1
+   },
+   {
+    "task": "sqlite-with-gcov",
+    "attempt": 2
+   },
+   {
+    "task": "sqlite-with-gcov",
+    "attempt": 3
+   },
+   {
+    "task": "torch-tensor-parallelism",
+    "attempt": 1
+   },
+   {
+    "task": "torch-tensor-parallelism",
+    "attempt": 2
+   },
+   {
+    "task": "torch-tensor-parallelism",
+    "attempt": 3
+   },
+   {
+    "task": "tune-mjcf",
+    "attempt": 1
+   },
+   {
+    "task": "tune-mjcf",
+    "attempt": 2
+   },
+   {
+    "task": "tune-mjcf",
+    "attempt": 3
+   },
+   {
+    "task": "vulnerable-secret",
+    "attempt": 1
+   },
+   {
+    "task": "vulnerable-secret",
+    "attempt": 2
+   },
+   {
+    "task": "vulnerable-secret",
+    "attempt": 3
+   },
+   {
+    "task": "winning-avg-corewars",
+    "attempt": 1
+   },
+   {
+    "task": "winning-avg-corewars",
+    "attempt": 3
+   },
+   {
+    "task": "write-compressor",
+    "attempt": 1
+   },
+   {
+    "task": "write-compressor",
+    "attempt": 2
+   },
+   {
+    "task": "write-compressor",
+    "attempt": 3
+   }
+  ],
+  "arms": {
+   "theseus": {
+    "pairs": 175,
+    "cost_mean": 0.1114,
+    "cost_median": 0.0504,
+    "calls_mean": 7.5943,
+    "agent_s_mean": 130.6464,
+    "output_per_call": 630.5327
+   },
+   "claude-code": {
+    "pairs": 175,
+    "cost_mean": 0.1051,
+    "cost_median": 0.055,
+    "calls_mean": 6.6571,
+    "agent_s_mean": 132.8012,
+    "output_per_call": 673.8652
+   }
+  }
+ },
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-13",
+ "model": "anthropic/claude-sonnet-5-5",
+ "commit": "026dce3f",
+ "kind": "harbor",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus"
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code 2.1.290"
+  }
+ ],
+ "summary": {
+  "theseus": {
+   "label": "Theseus",
+   "trials": 267,
+   "tasks": 89,
+   "pass": {
+    "k": 199,
+    "n": 267,
+    "rate": 0.7453,
+    "lo": 0.6898,
+    "hi": 0.7938
+   },
+   "solved_every_attempt": 57,
+   "solved_any_attempt": 75,
+   "task_mean_rate": {
+    "n": 89,
+    "mean": 0.7453,
+    "lo": 0.6629,
+    "hi": 0.824,
+    "median": 1.0,
+    "method": "bootstrap"
+   },
+   "cost_usd": 32.1663,
+   "unpriced": 6,
+   "cost_per_trial": {
+    "n": 261,
+    "mean": 0.1232,
+    "lo": 0.1027,
+    "hi": 0.1461,
+    "median": 0.0532,
+    "method": "bootstrap"
+   },
+   "agent_min_per_trial": {
+    "n": 261,
+    "mean": 3.3632,
+    "lo": 2.4983,
+    "hi": 4.3159,
+    "median": 0.6108,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": 9.364,
+   "tool_calls_per_trial": 9.1111,
+   "tokens": {
+    "input": 18502,
+    "cache_read": 62360181,
+    "cache_write": 2870993,
+    "output": 1247978
+   },
+   "cache_hit_share": 0.9557,
+   "endings": {
+    "ended by the agent": 249,
+    "timeout": 9,
+    "error (exit or harness)": 6,
+    "grader timeout": 3
+   },
+   "t4": {
+    "trials": 267,
+    "with_trajectory": 261,
+    "trials_with_tool_error": 47,
+    "share_tool_error": 0.1801,
+    "tool_errors": 78,
+    "malformed": 1,
+    "malformed_by_tool": {
+     "fs_write": 1
+    },
+    "trials_with_malformed": 1,
+    "share_malformed": 0.0038,
+    "invented": 2,
+    "invented_by_tool": {
+     "bash_placeholder": 1,
+     "bash": 1
+    },
+    "trials_with_invented": 2,
+    "share_invented": 0.0077
+   },
+   "grader_timeouts": [
+    {
+     "task": "torch-pipeline-parallelism",
+     "attempt": 1,
+     "trial": "torch-pipeline-parallelism__XezG2wb"
+    },
+    {
+     "task": "torch-pipeline-parallelism",
+     "attempt": 2,
+     "trial": "torch-pipeline-parallelism__tpv7ERJ"
+    },
+    {
+     "task": "torch-pipeline-parallelism",
+     "attempt": 3,
+     "trial": "torch-pipeline-parallelism__Po5jF3Y"
+    }
+   ],
+   "over_budget": [],
+   "overlap": {
+    "n": 267,
+    "mean": 18.9476,
+    "lo": 16.4307,
+    "hi": 21.764,
+    "median": 14.0,
+    "method": "bootstrap"
+   },
+   "overlap_max": 198,
+   "sampled": 261,
+   "harness_cpu_ms_per_tool_call": 31.9218,
+   "peak_harness_rss_mb": 61.8789
+  },
+  "claude-code": {
+   "label": "Claude Code 2.1.290",
+   "trials": 267,
+   "tasks": 89,
+   "pass": {
+    "k": 191,
+    "n": 267,
+    "rate": 0.7154,
+    "lo": 0.6585,
+    "hi": 0.7661
+   },
+   "solved_every_attempt": 54,
+   "solved_any_attempt": 72,
+   "task_mean_rate": {
+    "n": 89,
+    "mean": 0.7154,
+    "lo": 0.6292,
+    "hi": 0.794,
+    "median": 1.0,
+    "method": "bootstrap"
+   },
+   "cost_usd": 30.4319,
+   "unpriced": 8,
+   "cost_per_trial": {
+    "n": 259,
+    "mean": 0.1175,
+    "lo": 0.097,
+    "hi": 0.14,
+    "median": 0.0585,
+    "method": "bootstrap"
+   },
+   "agent_min_per_trial": {
+    "n": 259,
+    "mean": 2.912,
+    "lo": 2.172,
+    "hi": 3.729,
+    "median": 0.6436,
+    "method": "bootstrap"
+   },
+   "model_calls_per_trial": 7.5676,
+   "tool_calls_per_trial": 7.0695,
+   "tokens": {
+    "input": 19467,
+    "cache_read": 50096338,
+    "cache_write": 3290778,
+    "output": 1243326
+   },
+   "cache_hit_share": 0.938,
+   "endings": {
+    "ended by the agent": 248,
+    "timeout": 6,
+    "error (exit or harness)": 10,
+    "grader timeout": 3
+   },
+   "t4": {
+    "trials": 267,
+    "with_trajectory": 259,
+    "trials_with_tool_error": 16,
+    "share_tool_error": 0.0618,
+    "tool_errors": 17,
+    "malformed": 0,
+    "malformed_by_tool": {},
+    "trials_with_malformed": 0,
+    "share_malformed": 0.0,
+    "invented": 8,
+    "invented_by_tool": {
+     "bash": 8
+    },
+    "trials_with_invented": 8,
+    "share_invented": 0.0309
+   },
+   "grader_timeouts": [
+    {
+     "task": "torch-pipeline-parallelism",
+     "attempt": 1,
+     "trial": "torch-pipeline-parallelism__aUDVXNK"
+    },
+    {
+     "task": "torch-pipeline-parallelism",
+     "attempt": 2,
+     "trial": "torch-pipeline-parallelism__XJJ3QJ3"
+    },
+    {
+     "task": "torch-pipeline-parallelism",
+     "attempt": 3,
+     "trial": "torch-pipeline-parallelism__XxaL3Tn"
+    }
+   ],
+   "over_budget": [],
+   "overlap": {
+    "n": 267,
+    "mean": 18.4082,
+    "lo": 16.0898,
+    "hi": 20.8952,
+    "median": 15.0,
+    "method": "bootstrap"
+   },
+   "overlap_max": 128,
+   "sampled": 259,
+   "harness_cpu_ms_per_tool_call": 350.3659,
+   "peak_harness_rss_mb": 514.3906
+  }
+ },
+ "paired": {
+  "claude-code": {
+   "against": "theseus",
+   "only_ref": 24,
+   "only_arm": 16,
+   "both": 175,
+   "neither": 52,
+   "p_mcnemar": 0.2682,
+   "tasks_only_ref": [
+    "adaptive-rejection-sampler",
+    "build-pmars",
+    "chess-best-move",
+    "make-doom-for-mips",
+    "raman-fitting",
+    "train-fasttext"
+   ],
+   "tasks_only_arm": [
+    "dna-insert",
+    "mteb-leaderboard",
+    "video-processing"
+   ]
+  }
+ },
+ "figures": [
+  {
+   "name": "pass-rates",
+   "form": "intervals",
+   "title": "Pass rate by arm, with 95% Wilson intervals",
+   "question": "Which arm solves the most trials, and do the intervals separate?",
+   "note": "Each arm's trials: 89 tasks × up to 3 attempts; a trial passes when its tests give reward 1.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus",
+     "arm": "theseus",
+     "value": 0.7453,
+     "lo": 0.6898,
+     "hi": 0.7938,
+     "tip": "199 of 267"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 0.7154,
+     "lo": 0.6585,
+     "hi": 0.7661,
+     "tip": "191 of 267"
+    }
+   ]
+  },
+  {
+   "name": "endings",
+   "form": "bars",
+   "title": "Trials that did not end by the agent's own choice",
+   "question": "How does each arm's run end when it does not end on its own, and which ending costs most?",
+   "categories": [
+    "timeout",
+    "grader timeout",
+    "error (exit or harness)"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      9,
+      3,
+      6
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      6,
+      3,
+      10
+     ]
+    }
+   ],
+   "value": {
+    "label": "trials",
+    "format": "int",
+    "min": 0
+   }
+  },
+  {
+   "name": "cost-per-trial",
+   "form": "strip",
+   "title": "Dollars per trial",
+   "question": "How are each arm's dollars spread over its trials, and is the mean carried by a few?",
+   "x": {
+    "label": "dollars per trial (log scale)",
+    "format": "usd",
+    "log": true
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      0.1686,
+      0.1863,
+      0.1576,
+      0.0682,
+      0.0359,
+      0.0422,
+      0.883,
+      0.5334,
+      0.7573,
+      0.1204,
+      0.1534,
+      0.1527,
+      0.0388,
+      0.0329,
+      0.0337,
+      0.1059,
+      0.0605,
+      0.0596,
+      0.1266,
+      0.1585,
+      0.1057,
+      0.0244,
+      0.0257,
+      0.0259,
+      0.0236,
+      0.0328,
+      0.0544,
+      0.0793,
+      0.1513,
+      0.0879,
+      0.0427,
+      0.0538,
+      0.0561,
+      0.0223,
+      0.0212,
+      0.0211,
+      0.3361,
+      0.3798,
+      0.2988,
+      0.0483,
+      0.0411,
+      0.0402,
+      0.0272,
+      0.0335,
+      0.0245,
+      0.046,
+      0.0461,
+      0.0302,
+      0.1726,
+      0.5458,
+      0.1159,
+      0.0424,
+      0.0667,
+      0.0683,
+      0.026,
+      0.0234,
+      0.0243,
+      0.0273,
+      0.0352,
+      0.0209,
+      0.1197,
+      0.1446,
+      0.1564,
+      0.071,
+      0.0826,
+      0.0532,
+      0.0269,
+      0.0254,
+      0.0213,
+      0.0501,
+      0.0425,
+      0.0285,
+      0.0726,
+      0.081,
+      0.063,
+      0.1048,
+      0.0878,
+      0.5181,
+      0.0386,
+      0.0473,
+      0.0419,
+      0.2488,
+      0.2392,
+      0.2479,
+      0.0315,
+      0.0298,
+      0.0286,
+      0.0731,
+      0.074,
+      0.0384,
+      0.1647,
+      0.2464,
+      0.1584,
+      0.3075,
+      0.0563,
+      0.0457,
+      0.0216,
+      0.0216,
+      0.0213,
+      0.0516,
+      0.0466,
+      0.0406,
+      0.2245,
+      0.1867,
+      0.151,
+      0.0317,
+      0.0335,
+      0.0353,
+      0.0298,
+      0.0301,
+      0.0231,
+      0.138,
+      0.1724,
+      0.1059,
+      0.0238,
+      0.0263,
+      0.0229,
+      0.0212,
+      0.0236,
+      0.0209,
+      0.0574,
+      0.0828,
+      0.1482,
+      0.1167,
+      0.1005,
+      0.2152,
+      0.031,
+      0.0244,
+      0.0211,
+      0.1987,
+      0.1549,
+      0.2902,
+      0.8177,
+      1.3121,
+      1.2735,
+      0.3298,
+      0.3396,
+      0.3346,
+      0.1158,
+      0.1051,
+      0.1081,
+      0.0412,
+      0.0357,
+      0.0338,
+      0.0775,
+      0.0371,
+      0.0458,
+      0.025,
+      0.0249,
+      0.0234,
+      0.0434,
+      0.0409,
+      0.0718,
+      0.0245,
+      0.0242,
+      0.0254,
+      0.0284,
+      0.0303,
+      0.0271,
+      0.0266,
+      0.025,
+      0.0258,
+      0.0256,
+      0.0272,
+      0.0241,
+      0.1278,
+      0.2088,
+      0.1144,
+      0.0622,
+      0.0746,
+      0.0503,
+      0.5141,
+      0.4995,
+      0.4535,
+      0.2805,
+      0.2964,
+      0.2947,
+      0.0251,
+      0.0167,
+      0.015,
+      0.0286,
+      0.0302,
+      0.0446,
+      0.0476,
+      0.0497,
+      0.0471,
+      0.128,
+      0.1257,
+      0.1282,
+      0.0504,
+      0.0151,
+      0.016,
+      0.0278,
+      0.0221,
+      0.0236,
+      0.0429,
+      0.0442,
+      0.0936,
+      0.1454,
+      0.0882,
+      0.0623,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      0.0529,
+      0.1026,
+      0.0565,
+      0.1631,
+      0.0772,
+      0.13,
+      0.9175,
+      0.417,
+      0.3702,
+      0.0227,
+      0.0275,
+      0.0273,
+      0.051,
+      0.0558,
+      0.0568,
+      0.3101,
+      0.3222,
+      0.102,
+      0.0598,
+      0.0715,
+      0.052,
+      0.1204,
+      0.1173,
+      0.0745,
+      0.5287,
+      0.569,
+      0.5348,
+      0.0637,
+      0.0628,
+      0.0622,
+      0.0645,
+      0.0287,
+      0.0279,
+      0.0245,
+      0.0232,
+      0.0183,
+      0.0431,
+      0.0372,
+      0.0376,
+      0.0342,
+      0.0345,
+      0.0332,
+      0.2546,
+      0.4245,
+      0.273,
+      0.0474,
+      0.0429,
+      0.0924,
+      0.0494,
+      0.048,
+      0.0491,
+      0.1251,
+      0.102,
+      0.0846,
+      0.2565,
+      0.0435,
+      0.2569,
+      0.0459,
+      0.0434,
+      0.0583
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "values": [
+      0.2445,
+      0.1595,
+      0.1556,
+      0.0448,
+      0.0552,
+      0.0424,
+      0.2583,
+      0.4163,
+      0.1776,
+      0.1428,
+      0.1422,
+      0.1229,
+      0.0483,
+      0.0419,
+      0.0401,
+      0.0839,
+      0.0762,
+      0.0772,
+      0.0249,
+      0.0171,
+      0.0153,
+      null,
+      null,
+      0.0487,
+      0.0517,
+      0.0239,
+      0.0342,
+      0.1396,
+      0.0836,
+      0.1043,
+      0.0557,
+      0.0595,
+      0.0648,
+      0.034,
+      0.0336,
+      0.0212,
+      0.1238,
+      0.1083,
+      0.13,
+      0.0519,
+      0.0316,
+      0.0673,
+      0.0411,
+      0.0407,
+      0.0334,
+      0.0535,
+      0.042,
+      0.0391,
+      0.2909,
+      0.1337,
+      0.131,
+      0.0682,
+      0.0671,
+      0.1396,
+      0.0292,
+      0.0219,
+      0.0243,
+      0.0314,
+      0.0428,
+      0.0449,
+      0.1806,
+      0.1952,
+      0.1979,
+      0.1005,
+      0.0898,
+      0.1484,
+      0.0359,
+      0.0351,
+      0.0278,
+      0.0859,
+      0.0706,
+      0.0556,
+      0.0983,
+      0.0603,
+      0.0492,
+      0.1193,
+      0.1222,
+      0.1661,
+      0.0474,
+      0.0361,
+      0.0574,
+      0.3004,
+      0.245,
+      0.2175,
+      0.0293,
+      0.0293,
+      0.0175,
+      0.0469,
+      0.0484,
+      0.0352,
+      0.1123,
+      0.1192,
+      0.1273,
+      0.2412,
+      0.1945,
+      0.1631,
+      0.0303,
+      0.0222,
+      0.0225,
+      0.0514,
+      0.0375,
+      0.0408,
+      0.1867,
+      0.2649,
+      0.207,
+      0.0483,
+      0.0427,
+      0.0427,
+      0.0338,
+      0.0245,
+      0.0249,
+      0.1703,
+      0.0952,
+      0.3163,
+      0.0316,
+      0.0343,
+      0.026,
+      0.0312,
+      0.0317,
+      0.0232,
+      0.083,
+      0.0449,
+      0.0421,
+      0.0789,
+      0.0913,
+      0.209,
+      0.0326,
+      0.0329,
+      0.0241,
+      0.1318,
+      0.2151,
+      0.1894,
+      1.0387,
+      0.8823,
+      1.1641,
+      0.3035,
+      0.2624,
+      0.2684,
+      0.0599,
+      0.066,
+      0.0781,
+      0.0418,
+      0.0406,
+      0.039,
+      0.116,
+      0.0609,
+      0.0581,
+      0.0347,
+      0.0334,
+      0.0233,
+      0.0847,
+      0.036,
+      0.0341,
+      0.027,
+      0.0262,
+      0.0269,
+      0.0385,
+      0.0389,
+      0.0274,
+      0.0288,
+      0.0295,
+      0.0209,
+      0.0326,
+      0.0325,
+      0.0219,
+      0.1109,
+      0.0972,
+      0.0978,
+      0.2213,
+      0.0565,
+      0.0693,
+      0.9289,
+      0.2209,
+      0.4862,
+      0.3567,
+      0.4899,
+      0.3264,
+      0.0275,
+      0.0194,
+      0.021,
+      0.0368,
+      0.041,
+      0.0297,
+      0.0585,
+      0.0577,
+      0.0411,
+      0.1014,
+      0.2052,
+      0.1763,
+      0.0291,
+      0.0173,
+      0.0167,
+      0.0303,
+      0.03,
+      0.0213,
+      0.055,
+      0.0752,
+      0.0675,
+      0.1089,
+      0.0978,
+      0.0912,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      0.0644,
+      0.0562,
+      0.0672,
+      0.1511,
+      0.0923,
+      0.085,
+      0.651,
+      0.5069,
+      0.4016,
+      0.0416,
+      0.0278,
+      0.0406,
+      0.0849,
+      0.0598,
+      0.0531,
+      0.0893,
+      0.0823,
+      0.1312,
+      0.0835,
+      0.0603,
+      0.0638,
+      0.0382,
+      0.0613,
+      0.0429,
+      0.7647,
+      0.2686,
+      0.525,
+      0.0771,
+      0.0573,
+      0.0675,
+      0.0402,
+      0.0387,
+      0.029,
+      0.0328,
+      0.0465,
+      0.027,
+      0.0582,
+      0.0495,
+      0.0594,
+      0.0432,
+      0.0346,
+      0.0364,
+      0.1501,
+      0.1521,
+      0.0903,
+      0.0519,
+      0.0572,
+      0.1134,
+      0.0548,
+      0.0512,
+      0.1441,
+      0.0951,
+      0.1109,
+      0.1007,
+      0.2094,
+      1.588,
+      0.1344,
+      0.0756,
+      0.066,
+      0.0485
+     ]
+    }
+   ]
+  },
+  {
+   "name": "pareto-dollars",
+   "form": "scatter",
+   "front": "min-x-max-y",
+   "title": "Pass rate against dollars per trial",
+   "question": "Which arms buy the most passes for the least money?",
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.08
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0.6,
+    "max": 0.85
+   },
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "x": 0.1232,
+     "xlo": 0.1027,
+     "xhi": 0.1461,
+     "y": 0.7453,
+     "ylo": 0.6898,
+     "yhi": 0.7938
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "x": 0.1175,
+     "xlo": 0.097,
+     "xhi": 0.14,
+     "y": 0.7154,
+     "ylo": 0.6585,
+     "yhi": 0.7661
+    }
+   ]
+  },
+  {
+   "name": "outcomes",
+   "form": "matrix",
+   "title": "Every trial's outcome, task by task",
+   "question": "Where do the arms differ, task by task, and which tasks no arm solves?",
+   "note": "Columns: each arm's attempts, in the order they ran. Rows: most solved first.",
+   "columns": [
+    {
+     "label": "A1",
+     "arm": "theseus"
+    },
+    {
+     "label": "A2",
+     "arm": "theseus"
+    },
+    {
+     "label": "A3",
+     "arm": "theseus"
+    },
+    {
+     "label": "B1",
+     "arm": "claude-code"
+    },
+    {
+     "label": "B2",
+     "arm": "claude-code"
+    },
+    {
+     "label": "B3",
+     "arm": "claude-code"
+    }
+   ],
+   "rows": [
+    {
+     "label": "break-filter-js-from-html",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.88",
+      "ended by the agent, $0.53",
+      "ended by the agent, $0.76",
+      "ended by the agent, $0.26",
+      "ended by the agent, $0.42",
+      "ended by the agent, $0.18"
+     ]
+    },
+    {
+     "label": "build-cython-ext",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.14",
+      "ended by the agent, $0.14",
+      "ended by the agent, $0.12"
+     ]
+    },
+    {
+     "label": "circuit-fibsqrt",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.079",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.088",
+      "ended by the agent, $0.14",
+      "ended by the agent, $0.084",
+      "ended by the agent, $0.10"
+     ]
+    },
+    {
+     "label": "cobol-modernization",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.054",
+      "ended by the agent, $0.056",
+      "ended by the agent, $0.056",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.065"
+     ]
+    },
+    {
+     "label": "code-from-image",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.022",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.021"
+     ]
+    },
+    {
+     "label": "constraints-scheduling",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.033"
+     ]
+    },
+    {
+     "label": "count-dataset-tokens",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.046",
+      "ended by the agent, $0.046",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.053",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.039"
+     ]
+    },
+    {
+     "label": "db-wal-recovery",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.026",
+      "ended by the agent, $0.023",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.022",
+      "ended by the agent, $0.024"
+     ]
+    },
+    {
+     "label": "distribution-search",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.035",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.031",
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.045"
+     ]
+    },
+    {
+     "label": "extract-elf",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.036",
+      "ended by the agent, $0.035",
+      "ended by the agent, $0.028"
+     ]
+    },
+    {
+     "label": "feal-differential-cryptanalysis",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.073",
+      "ended by the agent, $0.081",
+      "ended by the agent, $0.063",
+      "ended by the agent, $0.098",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.049"
+     ]
+    },
+    {
+     "label": "financial-document-processor",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.25",
+      "ended by the agent, $0.24",
+      "ended by the agent, $0.25",
+      "ended by the agent, $0.30",
+      "ended by the agent, $0.25",
+      "ended by the agent, $0.22"
+     ]
+    },
+    {
+     "label": "fix-code-vulnerability",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.031",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.017"
+     ]
+    },
+    {
+     "label": "fix-git",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.073",
+      "ended by the agent, $0.074",
+      "ended by the agent, $0.038",
+      "ended by the agent, $0.047",
+      "ended by the agent, $0.048",
+      "ended by the agent, $0.035"
+     ]
+    },
+    {
+     "label": "fix-ocaml-gc",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.16",
+      "ended by the agent, $0.25",
+      "ended by the agent, $0.16",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.13"
+     ]
+    },
+    {
+     "label": "git-leak-recovery",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.022",
+      "ended by the agent, $0.022",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.022",
+      "ended by the agent, $0.022"
+     ]
+    },
+    {
+     "label": "git-multibranch",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.052",
+      "ended by the agent, $0.047",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.051",
+      "ended by the agent, $0.038",
+      "ended by the agent, $0.041"
+     ]
+    },
+    {
+     "label": "gpt2-codegolf",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.22",
+      "ended by the agent, $0.19",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.19",
+      "ended by the agent, $0.26",
+      "ended by the agent, $0.21"
+     ]
+    },
+    {
+     "label": "hf-model-inference",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.023",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.025"
+     ]
+    },
+    {
+     "label": "kv-store-grpc",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.026",
+      "ended by the agent, $0.023",
+      "ended by the agent, $0.032",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.026"
+     ]
+    },
+    {
+     "label": "large-scale-text-editing",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.031",
+      "ended by the agent, $0.032",
+      "ended by the agent, $0.023"
+     ]
+    },
+    {
+     "label": "largest-eigenval",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.057",
+      "ended by the agent, $0.083",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.083",
+      "ended by the agent, $0.045",
+      "ended by the agent, $0.042"
+     ]
+    },
+    {
+     "label": "llm-inference-batching-scheduler",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.10",
+      "ended by the agent, $0.22",
+      "ended by the agent, $0.079",
+      "ended by the agent, $0.091",
+      "ended by the agent, $0.21"
+     ]
+    },
+    {
+     "label": "log-summary-date-ranges",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.031",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.021",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.024"
+     ]
+    },
+    {
+     "label": "make-mips-interpreter",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.33",
+      "ended by the agent, $0.34",
+      "ended by the agent, $0.33",
+      "ended by the agent, $0.30",
+      "ended by the agent, $0.26",
+      "ended by the agent, $0.27"
+     ]
+    },
+    {
+     "label": "mcmc-sampling-stan",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.066",
+      "ended by the agent, $0.078"
+     ]
+    },
+    {
+     "label": "merge-diff-arc-agi-task",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.036",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.039"
+     ]
+    },
+    {
+     "label": "modernize-scientific-stack",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.023",
+      "ended by the agent, $0.035",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.023"
+     ]
+    },
+    {
+     "label": "multi-source-data-merger",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.028",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.038",
+      "ended by the agent, $0.039",
+      "ended by the agent, $0.027"
+     ]
+    },
+    {
+     "label": "nginx-request-logging",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.026",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.021"
+     ]
+    },
+    {
+     "label": "openssl-selfsigned-cert",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.026",
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.032",
+      "ended by the agent, $0.022"
+     ]
+    },
+    {
+     "label": "password-recovery",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.062",
+      "ended by the agent, $0.075",
+      "ended by the agent, $0.050",
+      "ended by the agent, $0.22",
+      "ended by the agent, $0.056",
+      "ended by the agent, $0.069"
+     ]
+    },
+    {
+     "label": "path-tracing",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.51",
+      "ended by the agent, $0.50",
+      "ended by the agent, $0.45",
+      "ended by the agent, $0.93",
+      "ended by the agent, $0.22",
+      "ended by the agent, $0.49"
+     ]
+    },
+    {
+     "label": "path-tracing-reverse",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.28",
+      "ended by the agent, $0.30",
+      "ended by the agent, $0.29",
+      "ended by the agent, $0.36",
+      "ended by the agent, $0.49",
+      "ended by the agent, $0.33"
+     ]
+    },
+    {
+     "label": "portfolio-optimization",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.048",
+      "ended by the agent, $0.050",
+      "ended by the agent, $0.047",
+      "ended by the agent, $0.059",
+      "ended by the agent, $0.058",
+      "ended by the agent, $0.041"
+     ]
+    },
+    {
+     "label": "prove-plus-comm",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.050",
+      "ended by the agent, $0.015",
+      "ended by the agent, $0.016",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.017",
+      "ended by the agent, $0.017"
+     ]
+    },
+    {
+     "label": "pypi-server",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.028",
+      "ended by the agent, $0.022",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.021"
+     ]
+    },
+    {
+     "label": "pytorch-model-cli",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.044",
+      "ended by the agent, $0.094",
+      "ended by the agent, $0.055",
+      "ended by the agent, $0.075",
+      "ended by the agent, $0.068"
+     ]
+    },
+    {
+     "label": "pytorch-model-recovery",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.088",
+      "ended by the agent, $0.062",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.098",
+      "ended by the agent, $0.091"
+     ]
+    },
+    {
+     "label": "regex-chess",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.92",
+      "ended by the agent, $0.42",
+      "ended by the agent, $0.37",
+      "ended by the agent, $0.65",
+      "ended by the agent, $0.51",
+      "ended by the agent, $0.40"
+     ]
+    },
+    {
+     "label": "regex-log",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.023",
+      "ended by the agent, $0.028",
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.028",
+      "ended by the agent, $0.041"
+     ]
+    },
+    {
+     "label": "reshard-c4-data",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.051",
+      "ended by the agent, $0.056",
+      "ended by the agent, $0.057",
+      "ended by the agent, $0.085",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.053"
+     ]
+    },
+    {
+     "label": "schemelike-metacircular-eval",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.53",
+      "ended by the agent, $0.57",
+      "ended by the agent, $0.53",
+      "timeout, $0.76",
+      "ended by the agent, $0.27",
+      "timeout, $0.53"
+     ]
+    },
+    {
+     "label": "sparql-university",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.064",
+      "ended by the agent, $0.063",
+      "ended by the agent, $0.062",
+      "ended by the agent, $0.077",
+      "ended by the agent, $0.057",
+      "ended by the agent, $0.067"
+     ]
+    },
+    {
+     "label": "sqlite-db-truncate",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.064",
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.028",
+      "ended by the agent, $0.040",
+      "ended by the agent, $0.039",
+      "ended by the agent, $0.029"
+     ]
+    },
+    {
+     "label": "sqlite-with-gcov",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.023",
+      "ended by the agent, $0.018",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.046",
+      "ended by the agent, $0.027"
+     ]
+    },
+    {
+     "label": "torch-tensor-parallelism",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.035",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.035",
+      "ended by the agent, $0.036"
+     ]
+    },
+    {
+     "label": "tune-mjcf",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.047",
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.092",
+      "ended by the agent, $0.052",
+      "ended by the agent, $0.057",
+      "ended by the agent, $0.11"
+     ]
+    },
+    {
+     "label": "vulnerable-secret",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.10",
+      "ended by the agent, $0.085",
+      "ended by the agent, $0.095",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.10"
+     ]
+    },
+    {
+     "label": "write-compressor",
+     "cells": "PPPPPP",
+     "note": "6/6",
+     "tips": [
+      "ended by the agent, $0.046",
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.058",
+      "ended by the agent, $0.076",
+      "ended by the agent, $0.066",
+      "ended by the agent, $0.049"
+     ]
+    },
+    {
+     "label": "bn-fit-modify",
+     "cells": "PPFPPP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.068",
+      "ended by the agent, $0.036",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.045",
+      "ended by the agent, $0.055",
+      "ended by the agent, $0.042"
+     ]
+    },
+    {
+     "label": "custom-memory-heap-crash",
+     "cells": "FPPPPP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.067",
+      "ended by the agent, $0.068",
+      "ended by the agent, $0.068",
+      "ended by the agent, $0.067",
+      "ended by the agent, $0.14"
+     ]
+    },
+    {
+     "label": "feal-linear-cryptanalysis",
+     "cells": "PPEPPP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.10",
+      "ended by the agent, $0.088",
+      "timeout, $0.52",
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.17"
+     ]
+    },
+    {
+     "label": "gcode-to-text",
+     "cells": "PPPPPF",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.31",
+      "ended by the agent, $0.056",
+      "ended by the agent, $0.046",
+      "ended by the agent, $0.24",
+      "ended by the agent, $0.19",
+      "ended by the agent, $0.16"
+     ]
+    },
+    {
+     "label": "headless-terminal",
+     "cells": "PPPPFP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.032",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.035",
+      "ended by the agent, $0.048",
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.043"
+     ]
+    },
+    {
+     "label": "model-extraction-relu-logits",
+     "cells": "PPPPPF",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.078",
+      "ended by the agent, $0.037",
+      "ended by the agent, $0.046",
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.061",
+      "ended by the agent, $0.058"
+     ]
+    },
+    {
+     "label": "overfull-hbox",
+     "cells": "PPPFPP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.21",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.097",
+      "ended by the agent, $0.098"
+     ]
+    },
+    {
+     "label": "query-optimize",
+     "cells": "PFPPPP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.053",
+      "ended by the agent, $0.10",
+      "ended by the agent, $0.057",
+      "ended by the agent, $0.064",
+      "ended by the agent, $0.056",
+      "ended by the agent, $0.067"
+     ]
+    },
+    {
+     "label": "winning-avg-corewars",
+     "cells": "PPPPFP",
+     "note": "5/6",
+     "tips": [
+      "ended by the agent, $0.26",
+      "ended by the agent, $0.044",
+      "ended by the agent, $0.26",
+      "ended by the agent, $0.21",
+      "ended by the agent, $1.59",
+      "ended by the agent, $0.13"
+     ]
+    },
+    {
+     "label": "build-pov-ray",
+     "cells": "PPPFFP",
+     "note": "4/6",
+     "tips": [
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.084",
+      "ended by the agent, $0.076",
+      "ended by the agent, $0.077"
+     ]
+    },
+    {
+     "label": "cancel-async-tasks",
+     "cells": "PPPEEP",
+     "note": "4/6",
+     "tips": [
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.026",
+      "ended by the agent, $0.026",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "ended by the agent, $0.049"
+     ]
+    },
+    {
+     "label": "crack-7z-hash",
+     "cells": "PEPFPP",
+     "note": "4/6",
+     "tips": [
+      "ended by the agent, $0.17",
+      "timeout, $0.55",
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.29",
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.13"
+     ]
+    },
+    {
+     "label": "mailman",
+     "cells": "PPFPFP",
+     "note": "4/6",
+     "tips": [
+      "ended by the agent, $0.20",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.29",
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.22",
+      "ended by the agent, $0.19"
+     ]
+    },
+    {
+     "label": "sanitize-git-repo",
+     "cells": "PPFFPP",
+     "note": "4/6",
+     "tips": [
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.074",
+      "ended by the agent, $0.038",
+      "ended by the agent, $0.061",
+      "ended by the agent, $0.043"
+     ]
+    },
+    {
+     "label": "compile-compcert",
+     "cells": "PPEEEP",
+     "note": "3/6",
+     "tips": [
+      "ended by the agent, $0.34",
+      "ended by the agent, $0.38",
+      "timeout, $0.30",
+      "timeout, $0.12",
+      "timeout, $0.11",
+      "ended by the agent, $0.13"
+     ]
+    },
+    {
+     "label": "protein-assembly",
+     "cells": "PFFFPP",
+     "note": "3/6",
+     "tips": [
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.10",
+      "ended by the agent, $0.21",
+      "ended by the agent, $0.18"
+     ]
+    },
+    {
+     "label": "rstan-to-pystan",
+     "cells": "EEPEPP",
+     "note": "3/6",
+     "tips": [
+      "timeout, $0.31",
+      "timeout, $0.32",
+      "ended by the agent, $0.10",
+      "timeout, $0.089",
+      "ended by the agent, $0.082",
+      "ended by the agent, $0.13"
+     ]
+    },
+    {
+     "label": "build-pmars",
+     "cells": "FPPFFF",
+     "note": "2/6",
+     "tips": [
+      "ended by the agent, $0.039",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.034",
+      "ended by the agent, $0.048",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.040"
+     ]
+    },
+    {
+     "label": "configure-git-webserver",
+     "cells": "FPFFPF",
+     "note": "2/6",
+     "tips": [
+      "ended by the agent, $0.048",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.040",
+      "ended by the agent, $0.052",
+      "ended by the agent, $0.032",
+      "ended by the agent, $0.067"
+     ]
+    },
+    {
+     "label": "dna-assembly",
+     "cells": "PFFFFP",
+     "note": "2/6",
+     "tips": [
+      "ended by the agent, $0.12",
+      "ended by the agent, $0.14",
+      "ended by the agent, $0.16",
+      "ended by the agent, $0.18",
+      "ended by the agent, $0.20",
+      "ended by the agent, $0.20"
+     ]
+    },
+    {
+     "label": "raman-fitting",
+     "cells": "FPPFFF",
+     "note": "2/6",
+     "tips": [
+      "ended by the agent, $0.16",
+      "ended by the agent, $0.077",
+      "ended by the agent, $0.13",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.092",
+      "ended by the agent, $0.085"
+     ]
+    },
+    {
+     "label": "video-processing",
+     "cells": "FFFFPP",
+     "note": "2/6",
+     "tips": [
+      "ended by the agent, $0.049",
+      "ended by the agent, $0.048",
+      "ended by the agent, $0.049",
+      "ended by the agent, $0.055",
+      "ended by the agent, $0.051",
+      "ended by the agent, $0.14"
+     ]
+    },
+    {
+     "label": "adaptive-rejection-sampler",
+     "cells": "PFFFFF",
+     "note": "1/6",
+     "tips": [
+      "ended by the agent, $0.17",
+      "ended by the agent, $0.19",
+      "ended by the agent, $0.16",
+      "ended by the agent, $0.24",
+      "ended by the agent, $0.16",
+      "ended by the agent, $0.16"
+     ]
+    },
+    {
+     "label": "chess-best-move",
+     "cells": "FFPFFF",
+     "note": "1/6",
+     "tips": [
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.033",
+      "ended by the agent, $0.054",
+      "ended by the agent, $0.052",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.034"
+     ]
+    },
+    {
+     "label": "dna-insert",
+     "cells": "FFFFFP",
+     "note": "1/6",
+     "tips": [
+      "ended by the agent, $0.071",
+      "ended by the agent, $0.083",
+      "ended by the agent, $0.053",
+      "ended by the agent, $0.10",
+      "ended by the agent, $0.090",
+      "ended by the agent, $0.15"
+     ]
+    },
+    {
+     "label": "make-doom-for-mips",
+     "cells": "PFFFFF",
+     "note": "1/6",
+     "tips": [
+      "ended by the agent, $0.82",
+      "ended by the agent, $1.31",
+      "ended by the agent, $1.27",
+      "ended by the agent, $1.04",
+      "ended by the agent, $0.88",
+      "ended by the agent, $1.16"
+     ]
+    },
+    {
+     "label": "mteb-leaderboard",
+     "cells": "FFFPFF",
+     "note": "1/6",
+     "tips": [
+      "ended by the agent, $0.043",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.072",
+      "ended by the agent, $0.085",
+      "ended by the agent, $0.036",
+      "ended by the agent, $0.034"
+     ]
+    },
+    {
+     "label": "train-fasttext",
+     "cells": "PEFFFF",
+     "note": "1/6",
+     "tips": [
+      "ended by the agent, $0.25",
+      "timeout, $0.42",
+      "ended by the agent, $0.27",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.15",
+      "ended by the agent, $0.090"
+     ]
+    },
+    {
+     "label": "caffe-cifar-10",
+     "cells": "EEEEEE",
+     "note": "0/6",
+     "tips": [
+      "timeout, $0.13",
+      "timeout, $0.16",
+      "timeout, $0.11",
+      "error (exit or harness), $0.025",
+      "timeout, $0.017",
+      "error (exit or harness), $0.015"
+     ]
+    },
+    {
+     "label": "extract-moves-from-video",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.050",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.028",
+      "ended by the agent, $0.086",
+      "ended by the agent, $0.071",
+      "ended by the agent, $0.056"
+     ]
+    },
+    {
+     "label": "filter-js-from-html",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.039",
+      "ended by the agent, $0.047",
+      "ended by the agent, $0.042",
+      "ended by the agent, $0.047",
+      "ended by the agent, $0.036",
+      "ended by the agent, $0.057"
+     ]
+    },
+    {
+     "label": "install-windows-3.11",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.14",
+      "ended by the agent, $0.17",
+      "ended by the agent, $0.11",
+      "ended by the agent, $0.17",
+      "ended by the agent, $0.095",
+      "ended by the agent, $0.32"
+     ]
+    },
+    {
+     "label": "mteb-retrieve",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.024",
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.026",
+      "ended by the agent, $0.027"
+     ]
+    },
+    {
+     "label": "polyglot-c-py",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.025",
+      "ended by the agent, $0.017",
+      "ended by the agent, $0.015",
+      "ended by the agent, $0.027",
+      "ended by the agent, $0.019",
+      "ended by the agent, $0.021"
+     ]
+    },
+    {
+     "label": "polyglot-rust-c",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.029",
+      "ended by the agent, $0.030",
+      "ended by the agent, $0.045",
+      "ended by the agent, $0.037",
+      "ended by the agent, $0.041",
+      "ended by the agent, $0.030"
+     ]
+    },
+    {
+     "label": "qemu-alpine-ssh",
+     "cells": "EEEEEE",
+     "note": "0/6",
+     "tips": [
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown"
+     ]
+    },
+    {
+     "label": "qemu-startup",
+     "cells": "EEEEEE",
+     "note": "0/6",
+     "tips": [
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown",
+      "error (exit or harness), cost unknown"
+     ]
+    },
+    {
+     "label": "sam-cell-seg",
+     "cells": "FFFFFF",
+     "note": "0/6",
+     "tips": [
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.072",
+      "ended by the agent, $0.052",
+      "ended by the agent, $0.083",
+      "ended by the agent, $0.060",
+      "ended by the agent, $0.064"
+     ]
+    },
+    {
+     "label": "torch-pipeline-parallelism",
+     "cells": "------",
+     "note": "0/6",
+     "tips": [
+      "grader timeout",
+      "grader timeout",
+      "grader timeout",
+      "grader timeout",
+      "grader timeout",
+      "grader timeout"
+     ]
+    }
+   ]
+  }
+ ]
+}

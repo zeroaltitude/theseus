@@ -55,14 +55,15 @@ fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
     assert_eq!(table("trivial"), ["haiku"]);
     assert_eq!(table("quick"), ["haiku"]);
     assert!(table("chat").is_empty() && table("other").is_empty());
-    assert_eq!(table("sophisticated"), ["fable", "opus"]);
-    assert_eq!(table("deep_coding"), ["opus", "fable"]);
+    assert_eq!(table("sophisticated"), ["opus", "fable"]);
+    assert_eq!(table("deep_coding"), ["sonnethi", "opus"]);
     assert_eq!(table("routine_coding"), ["haikuhi", "sonnet"]);
     // Every profile the table names exists, and the models and efforts are
     // the owner's.
     let catalog = theseus_core::catalog::Catalog::builtin();
     for (name, model, effort) in [
         ("sonnet", "claude-sonnet-5-5", None),
+        ("sonnethi", "claude-sonnet-5-5", Some(Effort::High)),
         ("opus", "claude-opus-5-5", None),
         ("fable", "claude-fable-5-1", None),
         ("haiku", "claude-haiku-5-5", Some(Effort::Low)),

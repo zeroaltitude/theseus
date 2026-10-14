@@ -1,0 +1,409 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="358" viewBox="0 0 720 358" role="img" aria-labelledby="t-soak-and-watchers t-soak-and-watchers-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-soak-and-watchers">Continuous use and many watchers on one daemon (release, stand-in model)</title>
+<desc id="t-soak-and-watchers-d">What grows with use, and how many watchers can one daemon serve?</desc>
+<rect width="720" height="358" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Continuous use and many watchers on one daemon (release, stand-in model)</text>
+<line x1="18.0" y1="50.0" x2="34.0" y2="50.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">RSS</text>
+<line x1="85.8" y1="50.0" x2="101.8" y2="50.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<text x="107.8" y="54.0" font-size="12" fill="#c3c2b7">CPU a turn</text>
+<line x1="192.4" y1="50.0" x2="208.4" y2="50.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<text x="214.4" y="54.0" font-size="12" fill="#c3c2b7">last</text>
+<text x="18.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">Soak: RSS, MB</text>
+<line x1="46.5" y1="254.0" x2="224.7" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="46.5" y1="204.0" x2="224.7" y2="204.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="208.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="46.5" y1="154.0" x2="224.7" y2="154.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="158.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">400</text>
+<line x1="46.5" y1="104.0" x2="224.7" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">600</text>
+<line x1="46.5" y1="254.0" x2="46.5" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="46.5" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="91.1" y1="254.0" x2="91.1" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="91.1" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="135.6" y1="254.0" x2="135.6" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="135.6" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2,000</text>
+<line x1="180.1" y1="254.0" x2="180.1" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="180.1" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3,000</text>
+<line x1="224.7" y1="254.0" x2="224.7" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="224.7" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4,000</text>
+<line x1="46.5" y1="254.0" x2="224.7" y2="254.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-soak-and-watchers-1"><rect x="41.5" y="99.0" width="188.1" height="160.0"/></clipPath>
+<g clip-path="url(#clip-soak-and-watchers-1)">
+<g><title>RSS: 50 points, lowest 29, median 345, highest 552</title>
+<polyline points="46.5,246.8 51.8,238.5 57.0,234.2 62.0,229.5 66.8,223.8 71.4,219.0 75.5,226.5 79.8,211.0 84.0,207.5 88.1,204.8 91.9,202.2 95.8,200.5 99.6,198.0 103.1,197.5 106.4,191.2 109.8,188.0 113.3,185.8 116.7,182.0 120.0,179.8 123.1,178.0 126.3,176.8 129.4,174.2 132.2,172.5 135.1,170.0 138.0,168.5 141.0,167.8 143.5,163.2 146.4,160.8 149.1,160.0 151.7,159.2 154.4,156.0 157.1,155.0 159.7,155.0 162.2,151.5 164.8,149.2 167.3,146.8 169.9,144.8 172.2,148.0 174.7,146.5 176.8,140.5 178.6,134.0 180.9,129.2 183.3,128.8 185.1,130.2 186.9,128.5 188.7,126.2 190.5,122.2 192.3,118.2 194.5,116.0 194.6,139.8" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>RSS: 29</title>
+<circle cx="46.5" cy="246.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 62</title>
+<circle cx="51.8" cy="238.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 79</title>
+<circle cx="57.0" cy="234.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 98</title>
+<circle cx="62.0" cy="229.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 121</title>
+<circle cx="66.8" cy="223.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 140</title>
+<circle cx="71.4" cy="219.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 110</title>
+<circle cx="75.5" cy="226.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 172</title>
+<circle cx="79.8" cy="211.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 186</title>
+<circle cx="84.0" cy="207.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 197</title>
+<circle cx="88.1" cy="204.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 207</title>
+<circle cx="91.9" cy="202.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 214</title>
+<circle cx="95.8" cy="200.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 224</title>
+<circle cx="99.6" cy="198.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 226</title>
+<circle cx="103.1" cy="197.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 251</title>
+<circle cx="106.4" cy="191.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 264</title>
+<circle cx="109.8" cy="188.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 273</title>
+<circle cx="113.3" cy="185.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 288</title>
+<circle cx="116.7" cy="182.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 297</title>
+<circle cx="120.0" cy="179.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 304</title>
+<circle cx="123.1" cy="178.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 309</title>
+<circle cx="126.3" cy="176.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 319</title>
+<circle cx="129.4" cy="174.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 326</title>
+<circle cx="132.2" cy="172.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 336</title>
+<circle cx="135.1" cy="170.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 342</title>
+<circle cx="138.0" cy="168.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 345</title>
+<circle cx="141.0" cy="167.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 363</title>
+<circle cx="143.5" cy="163.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 373</title>
+<circle cx="146.4" cy="160.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 376</title>
+<circle cx="149.1" cy="160.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 379</title>
+<circle cx="151.7" cy="159.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 392</title>
+<circle cx="154.4" cy="156.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 396</title>
+<circle cx="157.1" cy="155.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 396</title>
+<circle cx="159.7" cy="155.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 410</title>
+<circle cx="162.2" cy="151.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 419</title>
+<circle cx="164.8" cy="149.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 429</title>
+<circle cx="167.3" cy="146.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 437</title>
+<circle cx="169.9" cy="144.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 424</title>
+<circle cx="172.2" cy="148.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 430</title>
+<circle cx="174.7" cy="146.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 454</title>
+<circle cx="176.8" cy="140.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 480</title>
+<circle cx="178.6" cy="134.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 499</title>
+<circle cx="180.9" cy="129.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 501</title>
+<circle cx="183.3" cy="128.8" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 495</title>
+<circle cx="185.1" cy="130.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 502</title>
+<circle cx="186.9" cy="128.5" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 511</title>
+<circle cx="188.7" cy="126.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 527</title>
+<circle cx="190.5" cy="122.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 543</title>
+<circle cx="192.3" cy="118.2" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 552</title>
+<circle cx="194.5" cy="116.0" r="8" fill="transparent"/>
+</g>
+<g><title>RSS: 457</title>
+<circle cx="194.6" cy="139.8" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="254.7" y="88.0" font-size="12" fill="#ffffff" font-weight="600">Soak: CPU a turn, ms</text>
+<line x1="283.2" y1="254.0" x2="461.3" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="277.2" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="283.2" y1="216.5" x2="461.3" y2="216.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="277.2" y="220.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="283.2" y1="179.0" x2="461.3" y2="179.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="277.2" y="183.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="283.2" y1="141.5" x2="461.3" y2="141.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="277.2" y="145.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">300</text>
+<line x1="283.2" y1="104.0" x2="461.3" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="277.2" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">400</text>
+<line x1="283.2" y1="254.0" x2="283.2" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="283.2" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="327.7" y1="254.0" x2="327.7" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="327.7" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="372.3" y1="254.0" x2="372.3" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="372.3" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2,000</text>
+<line x1="416.8" y1="254.0" x2="416.8" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="416.8" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3,000</text>
+<line x1="461.3" y1="254.0" x2="461.3" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="461.3" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4,000</text>
+<line x1="283.2" y1="254.0" x2="461.3" y2="254.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-soak-and-watchers-2"><rect x="278.2" y="99.0" width="188.1" height="160.0"/></clipPath>
+<g clip-path="url(#clip-soak-and-watchers-2)">
+<g><title>CPU a turn: 48 points, lowest 16.6, median 140, highest 293</title>
+<polyline points="288.5,247.8 293.7,245.9 298.7,243.5 303.5,241.6 308.1,239.1 312.2,236.3 316.4,235.2 320.7,233.8 324.8,230.4 328.5,228.4 332.4,227.8 336.3,225.9 339.8,221.5 343.1,219.2 346.5,217.7 349.9,217.4 353.4,217.1 356.7,214.8 359.8,211.8 362.9,211.5 366.0,209.6 368.9,201.4 371.7,202.7 374.7,203.4 377.6,202.9 380.2,195.0 383.1,200.1 385.7,194.3 388.4,194.3 391.1,194.3 393.7,193.0 396.3,190.7 398.9,189.3 401.4,187.3 404.0,186.6 406.6,187.4 408.9,179.2 411.4,184.5 413.5,170.3 415.2,170.9 417.6,179.4 420.0,180.9 421.8,146.3 423.5,144.1 425.4,154.8 427.2,145.8 429.0,144.3 431.1,160.5" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>CPU a turn: 16.6</title>
+<circle cx="288.5" cy="247.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 21.6</title>
+<circle cx="293.7" cy="245.9" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 28</title>
+<circle cx="298.7" cy="243.5" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 33.2</title>
+<circle cx="303.5" cy="241.6" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 39.8</title>
+<circle cx="308.1" cy="239.1" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 47.2</title>
+<circle cx="312.2" cy="236.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 50.2</title>
+<circle cx="316.4" cy="235.2" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 54</title>
+<circle cx="320.7" cy="233.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 62.8</title>
+<circle cx="324.8" cy="230.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 68.3</title>
+<circle cx="328.5" cy="228.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 69.8</title>
+<circle cx="332.4" cy="227.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 75</title>
+<circle cx="336.3" cy="225.9" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 86.6</title>
+<circle cx="339.8" cy="221.5" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 92.7</title>
+<circle cx="343.1" cy="219.2" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 96.9</title>
+<circle cx="346.5" cy="217.7" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 97.7</title>
+<circle cx="349.9" cy="217.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 98.5</title>
+<circle cx="353.4" cy="217.1" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 105</title>
+<circle cx="356.7" cy="214.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 112</title>
+<circle cx="359.8" cy="211.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 113</title>
+<circle cx="362.9" cy="211.5" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 118</title>
+<circle cx="366.0" cy="209.6" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 140</title>
+<circle cx="368.9" cy="201.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 137</title>
+<circle cx="371.7" cy="202.7" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 135</title>
+<circle cx="374.7" cy="203.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 136</title>
+<circle cx="377.6" cy="202.9" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 157</title>
+<circle cx="380.2" cy="195.0" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 144</title>
+<circle cx="383.1" cy="200.1" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 159</title>
+<circle cx="385.7" cy="194.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 159</title>
+<circle cx="388.4" cy="194.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 159</title>
+<circle cx="391.1" cy="194.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 163</title>
+<circle cx="393.7" cy="193.0" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 169</title>
+<circle cx="396.3" cy="190.7" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 172</title>
+<circle cx="398.9" cy="189.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 178</title>
+<circle cx="401.4" cy="187.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 180</title>
+<circle cx="404.0" cy="186.6" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 178</title>
+<circle cx="406.6" cy="187.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 200</title>
+<circle cx="408.9" cy="179.2" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 185</title>
+<circle cx="411.4" cy="184.5" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 223</title>
+<circle cx="413.5" cy="170.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 222</title>
+<circle cx="415.2" cy="170.9" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 199</title>
+<circle cx="417.6" cy="179.4" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 195</title>
+<circle cx="420.0" cy="180.9" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 287</title>
+<circle cx="421.8" cy="146.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 293</title>
+<circle cx="423.5" cy="144.1" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 264</title>
+<circle cx="425.4" cy="154.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 288</title>
+<circle cx="427.2" cy="145.8" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 292</title>
+<circle cx="429.0" cy="144.3" r="8" fill="transparent"/>
+</g>
+<g><title>CPU a turn: 249</title>
+<circle cx="431.1" cy="160.5" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="491.3" y="88.0" font-size="12" fill="#ffffff" font-weight="600">Watchers: last heard, s</text>
+<line x1="516.0" y1="254.0" x2="698.0" y2="254.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="510.0" y="258.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0.0</text>
+<line x1="516.0" y1="216.5" x2="698.0" y2="216.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="510.0" y="220.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0.2</text>
+<line x1="516.0" y1="179.0" x2="698.0" y2="179.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="510.0" y="183.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0.4</text>
+<line x1="516.0" y1="141.5" x2="698.0" y2="141.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="510.0" y="145.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0.6</text>
+<line x1="516.0" y1="104.0" x2="698.0" y2="104.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="510.0" y="108.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0.8</text>
+<line x1="516.0" y1="254.0" x2="516.0" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="516.0" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="561.5" y1="254.0" x2="561.5" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="561.5" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="607.0" y1="254.0" x2="607.0" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="607.0" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2,000</text>
+<line x1="652.5" y1="254.0" x2="652.5" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="652.5" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3,000</text>
+<line x1="698.0" y1="254.0" x2="698.0" y2="258.0" stroke="#383835" stroke-width="1"/>
+<text x="698.0" y="270.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4,000</text>
+<line x1="516.0" y1="254.0" x2="698.0" y2="254.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-soak-and-watchers-3"><rect x="511.0" y="99.0" width="192.0" height="160.0"/></clipPath>
+<g clip-path="url(#clip-soak-and-watchers-3)">
+<g><title>last: 6 points, lowest 0.50, median 0.57, highest 0.64</title>
+<polyline points="520.5,160.1 543.3,155.2 566.0,151.1 584.2,146.8 607.0,143.4 652.5,133.6" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>last: 0.50</title>
+<circle cx="520.5" cy="160.1" r="8" fill="transparent"/>
+</g>
+<g><title>last: 0.53</title>
+<circle cx="543.3" cy="155.2" r="8" fill="transparent"/>
+</g>
+<g><title>last: 0.55</title>
+<circle cx="566.0" cy="151.1" r="8" fill="transparent"/>
+</g>
+<g><title>last: 0.57</title>
+<circle cx="584.2" cy="146.8" r="8" fill="transparent"/>
+</g>
+<g><title>last: 0.59</title>
+<circle cx="607.0" cy="143.4" r="8" fill="transparent"/>
+</g>
+<g><title>last: 0.64</title>
+<circle cx="652.5" cy="133.6" r="8" fill="transparent"/>
+</g>
+</g>
+<text x="360.0" y="292.0" font-size="12" fill="#c3c2b7" text-anchor="middle">turns (soak) / connections (watchers)</text>
+<text x="18.0" y="320.0" font-size="11" fill="#c3c2b7">Soak: two clients, each one growing session (a file read, then a reply; the stand-in answers in about 30 ms), 8 minutes.</text>
+<text x="18.0" y="335.0" font-size="11" fill="#c3c2b7">Watchers: connections each watching one session, one turn on it; the stand-in streams for about 0.5 s.</text>
+</svg>

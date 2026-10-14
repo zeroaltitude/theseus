@@ -24,10 +24,13 @@ from pathlib import Path
 import steps
 from driver import wait_until
 
-READY = re.compile(r"(\? for shortcuts|^\s*│\s*>\s|^>\s)", re.M)
+# 2.1.296's input line is an empty `❯` between two rules (its footer no longer says "? for shortcuts").
+READY = re.compile(r"(\? for shortcuts|^\s*│\s*>\s|^>\s|^❯\s*$)", re.M)
 BUSY = re.compile(r"esc to interrupt", re.I)
 ASK = re.compile(r"(Do you want to (proceed|make this edit|create)|❯ 1\. Yes)", re.I)
 TRUST = re.compile(r"Do you trust the files in this folder|trust this folder", re.I)
+NO_FIRST = re.compile(r"❯\s*No, exit")
+YES_CURSOR = re.compile(r"❯\s*Yes, I trust this folder")
 
 # Dollars per million tokens: input, output, cache write, cache read. High on
 # purpose: the cap must stop a run before the real spend reaches it.
@@ -151,6 +154,14 @@ class ClaudeCode:
             # A first run in a new directory asks about trust; its answer is
             # not part of the ready time.
             ctx.capture("S1.trust")
+            if NO_FIRST.search(first):
+                # 2.1.296 lists "No, exit" first, under the cursor: Enter alone would quit. Its first
+                # paint takes no keys yet, so move the cursor until the screen shows it on "Yes".
+                time.sleep(0.5)
+                for _ in range(5):
+                    ctx.tmux.keys("Down")
+                    if ctx.tmux.wait(lambda t: bool(YES_CURSOR.search(t)), 2, every=0.05):
+                        break
             ctx.tmux.keys("Enter")
             t0 = time.monotonic()
             first = ctx.tmux.wait(self.ready, 30, every=0.01)

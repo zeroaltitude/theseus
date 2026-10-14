@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="282" viewBox="0 0 720 282" role="img" aria-labelledby="t-memory t-memory-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-memory">Resident memory</title>
+<desc id="t-memory-d">Has each memory number held its budget across the span, and which joins moved it?</desc>
+<rect width="720" height="282" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Resident memory</text>
+<text x="18.0" y="62.0" font-size="12" fill="#ffffff" font-weight="600">RSS at start, p95</text>
+<line x1="39.7" y1="228.0" x2="343.0" y2="228.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="232.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="39.7" y1="198.0" x2="343.0" y2="198.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="202.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="39.7" y1="168.0" x2="343.0" y2="168.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="172.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">40</text>
+<line x1="39.7" y1="138.0" x2="343.0" y2="138.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="142.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">60</text>
+<line x1="39.7" y1="108.0" x2="343.0" y2="108.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="112.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">80</text>
+<line x1="39.7" y1="78.0" x2="343.0" y2="78.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="82.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="111.4" y1="228.0" x2="111.4" y2="232.0" stroke="#383835" stroke-width="1"/>
+<text x="111.4" y="244.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="214.1" y1="228.0" x2="214.1" y2="232.0" stroke="#383835" stroke-width="1"/>
+<text x="214.1" y="244.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="316.9" y1="228.0" x2="316.9" y2="232.0" stroke="#383835" stroke-width="1"/>
+<text x="316.9" y="244.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="39.7" y1="228.0" x2="343.0" y2="228.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-memory-1"><rect x="34.7" y="73.0" width="313.3" height="160.0"/></clipPath>
+<g clip-path="url(#clip-memory-1)">
+<g><title>p95: 124 points, lowest 68.6 MB, median 72.3 MB, highest 78.1 MB</title>
+<polyline points="39.7,124.2 40.2,124.1 42.5,123.8 43.7,125.1 44.1,124.6 44.9,123.5 47.1,123.9 48.0,124.6 50.2,123.4 51.4,124.0 52.1,124.0 54.9,123.8 57.4,123.8 59.4,122.9 62.1,124.5 63.1,123.9 65.5,124.1 66.7,123.1 67.4,123.0 69.1,124.3 71.8,123.9 73.4,123.6 74.0,122.4 74.9,123.8 76.7,123.3 78.6,122.8 83.4,122.4 85.3,122.3 85.9,122.2 86.3,122.4 87.3,122.9 88.1,123.0 91.2,122.6 94.5,123.3 95.1,122.8 95.4,124.1 97.5,121.1 130.9,122.5 131.4,123.1 133.1,122.6 133.4,122.4 138.5,121.7 139.0,121.1 139.5,122.1 140.1,120.4 141.6,120.3 144.2,120.5 144.6,120.7 145.0,120.8 146.5,120.1 152.3,120.3 152.9,120.5 153.6,119.5 158.1,120.5 159.6,120.2 164.4,121.7 165.2,119.7 165.9,120.0 166.5,120.1 182.0,119.9 182.4,120.4 189.2,119.1 189.8,119.3 190.2,120.6 195.3,119.9 196.3,119.2 197.8,118.6 204.9,118.6 214.5,117.4 216.6,118.3 255.4,117.9 258.0,117.0 258.7,117.3 259.3,117.9 259.9,116.8 260.2,115.9 260.6,116.3 261.9,116.8 262.4,116.7 264.7,117.4 266.7,116.5 288.6,116.3 290.1,116.9 291.1,116.8 292.1,116.0 292.5,113.4 293.2,115.3 293.9,113.9 294.3,115.8 295.0,114.7 296.0,116.3 296.7,116.4 297.3,115.3 298.1,115.7 298.5,115.6 298.9,115.8 299.5,114.5 299.9,115.4 300.3,115.1 300.9,113.7 301.3,115.5 301.7,115.0 303.9,115.0 304.9,114.7 305.8,114.0 306.7,114.3 307.5,114.8 308.2,113.9 309.0,113.6 309.9,112.7 310.3,113.0 310.9,113.3 311.5,113.2 312.0,113.4 312.6,113.5 313.1,113.5 313.9,113.0 314.4,112.6 315.2,113.0 316.0,112.7 316.7,110.8 317.3,111.2 317.7,111.4 343.0,110.9" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="373.0" y="62.0" font-size="12" fill="#ffffff" font-weight="600">RSS after a burst, p95</text>
+<line x1="401.5" y1="228.0" x2="698.0" y2="228.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="395.5" y="232.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="401.5" y1="198.0" x2="698.0" y2="198.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="395.5" y="202.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">25</text>
+<line x1="401.5" y1="168.0" x2="698.0" y2="168.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="395.5" y="172.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">50</text>
+<line x1="401.5" y1="138.0" x2="698.0" y2="138.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="395.5" y="142.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">75</text>
+<line x1="401.5" y1="108.0" x2="698.0" y2="108.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="395.5" y="112.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="401.5" y1="78.0" x2="698.0" y2="78.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="395.5" y="82.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">125</text>
+<line x1="471.6" y1="228.0" x2="471.6" y2="232.0" stroke="#383835" stroke-width="1"/>
+<text x="471.6" y="244.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 8</text>
+<line x1="572.1" y1="228.0" x2="572.1" y2="232.0" stroke="#383835" stroke-width="1"/>
+<text x="572.1" y="244.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 10</text>
+<line x1="672.5" y1="228.0" x2="672.5" y2="232.0" stroke="#383835" stroke-width="1"/>
+<text x="672.5" y="244.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">Oct 12</text>
+<line x1="401.5" y1="228.0" x2="698.0" y2="228.0" stroke="#383835" stroke-width="1"/>
+<clipPath id="clip-memory-2"><rect x="396.5" y="73.0" width="306.5" height="160.0"/></clipPath>
+<g clip-path="url(#clip-memory-2)">
+<g><title>p95: 124 points, lowest 90.5 MB, median 98.7 MB, highest 117 MB</title>
+<polyline points="401.5,115.8 402.1,116.7 404.3,119.4 405.5,113.4 405.9,114.6 406.6,114.7 408.7,114.4 409.6,117.7 411.8,112.5 413.0,112.4 413.6,112.4 416.4,115.2 418.9,117.3 420.8,113.0 423.4,113.3 424.4,111.9 426.8,116.8 427.9,112.4 428.6,118.6 430.3,114.8 432.9,114.2 434.5,112.6 435.1,110.3 436.0,112.6 437.7,113.3 439.6,110.0 444.2,112.9 446.1,113.9 446.7,113.4 447.1,116.5 448.1,115.7 448.8,113.6 451.9,112.7 455.1,113.4 455.7,116.9 456.0,115.1 458.0,118.2 490.7,115.5 491.1,116.9 492.8,118.9 493.1,110.5 498.2,113.7 498.6,112.2 499.1,115.1 499.7,111.8 501.2,109.3 503.6,113.9 504.1,111.0 504.4,115.9 505.9,110.7 511.6,115.9 512.2,113.1 512.9,112.5 517.3,109.6 518.8,116.6 523.5,113.1 524.2,112.4 524.9,107.0 525.5,110.6 540.6,115.2 541.0,115.3 547.7,112.9 548.2,108.3 548.6,113.6 553.6,113.5 554.7,106.7 556.1,108.2 563.0,107.5 572.4,110.6 574.5,108.7 612.4,108.6 615.0,105.3 615.6,102.8 616.2,106.6 616.8,99.4 617.1,106.0 617.4,105.3 618.8,100.5 619.2,99.5 621.5,101.3 623.4,98.4 644.9,102.2 646.2,98.2 647.3,96.1 648.3,95.7 648.7,94.8 649.3,98.4 650.0,96.1 650.4,106.4 651.1,94.5 652.1,100.4 652.7,103.4 653.3,94.7 654.1,102.9 654.5,99.4 654.9,101.6 655.5,101.5 655.9,98.0 656.3,95.4 656.8,102.5 657.2,97.9 657.6,99.6 659.8,96.8 660.7,100.9 661.7,95.7 662.5,103.0 663.3,102.1 664.0,94.6 664.8,95.5 665.7,93.4 666.1,96.8 666.6,102.1 667.2,93.5 667.7,91.0 668.3,99.9 668.7,98.5 669.5,93.7 670.1,98.3 670.9,101.0 671.6,100.6 672.3,87.3 672.9,90.0 673.2,89.2 698.0,88.6" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+</svg>

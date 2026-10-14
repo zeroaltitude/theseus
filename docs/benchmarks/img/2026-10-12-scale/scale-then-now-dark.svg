@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="390" viewBox="0 0 720 390" role="img" aria-labelledby="t-scale-then-now t-scale-then-now-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-scale-then-now">The scale rows that moved, Oct 8 (the north-star scale investigation) and Oct 12 (release builds)</title>
+<desc id="t-scale-then-now-d">Which of the north-star's scale failures did the stopping point fix?</desc>
+<rect width="720" height="390" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">The scale rows that moved, Oct 8 (the north-star scale investigation) and Oct 12</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">(release builds)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#2a507f"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">Oct 8, the build of Oct 7</text>
+<circle cx="209.3" cy="70.0" r="5" fill="#3987e5"/>
+<text x="224.3" y="74.0" font-size="12" fill="#c3c2b7">Oct 12, 026dce3f</text>
+<line x1="228.0" y1="96.0" x2="228.0" y2="296.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="292.8" y1="96.0" x2="292.8" y2="296.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="357.6" y1="96.0" x2="357.6" y2="296.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="422.5" y1="96.0" x2="422.5" y2="296.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="487.3" y1="96.0" x2="487.3" y2="296.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="552.1" y1="96.0" x2="552.1" y2="296.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="214.0" y="114.0" font-size="12" fill="#ffffff" text-anchor="end">health at 200,000 sessions</text>
+<g><title>health at 200,000 sessions: 682 ms → 9 ms (one call, its own connection)</title>
+<line x1="411.7" y1="110.0" x2="289.8" y2="110.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="411.7" cy="110.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="289.8" cy="110.0" r="12" fill="transparent"/>
+<circle cx="289.8" cy="110.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="114.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">682 ms → 9 ms</text>
+<text x="214.0" y="142.0" font-size="12" fill="#ffffff" text-anchor="end">theseus sessions at 200,000</text>
+<g><title>theseus sessions at 200,000: 4,901 ms → 10 ms (22 MB then 5.9 KB: the CLI asks for a page)</title>
+<line x1="467.2" y1="138.0" x2="292.8" y2="138.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="467.2" cy="138.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="292.8" cy="138.0" r="12" fill="transparent"/>
+<circle cx="292.8" cy="138.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="142.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4,901 ms → 10 ms</text>
+<text x="214.0" y="170.0" font-size="12" fill="#ffffff" text-anchor="end">watch -i to ready at 200,000</text>
+<g><title>watch -i to ready at 200,000: 5,296 ms → 39 ms (it asks for one session, not all)</title>
+<line x1="469.4" y1="166.0" x2="331.1" y2="166.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="469.4" cy="166.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="331.1" cy="166.0" r="12" fill="transparent"/>
+<circle cx="331.1" cy="166.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="170.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">5,296 ms → 39 ms</text>
+<text x="214.0" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">the push's seed at 200,000</text>
+<g><title>the push's seed at 200,000: 748 ms → 22.2 ms (the board capped at 1,000 rows)</title>
+<line x1="414.3" y1="194.0" x2="315.3" y2="194.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="414.3" cy="194.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="315.3" cy="194.0" r="12" fill="transparent"/>
+<circle cx="315.3" cy="194.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="198.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">748 ms → 22.2 ms</text>
+<text x="214.0" y="226.0" font-size="12" fill="#ffffff" text-anchor="end">a 2,000-node session's first turn</text>
+<g><title>a 2,000-node session's first turn: 1,794 ms → 114 ms (a cold session, decoded on its first turn)</title>
+<line x1="438.9" y1="222.0" x2="361.3" y2="222.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="438.9" cy="222.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="361.3" cy="222.0" r="12" fill="transparent"/>
+<circle cx="361.3" cy="222.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="226.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,794 ms → 114 ms</text>
+<text x="214.0" y="254.0" font-size="12" fill="#ffffff" text-anchor="end">a 10,000-node session's first turn</text>
+<g><title>a 10,000-node session's first turn: 30,813 ms → 21,761 ms (north-star target: under 1 s)</title>
+<line x1="519.0" y1="250.0" x2="509.2" y2="250.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="519.0" cy="250.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="509.2" cy="250.0" r="12" fill="transparent"/>
+<circle cx="509.2" cy="250.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="254.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">30,813 ms → 21,761 ms</text>
+<text x="214.0" y="282.0" font-size="12" fill="#ffffff" text-anchor="end">a 20,000-node session's first turn</text>
+<g><title>a 20,000-node session's first turn: – → 96,745 ms (Oct 8: the bench failed (os error 11))</title>
+<circle cx="551.2" cy="278.0" r="12" fill="transparent"/>
+<circle cx="551.2" cy="278.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="571.3" y="282.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">– → 96,745 ms</text>
+<text x="228.0" y="312.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="292.8" y="312.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="357.6" y="312.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="422.5" y="312.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="487.3" y="312.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10,000</text>
+<text x="552.1" y="312.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100,000</text>
+<line x1="228.0" y1="296.0" x2="557.3" y2="296.0" stroke="#383835" stroke-width="1"/>
+<text x="392.6" y="330.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms (log scale)</text>
+<text x="18.0" y="352.0" font-size="11" fill="#c3c2b7">Oct 8: the north-star scale investigation's runs on the installed build of Oct 7 (unpublished); Oct 12: the same rig on the</text>
+<text x="18.0" y="367.0" font-size="11" fill="#c3c2b7">release build under test.</text>
+</svg>

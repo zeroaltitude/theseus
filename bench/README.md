@@ -86,14 +86,15 @@ The adapter's settings come from the environment of `harbor run`:
 ## The routed arm
 
 `-a theseus_agent:TheseusRouted` runs Theseus as the owner runs it (theseus-eo3h): `[judge]` on, `route.v4` live,
-and the owner's routing table over `haiku` (Haiku 5.5, effort low), `haikuhi` (high), `sonnet`, `opus`, and `fable`,
-so each message's turn runs on the model Jev picks. The conditions of the plain arm hold (the same limits, the same
+and the owner's routing table over `haiku` (Haiku 5.5, effort low), `haikuhi` (high), `sonnet`, `sonnethi` (Sonnet 5.5
+at high effort, deep coding's first since the owner's decision of 2026-10-10, Opus after it), `opus`, and `fable`, so
+each message's turn runs on the model Jev picks. The conditions of the plain arm hold (the same limits, the same
 output cap, `bench` as the session's own profile at medium effort), and these do not, so a report marks the arm as
 having conditions its peers did not share:
 
 - the model and its effort vary by message: route.v4 asks the reply's effort beside the mode, and a sure answer wins
-  over the profile's own (none sets `effort_fixed`); else `haiku` runs low, `haikuhi` high, and `sonnet`, `opus` and
-  `fable`, which ask for none, at each model's default;
+  over the profile's own (none sets `effort_fixed`); else `haiku` runs low, `haikuhi` and `sonnethi` high, and `sonnet`,
+  `opus` and `fable`, which ask for none, at each model's default;
 - the Z.ai profile `glm` is left out (the bench has no Z.ai key), so `trivial` is `["haiku"]`;
 - `[routing] max_wait_ms` is 2000, not the shipped 200: a trial is one message, and a verdict that comes after the
   wait applies to the next message alone;
