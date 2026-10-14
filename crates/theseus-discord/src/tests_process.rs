@@ -10,8 +10,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use theseus_core::provider::{FakeProvider, Scripted};
-use theseus_sim::fake_discord::{Guild, Msg, DEFAULT_GUILD};
+use theseus_core::provider::{
+    Delta, DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
+};
+use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, DEFAULT_GUILD};
 
 use crate::tests_gateway::{Rig, ANA, ANA_DM, LAB};
 
@@ -298,40 +300,154 @@ async fn a_place_that_silences_tool_lines_silences_its_process_messages_alone() 
     assert_eq!((dm.len(), pings(&dm)), (3, 3), "{dm:#?}");
 }
 
+/// A provider that streams a response's thinking at once and holds back its
+/// text until the stand-in Discord has taken (and is holding) a create of
+/// the process message, so the turn's text and its end always come after
+/// that create began, on any machine (theseus-wpv2g). If no create is held
+/// within 10 s it goes on, and the test's scenario check says so.
+struct TextAfterTheHeldCreate {
+    inner: FakeProvider,
+    fake: Arc<FakeDiscord>,
+}
+
+impl Provider for TextAfterTheHeldCreate {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(async move {
+            let mut text: Vec<String> = Vec::new();
+            let response = self
+                .inner
+                .stream_message(req, &mut |d| match d {
+                    Delta::Text(t) => text.push(t.to_string()),
+                    other => on_delta(other),
+                })
+                .await?;
+            let t0 = std::time::Instant::now();
+            while t0.elapsed() < std::time::Duration::from_secs(10)
+                && !self.fake.seen().iter().any(|q| q.outcome == "held")
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            for t in &text {
+                on_delta(Delta::Text(t));
+            }
+            Ok(response)
+        })
+    }
+}
+
 /// A thinking answer whose text the stream had not written when the reply's
 /// post came (its process message's create answered late) is still the
 /// answer: the post's first part takes the answer's category, not a later
 /// part's, though the stream wrote a key of the turn (its thinking). With
 /// `silent = ["later_parts"]` it pings.
+///
+/// Two orders reach it. Here the stream's first write is the thinking's
+/// create (`-# 💭 thinking`), held; the reply's post queues behind it.
 #[tokio::test]
 async fn an_answer_the_post_writes_after_the_thinking_is_still_the_answer() {
+    let (r, got) = a_thinking_answer_posted_behind_a_held_process_create(false).await;
+    let answer = got
+        .iter()
+        .find(|m| m.content.contains("held chart"))
+        .unwrap();
+    assert!(!answer.silent(), "the answer pings: {got:#?}");
+    assert!(got
+        .iter()
+        .any(|m| m.content.starts_with("-# 💭 thought for")));
+    assert_eq!(r.core.outbox.status("discord").pending, 0);
+}
+
+/// The same, in the order a fast host reaches (theseus-wpv2g): the turn ends
+/// before the lane writes the process message at all, so its first and only
+/// write is already the fold (`-# 💭 thought for …`). Every write is held until
+/// the reply's post is queued behind the fold's create.
+#[tokio::test]
+async fn an_answer_the_post_writes_after_the_fold_is_still_the_answer() {
+    let (r, got) = a_thinking_answer_posted_behind_a_held_process_create(true).await;
+    let answer = got
+        .iter()
+        .find(|m| m.content.contains("held chart"))
+        .unwrap();
+    assert!(!answer.silent(), "the answer pings: {got:#?}");
+    assert!(got
+        .iter()
+        .any(|m| m.content.starts_with("-# 💭 thought for")));
+    assert_eq!(r.core.outbox.status("discord").pending, 0);
+}
+
+/// Hold the process message's create, whatever its text (every one starts
+/// `-# 💭`, streaming or folded), until the reply's post is queued behind
+/// it, then let everything through. `turn_ends_first` holds every write until
+/// the turn is over, so the create is the fold's.
+async fn a_thinking_answer_posted_behind_a_held_process_create(
+    turn_ends_first: bool,
+) -> (Rig, Vec<Msg>) {
+    const PROCESS: &str = "-# 💭";
     let r = Rig::start_on(
-        |_, _| {
-            Arc::new(FakeProvider::scripted(vec![Scripted::Blocks {
+        |_, fake| {
+            let inner = FakeProvider::scripted(vec![Scripted::Blocks {
                 blocks: vec![
                     thought("The chart says 06:12."),
                     serde_json::json!({"type": "text", "text": "Low tide by the held chart is at 06:12."}),
                 ],
                 stop_reason: "end_turn".into(),
-            }]))
+            }]);
+            if turn_ends_first {
+                Arc::new(inner)
+            } else {
+                Arc::new(TextAfterTheHeldCreate { inner, fake })
+            }
         },
         Guild::new(DEFAULT_GUILD, (ANA, "ana")).private_channel(LAB, "lab", &[ANA]),
         &bindings("silent = [\"later_parts\"]\n"),
         &[],
     )
     .await;
-    // The lane waits on the thinking's create while the turn ends.
-    r.fake.hold_writes_containing(Some("💭 thinking"));
+    r.fake
+        .hold_writes_containing(Some(if turn_ends_first { "" } else { PROCESS }));
     r.say(
         (ANA, "ana"),
         Some(LAB),
         "When is low tide by the held chart?",
     );
-    r.until("the thinking's create, held, and the reply's post", || {
-        r.posted(LAB).iter().any(|m| m.content.starts_with("-# 💭"))
-            && r.core.outbox.status("discord").pending > 0
-    })
+    r.until(
+        "the scenario: the process message's create held while the reply's post is queued behind it",
+        || {
+            r.posted(LAB).iter().any(|m| m.content.starts_with(PROCESS))
+                && r.core.outbox.status("discord").pending > 0
+        },
+    )
     .await;
+    let created = r
+        .posted(LAB)
+        .into_iter()
+        .find(|m| m.content.starts_with(PROCESS))
+        .unwrap();
+    assert!(
+        r.fake
+            .seen()
+            .iter()
+            .any(|q| q.outcome == "held" && q.message_id.as_deref() == Some(created.id.as_str())),
+        "the process message's create was not held: {:#?}",
+        r.fake.seen()
+    );
+    let first = if turn_ends_first {
+        "-# 💭 thought for"
+    } else {
+        "-# 💭 thinking"
+    };
+    assert!(
+        created.content.starts_with(first),
+        "the create is not the scenario's ({first}): {created:#?}"
+    );
     r.fake.hold_writes_containing(None);
     r.until("the answer and the fold", || {
         let got = r.posted(LAB);
@@ -344,9 +460,5 @@ async fn an_answer_the_post_writes_after_the_thinking_is_still_the_answer() {
     })
     .await;
     let got = r.posted(LAB);
-    let answer = got
-        .iter()
-        .find(|m| m.content.contains("held chart"))
-        .unwrap();
-    assert!(!answer.silent(), "the answer pings: {got:#?}");
+    (r, got)
 }
