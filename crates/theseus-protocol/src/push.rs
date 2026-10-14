@@ -201,6 +201,36 @@ pub struct ExecutionsWatchResult {
     pub total: u64,
 }
 
+/// A failed execution on the board, and the position of its view: what
+/// `theseus status --short` weighs against the machine's seen file, to leave
+/// out the failures already shown (theseus-xnff's (a)).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ShortFailed {
+    pub execution_id: String,
+    pub position: u64,
+}
+
+/// `status.short`'s answer (theseus-8kn12): the short line's facts, kept on the
+/// board as the views change, so its size does not grow with the sessions.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StatusShortResult {
+    /// The board's position when it was read.
+    pub position: u64,
+    /// Executions that need you and have not failed.
+    pub needs_you: u32,
+    /// Executions that work.
+    pub working: u32,
+    /// Every failed execution on the board, with its view's position: a
+    /// failed one stays for good, and the client counts those it has not shown.
+    pub failed: Vec<ShortFailed>,
+    /// The execution that has needed you longest: not failed if any is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub first: Option<String>,
+}
+
 /// `session.list`: every session, or only these (theseus-in3): a client that
 /// meets a new session in `execution.changed` asks for its title.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

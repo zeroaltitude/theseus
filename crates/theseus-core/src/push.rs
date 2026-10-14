@@ -26,6 +26,7 @@ use crate::Core;
 pub mod bench;
 mod board;
 mod hot;
+mod short;
 mod work;
 
 use board::{parent_session, seed_inputs, Board};
@@ -429,6 +430,13 @@ impl Push {
         (b.position, active, total)
     }
 
+    /// The short line's facts (theseus-8kn12): the counts the board keeps as
+    /// its views change, and the failures with their positions.
+    pub fn status_short(&self) -> theseus_protocol::StatusShortResult {
+        let b = self.board.lock().unwrap();
+        b.short.result(b.position)
+    }
+
     /// A session's view, loading its execution when the board left it cold
     /// (theseus-id8d): `session.wait` reads it.
     pub fn view_or_load(&self, core: &Core, session_id: &str) -> Option<ExecutionView> {
@@ -483,6 +491,7 @@ mod tests {
     use theseus_kernel::{ActionState, Authority, Budget, RetryClass, SessionKind};
 
     mod seed;
+    mod short;
     mod why;
     mod work;
 

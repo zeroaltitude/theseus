@@ -1041,8 +1041,7 @@ enum SessionsCmd {
     },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // Rust ignores SIGPIPE, so a closed pipe (`theseus history | head`) would
     // panic in println!. Restore the default: exit quietly like other tools.
     #[cfg(unix)]
@@ -1051,7 +1050,19 @@ async fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
     let cli = Cli::parse();
-    let code = match run(cli).await {
+    // `status --short` runs on every prompt draw: one connection and one
+    // request, so one thread, not a pool (theseus-8kn12).
+    let short = matches!(&cli.cmd, Cmd::Status(a) if a.is_short_once());
+    let mut runtime = if short {
+        tokio::runtime::Builder::new_current_thread()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+    };
+    let runtime = runtime
+        .enable_all()
+        .build()
+        .expect("the CLI's runtime starts");
+    let code = match runtime.block_on(run(cli)) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("theseus: {e:#}");

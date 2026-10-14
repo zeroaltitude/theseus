@@ -66,7 +66,15 @@ fn serve(s: UnixStream, answers: &[(&str, Value)], then: &[(Duration, Value)], h
             .iter()
             .find(|(m, _)| *m == method)
             .map_or(json!({}), |(_, r)| r.clone());
-        let answer = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
+        let answer = if method == "status.short" && !answers.iter().any(|(m, _)| *m == method) {
+            // The board's counts, derived from the snapshot the test scripted.
+            let snap = answers.iter().find(|(m, _)| *m == "executions.watch");
+            json!({"jsonrpc": "2.0", "id": req["id"], "result": counts(snap.map(|(_, r)| r))})
+        } else if method == "status.short" && result.get("error").is_some() {
+            json!({"jsonrpc": "2.0", "id": req["id"], "error": result["error"]})
+        } else {
+            json!({"jsonrpc": "2.0", "id": req["id"], "result": result})
+        };
         (&s).write_all(format!("{answer}\n").as_bytes()).unwrap();
         if method == "executions.watch" {
             for (pause, n) in then {
@@ -82,6 +90,33 @@ fn serve(s: UnixStream, answers: &[(&str, Value)], then: &[(Duration, Value)], h
             }
         }
     }
+}
+
+/// `status.short`'s answer for a snapshot, as the daemon's board keeps it.
+fn counts(snap: Option<&Value>) -> Value {
+    let empty = vec![];
+    let views = snap
+        .and_then(|s| s["executions"].as_array())
+        .unwrap_or(&empty);
+    let level = |v: &Value| v["attention"]["level"].as_str().unwrap_or("").to_string();
+    let failed = |v: &Value| level(v) == "needs_you" && v["state"] == "failed";
+    let needs: Vec<&Value> = views
+        .iter()
+        .filter(|v| level(v) == "needs_you" && !failed(v))
+        .collect();
+    let first = needs
+        .iter()
+        .min_by_key(|v| v["attention"]["since_ms"].as_u64())
+        .map(|v| v["execution_id"].clone());
+    json!({
+        "position": 10,
+        "needs_you": needs.len(),
+        "working": views.iter().filter(|v| level(v) == "working").count(),
+        "failed": views.iter().filter(|v| failed(v))
+            .map(|v| json!({"execution_id": v["execution_id"], "position": v["position"]}))
+            .collect::<Vec<_>>(),
+        "first": first,
+    })
 }
 
 fn theseus(sock: &Path, args: &[&str]) -> Command {
@@ -116,6 +151,50 @@ fn run(args: &[&str], answers: Vec<(&'static str, Value)>) -> (String, String, i
         String::from_utf8_lossy(&out.stderr).into_owned(),
         out.status.code().unwrap_or(-1),
     )
+}
+
+/// A daemon that predates `status.short` answers the method with "not found":
+/// `--short` falls back to the full read and prints the same line.
+#[test]
+fn a_daemon_without_status_short_gets_the_full_read() {
+    let (out, _, code) = run(
+        &["status", "--short"],
+        vec![
+            (
+                "status.short",
+                json!({"error": {"code": -32601, "message": "method not found"}}),
+            ),
+            ("executions.watch", snapshot(&five())),
+        ],
+    );
+    assert_eq!((out.as_str(), code), ("●1 ◐2 ✗1\n", 0));
+}
+
+/// `--short` makes one request, `status.short`: no snapshot of views, no
+/// subscription (theseus-8kn12).
+#[test]
+fn the_short_form_asks_for_the_counts_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let daemon = std::thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        let mut asked = Vec::new();
+        let mut reader = BufReader::new(&s);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            let req: Value = serde_json::from_str(&line).unwrap();
+            line.clear();
+            asked.push(req["method"].as_str().unwrap().to_string());
+            let r = counts(Some(&snapshot(&five())));
+            let a = json!({"jsonrpc": "2.0", "id": req["id"], "result": r});
+            (&s).write_all(format!("{a}\n").as_bytes()).unwrap();
+        }
+        asked
+    });
+    let out = theseus(&sock, &["status", "--short"]).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "●1 ◐2 ✗1\n");
+    assert_eq!(daemon.join().unwrap(), vec!["status.short"]);
 }
 
 fn five() -> Vec<Value> {

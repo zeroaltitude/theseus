@@ -200,6 +200,26 @@ pub fn done_count(path: &Path) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+/// `done_count` and `displayed` from one read of the file: `status --short`
+/// parses the machine's seen file once (theseus-8kn12), and it holds a mark for
+/// every execution the TUI ever knew.
+pub fn counts(path: &Path) -> (u32, HashMap<String, u64>) {
+    let Some(file) = read_file(path) else {
+        return (0, HashMap::new());
+    };
+    let n = file
+        .executions
+        .values()
+        .filter(|m| matches!(m.level, Level::Ready | Level::Idle) && m.finished > m.displayed)
+        .count();
+    let shown = file
+        .executions
+        .into_iter()
+        .map(|(id, m)| (id, m.displayed))
+        .collect();
+    (u32::try_from(n).unwrap_or(u32::MAX), shown)
+}
+
 /// Each execution's position last displayed, as the file holds it: for
 /// `theseus status`'s ✗, which counts a failure only until a client has shown
 /// it (theseus-lweh's review). No file, no marks.

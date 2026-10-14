@@ -330,10 +330,8 @@ impl Core {
             }
             method::NARRATIVE_WATCH => reply(self.narrative_watch(conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
-            method::EXECUTIONS_WATCH => {
-                // Its limit is optional: no params takes the default.
-                let params = if params.is_null() { json!({}) } else { params };
-                reply(self.executions_watch(parse(params)?, conn).await?)
+            m @ (method::EXECUTIONS_WATCH | method::STATUS_SHORT) => {
+                self.executions_reads(m, params, conn).await
             }
             method::EXECUTIONS_UNWATCH => reply(self.executions_unwatch(conn)),
             // A wait parks on the board's feed, never holding a worker.

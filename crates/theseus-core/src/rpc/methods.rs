@@ -533,6 +533,34 @@ impl Core {
         })
     }
 
+    /// The two reads of the board: `executions.watch` and `status.short`.
+    pub(super) async fn executions_reads(
+        self: &std::sync::Arc<Self>,
+        name: &str,
+        params: serde_json::Value,
+        conn: Conn<'_>,
+    ) -> Result<serde_json::Value, RpcFailure> {
+        if name == theseus_protocol::method::STATUS_SHORT {
+            return super::server::reply(self.status_short().await?);
+        }
+        // Its limit is optional: no params takes the default.
+        let params = super::server::or_empty(params);
+        super::server::reply(
+            self.executions_watch(super::server::parse(params)?, conn)
+                .await?,
+        )
+    }
+
+    /// `status.short` (theseus-8kn12): the short line's facts from the board's
+    /// own fields. No subscription, no views, no questions: what a prompt draw
+    /// needs and nothing that grows with the sessions.
+    pub(super) async fn status_short(
+        self: &std::sync::Arc<Self>,
+    ) -> Result<theseus_protocol::StatusShortResult, RpcFailure> {
+        self.push.ensure(self).await?;
+        Ok(self.push.status_short())
+    }
+
     /// `session.wait` (theseus-in3, design `stage2` §2.6): until the
     /// session's execution is what `until` names. The board's feed wakes it,
     /// so it costs nothing while parked, and it subscribes before it reads,

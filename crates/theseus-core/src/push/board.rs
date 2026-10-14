@@ -53,6 +53,8 @@ pub(super) struct Board {
     /// health counts nothing (theseus-id8d).
     pub(super) views: u64,
     pub(super) questions: u64,
+    /// The short line's facts, moved with each view (theseus-8kn12).
+    pub(super) short: super::short::Short,
 }
 
 /// The seed (theseus-id8d): the actions not settled, then the executions
@@ -165,6 +167,7 @@ fn seed_refs(
         b.entries.entry(id).or_default().pending = ps;
     }
     (b.views, b.questions) = b.recount();
+    b.short = super::short::Short::of(b.entries.values().filter_map(|e| e.view.as_ref()));
     Ok(b)
 }
 
@@ -189,6 +192,7 @@ impl Board {
         let mut v = view(e, entry.pending.clone(), parent, pos, e.updated_at_ms);
         v.outstanding = tool_calls(e, &mut entry.models);
         v.attention = attention(&v, &hm);
+        self.short.change(None, Some(&v));
         entry.view = Some(v.clone());
         self.views += 1;
         self.by_session.insert(e.session_id.clone(), e.id.clone());
@@ -368,6 +372,7 @@ impl Board {
             }
             self.by_session
                 .insert(new.session_id.clone(), new.execution_id.clone());
+            self.short.change(entry.view.as_ref(), Some(&new));
             entry.view = Some(new.clone());
             out.push(new);
         }

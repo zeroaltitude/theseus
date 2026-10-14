@@ -253,6 +253,10 @@ pub mod method {
         /// its open subtree, then `work.changed` and `work.notice` until
         /// `work.unwatch` (`work_watch.rs`). A read.
         WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
+        /// The counts behind `theseus status --short` (theseus-8kn12), read from
+        /// the board's O(1) fields: no per-execution view, no subscription.
+        /// `push::StatusShortResult`. A read.
+        STATUS_SHORT = "status.short",
         /// Wait until a session needs someone, settles, or ends (theseus-in3).
         /// The daemon owns the wait; it answers at once when it is satisfied
         /// already. A read.
