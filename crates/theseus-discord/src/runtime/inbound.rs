@@ -23,6 +23,9 @@ pub(super) struct Inbound {
     /// first, theseus-sjzm): the turn runs in that thread and is answered
     /// here.
     pub(super) thread: Option<String>,
+    /// The turn whose reply this message replies to (theseus-rha2): the
+    /// router places the message in that turn's thread, certain.
+    pub(super) reply_turn: Option<String>,
 }
 
 impl Inbound {

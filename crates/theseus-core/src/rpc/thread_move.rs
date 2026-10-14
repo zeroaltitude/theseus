@@ -354,6 +354,7 @@ fn resubmission(session: &str, routed: &Routed) -> TurnSubmitParams {
         prompt: None,
         dir: None,
         thread: None,
+        speaking: None,
         in_reply_to: None,
     }
 }

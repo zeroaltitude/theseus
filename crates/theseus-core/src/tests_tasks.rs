@@ -793,7 +793,10 @@ async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
             Scripted::text("this call does not fit")
         },
         |c| {
-            c.kernel.spend_limit_usd = 2.70;
+            // 2.70 until the tools block grew by routine.create, watch and
+            // thread.read (their joins' review): the report's turn then asked
+            // at its start; 2.80 holds, 2.90 does not.
+            c.kernel.spend_limit_usd = 2.80;
             c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
         },
     );

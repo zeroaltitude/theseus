@@ -19,7 +19,8 @@ use theseus_protocol::{
     method, Notification, SessionListResult, SessionWaitResult, TurnSubmitResult,
 };
 
-use super::{call, now_ms, reread, Watch};
+use super::{call, reread, Watch};
+use crate::herdr::now_ms;
 
 /// What a line is, when it addresses threads: `Some("")` for `/t` alone.
 pub(super) fn command(line: &str) -> Option<&str> {

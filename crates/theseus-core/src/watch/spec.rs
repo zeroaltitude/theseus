@@ -316,6 +316,7 @@ pub fn build(
             first_ms: now_ms,
             days: vec![],
             until_ms: Some(expires),
+            cron: None,
         }),
         purpose: Purpose::Watch,
         run: WakeRun::Probe(WakeProbe {

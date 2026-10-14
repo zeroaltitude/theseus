@@ -140,6 +140,7 @@ impl Reviewer for CheckTurn {
                     attachments: vec![],
                     arrived: None,
                     reply_to: None,
+                    answer_at: None,
                     prompt: None,
                 })
                 .await?;

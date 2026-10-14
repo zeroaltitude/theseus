@@ -31,6 +31,7 @@ fn message(text: &str) -> Inbound {
         channel: Id::new(43),
         guild: None,
         thread: None,
+        reply_turn: None,
     }
 }
 

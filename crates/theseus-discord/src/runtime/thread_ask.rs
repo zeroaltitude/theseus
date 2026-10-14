@@ -104,7 +104,29 @@ fn place_key(i: &Interaction) -> Option<String> {
     }
 }
 
+impl super::Place {
+    /// The router's question (theseus-rha2) posts its own card in this
+    /// place, apart from the stream: true when `e` was one (out of runtime.rs,
+    /// which is at its line ceiling).
+    pub(super) fn thread_ask_card(&self, e: &theseus_protocol::Event) -> bool {
+        let (theseus_protocol::Event::ThreadAsked(a), Some(c)) = (e, self.channel) else {
+            return false;
+        };
+        let (shared, a) = (self.shared.clone(), a.clone());
+        tokio::spawn(async move { shared.post_thread_ask(c.get(), &a).await });
+        true
+    }
+}
+
 impl Shared {
+    /// The turn a message replies to, when it replies to one of this
+    /// process's replies (theseus-rha2).
+    pub(super) fn reply_turn_of(&self, m: &twilight_model::channel::Message) -> Option<String> {
+        m.referenced_message
+            .as_ref()
+            .and_then(|r| self.replies.turn(r.id.get()))
+    }
+
     /// A question the core asks, posted in the place's channel with its
     /// buttons. Best effort: a failure is the board's error, and the message
     /// runs at home when its wait ends.

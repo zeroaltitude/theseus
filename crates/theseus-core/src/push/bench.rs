@@ -147,6 +147,7 @@ async fn record(core: &Arc<Core>, frames: usize) -> Result<Vec<Frame>> {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
+                answer_at: None,
             })
             .await?;
         turn += 1;

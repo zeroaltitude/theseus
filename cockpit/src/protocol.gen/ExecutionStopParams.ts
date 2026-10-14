@@ -15,8 +15,7 @@ export type ExecutionStopParams = { execution_id: string,
  */
 author?: string, 
 /**
- * Also cancel every task under the conversation, depth first (theseus-cdcwr).
- * An owner's act: refused from a shared place.
+ * Also cancel every task under the conversation, depth first: an owner's act (theseus-cdcwr).
  */
 tasks?: boolean, 
 /**

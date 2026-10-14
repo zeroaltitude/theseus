@@ -232,6 +232,7 @@ fn params(session: &str, input: &str, reply_to_turn: Option<&str>) -> TurnSubmit
         reply_to: None,
         opened_from: None,
         thread: None,
+        speaking: None,
         in_reply_to: reply_to_turn.map(str::to_string),
     }
 }

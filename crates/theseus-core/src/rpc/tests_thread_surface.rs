@@ -237,6 +237,7 @@ async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> s
             reply_to: Some("4242".into()),
             opened_from: None,
             thread: Some(slug.into()),
+            in_reply_to: None,
             speaking: Some(Speaking {
                 discord: DiscordOrigin {
                     user_id: user.to_string(),

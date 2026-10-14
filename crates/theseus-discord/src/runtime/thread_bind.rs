@@ -762,6 +762,7 @@ impl Place {
                 reply_to: Some(message.to_string()),
                 opened_from: None,
                 thread: Some(slug),
+                in_reply_to: None,
                 speaking: Some(Speaking {
                     discord: origin,
                     answer_at: Some(answer_at),

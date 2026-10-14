@@ -84,7 +84,6 @@ nudged?: TurnNudge,
  */
 cites?: Array<Citation>, 
 /**
- * Where the turn ran when its place had threads to choose between
- * (theseus-rha2); the reply's tag.
+ * Where the turn ran when its place had threads to choose between (theseus-rha2): its tag.
  */
 thread?: ThreadTag, };

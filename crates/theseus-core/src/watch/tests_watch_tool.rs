@@ -176,6 +176,12 @@ async fn a_command_watch_asks_once_with_the_command_shown_and_the_command_never_
         argvs.iter().all(|a| *a == approved),
         "the approved command, every time: {argvs:?}"
     );
+    // The first look's row is written after its count: under load the count
+    // can be read first (reviewer A's suite run), so wait for the row.
+    until("the checked row", 10, || {
+        !rows(&r.core, "watch.checked").is_empty()
+    })
+    .await;
     assert_eq!(rows(&r.core, "watch.checked").len(), 1, "OPEN, seen once");
     // The block shows it with its value, and the model cannot move it.
     turn(&r.core, &sid, "hello").await;

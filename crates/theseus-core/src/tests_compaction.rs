@@ -46,6 +46,13 @@ use crate::{Config, Core};
 /// (the join's review). 48,000 leaves room; at 44,000 the override test's
 /// probe and its glm turn ring at different turns.
 const WINDOW: u64 = 48_000;
+/// The window of the session-summary rig (`session_rig`): its override test's
+/// probe and its glm turn must ring at the same turn, which holds in a band
+/// that moves with the tools block. 48,000 was in it until `routine.create`
+/// and `watch` joined the request (theseus-pvm5c, theseus-f2r2b); with them
+/// and `thread.read` (theseus-f2g0) it holds at 40,000 to 44,500 and not at
+/// 45,000 or above (their joins' review).
+const SESSION_WINDOW: u64 = 44_000;
 const OUTPUT: u32 = 2_000;
 
 pub(crate) struct Rig {
@@ -757,7 +764,7 @@ fn session_rig(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
     cfg.catalog.insert(
         GLM.into(),
         crate::catalog::CatalogRow {
-            context_window: Some(WINDOW),
+            context_window: Some(SESSION_WINDOW),
             max_output_tokens: Some(OUTPUT),
             ..Default::default()
         },

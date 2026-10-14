@@ -930,6 +930,52 @@ fn a_wake_is_one_notification_and_spend_is_none() {
     );
 }
 
+/// theseus-rn7s: the prompt is the last line while a question waits. A turn
+/// that parks on a question ends after the question was asked, and its
+/// footer, printed below the prompt, used to leave the terminal ending on
+/// the footer: the prompt is said again below whatever an event printed.
+#[test]
+fn the_prompt_is_the_last_line_after_a_parked_turns_footer() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = FakeDaemon::start(dir.path(), move |req| {
+        Some(Ok(match req["method"].as_str().unwrap() {
+            "session.watch" => json!({"watching": true}),
+            "session.wait" => json!({"reached": "blocked", "already": true,
+                "execution": view(30, "waiting", "needs_you", "confirm proc.run",
+                                  Some("act_m3"), 0.0),
+                "confirms": [question("act_m3")]}),
+            "session.list" => json!({"sessions": [{"session_id": S, "kind": "conversation",
+                "label": null, "created_at_unix_ms": 1_759_300_000_000u64, "turns": 2}]}),
+            _ => return None,
+        }))
+    });
+    let mut w = Watch::start(&d, None, &["--interactive"]);
+    w.wait_prompt(1);
+    d.push(
+        "turn.ended",
+        json!({"session_id": S, "turn_id": "turn_m4p8z1", "loops": 1, "output": "",
+               "stop_reason": "awaiting_confirm", "provider_stop_reason": "tool_use",
+               "model": "glm-x", "provider": "zed", "profile": "quick",
+               "usage": {"input_tokens": 10, "output_tokens": 5}, "elapsed_ms": 900,
+               "cost_usd": 0.001, "tool_calls": 1, "continuation": false, "cites": [],
+               "awaiting_confirm": "act_m3"}),
+    );
+    w.wait_err("· session ses_q7f3k2]", 1);
+    w.wait_prompt(2);
+    drop(w.child.stdin.take());
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+    let lines: Vec<&str> = err.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.last(), Some(&"  approve? [y/N/t/note]"), "{err}");
+    let footer = lines
+        .iter()
+        .rposition(|l| l.contains("· session ses_q7f3k2]"));
+    assert!(
+        footer.is_some_and(|f| f + 1 < lines.len()),
+        "the footer is above the prompt: {err}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // herdr's slots, and a watch that outlives its daemon (theseus-qb1es)
 // ---------------------------------------------------------------------------
@@ -1530,50 +1576,4 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
     w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
-}
-
-/// theseus-rn7s: the prompt is the last line while a question waits. A turn
-/// that parks on a question ends after the question was asked, and its
-/// footer, printed below the prompt, used to leave the terminal ending on
-/// the footer: the prompt is said again below whatever an event printed.
-#[test]
-fn the_prompt_is_the_last_line_after_a_parked_turns_footer() {
-    let dir = tempfile::tempdir().unwrap();
-    let d = FakeDaemon::start(dir.path(), move |req| {
-        Some(Ok(match req["method"].as_str().unwrap() {
-            "session.watch" => json!({"watching": true}),
-            "session.wait" => json!({"reached": "blocked", "already": true,
-                "execution": view(30, "waiting", "needs_you", "confirm proc.run",
-                                  Some("act_m3"), 0.0),
-                "confirms": [question("act_m3")]}),
-            "session.list" => json!({"sessions": [{"session_id": S, "kind": "conversation",
-                "label": null, "created_at_unix_ms": 1_759_300_000_000u64, "turns": 2}]}),
-            _ => return None,
-        }))
-    });
-    let mut w = Watch::start(&d, None, &["--interactive"]);
-    w.wait_prompt(1);
-    d.push(
-        "turn.ended",
-        json!({"session_id": S, "turn_id": "turn_m4p8z1", "loops": 1, "output": "",
-               "stop_reason": "awaiting_confirm", "provider_stop_reason": "tool_use",
-               "model": "glm-x", "provider": "zed", "profile": "quick",
-               "usage": {"input_tokens": 10, "output_tokens": 5}, "elapsed_ms": 900,
-               "cost_usd": 0.001, "tool_calls": 1, "continuation": false, "cites": [],
-               "awaiting_confirm": "act_m3"}),
-    );
-    w.wait_err("· session ses_q7f3k2]", 1);
-    w.wait_prompt(2);
-    drop(w.child.stdin.take());
-    let (code, err) = w.finish();
-    assert_eq!(code, 0, "{err}");
-    let lines: Vec<&str> = err.lines().filter(|l| !l.is_empty()).collect();
-    assert_eq!(lines.last(), Some(&"  approve? [y/N/t/note]"), "{err}");
-    let footer = lines
-        .iter()
-        .rposition(|l| l.contains("· session ses_q7f3k2]"));
-    assert!(
-        footer.is_some_and(|f| f + 1 < lines.len()),
-        "the footer is above the prompt: {err}"
-    );
 }
