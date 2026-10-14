@@ -932,6 +932,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [notify]
 # escalate_after_secs = 60                # no screen open: the DM pings after this long
 # escalate_with_screen_secs = 300         # a screen open: after this long
+# unprompted_pace_secs = 1800            # at most one unprompted DM post (a needs-you now; the digest and nudges later) in this long, what is due meanwhile going out together; 0: no rule
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

@@ -213,6 +213,9 @@ pub struct Outbox {
     flight: Arc<tokio::sync::watch::Sender<Flight>>,
     /// Whether this daemon serves one run, and its bound (theseus-mqxk).
     pub one_shot: crate::one_shot::OneShot,
+    /// When the last unprompted post was written: the one pacing rule
+    /// (`pacer.rs`, theseus-j7cje).
+    pub pacer: crate::pacer::Pacer,
 }
 
 /// The posts this process has sent and not yet settled, and when its stop
@@ -253,6 +256,7 @@ impl Outbox {
             changed: tokio::sync::watch::Sender::new(0),
             flight: Arc::new(tokio::sync::watch::Sender::new(Flight::default())),
             one_shot: crate::one_shot::OneShot::default(),
+            pacer: crate::pacer::Pacer::default(),
         }
     }
 
@@ -369,6 +373,12 @@ impl Outbox {
                 }
             }
             let body = body_of(a);
+            if crate::pacer::UNPROMPTED.contains(&kind_of(a)) {
+                self.pacer.took(a.planned_at_ms);
+                for q in body["questions"].as_array().into_iter().flatten() {
+                    ix.pinged.extend(q.as_str().map(str::to_string));
+                }
+            }
             match kind_of(a) {
                 "card" => {
                     if let Some(q) = body["question"].as_str() {
@@ -591,6 +601,12 @@ impl Outbox {
                 },
             );
             let body = body_of(a);
+            if crate::pacer::UNPROMPTED.contains(&kind_of(a)) {
+                self.pacer.took(a.planned_at_ms);
+                for q in body["questions"].as_array().into_iter().flatten() {
+                    ix.pinged.extend(q.as_str().map(str::to_string));
+                }
+            }
             if let Some(q) = body["question"].as_str() {
                 match kind_of(a) {
                     "card" => {

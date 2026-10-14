@@ -41,6 +41,23 @@ async fn answer_from_cli(core: &std::sync::Arc<crate::Core>, id: &str, option: &
     .expect("the answer counts");
 }
 
+/// The task's report notice, once the board has applied the frame that made it.
+async fn report_notice(
+    r: &crate::tests_tasks::Rig,
+    task: &theseus_kernel::Execution,
+) -> theseus_protocol::notices::Notice {
+    let find = || {
+        r.core
+            .push
+            .notices_since(0)
+            .0
+            .into_iter()
+            .find(|n| n.why == Why::Reported && n.work.id == task.id)
+    };
+    until("the report's notice", || find().is_some()).await;
+    find().unwrap()
+}
+
 fn model(notify_done: bool) -> impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static {
     move |req| {
         if first_user(req).contains("CHILD:") {
@@ -130,11 +147,7 @@ async fn a_task_asks_the_owner_and_resumes_with_the_choice() {
         .unwrap();
     assert_eq!(said, "Went with: The owner chose 2, \"Fast\".");
     // `notify_done`: its report interrupts.
-    let (notices, _) = r.core.push.notices_since(0);
-    let told = notices
-        .iter()
-        .find(|n| n.why == Why::Reported && n.work.id == task.id)
-        .unwrap_or_else(|| panic!("no report notice in {notices:?}"));
+    let told = report_notice(&r, &task).await;
     assert_eq!(told.urgency, Urgency::Interrupt);
 }
 
@@ -156,10 +169,6 @@ async fn an_unflagged_task_reports_as_an_inform() {
         exec(&r.core, &task.id).state == ExecState::Complete
     })
     .await;
-    let (notices, _) = r.core.push.notices_since(0);
-    let told = notices
-        .iter()
-        .find(|n| n.why == Why::Reported && n.work.id == task.id)
-        .unwrap_or_else(|| panic!("no report notice in {notices:?}"));
+    let told = report_notice(&r, &task).await;
     assert_eq!(told.urgency, Urgency::Inform);
 }

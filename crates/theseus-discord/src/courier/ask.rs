@@ -38,6 +38,22 @@ impl Lane {
     /// The post: to the owner's DM alone, never a shared place.
     pub(super) async fn needs_you_post(&mut self, body: &Value) -> Result<Plan, SendErr> {
         let (channel, place) = self.owner_dm().await?;
+        // Several questions due together, in one post: a nudge, no buttons.
+        if body["questions"].is_array() {
+            return Ok(Plan {
+                writes: vec![Write {
+                    key: format!("note:{}", body["questions"][0].as_str().unwrap_or("")),
+                    channel,
+                    content: body["text"].as_str().unwrap_or("").to_string(),
+                    buttons: Buttons::Keep,
+                    reply_to: None,
+                    message: None,
+                    mentions: vec![],
+                    ping: self.pings(Event::NeedsYou),
+                }],
+                extra: json!({"place": place, "settled": "a batch has no card"}),
+            });
+        }
         let q = body["question"].as_str().unwrap_or("").to_string();
         let choices: Vec<String> = body["choices"]
             .as_array()

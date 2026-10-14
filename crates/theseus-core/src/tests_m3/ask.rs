@@ -383,3 +383,77 @@ async fn a_question_at_half_its_life_is_reminded_of_once() {
     r.core.push.remind_questions(&r.core, t0 + 6 * 60_000);
     assert_eq!(told(&r).len(), 1, "once");
 }
+
+/// The one pacing rule for unprompted posts (`pacer.rs`): after one needs-you,
+/// a question due inside the window waits for it, and those due when it opens
+/// go in one post (no buttons, no settle), each marked so none pings again.
+#[tokio::test]
+async fn unprompted_pings_go_one_a_window_and_the_rest_together() {
+    let ask = || {
+        let input =
+            json!({"question": "Ship the release?", "options": options(2), "expires_in": 120});
+        Scripted::tools("", &[("t1", "owner_ask", input)])
+    };
+    let r = owned_rig(
+        vec![ask(), ask(), ask(), Scripted::text("Going on.")],
+        false,
+    );
+    let (_, _, a) = asked(&r).await;
+    let t0 = r.core.kernel.action(&a).unwrap().unwrap().planned_at_ms;
+    assert_eq!(
+        r.core.escalate_questions(t0 + 61_000),
+        1,
+        "the first goes at once"
+    );
+    let (_, _, b) = asked(&r).await;
+    let (_, _, c) = asked(&r).await;
+    assert_eq!(
+        r.core.escalate_questions(t0 + 10 * 60_000),
+        0,
+        "due, but the window is closed"
+    );
+    assert_eq!(needs_you_posts(&r).len(), 1);
+    assert_eq!(r.core.escalate_questions(t0 + 31 * 60_000), 2, "together");
+    let posts = needs_you_posts(&r);
+    assert_eq!(posts.len(), 2);
+    let batch = crate::outbox::body_of(&posts[1]);
+    assert_eq!(batch["questions"], json!([b.clone(), c.clone()]), "{batch}");
+    assert!(
+        batch["question"].is_null(),
+        "a batch is no one question's card"
+    );
+    assert!(
+        batch["text"]
+            .as_str()
+            .unwrap()
+            .contains("2 questions need you"),
+        "{batch}"
+    );
+    assert!(r.core.outbox.pinged(&b) && r.core.outbox.pinged(&c));
+    assert_eq!(r.core.escalate_questions(t0 + 90 * 60_000), 0, "once each");
+    // Answering one of them settles nothing: the batch is no card.
+    answer(&r, &b, "1", None).await.unwrap();
+    assert!(settles(&r)
+        .iter()
+        .all(|s| crate::outbox::body_of(s)["question"] != json!(b)));
+}
+
+/// The rule is a setting: 0 turns it off, and each due question pings at once.
+#[tokio::test]
+async fn a_pace_of_zero_turns_the_rule_off() {
+    let ask = || {
+        let input =
+            json!({"question": "Ship the release?", "options": options(2), "expires_in": 120});
+        Scripted::tools("", &[("t1", "owner_ask", input)])
+    };
+    let r = rig_with(vec![ask(), ask(), Scripted::text("Going on.")], |c| {
+        c.notify.unprompted_pace_secs = 0
+    });
+    bind_places(&r, false);
+    let (_, _, a) = asked(&r).await;
+    let t0 = r.core.kernel.action(&a).unwrap().unwrap().planned_at_ms;
+    assert_eq!(r.core.escalate_questions(t0 + 61_000), 1);
+    let _ = asked(&r).await;
+    assert_eq!(r.core.escalate_questions(t0 + 62_000), 1, "no window");
+    assert_eq!(needs_you_posts(&r).len(), 2);
+}

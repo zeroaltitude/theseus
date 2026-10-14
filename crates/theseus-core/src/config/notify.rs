@@ -9,7 +9,10 @@
 //!
 //! - `escalate_after_secs`: how long a question waits with no screen open (60).
 //! - `escalate_with_screen_secs`: how long it waits while a screen is open (300).
-//! - `ask_default_minutes` is not here: an `owner_ask` names its own life.
+//! - `unprompted_pace_secs`: the one pacing rule for posts nobody asked for
+//!   (`pacer.rs`): at most one in this long (1,800, thirty minutes), what is
+//!   due meanwhile going out together in the next. 0: no rule.
+//! - An `owner_ask` names its own life, so none is here.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -21,6 +24,8 @@ pub struct NotifyConfig {
     pub escalate_after_secs: u64,
     #[serde(default = "default_with_screen")]
     pub escalate_with_screen_secs: u64,
+    #[serde(default = "default_pace")]
+    pub unprompted_pace_secs: u64,
 }
 
 fn default_after() -> u64 {
@@ -29,12 +34,16 @@ fn default_after() -> u64 {
 fn default_with_screen() -> u64 {
     300
 }
+fn default_pace() -> u64 {
+    1800
+}
 
 impl Default for NotifyConfig {
     fn default() -> Self {
         Self {
             escalate_after_secs: default_after(),
             escalate_with_screen_secs: default_with_screen(),
+            unprompted_pace_secs: default_pace(),
         }
     }
 }

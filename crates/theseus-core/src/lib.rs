@@ -69,6 +69,7 @@ pub mod ontology;
 pub mod outbound;
 pub mod outbox;
 pub mod outputs;
+pub mod pacer;
 pub mod parked;
 pub mod peer;
 pub mod place_warnings;
