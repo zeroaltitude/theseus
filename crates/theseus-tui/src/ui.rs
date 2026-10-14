@@ -13,6 +13,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::app::{App, Link, Mode};
 use crate::board::{short, Only, Row};
 use crate::card;
+use crate::work::Form;
 
 /// The done-until-seen mark (design §2.9): teal, between needs you and
 /// working.
@@ -35,7 +36,11 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     header(app, Rect::new(0, 0, area.width, 1), buf);
     let body = Rect::new(0, 1, area.width, area.height - 2);
     if app.wide() {
-        let side = sidebar_width(area.width);
+        let side = if app.board.work.live {
+            work_sidebar_width(area.width)
+        } else {
+            sidebar_width(area.width)
+        };
         sidebar(app, Rect::new(0, body.y, side, body.height), buf);
         for y in body.y..body.y + body.height {
             buf.set_string(side, y, "│", dim());
@@ -62,19 +67,34 @@ pub fn sidebar_width(width: u16) -> u16 {
     (width * 3 / 10).clamp(36, 56)
 }
 
+/// With the work board, a row has more to say: two fifths of the screen, from
+/// 36 to 64 columns (theseus-k2vca).
+pub fn work_sidebar_width(width: u16) -> u16 {
+    (width * 2 / 5).clamp(36, 64)
+}
+
 fn header(app: &App, area: Rect, buf: &mut Buffer) {
-    let (need, done) = app.board.counts(&|v| app.is_done(v));
+    let t = app.board.tally(&|v| app.is_done(v));
     let mut left = String::from(" theseus");
-    if need > 0 {
-        left.push_str(&format!(
-            " · {need} need{} you",
-            if need == 1 { "s" } else { "" }
-        ));
+    // `● 1 needs you · ◐ 3 working · ✗ 1 failed · ✓ 2 done` (theseus-k2vca).
+    for (n, text) in [
+        (
+            t.needs,
+            format!(
+                "● {} need{} you",
+                t.needs,
+                if t.needs == 1 { "s" } else { "" }
+            ),
+        ),
+        (t.working, format!("◐ {} working", t.working)),
+        (t.failed, format!("✗ {} failed", t.failed)),
+        (t.done, format!("✓ {} done", t.done)),
+    ] {
+        if n > 0 {
+            left.push_str(&format!(" · {text}"));
+        }
     }
-    if done > 0 {
-        left.push_str(&format!(" · {done} done"));
-    }
-    if need == 0 && done == 0 {
+    if t.needs + t.working + t.failed + t.done == 0 {
         let n = app.board.len();
         left.push_str(&format!(" · {n} session{}", if n == 1 { "" } else { "s" }));
     }
@@ -119,33 +139,68 @@ fn sidebar(app: &App, area: Rect, buf: &mut Buffer) {
         return;
     }
     let cursor = app.cursor(rows);
+    // A row is a line, or two when a finished task's report shows under it.
+    let lines: Vec<(usize, bool)> = rows
+        .iter()
+        .enumerate()
+        .flat_map(|(i, r)| {
+            let under = r.facts.as_ref().is_some_and(|f| f.report.is_some());
+            std::iter::once((i, false)).chain(under.then_some((i, true)))
+        })
+        .collect();
     // Keep the cursor's row on screen: scroll only as far as it needs.
     let height = area.height as usize;
-    let top = match cursor {
-        Some(c) if c >= height => c + 1 - height,
+    let top = match cursor.and_then(|c| lines.iter().rposition(|(i, _)| *i == c)) {
+        Some(l) if l >= height => l + 1 - height,
         _ => 0,
     };
-    for (i, row) in rows.iter().enumerate().skip(top).take(height) {
-        let y = area.y + (i - top) as u16;
-        draw_row(
-            row,
-            Rect::new(area.x, y, area.width, 1),
-            buf,
-            Some(i) == cursor,
-        );
+    for (n, (i, under)) in lines.iter().copied().enumerate().skip(top).take(height) {
+        let (row, y) = (&rows[i], area.y + (n - top) as u16);
+        let line = Rect::new(area.x, y, area.width, 1);
+        if under {
+            draw_report(row, line, buf);
+        } else {
+            draw_row(app, row, line, buf, Some(i) == cursor);
+        }
     }
+}
+
+/// A finished task's first report line, under its row: `◆` while it is new.
+fn draw_report(row: &Row, area: Rect, buf: &mut Buffer) {
+    let Some(report) = row.facts.as_ref().and_then(|f| f.report.as_deref()) else {
+        return;
+    };
+    let lead = format!(
+        " {}{}",
+        "  ".repeat(row.depth + usize::from(row.depth > 0)),
+        if row.done { DONE } else { ' ' }
+    );
+    let (x, _) = buf.set_stringn(
+        area.x,
+        area.y,
+        &lead,
+        area.width as usize,
+        level_style(row.level, row.done),
+    );
+    let room = (area.width as usize).saturating_sub((x - area.x) as usize + 1);
+    buf.set_stringn(x + 1, area.y, crate::work::cut(report, room), room, dim());
 }
 
 /// One row: ` ● confirm proc.run  DM        $0.42`, a task indented under its
 /// parent (`└ ◐ turn 2  task b4c5d6`).
-fn draw_row(row: &Row, area: Rect, buf: &mut Buffer, selected: bool) {
+fn draw_row(app: &App, row: &Row, area: Rect, buf: &mut Buffer, selected: bool) {
     let mut prefix = String::from(" ");
     if row.depth > 0 {
         prefix.push_str(&"  ".repeat(row.depth));
         prefix.push(if row.last { '└' } else { '├' });
         prefix.push(' ');
     }
-    let mark = if row.done { DONE } else { glyph(row.level) };
+    let mark = match row.facts.as_ref().map(|f| &f.form) {
+        Some(Form::Failed { .. }) => '✗',
+        Some(Form::Done { .. }) => '✓',
+        _ if row.done => DONE,
+        _ => glyph(row.level),
+    };
     let cost = format!(" ${:.2} ", row.spent_usd);
     let mut name = row.name.clone();
     if row.folded > 0 {
@@ -174,6 +229,51 @@ fn draw_row(row: &Row, area: Rect, buf: &mut Buffer, selected: bool) {
         &mut x,
         &mut used,
     );
+    if let Some(facts) = &row.facts {
+        // What the work board says: the title, then what it is doing and
+        // for how long. The title is cut first, then the doing, and the cost
+        // goes before either (theseus-k2vca).
+        let doing = crate::work::doing(facts, app.now_ms, &app.hm);
+        let suffix = if row.folded > 0 {
+            format!(" +{}", row.folded)
+        } else {
+            String::new()
+        };
+        let left = width.saturating_sub((x - area.x) as usize);
+        let cost_room = left.saturating_sub(cost.width());
+        let whole = row.name.width() + suffix.width() + 2 + doing.width();
+        let (room, cost_shown) = if whole <= cost_room {
+            (cost_room, true)
+        } else {
+            (left, false)
+        };
+        let (title, doing) = crate::work::fit(&row.name, &suffix, &doing, room);
+        let (mut x, mut used) = (x, 0usize);
+        let put = |text: &str, style: Style, x: &mut u16, used: &mut usize, buf: &mut Buffer| {
+            let (nx, _) = buf.set_stringn(
+                *x,
+                area.y,
+                text,
+                room.saturating_sub(*used),
+                base.patch(style),
+            );
+            *used += (nx - *x) as usize;
+            *x = nx;
+        };
+        put(&title, Style::default(), &mut x, &mut used, buf);
+        put("  ", Style::default(), &mut x, &mut used, buf);
+        let style = if row.level == Level::Idle && !row.done {
+            dim()
+        } else {
+            Style::default()
+        };
+        put(&doing, style, &mut x, &mut used, buf);
+        if cost_shown {
+            let cx = area.x + area.width.saturating_sub(cost.width() as u16);
+            buf.set_stringn(cx, area.y, &cost, cost.width(), base.patch(dim()));
+        }
+        return;
+    }
     let label_style = if row.level == Level::Idle && !row.done {
         dim()
     } else {

@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::work::{Facts, Work};
 use theseus_client::names;
 use theseus_protocol::{
     Attention, ConfirmRequest, ConfirmResolved, ExecutionView, ExecutionsWatchResult, Level,
@@ -41,6 +42,8 @@ pub struct Board {
     /// updated on the new connection. That snapshot is the truth for every
     /// other session, even at a lower position (a daemon on another store).
     reconnected: Option<HashSet<String>>,
+    /// What `work.watch` says of the sessions: the words of a row.
+    pub work: Work,
 }
 
 /// One row of the sidebar.
@@ -60,6 +63,8 @@ pub struct Row {
     pub spent_usd: f64,
     /// Idle tasks folded under this row.
     pub folded: usize,
+    /// What the work board says of it, while the daemon has one (theseus-k2vca).
+    pub facts: Option<Facts>,
 }
 
 /// Which sessions the sidebar shows: all of them as a tree, or only one level
@@ -139,6 +144,15 @@ impl Question<'_> {
     pub fn trusts(&self) -> bool {
         matches!(self, Question::Whole(c) if c.external_text.is_some())
     }
+}
+
+/// How many sessions need you, work, failed, and are done until seen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Tally {
+    pub needs: usize,
+    pub working: usize,
+    pub failed: usize,
+    pub done: usize,
 }
 
 /// What an applied view moved: its session's level before it, if the board
@@ -410,12 +424,16 @@ impl Board {
             .map(|v| v.kind)
             .or(info.map(|s| s.kind))
             .unwrap_or(SessionKind::Conversation);
-        names::name(
-            kind,
+        let (label, title) = (
             info.and_then(|s| s.label.as_deref()),
             info.and_then(|s| s.title.as_deref()),
-            sid,
-        )
+        );
+        // The daemon's own title names a session `session.list` has not
+        // answered for yet (or never will: a task's row is made of it).
+        match (names::words(kind, label, title), self.work.title(sid)) {
+            (None, Some(t)) => names::name(kind, None, Some(t), sid),
+            _ => names::name(kind, label, title, sid),
+        }
     }
 
     /// The sidebar: with `Only::All` and no text, every session as a tree (a
@@ -423,6 +441,20 @@ impl Board {
     /// queue order by its most urgent session (the rollup); otherwise the
     /// sessions that match, as a flat list in queue order.
     pub fn rows(&self, only: Only, text: &str, done: &dyn Fn(&ExecutionView) -> bool) -> Vec<Row> {
+        let mut rows = self.rows_of(only, text, done);
+        if self.work.live {
+            let jobs = self.work.jobs();
+            for row in &mut rows {
+                row.facts = self
+                    .views
+                    .get(&row.session_id)
+                    .and_then(|v| self.work.facts(&row.session_id, v.attention.level, &jobs));
+            }
+        }
+        rows
+    }
+
+    fn rows_of(&self, only: Only, text: &str, done: &dyn Fn(&ExecutionView) -> bool) -> Vec<Row> {
         let text = text.trim().to_lowercase();
         if only != Only::All || !text.is_empty() {
             let mut flat: Vec<&ExecutionView> = self
@@ -516,6 +548,7 @@ impl Board {
             name: self.name(&v.session_id),
             spent_usd: v.spent_usd,
             folded,
+            facts: None,
         }
     }
 
@@ -542,19 +575,24 @@ impl Board {
         }
     }
 
-    /// How many sessions need you, and how many are done until seen.
-    pub fn counts(&self, done: &dyn Fn(&ExecutionView) -> bool) -> (usize, usize) {
-        let need = self
-            .views
-            .values()
-            .filter(|v| v.attention.level == Level::NeedsYou)
-            .count();
-        let finished = self
-            .views
-            .values()
-            .filter(|v| v.attention.level != Level::NeedsYou && done(v))
-            .count();
-        (need, finished)
+    /// The header's counts (theseus-k2vca), each session in one: what needs
+    /// you (a failure is counted apart), what works, what failed, and what is
+    /// done until seen.
+    pub fn tally(&self, done: &dyn Fn(&ExecutionView) -> bool) -> Tally {
+        let mut t = Tally::default();
+        for v in self.views.values() {
+            let failed = v.state == "failed";
+            if failed {
+                t.failed += 1;
+            } else if v.attention.level == Level::NeedsYou {
+                t.needs += 1;
+            } else if done(v) {
+                t.done += 1;
+            } else if v.attention.level == Level::Working {
+                t.working += 1;
+            }
+        }
+        t
     }
 }
 
