@@ -24,6 +24,9 @@ pub struct CallAnswered<'a> {
     pub via: &'a str,
     /// The answer trusts the session again (theseus-9bp).
     pub trust: bool,
+    /// The option it is (`approve`, `decline`, `accept`, `ack`, ...), as
+    /// `confirm.resolved` carries it; none for an expiry (theseus-ds5os).
+    pub option: Option<&'a str>,
 }
 
 impl Fact for CallAnswered<'_> {
@@ -32,7 +35,7 @@ impl Fact for CallAnswered<'_> {
 
     fn row(&self) -> Value {
         json!({"correlation_id": self.action.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via,
-               "trust": self.trust})
+               "trust": self.trust, "option": self.option})
     }
 
     fn event(&self) -> Option<Event> {
@@ -42,6 +45,7 @@ impl Fact for CallAnswered<'_> {
             approved: self.approve,
             by: Some(self.by.into()),
             trust: Some(self.trust),
+            option: self.option.map(str::to_string),
             ..Default::default()
         }))
     }
@@ -90,6 +94,8 @@ pub struct BudgetAnswered<'a> {
     pub note: Option<&'a str>,
     pub by: &'a str,
     pub via: &'a str,
+    /// `reset` or `decline` (theseus-ds5os).
+    pub option: Option<&'a str>,
 }
 
 impl Fact for BudgetAnswered<'_> {
@@ -98,7 +104,7 @@ impl Fact for BudgetAnswered<'_> {
 
     fn row(&self) -> Value {
         let q = self.question;
-        json!({"correlation_id": q.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via, "tool": q.tool})
+        json!({"correlation_id": q.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via, "tool": q.tool, "option": self.option})
     }
 
     fn event(&self) -> Option<Event> {
@@ -108,6 +114,7 @@ impl Fact for BudgetAnswered<'_> {
             correlation_id: q.correlation_id.clone(),
             approved: self.approve,
             by: Some(self.by.into()),
+            option: self.option.map(str::to_string),
             ..Default::default()
         }))
     }

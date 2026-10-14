@@ -37,6 +37,15 @@ impl Answer<'_> {
         }
     }
 
+    /// The option it is, as `confirm.resolved` carries it; an expiry is none.
+    fn option(&self) -> Option<&'static str> {
+        match self {
+            Answer::Ack => Some("ack"),
+            Answer::Decline(_) => Some("decline"),
+            Answer::Expired(_) => None,
+        }
+    }
+
     /// How its card closes.
     fn closed(&self, by: &str) -> Closed {
         match *self {
@@ -92,6 +101,7 @@ impl Core {
             by,
             via,
             trust: false,
+            option: answer.option(),
         };
         let acked = ExtendAcked {
             name: &name,

@@ -766,7 +766,7 @@ pub fn confirm_request(
         .as_ref()
         .map(|p| p.args.clone())
         .unwrap_or_default();
-    ConfirmRequest {
+    crate::rpc::offer(ConfirmRequest {
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),
@@ -782,5 +782,7 @@ pub fn confirm_request(
         task: crate::task::task_ref(session),
         external_text: None,
         change: None,
-    }
+        options: Vec::new(),
+        may_answer: None,
+    })
 }

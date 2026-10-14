@@ -15,6 +15,12 @@ by?: string,
  */
 trust?: boolean, 
 /**
+ * The answer's option (`work::AnswerOption.id`: `approve`, `decline`,
+ * `reset`, `accept`, `ack`, `approve_trust`), whichever verb gave it.
+ * Absent from a close that was no answer.
+ */
+option?: string, 
+/**
  * New input came before an answer.
  */
 superseded?: boolean, 

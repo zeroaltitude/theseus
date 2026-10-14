@@ -354,6 +354,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   frame; a stop at `reachable()`), and reads never wait. The wait, from the line's arrival, is the turn root's
   `lane_us` (`ordered::lane_us()`) and `theseus.rpc.lane.wait` by method. Tests: `rpc/tests_ordered.rs`,
   `telemetry/tests_lane.rs`.
+- **`work.answer`** (theseus-ds5os; `rpc/answer.rs`): one verb for every question. `question_id` is a whole id or a unique
+  end of at least four characters among the open questions and pending wakes (`pick`; an end naming two is refused,
+  naming both); `option` is one of `answer_options` for the question's kind (`kind_of_action`: budget, extension, a
+  layer-1 change, else a call; a reminder's are `reminder_options`), and one the question lacks is refused with the valid
+  ones. A call, a budget question, a change and an extension's ack go to `confirm_action_with`, so the place rule is
+  `judge_act`'s exactly as `action.confirm`'s (a refusal is ledgered `approval.refused` and the question keeps waiting);
+  a reminder's Done and snoozes go to the wake owner's verbs, refused only on a surface that is never an approval
+  surface. `QuestionKind::Ask` has no handler yet (`route`: "not answerable yet"; `owner-ask` replaces the arm). Every
+  answer, by any verb, is one `confirm.resolved` carrying its `option` (`CallAnswered.option`, `BudgetAnswered.option`)
+  and the push's change. A `ConfirmRequest` is built through `rpc::offer`, which words its `options`; `confirm.list`
+  adds `may_answer` for the asking connection (`Core::may_answer`: the place rule asked without making an act; a push
+  says nothing, since every connection hears it alike). Tests: `tests_m3/answer.rs`, and one each in
+  `tests_task_graph.rs`, `extend/tests.rs` and `tests_reminders.rs`.
 - **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
   `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
   stored as a state: the record keeps only `retired` (superseded or by hand; empty is derived past `[sessions]

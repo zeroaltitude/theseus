@@ -90,6 +90,8 @@ build.
   tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
   `task.list` again (`bindPush`).
+- `src/components/ConfirmCard.tsx` draws its buttons from the question's own `options` and hides them when it says
+  `may_answer: false` (pure parts: `src/lib/answers.ts`, `test/answers.test.ts`); every answer is `work.answer`.
 - `src/components/Budgets.tsx` (Money's Budgets panel; its pure parts are `src/lib/budgets.ts`): `budget.list`'s tree,
   the burn per hour from the history's `provider.call` rows, recent resets, the judge's day and the AWS hands. The
   budget questions waiting (with `ConfirmCard`) are its `BudgetQuestions`, first on Money, above the river, only while

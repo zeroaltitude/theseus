@@ -577,6 +577,82 @@ async fn a_layer_one_change_waits_and_accept_applies_it_and_decline_leaves_it() 
         .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// A layer-1 change is answered through `work.answer` with its own two
+/// options (theseus-ds5os): `accept` applies it, `decline` leaves the task as
+/// it was, and a call's `approve` is not one of them.
+#[tokio::test]
+async fn a_layer_one_change_is_answered_with_accept_or_decline() {
+    let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
+        cfg.policy.tools.insert("task.update".into(), Posture::Open);
+    });
+    let c = &r.core;
+    let s = session(c);
+    r.model
+        .hold_tasks
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    r.calls(&[(
+        "task_create",
+        json!({"brief": "Chart every buoy of the outer harbour and report the depths.",
+               "title": "Chart the outer harbour", "acceptance": ["a chart exists"],
+               "arrangement": {"pieces": [{"quote": QUOTE, "role": "objective"}]}}),
+    )]);
+    turn(c, &s, ASK).await;
+    let t = r.by_title("Chart the outer harbour");
+    let answer = |id: String, option: &'static str| {
+        let core = c.clone();
+        async move {
+            crate::tests_m3::rpc_as(
+                &core,
+                crate::tests_m3::surface("sock#1", crate::approval::Surface::Cli),
+                theseus_protocol::method::WORK_ANSWER,
+                json!({"question_id": id, "option": option}),
+            )
+            .await
+        }
+    };
+    r.calls(&[(
+        "task_update",
+        json!({"id": t.id, "version": 1, "patch": {"acceptance": ["every buoy has a depth"]}}),
+    )]);
+    turn(c, &s, "change its acceptance").await;
+    let q = c.confirm_list().unwrap().pop().unwrap();
+    assert!(q.change.is_some());
+    assert_eq!(
+        q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+        ["accept", "decline"]
+    );
+    let e = answer(q.correlation_id.clone(), "approve")
+        .await
+        .expect_err("a call's approve");
+    assert!(e.message.contains("accept, decline"), "{}", e.message);
+    let done = answer(q.correlation_id.clone(), "accept").await.unwrap();
+    assert_eq!(done["option"], "accept");
+    until("the accepted change", || r.task(&t.id).version == 2).await;
+    assert_eq!(r.task(&t.id).acceptance, ["every buoy has a depth"]);
+    assert_eq!(
+        rows(c, "action.confirm_answered").last().unwrap().data["option"],
+        "accept"
+    );
+    until("the turn's end", || c.confirm_list().unwrap().is_empty()).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    r.calls(&[(
+        "task_update",
+        json!({"id": t.id, "version": 2, "patch": {"objective": "chart the inner harbour"}}),
+    )]);
+    turn(c, &s, "make it the inner harbour").await;
+    let q = c.confirm_list().unwrap().pop().unwrap();
+    let done = answer(q.correlation_id.clone(), "decline").await.unwrap();
+    assert_eq!(done["option"], "decline");
+    let left = r.task(&t.id);
+    assert_eq!(left.version, 2);
+    assert!(left.proposal.is_none());
+    assert_eq!(rows(c, "task.change_declined").len(), 1);
+    r.model
+        .hold_tasks
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// What the operator says to start a task, and the quote of it (M5 27).
 pub(crate) const ASK: &str = "START: chart every buoy of the outer harbour, please";
 pub(crate) const QUOTE: &str = "chart every buoy of the outer harbour, please";

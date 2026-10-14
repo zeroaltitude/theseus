@@ -27,6 +27,11 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   policy before the daemon's work board fills views itself. `tests_work_join.rs` holds `attention_of()` to
   `attention()` over every view the push carries, but for what a work view does not carry (`· +1 more`, a ready
   session's wake time, an unknown state's name, a failed one's pending question).
+- `answer.rs` (theseus-ds5os): `work.answer` (`WorkAnswerParams`/`WorkAnswerResult`), `confirm.list`'s optional params,
+  `reminder_options()` (a reminder's four answers as `AnswerOption`s, made from `wakes::reminder_answers`, the one
+  wording), `approves()` (which option ids approve), and `ConfirmRequest::question(kind, may_answer)`, the pure
+  `Question` a request is. A `ConfirmRequest` carries its `options` (worded once by the daemon) and, in a read made for
+  one connection (`confirm.list`), `may_answer`; `confirm.resolved` carries the `option` that answered.
 - `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
   is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
   how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's

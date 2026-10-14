@@ -28,6 +28,13 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   failed execution stays on the board for good, so it would end every call); one that happens while waiting answers.
   `tests/status_edges.rs`: a daemon that connects and never answers (`--short` exit 1, silent, after 2 s), a dead
   daemon's socket file (exit 3), and a signal's clearing of the tab on a pseudo-terminal.
+- `src/answer.rs` (theseus-ds5os): `theseus answer ID OPTION [--note WORDS]`, one `work.answer` for every kind of question
+  (a call, a spend limit, a layer-1 change, an extension's ack, a reminder). The id is sent as typed: the daemon resolves
+  a whole id or a unique end of at least four characters, and an end naming two questions is refused naming both. The
+  option is one of the question's own (`approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or a reminder's
+  `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`); a wrong one is refused with the right ones. `work.answer` is in
+  `client::OPERATORS`, so a job's shell is refused before anything is sent. `theseus confirm` stays for listing and for
+  following the turn an answer resumes (`action.confirm`: the same handlers). Tests: `tests/answer.rs`.
 - `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `snooze`, `pause`, `resume` and
   `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
   Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).

@@ -2494,7 +2494,7 @@ impl TurnRunner {
         };
         let kept = Kept::of(t.tc.kernel, t.tc.execution_id);
         let question = budget_question(&who, spent, limit, needed, kept, &call);
-        let req = ConfirmRequest {
+        let req = crate::rpc::offer(ConfirmRequest {
             correlation_id: q.correlation_id.clone(),
             session_id: t.tc.session_id.into(),
             execution_id: t.tc.execution_id.into(),
@@ -2515,7 +2515,9 @@ impl TurnRunner {
             task: crate::task::task_ref(session),
             external_text: None,
             change: None,
-        };
+            options: Vec::new(),
+            may_answer: None,
+        });
         t.record(&fact::turn::BudgetAsked {
             request: &req,
             session_id: t.tc.session_id,

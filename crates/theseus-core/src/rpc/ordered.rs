@@ -47,9 +47,10 @@ use super::Core;
 /// recompile asked for, and the owner's retire and reopen. A task's cancel
 /// and a wake's name another execution than the caller's session, and
 /// `profile.use` no session at all: they stay unordered.
-pub(super) const ORDERED: [&str; 7] = [
+pub(super) const ORDERED: [&str; 8] = [
     method::TURN_SUBMIT,
     method::ACTION_CONFIRM,
+    method::WORK_ANSWER,
     method::EXECUTION_STOP,
     method::EXECUTION_CANCEL,
     method::SESSION_RECOMPILE,
@@ -287,6 +288,11 @@ impl Core {
                 let a = self.kernel.action(field("correlation_id")?).ok()??;
                 Some(a.session_id)
             }
+            // A short end of an id is resolved the way the answer will.
+            method::WORK_ANSWER => match self.resolve_question(field("question_id")?).ok()? {
+                super::answer::Target::Action(a) => Some(a.session_id),
+                super::answer::Target::Wake { .. } => None,
+            },
             method::EXECUTION_STOP | method::EXECUTION_CANCEL => {
                 let e = self.kernel.execution(field("execution_id")?).ok()??;
                 Some(e.session_id)

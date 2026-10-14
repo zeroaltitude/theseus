@@ -295,6 +295,7 @@ impl Core {
                 )
             }
             method::ACTION_CONFIRM => route(params, |p| self.action_confirm(p, conn)),
+            method::WORK_ANSWER => route(params, |p| self.work_answer(p, conn)),
             method::POLICY_TIGHTEN => route(params, |p| self.policy_tighten(p, conn)),
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
@@ -308,9 +309,7 @@ impl Core {
             | method::ONTOLOGY_PROPOSALS
             | method::ONTOLOGY_PROPOSAL_ACCEPT
             | method::ONTOLOGY_PROPOSAL_REJECT => self.rpc_ontology(&req.method, params, conn),
-            method::CONFIRM_LIST => reply(theseus_protocol::ConfirmListResult {
-                confirms: self.confirm_list()?,
-            }),
+            method::CONFIRM_LIST => route(or_empty(params), |p| self.confirm_list_for(p, conn)),
             method::TOOL_LIST => reply(self.tool_list()),
             method::EXECUTION_LIST => route(or_empty(params), |p| self.execution_list(p)),
             method::ACTION_LIST => route(params, |p| self.action_list(p)),

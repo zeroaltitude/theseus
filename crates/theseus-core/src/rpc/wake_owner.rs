@@ -255,7 +255,7 @@ impl Core {
 
     /// A reminder that fired, by its whole id: the execution it lived on and
     /// the wake as it was (the kernel keeps it for a snooze).
-    fn fired_wake(
+    pub(super) fn fired_wake(
         &self,
         id: &str,
     ) -> anyhow::Result<Option<(String, theseus_kernel::PendingWake)>> {

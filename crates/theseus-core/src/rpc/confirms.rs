@@ -71,7 +71,7 @@ impl Core {
             .as_ref()
             .and_then(|g| g.decision.clone())
             .unwrap_or_default();
-        Some(ConfirmRequest {
+        Some(super::answer::offer(ConfirmRequest {
             correlation_id: a.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: a.execution_id.clone(),
@@ -89,7 +89,9 @@ impl Core {
             // (theseus-9bp): its card offers to trust the session again.
             external_text: decision.external,
             change: crate::task_graph::tools::change_of(&self.store, tool, input),
-        })
+            options: Vec::new(),
+            may_answer: None,
+        }))
     }
 
     /// An open budget question, as the confirm it is (theseus-0sg): its
@@ -100,7 +102,7 @@ impl Core {
         let e = self.kernel.execution(&q.execution_id).ok()??;
         let b = &e.budget;
         let needed = usd(b.question_needs_micros);
-        Some(ConfirmRequest {
+        Some(super::answer::offer(ConfirmRequest {
             correlation_id: q.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: e.id.clone(),
@@ -137,7 +139,9 @@ impl Core {
             task: crate::task::task_ref(session),
             external_text: None,
             change: None,
-        })
+            options: Vec::new(),
+            may_answer: None,
+        }))
     }
 
     /// A card's question as the operator sees it, from its action and, for a
@@ -325,6 +329,7 @@ impl Core {
         if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by, &via);
         }
+        let kind = self.kind_of_action(&a);
         // A proposed extension's ack (M7 43a): nothing loads, and nothing
         // wakes.
         if a.tool == crate::extend::ACK {
@@ -354,6 +359,7 @@ impl Core {
             by,
             via: &via,
             trust,
+            option: Some(super::answer::option_id(kind, approve, trust)),
         };
         let answered = fact::row(&fact, Some(&a.session_id), None)?;
         let proposal = match approve {
@@ -662,6 +668,11 @@ impl Core {
             note,
             by,
             via,
+            option: Some(super::answer::option_id(
+                theseus_protocol::work::QuestionKind::Budget,
+                approve,
+                false,
+            )),
         };
         let answered = fact::row(&fact, Some(&q.session_id), None)?;
         let reset = self.kernel.frame(&[&q.execution_id], |k| {
