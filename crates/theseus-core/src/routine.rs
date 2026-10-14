@@ -133,24 +133,29 @@ impl Book {
     }
 
     /// The routine `name` names: its session id, or the end of it (four
-    /// characters at least) when exactly one matches.
+    /// characters at least), or its title (whole or a part of it, any case),
+    /// when exactly one matches.
     pub fn find(&self, store: &Store, name: &str) -> Result<Arc<RoutineSpec>, String> {
         let all = self.all(store).map_err(|e| format!("{e:#}"))?;
         let n = name.trim().trim_start_matches('…');
-        if n.len() < 4 {
-            return Err(format!(
-                "`{name}` is too short to name a routine: give at least four characters of its id"
-            ));
-        }
-        let hits: Vec<&Arc<RoutineSpec>> = all
+        let by_id: Vec<&Arc<RoutineSpec>> = all
             .iter()
-            .filter(|s| s.session_id == n || s.session_id.ends_with(n))
+            .filter(|s| n.len() >= 4 && (s.session_id == n || s.session_id.ends_with(n)))
             .collect();
+        let lower = n.to_lowercase();
+        let by_title: Vec<&Arc<RoutineSpec>> = all
+            .iter()
+            .filter(|s| !lower.is_empty() && s.title.to_lowercase().contains(&lower))
+            .collect();
+        let hits = if by_id.is_empty() { by_title } else { by_id };
         match hits[..] {
             [one] => Ok(one.clone()),
+            [] if n.len() < 4 => Err(format!(
+                "`{name}` names no routine: give at least four characters of its id, or its title"
+            )),
             [] => Err(format!("no routine is named `{name}`")),
             _ => Err(format!(
-                "`{name}` names {} routines: give more of its id",
+                "`{name}` names {} routines: give more of its id or title",
                 hits.len()
             )),
         }
