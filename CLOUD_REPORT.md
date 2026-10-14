@@ -3,7 +3,7 @@
 Branch `cloud/20261013-threadbench`, on main 9fa84735 (store format 27; no store or Rust change here: Python, a plan JSON
 and Markdown only). Started 00:22 UTC, 2026-10-14; the report is written the same morning, well inside the 5 hours.
 
-## What was built (one step, five commits)
+## What was built (one step, six commits and this report)
 
 | Commit | What |
 |---|---|
@@ -12,6 +12,7 @@ and Markdown only). Started 00:22 UTC, 2026-10-14; the report is written the sam
 | `da36e36` | the drivers (arm table, layouts, pins, plan check, A8 probe, threads-arm refusals), the scorer, the cost model, the stand-in rules, the persona and prefix tracks, the report draft, the README, `bench/plans/threadbench-t0r.json`, the stand-in smoke. |
 | `2fe7b00` | model calls and first token read from each harness's own raw answer; a stand-in service the local-ops arm leaves running is stopped by pid; more tests. |
 | `7af2d58` | no cue or persona address on a stream's first message (retuned rates; plan digests moved); the report names the arms it could not run. |
+| `514c2f5` | the README's and docstring's counts as generated (47 questions, about 100 label probes, 143 messages). |
 
 Nothing is committed under `docs/benchmarks/`, `docs/spec`, `docs/status.md`, the root README or `docs/design/`. `bench/README.md`
 gains one table row for `threads/` (the maintainer may move it).
