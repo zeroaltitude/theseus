@@ -115,6 +115,10 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
                           "evidence": [{"identity": "commit:0000tide"}]})
         }
         "wake.at" => return json!({"after": "10m", "note": "check the tide"}),
+        "routine.create" => {
+            return json!({"title": "Tide check", "schedule": "weekdays 08:00",
+                          "brief": "read the tide table"})
+        }
         // `argv` or `steps`, so neither is required by the schema.
         "proc.run" => return json!({"argv": ["wc", "-l"]}),
         // Words, a time, a book or a topic: none is required alone.

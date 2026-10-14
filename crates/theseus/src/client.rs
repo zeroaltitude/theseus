@@ -284,7 +284,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 46] = [
+pub const OPERATORS: [(&str, &str); 52] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::WORK_ANSWER, "theseus answer"),
     (method::POLICY_EARNED_ANSWER, "theseus policy earned accept"),
@@ -340,6 +340,12 @@ pub const OPERATORS: [(&str, &str); 46] = [
     (method::THREAD_RESUME, "theseus thread resume"),
     (method::THREAD_DONE, "theseus thread done"),
     (method::THREAD_REOPEN, "theseus thread reopen"),
+    (method::ROUTINE_CREATE, "theseus routine add"),
+    (method::ROUTINE_PAUSE, "theseus routine pause"),
+    (method::ROUTINE_RESUME, "theseus routine resume"),
+    (method::ROUTINE_RUN_NOW, "theseus routine run"),
+    (method::ROUTINE_UPDATE, "theseus routine update"),
+    (method::ROUTINE_DELETE, "theseus routine rm"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):

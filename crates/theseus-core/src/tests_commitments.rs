@@ -418,6 +418,7 @@ fn series(days: Vec<theseus_kernel::Day>, until_ms: Option<u64>) -> theseus_kern
         first_ms: SUN_EVENING,
         days,
         until_ms,
+        cron: None,
     }
 }
 

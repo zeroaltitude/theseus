@@ -13,6 +13,7 @@ mod cancels;
 pub mod cgroup;
 pub mod children;
 pub mod clock;
+pub mod cron;
 pub mod day_ceiling;
 mod earlier;
 pub mod gate;
@@ -31,6 +32,7 @@ pub mod place_limit;
 pub mod redact;
 mod reopen;
 pub mod repeat;
+pub mod routines;
 mod spawn;
 pub mod spend;
 pub mod spool;
@@ -53,6 +55,8 @@ mod tests_answered;
 #[cfg(test)]
 mod tests_budgets;
 #[cfg(test)]
+mod tests_cron;
+#[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_deferred;
@@ -72,6 +76,8 @@ mod tests_overdraw;
 mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
+#[cfg(test)]
+mod tests_routines;
 #[cfg(test)]
 mod tests_runaway;
 #[cfg(test)]
@@ -104,6 +110,7 @@ pub use kernel::{
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use overdraw::{default_hard_multiple, HardStop};
 pub use repeat::{Day, Every, Repeat, TimeZone};
+pub use routines::{Reschedule, RoutineDue, RoutineFired, RoutinePlan, RunPlan};
 pub use spool::Spool;
 pub use stops::Stop;
 pub use tasks::{carve_key, task_ids, Opening, TakenReports, TaskOpen};

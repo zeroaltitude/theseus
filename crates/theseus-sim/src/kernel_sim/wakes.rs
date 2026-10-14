@@ -108,6 +108,7 @@ impl World {
                 first_ms: due,
                 days: vec![],
                 until_ms,
+                cron: None,
             })
         } else {
             None

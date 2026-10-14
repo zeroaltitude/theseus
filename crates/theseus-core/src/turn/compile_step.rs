@@ -77,7 +77,17 @@ impl TurnRunner {
             crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);
         // The wakes this conversation has pending, in the same last block
         // (theseus-lherl): from the turn's list, never a read of its own.
-        crate::commitments::attach(t.tc.commitments, self.kernel.now_ms(), &mut compiled);
+        // And the routines it made, from memory (theseus-pvm5c).
+        let routines = crate::routine::lines(
+            &self.kernel,
+            &self.tools.routines.made_in(&session.session_id),
+        );
+        crate::commitments::attach(
+            t.tc.commitments,
+            &routines,
+            self.kernel.now_ms(),
+            &mut compiled,
+        );
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

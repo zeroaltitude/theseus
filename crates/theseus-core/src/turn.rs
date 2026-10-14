@@ -1286,7 +1286,7 @@ impl TurnRunner {
             };
             let report = crate::task::Report::new(e, task_title.clone(), last);
             let mut records = closing.records(e, report.node.as_deref())?;
-            let Some(target) = &task.target else {
+            let Some(target) = task.target_for(&frames.store, &report) else {
                 return Ok(records);
             };
             let (post, more) =

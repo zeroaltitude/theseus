@@ -148,6 +148,19 @@ impl Kernel {
         new: NewWake,
         by: &str,
     ) -> Result<WakeSet> {
+        self.create_wake_with(execution_id, id, new, by, vec![])
+    }
+
+    /// `create_wake` with the caller's own records in the one frame (a
+    /// routine's record: `routines.rs`).
+    pub fn create_wake_with(
+        &self,
+        execution_id: &str,
+        id: Option<String>,
+        new: NewWake,
+        by: &str,
+        extra: Vec<NewRecord>,
+    ) -> Result<WakeSet> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
         let mut e = self
@@ -173,7 +186,7 @@ impl Kernel {
             "a wake may be at most {} days from now",
             max / 86_400_000
         );
-        self.insert_wake(&mut e, id, new, by)
+        self.insert_wake_with(&mut e, id, new, by, extra)
     }
 
     /// Move a wake's next time to `due_at_ms`, in one frame with the row

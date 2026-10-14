@@ -29,11 +29,13 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 mod outputs;
 pub(crate) mod people;
+mod routines;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+pub use routines::RoutinesConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 mod sparse;
@@ -148,6 +150,9 @@ pub struct Config {
     /// `[sessions]`: the state windows and the re-title (theseus-emqx).
     #[serde(default, skip_serializing_if = "SessionsConfig::is_default")]
     pub sessions: SessionsConfig,
+    /// `[routines]`: recurring work, a run a task (theseus-pvm5c), `config/routines.rs`.
+    #[serde(default, skip_serializing_if = "RoutinesConfig::is_default")]
+    pub routines: RoutinesConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
@@ -644,8 +649,6 @@ pub struct KernelSection {
     #[serde(default = "wake_limits::default_max_reminders")]
     pub max_reminders: usize,
     /// Routines and watches, declared for their rows: 50 and 20.
-    #[serde(default = "wake_limits::default_max_routines")]
-    pub max_routines: usize,
     #[serde(default = "wake_limits::default_max_watches")]
     pub max_watches: usize,
     /// A person's message queued behind a running turn interrupts that turn's
@@ -700,7 +703,6 @@ impl Default for KernelSection {
             max_wake_ahead_days: wake_limits::default_max_ahead_days(),
             max_wakes: wake_limits::default_max_wakes(),
             max_reminders: wake_limits::default_max_reminders(),
-            max_routines: wake_limits::default_max_routines(),
             max_watches: wake_limits::default_max_watches(),
             steer_queued: true,
         }
@@ -1368,6 +1370,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.routines.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;
@@ -1460,6 +1463,7 @@ impl Config {
                 .chain(crate::task::NAMES)
                 .chain(crate::task_graph::tools::NAMES)
                 .chain(crate::wake::NAMES)
+                .chain(crate::routine_tool::NAMES)
                 .chain(crate::glide::NAMES)
                 .chain(crate::extend::NAMES)
                 .chain(crate::aws::NAMES)

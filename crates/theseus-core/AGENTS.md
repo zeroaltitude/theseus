@@ -1250,6 +1250,31 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`config/wake_limits.rs`). The commitments block says `remind:` and `(paused)`. Tests: `tests_reminders.rs` (a real
   core, the driver, the real clock), the kernel's `tests_wake_owner.rs`, theseusd's `tests/wakes.rs` (a stop across the
   due time), theseus-discord's `tests_gateway/remind.rs`.
+- **Routines** (theseus-pvm5c; horizon HZ4; store format 34): recurring work done right. A routine is a conversation's execution of
+  its own (limit = its month, `[routines] default_month_usd`, pinned) with one pending wake (`Purpose::Routine`, `WakeRun::Task`) and
+  a record, `theseus_protocol::routines::RoutineSpec`, as the META key `routine:<session id>` (no stored field of the session's
+  own); `routine.rs` holds the pure and shared parts (`Book`: the records in memory, read once on the driver's first tick;
+  `prepare`/`create`, which the owner's verbs and the model's tool both call, needing no `Core`; `plan`, the firing decision;
+  `info_of`, `run_row`), `rpc/routines.rs` the eight verbs (`routine.create|list|runs|pause|resume|run_now|update|delete`, the
+  owner's acts: `judge_act(Act::Routine)`, refused inside a job by the CLI) and the due scan's pass (`fire_routines_in`, called
+  at the end of `Core::fire_notices`, the harness's 500 ms tick: no new timer). `plan` decides in order: after downtime
+  `catch_up` (`one`: a run saying "N missed while the daemon was down"; `none`: skipped as `catch_up`; `auto`: by the schedule's
+  period, an hour or more runs once); a run still going (`overlap`: skipped, or a refusal for run now); the month's money (a
+  run is carved whole from what the month has left; short of it the occurrence is skipped as `budget` and the owner told once a
+  month, `RoutineSpec.month_told`); else the run: a task session whose first node is headed `Run 22 of Morning digest, due
+  08:00, started 08:00:00.3 (2 missed while the daemon was down); the last run reported: <first line>`, and the usual task
+  brief after it, its report posted to `deliver_to` (`dm` by default, `none`, or a place) like any task's. The month turns at
+  the first run of the local month (`budget.reset { why: "month" }`). `speak: when_notable`: the brief asks for a report ending
+  `NOTHING NEW` when there is nothing to say, and such a run only logs (`TaskOf::target_for`, `routine::quiet`, the run's mark
+  `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); `TaskRun.tools`
+  is stored and not honoured (the `routine-trust` row). The model's `routine.create` (`routine_tool.rs`) is private-place only
+  and always waits for the owner's yes: its plan names an authority, which `task_graph::tools::authority_for` keeps for it, and
+  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · up to $0.50 a
+  run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
+  Morning digest (next Fri)`, from `Book::made_in`, memory only). `[kernel] max_routines` moved to `[routines] max_routines`.
+  Tests: `tests_routines.rs` (a minute routine runs three times as three fresh tasks reporting to the DM; overlap; pause and run
+  now; a spent month and its reset; the catch-up's words; the model's card; `when_notable`; update and delete), the kernel's
+  `tests_routines.rs` and `tests_cron.rs`, and `tests_layouts.rs`' format-33 wake.
 - **Deferred tasks** (theseus-rcgph): `task.create { start_at | start_after }` opens a task asleep (`task_start.rs`):
   `Kernel::open_task_at` writes it `Waiting{DueAt}` in the open's one frame with its carve held (the parent's
   remaining shows it), the due scan queues it, and its first turn's catch-up writes the node `Deferred task, set <when>

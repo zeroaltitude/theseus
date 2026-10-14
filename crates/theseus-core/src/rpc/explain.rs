@@ -436,6 +436,8 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
     Plan {
         resources: vec![Resource { path: at, access }],
         summary: format!("a call of {}", tool.name()),
+        authority: (tool.name() == crate::routine_tool::CREATE)
+            .then(|| crate::routine_tool::ASKS.to_string()),
         ..Default::default()
     }
 }

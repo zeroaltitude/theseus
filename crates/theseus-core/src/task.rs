@@ -351,7 +351,7 @@ mod tests {
 }
 
 /// The child's first input: what it is, and then the brief.
-fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
+pub(crate) fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
     format!(
         "[Task {}: a background task started by session {}. Work on the brief below on your \
          own. Nobody reads this session while you work, and nobody answers questions asked in \

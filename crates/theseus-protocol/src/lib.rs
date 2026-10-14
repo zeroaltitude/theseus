@@ -55,6 +55,7 @@ mod push;
 pub mod resident;
 pub mod retract;
 pub mod route;
+pub mod routines;
 pub mod rsi;
 pub mod sandbox;
 pub mod sessions;
@@ -239,6 +240,9 @@ pub mod method {
         /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a
         /// reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
+        /// Routines (theseus-pvm5c, `routines.rs`): recurring work that is its
+        /// own execution, every run a fresh task with a budget.
+        ROUTINE_CREATE = "routine.create", ROUTINE_LIST = "routine.list", ROUTINE_RUNS = "routine.runs", ROUTINE_PAUSE = "routine.pause", ROUTINE_RESUME = "routine.resume", ROUTINE_RUN_NOW = "routine.run_now", ROUTINE_UPDATE = "routine.update", ROUTINE_DELETE = "routine.delete",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs

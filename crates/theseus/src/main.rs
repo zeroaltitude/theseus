@@ -41,6 +41,7 @@ mod print;
 mod prompt;
 mod remind;
 mod retract;
+mod routine;
 mod self_cmd;
 mod standing_cmd;
 mod status;
@@ -538,6 +539,13 @@ enum Cmd {
     Thread {
         #[command(subcommand)]
         cmd: Option<thread::ThreadCmd>,
+    },
+    /// Routines (theseus-pvm5c): recurring work, each run a fresh task with its own budget, from a
+    /// month of its own. `routine` lists them; `routine add SCHEDULE BRIEF`, `runs`, `pause`,
+    /// `resume`, `run`, `update`, `rm`. The writes are yours alone (refused inside a job).
+    Routine {
+        #[command(subcommand)]
+        cmd: Option<routine::RoutineCmd>,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -1140,7 +1148,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
-        Cmd::Status(_) | Cmd::Postmortem(_) => unreachable!("they connect for themselves"),
+        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => unreachable!("handled above"),
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
         Cmd::Ledger {
@@ -1160,9 +1168,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
-        Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
     };
     close(conn).await;
     result

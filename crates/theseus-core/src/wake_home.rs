@@ -133,7 +133,8 @@ impl Core {
                 ),
             }
         }
-        fired
+        // And the routines due, found by the same term (theseus-pvm5c).
+        fired + self.fire_routines_in(&execs, now)
     }
 
     fn fire_notices_of(&self, e: &Execution, now: u64) -> Result<usize> {

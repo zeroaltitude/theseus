@@ -132,29 +132,45 @@ fn line(w: &PendingWake, now_ms: u64, at: &dyn Fn(u64) -> Local) -> String {
 /// `at` reads; none when there are none. Pure: the clock and the zone are
 /// passed in.
 pub fn render(wakes: &[PendingWake], now_ms: u64, at: &dyn Fn(u64) -> Local) -> Option<Shown> {
-    if wakes.is_empty() {
+    render_with(wakes, &[], now_ms, at)
+}
+
+/// `render`, with the routines this conversation made after the wakes
+/// (theseus-pvm5c; `routine::lines`: `🔁 a41d04 weekdays 08:00 Morning digest
+/// (next Fri)`), under the same bounds.
+pub fn render_with(
+    wakes: &[PendingWake],
+    routines: &[String],
+    now_ms: u64,
+    at: &dyn Fn(u64) -> Local,
+) -> Option<Shown> {
+    let all: Vec<String> = wakes
+        .iter()
+        .map(|w| line(w, now_ms, at))
+        .chain(routines.iter().cloned())
+        .collect();
+    if all.is_empty() {
         return None;
     }
     let head = format!(
         "{HEAD}, {}: to change one, move it with wake.move or end it with wake.cancel, \
          never set a second.]",
-        wakes.len()
+        all.len()
     );
     // A closing line costs a few tokens: keep room for it.
     let more = |n: usize| format!("(and {n} more: wake.list, or `theseus wakes`, shows them all.)");
     let mut lines: Vec<String> = Vec::new();
     let mut used = tokens(&head);
-    for (i, w) in wakes.iter().enumerate() {
-        let l = line(w, now_ms, at);
-        let rest = wakes.len() - i - 1;
+    for (i, l) in all.iter().enumerate() {
+        let rest = all.len() - i - 1;
         let reserve = if rest > 0 { tokens(&more(rest)) + 1 } else { 0 };
-        if lines.len() >= MAX_LINES || used + tokens(&l) + 1 + reserve > MAX_TOKENS {
+        if lines.len() >= MAX_LINES || used + tokens(l) + 1 + reserve > MAX_TOKENS {
             break;
         }
-        used += tokens(&l) + 1;
-        lines.push(l);
+        used += tokens(l) + 1;
+        lines.push(l.clone());
     }
-    let left_out = wakes.len() - lines.len();
+    let left_out = all.len() - lines.len();
     let mut text = head;
     for l in &lines {
         text.push('\n');
@@ -178,10 +194,11 @@ pub fn render(wakes: &[PendingWake], now_ms: u64, at: &dyn Fn(u64) -> Local) -> 
 /// none is pending.
 pub fn attach(
     pending: &Pending,
+    routines: &[String],
     now_ms: u64,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<Shown> {
-    let shown = render(&pending.get(), now_ms, &local)?;
+    let shown = render_with(&pending.get(), routines, now_ms, &local)?;
     crate::task_graph::view::attach_text(&mut compiled.request, &shown.text);
     let t = shown.tokens;
     compiled.est_tokens += t;

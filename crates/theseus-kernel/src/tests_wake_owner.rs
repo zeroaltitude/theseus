@@ -185,6 +185,7 @@ fn a_paused_series_is_passed_over_and_resume_keeps_its_numbering() {
         first_ms: first,
         days: vec![],
         until_ms: None,
+        cron: None,
     };
     let set = w
         .kernel
@@ -262,6 +263,7 @@ fn pause_until_moves_a_series_past_the_time_and_counts_what_it_skipped() {
                     first_ms: first,
                     days: vec![],
                     until_ms: None,
+                    cron: None,
                 }),
                 purpose: Purpose::Remind,
                 run: WakeRun::Notice,
@@ -330,8 +332,16 @@ fn a_task_or_a_probe_is_refused_with_words_and_nothing_is_written() {
     let w = world_with(cfg());
     let (e, _) = with_reminder(&w, DAY);
     for (run, words) in [
-        (WakeRun::Task(TaskRun::default()), "routines row"),
-        (WakeRun::Probe(WakeProbe::default()), "watches row"),
+        // A routine's task is built (theseus-pvm5c): one with no brief is the
+        // refusal; a probe still waits for the watches row.
+        (
+            WakeRun::Task(TaskRun::default()),
+            ("needs a brief", "say what each run does"),
+        ),
+        (
+            WakeRun::Probe(WakeProbe::default()),
+            ("not built yet", "watches row"),
+        ),
     ] {
         let before = theseus_store::frames_written_here();
         let err = w
@@ -349,10 +359,7 @@ fn a_task_or_a_probe_is_refused_with_words_and_nothing_is_written() {
             )
             .unwrap_err()
             .to_string();
-        assert!(
-            err.contains("not built yet") && err.contains(words),
-            "{err}"
-        );
+        assert!(err.contains(words.0) && err.contains(words.1), "{err}");
         assert_eq!(
             theseus_store::frames_written_here(),
             before,

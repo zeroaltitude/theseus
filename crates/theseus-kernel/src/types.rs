@@ -167,11 +167,26 @@ pub struct PendingWake {
     pub paused_at_ms: Option<u64>,
 }
 
+impl Execution {
+    /// A routine's execution (theseus-pvm5c): it holds a routine's wake.
+    pub fn is_routine(&self) -> bool {
+        self.wakes.iter().any(|w| w.purpose == Purpose::Routine)
+    }
+}
+
 impl PendingWake {
     /// Whether a turn of its conversation is due at `now_ms`: a turn's wake,
     /// not paused, whose time has come.
     pub fn turn_due(&self, now_ms: u64) -> bool {
         self.run.is_turn() && self.paused_at_ms.is_none() && self.due_at_ms <= now_ms
+    }
+
+    /// Whether it is a routine's run that is due at `now_ms`, to be opened at
+    /// once (`routines.rs`): a task's wake, not paused, whose time has come.
+    pub fn task_due(&self, now_ms: u64) -> bool {
+        matches!(self.run, WakeRun::Task(_))
+            && self.paused_at_ms.is_none()
+            && self.due_at_ms <= now_ms
     }
 
     /// Whether it is a notice that is due at `now_ms`, to be posted at once.
