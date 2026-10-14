@@ -486,10 +486,31 @@ async fn a_reminder_is_answered_through_work_answer() {
     assert_eq!(rows(&r.core, "wake.snoozed").len(), 1);
     let list = rpc(&r.core, "wake.list", json!({})).await.unwrap();
     assert_eq!(list["wakes"].as_array().unwrap().len(), 1, "{list}");
+    let due = |list: &Value| list["wakes"][0]["due_at_ms"].as_u64().unwrap();
+    let now = theseus_protocol::now_unix_ms();
+    assert!(
+        due(&list) > now + 50 * 60_000,
+        "an hour, not ten minutes: {list}"
+    );
     // Pending: named by a unique end, set again for ten minutes.
     let end = id[id.len() - 6..].to_string();
     answer(end.clone(), "snooze_10m").await.unwrap();
     assert_eq!(rows(&r.core, "wake.snoozed").len(), 2);
+    let list = rpc(&r.core, "wake.list", json!({})).await.unwrap();
+    let now = theseus_protocol::now_unix_ms();
+    assert!(due(&list) < now + 11 * 60_000, "ten minutes: {list}");
+    // A connection that is not the Discord binding never answers as a
+    // Discord user: refused, and the reminder is as it was.
+    let posed = rpc(
+        &r.core,
+        "work.answer",
+        json!({"question_id": end, "option": "done",
+            "discord": {"user_id": "271828182845904523", "channel_id": "900000000000000007"}}),
+    )
+    .await
+    .expect_err("only the binding names a Discord user");
+    assert!(posed.contains("only the Discord binding"), "{posed}");
+    assert!(rows(&r.core, "wake.done").is_empty());
     // Done settles it.
     let done = answer(end, "done").await.unwrap();
     assert_eq!(done["option"], "done");
