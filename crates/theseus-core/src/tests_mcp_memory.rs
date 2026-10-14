@@ -26,7 +26,7 @@ fn rig(memory: bool) -> Rig {
 
 /// One request on an MCP connection (or `surface`'s): the result or the
 /// error.
-async fn rpc(
+pub(crate) async fn rpc(
     core: &Arc<Core>,
     surface: Surface,
     method: &str,

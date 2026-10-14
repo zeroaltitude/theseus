@@ -38,6 +38,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`); a wrong one is refused with the right ones. `work.answer` is in
   `client::OPERATORS`, so a job's shell is refused before anything is sent. `theseus confirm` stays for listing and for
   following the turn an answer resumes (`action.confirm`: the same handlers). Tests: `tests/answer.rs`.
+- `src/task_start.rs` (theseus-7oq0w): `theseus task start BRIEF [--title T] [--in SESSION] [--budget USD] [--profile P]
+  [--at WHEN | --in-time SPAN] [--quote-file FILE]… [--report-to home|board]`, one `task.start` call with no model turn; it prints
+  the task's short id and where to follow it. The times go to the daemon as typed (`start_when`, read in the daemon's zone, as
+  `remind`'s are). `--in` resolves a session like `watch` does. A quote file's text is outside text for the task (it holds
+  the task's session). `task.start` is in `client::OPERATORS`, so a job's shell is refused before anything is sent. `task`
+  (this verb) and `tasks` (the list) are separate subcommands. Tests: `tests/task_start.rs` (a scripted daemon).
 - `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `snooze`, `pause`, `resume` and
   `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
   Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).

@@ -18,6 +18,9 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read b
   their own) and one deadline; reconnecting with backoff; the frame clock.
 - `src/app.rs`: the state and every change to it (keys, the daemon's messages, answers). It does no I/O: it returns
   the requests to send.
+- `src/new_task.rs` (theseus-7oq0w): `N` opens a one-line prompt for a brief; enter sends one `task.start` under the
+  conversation the cursor is on (Home when it is on a task or on nothing), with no model turn, and esc starts nothing.
+  `Mode::NewTask`, `App::brief`, `Purpose::NewTask`. Tests: `src/tests_new_task.rs`.
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.

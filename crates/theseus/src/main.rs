@@ -45,6 +45,7 @@ mod retract;
 mod self_cmd;
 mod standing_cmd;
 mod status;
+mod task_start;
 mod thread;
 mod why;
 mod work;
@@ -361,6 +362,14 @@ enum Cmd {
         /// Only the tasks this session started.
         #[arg(long, short)]
         session: Option<String>,
+    },
+    /// Task: `task start BRIEF` starts a task from your word with no model turn (theseus-7oq0w): now,
+    /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
+    /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
+    /// inside a job). `tasks` lists them.
+    Task {
+        #[command(subcommand)]
+        cmd: task_start::TaskCmd,
     },
     /// Wakes: the turns conversations asked for at a time with wake.at that have not run yet,
     /// soonest first, with session, due time, and note.
@@ -1140,6 +1149,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
         Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
+        Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Remind(a) => remind::remind(c, json, a).await,

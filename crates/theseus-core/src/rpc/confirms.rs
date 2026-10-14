@@ -876,6 +876,11 @@ pub(crate) enum Act<'a> {
         what: &'a str,
         tightens: bool,
     },
+    /// The owner's start of a task with no model turn (theseus-7oq0w,
+    /// `task.start`): it spends money and runs a session, so a job's process
+    /// or a shared place that started one would spend the owner's budget.
+    /// `what` names it: `starting a task (Survey the north quay)`.
+    Task { what: &'a str },
     /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
     /// every recall, writes notes into sessions, and posts a card, so a job's process
     /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
@@ -906,6 +911,7 @@ impl Act<'_> {
             Act::SelfBacklog { method, .. } => method,
             Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
+            Act::Task { .. } => theseus_protocol::method::TASK_START,
         }
     }
 }

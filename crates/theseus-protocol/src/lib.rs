@@ -61,6 +61,7 @@ pub mod sessions;
 pub mod signals;
 pub mod standing;
 mod submit;
+pub mod task_start;
 pub mod tasks;
 pub mod term;
 #[cfg(test)]
@@ -233,6 +234,8 @@ pub mod method {
         TASK_CANCEL = "task.cancel",
         /// One task record (39a, `tasks::TaskGetParams`). A read.
         TASK_GET = "task.get",
+        /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
+        TASK_START = "task.start",
         /// Wakes (DD8): the turns conversations asked for at a time, with
         /// `wake.at`, that have not run yet.
         WAKE_LIST = "wake.list",

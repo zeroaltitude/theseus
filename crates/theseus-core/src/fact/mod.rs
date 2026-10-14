@@ -79,6 +79,7 @@ pub mod start;
 pub mod steer;
 pub mod synthesis;
 pub mod task_graph;
+pub mod task_start;
 pub mod term;
 pub mod thread;
 pub mod tool;
@@ -356,6 +357,7 @@ facts![
     tool::LateResult<'static>,
     tool::TaskStarted<'static>,
     tool::TaskHoldsExternal<'static>,
+    task_start::TaskStartedByOwner<'static>,
     arrangement::TaskArranged<'static>,
     arrangement::TaskArrangementRefused<'static>,
     check::TaskCheckOpened<'static>,

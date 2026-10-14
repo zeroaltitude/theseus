@@ -358,6 +358,10 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
         Mode::Filter => Some(("/", app.filter.as_str())),
         Mode::Input => Some(("> ", app.input.as_str())),
         Mode::Note(_) => Some(("decline, with a note (enter: none)> ", app.note.as_str())),
+        Mode::NewTask(_) => Some((
+            "new task: the brief (enter starts it)> ",
+            app.brief.as_str(),
+        )),
         _ => None,
     };
     if let Some((prompt, text)) = typed {
@@ -425,7 +429,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 16] = [
+    const KEYS: [&str; 17] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -435,6 +439,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " i          type to the open session: enter sends, esc leaves",
         " s          stop the open conversation (s twice)",
         " c          cancel the open task (c twice)",
+        " N          start a task (no model turn) under the conversation under the cursor",
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",

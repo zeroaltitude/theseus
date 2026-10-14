@@ -72,6 +72,13 @@ pub fn due(
         }
         (None, None) => return Err("give `start_at` or `start_after`".into()),
     };
+    bounded(due, now_ms, max_ahead_ms)
+}
+
+/// `due` (unix ms) if a task may start then: at least `MIN_AHEAD_MS` and at
+/// most `max_ahead_ms` from `now_ms`. The owner's `task.start` reads the same
+/// bounds.
+pub fn bounded(due: u64, now_ms: u64, max_ahead_ms: u64) -> Result<u64, String> {
     let ahead = due.saturating_sub(now_ms);
     if ahead < MIN_AHEAD_MS {
         return Err(format!(
