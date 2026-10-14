@@ -284,7 +284,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 37] = [
+pub const OPERATORS: [(&str, &str); 43] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_EARNED_ANSWER, "theseus policy earned accept"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
@@ -331,6 +331,12 @@ pub const OPERATORS: [(&str, &str); 37] = [
     (method::SESSION_REOPEN, "theseus sessions reopen"),
     (method::STANDING_ADD, "theseus standing add"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
+    (method::THREAD_NEW, "theseus thread new"),
+    (method::THREAD_EDIT, "theseus thread edit"),
+    (method::THREAD_PAUSE, "theseus thread pause"),
+    (method::THREAD_RESUME, "theseus thread resume"),
+    (method::THREAD_DONE, "theseus thread done"),
+    (method::THREAD_REOPEN, "theseus thread reopen"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -420,6 +426,25 @@ mod tests {
             assert!(e.to_string().contains("theseus standing"), "{e}");
         }
         assert!(refuse_in_a_job(method::STANDING_LIST, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot make or change a thread (theseus-nhew): the
+    /// threads are the owner's. The reads go.
+    #[test]
+    fn a_jobs_process_cannot_write_threads() {
+        for m in [
+            method::THREAD_NEW,
+            method::THREAD_EDIT,
+            method::THREAD_PAUSE,
+            method::THREAD_RESUME,
+            method::THREAD_DONE,
+            method::THREAD_REOPEN,
+        ] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().contains("theseus thread"), "{e}");
+        }
+        assert!(refuse_in_a_job(method::THREAD_LIST, Some("ses_0000aa1b2c3")).is_ok());
+        assert!(refuse_in_a_job(method::THREAD_SHOW, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     /// A job's process cannot label a judgment (M5 25c): the learning

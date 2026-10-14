@@ -19,6 +19,8 @@
 //!   `public_paths`; no `proc.run` and no `aws.*`; and only the context
 //!   files marked `readers = "public"`. Its model is offered only those
 //!   tools (`offered`), and the gate refuses any other call (`refusal`).
+//! - **A thread's virtual place** (`thread:<slug>`, theseus-nhew) is private
+//!   always, and a shared place never binds, addresses or lists one.
 //! - **A task takes its parent's class**: it speaks where its parent does,
 //!   since `outbox.target` gives a task its parent's place (`task.rs`).
 //! - A guild place the binding has not named (it has not started yet, or
@@ -286,6 +288,10 @@ impl PlaceRule {
         let Some(t) = target else {
             return PlaceClass::Private;
         };
+        // A thread's virtual place is private always (theseus-nhew).
+        if theseus_protocol::threads::slug_of_place(t).is_some() {
+            return PlaceClass::Private;
+        }
         if let Some(u) = t.strip_prefix("discord:dm:") {
             return match self.owners(cfg).contains(&format!("discord:{u}")) {
                 true => PlaceClass::Private,

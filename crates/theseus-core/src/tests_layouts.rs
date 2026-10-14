@@ -527,7 +527,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 32);
+    assert_eq!(moved["format"], 33);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +579,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 32);
+    assert_eq!(moved["format"], 33);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,11 +634,63 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 32);
+    assert_eq!(moved["format"], 33);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
         .unwrap()
         .unwrap();
     assert_eq!((origin.session.as_str(), origin.position), (sid, 3));
+}
+
+/// A thread's record as format 33 wrote it (theseus-nhew, the first layout): a
+/// literal, so a later change to `ThreadInfo` must still read it and write it
+/// back byte for byte. The session and the last activity are not stored.
+pub(crate) const THREAD_AT_33: &str = r#"{"slug":"tide-gauges","title":"Tide gauge calibration","goal":"Recalibrate gauge 4","topics":["topic:tides"],"working_set":{"roots":["~/gauges"],"repos":["gauge-log"],"refs":["PR#12"]},"card":["gauge 4 drifts 2 mm a week"],"persona":"surveyor","state":"paused","sealed":{"by":"the CLI","at_ms":1790000000330,"reason":"private survey"},"seal_pending":"keep it private","surfaces":["cli"],"parent":"harbour","merged_into":"harbour-2","split_from":"harbour-0","last_active_ms":1790000000331,"created_at_ms":1790000000329}"#;
+
+#[test]
+fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
+    let t: theseus_protocol::threads::ThreadInfo = serde_json::from_str(THREAD_AT_33).unwrap();
+    assert_eq!(t.slug, "tide-gauges");
+    assert_eq!(t.state, theseus_protocol::threads::ThreadState::Paused);
+    assert_eq!(t.working_set.refs, ["PR#12"]);
+    assert_eq!(serde_json::to_string(&t).unwrap(), THREAD_AT_33);
+    // A record with only what a thread must have reads, with the rest default.
+    let min: theseus_protocol::threads::ThreadInfo =
+        serde_json::from_str(r#"{"slug":"a","title":"A"}"#).unwrap();
+    assert_eq!(min.state, theseus_protocol::threads::ThreadState::Active);
+    assert!(min.card.is_empty() && min.session_id.is_none());
+}
+
+/// A store of format 32, which holds a session and no thread: the build opens
+/// it, reads an empty board, takes a thread and moves the manifest to 33,
+/// which an older build then refuses.
+#[test]
+fn a_format_32_store_opens_with_no_threads_and_takes_them() {
+    use theseus_protocol::threads::{ThreadInfo, ThreadState};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        store.put_session(&rec.session_id, &rec).unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 32, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    let threads = crate::threads::Threads::default();
+    assert!(threads.all(&store).unwrap().is_empty());
+    let t: ThreadInfo = serde_json::from_str(THREAD_AT_33).unwrap();
+    threads
+        .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 33);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    let board = crate::threads::Threads::default().all(&again).unwrap();
+    let got = board.get("tide-gauges").unwrap();
+    assert_eq!(got.state, ThreadState::Paused);
+    assert_eq!(got.card, t.card);
 }

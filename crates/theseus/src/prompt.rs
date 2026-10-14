@@ -86,6 +86,7 @@ pub fn params(a: &PromptArgs) -> Result<TurnSubmitParams> {
         reply_to: None,
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
+        thread: None,
     })
 }
 

@@ -58,4 +58,10 @@ prompt?: McpPromptRef,
  * session takes the daemon's `[tools] cwd`, and a named one keeps its
  * own.
  */
-dir?: string, };
+dir?: string, 
+/**
+ * Run the turn in this thread's current session (theseus-nhew), opened
+ * on its first use. The thread's slug; only the owner, from a private
+ * place, and not with a `session_id`.
+ */
+thread?: string, };

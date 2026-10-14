@@ -199,7 +199,8 @@ impl ActRefused<'_> {
             | Act::SelfResume { .. }
             | Act::Earned { .. }
             | Act::Retract { .. }
-            | Act::Standing { .. } => None,
+            | Act::Standing { .. }
+            | Act::Thread { .. } => None,
         }
     }
 }
@@ -236,7 +237,8 @@ impl Fact for ActRefused<'_> {
             | Act::Import { what, .. }
             | Act::Session { what, .. }
             | Act::Earned { what, .. }
-            | Act::Standing { what, .. } => {
+            | Act::Standing { what, .. }
+            | Act::Thread { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -312,6 +314,10 @@ impl Fact for ActRefused<'_> {
                 Act::Retract { what } => format!(
                     "{what}, from {} through {}, did not count: {}. Nothing was labeled or \
                      written, and no session was told.",
+                    r.who, r.via, r.why
+                ),
+                Act::Thread { what, .. } => format!(
+                    "{what}, from {} through {}, did not count: {}. The threads are as they were.",
                     r.who, r.via, r.why
                 ),
                 Act::Standing { what, .. } => format!(

@@ -80,7 +80,7 @@ pub struct Seeded {
 }
 
 /// A row's model spend, by its kind: `None` for a row that is not.
-fn spend_of(row: &LedgerRow) -> Option<Micros> {
+pub(crate) fn spend_of(row: &LedgerRow) -> Option<Micros> {
     let x = &row.data;
     let cost = match row.kind.as_str() {
         "judge.proposal" => x["writer_usd"].as_f64()?,

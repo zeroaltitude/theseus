@@ -74,7 +74,7 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
-    let dir = ask_dir(a.dir.as_deref(), a.session.is_some())?;
+    let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || a.thread.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
         dir,
         carried: false,
@@ -89,6 +89,7 @@ pub async fn ask(
         reply_to: None,
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
+        thread: a.thread,
     })?;
     let follow_for = spawned.then_some(a.follow_for);
     let shown = (a.thinking, a.trace);

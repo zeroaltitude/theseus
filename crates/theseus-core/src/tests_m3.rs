@@ -4511,6 +4511,7 @@ fn submit_params(
         attachments,
         reply_to: None,
         opened_from: None,
+        thread: None,
     }
 }
 

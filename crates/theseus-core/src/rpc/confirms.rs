@@ -825,6 +825,11 @@ pub(crate) enum Act<'a> {
     /// orders ride every prompt of their scope, so a job's process that wrote
     /// one would steer every session. `what` names it: `the revoke of std_…`.
     Standing { method: &'static str, what: &'a str },
+    /// A thread's making, edit, pause, resume, finish or reopening, or a
+    /// read of the threads (theseus-nhew): a thread is private always, so
+    /// only the owner, from a private place, reads or writes one. `what`
+    /// names it: `the thread tides`.
+    Thread { method: &'static str, what: &'a str },
     /// The release of self-improvement's kill switch (theseus-pw1q.2,
     /// `self.resume`): only the owner turns it back on (the CLI, the web UI,
     /// or an author holding an owner handle, in any bound place:
@@ -865,6 +870,7 @@ impl Act<'_> {
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
             Act::Standing { method, .. } => method,
+            Act::Thread { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,

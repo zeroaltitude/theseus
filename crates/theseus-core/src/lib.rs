@@ -99,6 +99,7 @@ pub mod task_start;
 pub mod telemetry;
 pub mod tender;
 pub mod term;
+pub mod threads;
 pub mod tighten;
 pub mod toolrun;
 pub mod trace;

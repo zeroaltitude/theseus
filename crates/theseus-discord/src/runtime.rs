@@ -65,6 +65,7 @@ mod jev;
 mod live;
 mod orders;
 mod source;
+mod thread;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -582,6 +583,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(extensions::command());
     cmds.push(why::command());
     cmds.push(orders::command());
+    cmds.push(thread::command());
     cmds.push(remind::command());
     cmds.extend(voice::commands());
     cmds
@@ -2104,6 +2106,7 @@ impl Place {
                         attachments,
                         reply_to: anchor.map(|a| a.to_string()),
                         opened_from: None,
+                        thread: None,
                     },
                 )
                 .await
@@ -2976,6 +2979,7 @@ pub(crate) mod tests {
                     attachments: vec![],
                     reply_to: None,
                     opened_from: None,
+                    thread: None,
                 },
             )
             .await

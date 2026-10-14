@@ -905,12 +905,22 @@ impl Core {
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
         let dir = super::session_dir::check(p.dir.as_deref())?;
-        let mut session = match &p.session_id {
-            Some(id) => {
+        let mut session = match (&p.session_id, &p.thread) {
+            (Some(_), Some(_)) => {
+                return Err(RpcFailure::new(
+                    error_code::INVALID_PARAMS,
+                    "a turn names a session or a thread, not both",
+                ))
+            }
+            // The thread's current session, opened on first use (theseus-nhew).
+            (None, Some(slug)) => {
+                self.thread_session(slug, conn.answerer(p.author.clone(), None))?
+            }
+            (Some(id), None) => {
                 self.take_from_job(id, p.opened_from.as_deref())?;
                 self.session(id)?
             }
-            None => self.open_session(SessionOpenParams {
+            (None, None) => self.open_session(SessionOpenParams {
                 opened_from: p.opened_from.clone(),
                 dir: dir.clone(),
                 ..SessionOpenParams::default()

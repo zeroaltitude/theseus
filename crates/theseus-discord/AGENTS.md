@@ -34,6 +34,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   (the core gives the text of a preference or a fact only to the owner in a private place), ephemeral, each with a
   Revoke button (`orders-revoke:<id>`); a press goes through the place (`Control::Unorder`) as `standing.revoke` with
   the presser's ids, which the core judges. The command is registered after `/extensions`, before the voice ones.
+  `/thread new slug: [title:]` and `/thread list` (`runtime/thread.rs`, theseus-nhew): `thread.new` and `thread.list` as the presser
+  (ephemeral), which the core judges: threads are private always, so only the owner, from a private place, makes or lists
+  them. Registered after `/orders`; answered in the `revokable_interaction` chain.
   Jev's live notices (`runtime/jev.rs`, theseus-0j2.13): the operator lane posts a `jev_notice` to the owner's DM
   alone (`Lane::owner_dm`: never `to_operator`'s fallback, which may be a shared place) with right / wrong / noise,
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).

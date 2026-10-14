@@ -80,6 +80,12 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub dir: Option<String>,
+    /// Run the turn in this thread's current session (theseus-nhew), opened
+    /// on its first use. The thread's slug; only the owner, from a private
+    /// place, and not with a `session_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub thread: Option<String>,
 }
 
 #[cfg(test)]

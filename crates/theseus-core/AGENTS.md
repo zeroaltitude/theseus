@@ -182,6 +182,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
   format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
   the block.
+- **Threads** (theseus-nhew; store format 33; `threads.rs`, `rpc/threads.rs`, `fact/thread.rs`, `config/threads.rs`): a thread is
+  a durable record bound to a virtual place `thread:<slug>`, so it reuses what a place has. The record is
+  `theseus_protocol::threads::ThreadInfo` as a META key `thread:<slug>` (an edit writes the key again, in one frame with
+  its `thread.created|edited|paused|resumed|done|reopened` row); the session it runs on is the place's own record
+  (`discord.session.thread:<slug>`, written by `Core::bind_place_to`, so supersession, retirement and the states are the
+  place's), and its last activity is its session's, so a turn writes nothing for its thread. `threads::Board` is an
+  immutable snapshot read once (two META scans, `Core::warm_threads` after serving, or the first reader) and swapped on
+  a write: `Core::threads()` gives it, `Board::of_session` the thread a session serves and `Board::live(PlaceClass)` the
+  active ones for the router (none for a shared place). A thread is private always: `places::PlaceRule::class` classes
+  `thread:*` and `discord:thread:*` private, every method is `judge_act(Act::Thread)` (the owner, from a private place),
+  and the outbox gives a virtual place's session no target (`outbox::virtual_place`), so it posts nowhere, as a CLI
+  session's. `turn.submit { thread }` runs in `Core::thread_session`: the place's session, or one opened and bound on
+  first use and after the session was retired (the owner's `/new` is a retire), under the board's lock so two first
+  messages open one; only an active thread takes a message. `thread.done` retires the session and leaves the card in it
+  as a harness note (and in its row). Two threads are two executions and run at once, under the one daily ceiling.
+  `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
+  to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
+  sample and format-32 store test in `tests_layouts.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

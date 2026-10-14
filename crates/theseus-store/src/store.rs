@@ -619,7 +619,11 @@ const BULK: usize = 4096;
 /// 32 = a fork (theseus-2qzx): a session's `forked_from`, a compilation's
 /// `inherits` (a run of another session's nodes, by reference), and the
 /// `includes` edge kind into a session.
-const MANIFEST_FORMAT: u32 = 32;
+/// 33 = threads (theseus-nhew): META keys `thread:<slug>` (a thread's
+/// record), the place records `discord.session.thread:<slug>` of their
+/// virtual places, and the ledger kinds `thread.created`, `.edited`,
+/// `.paused`, `.resumed`, `.done` and `.reopened`.
+const MANIFEST_FORMAT: u32 = 33;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
