@@ -174,6 +174,7 @@ impl Shared {
     ) -> bool {
         self.orders_interaction(i, tx, who, discord.clone()).await
             || self.thread_interaction(i, who, discord.clone()).await
+            || self.move_interaction(i, who, discord.clone()).await
             || self.extensions_interaction(i, tx, who, discord).await
     }
 

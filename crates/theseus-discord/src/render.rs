@@ -1178,6 +1178,9 @@ fn footer(r: &TurnSubmitResult) -> String {
     bits.push(r.model.clone());
     // Where routing ran it: ⬆️ or ⬇️ on the reply corrects it (theseus-q31l).
     bits.extend(crate::runtime::route::routed(r));
+    // Which thread it ran in, with a move handle when the router was unsure
+    // (theseus-rha2: `/move` runs the message again where it belongs).
+    bits.extend(r.thread.as_ref().and_then(|t| t.words()));
     bits.push(format!(
         "{} loop{}",
         r.loops,

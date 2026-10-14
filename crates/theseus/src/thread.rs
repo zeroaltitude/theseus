@@ -9,12 +9,17 @@ use theseus_client::render::postmortem::usd;
 use theseus_client::render::time::fmt_stamp;
 use theseus_client::Conn;
 use theseus_protocol::method;
+use theseus_protocol::thread_route::{
+    ThreadAnswerParams, ThreadAnswerResult, ThreadMoveParams, ThreadMoveResult,
+};
 use theseus_protocol::threads::{
     ThreadEditParams, ThreadListParams, ThreadListResult, ThreadNameParams, ThreadNewParams,
     ThreadRow, ThreadState, WorkingSet,
 };
 
 use crate::cmd::output;
+
+pub(crate) mod ask;
 
 #[derive(Subcommand, Debug)]
 pub enum ThreadCmd {
@@ -78,6 +83,20 @@ pub enum ThreadCmd {
     Done { slug: String },
     /// Take a finished thread up again: its next message opens a successor session.
     Reopen { slug: String },
+    /// Answer a question the router asked ("Is this about the pr round or the security fix?"):
+    /// `1`, `2`, `new` (`n`) or `home` (`h`). The turn that waits for it goes on.
+    Answer { ask: String, choice: String },
+    /// "That was for the security fix": run the last message the router placed in a session again in
+    /// another thread (a slug) or at `home`, and tell the thread it first ran in to disregard it.
+    Move {
+        to: String,
+        /// The session the message was sent to (default: the newest session).
+        #[arg(long)]
+        session: Option<String>,
+        /// The turn to move (default: the session's last placed message).
+        #[arg(long)]
+        turn: Option<String>,
+    },
 }
 
 impl Default for ThreadCmd {
@@ -190,6 +209,81 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Resume { slug } => moved(conn, json, method::THREAD_RESUME, slug).await,
         ThreadCmd::Done { slug } => moved(conn, json, method::THREAD_DONE, slug).await,
         ThreadCmd::Reopen { slug } => moved(conn, json, method::THREAD_REOPEN, slug).await,
+        ThreadCmd::Answer { ask, choice } => answer(conn, json, ask, choice).await,
+        ThreadCmd::Move { to, session, turn } => move_message(conn, json, to, session, turn).await,
+    }
+}
+
+/// `thread answer`: the owner's word on a question the router asked.
+async fn answer(conn: &mut Conn, json: bool, ask: String, choice: String) -> Result<()> {
+    let p = ThreadAnswerParams {
+        ask_id: ask,
+        choice,
+        author: None,
+        discord: None,
+    };
+    let v = conn
+        .request(method::THREAD_ANSWER, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: ThreadAnswerResult| {
+        match r.routed {
+            Some(s) => println!("The message goes to the thread {s}."),
+            None => println!("The message goes home, or to a new thread."),
+        }
+        Ok(())
+    })
+}
+
+/// `thread move`: the last message the router placed, run again elsewhere.
+async fn move_message(
+    conn: &mut Conn,
+    json: bool,
+    to: String,
+    session: Option<String>,
+    turn: Option<String>,
+) -> Result<()> {
+    let session_id = match session {
+        Some(s) => s,
+        None => newest(conn).await?,
+    };
+    let p = ThreadMoveParams {
+        session_id,
+        to,
+        turn_id: turn,
+        author: None,
+        discord: None,
+    };
+    let v = conn
+        .request(method::THREAD_MOVE, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: ThreadMoveResult| {
+        println!(
+            "Moved from {} to {}: it ran again in turn {}{}.",
+            r.from,
+            r.to,
+            r.turn_id,
+            if r.redirected {
+                ", and the first thread was told to disregard it"
+            } else {
+                ""
+            }
+        );
+        Ok(())
+    })
+}
+
+/// The newest session's id: where a message was sent when no session is named.
+async fn newest(conn: &mut Conn) -> Result<String> {
+    let v = conn
+        .request(
+            method::SESSION_LIST,
+            serde_json::to_value(crate::cmd::NEWEST)?,
+        )
+        .await?;
+    let l: theseus_protocol::SessionListResult = serde_json::from_value(v)?;
+    match l.sessions.into_iter().next() {
+        Some(s) => Ok(s.session_id),
+        None => bail!("there is no session to move a message from"),
     }
 }
 

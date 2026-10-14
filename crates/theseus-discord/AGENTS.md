@@ -46,6 +46,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
   (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
   owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
+- **The thread router's question and `/move`** (theseus-rha2, `runtime/thread_ask.rs`): the core's `thread.asked` is posted
+  by the place's actor as one line with a button for each choice (`thr:<ask id>:<key>`); a press is `thread.answer` as
+  the presser (the core judges it: the owner, from a private place) and the card becomes the answer (an update-message
+  callback). The card is best effort: with none, the message runs at home when `[threads] ask_wait_secs` ends. `/move
+  thread:` is `thread.move` for the last message the core placed in this place. Tests: `tests_gateway/thread_ask.rs`.
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

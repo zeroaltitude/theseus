@@ -34,6 +34,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
+  `thread answer <ask> <1|2|new|home>` and `thread move <slug|home>` are the router's recovery (theseus-rha2): `thread/ask.rs`
+  prints the question a `thread.asked` carries as `[1] [2] [n]ew [h]ome` and the line to answer it; both are in `OPERATORS`.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

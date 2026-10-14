@@ -90,6 +90,7 @@ pub async fn ask(
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
         thread: a.thread,
+        in_reply_to: None,
     })?;
     let follow_for = spawned.then_some(a.follow_for);
     let shown = (a.thinking, a.trace);
@@ -188,6 +189,10 @@ pub(crate) async fn stream_turn(
             eprintln!("{line}");
         }
         eprintln!("{}", render::status_line(&r));
+        // Which thread it ran in, with a way to move it when the router was unsure.
+        if let Some(t) = r.thread.as_ref().and_then(|t| t.words()) {
+            eprintln!("{t}");
+        }
     }
     if let (Some(corr), false) = (&r.awaiting_confirm, json) {
         eprintln!(

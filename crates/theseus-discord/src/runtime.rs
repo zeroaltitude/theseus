@@ -66,6 +66,7 @@ mod live;
 mod orders;
 mod source;
 mod thread;
+mod thread_ask;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -584,6 +585,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(why::command());
     cmds.push(orders::command());
     cmds.push(thread::command());
+    cmds.push(thread_ask::command());
     cmds.push(remind::command());
     cmds.extend(voice::commands());
     cmds
@@ -633,6 +635,7 @@ struct Inbound {
     channel: Id<ChannelMarker>,
     /// None in a DM.
     guild: Option<Id<GuildMarker>>,
+    reply_turn: Option<String>,
 }
 
 impl Inbound {
@@ -1205,6 +1208,10 @@ impl Shared {
             message: m.id,
             channel: m.channel_id,
             guild: m.guild_id,
+            reply_turn: m
+                .referenced_message
+                .as_ref()
+                .and_then(|r| self.replies.turn(r.id.get())),
         }));
     }
 
@@ -1962,6 +1969,12 @@ impl Place {
             }
             PlaceMsg::Event(e) => {
                 let e = *e;
+                // The router's question (theseus-rha2): its card, apart from the stream.
+                if let (CoreEvent::ThreadAsked(a), Some(c)) = (&e, self.channel) {
+                    let (shared, a) = (self.shared.clone(), a.clone());
+                    tokio::spawn(async move { shared.post_thread_ask(c.get(), &a).await });
+                    return;
+                }
                 if matches!(e, CoreEvent::TurnFailed(_)) {
                     self.saw_failure = true;
                 }
@@ -2074,6 +2087,7 @@ impl Place {
         // The turn's first message replies to the last one it answers: the
         // stream's, or the reply's post when the stream posted nothing.
         let anchor = batch.last().map(|m| m.message);
+        let reply_turn = batch.last().and_then(|m| m.reply_turn.clone());
         if let Some(a) = anchor {
             let _ = self.lane.send(LaneMsg::Anchor(a.get()));
         }
@@ -2107,6 +2121,7 @@ impl Place {
                         reply_to: anchor.map(|a| a.to_string()),
                         opened_from: None,
                         thread: None,
+                        in_reply_to: reply_turn,
                     },
                 )
                 .await
@@ -2980,6 +2995,7 @@ pub(crate) mod tests {
                     reply_to: None,
                     opened_from: None,
                     thread: None,
+                    in_reply_to: None,
                 },
             )
             .await
@@ -3003,6 +3019,7 @@ pub(crate) mod tests {
             message: Id::new(7),
             channel: Id::new(43),
             guild: None,
+            reply_turn: None,
         }]);
         let done = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -3276,6 +3293,7 @@ pub(crate) mod tests {
                 message: Id::new(7),
                 channel: Id::new(444_444_444_444_444_444),
                 guild: None,
+                reply_turn: None,
             }))
             .await;
         assert!(held().is_none());
