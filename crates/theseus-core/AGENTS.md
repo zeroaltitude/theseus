@@ -1442,6 +1442,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   soft, and `[aws.accounts.<id>] monthly_warn_usd` (default half the month's budget) adds one warning once a month
   (`aws/month_warn.rs`, from the budget's six-hourly read). Tests: `tests_day_ceiling.rs` (the stop mode, which names
   it), `tests_day_notify.rs`, and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+- **`turn.inspect`** (theseus-x9swu, `rpc/inspect.rs`, wire `theseus_protocol::inspect`): one turn whole, for the cockpit's
+  inspector at `/session/<id>/turn/<turn>`. A read, on the blocking pool: no frame, no record of its own (store format
+  unchanged), nothing sent to the model. It finds the turn's `turn.started` row by paging the session's `ks:turn.started`
+  rows back (it also names the previous and next turn), then reads the session's ledger rows and nodes through the tag
+  index from `LEAD` (400) positions before it, filtered by `turn_id`, and the answers to the turn's floor questions
+  (`action.confirm_answered` and kin, written with no turn, found by the question's `correlation_id`; `answers_of`).
+  `assemble` is pure: loops from the assistant nodes (`loop_index`; a call is tied to its loop by its `assistant_node`),
+  each loop's `context.compiled` row (digest, sizes, cache breakpoints and layer digests), the calls with their gate
+  records and results, `added` (the nodes a loop's request carries beyond the one before's), the totals, the `route.decided`
+  row (else the target `turn.started` names) and the `turn.trace` span tree. **What is stored and what is not**: the
+  assistant node holds each loop's content blocks verbatim (thinking in full), usage, cost and request digest; the tool
+  nodes hold the input, the gate record and the result as the model saw it; a request's system text is in no record (a
+  compilation keeps its digest, and the compile row its layers' digests), so the cockpit rebuilds the parts through
+  `context.explain`, which says whether they are still the bytes the turn saw. Thinking, a prompt, a tool's input and
+  result, gate records, rows' data and the spans' attributes go to a private place only (`Surface::reads_private`): any
+  other surface gets shapes, sizes and times and `withheld` says why. The link in a footer is `TurnSubmitResult.inspect_url`,
+  set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; the default `http://localhost:7433`);
+  every renderer shows that string. Tests: `rpc/tests_inspect.rs` (a multi-loop turn with parallel calls, thinking, a
+  compaction and a floor question; the privacy; the 20-loop, 40-call read, p95 under 150 ms in a debug build; no frame
+  written), `config/cockpit.rs`'s.
 - **`ledger.window`** (theseus-m2tiu, `rpc/window.rs`): the postmortem's read. One page by the kinds' own postings
   (`POSTMORTEM_KINDS`, or a session's tag when narrowed to it and the tasks below it, found from `Kernel::tasks`),
   oldest first, `next` the cursor; each row's strings pass the scrubber. A surface that reads no private text

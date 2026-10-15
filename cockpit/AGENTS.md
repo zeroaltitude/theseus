@@ -73,6 +73,13 @@ build.
   (`ReplyMarkdown`: the reply as markdown with each cited handle a mark linking to its source's session, with a hover card of
   the source's header, excerpt and the command that opens it). The sources are `session.history`'s `cites`; a handle with no
   source (a shared place's private one, or one the turn was not given) stays text.
+- The turn inspector (theseus-x9swu): `src/views/TurnInspect.tsx` at `/session/:id/turn/:turn` (lazy; the link a reply's footer
+  carries, `[cockpit] public_url`), over `turn.inspect` and, for a loop's system parts, `context.explain`. The header (prompt,
+  outcome, totals, route, prev/next, copy as JSON), `src/components/TurnFlame.tsx` (the turn on one clock in lanes: SVG, wheel
+  zoom, drag pan, arrow keys), and an accordion of loops with request, response (thinking in full), calls and a diff against
+  the loop before. The pure parts (lanes, row packing, zoom and pan, the person's waits, the loop diff, a call's timing, a
+  call's ledger rows, the breakpoints' places) are `src/lib/inspect.ts`, tested by `test/inspect.test.ts`. SessionDeck's turn
+  headers and timeline link to it (`Inspect`); `?turn=<turn>` on the session still scrolls to the turn.
 - The route footer (theseus-q31l): `src/components/RouteFooter.tsx`, under the composer after a turn it sent,
   `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
   `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over

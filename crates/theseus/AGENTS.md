@@ -53,6 +53,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `remind`'s are). `--in` resolves a session like `watch` does. A quote file's text is outside text for the task (it holds
   the task's session). `task.start` is in `client::OPERATORS`, so a job's shell is refused before anything is sent. `task`
   (this verb) and `tasks` (the list) are separate subcommands. Tests: `tests/task_start.rs` (a scripted daemon).
+- `src/open.rs` (theseus-x9swu): `theseus open turn [TURN] [--session S] [--print]`: `turn.inspect` for the link the daemon built from
+  `[cockpit] public_url`, printed (stdout alone; `--json` the ids and the link) and opened with `$BROWSER`, `wslview`,
+  `xdg-open` or `open` where one is found. The status line ends with ` · inspect <url>` when the result carries one. Tests:
+  `tests/open.rs` (a scripted daemon), `render/later.rs`.
 - `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `snooze`, `pause`, `resume` and
   `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
   Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).
