@@ -79,6 +79,7 @@ mod inbound_step;
 mod later_step;
 mod noop_step;
 pub mod nudge_step;
+mod persona_step;
 mod prompt_input;
 mod recall_step;
 mod reply_step;
@@ -100,9 +101,12 @@ mod title_step;
 pub use request::TurnRequest;
 pub use route_step::{LiveSwitched, SWITCHED};
 
-/// The persona at the front of every system prompt. Frozen text: it sits at
-/// the start of the cached prefix, so it never interpolates anything.
-pub const PERSONA: &str = "You are Theseus, a coding and operations agent working for your operator through a harness that records everything you do. Be direct and concise; lead with what you found or did. When you are unsure, say so plainly.";
+/// The built-in persona at the front of the system prompt of a session whose
+/// persona in play has no readable file of its own (theseus-slvl.2): the
+/// default file, `persona/default.md`. Frozen text: it sits at the start of
+/// the cached prefix, so it never interpolates anything. An owner's persona
+/// file replaces it whole (`persona::owned`).
+pub const PERSONA: &str = crate::config::persona::DEFAULT_TEXT;
 
 /// The assembly note, after the persona: how the harness builds each
 /// request, so the model never takes what the harness added (a recalled
@@ -183,6 +187,8 @@ pub struct TurnRunner {
     pub ontology: crate::ontology::Board,
     /// The owner's standing records (theseus-a7vi), in memory.
     pub standing: crate::standing::Board,
+    /// Personas' last-seen state and sessions' own choices (theseus-slvl.2).
+    pub persona: crate::persona::Board,
     /// The threads (theseus-nhew), in memory.
     pub threads: crate::threads::Threads,
     pub cards: crate::thread_context::Cards,
@@ -752,27 +758,14 @@ impl TurnRunner {
         })
     }
 
-    /// What a continuation runs on: the session's last turn's target, which
-    /// every turn records from its start (theseus-kol), so a conversation
-    /// does not change model under its own thinking blocks, whatever profile
-    /// is live. A profile no longer configured gives its provider and model
-    /// under the live profile's settings; only a session with neither falls
-    /// back to the live profile.
+    /// What a continuation runs on (`target_as_ran`), speaking as the
+    /// session's persona (theseus-slvl.2).
     pub fn target_for_session(&self, s: &SessionRecord, live_profile: &str) -> Result<Target> {
-        if let Some(t) = &s.last_target {
-            let as_it_ran = self.resolve_target(
-                live_profile,
-                Some(&t.profile),
-                Some(&t.provider),
-                Some(&t.model),
-            );
-            if let Ok(tg) = as_it_ran.or_else(|_| {
-                self.resolve_target(live_profile, None, Some(&t.provider), Some(&t.model))
-            }) {
-                return Ok(tg);
-            }
-        }
-        self.resolve_target(live_profile, None, None, None)
+        let tg = self.target_as_ran(s, live_profile)?;
+        Ok(Target {
+            persona: self.persona_of(s),
+            ..tg
+        })
     }
 
     fn first_party(&self, provider: &str) -> bool {
@@ -1521,6 +1514,7 @@ impl TurnRunner {
                 ..fresh
             };
         }
+        target.persona = self.persona_of(&session);
         let read;
         (target, read) = self.route_base(&mut session, target, input.is_some());
         let provider = self
@@ -1706,6 +1700,7 @@ impl TurnRunner {
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         self.defer_tools(t, &mut spec);
+        self.observe_persona(t, target, &spec);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -1713,7 +1708,9 @@ impl TurnRunner {
                 path: &u.path,
                 error: &u.error,
                 profile: &target.profile,
+                persona: u.persona.as_deref(),
             });
+            self.persona_file_missing(u);
         }
         // A recompile the operator asked for is taken from the stored record
         // under its lock, so one asked while this turn runs stays for the

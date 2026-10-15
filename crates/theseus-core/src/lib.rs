@@ -74,6 +74,7 @@ pub mod outputs;
 pub mod own_bench;
 pub mod parked;
 pub mod peer;
+pub mod persona;
 pub mod place_warnings;
 pub mod places;
 pub mod policy;
@@ -318,6 +319,8 @@ mod tests_outside_text;
 mod tests_overflow;
 #[cfg(test)]
 mod tests_people_proposals;
+#[cfg(test)]
+mod tests_persona;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]

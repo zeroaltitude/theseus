@@ -116,6 +116,7 @@ impl Shared {
                     kind: Some(SessionKind::Conversation),
                     label: Some(format!("discord {label}")),
                     opened_from: None,
+                    persona: None,
                 },
             )
             .await?;

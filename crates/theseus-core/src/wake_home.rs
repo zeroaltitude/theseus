@@ -66,6 +66,7 @@ impl Core {
             kind: None,
             label: Some("Reminders".into()),
             opened_from: None,
+            persona: None,
         })?;
         self.store.put_meta(HOME_SESSION, &rec.session_id)?;
         let execution_id = rec

@@ -91,6 +91,10 @@ pub struct ChannelBinding {
     /// At most one ping here in this many seconds: absent,
     /// `[discord] ping_window_secs`; 0 is off.
     pub ping_window_secs: Option<u64>,
+    /// The persona the place speaks as (`[personas.<name>]` in the daemon's
+    /// config; theseus-slvl.2): absent, the default persona. A name the config
+    /// lacks is passed over, and the core's health says so.
+    pub persona: Option<String>,
 }
 
 /// A `[[channel]]` as the file writes it, with where its keys are.
@@ -121,6 +125,8 @@ struct RawChannel {
     silent: Option<Vec<Category>>,
     #[serde(default)]
     ping_window_secs: Option<u64>,
+    #[serde(default)]
+    persona: Option<String>,
 }
 
 /// The file as written, with where its format's keys are.
@@ -188,6 +194,15 @@ impl Ceiling {
     }
 }
 
+/// A place's `persona`, checked for spelling: the config holds the personas,
+/// so whether the name is one is the core's to say.
+fn persona_of(p: Option<String>, place: &str) -> Result<Option<String>> {
+    match p.map(|p| p.trim().to_string()) {
+        Some(p) if p.is_empty() => bail!("{place}: persona is empty"),
+        p => Ok(p),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawDm {
@@ -204,6 +219,8 @@ struct RawDm {
     silent: Option<Vec<Category>>,
     #[serde(default)]
     ping_window_secs: Option<u64>,
+    #[serde(default)]
+    persona: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,6 +234,8 @@ pub struct DmBinding {
     pub show_thinking: bool,
     pub silent: Option<Vec<Category>>,
     pub ping_window_secs: Option<u64>,
+    /// As a channel's (theseus-slvl.2).
+    pub persona: Option<String>,
 }
 
 impl ChannelBinding {
@@ -316,6 +335,7 @@ impl Bindings {
                 show_thinking: d.show_thinking,
                 silent: d.silent,
                 ping_window_secs: d.ping_window_secs,
+                persona: persona_of(d.persona, &label)?,
             });
         }
         let digest = Sha256::digest(text.as_bytes());
@@ -424,6 +444,7 @@ impl Bindings {
             show_thinking: c.show_thinking,
             silent: c.silent,
             ping_window_secs: c.ping_window_secs,
+            persona: persona_of(c.persona, &label)?,
         })
     }
 }

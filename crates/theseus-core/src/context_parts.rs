@@ -38,12 +38,21 @@ pub struct Built {
 impl TurnRunner {
     /// The header's parts, each named, in the order `system_blocks` joins
     /// them.
-    pub fn header_parts(&self, target: &Target, place: PlaceView) -> Vec<(&'static str, String)> {
-        let mut parts = vec![
-            ("persona", PERSONA.to_string()),
-            ("assembly", ASSEMBLY.to_string()),
-            ("precedence", situation::PRECEDENCE.to_string()),
-        ];
+    /// The built-in persona leads them unless `owned`: the persona in play
+    /// has a file of its own in this request (`persona::owned`), which
+    /// replaces it whole.
+    pub fn header_parts(
+        &self,
+        target: &Target,
+        place: PlaceView,
+        owned: bool,
+    ) -> Vec<(&'static str, String)> {
+        let mut parts = Vec::with_capacity(5);
+        if !owned {
+            parts.push(("persona", PERSONA.to_string()));
+        }
+        parts.push(("assembly", ASSEMBLY.to_string()));
+        parts.push(("precedence", situation::PRECEDENCE.to_string()));
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
             let card = crate::self_card::card(&self.cfg, &self.tools, place);
@@ -89,7 +98,7 @@ impl TurnRunner {
             rec.as_ref().and_then(|r| r.compilation_id.as_deref()),
         );
         spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
-        let header = self.header_parts(target, place);
+        let header = self.header_parts(target, place, crate::persona::owned(&files));
         let Some(walk) = self.walk(session, place.class) else {
             return Built {
                 header,

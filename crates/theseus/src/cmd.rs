@@ -1168,6 +1168,7 @@ pub async fn sessions(
                         kind: None,
                         label,
                         opened_from: theseus_client::client::job_session(),
+                        persona: None,
                     },
                 )
                 .await?;

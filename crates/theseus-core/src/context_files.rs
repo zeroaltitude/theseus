@@ -107,6 +107,8 @@ pub struct ContextFile {
 pub struct Unreadable {
     pub path: String,
     pub error: String,
+    /// The persona whose file it is; none: the system level's.
+    pub persona: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,6 +191,7 @@ impl ContextFiles {
                         unreadable.push(Unreadable {
                             path: shown.clone(),
                             error: error.clone(),
+                            persona: p.persona.clone(),
                         });
                     }
                     Arc::new(missing(&shown, &error))

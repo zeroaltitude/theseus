@@ -37,6 +37,7 @@ impl Core {
                 .map(|p| paths(&p.files))
                 .unwrap_or_default(),
             personas: self.cfg.personas.keys().cloned().collect(),
+            warnings: self.persona_warnings(),
         }
     }
 

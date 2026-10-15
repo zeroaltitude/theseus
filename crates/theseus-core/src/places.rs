@@ -114,6 +114,10 @@ pub struct BoundPlace {
     /// What the bindings file narrows here (step 38a): it narrows what the
     /// class allows, never widens it (`ceiling.rs`).
     pub ceiling: Option<theseus_protocol::PlaceCeiling>,
+    /// The persona the place speaks as (`persona = "<name>"` in the bindings
+    /// file; theseus-slvl.2): under a session's own choice, over
+    /// `[context] default_persona`.
+    pub persona: Option<String>,
 }
 
 /// What a read of who can view a guild channel bound `private = true`, outside
@@ -247,6 +251,29 @@ impl PlaceRule {
         let mut bound = self.bound.write().unwrap();
         bound.retain(|b| b.place.target != place.target);
         bound.push(Bound::new(place));
+    }
+
+    /// Each bound place that names a persona: its name, target and persona.
+    pub fn personas(&self) -> Vec<(String, String, String)> {
+        let bound = self.bound.read().unwrap();
+        bound
+            .iter()
+            .filter_map(|b| {
+                let p = b.place.persona.clone()?;
+                Some((b.place.name.clone(), b.place.target.clone(), p))
+            })
+            .collect()
+    }
+
+    /// The persona the bindings file gives the place at `target`.
+    pub fn persona_of(&self, target: &str) -> Option<String> {
+        let bound = self.bound.read().unwrap();
+        bound
+            .iter()
+            .find(|b| b.place.target == target)?
+            .place
+            .persona
+            .clone()
     }
 
     /// The bound place `to` names: its name (`#openclaw`, `openclaw`, `DM

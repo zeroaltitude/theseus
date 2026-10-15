@@ -18,6 +18,7 @@ async fn a_hard_question_in_a_capped_place_keeps_the_places_profile() {
     mode(&jev, "sophisticated", 0.95);
     let r = rig(Some(&jev), 1, |c| c.routing.max_wait_ms = 5_000);
     r.core.bind_places(vec![BoundPlace {
+        persona: None,
         target: format!("discord:channel:{BERTH}"),
         name: "#berth".into(),
         private: true,

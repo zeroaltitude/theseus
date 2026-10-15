@@ -22,7 +22,7 @@ impl TurnRunner {
         place: crate::ceiling::PlaceView,
     ) -> (String, String, String) {
         let parts: Vec<String> = self
-            .header_parts(target, place)
+            .header_parts(target, place, crate::persona::owned(files))
             .into_iter()
             .map(|p| p.1)
             .collect();

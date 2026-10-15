@@ -309,6 +309,7 @@ impl Core {
         // holds, from the frame that writes it (theseus-b5cl). Read before
         // anything is opened, so a record that cannot be read leaves nothing.
         let now = theseus_protocol::now_unix_ms();
+        let persona = self.chosen_persona(p.persona.as_deref())?;
         let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         // Its directory rides in the frame that creates it (theseus-aab7).
@@ -360,6 +361,9 @@ impl Core {
                 crate::narrative::short(&exec.id),
                 crate::narrative::dollars(exec.budget.limit_micros)
             );
+        }
+        if let Some(name) = &persona {
+            self.set_session_persona(&rec.session_id, name)?;
         }
         let Some(h) = inherited else {
             return Ok(rec);

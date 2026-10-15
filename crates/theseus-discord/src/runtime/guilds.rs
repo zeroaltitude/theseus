@@ -81,6 +81,7 @@ pub(super) fn bound_places(b: &Bindings) -> Vec<theseus_core::places::BoundPlace
         private: b.is_private(c),
         guild: Some(c.guild.clone()),
         ceiling: c.ceiling.clone(),
+        persona: c.persona.clone(),
     });
     let dms = b.dm.iter().map(|d| theseus_core::places::BoundPlace {
         target: format!("discord:dm:{}", d.user),
@@ -88,6 +89,7 @@ pub(super) fn bound_places(b: &Bindings) -> Vec<theseus_core::places::BoundPlace
         private: false,
         guild: None,
         ceiling: d.ceiling.clone(),
+        persona: d.persona.clone(),
     });
     channels.chain(dms).collect()
 }

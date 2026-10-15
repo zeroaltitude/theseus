@@ -24,6 +24,7 @@ const PIER: u64 = 141_421_356_237_309_504;
 fn bind(core: &Core) {
     core.bind_places(vec![
         BoundPlace {
+            persona: None,
             target: format!("discord:channel:{LAB}"),
             name: "#lab".into(),
             private: true,
@@ -34,6 +35,7 @@ fn bind(core: &Core) {
             }),
         },
         BoundPlace {
+            persona: None,
             target: format!("discord:channel:{PIER}"),
             name: "#pier".into(),
             private: false,

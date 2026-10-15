@@ -420,6 +420,7 @@ fn the_digest_lists_a_seeded_week() {
 fn the_digest_is_posted_weekly_only_while_the_mode_acts() {
     let bind = |c: &Core| {
         c.runner.place_rule.bind_one(crate::places::BoundPlace {
+            persona: None,
             target: format!("discord:dm:{OWNER}"),
             name: "DM @owner".into(),
             private: true,

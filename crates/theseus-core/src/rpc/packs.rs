@@ -493,6 +493,7 @@ impl Core {
             kind: None,
             label: Some("the ladder: promotions waiting on the owner".into()),
             opened_from: None,
+            persona: None,
         })?;
         self.store.put_meta(LADDER_SESSION, &rec.session_id)?;
         Ok(rec)

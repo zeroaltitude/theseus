@@ -181,6 +181,7 @@ async fn budget_list_after_a_carve_a_reset_and_a_place_limit_agrees_with_each_re
 /// place's, pinned, and named by the place; without the cap, the config's.
 fn a_place_limit_pins_it_while_it_caps_it(core: &Core, sid: &str) {
     core.bind_places(vec![BoundPlace {
+        persona: None,
         target: format!("discord:channel:{PIER}"),
         name: "#pier".into(),
         private: false,

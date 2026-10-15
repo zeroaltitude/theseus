@@ -202,6 +202,7 @@ ledger_kinds! {
     PackVersion = "pack.version",
     PeopleExtracted = "people.extracted",
     PeopleSwept = "people.swept",
+    PersonaChanged = "persona.changed",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PlaceWarned = "place.warned",

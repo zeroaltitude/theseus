@@ -1002,6 +1002,7 @@ fn warm_after_serving(core: &Arc<Core>) {
     core.warm_ontology();
     core.warm_standing();
     core.warm_forecasts();
+    core.warm_persona();
     core.warm_threads();
     // The conversations' grants, from the ledger (theseus-drjs).
     core.warm_grants();

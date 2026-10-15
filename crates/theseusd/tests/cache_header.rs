@@ -288,9 +288,15 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     // The header is all there: the persona, both context files, the
     // profile's system, and the tools.
     let system = bytes(&a["system"]);
-    for part in [SYSTEM_FILE, PERSONA_FILE, PROFILE_SYSTEM, "You are Theseus"] {
+    for part in [SYSTEM_FILE, PERSONA_FILE, PROFILE_SYSTEM] {
         assert!(system.contains(part), "{part:?} is not in {system}");
     }
+    // The owner's persona file replaces the built-in default whole
+    // (theseus-slvl.2): none of it is in the request.
+    assert!(
+        !system.contains("You are Theseus"),
+        "the default is merged in: {system}"
+    );
     let tools = a["tools"].as_array().map_or(0, Vec::len);
     assert!(tools > 0, "no tools in {}", bytes(&a));
     assert!(
@@ -343,7 +349,13 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         text(&blocks[3]).starts_with("Directory: "),
         "{profile}: block 4"
     );
-    for part in ["You are Theseus", PROFILE_SYSTEM] {
+    // The owner's persona file replaced the built-in default (theseus-slvl.2),
+    // so the header opens with the assembly note.
+    assert!(
+        !text(header).contains("You are Theseus"),
+        "{profile}: the default is merged in"
+    );
+    for part in ["The harness assembles each request", PROFILE_SYSTEM] {
         assert!(
             text(header).contains(part),
             "{part:?} is not in the header block"

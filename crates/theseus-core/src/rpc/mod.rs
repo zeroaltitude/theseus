@@ -50,6 +50,8 @@ mod packs_ahead;
 mod pages;
 mod peek;
 mod people;
+mod persona;
+mod persona_view;
 mod policy;
 mod proposal_groups;
 mod proposals;
@@ -793,6 +795,7 @@ impl Core {
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
             standing: Default::default(),
+            persona: Default::default(),
             threads: Default::default(),
             cards: Default::default(),
             run_compiles: Default::default(),

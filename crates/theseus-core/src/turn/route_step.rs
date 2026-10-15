@@ -219,6 +219,7 @@ impl TurnRunner {
         let target = match routed {
             Some(p) if p != target.profile => self
                 .resolve_target(&target.profile, Some(p), None, None)
+                .map(|moved| moved.speaking_as(&target))
                 .unwrap_or(target),
             _ => target,
         };
@@ -505,7 +506,7 @@ impl TurnRunner {
             return self.keep_first(t, session, compiled, spec, i);
         }
         let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
-            Ok(tg) => tg,
+            Ok(tg) => tg.speaking_as(t.target),
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
                 return self.keep_first(t, session, compiled, spec, i);

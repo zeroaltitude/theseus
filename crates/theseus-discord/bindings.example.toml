@@ -43,6 +43,7 @@ voice = false                      # true for a voice channel: /join from a priv
                                    # [discord] silent (whose comment names the categories); every
                                    # message pings by default
 # ping_window_secs = 0             # at most one ping here in this many seconds, in place of [discord]'s
+# persona = "theseus"               # speak as this [personas.<name>] of the daemon's config here (a session's own choice wins)
 # [channel.ceiling]                # what this place gets beneath the place rule: it narrows, never widens
 # posture_floor = "approve"        # no call here runs looser than this (open, notify, approve)
 # tools = ["fs", "git", "web"]     # the tool families offered here, and MCP servers as "mcp:<server>"
@@ -56,4 +57,5 @@ name = "zeroaltitude"
 # show_thinking = true             # as a channel's
 # silent = ["tool_lines"]          # as a channel's
 # ping_window_secs = 0             # as a channel's
+# persona = "theseus"               # as a channel's
 # [dm.ceiling]                     # a DM's ceiling, as a channel's

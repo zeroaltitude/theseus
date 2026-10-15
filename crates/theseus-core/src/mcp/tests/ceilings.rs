@@ -43,6 +43,7 @@ async fn a_ceilings_mcp_entry_decides_which_places_are_offered_the_servers_tools
     assert!(s.client(Duration::from_secs(10)).await.is_ok());
     r.core.bind_places(vec![
         BoundPlace {
+            persona: None,
             target: format!("discord:channel:{LAB}"),
             name: "#lab".into(),
             private: true,
@@ -50,6 +51,7 @@ async fn a_ceilings_mcp_entry_decides_which_places_are_offered_the_servers_tools
             ceiling: ceiling(&["mcp:fake"]),
         },
         BoundPlace {
+            persona: None,
             target: format!("discord:channel:{DEN}"),
             name: "#den".into(),
             private: true,

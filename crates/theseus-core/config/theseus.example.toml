@@ -217,8 +217,21 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # A persona's files, compiled after the system level's while it is in play. A file is
 # yours alone ([places] below); a table entry with readers = "public" lets a shared place
 # carry it too, and a shared place gets any other file's header and why instead.
+# The persona is data (theseus-slvl.2). Every key but the files is optional. With no persona
+# configured, or none whose file reads, the header carries the built-in default
+# (crates/theseus-core/persona/default.md: who Theseus is, a line of voice per surface, and
+# values with candour first); a persona file of your own replaces it whole, never merged.
+# A bindings place may say persona = "<name>" to speak as one there; a session may choose one
+# when it opens (session.open); a task takes its parent's. Order: session, place,
+# default_persona, the built-in.
 # [personas.theseus]
 # files = ["~/.openclaw/workspace/contexts/theseus-persona-draft.md", { path = "~/projects/some-public-repo/README.md", readers = "public" }]
+# name = "Theseus"                      # shown on replies, the bot's nickname, the voice greeting; omitted: the key, capitalised
+# emoji = "⚓"
+# card = "Careful systems engineer; prefers a plain answer to a clever one."   # about 60 tokens of specialization and background
+# tts_voice = "aura-2-thalia-en"        # overrides [voice] tts_voice while this persona is in play
+# avatar = "~/avatars/theseus.png"      # a path or URL, for Discord
+# initiative = "normal"                 # quiet | normal | chatty: how readily it speaks first
 
 # ---------------------------------------------------------------- providers
 # Any endpoint that speaks the Anthropic Messages API. The implicit "anthropic"

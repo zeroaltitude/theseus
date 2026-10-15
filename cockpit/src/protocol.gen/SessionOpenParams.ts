@@ -13,4 +13,10 @@ opened_from?: string,
  * the base of their relative paths, and the session's system block
  * name it. Absent: the daemon's `[tools] cwd`, as before.
  */
-dir?: string, };
+dir?: string, 
+/**
+ * The persona the session speaks as (a key of the config's
+ * `[personas]`; theseus-slvl.2): over its place's and the default's.
+ * A task takes its parent's. Absent: the place's, else the default.
+ */
+persona?: string, };
