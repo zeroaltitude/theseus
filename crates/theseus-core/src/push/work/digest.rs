@@ -10,6 +10,7 @@ use theseus_protocol::work::{Question, Rollup, WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
 
 use super::{Scope, WorkBoard};
+use crate::ledger::LedgerRow;
 use crate::scrub::Scrubber;
 
 /// A view's ancestry is read this deep at most.
@@ -33,6 +34,9 @@ pub struct DigestRead {
     pub under: HashSet<String>,
     pub now: Rollup,
     pub questions: Vec<Question>,
+    /// The `wake.fired` rows after the position, with their positions,
+    /// unscoped: a wake is told from this one fact on both paths.
+    pub fired: Vec<(u64, LedgerRow)>,
 }
 
 impl WorkBoard {
@@ -109,6 +113,7 @@ impl WorkBoard {
             under,
             now,
             questions: qs,
+            fired: self.fired_since(since),
         }
     }
 

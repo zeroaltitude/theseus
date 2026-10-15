@@ -1308,7 +1308,7 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
 
 /// `theseus agenda`, `theseus prefix` and `theseus digest`: the horizon, the prefix library's report, and
 /// what happened while you were away.
-async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+async fn long(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Agenda(a) => agenda::run(c, json, a).await,
         Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
@@ -1414,11 +1414,9 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => wait_session_or_any(c, json, session, until, after, timeout).await,
         cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_)) => {
-            long_cmd(c, json, cmd).await
-        }
+        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_)) => long(c, json, cmd).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
-            unreachable!("returned above, or exec'd by main")
+            unreachable!("above")
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,

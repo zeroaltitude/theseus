@@ -43,9 +43,20 @@ fn daemon(sock: &Path) -> (std::thread::JoinHandle<()>, Arc<Mutex<Vec<Value>>>) 
     let listener = UnixListener::bind(sock).unwrap();
     let asked = Arc::new(Mutex::new(Vec::new()));
     let seen = asked.clone();
+    listener.set_nonblocking(true).unwrap();
+    let path = sock.to_path_buf();
+    // Any number of connections (`status` opens several), until the socket's file is removed.
     let h = std::thread::spawn(move || {
-        let (s, _) = listener.accept().unwrap();
-        serve(s, &seen);
+        while path.exists() {
+            match listener.accept() {
+                Ok((s, _)) => {
+                    s.set_nonblocking(false).unwrap();
+                    let seen = seen.clone();
+                    std::thread::spawn(move || serve(s, &seen));
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
+            }
+        }
     });
     (h, asked)
 }
@@ -64,6 +75,8 @@ fn serve(s: UnixStream, asked: &Mutex<Vec<Value>>) {
             "executions.watch" => {
                 json!({"position": 10, "executions": [], "confirms": [], "total": 0})
             }
+            "status.short" => json!({"position": 10, "needs_you": 0, "working": 0, "failed": []}),
+            "work.watch" => json!({"position": 10, "views": [], "total": 0}),
             _ => json!({}),
         };
         let answer = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
@@ -119,11 +132,13 @@ impl World {
             c.env("THESEUS_SESSION", "ses_a_job");
         }
         let out = c.output().unwrap();
-        d.join().unwrap();
         let _ = std::fs::remove_file(self.sock());
+        d.join().unwrap();
         assert!(
             out.status.success(),
-            "{}",
+            "{:?} {} {}",
+            out.status,
+            String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
         let asked = asked.lock().unwrap().clone();

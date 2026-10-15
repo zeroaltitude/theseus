@@ -22,7 +22,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use theseus_kernel::{Execution, SessionKind};
 use theseus_memory::recall::Place;
-use theseus_protocol::notices::{Urgency, Why};
+use theseus_protocol::notices::Why;
 use theseus_protocol::work::{WorkKind, WorkRef};
 use theseus_protocol::{
     digest_line, error_code, fold_digest, DigestKind, DigestLine, LedgerKind, WorkDigestParams,
@@ -183,6 +183,7 @@ impl Core {
         let from_ledger = ledger_only || !read.complete;
         if !from_ledger {
             raws = ring_raws(&read);
+            raws.extend(self.fired_raws(&read, scope, named, scrubber));
         } else {
             raws = self.ledger_raws(since, scope, named, &read, scrubber)?;
         }
@@ -288,19 +289,48 @@ impl Core {
             let Some(raw) = self.raw_of(&row, scope, scrubber) else {
                 continue;
             };
-            let here = named.is_empty()
-                || named.contains(&raw.root)
-                || read.under.contains(&raw.work.id)
-                || raw
-                    .work
-                    .session_id
-                    .as_deref()
-                    .is_some_and(|s| self.named_session(s, named));
-            if scope.sees(&raw.root) && here {
+            if self.in_scope(&raw, scope, named, read) {
                 out.push(raw);
             }
         }
         Ok(out)
+    }
+
+    /// Whether a line is one this connection may see and the caller asked for.
+    fn in_scope(
+        &self,
+        raw: &Raw,
+        scope: &WorkScope,
+        named: &HashSet<String>,
+        read: &WorkDigestRead,
+    ) -> bool {
+        let here = named.is_empty()
+            || named.contains(&raw.root)
+            || read.under.contains(&raw.work.id)
+            || raw
+                .work
+                .session_id
+                .as_deref()
+                .is_some_and(|s| self.named_session(s, named));
+        scope.sees(&raw.root) && here
+    }
+
+    /// The board's `wake.fired` rows as lines: a wake is told from its row
+    /// on both paths, so it is told at one position (the ring's notice for
+    /// it comes a frame earlier, when the due scan queues the turn, and
+    /// would be told again from the ledger after a restart).
+    fn fired_raws(
+        &self,
+        read: &WorkDigestRead,
+        scope: &WorkScope,
+        named: &HashSet<String>,
+        scrubber: &Scrubber,
+    ) -> Vec<Raw> {
+        read.fired
+            .iter()
+            .filter_map(|(_, row)| self.raw_of(row, scope, scrubber))
+            .filter(|raw| self.in_scope(raw, scope, named, read))
+            .collect()
     }
 
     /// Whether `session`'s execution is one the caller named.
@@ -517,7 +547,8 @@ fn shown(scope: &WorkScope, scrubber: &Scrubber, title: String) -> String {
     }
 }
 
-/// The ring's notices and the board's cancels as `Raw` lines.
+/// The ring's notices and the board's cancels as `Raw` lines. A wake is no
+/// notice's: `fired_raws` tells it from its row.
 fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
     let mut out = Vec::new();
     // A cancelled task's report is its cancel, told once.
@@ -534,20 +565,8 @@ fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
             Why::Finished if n.work.kind == WorkKind::Job && n.line.starts_with('✗') => {
                 DigestKind::Failed
             }
-            Why::Woke if n.urgency == Urgency::Interrupt => DigestKind::Reminder,
-            Why::Woke => DigestKind::Woke,
             _ => continue,
         };
-        // A wake that fires is told by its conversation and by its own view:
-        // once.
-        let woke = matches!(kind, DigestKind::Woke | DigestKind::Reminder);
-        if woke
-            && out
-                .iter()
-                .any(|o: &Raw| woken_twice(o, n.at_ms, &n.root.id))
-        {
-            continue;
-        }
         out.push(Raw {
             kind,
             at_ms: n.at_ms,
@@ -564,13 +583,4 @@ fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
         });
     }
     out
-}
-
-/// Whether `o`, a wake's line, is the same wake as one at `at_ms` under `root`
-/// told again by the view of the wake itself (it fires once, and two views say
-/// so within a moment).
-fn woken_twice(o: &Raw, at_ms: u64, root: &str) -> bool {
-    matches!(o.kind, DigestKind::Woke | DigestKind::Reminder)
-        && o.root == root
-        && o.at_ms.abs_diff(at_ms) < 5_000
 }

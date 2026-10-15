@@ -97,6 +97,41 @@ async fn the_ring_and_the_ledger_agree_on_the_same_window() {
     s.drain.abort();
 }
 
+/// A wake is told once however a client's position falls and whichever source
+/// answers: at every position of the scenario the ring and the ledger tell the
+/// same wakes. The ring's old notice for a wake came a frame before its
+/// `wake.fired` row, so a client that left between the two was told it again
+/// from the ledger after a restart (theseus-qkoi3).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_wake_is_told_the_same_from_every_position_by_both_sources() {
+    let (s, since) = told().await;
+    let (scope, named) = all();
+    let end = s.r.core.push.work_snapshot(1, &scope).0;
+    let wakes = |r: &WorkDigestResult| -> u32 {
+        r.lines
+            .iter()
+            .filter(|l| matches!(l.kind, DigestKind::Woke | DigestKind::Reminder))
+            .map(|l| l.count)
+            .sum()
+    };
+    let mut told_somewhere = 0;
+    for at in since..=end {
+        let ring =
+            s.r.core
+                .digest_blocking(at, None, &scope, &named, false)
+                .unwrap();
+        let ledger =
+            s.r.core
+                .digest_blocking(at, None, &scope, &named, true)
+                .unwrap();
+        assert!(!ring.from_ledger);
+        assert_eq!(wakes(&ring), wakes(&ledger), "from position {at}");
+        told_somewhere += wakes(&ring);
+    }
+    assert!(told_somewhere > 0, "the wake is told from the start");
+    s.drain.abort();
+}
+
 /// A window that starts before the ring does is read from the ledger, and says
 /// so; one inside it is not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

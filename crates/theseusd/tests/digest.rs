@@ -383,3 +383,60 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         std::fs::write(path, serde_json::to_string_pretty(&d).unwrap()).unwrap();
     }
 }
+
+/// What the lines of a digest add up to, by kind.
+fn count(d: &Value, kind: &str) -> u64 {
+    Rig::kinds(d)
+        .iter()
+        .filter(|(x, _)| x == kind)
+        .map(|(_, c)| c)
+        .sum()
+}
+
+/// The daemon stops between a client being told and the next one's arrival,
+/// once by a kill and once by a clean stop: from the end of what was told, the
+/// restarted daemon tells nothing, and from where the client left it tells the
+/// same things, each once, from the ledger (theseus-qkoi3: the timer's line
+/// was told at the due scan's position by the ring and again at its
+/// `wake.fired` row's by the ledger).
+#[test]
+fn a_stop_between_telling_and_the_next_arrival_tells_nothing_twice() {
+    let r = Rig::new();
+    let d1 = r.spawn();
+    let left = r.call("work.watch", json!({"limit": 10})).unwrap()["position"]
+        .as_u64()
+        .unwrap();
+    let _ = r.call("work.unwatch", json!({}));
+    r.while_away();
+    let told = r.wait("the whole digest", || {
+        let d = r.digest(left);
+        (count(&d, "reported") == 3
+            && count(&d, "cancelled") == 1
+            && count(&d, "answered") == 1
+            && count(&d, "woke") == 1)
+            .then_some(d)
+    });
+    assert_eq!(told["from_ledger"], json!(false));
+    let to = told["to"].as_u64().unwrap();
+
+    // Killed: the next client finds a board seeded past its position.
+    drop(d1);
+    let d2 = r.spawn();
+    let after = r.digest(to);
+    assert!(after["lines"].as_array().unwrap().is_empty(), "{after}");
+    let again = r.digest(left);
+    assert_eq!(again["from_ledger"], json!(true), "{again}");
+    for kind in ["reported", "cancelled", "answered", "woke"] {
+        assert_eq!(count(&again, kind), count(&told, kind), "{kind}: {again}");
+    }
+
+    // Stopped cleanly, and again.
+    let _ = r.call("shutdown", Value::Null);
+    drop(d2);
+    let _d3 = r.spawn();
+    assert!(r.digest(to)["lines"].as_array().unwrap().is_empty());
+    let again = r.digest(left);
+    for kind in ["reported", "cancelled", "answered", "woke"] {
+        assert_eq!(count(&again, kind), count(&told, kind), "{kind}: {again}");
+    }
+}
