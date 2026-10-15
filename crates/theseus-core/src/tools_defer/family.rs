@@ -188,10 +188,17 @@ impl PlaceKind {
     /// place's own use loads them.
     pub fn defaults(self) -> &'static [&'static str] {
         match self {
-            // A coding session at a terminal: the code and memory. The tasks
-            // are the largest family (about 6,000 tokens of 15,500), and a
-            // coding session's use of them is what the ledger learns.
-            PlaceKind::Cli => &["code", "memory"],
+            // A coding session at a terminal: memory, with the files and
+            // commands every place loads. The tasks are the largest family
+            // (about 6,000 tokens of 15,500), and a coding session's use of
+            // them is what the ledger learns. The language servers (`code`,
+            // seven tools, about 1,860 tokens) are deferred in every place
+            // (theseus-ykc7o, the owner's "Go for it!" of 2026-10-15): no
+            // `lsp_*` call in 30 days across every session (install #30's
+            // census), and with them the owner's cli read 9,510 tokens of
+            // its 8,000; a search loads them, and the ledger's use puts them
+            // back where a place calls them.
+            PlaceKind::Cli => &["memory"],
             // A person's message: memory, tasks and reminders, the web. Posting
             // to and reading other places is deferred (theseus-to0xw): a
             // direct message answers in itself, and the family is 855 tokens
@@ -203,12 +210,13 @@ impl PlaceKind {
             // (install #30's census), 1,167 tokens of the DM's request.
             PlaceKind::Dm => &["memory", "tasks", "web"],
             PlaceKind::Channel => &["memory", "tasks", "web", "channels"],
-            // A task's session works: the code. Its wakes and sub-tasks load
-            // once its place kind has used them.
-            PlaceKind::Task => &["code"],
+            // A task's session works: the files and commands. Its wakes and
+            // sub-tasks, and the language servers, load once its place kind
+            // has used them.
+            PlaceKind::Task => &[],
             // One client and one run: the work itself, with terminals for
             // programs that want a screen.
-            PlaceKind::Headless => &["code", "terminals"],
+            PlaceKind::Headless => &["terminals"],
         }
     }
 }

@@ -12,15 +12,20 @@ use crate::store::Store;
 use crate::tools_defer::PlaceKind;
 use crate::{Config, Core};
 
+/// The owner's config in shape (theseus-ykc7o): the installed config's sections with no secret of its own.
+const OWNER_SHAPE: &str = include_str!("../fixtures/owner_shape.toml");
+
 fn rig() -> (Arc<Core>, tempfile::TempDir) {
+    // The daemon's own defaults, as the bench's scratch daemon runs them (the template's every section adds
+    // AWS, GitHub and MCP tools).
+    rig_of("[secrets]\nanthropic_api_key = \"env:THESEUS_TEST_KEY\"\n")
+}
+
+fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
-    // The daemon's own defaults, as the bench's scratch daemon runs them (the template's every section adds
-    // AWS, GitHub and MCP tools).
-    let mut cfg = Config::parse("[secrets]\nanthropic_api_key = \"env:THESEUS_TEST_KEY\"\n")
-        .unwrap()
-        .0;
+    let mut cfg = Config::parse(toml).unwrap().0;
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
@@ -84,6 +89,18 @@ fn every_kind_of_place_is_within_its_budget() {
             "{place}: {tokens} tokens over its budget of {max}"
         );
     }
+    // And on the owner's config in shape (theseus-ykc7o: install #30 read the owner's cli at 8,991 tokens while
+    // the defaults read 7,516): every kind of place within its budget there too.
+    let (owner, _dir) = rig_of(OWNER_SHAPE);
+    for place in PLACES {
+        let Some(max) = budget(place) else { continue };
+        let tokens = owner.first_request(place).unwrap().tokens;
+        eprintln!("first request, the owner's shape, {place}: {tokens} tokens (budget {max})");
+        assert!(
+            tokens <= max,
+            "the owner's shape, {place}: {tokens} tokens over its budget of {max}"
+        );
+    }
     assert_eq!(budget("cli"), Some(8_000));
     assert_eq!(budget("task"), Some(8_000));
     assert_eq!(budget("dm"), Some(15_000));
@@ -91,21 +108,25 @@ fn every_kind_of_place_is_within_its_budget() {
 }
 
 /// Deferred by default: a tool a place loads in its first request is named in the allowlist for that place, and
-/// an entry that no place loads is stale.
+/// an entry that no place loads, on the defaults or the owner's shape, is stale.
 #[test]
 fn a_loaded_tool_is_named_in_the_allowlist_with_its_reason() {
+    // On the defaults and on the owner's config in shape (its language servers, its web search key).
     let (core, _dir) = rig();
+    let (owner, _odir) = rig_of(OWNER_SHAPE);
     let mut seen = std::collections::BTreeSet::new();
-    for kind in PlaceKind::ALL {
-        let place = kind.as_str();
-        for tool in core.first_request(place).unwrap().loaded {
-            assert!(
-                allowed(place, &tool),
-                "{tool} is loaded in the {place} place's first request and is not in \
-                 first_request::ALWAYS_LOADED: defer it, or name it there with the ledger's evidence \
-                 (use in about 1 of 5 sessions of that place)"
-            );
-            seen.insert((place, tool));
+    for core in [&core, &owner] {
+        for kind in PlaceKind::ALL {
+            let place = kind.as_str();
+            for tool in core.first_request(place).unwrap().loaded {
+                assert!(
+                    allowed(place, &tool),
+                    "{tool} is loaded in the {place} place's first request and is not in \
+                     first_request::ALWAYS_LOADED: defer it, or name it there with the ledger's evidence \
+                     (use in about 1 of 5 sessions of that place)"
+                );
+                seen.insert((place, tool));
+            }
         }
     }
     for (tool, places, reason) in ALWAYS_LOADED {

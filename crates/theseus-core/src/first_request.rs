@@ -133,6 +133,12 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
     ("wake_move", &["dm"], "tasks: dm default"),
     ("wake_cancel", &["dm"], "tasks: dm default"),
     (
+        "web_search",
+        &["dm", "channel"],
+        "web: a committed default of dm (PlaceKind::defaults), offered where a search key is set; 5 calls in 30 days \
+         (install #30's census)",
+    ),
+    (
         "http_fetch",
         &["dm", "channel"],
         "web: a committed default of dm (PlaceKind::defaults); a shared channel's public tool",
