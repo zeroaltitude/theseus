@@ -38,6 +38,7 @@ mod packs;
 mod pages;
 mod policy_explain;
 mod postmortem;
+mod prefix_cmd;
 mod print;
 mod prompt;
 mod remind;
@@ -553,6 +554,12 @@ enum Cmd {
     Thread {
         #[command(subcommand)]
         cmd: Option<thread::ThreadCmd>,
+    },
+    /// The prefix library (theseus-rr15): `prefix report`, its picks, the cache writes they saved,
+    /// and the false fits.
+    Prefix {
+        #[command(subcommand)]
+        cmd: prefix_cmd::PrefixCmd,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -1187,6 +1194,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

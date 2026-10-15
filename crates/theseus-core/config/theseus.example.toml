@@ -930,6 +930,23 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
 
+# ---------------------------------------------------------------- prefix
+# The prefix library (theseus-rr15): the third layer of a request (the project:
+# the system-level context files, then the session's topics' guidance) is kept
+# by digest and reused byte for byte across sessions and threads, so the
+# provider's prompt cache serves it. Picked only where a request is rewritten
+# anyway (a new session, a cold resume, a forced or system-changed recompile),
+# never under a warm session. A header that covers at least confirm of the fresh
+# layer is reused and what it lacks goes after the cached prefix; below confirm
+# a new header is minted only when its expected reuse pays for rewriting the
+# warm coarser one. `theseus prefix report` shows the picks and false fits.
+# [prefix]
+# enabled = true                          # false: every session renders its own layers, as before the library
+# max_bytes = 10485760                    # the library's resident size; past it the header read least recently retires
+# act = 0.9                               # a reuse at or above this fit is quiet
+# confirm = 0.6                           # a reuse below act is watched for a false fit; below confirm, mint or the coarser header
+# candidates = 16                         # the nearest headers by sketch a pick scores
+
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
 # human-facing text and returns candidate people through a tool schema; Jev

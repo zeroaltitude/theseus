@@ -220,6 +220,7 @@ pub fn compact(
         situation: ring.situation.clone(),
         cleared: ring.cleared,
         card: spec.card.as_ref().map(|c| c.shown.clone()),
+        prefix: None,
         request,
     }
 }

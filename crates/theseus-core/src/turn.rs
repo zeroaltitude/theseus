@@ -179,6 +179,8 @@ pub struct TurnRunner {
     /// The threads (theseus-nhew), in memory.
     pub threads: crate::threads::Threads,
     pub cards: crate::thread_context::Cards,
+    /// The prefix library (theseus-rr15), in memory.
+    pub prefix: crate::prefix::Library,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
@@ -835,6 +837,8 @@ impl TurnRunner {
             walk: None,
             memberships: vec![],
             guidance: vec![],
+            prefix: None,
+            prefix_used: None,
         }
     }
 
@@ -3431,6 +3435,7 @@ impl TurnRunner {
                 )?,
             ];
             records.extend(crate::thread_context::card_record(compiled));
+            records.extend(crate::prefix::records(compiled, turn_id)?);
             Ok(records)
         };
         let written = store.update_session(&session.session_id, |r| {

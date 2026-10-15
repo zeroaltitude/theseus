@@ -46,6 +46,8 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         walk: None,
         memberships: vec![],
         guidance: vec![],
+        prefix: None,
+        prefix_used: None,
     }
 }
 

@@ -204,6 +204,7 @@ ledger_kinds! {
     PolicyEarnedRevoked = "policy.earned_revoked",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
+    PrefixPicked = "prefix.picked",
     ProfileChanged = "profile.changed",
     ProviderCall = "provider.call",
     ProviderCut = "provider.cut",

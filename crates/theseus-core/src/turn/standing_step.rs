@@ -13,25 +13,34 @@ impl TurnRunner {
     /// cannot be read is warned of and the turn goes without (the check has
     /// nothing to hold it to).
     pub(super) fn stand(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
-        t.standing = None;
+        t.standing = self.standing_block(t.tc.session_id, t.tc.class);
+        if let Some(block) = &t.standing {
+            block.apply(spec);
+        }
+    }
+
+    /// The block of `session_id`'s scope in a place of `class`, from memory:
+    /// what its next turn's spec carries (the keep-warm read builds that
+    /// spec too, theseus-rr15).
+    pub(crate) fn standing_block(
+        &self,
+        session_id: &str,
+        class: crate::places::PlaceClass,
+    ) -> Option<Block> {
         let all = match self.standing.all(&self.store) {
             Ok(a) => a,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"),
                     "the standing records cannot be read: this turn goes without them");
-                return;
+                return None;
             }
         };
-        let place = self.target_of(t.tc.session_id);
+        let place = self.target_of(session_id);
         let scope = Scope {
-            session: t.tc.session_id,
+            session: session_id,
             place: place.as_deref(),
         };
-        let now = theseus_protocol::now_unix_ms();
-        if let Some(block) = Block::of(&all, scope, t.tc.class, now) {
-            block.apply(spec);
-            t.standing = Some(block);
-        }
+        Block::of(&all, scope, class, theseus_protocol::now_unix_ms())
     }
 
     /// A compilation this compile made lists the records its system carried.

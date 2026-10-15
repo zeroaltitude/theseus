@@ -61,6 +61,7 @@ pub mod memory;
 pub mod ontology;
 pub mod people;
 pub mod place;
+pub mod prefix;
 pub mod recall;
 pub mod retract;
 pub mod route;
@@ -487,6 +488,7 @@ facts![
     rsi_join::SelfJoined,
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
+    prefix::PrefixPicked<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

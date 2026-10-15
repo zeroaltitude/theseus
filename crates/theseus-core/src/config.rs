@@ -29,11 +29,13 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 mod outputs;
 pub(crate) mod people;
+pub mod prefix;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+pub use prefix::PrefixConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 mod sparse;
@@ -154,6 +156,9 @@ pub struct Config {
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
+    /// `[prefix]`: the prefix library (theseus-rr15), `config/prefix.rs`.
+    #[serde(default, skip_serializing_if = "PrefixConfig::is_default")]
+    pub prefix: PrefixConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1377,6 +1382,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.prefix.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

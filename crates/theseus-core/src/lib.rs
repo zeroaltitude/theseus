@@ -72,6 +72,7 @@ pub mod peer;
 pub mod place_warnings;
 pub mod places;
 pub mod policy;
+pub mod prefix;
 pub mod provider;
 pub mod push;
 pub mod reach;

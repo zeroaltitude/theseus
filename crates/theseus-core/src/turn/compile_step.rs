@@ -37,6 +37,16 @@ impl TurnRunner {
         let spec = cold_spec.as_ref().unwrap_or(spec);
         let (nodes, stubbed) = self.stubbed_view(sid, &spec.model, &session.not_shown, nodes, cold);
         let read_before = crate::stub::read(&nodes);
+        // The prefix library's third layer, picked only at a compile point.
+        let at = crate::prefix::turn::At {
+            current: current.as_ref(),
+            nodes: &nodes,
+            point: current.is_none() || force.is_some() || cold_spec.is_some(),
+            first: i == 0,
+            class: t.tc.class,
+        };
+        let (prefix_spec, picked) = self.prefix_spec(spec, at);
+        let spec = prefix_spec.as_ref().unwrap_or(spec);
         let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
@@ -64,6 +74,11 @@ impl TurnRunner {
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
         let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
+        compiled.prefix = picked.filter(|p| {
+            compiled.new_compilation
+                && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)
+        });
+        self.prefix_touched(&compiled, spec);
         Self::recall_compiled(t, &mut compiled);
         // A clearing pass (theseus-3ki0): one row a pass.
         if let Some(pass) = compiled.cleared {

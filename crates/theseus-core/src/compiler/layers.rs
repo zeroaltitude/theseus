@@ -116,7 +116,7 @@ pub(super) fn system_blocks(spec: &RequestSpec) -> Vec<(&'static str, &str)> {
 /// joined by blank lines, never was. So a compilation from before the split
 /// recompiles once (`system_changed`) and drops its prefix's thinking, whose
 /// signatures were made over the old system (theseus-ev1).
-pub(super) fn system_digest(spec: &RequestSpec) -> String {
+pub(crate) fn system_digest(spec: &RequestSpec) -> String {
     let texts: Vec<&str> = system_blocks(spec).into_iter().map(|(_, t)| t).collect();
     sha(&texts.join("\u{0}"))
 }

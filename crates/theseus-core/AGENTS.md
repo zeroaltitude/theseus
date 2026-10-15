@@ -143,6 +143,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     only when that is not enough (a ring, summarized as any ring is), to `[threads] working_tokens`. Unthreaded
     sessions and warm threads are never touched by it. Tests: `compiler/tests_layers.rs`, `tests_cold.rs`,
     `rpc/tests_thread_context.rs`.
+  - **The prefix library** (theseus-rr15, T13; store format 34; `prefix.rs`, `prefix/`, `config/prefix.rs`,
+    `fact/prefix.rs`, `rpc/prefix.rs`): layer 3 (the project: the system-level files, then the topics' guidance) is
+    kept as a header by digest (META `prefix:<digest>`, its hit log `prefix.hits.<digest>`, a retirement
+    `prefix.retired.<digest>`, all in the frame of the compilation that minted or reused it) and reused byte for
+    byte. The pick runs only at a compile point (`prefix/turn.rs`: no compilation, a forced recompile, a cold
+    resume, or a system that changed under the session; never under a warm session): the nearest headers by sketch
+    (`prefix/sketch.rs`, a hashed bag of words, computed in the daemon) on the same lower layers and place class,
+    each scored by `fit` (the share of the fresh layer's bytes it covers; a changed or a foreign section never
+    fits), then reuse at `[prefix] confirm`, below it mint only when `p(reuse) × reads × delta > warm coarser`, else
+    the coarser header (`prefix/fit.rs`'s module doc is the rule). What the header lacks heads the session's block
+    (`prefix::applied`, in `compile_with`), and the manifest's `prefix` names the header, so an append replays the
+    same bytes from memory (`Library::replay`). Each pick is a `prefix.picked` row; `prefix.report` (`theseus prefix
+    report`) joins them with the turn's cache read and what went wrong after (a correction, a re-ask): a reuse below
+    `act` that went wrong is a false fit. `[prefix] enabled = false` renders each session's own layers. A session's
+    and a place's standing records are the session's block's, not the header's (`standing::Block::local`), so layer
+    1 is the same for every session of a place class. Not yet: routing's cold estimate and keep-warm read the
+    library's warmth (`Library::is_warm`, `most_read` are built for them), and Jev's `prefix` pack. Tests:
+    `prefix/tests.rs`, `rpc/tests_prefix.rs`, `compiler/tests_layers.rs`, the layouts' format-34 samples.
   - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
     task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a
@@ -206,9 +224,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
   `standing::Board` holds them in memory (one META scan after serving, `Core::warm_standing`, or by the first turn),
   so a compile reads memory and a plain turn writes no frame for them. `TurnRunner::stand` renders the turn's scope
-  (this session, this place, everywhere) as `standing::Block` first in the system's *second* block (before the
-  context files; no block of its own, so no new cache breakpoint, and never the shared header), beside the walk in
-  `turn.rs` and `route_step.rs`. A change of the records is a `system_changed` recompile; otherwise the prefix is
+  as `standing::Block`: the records for everywhere at the end of the header layer, and this session's and this
+  place's at the head of the session's block (theseus-rr15; no block of its own, so no new cache breakpoint), beside
+  the walk in `turn.rs` and `route_step.rs`. A change of the records is a `system_changed` recompile; otherwise the prefix is
   byte-identical. It is system, outside the ring, so no compaction drops it. A shared place gets the orders' text and
   one line (`standing::WITHHELD`) for preferences and facts, never their text; `standing.list` gives their text to
   the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and

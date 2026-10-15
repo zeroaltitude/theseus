@@ -46,6 +46,7 @@ mod packs_ahead;
 mod pages;
 mod people;
 mod policy;
+mod prefix;
 mod proposal_groups;
 mod proposals;
 mod publish;
@@ -83,6 +84,8 @@ mod tests_lists;
 mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;
+#[cfg(test)]
+mod tests_prefix;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]
@@ -753,6 +756,7 @@ impl Core {
             ontology: Default::default(),
             standing: Default::default(),
             threads: Default::default(),
+            prefix: Default::default(),
             cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),

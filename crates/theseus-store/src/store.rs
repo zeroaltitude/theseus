@@ -622,7 +622,11 @@ const BULK: usize = 4096;
 /// record), the place records `discord.session.thread:<slug>` of their
 /// virtual places, and the ledger kinds `thread.created`, `.edited`,
 /// `.paused`, `.resumed`, `.done` and `.reopened`.
-const MANIFEST_FORMAT: u32 = 33;
+/// 34 = the prefix library (theseus-rr15): a compilation manifest's `prefix`
+/// (the header its third layer is), the META keys `prefix:<digest>` (a
+/// header), `prefix.hits.<digest>` and `prefix.retired.<digest>`, and the
+/// ledger kind `prefix.picked`.
+const MANIFEST_FORMAT: u32 = 34;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
