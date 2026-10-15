@@ -923,9 +923,25 @@ async fn judge_inbound(
     }
     svc.budget.settle(&today, need, spent, called, failed);
     // The owner's words, acted on once the batch has settled (theseus-slvl.5):
-    // `directive.v1` rode this request, so no call was added for it. Asked
-    // early, it waits for the turn to say where the words were written, and
-    // a turn that never does (it did not run) captures nothing.
+    // `directive.v1` rode this request, so no call was added for it.
+    capture_after(&svc, (heard, said), &judgments).await;
+}
+
+/// How long an early `directive.v1` waits for its turn to write the message.
+const SAID_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The owner's words, acted on (theseus-slvl.5): the batch's `directive.v1`
+/// judgment, when there is one, goes to the core.
+/// Asked early, it waits for the turn to say where the words were written,
+/// and a turn that never does (it did not run) captures nothing.
+async fn capture_after(
+    svc: &JudgeService,
+    (heard, said): (
+        Option<crate::capture::act::Message>,
+        Option<tokio::sync::oneshot::Receiver<(String, String)>>,
+    ),
+    judgments: &[theseus_judge::Judgment],
+) {
     let heard = match (heard, said) {
         (Some(mut m), Some(rx)) => match tokio::time::timeout(SAID_WAIT, rx).await {
             Ok(Ok((session, node))) => {
@@ -936,19 +952,6 @@ async fn judge_inbound(
         },
         (heard, _) => heard,
     };
-    capture_after(&svc, heard, &judgments);
-}
-
-/// How long an early `directive.v1` waits for its turn to write the message.
-const SAID_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// The owner's words, acted on (theseus-slvl.5): the batch's `directive.v1`
-/// judgment, when there is one, goes to the core.
-fn capture_after(
-    svc: &JudgeService,
-    heard: Option<crate::capture::act::Message>,
-    judgments: &[theseus_judge::Judgment],
-) {
     let found = judgments.iter().find(|j| j.pack.starts_with("directive."));
     if let (Some(m), Some(j), Some(core)) = (heard, found, svc.core()) {
         core.capture_directive(&m, j);

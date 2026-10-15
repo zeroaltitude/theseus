@@ -178,11 +178,9 @@ pub const BUDGET_TOOL: &str = "budget.reset";
 /// The `tool` of a provider call's action. It is authorized in the frame after its plan and never asks the operator.
 pub const PROVIDER_TOOL: &str = "provider.messages";
 
-/// A module of wire names, from one table: each constant with its docs, and
-/// `ALL`, built from the same table, so no constant is left out of it. The
-/// reader rule's registry test (theseus-wjy, theseus-core's `tests_registry`)
-/// enumerates `ALL`: each method needs its dispatch arm, and each
-/// notification its `Event` and a sender.
+/// A module of wire names, from one table: each constant with its docs, and `ALL`, built from the same table, so no
+/// constant is left out of it. The reader rule's registry test (theseus-wjy, theseus-core's `tests_registry`)
+/// enumerates `ALL`: each method needs its dispatch arm, and each notification its `Event` and a sender.
 macro_rules! names {
     ($($(#[$doc:meta])* $name:ident = $value:literal,)*) => {
         $($(#[$doc])* pub const $name: &str = $value;)*
@@ -318,9 +316,8 @@ pub mod method {
         MEMORY_RECALLS = "memory.recalls",
         /// The sources of the handles a session's replies cite (`cite::MemoryCitesParams`; theseus-ejdk). A read.
         MEMORY_CITES = "memory.cites",
-        /// An operator's label on a node recall offered or should have
-        /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
-        /// keep it out of recall. Acting: the owner, from a private place.
+        /// An operator's label on a node recall offered or should have (`memory::MemoryLabelParams`; M6 step 30b):
+        /// `wrong` and `stale` keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
         /// Consolidation now (M6 31b; `memory::MemoryConsolidateParams`). Acting.
         MEMORY_CONSOLIDATE = "memory.consolidate",
@@ -333,8 +330,8 @@ pub mod method {
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest `judge.call` rows, by pack, session, and
         /// time, without their states. A read.
         JUDGE_LIST = "judge.list",
-        /// One judgment by its id (`judge::JudgeGetParams`): its row, and the
-        /// state Jev was sent, from its blob. A read.
+        /// One judgment by its id (`judge::JudgeGetParams`): its row, and the state Jev was sent, from its blob. A
+        /// read.
         JUDGE_GET = "judge.get",
         /// The learning ledger (M5 25c; `learning`): an operator's label on a judgment (acting:
         /// the owner, from a private place), and the report, stored by date or run now.
@@ -473,8 +470,8 @@ pub mod notify {
         THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
-        /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`,
-        /// to every connection that watches every session.
+        /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`, to every connection that watches
+        /// every session.
         SELF_CHANGED = "self.changed",
         /// What capture did with the owner's words (theseus-slvl.5): a record kept, or a question.
         STANDING_NOTICED = "standing.noticed",
