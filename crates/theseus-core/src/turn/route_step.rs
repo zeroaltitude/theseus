@@ -840,6 +840,8 @@ impl TurnRunner {
         });
         Self::standing_here(t, &mut compiled);
         Self::persona_line(t, &mut compiled);
+        // The board notes this request's loaded set (theseus-zs6mm).
+        self.defer_noted(t, &detour, &compiled);
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
             return Ok(Err(f));
