@@ -1666,6 +1666,11 @@ pub struct ExecutionStopParams {
     /// An owner's act: refused from a shared place.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub tasks: bool,
+    /// Stop the turn and what it waits on, and leave the jobs that went on in
+    /// the background and the terminals running: the chat's Esc
+    /// (theseus-wy6v.1).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_jobs: bool,
     /// Where a Discord caller asked from; the place rule reads it for `tasks`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

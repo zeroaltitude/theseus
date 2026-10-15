@@ -20,6 +20,12 @@ author?: string,
  */
 tasks?: boolean, 
 /**
+ * Stop the turn and what it waits on, and leave the jobs that went on in
+ * the background and the terminals running: the chat's Esc
+ * (theseus-wy6v.1).
+ */
+keep_jobs?: boolean, 
+/**
  * Where a Discord caller asked from; the place rule reads it for `tasks`.
  */
 discord?: DiscordOrigin, };

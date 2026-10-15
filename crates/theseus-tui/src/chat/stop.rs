@@ -39,7 +39,7 @@ impl Chat {
         };
         vec![call(
             method::EXECUTION_STOP,
-            json!({ "execution_id": execution, "author": AUTHOR }),
+            json!({ "execution_id": execution, "author": AUTHOR, "keep_jobs": true }),
             Purpose::Stop,
         )]
     }

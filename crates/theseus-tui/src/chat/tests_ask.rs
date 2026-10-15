@@ -342,6 +342,7 @@ async fn esc_during_a_turn_stops_it_and_asks_what_to_do_instead() {
     let s = &r.daemon.asked("execution.stop")[0];
     assert_eq!(s["execution_id"], EXE);
     assert_eq!(s["author"], "theseus chat");
+    assert_eq!(s["keep_jobs"], true, "Esc stops the turn, not the jobs");
     r.shows("stopped by you (esc) · verified: 2 processes ended")
         .await;
     assert!(

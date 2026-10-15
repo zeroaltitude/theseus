@@ -388,8 +388,31 @@ impl Core {
         id: &str,
         by: &str,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
+        self.stop_execution_with(id, by, false).await
+    }
+
+    /// `stop_execution`, and with `keep_jobs` only the turn and what it waits
+    /// on: the jobs that went on in the background (the ones with a short id)
+    /// and the session's terminals run on (theseus-wy6v.1).
+    pub async fn stop_execution_with(
+        &self,
+        id: &str,
+        by: &str,
+        keep_jobs: bool,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
         self.runner.stop_landed(id, by);
-        let stop = self.kernel.stop_execution(id, by)?;
+        let keep: Vec<String> = match self.kernel.execution(id)?.filter(|_| keep_jobs) {
+            Some(e) => self
+                .tools
+                .jobs
+                .handles
+                .of_session(&self.store, &e.session_id)
+                .into_iter()
+                .map(|(_, entry)| entry.corr)
+                .collect(),
+            None => Vec::new(),
+        };
+        let stop = self.kernel.stop_execution_keeping(id, by, &keep)?;
         super::ordered::applied();
         let Some(stop) = stop else {
             let e = self
@@ -431,15 +454,17 @@ impl Core {
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
         // A stop halts its terminals' programs too (theseus-n88g.4).
-        self.tools
-            .terms
-            .close_session_recorded(
-                &e.session_id,
-                crate::term::BY_STOP,
-                &self.session_rec(&e.session_id),
-            )
-            .await;
-        self.end_terminals_left(id, crate::term::BY_STOP).await;
+        if !keep_jobs {
+            self.tools
+                .terms
+                .close_session_recorded(
+                    &e.session_id,
+                    crate::term::BY_STOP,
+                    &self.session_rec(&e.session_id),
+                )
+                .await;
+            self.end_terminals_left(id, crate::term::BY_STOP).await;
+        }
         let tasks_running = self
             .kernel
             .tasks(Some(id))?

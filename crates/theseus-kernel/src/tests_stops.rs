@@ -291,3 +291,31 @@ fn a_stop_writes_nothing_for_an_ended_execution_and_refuses_a_task() {
     ));
     drop(pg);
 }
+
+/// A stop that keeps the jobs that went on in the background (theseus-wy6v.1):
+/// the call the turn waits on is told to stop, the background job is not and
+/// stays outstanding.
+#[test]
+fn a_stop_keeping_jobs_leaves_a_background_job_running() {
+    let w = world();
+    let (_sid, e, g) = running(&w);
+    let background = dispatched(&w, &g, "proc.run", 0);
+    let waited_on = dispatched(&w, &g, "proc.run", 0);
+    let s = w
+        .kernel
+        .stop_execution_keeping(
+            &e.id,
+            "theseus chat",
+            std::slice::from_ref(&background.correlation_id),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.to_kill, vec![waited_on.correlation_id]);
+    let kept = w
+        .kernel
+        .action(&background.correlation_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.state, ActionState::Dispatched);
+    assert!(kept.cancel.is_none());
+}

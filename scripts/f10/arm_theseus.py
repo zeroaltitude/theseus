@@ -9,8 +9,8 @@ How each step reaches Theseus (the rules the baseline was measured by):
   on the dock's question (theseus-wy6v.1). The other steps use the terminal UI,
   `theseus tui`: enter opens the session, `i` the input line, `y` answers a
   question.
-- S7's interrupt is Ctrl-C, the key a person presses in a terminal; the stop
-  that B3 verifies is the TUI's own (`s`, then `s`).
+- S7 runs in the chat, and its interrupt is Esc, which stops the turn
+  (theseus-wy6v.1); the stop that B3 verifies is the TUI's own (`s`, then `s`).
 - An arm with no key or command for a step (S5's mode, S9's undo, S11's
   reopen and picker, S12's plan mode) records none, and its checks say so.
 
@@ -393,22 +393,25 @@ class Theseus:
         return False
 
     def s7(self, ctx):
-        self.say(ctx, steps.PROMPTS["S7.start"])
+        """S7 runs in the chat: Esc stops the long turn and the chat asks what
+        to do instead (theseus-wy6v.1). The survey started before it must
+        run on. The stop B3 verifies is then the TUI's own, on the session."""
+        self.open_chat(ctx)
+        self.chat_say(ctx, steps.PROMPTS["S7.start"])
         self.card(ctx)
         ctx.tmux.keys("y")
         wait_until(ctx.survey_pids, 30)
         self.settle(ctx, 30)
-        self.say(ctx, steps.PROMPTS["S7.long"])
+        self.chat_say(ctx, steps.PROMPTS["S7.long"])
         time.sleep(2.0)
         ctx.capture("S7.busy")
-        ctx.tmux.keys("C-c")
+        ctx.tmux.keys("Escape")
         time.sleep(1.5)
         ctx.capture("S7.after")
-        ctx.rec("S7", interrupt_keys=["C-c"], foreground_after=ctx.tmux.foreground(),
+        ctx.rec("S7", interrupt_keys=["Escape"], foreground_after=ctx.tmux.foreground(),
                 earlier_alive=bool(ctx.survey_pids()))
         # The stop B3 verifies: the TUI's own, on the session.
-        ctx.tmux.keys("C-l")
-        self.open_tui(ctx)
+        self.back_to_board(ctx)
         ctx.tmux.keys("s")
         time.sleep(0.3)
         ctx.tmux.keys("s")
