@@ -169,6 +169,21 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the typist's `DiscordOrigin`; the core warms only for an owner's typing (another person's in a shared place warms
   nothing). Tests: `tests_typing.rs`, through the stand-in's `TYPING_START` (`FakeDiscord::typing`).
 
+- **The voice channel's status and the board's line** (theseus-arp9l, `runtime/voice_status.rs`): while Theseus is in a call
+  the channel's status reads `🎧 Theseus · ⚙️ 3 tasks · 🔴 1 needs you` (`PUT /channels/{id}/voice-status`, a route twilight
+  does not type, so a plain `reqwest` write as the bot; `🎧 Theseus` alone when nothing works). **Counts only**, since
+  everyone in the channel reads it: never a title, a path or a dollar figure. The counts are the work board's open tasks
+  (`WorkKind::Task` that works) and open questions (`WorkKind::Question`), kept in a small map by one in-process watch
+  (`Bus::watch_work` with the whole board's scope, interactive false: the binding's guarded `work.watch` sees shared
+  places alone, and the call's tasks are the owner's). A change waits 2 s (measured from the first change since the last
+  write), at most one write a minute, the last state always written, nothing written while the counts are unchanged;
+  cleared at `/leave`, when the call drops and at the daemon's stop; a 403 is said once in health (`last_error`) and
+  that call never writes again. `[voice] status` (default on) and a channel's `voice_status` set it. The same map gives
+  `Tally::spoken`, one line of at most 200 characters put before a voice turn's words (`[The board: 3 tasks working; 1
+  needs you: Beta summary asks fs.write …]`) in a private place only, never a shared one. Tests:
+  `runtime/voice/tests_status.rs` (the pace on tokio's paused clock, the fake Discord's REST route and its 403), and
+  `voice_status.rs`'s own.
+
 ## Invariants
 
 - **What a person does goes through the protocol** (a message is `turn.submit`, a press `action.confirm`, `/stop`

@@ -778,6 +778,10 @@ ping_window_secs = 0                    # at most one ping per place in this man
 # tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model
 # api_base = "https://api.deepgram.com" # tests and scratch daemons: a local stand-in
 # deaf_after_secs = 10                  # a call that hears no listed speaker this long after joining rejoins once
+# status = true                         # while in a call, the voice channel's status reads the task counts
+#                                       # ("🎧 Theseus · ⚙️ 3 tasks · 🔴 1 needs you"), counts alone, cleared at leave;
+#                                       # a bound voice channel may say voice_status = false. Needs the bot to have
+#                                       # the Set Voice Channel Status permission (a 403 is said once in health)
 
 # ---------------------------------------------------------------- web
 # The localhost web UI, the cockpit, at /. Loopback only; a non-loopback

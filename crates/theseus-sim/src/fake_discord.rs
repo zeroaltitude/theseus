@@ -426,6 +426,11 @@ struct State {
     /// A pin answers 403, as Discord does a bot without Manage Messages
     /// (39b): the board stays unpinned.
     refuse_pins: bool,
+    /// A voice channel's status answers 403, as Discord does a bot without
+    /// Set Voice Channel Status (theseus-arp9l).
+    refuse_voice_status: bool,
+    /// Each voice-status write that landed, in order: (when, channel, text).
+    voice_statuses: Vec<(u64, String, String)>,
     /// The file the guild is read from again at every request (M4 19c), so a
     /// live check can change who can view a channel while a turn runs.
     guild_file: Option<PathBuf>,
@@ -531,6 +536,17 @@ impl FakeDiscord {
     /// Refuse every pin, as Discord does a bot that may not pin (39b).
     pub fn refuse_pins(&self, refuse: bool) {
         self.state.lock().unwrap().refuse_pins = refuse;
+    }
+
+    /// Refuse every voice-status write with 403 (theseus-arp9l).
+    pub fn refuse_voice_status(&self, refuse: bool) {
+        self.state.lock().unwrap().refuse_voice_status = refuse;
+    }
+
+    /// The voice-status writes that landed, in order: when (unix ms), the
+    /// channel, and the status ("" is a clear).
+    pub fn voice_statuses(&self) -> Vec<(u64, String, String)> {
+        self.state.lock().unwrap().voice_statuses.clone()
     }
 
     /// Answer every request this much later.
@@ -981,6 +997,7 @@ impl FakeDiscord {
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
             ("PUT", ["channels", c, "messages", "pins", m]) => self.pin(stream, c, m),
+            ("PUT", ["channels", c, "voice-status"]) => self.voice_status(stream, c, &body),
             ("GET", ["channels", c, "messages", "pins"]) => self.pins(stream, route, c),
             _ => {
                 self.record(seen(&method, route, "unknown"));
@@ -1081,6 +1098,31 @@ impl FakeDiscord {
             return Ok(());
         }
         reply(stream, 200, &message_json(&msg))
+    }
+
+    /// Set a voice channel's status, or refuse it with 403 when told to.
+    fn voice_status(&self, stream: TcpStream, channel: &str, body: &Value) -> std::io::Result<()> {
+        let path = format!("/channels/{channel}/voice-status");
+        let status = body["status"].as_str().unwrap_or("").to_string();
+        let refuse = self.state.lock().unwrap().refuse_voice_status;
+        if refuse {
+            self.record(seen("PUT", &path, "refused"));
+            return reply(
+                stream,
+                403,
+                &json!({"message": "Missing Permissions", "code": 50013}),
+            );
+        }
+        self.state.lock().unwrap().voice_statuses.push((
+            now_ms(),
+            channel.to_string(),
+            status.clone(),
+        ));
+        self.record(Seen {
+            chars: Some(status.chars().count()),
+            ..seen("PUT", &path, "voice_status")
+        });
+        reply_empty(stream)
     }
 
     /// Pin a message (39b's board), or refuse it with 403 when told to.
