@@ -341,17 +341,17 @@ async fn run_now_and_pause_from_the_routines_list_act_and_settle() {
     })
     .await;
     // Each press was answered in words.
-    let said: Vec<String> = r
-        .fake
-        .replies()
-        .into_iter()
-        .filter_map(|x| x.content)
-        .collect();
-    assert!(
-        said.iter().any(|c| c.contains("is running now")),
-        "{said:?}"
-    );
-    assert!(said.iter().any(|c| c.contains("is paused")), "{said:?}");
+    r.until("both presses answered", || {
+        let said: Vec<String> = r
+            .fake
+            .replies()
+            .into_iter()
+            .filter_map(|x| x.content)
+            .collect();
+        said.iter().any(|c| c.contains("is running now"))
+            && said.iter().any(|c| c.contains("is paused"))
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -193,7 +193,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     place, so a routine is read from `routine.list`, not from the agenda) and the 30-day record of the first 8 routines
     (`routine.runs`, again only when a routine's run count, last run or running changed). It runs when the work engine
     changes (`work.changed`), a `wake.noticed` is heard, the courier posts a routine's or a watch's words, or a command
-    here acts: 300 ms after the first, at least 2 s apart, so **a busy day's worst minute is 20 reads** (each 3 calls to
+    here acts, or a minute passes with none (a routine made from the CLI or a wake the model sets moves it with no event this binding hears): 300 ms after the first, at least 2 s apart, so **a busy day's worst minute is 20 reads** (each 3 calls to
     memory-only core reads) **and the board's 30 edits** (`BOARD_EVERY`, unchanged). A snapshot that changed nothing
     redraws nothing. Autocomplete (`/snooze wake:`, `/cancel id:`, `/routine pause|resume|run name:`) answers from this
     snapshot: no daemon call per keystroke, reminders before other wakes.
@@ -214,7 +214,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     from the run's `routine.run:` mark; `speak: when_notable` is the core's: a quiet run posts nothing); a failed or
     blocked run's notice (the core's `routine_failed` post, once a routine a local day, its line and `answers`) is the
     reminder post with `[▶ Run now] [⏸ Pause] [Details]` (`hz:<answer>:<wake id>`, `Buttons::Horizon`); a met watch's
-    notice (`purpose: watch.met`, an answer `done`) pings like a reminder with `[Done]`. A press is `work.answer` as the
+    notice (`purpose: watch.met`) pings like a reminder and has no button: its wake is gone, so `work.answer` has no Done to find, and "keep watching" has no verb. A press is `work.answer` as the
     presser; the message becomes the answer, its buttons gone (a refusal is told to the presser alone and the buttons
     stay). Not settled from another surface: the post edits itself on the press that settles it, as a reminder does.
   - **The status line** gains `⏰ 16:52` (the next reminder due before the local midnight, a time and no word of it,
