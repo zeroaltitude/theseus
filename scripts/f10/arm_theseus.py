@@ -447,7 +447,17 @@ class Theseus:
         ctx.rec("S9", undo_keys=None)
 
     def s10(self, ctx):
+        """S10 asks the chat: `/cost` then `/context` (theseus-wy6v.2), both
+        on the screen at the capture; the board is opened again for S11."""
+        self.open_chat(ctx)
+        self.chat_say(ctx, "/cost")
+        ctx.tmux.wait(lambda t: "today:" in t, 20, every=0.05)
+        self.chat_say(ctx, "/context")
+        ctx.tmux.wait(lambda t: "`theseus why` names every part" in t, 20, every=0.05)
+        time.sleep(0.5)
         ctx.capture("S10.screen")
+        ctx.rec("S10", context_cmd="/context", cost_cmd="/cost")
+        self.back_to_board(ctx)
 
     def s11(self, ctx):
         self.say(ctx, steps.PROMPTS["S11"])

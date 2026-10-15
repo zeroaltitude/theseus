@@ -234,3 +234,24 @@ async fn the_working_window_lowers_the_budget() {
         assert_eq!(first_text(&q), INSTRUCTION);
     }
 }
+
+/// The turn's result carries how full the last request was and the window it
+/// compiled against (theseus-wy6v.2): the catalog's, or the working window
+/// when one lowers it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_result_carries_the_last_requests_tokens_and_its_window() {
+    for (catalog, working, window) in [
+        (1_000_000, None, 1_000_000),
+        (1_000_000, Some(40_000), 40_000),
+    ] {
+        let r = rig(1, 3_000, catalog, working);
+        let (_, result) = turn(&r.core, INSTRUCTION).await;
+        let result = result.expect("the turn ends");
+        assert_eq!(result.context_window, Some(window));
+        let tokens = result.context_tokens.expect("a request was compiled");
+        assert!(tokens > 0 && tokens < window, "{tokens}");
+        // The second loop's request holds the log the first read.
+        let first = rows(&r.core, "context.compiled");
+        assert!(first.len() >= 2, "two loops compiled");
+    }
+}

@@ -609,7 +609,7 @@ fn tool_line(c: &ToolCalled, t: Option<&ToolExplain>) -> String {
     format!("  {name:<22} {posture:<8} {why}")
 }
 
-fn num(n: u64) -> String {
+pub(crate) fn num(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (k, c) in s.chars().enumerate() {

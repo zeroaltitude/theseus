@@ -74,6 +74,7 @@ mod deferred_step;
 pub mod effort_step;
 mod end_step;
 mod fallback_step;
+mod fill_step;
 mod inbound_step;
 mod later_step;
 mod noop_step;
@@ -404,6 +405,8 @@ struct Turn<'a> {
     fallback: Option<fallback_step::FellBack>,
     /// The stop judged live, and the one nudge (theseus-fh0u).
     nudge: nudge_step::Nudge,
+    /// The last compile's size and window (theseus-wy6v.2).
+    fill: fill_step::Fill,
     /// The standing blocks the turn's spec and tail carry, and its surface.
     standing: standing_step::Held,
 }
@@ -531,6 +534,7 @@ impl<'a> Turn<'a> {
             route: route_step::RouteState::default(),
             fallback: None,
             nudge: nudge_step::Nudge::default(),
+            fill: fill_step::Fill::default(),
             standing: standing_step::Held::default(),
         }
     }
@@ -3187,6 +3191,8 @@ impl TurnRunner {
             // The record in hand, its books closed above: no store read
             // (theseus-c0bb), and the total `session.list` will answer.
             session_cost_usd: Some(session.cost_usd),
+            context_tokens: t.fill.tokens,
+            context_window: t.fill.window,
             tool_calls: t.tool_calls,
             awaiting_confirm: t.awaiting.clone().or_else(|| t.budget_question.clone()),
             stop_details: last.and_then(|r| r.stop_details.clone()),

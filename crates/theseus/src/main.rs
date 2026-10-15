@@ -230,6 +230,13 @@ enum Cmd {
         #[arg(long)]
         exact: bool,
     },
+    /// How full the context is: the session's last compiled request against the model's
+    /// window, a line for each kind of part (system and persona, tools, context files, recalled,
+    /// conversation) with its tokens and a bar, and the free space. The short form of `why`,
+    /// which names every part and the rule that put it there. SESSION defaults to the most
+    /// recently active. A read: nothing is recompiled or written. --json prints what the daemon
+    /// answered.
+    Context { session: Option<String> },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
     /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
@@ -1257,6 +1264,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::history(c, json, session, (n, after, before), full).await,
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
+        Cmd::Context { session } => why::context(c, json, session).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         Cmd::Places => cmd::places(c, json).await,

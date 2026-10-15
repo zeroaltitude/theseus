@@ -36,6 +36,7 @@ mod screen;
 mod state;
 mod stop;
 mod style;
+mod usage;
 
 #[cfg(test)]
 mod tests;
@@ -43,6 +44,8 @@ mod tests;
 mod tests_ask;
 #[cfg(test)]
 mod tests_reopen;
+#[cfg(test)]
+mod tests_usage;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;

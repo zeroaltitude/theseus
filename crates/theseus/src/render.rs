@@ -26,7 +26,7 @@ pub mod census;
 pub mod cite;
 pub mod code;
 mod connections;
-mod day;
+pub mod day;
 pub mod defer;
 pub mod diffview;
 mod failed;
@@ -528,9 +528,10 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
         r.usage.input_tokens,
         r.usage.output_tokens,
         cache,
-        r.cost_words()
-            .map(|c| format!(" · {c}"))
-            .unwrap_or_default(),
+        [r.cost_words(), r.context_words()]
+            .into_iter()
+            .flatten()
+            .fold(String::new(), |a, w| a + " · " + &w),
         r.elapsed_ms,
         r.first_token_ms
             .map(|t| format!(" (first token {t} ms)"))

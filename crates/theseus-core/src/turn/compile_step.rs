@@ -77,6 +77,7 @@ impl TurnRunner {
         let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
         ph.mark("compile");
         Self::recall_compiled(t, &mut compiled);
+        t.fill = super::fill_step::Fill::of(&compiled, self.fill_window(spec));
         // A clearing pass (theseus-3ki0): one row a pass.
         if let Some(pass) = compiled.cleared {
             t.record(&fact::compaction::Cleared {
