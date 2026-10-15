@@ -76,9 +76,14 @@ fn sessions() -> Value {
     json!({"sessions": [{"session_id": S, "kind": "conversation", "label": null, "created_at_unix_ms": 1_759_300_000_000u64, "turns": 1}]})
 }
 
-fn explained() -> Value {
-    json!({"session_id": S, "kind": "conversation", "class": "private", "place": "p", "turns": [{"turn_id": T, "at_ms": 1, "loops": 2, "est_tokens": 9, "compilation_id": "c"}],
-           "profile": "sonnet", "model": "m", "parts": [], "digest_now": "d", "recalls": [], "sources": {}, "ms": 1.0})
+/// The `turn.started` rows of the turns named, oldest first, as `ledger.tail` answers.
+fn started(turns: &[&str]) -> Value {
+    let rows: Vec<Value> = turns
+        .iter()
+        .enumerate()
+        .map(|(i, t)| json!({"position": 10 + i as u64, "at_unix_ms": 1 + i as u64, "kind": "turn.started", "session_id": S, "turn_id": t, "data": {}}))
+        .collect();
+    json!({"rows": rows, "total": rows.len()})
 }
 
 /// The session's last turn, by default: the link is what the daemon built, on
@@ -90,7 +95,7 @@ fn the_last_turn_opens_at_the_link_the_daemon_built() {
         &["open", "turn", "--print"],
         vec![
             ("session.list", sessions()),
-            ("context.explain", explained()),
+            ("ledger.tail", started(&[T])),
             ("turn.inspect", inspected(&url)),
         ],
     );
@@ -107,10 +112,65 @@ fn json_is_the_ids_and_the_link() {
         &["--json", "open", "turn", "--print"],
         vec![
             ("session.list", sessions()),
-            ("context.explain", explained()),
+            ("ledger.tail", started(&[T])),
             ("turn.inspect", inspected(&url)),
         ],
     );
     let v: Value = serde_json::from_str(out.trim()).unwrap();
     assert_eq!(v, json!({"session_id": S, "turn_id": T, "url": url}));
+}
+
+/// theseus-v8h48: a turn that compiled no context (Haiku's detour) is a turn of
+/// the session. `context.explain` lists only turns that compiled one, so the
+/// turn list is the `turn.started` rows (the script answers no `context.explain`:
+/// a read of it would fail the run), and the last turn, and one named by the end
+/// of its id, are found among them.
+#[test]
+fn a_detour_turn_opens_by_its_id_and_as_the_last() {
+    const DETOUR: &str = "trn_q7w1d4";
+    let url = format!("http://localhost:17433/session/{S}/turn/{DETOUR}");
+    let inspect = || {
+        serde_json::to_value(TurnInspectResult {
+            session_id: S.into(),
+            turn_id: DETOUR.into(),
+            url: url.clone(),
+            ..TurnInspectResult::default()
+        })
+        .unwrap()
+    };
+    for args in [
+        &["open", "turn", "--print"][..],
+        &["open", "turn", "--print", "w1d4"][..],
+        &["open", "turn", "--print", DETOUR][..],
+    ] {
+        let (out, err, seen) = run(
+            args,
+            vec![
+                ("session.list", sessions()),
+                ("ledger.tail", started(&[T, DETOUR])),
+                ("turn.inspect", inspect()),
+            ],
+        );
+        assert_eq!(out, format!("{url}\n"), "{args:?}: {err}");
+        assert!(seen[1].contains("turn.started"), "{seen:?}");
+        assert!(seen[2].contains(DETOUR), "{seen:?}");
+    }
+}
+
+/// A name no turn of the session carries still says what was looked in.
+#[test]
+fn a_name_no_turn_carries_is_refused_with_the_count() {
+    let (out, err, _) = run(
+        &["open", "turn", "--print", "zzzz"],
+        vec![
+            ("session.list", sessions()),
+            ("ledger.tail", started(&[T, "trn_q7w1d4"])),
+        ],
+    );
+    assert!(out.is_empty(), "{out}");
+    assert!(
+        err.contains("no turn of this session is named `zzzz`"),
+        "{err}"
+    );
+    assert!(err.contains("newest 2 turns"), "{err}");
 }

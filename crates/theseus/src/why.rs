@@ -148,7 +148,8 @@ pub async fn ask(conn: &mut Conn, session_id: &str, turn: Option<&str>) -> Resul
     })
 }
 
-/// A turn of the session by a whole id, or by a unique start or end of one.
+/// A turn of the session by a whole id, or by a unique start or end of one,
+/// among the turns that compiled a context.
 pub(crate) async fn find_turn(conn: &mut Conn, session_id: &str, given: &str) -> Result<String> {
     let s = resolve::trimmed(given);
     let list = conn
@@ -161,26 +162,67 @@ pub(crate) async fn find_turn(conn: &mut Conn, session_id: &str, given: &str) ->
         )
         .await?;
     let x: ContextExplainResult = serde_json::from_value(list)?;
-    pick_turn(&x, s)
+    let ids: Vec<&str> = x.turns.iter().map(|t| t.turn_id.as_str()).collect();
+    pick_turn(
+        &ids,
+        s,
+        "`theseus why` reads the newest {n} turns that compiled a context",
+    )
 }
 
-fn pick_turn(x: &ContextExplainResult, s: &str) -> Result<String> {
-    if let Some(t) = x.turns.iter().find(|t| t.turn_id == s) {
-        return Ok(t.turn_id.clone());
+/// Every turn the session has, newest first: its `turn.started` rows, which a
+/// turn that compiled no context (a detour's) writes too (theseus-v8h48).
+pub(crate) async fn started_turns(conn: &mut Conn, session_id: &str) -> Result<Vec<String>> {
+    let v = conn
+        .request(
+            method::LEDGER_TAIL,
+            LedgerTailParams {
+                n: Some(ROWS),
+                kind: Some("turn.started".into()),
+                session_id: Some(session_id.to_string()),
+                ..LedgerTailParams::default()
+            },
+        )
+        .await?;
+    let mut rows = serde_json::from_value::<LedgerTailResult>(v)?.rows;
+    rows.sort_by_key(|r| std::cmp::Reverse(r.position));
+    Ok(rows.into_iter().filter_map(|r| r.turn_id).collect())
+}
+
+/// The same pick among every turn the session has, not only those that
+/// compiled a context: what `theseus open turn` names.
+pub(crate) async fn find_started_turn(
+    conn: &mut Conn,
+    session_id: &str,
+    given: &str,
+) -> Result<String> {
+    let ids = started_turns(conn, session_id).await?;
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    pick_turn(
+        &ids,
+        resolve::trimmed(given),
+        "the newest {n} turns of the session",
+    )
+}
+
+/// `ids` hold `s` whole, else exactly one of them starts or ends with it;
+/// `listed` says, with `{n}` for the count, which turns were looked in.
+fn pick_turn(ids: &[&str], s: &str, listed: &str) -> Result<String> {
+    if let Some(t) = ids.iter().find(|t| **t == s) {
+        return Ok((*t).to_string());
     }
     if s.chars().count() < resolve::SHORTEST {
         bail!("`{s}` is too short to name a turn: give at least four characters of its id");
     }
-    let found: Vec<&str> = x
-        .turns
+    let found: Vec<&str> = ids
         .iter()
-        .map(|t| t.turn_id.as_str())
+        .copied()
         .filter(|id| id.starts_with(s) || id.ends_with(s))
         .collect();
     match found.as_slice() {
         [] => Err(anyhow!(
-            "no turn of this session is named `{s}` (`theseus why` reads the newest {} turns that compiled a context)",
-            x.turns.len()
+            "no turn of this session is named `{s}` ({})",
+            listed.replace("{n}", &ids.len().to_string())
         )),
         [one] => Ok((*one).to_string()),
         many => bail!(

@@ -113,7 +113,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (this verb) and `tasks` (the list) are separate subcommands. Tests: `tests/task_start.rs` (a scripted daemon).
 - `src/open.rs` (theseus-x9swu): `theseus open turn [TURN] [--session S] [--print]`: `turn.inspect` for the link the daemon built from
   `[cockpit] public_url`, printed (stdout alone; `--json` the ids and the link) and opened with `$BROWSER`, `wslview`,
-  `xdg-open` or `open` where one is found. The status line ends with ` · inspect <url>` when the result carries one. Tests:
+  `xdg-open` or `open` where one is found. The turn is found among the session's `turn.started` rows (`ledger.tail`), so a detour's turn, which compiles no context, opens too (theseus-v8h48); `why` stays on `context.explain`. The status line ends with ` · inspect <url>` when the result carries one. Tests:
   `tests/open.rs` (a scripted daemon), `render/later.rs`.
 - `src/mode_cmd.rs` (theseus-lyxy): `theseus mode [ask|edits|plan|auto] [SESSION]`, one `session.mode` call (no mode reads;
   no session is the newest); it prints the mode's line and the plan's checklist (`render/modes.rs`, which `watch` uses for

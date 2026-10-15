@@ -35,7 +35,7 @@ pub async fn open(conn: &mut Conn, json: bool, what: What) -> Result<()> {
         None => crate::why::latest_session(conn).await?,
     };
     let turn_id = match turn {
-        Some(t) => crate::why::find_turn(conn, &session_id, &t).await?,
+        Some(t) => crate::why::find_started_turn(conn, &session_id, &t).await?,
         None => last_turn(conn, &session_id).await?,
     };
     let v = conn
@@ -62,22 +62,13 @@ pub async fn open(conn: &mut Conn, json: bool, what: What) -> Result<()> {
     Ok(())
 }
 
-/// The session's last turn: the newest the context explorer lists.
+/// The session's last turn: its newest `turn.started` row, which a turn that
+/// compiled no context (a detour's) has too (theseus-v8h48).
 async fn last_turn(conn: &mut Conn, session_id: &str) -> Result<String> {
-    use theseus_protocol::context::{ContextExplainParams, ContextExplainResult};
-    let v = conn
-        .request(
-            method::CONTEXT_EXPLAIN,
-            ContextExplainParams {
-                session_id: session_id.to_string(),
-                turn_id: None,
-            },
-        )
-        .await?;
-    let x: ContextExplainResult = serde_json::from_value(v)?;
-    x.turns
-        .first()
-        .map(|t| t.turn_id.clone())
+    crate::why::started_turns(conn, session_id)
+        .await?
+        .into_iter()
+        .next()
         .ok_or_else(|| anyhow::anyhow!("{session_id} has no turn yet"))
 }
 
