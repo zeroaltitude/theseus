@@ -54,6 +54,8 @@ mod tests;
 #[cfg(test)]
 mod tests_prove;
 #[cfg(test)]
+mod tests_route_v5;
+#[cfg(test)]
 mod tests_threads;
 
 pub use band::{Band, Banded, Thresholds};

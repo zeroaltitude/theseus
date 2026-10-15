@@ -42,7 +42,8 @@ use crate::learn::RollbackRule;
 /// with a `quick` mode (theseus-3okf), `route.v3`, which asks the reply's
 /// effort beside v2's mode (theseus-qe3v), `route.v4`, which adds a
 /// `review` mode to v3's (theseus-p8dy), and `classify.v2`, which adds the
-/// `thread` question to v1's (theseus-rha2).
+/// `thread` question to v1's (theseus-rha2), and `route.v5`, which adds the
+/// `persona` and `seal` questions to v4's (theseus-c1uz).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -64,6 +65,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v2", include_str!("../packs/route.v2.toml")),
     ("route.v3", include_str!("../packs/route.v3.toml")),
     ("route.v4", include_str!("../packs/route.v4.toml")),
+    ("route.v5", include_str!("../packs/route.v5.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
@@ -185,6 +187,12 @@ pub enum Source {
     /// The live threads a message may be about (`classify.v2`, theseus-rha2):
     /// one option each, its title, goal and top working-set entities.
     Threads,
+    /// The personas a message may be answered as (`route.v5`, theseus-c1uz):
+    /// one option each, its specialization card.
+    Personas,
+    /// The thread a message arrives in: one item, or none (`route.v5`'s
+    /// `seal` is asked only in a thread).
+    ThreadNow,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1273,6 +1281,17 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v5",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
+                    "persona Choice from Personas + [prior] only_when Personas",
+                    "reply_effort Choice decides [low medium high xhigh max unclear]",
+                    "seal Choice [yes no] only_when ThreadNow",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1343,6 +1362,11 @@ mod tests {
             "route.v4 keeps v1's rules"
         );
         assert_eq!(
+            rules("route.v5"),
+            rules("route.v1"),
+            "route.v5 keeps v1's rules"
+        );
+        assert_eq!(
             rules("classify.v2"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong thread".into(),
@@ -1367,9 +1391,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            20,
+            21,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3 and v4, citation.v1, people.v1, people_seen.v1, classify.v2 and compare.v1"
+             v3, v4 and v5, citation.v1, people.v1, people_seen.v1, classify.v2 and compare.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1526,5 +1550,29 @@ mod tests {
         assert_eq!(m4.no_match, m3.no_match);
         let order: Vec<&str> = v4.questions.iter().map(|q| q.id.as_str()).collect();
         assert_eq!(order, ["mode", "reply_effort"]);
+    }
+
+    /// route.v5 (theseus-c1uz) is route.v4 whole, and two questions that decide
+    /// nothing for the pack's promotion: `persona`, whose options are the
+    /// personas and whose no-match is `prior`, and `seal`, a yes or no.
+    #[test]
+    fn route_v5_is_v4_and_a_persona_and_a_seal_question() {
+        let (v4, v5) = (by_name("route.v4").unwrap(), by_name("route.v5").unwrap());
+        for q in ["mode", "reply_effort"] {
+            assert_eq!(v5.question(q), v4.question(q), "{q} word for word");
+        }
+        let persona = v5.question("persona").unwrap();
+        assert!(!persona.decides && persona.kind == Kind::Choice);
+        assert_eq!(persona.no_match.as_deref(), Some("prior"));
+        assert_eq!(persona.options_from, Some(Source::Personas));
+        let seal = v5.question("seal").unwrap();
+        assert!(!seal.decides);
+        assert_eq!(seal.no_match.as_deref(), Some("no"));
+        assert_eq!(seal.only_when, Some(Source::ThreadNow));
+        assert_eq!(
+            (v5.point, v5.builder, v5.baseline, v5.action),
+            (v4.point, v4.builder, v4.baseline, v4.action)
+        );
+        assert_eq!(v5.state_cap_tokens, v4.state_cap_tokens);
     }
 }

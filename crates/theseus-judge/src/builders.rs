@@ -216,6 +216,9 @@ pub struct ThreadInput {
     pub entities: Vec<String>,
 }
 
+mod persona;
+pub use persona::{PersonaInput, ThreadNow, TurnInput, PERSONAS as PERSONA_OPTIONS};
+
 /// The `inbound` state's input, shared by `classify.v1`, `classify.v2` and
 /// `role.v1`, so their states are byte-identical and they ride one request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -239,6 +242,17 @@ pub struct InboundInput {
     /// threads is byte for byte the one before threads).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub live_threads: Vec<ThreadInput>,
+    /// The personas the message may be answered as, and the one that answered
+    /// last (`route.v5`'s `persona` question, theseus-c1uz); left out of the
+    /// state, and the question not asked, with fewer than two.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub personas: Vec<PersonaInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
+    /// The thread the message arrives in (`route.v5`'s `seal` question and the
+    /// persona's history); left out outside a thread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_now: Option<ThreadNow>,
     #[serde(default)]
     pub current_role: Option<String>,
     /// The roles table, for `role.v1`'s options.
@@ -801,6 +815,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     .cut_if("live_tasks", c.cut());
     let threads = &i.live_threads[..i.live_threads.len().min(LIVE_THREADS)];
     threads_state(&mut b, &c, cap, i, threads);
+    let in_thread = persona::state(&mut b, &c, cap, i);
     let role = i
         .current_role
         .as_deref()
@@ -835,6 +850,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
                 .collect(),
         );
     }
+    persona::dynamic(&mut dynamic, i, &clip, in_thread);
     dynamic.sources.insert(
         Source::Roles,
         i.roles
@@ -1071,6 +1087,7 @@ mod tests {
             "security.v3",
             "classify.v1",
             "classify.v2",
+            "route.v5",
             "continue.v1",
             "categorize.v1",
             "rerank.v1",
@@ -1128,7 +1145,7 @@ mod tests {
         let cp = crate::pack::by_name("classify.v1").unwrap();
         let (_, c2) = prepared("classify.v2");
         assert_eq!(c.state.json, c2.state.json, "classify.v2");
-        for route in ["route.v1", "route.v2", "route.v3", "route.v4"] {
+        for route in ["route.v1", "route.v2", "route.v3", "route.v4", "route.v5"] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");
             assert_eq!(
@@ -1373,6 +1390,9 @@ mod tests {
                         })
                         .collect(),
                     live_threads: Vec::new(),
+                    personas: Vec::new(),
+                    speaker: None,
+                    thread_now: None,
                     current_role: Some(big.clone()),
                     roles: (0..2_000)
                         .map(|i| RoleInput {
