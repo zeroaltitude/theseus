@@ -5,7 +5,7 @@
  */
 export type WatchInfo = { wake_id: string, short: string, session_id: string, execution_id: string, title: string, 
 /**
- * `run`, `fetch` or `file`.
+ * `run`, `fetch`, `file` or `reply`.
  */
 kind: string, 
 /**

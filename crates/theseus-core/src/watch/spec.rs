@@ -32,6 +32,14 @@ struct Subject {
     path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     json: Option<String>,
+    /// A reply check's place as the outbox keys it (`discord:channel:<id>`),
+    /// its name as people read it, and its filters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    place: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    words: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     then: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,6 +60,14 @@ pub enum Check {
     File {
         path: String,
     },
+    /// A message in `place` (theseus-rlnbf). Never checked on a timer: the
+    /// Discord binding tells the core of each one (`replies.rs`).
+    Reply {
+        /// `discord:channel:<id>` or `discord:dm:<user id>`.
+        place: String,
+        from: Option<String>,
+        words: Option<String>,
+    },
 }
 
 impl Check {
@@ -60,6 +76,7 @@ impl Check {
             Check::Run { .. } => "run",
             Check::Fetch { .. } => "fetch",
             Check::File { .. } => "file",
+            Check::Reply { .. } => "reply",
         }
     }
 
@@ -79,13 +96,25 @@ impl Check {
                 .join(" "),
             Check::Fetch { url, .. } => url.clone(),
             Check::File { path } => path.clone(),
+            Check::Reply {
+                place, from, words, ..
+            } => {
+                let mut t = place.clone();
+                if let Some(f) = from {
+                    t.push_str(&format!(" from {f}"));
+                }
+                if let Some(w) = words {
+                    t.push_str(&format!(" with {w}"));
+                }
+                t
+            }
         }
     }
 
     pub fn json(&self) -> Option<&str> {
         match self {
             Check::Run { json, .. } | Check::Fetch { json, .. } => json.as_deref(),
-            Check::File { .. } => None,
+            Check::File { .. } | Check::Reply { .. } => None,
         }
     }
 }
@@ -131,7 +160,11 @@ impl Spec {
         let r = w.repeat.as_ref().ok_or("a watch has no interval")?;
         Ok(Spec {
             title: w.note.clone(),
-            cond: cond::parse(&p.until)?,
+            cond: if p.kind == "reply" {
+                Condition::Exists
+            } else {
+                cond::parse(&p.until)?
+            },
             until: p.until.clone(),
             check,
             then,
@@ -157,6 +190,15 @@ fn check_of(kind: &str, s: &Subject) -> Result<Check, String> {
         }),
         "file" => Ok(Check::File {
             path: s.path.clone().ok_or("no path")?,
+        }),
+        "reply" => Ok(Check::Reply {
+            place: s
+                .place
+                .clone()
+                .filter(|p| !p.is_empty())
+                .ok_or("no place")?,
+            from: s.from.clone(),
+            words: s.words.clone(),
         }),
         k => Err(format!("`{k}` is not a kind of check")),
     }
@@ -211,6 +253,26 @@ fn subject_of(check: &WatchCheck) -> Result<(&'static str, Subject), String> {
                 },
             )
         }
+        WatchCheck::Reply { place, from, words } => {
+            if place.trim().is_empty() {
+                return Err("a `reply` check needs a `place`: `#ops`, or a channel's id".into());
+            }
+            if from.as_deref().is_some_and(|f| f.trim().is_empty()) {
+                return Err("`from` is empty: name a person or a user id, or leave it out".into());
+            }
+            if let Some(w) = words.as_deref() {
+                crate::watch::reply::check_words(w)?;
+            }
+            (
+                "reply",
+                Subject {
+                    place: Some(place.trim().to_string()),
+                    from: from.as_ref().map(|f| f.trim().to_string()),
+                    words: words.clone(),
+                    ..Default::default()
+                },
+            )
+        }
         WatchCheck::File { path } => {
             if !path.starts_with('/') {
                 return Err(format!(
@@ -226,6 +288,36 @@ fn subject_of(check: &WatchCheck) -> Result<(&'static str, Subject), String> {
             )
         }
     })
+}
+
+/// How long a watch waits: `for_at_most`, else the most `[watches] max_days`
+/// allows, and (but for a reply, which has no interval) at least one interval.
+fn for_span(
+    p: &WatchCreateParams,
+    cfg: &WatchesConfig,
+    every: Every,
+    is_reply: bool,
+) -> Result<u64, String> {
+    let max_ms = cfg.max_days.saturating_mul(86_400_000);
+    let for_ms = match p.for_at_most.as_deref() {
+        Some(f) => {
+            crate::wake::parse_after(f).map_err(|e| e.replace("`after`", "`for_at_most`"))?
+        }
+        None => max_ms,
+    };
+    if for_ms > max_ms {
+        return Err(format!(
+            "a watch waits {} days at the most ([watches] max_days), not {}",
+            cfg.max_days,
+            crate::wake::span(for_ms)
+        ));
+    }
+    if !is_reply && for_ms < every.nominal_ms() {
+        return Err(format!(
+            "`for_at_most` is shorter than the interval ({every}): it would give up before its first look"
+        ));
+    }
+    Ok(for_ms)
 }
 
 /// A watch made: the wake to add, and its spec.
@@ -256,36 +348,32 @@ pub fn build(
         ));
     }
     let (_, min_ms) = cfg.spans_ms().map_err(|e| e.to_string())?;
+    // A reply is told, never checked: it has no interval of its own (the
+    // wake's record wants one; it is never read).
+    let is_reply = matches!(p.check, WatchCheck::Reply { .. });
+    if is_reply && p.every.is_some() {
+        return Err(
+            "a `reply` watch has no `every`: it is told of each message as it arrives".into(),
+        );
+    }
     let every = match p.every.as_deref() {
+        _ if is_reply => Every::parse("1d")?,
         Some(e) => Every::parse(e)?,
         None => Every::parse(&cfg.default_every)?,
     };
-    if every.nominal_ms() < min_ms {
+    if !is_reply && every.nominal_ms() < min_ms {
         return Err(format!(
             "a watch checks every {} at the most often, not every {every}",
             cfg.min_every
         ));
     }
-    let max_ms = cfg.max_days.saturating_mul(86_400_000);
-    let for_ms = match p.for_at_most.as_deref() {
-        Some(f) => {
-            crate::wake::parse_after(f).map_err(|e| e.replace("`after`", "`for_at_most`"))?
-        }
-        None => max_ms,
+    let for_ms = for_span(p, cfg, every, is_reply)?;
+    let until_text = if is_reply { "reply" } else { p.until.trim() };
+    let cond = if is_reply {
+        Condition::Exists
+    } else {
+        cond::parse(&p.until)?
     };
-    if for_ms > max_ms {
-        return Err(format!(
-            "a watch waits {} days at the most ([watches] max_days), not {}",
-            cfg.max_days,
-            crate::wake::span(for_ms)
-        ));
-    }
-    if for_ms < every.nominal_ms() {
-        return Err(format!(
-            "`for_at_most` is shorter than the interval ({every}): it would give up before its first look"
-        ));
-    }
-    let cond = cond::parse(&p.until)?;
     let (kind, mut subject) = subject_of(&p.check)?;
     if cond.reads_exit() && kind != "run" {
         return Err("`exit` is a command's status: it belongs to a `run` check".into());
@@ -302,6 +390,9 @@ pub fn build(
         None => ("", None),
     };
     let then = then_of(then_kind, brief)?;
+    if is_reply && then != Then::Notice {
+        return Err("a `reply` watch can only `notice`: what a stranger wrote is outside text, and a turn or a task would act on it".into());
+    }
     subject.then = then.word().to_string();
     if let Then::Task(b) = &then {
         subject.brief = Some(b.clone());
@@ -322,14 +413,14 @@ pub fn build(
         run: WakeRun::Probe(WakeProbe {
             kind: kind.to_string(),
             subject: serde_json::to_string(&subject).map_err(|e| e.to_string())?,
-            until: p.until.trim().to_string(),
+            until: until_text.to_string(),
         }),
     };
     let spec = Spec {
         title: title.to_string(),
         check: check_of(kind, &subject)?,
         then,
-        until: p.until.trim().to_string(),
+        until: until_text.to_string(),
         cond,
         every_ms: every.nominal_ms(),
         expires_ms: expires,

@@ -46,7 +46,8 @@ impl Tool for WatchTool {
          PR 123 merges\"). `check`: {kind:run, argv, json?} (asks the owner once), {kind:fetch, \
          url, json?} or {kind:file, path}. `until`: `exit 0`, `equals X`, `contains X`, `matches \
          RE`, `changes`, `above N`, `below N`, `exists`. `then`: notice, turn, or task with a \
-         `brief`. End one with `wake.cancel`."
+         `brief`. To wait for someone to answer, {kind:reply, place, from?, words?} (no `until`, no \
+         `every`: it is told of each message, and only notices). End one with `wake.cancel`."
     }
 
     fn input_schema(&self) -> Value {
@@ -57,10 +58,13 @@ impl Tool for WatchTool {
                 "check": {
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "enum": ["run", "fetch", "file"]},
+                        "kind": {"type": "string", "enum": ["run", "fetch", "file", "reply"]},
                         "argv": {"type": "array", "items": {"type": "string"}},
                         "url": {"type": "string"},
                         "path": {"type": "string"},
+                        "place": {"type": "string"},
+                        "from": {"type": "string"},
+                        "words": {"type": "string"},
                         "json": {"type": "string"}
                     },
                     "required": ["kind"]
@@ -77,7 +81,7 @@ impl Tool for WatchTool {
                     "required": ["kind"]
                 }
             },
-            "required": ["title", "check", "until"],
+            "required": ["title", "check"],
             "additionalProperties": false
         })
     }
@@ -121,6 +125,11 @@ impl Tool for WatchTool {
                      condition holds: {how}"
                 ));
             }
+            WatchCheck::Reply { .. } => {
+                plan.authority = Some(format!(
+                    "a watch reads every new message in a place, with no model, and tells you of the one that matches: {how}"
+                ));
+            }
             WatchCheck::Fetch { url, .. } => plan.url = Some(url.clone()),
             WatchCheck::File { path } => {
                 plan.resources = vec![Resource {
@@ -157,6 +166,7 @@ pub fn set(
         return Err(TASK_REFUSAL.into());
     }
     let p = params_of(input)?;
+    let p = crate::watch::reply::resolved(&p, tc.places.rule)?;
     let now = tc.kernel.now_ms();
     let built = spec::build(&p, now, cfg, tc.outbox.target(tc.session_id))?;
     let set = match tc.kernel.set_wake_as(tc.guard, correlation_id, built.new) {

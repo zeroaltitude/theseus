@@ -44,6 +44,8 @@ pub async fn observe(tools: &Tools, spec: &Spec) -> Result<Observed, String> {
             }
             value_of(&tools.scrubber, &body, json.as_deref(), None)
         }
+        // Never called for a reply (it is not due); a look would see nothing.
+        Check::Reply { .. } => Ok(Observed::default()),
         Check::Run { argv, json } => {
             let (argv, run) = (argv.clone(), tools.run.clone());
             let ran = blocking(move || Ok(run(&argv))).await?;

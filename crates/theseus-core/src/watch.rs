@@ -36,10 +36,13 @@
 pub mod board;
 pub mod check;
 pub mod cond;
+pub mod reply;
 pub mod run;
 pub mod spec;
 pub mod step;
 
+#[cfg(test)]
+mod tests_reply;
 #[cfg(test)]
 mod tests_watch;
 #[cfg(test)]

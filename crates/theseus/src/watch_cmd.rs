@@ -10,6 +10,8 @@
 //!   redirects, no expansion (`--run "sh -c '...'"` for a script). `--url` and
 //!   `--file` check a page or a file instead. The owner's act (refused inside
 //!   a job, `client::OPERATORS`); the owner typed the command, so no card asks.
+//! - `watches add TITLE --reply '#ops' [--from NAME] [--words TEXT] [--for 5d]`: wait for a reply
+//!   in a Discord place with no checks and no model (theseus-rlnbf); it only notices.
 //! - `watches` / `watches list`: each open watch, its last value, its checks
 //!   and when it gives up.
 //! - `watches rm ID`: end one (`wake.cancel`).
@@ -45,21 +47,31 @@ pub struct AddArgs {
     /// What it waits for, as a question: "PR 123 merged?".
     title: String,
     /// A command and its arguments, run in the sandbox: its output is the value.
-    #[arg(long, value_name = "COMMAND", conflicts_with_all = ["url", "file"])]
+    #[arg(long, value_name = "COMMAND", conflicts_with_all = ["url", "file", "reply"])]
     run: Option<String>,
     /// A URL to GET: the body is the value.
-    #[arg(long, conflicts_with_all = ["run", "file"])]
+    #[arg(long, conflicts_with_all = ["run", "file", "reply"])]
     url: Option<String>,
     /// A file (an absolute path): its text is the value.
-    #[arg(long, conflicts_with_all = ["run", "url"])]
+    #[arg(long, conflicts_with_all = ["run", "url", "reply"])]
     file: Option<String>,
+    /// Wait for a reply in a place instead (`#ops`, or a channel's id): no checks, no model; the
+    /// Discord binding tells the daemon of each message as it arrives. It only notices.
+    #[arg(long, value_name = "PLACE", conflicts_with_all = ["run", "url", "file", "until", "field", "every", "then", "brief"])]
+    reply: Option<String>,
+    /// With --reply: only a message from this person (a name, or a Discord user id).
+    #[arg(long, requires = "reply")]
+    from: Option<String>,
+    /// With --reply: only a message with this text (any case), or a /pattern/.
+    #[arg(long, requires = "reply")]
+    words: Option<String>,
     /// With --run or --url: a JSON path into the output, such as `.state`.
     #[arg(long, value_name = "PATH")]
     field: Option<String>,
     /// The condition: `exit 0`, `equals X`, `contains X`, `matches RE`, `changes`, `above N`,
     /// `below N`, or `exists`.
-    #[arg(long)]
-    until: String,
+    #[arg(long, required_unless_present = "reply")]
+    until: Option<String>,
     /// How often it checks: `1m` at the most often, `5m` by default.
     #[arg(long, value_name = "SPAN")]
     every: Option<String>,
@@ -180,6 +192,9 @@ async fn run(conn: &mut Conn, json: bool, cmd: WatchesCmd) -> Result<()> {
                 url,
                 file,
                 field: path,
+                reply,
+                from,
+                words: reply_words,
                 until,
                 every,
                 for_at_most,
@@ -188,6 +203,11 @@ async fn run(conn: &mut Conn, json: bool, cmd: WatchesCmd) -> Result<()> {
                 session,
             } = *a;
             let check = match (run, url, file) {
+                _ if reply.is_some() => WatchCheck::Reply {
+                    place: reply.unwrap_or_default(),
+                    from,
+                    words: reply_words,
+                },
                 (Some(r), None, None) => {
                     let argv = words(&r)?;
                     if argv.is_empty() {
@@ -202,7 +222,7 @@ async fn run(conn: &mut Conn, json: bool, cmd: WatchesCmd) -> Result<()> {
             let p = WatchCreateParams {
                 title,
                 check,
-                until,
+                until: until.unwrap_or_default(),
                 every,
                 for_at_most,
                 then: Some(WatchThen { kind: then, brief }),

@@ -11,12 +11,18 @@ use super::until_due;
 pub fn watch_line(w: &WatchInfo, now_ms: u64) -> String {
     let seen = match (&w.value, w.checks) {
         (Some(v), n) => format!(
-            "{} ({n} checks{})",
+            "{} ({n} {}{})",
             clip(v, 40),
+            if w.kind == "reply" {
+                "replies"
+            } else {
+                "checks"
+            },
             w.last_checked_ms
                 .map(|t| format!(", last {}", fmt_hm(t)))
                 .unwrap_or_default()
         ),
+        (None, _) if w.kind == "reply" => "waiting for a reply".into(),
         (None, _) => "not checked yet".into(),
     };
     let next = w

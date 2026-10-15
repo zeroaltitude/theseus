@@ -158,7 +158,7 @@ impl Core {
     }
 
     /// Write `news` for the watch `e` was: false when the wake is gone.
-    fn watch_write(&self, e: &Entry, news: &ProbeNews) -> Result<bool> {
+    pub(super) fn watch_write(&self, e: &Entry, news: &ProbeNews) -> Result<bool> {
         let want_post = match &news.verdict {
             ProbeVerdict::Changed => false,
             ProbeVerdict::Met { turn } => !turn,
@@ -171,7 +171,10 @@ impl Core {
             return Ok(false);
         };
         // Where it is said is read before the frame: Home may open a session.
-        let target = if want_post {
+        let target = if want_post && matches!(e.spec.check, super::spec::Check::Reply { .. }) {
+            // A reply's notice is never posted into a shared place.
+            self.reply_target(self.outbox.target(&ex.session_id), w.target)
+        } else if want_post {
             self.outbox
                 .target(&ex.session_id)
                 .or_else(|| w.target.clone())
@@ -263,16 +266,31 @@ impl Core {
             execution_id: ex.id.clone(),
             title: spec.title.clone(),
             kind: spec.check.kind().into(),
-            target: spec.check.target(),
+            target: match &spec.check {
+                super::spec::Check::Reply { place, .. } => {
+                    spec.check
+                        .target()
+                        .replacen(place.as_str(), &self.place_name(place), 1)
+                }
+                c => c.target(),
+            },
             until: spec.until.clone(),
-            every: super::spec::every_word(spec.every_ms),
+            every: if matches!(spec.check, super::spec::Check::Reply { .. }) {
+                "on arrival".into()
+            } else {
+                super::spec::every_word(spec.every_ms)
+            },
             then: spec.then.word().into(),
             set_at_ms: w.set_at_ms,
             expires_at_ms: spec.expires_ms,
             value: state.last,
             checks: state.checks,
             last_checked_ms: (state.checked_ms > 0).then_some(state.checked_ms),
-            next_check_ms: entry.as_ref().map(|e| e.next_ms).filter(|n| *n != u64::MAX),
+            next_check_ms: entry
+                .as_ref()
+                .filter(|_| !matches!(spec.check, super::spec::Check::Reply { .. }))
+                .map(|e| e.next_ms)
+                .filter(|n| *n != u64::MAX),
             failing: state.failing,
         })
     }
