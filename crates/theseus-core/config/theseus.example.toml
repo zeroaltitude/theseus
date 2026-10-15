@@ -788,9 +788,11 @@ ping_window_secs = 0                    # at most one ping per place in this man
 # key_secret = "deepgram_api_key"       # the [secrets] entry holding the Deepgram key; only Theseus reads it
 # stt_model = "nova-3"                  # speech to text
 # language = "en-US"
-# tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model
+# tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model; a persona's own tts_voice wins while it is in play
+#                                       # (`theseus voice` shows the one in play, `theseus voice audition` lets you hear several)
 # api_base = "https://api.deepgram.com" # tests and scratch daemons: a local stand-in
 # deaf_after_secs = 10                  # a call that hears no listed speaker this long after joining rejoins once
+# greeting = "{name} here. Go ahead."   # said first when /join succeeds, in the persona's voice ({name} is its name); "" says nothing
 # status = true                         # while in a call, the voice channel's status reads the task counts
 #                                       # ("🎧 Theseus · ⚙️ 3 tasks · 🔴 1 needs you"), counts alone, cleared at leave;
 #                                       # a bound voice channel may say voice_status = false. Needs the bot to have

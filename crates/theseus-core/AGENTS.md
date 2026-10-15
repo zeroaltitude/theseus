@@ -1714,6 +1714,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `rewind::forget` deletes a session's blobs that no other session's record names (called by `import.erase`; an
   imported session has none). Tests: `rpc/tests_rewind.rs`, `tests_layouts.rs` (the format-33 store and the first
   layout).
+- **The speaking voice** (theseus-slvl.7; `rpc/voice_pick.rs`, wire `theseus_protocol::voice_pick`): `Core::voice_of(session)` is
+  the persona in play (`TurnRunner::persona_of`, memory and one session read) and the Aura voice it speaks in (`tts_voice`, else
+  `[voice] tts_voice`); `greeting_for` is `[voice] greeting` with `{name}`. `voice.show` reads both. `voice.audition` is the
+  owner's run (`Act::JudgeRun`, in the CLI's `OPERATORS`): one WAV a voice (the default six, or at most 8 named; at most 500
+  characters), made with the daemon's Deepgram key and sent back base64 for the CLI to write; it books to no session, so it
+  is bounded instead, and no answer carries the key. Tests: `rpc/tests_voice_pick.rs` (a stand-in Deepgram).
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

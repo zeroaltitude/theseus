@@ -186,6 +186,14 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `runtime/voice/tests_status.rs` (the pace on tokio's paused clock, the fake Discord's REST route and its 403), and
   `voice_status.rs`'s own.
 
+- **The call's voice and greeting** (theseus-slvl.7, `runtime/voice.rs`): each sentence is made in the voice of the persona in
+  play for the voice place's session (`Core::voice_of`, asked at every `Metered::synthesize`, so a persona change mid-call
+  is heard at the next sentence with no reconnect; `[voice] tts_voice` when the persona has none), and the sentence's
+  `speech.synthesized` row names it (`voice`), as `voice.joined` does for the call's first. After the join succeeds,
+  `begin` queues `[voice] greeting` (`{name}` the persona's name; empty is none) as the engine's first command, spoken
+  before anything heard is answered; a join that fails speaks nothing. Tests: `runtime/voice/tests_persona.rs` (a stand-in
+  Deepgram that logs each request's voice).
+
 ## Invariants
 
 - **What a person does goes through the protocol** (a message is `turn.submit`, a press `action.confirm`, `/stop`

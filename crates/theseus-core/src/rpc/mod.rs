@@ -74,6 +74,7 @@ mod thread_move;
 mod thread_seal;
 mod thread_surface;
 mod threads;
+mod voice_pick;
 mod wake_owner;
 mod watch;
 mod work_board;
@@ -139,6 +140,8 @@ mod tests_thread_surface;
 mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
+#[cfg(test)]
+mod tests_voice_pick;
 #[cfg(test)]
 mod tests_window;
 mod trust;

@@ -42,7 +42,7 @@ use theseus_voice::songbird::Songbird;
 use theseus_voice::{
     Command, Config as EngineConfig, CutWhy, DeepgramSettings, DeepgramSpeech, Engine, Event,
     Failure, HeardAs, Over, SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken,
-    Synthesis, Transcript, TurnId, Utterance,
+    Synthesis, Transcript, TurnId, Utterance, VoiceIo,
 };
 use tokio::sync::mpsc;
 use twilight_gateway::{Event as Gateway, Intents, Shard};
@@ -65,6 +65,8 @@ mod notes;
 mod tests_deaf;
 #[cfg(test)]
 mod tests_heard;
+#[cfg(test)]
+mod tests_persona;
 #[cfg(test)]
 mod tests_reply;
 #[cfg(test)]
@@ -488,7 +490,11 @@ impl Place {
             key: place.key.clone(),
         };
         let config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
-        let (engine, handle) = Engine::new(config, Box::new(io), Arc::new(metered));
+        // In the persona's voice, once the join has succeeded: the call is up
+        // (this runs after songbird's join), and the greeting is the engine's
+        // first command, so it is spoken before anything heard is answered.
+        let greeting = shared.core.greeting_for(Some(&self.session_id));
+        let (engine, handle) = begin(config, Box::new(io), Arc::new(metered), greeting.clone());
         let serial = voice
             .calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -520,10 +526,12 @@ impl Place {
             s.rejoins = 0;
             s.deaf_failed = false;
         });
+        let who = shared.core.voice_of(Some(&self.session_id));
         shared.core.binding_ledger(
             LedgerKind::VoiceJoined,
             None,
-            json!({"place": place.label, "channel": channel.to_string(), "by": by, "hears": hears}),
+            json!({"place": place.label, "channel": channel.to_string(), "by": by, "hears": hears,
+                "voice": who.voice, "persona": who.persona, "greeting": greeting.is_some()}),
         );
         tokio::spawn(engine.run());
         tokio::spawn(pump(
@@ -807,6 +815,21 @@ fn waits_on_operator(r: &TurnSubmitResult) -> bool {
     r.awaiting_confirm.is_some() || matches!(r.stop_reason.as_str(), "awaiting_confirm" | "budget")
 }
 
+/// The engine for a call, with its greeting queued as its first command
+/// (theseus-slvl.7): the call is joined already, and nothing has been heard.
+fn begin(
+    config: EngineConfig,
+    io: Box<dyn VoiceIo>,
+    speech: Arc<dyn Speech>,
+    greeting: Option<String>,
+) -> (Engine, theseus_voice::EngineHandle) {
+    let (engine, handle) = Engine::new(config, io, speech);
+    if let Some(text) = greeting {
+        let _ = handle.commands.send(Command::Report { text });
+    }
+    (engine, handle)
+}
+
 /// The voice settings as Deepgram takes them.
 fn settings(cfg: &VoiceConfig) -> DeepgramSettings {
     DeepgramSettings {
@@ -918,7 +941,9 @@ async fn pump(
                     s.sentences += 1;
                     s.spoken_chars += usage.chars as u64;
                 });
-                let detail = json!({"what": spoken(what)});
+                // The voice that said it, per sentence: a persona change mid-call
+                // shows here at the sentence it took effect.
+                let detail = json!({"what": spoken(what), "voice": usage.model});
                 book(
                     &shared,
                     &place,
@@ -1169,6 +1194,16 @@ struct Metered {
 }
 
 impl Metered {
+    /// The Aura voice for the next sentence: the persona in play for the
+    /// voice place's session, else `[voice] tts_voice` (the call's settings).
+    fn voice(&self) -> String {
+        let Some(core) = self.core.upgrade() else {
+            return self.inner.settings().tts_voice.clone();
+        };
+        let session = core.outbox.place_session(&self.key).ok().flatten();
+        core.voice_of(session.as_deref()).voice
+    }
+
     fn fits(
         &self,
         kind: SpeechKind,
@@ -1211,14 +1246,15 @@ impl Speech for Metered {
 
     fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis> {
         Box::pin(async move {
-            let model = &self.inner.settings().tts_voice;
+            // The persona in play now, at this sentence (theseus-slvl.7).
+            let voice = self.voice();
             self.fits(
                 SpeechKind::Synthesized,
-                model,
+                &voice,
                 Duration::ZERO,
                 text.chars().count(),
             )?;
-            self.inner.synthesize(text).await
+            self.inner.synthesize_as(&voice, text).await
         })
     }
 }
