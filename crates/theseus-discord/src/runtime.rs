@@ -29,7 +29,6 @@ use theseus_protocol::{
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client as Http;
-use twilight_model::application::command::CommandType;
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{
     ActionRow, Button, ButtonStyle, Component, SelectMenu, SelectMenuOption, SelectMenuType,
@@ -40,7 +39,6 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, GuildMarker, MessageMarker};
 use twilight_model::id::Id;
-use twilight_util::builder::command::CommandBuilder;
 
 use crate::bindings::Bindings;
 use crate::courier::{self, LaneMsg, SendErr};
@@ -69,7 +67,9 @@ mod halt;
 mod inbound;
 mod jev;
 mod live;
+mod live_board;
 mod orders;
+pub(crate) mod presence;
 mod reply;
 mod source;
 mod thread;
@@ -87,8 +87,11 @@ mod publish;
 pub(crate) mod route;
 mod self_word;
 mod show;
+mod slash;
+use slash::commands;
 mod steer;
 mod succession;
+mod tasks;
 mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
@@ -346,6 +349,7 @@ async fn connect(
         replies: Default::default(),
         pings: Default::default(),
         threads: Default::default(),
+        tasks: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -380,6 +384,7 @@ async fn start_places(
     tokio::spawn(route(shared.clone(), notes));
     board::hear_every_change(shared);
     shared.start_threads();
+    tasks::watch_loop(shared);
     // A card whose question closed while the binding was away (a raise at
     // the vault's confirmation, an answer from the CLI) says how, and loses
     // its buttons: a settle each, delivered like any post (theseus-q4v).
@@ -480,6 +485,7 @@ async fn event_loop(
                     json!({"bot": me.name, "guilds": r.guilds.len(), "revision": bindings.revision}),
                 );
                 tracing::info!(bot = %me.name, "discord gateway ready");
+                presence::on_ready(shared, &shard);
                 // Back: whatever waited goes now (the lanes back off alone).
                 shared.wake_lanes();
             }
@@ -525,88 +531,6 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
     }
 }
 
-/// The slash commands every place answers, one effect each (the owner's rule):
-/// `/stop` halts this session's own work and keeps the conversation (W1),
-/// `/new` alone starts a fresh session, `/trust` clears its hold on web text
-/// (T1b), and `/cancel` names a task (DD7) or a pending wake (DD8), by one
-/// option, `id`.
-fn commands() -> Vec<twilight_model::application::command::Command> {
-    let mut cmds: Vec<_> = [
-        (
-            "stop",
-            "Stop what Theseus is doing here: its turn, jobs, and queued messages. The conversation goes on",
-        ),
-        (
-            "new",
-            "Start a fresh session here; the old one stays in the web UI",
-        ),
-        (
-            "status",
-            "This place's session: state, turns, dollars, waiting confirms",
-        ),
-        (
-            "tasks",
-            "This place's background tasks: state, spend, and what each waits on",
-        ),
-        (
-            "wakes",
-            "This place's pending wakes: when each is due, and its note",
-        ),
-        (
-            "trust",
-            "Trust this conversation again after it read web text: its calls that change things stop waiting",
-        ),
-    ]
-    .into_iter()
-    .map(|(n, d)| halt::command(n, d))
-    .collect();
-    cmds.push(
-        CommandBuilder::new(
-            "cancel",
-            "Stop a background task and its jobs, or cancel a wake; /tasks and /wakes list them",
-            CommandType::ChatInput,
-        )
-        .option(
-            twilight_util::builder::command::StringBuilder::new(
-                "id",
-                "The task's or wake's id, or its last six characters, as /tasks and /wakes show it",
-            )
-            .required(true),
-        )
-        .build(),
-    );
-    // `/publish` (the place rule): only the owner, from a private place; the
-    // core judges it. The channel first, as Discord wants required options.
-    let text = |name: &str, what: &str| {
-        twilight_util::builder::command::StringBuilder::new(name, what).required(false)
-    };
-    cmds.push(
-        CommandBuilder::new(
-            "publish",
-            "Publish a node, a file, or a message into a place (only you, from a private place)",
-            CommandType::ChatInput,
-        )
-        .option(
-            twilight_util::builder::command::ChannelBuilder::new("to", "The place to publish into")
-                .required(true),
-        )
-        .option(text("node", "A node's id, as the web UI shows it"))
-        .option(text("file", "A file's path, absolute or ~/"))
-        .option(text("text", "A message"))
-        .option(text("note", "Your words above it"))
-        .build(),
-    );
-    cmds.push(prompt::command());
-    cmds.push(extensions::command());
-    cmds.push(why::command());
-    cmds.push(orders::command());
-    cmds.push(thread::command());
-    cmds.push(thread_ask::command());
-    cmds.push(remind::command());
-    cmds.extend(voice::commands());
-    cmds
-}
-
 /// What every place, lane, and the gateway share.
 pub(crate) struct Shared {
     pub(crate) core: Arc<Core>,
@@ -640,6 +564,8 @@ pub(crate) struct Shared {
     pub(crate) pings: crate::policy::Pings,
     /// The channels that run threads, and the pointers waiting (theseus-sjzm).
     pub(crate) threads: thread_bind::State,
+    /// The work engine's tasks, as the binding's places show them (theseus-2j2ka).
+    pub(crate) tasks: tasks::Tasks,
 }
 
 #[derive(Default)]
@@ -714,6 +640,10 @@ enum PlaceMsg {
     Voice(voice::VoiceTurn),
     /// A task of this place's changed: its board's latest state (39b).
     Board,
+    /// The work engine's tasks of this place changed: the live board (theseus-2j2ka).
+    Tasks,
+    /// A press on the board or on a card (`live_board.rs`).
+    Press(Box<live_board::TaskPress>),
     /// The bindings file changed this place's settings (theseus-ocwt).
     Rebound(Box<live::Rebound>),
     /// The bindings file no longer names this place: its actor ends.
@@ -1028,6 +958,7 @@ impl Shared {
         {
             let mut r = self.routes.lock().unwrap();
             r.by_session.insert(session_id.clone(), tx.clone());
+            self.tasks.rewatch();
             if let Some(c) = channel {
                 r.by_channel.insert(c.get(), tx.clone());
                 r.users.insert(c.get(), users.clone());
@@ -1241,7 +1172,10 @@ impl Shared {
         }
         // `/prompt`: its autocomplete, its modal, and the modal's submit, which
         // answer in their own ways (`runtime/prompt.rs`).
-        if self.prompt_interaction(&i, &tx, &who).await || self.remind_interaction(&i, &who).await {
+        if self.prompt_interaction(&i, &tx, &who).await
+            || self.remind_interaction(&i, &who).await
+            || live_board::work_interaction(&i, &tx, &who)
+        {
             return;
         }
         // Who pressed, and where: the ids the core judges an answer by, which
@@ -1832,6 +1766,9 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
             guild_thread::heard(&shared, c);
             continue;
         }
+        if tasks::heard(&shared, &e) {
+            continue;
+        }
         if everywhere(&e) {
             let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
                 .routes
@@ -2032,7 +1969,7 @@ impl Place {
             }
             PlaceMsg::Steered(r) => self.steered_done(r),
             PlaceMsg::Voice(t) => self.voice_when_ready(t).await,
-            PlaceMsg::Board => self.board(),
+            m @ (PlaceMsg::Board | PlaceMsg::Tasks | PlaceMsg::Press(_)) => self.task_msg(m).await,
             PlaceMsg::Rebound(r) => self.rebound(*r),
             PlaceMsg::Unbind | PlaceMsg::Thread(_) => {}
             PlaceMsg::Typing(origin) => typing::notice(&self.shared.rpc, &self.session_id, origin),
@@ -2040,18 +1977,21 @@ impl Place {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
             }
-            PlaceMsg::DmChannel(c) => {
-                if self.channel != Some(c) {
-                    self.channel = Some(c);
-                    let _ = self.lane.send(LaneMsg::Channel(c.get()));
-                    let mut r = self.shared.routes.lock().unwrap();
-                    r.by_channel.insert(c.get(), self.tx.clone());
-                    r.users.insert(c.get(), self.users.clone());
-                    r.dm_channel.insert(self.users[0], c.get());
-                    drop(r);
-                    self.report();
-                }
-            }
+            PlaceMsg::DmChannel(c) => self.dm_channel(c),
+        }
+    }
+
+    /// The DM's channel, once a message came from it.
+    fn dm_channel(&mut self, c: Id<ChannelMarker>) {
+        if self.channel != Some(c) {
+            self.channel = Some(c);
+            let _ = self.lane.send(LaneMsg::Channel(c.get()));
+            let mut r = self.shared.routes.lock().unwrap();
+            r.by_channel.insert(c.get(), self.tx.clone());
+            r.users.insert(c.get(), self.users.clone());
+            r.dm_channel.insert(self.users[0], c.get());
+            drop(r);
+            self.report();
         }
     }
 
@@ -2373,6 +2313,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         replies: Default::default(),
         pings: Default::default(),
         threads: Default::default(),
+        tasks: Default::default(),
     })
 }
 

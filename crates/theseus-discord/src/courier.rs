@@ -26,6 +26,7 @@ mod board;
 mod held;
 mod persona;
 mod thread;
+pub(crate) mod v2;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -86,6 +87,9 @@ pub(crate) enum LaneMsg {
     /// they change (theseus-6809): their keys are kept whole, and a turn
     /// that leaves the list is forgotten.
     Held(Vec<String>),
+    /// The task board with nothing to show (theseus-2j2ka): written only
+    /// where a board is pinned already.
+    BoardIdle(String),
 }
 
 /// Why a call to Discord did not go through.
@@ -313,6 +317,8 @@ pub(crate) struct Lane {
     /// A persona's signature: its webhook and the messages it wrote
     /// (theseus-sjzm).
     signing: persona::Signing,
+    /// Components V2: the board's pace and the needs-you cards' pings (theseus-2j2ka).
+    pub v2: v2::State,
 }
 
 impl Lane {
@@ -352,6 +358,7 @@ impl Lane {
             board_sought: false,
             pin_refused: false,
             signing: Default::default(),
+            v2: v2::State::default(),
         }
     }
 
@@ -363,6 +370,7 @@ impl Lane {
                 .retry_at
                 .into_iter()
                 .chain(self.held.as_ref().map(|h| h.1))
+                .chain(self.v2.due())
                 .min();
             let msg = match wake {
                 Some(at) => tokio::select! {
@@ -390,6 +398,7 @@ impl Lane {
                 continue;
             }
             self.retry_at = None;
+            self.v2_tick().await;
             // What the place showed before it showed a call goes before the
             // call's card (theseus-50p).
             if std::mem::take(&mut self.stream_first) {
@@ -420,7 +429,11 @@ impl Lane {
     fn take(&mut self, m: LaneMsg) {
         match m {
             LaneMsg::Live(op) => {
-                if self.retry_at.is_none() {
+                let board = op.key() == Some(render::BOARD_KEY);
+                if board {
+                    self.v2.only_if_pinned = false;
+                }
+                if self.retry_at.is_none() || board {
                     // A loop's thinking goes before the reply that follows it
                     // (theseus-l1y1), as a call's progress goes before its card.
                     if let Op::Upsert { key, content, .. } = &op {
@@ -431,6 +444,14 @@ impl Lane {
                 }
             }
             LaneMsg::Wake => {}
+            LaneMsg::BoardIdle(content) => {
+                self.take(LaneMsg::Live(Op::Upsert {
+                    key: render::BOARD_KEY.into(),
+                    content,
+                    buttons: Buttons::V2,
+                }));
+                self.v2.only_if_pinned = true;
+            }
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => {
@@ -508,7 +529,15 @@ impl Lane {
         self.attempt += 1;
         let delay = Duration::from_secs(1 << self.attempt.min(6)).min(BACKOFF_MAX);
         self.retry_at = Some(tokio::time::Instant::now() + delay);
+        // The board is a state, not a stream: its latest waits out the
+        // outage, so a place does not keep a stale one until its next change.
+        let board = self
+            .live
+            .iter()
+            .find(|o| o.key() == Some(render::BOARD_KEY))
+            .cloned();
         self.live.clear();
+        self.live.extend(board);
         self.release();
         self.shared.core.outbox.error("discord", e.message.clone());
         if self.attempt == 1 {
@@ -651,7 +680,11 @@ impl Lane {
             maybe_landed && theseus_protocol::now_unix_ms().saturating_sub(first) > NONCE_WINDOW_MS;
         let mut messages = Vec::new();
         for mut w in plan.writes {
-            if resend && w.message.is_none() && !self.msgs.contains_key(&w.key) {
+            if resend
+                && w.buttons != Buttons::V2
+                && w.message.is_none()
+                && !self.msgs.contains_key(&w.key)
+            {
                 w.content = format!("{}\n{}", w.content, render::RESENT);
             }
             match self.write(&w).await {
@@ -671,6 +704,11 @@ impl Lane {
         extra["ms"] = json!(t0.elapsed().as_millis() as u64);
         if resend {
             extra["resent"] = json!(true);
+        }
+        // A card's question closed: a burst's summary has one fewer to count.
+        if let (true, Some(q)) = (kind_of(a) == "settle", extra["question"].as_str()) {
+            let q = q.to_string();
+            self.v2_settled(&q).await;
         }
         self.settle(a, Outcome::Succeeded, messages, extra)
     }
@@ -939,11 +977,13 @@ impl Lane {
         let elsewhere = theseus_core::approval::elsewhere(core.cfg.web.enabled);
         let mut card = render::card(&req, &route, elsewhere);
         let mut note = render::card_note(&route, &card.line, elsewhere);
-        let key = format!("confirm:{q}");
+        let key = key_of_card(&q);
         let note_key = format!("approval:{q}");
         // A call that waits because its session read external text gets the
         // third button, which trusts the session again (theseus-9bp).
         let mut buttons = ask::card_buttons(&req, &q);
+        // The card as one V2 message (theseus-2j2ka) when the bot may send one.
+        let v2 = self.shared.v2_cards() && !req.options.is_empty();
         let closed = Closed::of(&question).map(|c| self.waiting_settle(&q).unwrap_or(c));
         if let Some(c) = &closed {
             // Written as its settle would leave it: no buttons, no mention.
@@ -953,7 +993,7 @@ impl Lane {
                 _ => None,
             };
             note = note.map(|_| render::settled_note(&card.content, dm));
-            buttons = Buttons::Clear;
+            buttons = if v2 { Buttons::V2 } else { Buttons::Clear };
         }
         let event = if closed.is_some() {
             Event::CardClosed
@@ -1000,20 +1040,20 @@ impl Lane {
             }
             Route::Elsewhere { .. } => ("elsewhere", None),
         };
+        // The card itself, as V2 when it goes as one: its words and answers.
+        for w in writes.iter_mut().filter(|w| v2 && w.key == key_of_card(&q)) {
+            let text = std::mem::take(&mut w.content);
+            (w.content, w.buttons) = card_message(&q, text, &req.options, closed.is_some());
+        }
         if let Some(n) = note {
+            let ping = self.pings(Event::CardNote);
             writes.push(Write {
-                key: note_key,
-                channel,
-                content: n,
-                buttons: Buttons::Keep,
-                reply_to: None,
-                message: None,
-                mentions: vec![],
-                ping: self.pings(Event::CardNote),
+                ping,
+                ..lone(note_key, channel, n, false)
             });
         }
         let named: Vec<String> = named.iter().map(u64::to_string).collect();
-        let mut extra = json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget, "mentions": named});
+        let mut extra = json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget, "mentions": named, "v2": v2});
         if let Some(c) = closed {
             extra["settled"] = json!(c.how);
         }
@@ -1059,7 +1099,11 @@ impl Lane {
             ) else {
                 continue;
             };
-            let (content, buttons) = if key.starts_with("confirm:") {
+            let (content, buttons) = if key.starts_with("confirm:") && d["v2"] == true {
+                // A V2 card closes as a V2 message: its box, its line, no buttons.
+                let c = render::card_v2::closed(&content);
+                (serde_json::to_string(&c).unwrap_or_default(), Buttons::V2)
+            } else if key.starts_with("confirm:") {
                 (content.clone(), Buttons::Clear)
             } else {
                 (render::settled_note(&content, dm), Buttons::Keep)
@@ -1080,7 +1124,7 @@ impl Lane {
         }
         Plan {
             writes,
-            extra: json!({"card": card_id, "closed": closed.how}),
+            extra: json!({"card": card_id, "closed": closed.how, "question": d["question"]}),
         }
     }
 
@@ -1386,7 +1430,9 @@ impl Lane {
             .map(|m| (w.channel, m))
             .or_else(|| self.msgs.get(&w.key).copied());
         if let Some((c, m)) = known {
-            if self.sent.get(&w.key) == Some(&w.content) && w.buttons == Buttons::Keep {
+            if self.sent.get(&w.key) == Some(&w.content)
+                && matches!(w.buttons, Buttons::Keep | Buttons::V2)
+            {
                 return Ok(Some((c, m)));
             }
             let edited = match self.edit_hooked(m, &w.content).await {
@@ -1411,7 +1457,26 @@ impl Lane {
         // (theseus-l1y1): taken only once the create lands, so a create
         // Discord never took leaves it open.
         let (now, window) = (tokio::time::Instant::now(), self.window());
-        let ping = w.ping && self.shared.pings.open(w.channel, now, window);
+        // A needs-you card pings at most once per `CARD_EVERY` a place, and not
+        // in the place's quiet hour (theseus-2j2ka, `courier/v2.rs`).
+        let card = (w.buttons == Buttons::V2)
+            .then(|| v2::question_of(&w.key))
+            .flatten();
+        let paced = match card {
+            Some(_) if self.shared.tasks.quiet_until(&self.target).is_some() => false,
+            Some(q) => {
+                let core = self.shared.core.clone();
+                self.v2.card_may_ping(q, now, |q| {
+                    core.kernel
+                        .action(q)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|a| theseus_core::outbox::Closed::of(&a).is_none())
+                })
+            }
+            None => true,
+        };
+        let ping = w.ping && paced && self.shared.pings.open(w.channel, now, window);
         let (m, landed) = match signed
             .as_ref()
             .and_then(|s| Some((s.hook.as_ref()?, &s.name)))
@@ -1431,6 +1496,9 @@ impl Lane {
         };
         if ping {
             self.shared.pings.mark(w.channel, now, window);
+            if let Some(q) = card {
+                self.v2.card_pinged(q, now);
+            }
         }
         self.touch(&w.key);
         self.msgs.insert(w.key.clone(), (w.channel, m));
@@ -1461,6 +1529,11 @@ impl Lane {
         reply_to: Option<u64>,
         (mentions, wants, ping): (&[u64], bool, bool),
     ) -> Result<(u64, String), SendErr> {
+        if matches!(buttons, Buttons::V2) {
+            return self
+                .create_v2((channel, key, content), mentions, (wants, ping))
+                .await;
+        }
         let mut allowed = json!({"parse": [], "replied_user": false});
         if !mentions.is_empty() {
             allowed["users"] = json!(mentions.iter().map(u64::to_string).collect::<Vec<_>>());
@@ -1486,7 +1559,7 @@ impl Lane {
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::Sources(session, srcs) => crate::runtime::source_buttons(session, srcs),
-            Buttons::Clear | Buttons::Keep => vec![],
+            Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
             body["components"] = serde_json::to_value(&comps).unwrap_or_default();
@@ -1535,6 +1608,9 @@ impl Lane {
         content: &str,
         buttons: &Buttons,
     ) -> Result<(), SendErr> {
+        if matches!(buttons, Buttons::V2) {
+            return self.edit_v2(channel, message, content).await;
+        }
         let none = AllowedMentions::default();
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
@@ -1549,7 +1625,7 @@ impl Lane {
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
             Buttons::Sources(session, srcs) => Some(crate::runtime::source_buttons(session, srcs)),
             Buttons::Clear => Some(vec![]),
-            Buttons::Keep => None,
+            Buttons::Keep | Buttons::V2 => None,
         };
         let mut req = self
             .shared
@@ -1576,9 +1652,11 @@ impl Lane {
             }
             let r = match op {
                 Op::Typing => self.typing().await,
-                Op::Upsert { key, content, .. } if key == render::BOARD_KEY => {
-                    self.board(content).await
-                }
+                Op::Upsert {
+                    key,
+                    content,
+                    buttons,
+                } if key == render::BOARD_KEY => self.board_op(content, buttons).await,
                 Op::Upsert {
                     key,
                     content,
@@ -1730,6 +1808,30 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
     }
 }
 
+/// A card's message key, which its settle finds it by.
+fn key_of_card(question: &str) -> String {
+    format!("confirm:{question}")
+}
+
+/// A card's `content` and buttons as one V2 message: its words and the
+/// question's `answer_options` (waiting), or its settled line (closed).
+fn card_message(
+    question: &str,
+    text: String,
+    options: &[theseus_protocol::work::AnswerOption],
+    closed: bool,
+) -> (String, Buttons) {
+    let comps = if closed {
+        render::card_v2::closed(&text)
+    } else {
+        render::card_v2::waiting(question, &text, options)
+    };
+    (
+        serde_json::to_string(&comps).unwrap_or_default(),
+        Buttons::V2,
+    )
+}
+
 /// One plain message a post writes, pinging or not.
 fn lone(key: String, channel: u64, content: String, ping: bool) -> Write {
     Write {
@@ -1791,6 +1893,8 @@ fn mcp_note(body: &Value) -> String {
 
 #[cfg(test)]
 mod tests_bound;
+#[cfg(test)]
+mod tests_v2;
 
 #[cfg(test)]
 mod tests_order;

@@ -211,6 +211,7 @@ impl Place {
             }
             r.by_session.insert(sid, self.tx.clone());
         }
+        self.shared.tasks.rewatch();
         if !old.is_empty() {
             self.shared.board.unplace(&self.label, &old);
             let _ = self

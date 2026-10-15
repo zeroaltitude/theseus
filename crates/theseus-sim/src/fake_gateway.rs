@@ -42,6 +42,9 @@ pub struct GatewayState {
     pub connected: bool,
     /// Each dispatch sent, by its type, in order (READY and RESUMED too).
     pub sent: Vec<String>,
+    /// Each presence update the client sent (opcode 3), with when: unix ms
+    /// and the update's data (`status`, `activities`).
+    pub presences: Vec<(u64, Value)>,
 }
 
 #[derive(Default)]
@@ -200,6 +203,16 @@ impl FakeGateway {
                 let s = self.become_current(conn, "READY", |st| st.identifies += 1);
                 send(ws, json!({"op": 0, "t": "READY", "s": s, "d": d}))
             }
+            Some(3) => {
+                let d = serde_json::from_str::<Value>(text)
+                    .map(|v| v["d"].clone())
+                    .unwrap_or(Value::Null);
+                let at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |t| t.as_millis() as u64);
+                self.inner.0.lock().unwrap().st.presences.push((at, d));
+                Ok(())
+            }
             Some(6) => {
                 let s = self.become_current(conn, "RESUMED", |st| st.resumes += 1);
                 send(ws, json!({"op": 0, "t": "RESUMED", "s": s, "d": null}))
@@ -294,10 +307,22 @@ pub struct Interaction<'a> {
 /// `INTERACTION_CREATE` for a press of the button `custom_id` on `message`
 /// (the message as Discord answers it, its components included).
 pub fn component_press(i: &Interaction<'_>, message: Value, custom_id: &str) -> Value {
+    component_press_with(i, message, custom_id, 2, &[])
+}
+
+/// `component_press` for any component: `kind` is its type (2 a button, 3 a
+/// select menu) and `values` the options a select chose.
+pub fn component_press_with(
+    i: &Interaction<'_>,
+    message: Value,
+    custom_id: &str,
+    kind: u64,
+    values: &[&str],
+) -> Value {
     let mut d = json!({"id": i.id.to_string(), "application_id": i.app.to_string(), "type": 3,
         "token": i.token, "version": 1, "channel_id": i.at.channel.to_string(),
         "message": message,
-        "data": {"custom_id": custom_id, "component_type": 2, "values": []},
+        "data": {"custom_id": custom_id, "component_type": kind, "values": values},
         "entitlements": [], "locale": "en-US", "app_permissions": "0"});
     match i.at.guild {
         Some(g) => {

@@ -60,6 +60,11 @@ pub(super) fn route(shared: &Shared, c: &TaskChanged) {
 impl Place {
     /// The board's latest state, to the lane.
     pub(super) fn board(&mut self) {
+        // The live board of the work engine (theseus-2j2ka) replaces this one
+        // while the bot can send Components V2.
+        if self.shared.v2_cards() {
+            return;
+        }
         let core = &self.shared.core;
         let records = theseus_core::task_graph::all_shown(&core.store, &core.kernel);
         let records = match records {

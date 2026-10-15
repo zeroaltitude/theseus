@@ -51,7 +51,7 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<WorkWatchResult, RpcFailure> {
         let guarded = !conn.surface.reads_private();
-        let scope = self.work_scope(&p, guarded, conn.surface.name())?;
+        let scope = self.work_scope(&p, guarded, conn.surface)?;
         self.push.ensure(self).await?;
         self.bus.watch_work(
             conn.client,
@@ -86,6 +86,26 @@ impl Core {
         WorkUnwatchResult { watching: false }
     }
 
+    /// Whether a guarded connection may watch `sid`: a shared place's
+    /// conversation always; and, for the Discord binding, a conversation that
+    /// speaks in a Discord place of any class (theseus-2j2ka). The binding
+    /// shows a place its own session's tasks in that place alone, as it shows
+    /// its cards, so a private DM's board is the owner's own DM; the views it
+    /// hears are still scrubbed and offer no answer (`may_answer` is false:
+    /// an answer is judged when it is pressed).
+    fn may_watch(&self, sid: &str, surface: crate::approval::Surface) -> bool {
+        if matches!(self.runner.place_of(sid), Place::Shared(_)) {
+            return true;
+        }
+        surface == crate::approval::Surface::Discord
+            && self
+                .outbox
+                .try_target(sid)
+                .ok()
+                .flatten()
+                .is_some_and(|t| t.starts_with("discord:"))
+    }
+
     /// What a watch may see. `roots` are conversations (session ids); a
     /// guarded connection (one that reads no private text) must name them,
     /// and a root that does not speak in a shared place is left out without
@@ -94,14 +114,15 @@ impl Core {
         &self,
         p: &WorkWatchParams,
         guarded: bool,
-        surface: &str,
+        surface: crate::approval::Surface,
     ) -> Result<WorkScope, RpcFailure> {
         let Some(named) = p.roots.as_ref() else {
             if guarded {
                 return Err(RpcFailure::new(
                     error_code::INVALID_PARAMS,
                     format!(
-                        "{surface} reads no private text: name the conversations (roots) to watch"
+                        "{} reads no private text: name the conversations (roots) to watch",
+                        surface.name()
                     ),
                 ));
             }
@@ -117,7 +138,7 @@ impl Core {
                 continue;
             }
             let Ok(rec) = self.session(sid) else { continue };
-            if guarded && !matches!(self.runner.place_of(sid), Place::Shared(_)) {
+            if guarded && !self.may_watch(sid, surface) {
                 continue;
             }
             if let Some(exe) = rec.execution_id {

@@ -23,12 +23,16 @@ use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 mod ask;
 mod board;
+pub(crate) mod board_v2;
+pub(crate) mod card_v2;
 pub(crate) mod cite;
 mod deferred;
 mod held;
 mod preview;
 pub(crate) mod process;
 mod reply;
+pub(crate) mod task_view;
+pub(crate) mod v2;
 mod wakes;
 pub use ask::needs_you;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
@@ -69,6 +73,9 @@ pub enum Buttons {
     Sources(String, Vec<cite::Source>),
     /// Remove every component.
     Clear,
+    /// Components V2 (theseus-2j2ka): the write's `content` is the components as JSON,
+    /// sent with the V2 flag and no text (`courier/v2.rs`).
+    V2,
 }
 
 /// One "should have asked" choice (theseus-sgh): a notified tool, and the

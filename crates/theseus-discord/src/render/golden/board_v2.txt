@@ -1,0 +1,103 @@
+=== 0 tasks: components=6 chars=23
+📋 **Tasks** · all clear
+ids: tb:clear tb:quiet
+
+=== 1 task: components=10 chars=125
+📋 **Tasks** · ⚙️ 1 running
+---
+**⚙️ Now**
+⚙️ **Task number 1** `…000001` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+ids: tb:clear tb:quiet tb:pick
+
+=== 8 tasks: components=20 chars=826
+📋 **Tasks** · 🔴 2 needs you · ⚙️ 5 running · ✅ 1 done since you looked
+---
+**🔴 Needs you**
+---
+**Task number 0** `…000000`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 1** `…000001`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**⚙️ Now**
+⚙️ **Task number 14** `…000014` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 13** `…000013` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 12** `…000012` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 11** `…000011` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 10** `…000010` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+---
+**✅ Done, not yet seen**
+✅ **Task number 20** `…000020` · done <t:1789992800:R>
+ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:pick
+
+=== 30 tasks: components=36 chars=2295
+📋 **Tasks** · 🔴 10 needs you · ⚙️ 14 running · ✅ 6 done since you looked
+---
+**🔴 Needs you**
+---
+**Task number 0** `…000000`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 1** `…000001`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 2** `…000002`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 3** `…000003`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 4** `…000004`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 5** `…000005`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+**Task number 6** `…000006`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+---
+-# +3 more · /tasks
+---
+**⚙️ Now**
+⚙️ **Task number 113** `…000113` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 112** `…000112` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 111** `…000111` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 110** `…000110` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 109** `…000109` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 108** `…000108` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 107** `…000107` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 106** `…000106` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 105** `…000105` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 104** `…000104` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 103** `…000103` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+⚙️ **Task number 102** `…000102` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
+-# +2 more · /tasks
+---
+**✅ Done, not yet seen**
+✅ **Task number 200** `…000200` · done <t:1789992800:R>
+✅ **Task number 201** `…000201` · done <t:1789992800:R>
+✅ **Task number 202** `…000202` · done <t:1789992800:R>
+✅ **Task number 203** `…000203` · done <t:1789992800:R>
+✅ **Task number 204** `…000204` · done <t:1789992800:R>
+✅ **Task number 205** `…000205` · done <t:1789992800:R>
+ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:o:exe_01J00000000000000000000002 tb:o:exe_01J00000000000000000000003 tb:o:exe_01J00000000000000000000004 tb:o:exe_01J00000000000000000000005 tb:o:exe_01J00000000000000000000006 tb:clear tb:quiet tb:pick
+
+=== needs you: components=13 chars=143
+📋 **Tasks** · 🔴 1 needs you
+---
+**🔴 Needs you**
+---
+**Task number 1** `…000001`
+fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
+ids: tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:pick
+
+=== all done: components=10 chars=273
+📋 **Tasks** · ✅ 3 done since you looked
+---
+**✅ Done, not yet seen**
+✅ **Task number 1** `…000001` · done <t:1789992800:R>
+⛔ **Task number 2** `…000002` · cancelled <t:1789992800:R>
+❌ **Task number 3** `…000003` · failed <t:1789992800:R> · the provider refused the request (400)
+ids: tb:clear tb:quiet tb:pick
+

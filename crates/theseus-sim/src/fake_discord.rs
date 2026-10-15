@@ -159,20 +159,117 @@ pub struct Button {
     pub disabled: bool,
 }
 
-/// Every button in `components` (action rows of buttons).
+/// Every button in `components`: action rows' buttons and, in a Components
+/// V2 message, those inside containers and sections too. A select menu is
+/// listed as a button whose label is its placeholder, so a test finds it by
+/// its custom id.
 fn buttons(components: &Value) -> Vec<Button> {
-    components
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|row| row["components"].as_array().cloned().unwrap_or_default())
-        .filter(|c| c["type"] == 2)
-        .map(|c| Button {
+    let mut out = Vec::new();
+    walk(components, &mut |c| match c["type"].as_u64() {
+        Some(2) => out.push(Button {
             label: c["label"].as_str().unwrap_or("").to_string(),
             custom_id: c["custom_id"].as_str().unwrap_or("").to_string(),
             disabled: c["disabled"].as_bool().unwrap_or(false),
-        })
-        .collect()
+        }),
+        Some(3) => out.push(Button {
+            label: c["placeholder"].as_str().unwrap_or("").to_string(),
+            custom_id: c["custom_id"].as_str().unwrap_or("").to_string(),
+            disabled: c["disabled"].as_bool().unwrap_or(false),
+        }),
+        _ => {}
+    });
+    out
+}
+
+/// Depth first through `components`, each component's children and a
+/// section's accessory.
+fn walk(components: &Value, f: &mut dyn FnMut(&Value)) {
+    for c in components.as_array().into_iter().flatten() {
+        f(c);
+        walk(&c["components"], f);
+        if c["accessory"].is_object() {
+            walk(&json!([c["accessory"].clone()]), f);
+        }
+    }
+}
+
+/// How many rows of components a message shows: its top-level components,
+/// and in a Components V2 message the action rows inside its boxes, so a card
+/// whose buttons are gone reads as none either way.
+fn rows(components: &Value) -> usize {
+    let v2 = components
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|c| matches!(c["type"].as_u64(), Some(9 | 10 | 14 | 17)));
+    if !v2 {
+        return components.as_array().map_or(0, Vec::len);
+    }
+    let mut n = 0;
+    walk(components, &mut |c| n += usize::from(c["type"] == 1));
+    n
+}
+
+/// Discord's `IS_COMPONENTS_V2` message flag (1 << 15).
+pub const IS_COMPONENTS_V2: u64 = 1 << 15;
+
+/// The text a Components V2 message shows: its text displays, in order,
+/// joined by newlines, so a test reads it as it reads a classic message's
+/// content.
+fn v2_text(components: &Value) -> String {
+    let mut parts = Vec::new();
+    walk(components, &mut |c| {
+        if c["type"] == 10 {
+            parts.push(c["content"].as_str().unwrap_or("").to_string());
+        }
+    });
+    parts.join("\n")
+}
+
+/// Why Discord would refuse these components with the V2 flag set (or without
+/// it, when they hold V2 types): the first reason, in words. Written apart
+/// from the binding's own validator, so one cannot hide the other's mistake.
+fn v2_refusal(flags: u64, content: &Value, components: &Value) -> Option<String> {
+    let v2 = flags & IS_COMPONENTS_V2 != 0;
+    let mut kinds = Vec::new();
+    walk(components, &mut |c| {
+        kinds.push(c["type"].as_u64().unwrap_or(0))
+    });
+    let uses_v2 = kinds.iter().any(|k| matches!(k, 9 | 10 | 14 | 17));
+    if uses_v2 && !v2 {
+        return Some("components of type 9, 10, 14 or 17 need the IS_COMPONENTS_V2 flag".into());
+    }
+    if !v2 {
+        return None;
+    }
+    if content.as_str().is_some_and(|c| !c.is_empty()) {
+        return Some("content cannot be set with IS_COMPONENTS_V2".into());
+    }
+    if kinds.len() > 40 {
+        return Some(format!("{} components; at most 40", kinds.len()));
+    }
+    let text: usize = {
+        let mut n = 0;
+        walk(components, &mut |c| {
+            if c["type"] == 10 {
+                n += c["content"].as_str().map_or(0, |t| t.chars().count());
+            }
+        });
+        n
+    };
+    if text > 4000 {
+        return Some(format!("{text} characters of text; at most 4000"));
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut dup = None;
+    walk(components, &mut |c| {
+        if let Some(id) = c["custom_id"].as_str() {
+            if id.chars().count() > 100 || !ids.insert(id.to_string()) {
+                dup = Some(format!("custom_id {id:?} is repeated or too long"));
+            }
+        }
+    });
+    dup
 }
 
 /// What the binding answered an interaction (theseus-6g62).
@@ -420,6 +517,10 @@ struct State {
     replies: Vec<Reply>,
     /// Each interaction `press` sent, by id, and its channel.
     pressed: BTreeMap<String, u64>,
+    /// The messages the binding answered an interaction with (an ephemeral
+    /// view, say), by the interaction's id: kept apart from the channel's
+    /// messages, and pressable (`press_reply`).
+    ephemerals: BTreeMap<String, Msg>,
     /// The guild's member list answers 403 (M4 19c): who can view a channel
     /// cannot be read.
     refuse_members: bool,
@@ -807,6 +908,51 @@ impl FakeDiscord {
     /// message, buttons and all. The interaction's id, or why it could not
     /// be sent (no such message, or no such button on it).
     pub fn press(&self, p: &Pressed<'_>) -> Result<String, String> {
+        self.press_values(p, &[])
+    }
+
+    /// The message the binding answered interaction `interaction` with, if it
+    /// answered with one (an ephemeral view).
+    pub fn reply_message(&self, interaction: &str) -> Option<Msg> {
+        self.state
+            .lock()
+            .unwrap()
+            .ephemerals
+            .get(interaction)
+            .cloned()
+    }
+
+    /// A press of a button on the message the binding answered `interaction`
+    /// with, as `user` (an ephemeral view's Stop, say).
+    pub fn press_reply(
+        &self,
+        interaction: &str,
+        button: &str,
+        user: u64,
+        name: &str,
+    ) -> Result<String, String> {
+        let m = self
+            .reply_message(interaction)
+            .ok_or_else(|| format!("no message answered interaction {interaction}"))?;
+        {
+            let mut st = self.state.lock().unwrap();
+            // Pressable like a posted message, found by its id.
+            st.messages.push(m.clone());
+        }
+        let r = self.press(&Pressed {
+            message: &m.id,
+            button,
+            user,
+            name,
+        });
+        // It was never a channel message.
+        self.state.lock().unwrap().messages.retain(|x| x.id != m.id);
+        r
+    }
+
+    /// A pick in a select menu: `p.button` names the menu by its custom id (or
+    /// its placeholder), `values` the options chosen.
+    pub fn press_values(&self, p: &Pressed<'_>, values: &[&str]) -> Result<String, String> {
         let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
         let (msg, at, iid) = {
             let mut st = self.state.lock().unwrap();
@@ -848,7 +994,13 @@ impl FakeDiscord {
         };
         let mut message = message_json(&msg);
         message["components"] = msg.components_json.clone();
-        let d = fake_gateway::component_press(&i, message, &button.custom_id);
+        let mut kind = 2;
+        walk(&msg.components_json, &mut |c| {
+            if c["custom_id"] == button.custom_id.as_str() {
+                kind = c["type"].as_u64().unwrap_or(2);
+            }
+        });
+        let d = fake_gateway::component_press_with(&i, message, &button.custom_id, kind, values);
         if !gw.dispatch("INTERACTION_CREATE", d) {
             return Err("no client is connected to the gateway".into());
         }
@@ -1018,6 +1170,23 @@ impl FakeDiscord {
         mode: Mode,
     ) -> std::io::Result<()> {
         let now = now_ms();
+        if let Some(why) = v2_refusal(
+            body["flags"].as_u64().unwrap_or(0),
+            &body["content"],
+            &body["components"],
+        ) {
+            self.record(seen(
+                "POST",
+                &format!("/channels/{channel}/messages"),
+                "invalid",
+            ));
+            return reply(
+                stream,
+                400,
+                &json!({"message": "Invalid Form Body", "code": 50035,
+                "errors": {"components": why}}),
+            );
+        }
         let nonce = match &body["nonce"] {
             Value::String(s) => Some(s.clone()),
             Value::Number(n) => Some(n.to_string()),
@@ -1038,7 +1207,12 @@ impl FakeDiscord {
                 Some(m) => (m.clone(), "deduped"),
                 None => {
                     st.next_id += 1;
-                    let content = body["content"].as_str().unwrap_or("").to_string();
+                    let v2 = body["flags"].as_u64().unwrap_or(0) & IS_COMPONENTS_V2 != 0;
+                    let content = if v2 {
+                        v2_text(&body["components"])
+                    } else {
+                        body["content"].as_str().unwrap_or("").to_string()
+                    };
                     let allowed = body["allowed_mentions"].clone();
                     let m = Msg {
                         id: st.next_id.to_string(),
@@ -1047,7 +1221,7 @@ impl FakeDiscord {
                         versions: vec![content.clone()],
                         content,
                         nonce: nonce.clone(),
-                        components: body["components"].as_array().map_or(0, Vec::len),
+                        components: rows(&body["components"]),
                         reply_to: body["message_reference"]["message_id"]
                             .as_str()
                             .map(str::to_string),
@@ -1189,20 +1363,44 @@ impl FakeDiscord {
         id: &str,
         body: &Value,
     ) -> std::io::Result<()> {
+        let mut refused = None;
         let found = {
             let mut st = self.state.lock().unwrap();
             st.messages
                 .iter_mut()
                 .find(|m| m.channel == channel && m.id == id)
                 .map(|m| {
-                    if let Some(c) = body["content"].as_str() {
+                    // An edit keeps the message's flags (the V2 flag cannot be
+                    // removed), and is held to the same rules as a create.
+                    if let Some(why) = v2_refusal(m.flags, &body["content"], &body["components"]) {
+                        refused = Some(why);
+                        return m.clone();
+                    }
+                    let v2 = m.flags & IS_COMPONENTS_V2 != 0;
+                    if v2
+                        && body["flags"]
+                            .as_u64()
+                            .is_some_and(|f| f & IS_COMPONENTS_V2 == 0)
+                    {
+                        refused = Some("IS_COMPONENTS_V2 cannot be removed".into());
+                        return m.clone();
+                    }
+                    if v2 {
+                        if body["components"].is_array() {
+                            let c = v2_text(&body["components"]);
+                            if c != m.content {
+                                m.versions.push(c.clone());
+                            }
+                            m.content = c;
+                        }
+                    } else if let Some(c) = body["content"].as_str() {
                         if c != m.content {
                             m.versions.push(c.to_string());
                         }
                         m.content = c.to_string();
                     }
-                    if let Some(c) = body["components"].as_array() {
-                        m.components = c.len();
+                    if body["components"].is_array() {
+                        m.components = rows(&body["components"]);
                         m.buttons = buttons(&body["components"]);
                         m.components_json = body["components"].clone();
                     }
@@ -1210,6 +1408,19 @@ impl FakeDiscord {
                     m.clone()
                 })
         };
+        if let Some(why) = refused {
+            self.record(seen(
+                "PATCH",
+                &format!("/channels/{channel}/messages/{id}"),
+                "invalid",
+            ));
+            return reply(
+                stream,
+                400,
+                &json!({"message": "Invalid Form Body", "code": 50035,
+                "errors": {"components": why}}),
+            );
+        }
         let path = format!("/channels/{channel}/messages/{id}");
         match found {
             Some(m) => {
@@ -1428,11 +1639,50 @@ impl FakeDiscord {
             interaction: interaction.map(str::to_string),
             kind: kind.to_string(),
             response_type: body["type"].as_u64().filter(|_| kind == "callback"),
-            content: data["content"].as_str().map(str::to_string),
+            content: data["content"].as_str().map(str::to_string).or_else(|| {
+                // A Components V2 answer: the text its displays show.
+                data["components"]
+                    .is_array()
+                    .then(|| v2_text(&data["components"]))
+            }),
             ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
         };
         let content = r.content.clone().unwrap_or_default();
-        self.state.lock().unwrap().replies.push(r);
+        {
+            let mut st = self.state.lock().unwrap();
+            if kind == "callback"
+                && matches!(r.response_type, Some(4 | 7))
+                && data["components"].is_array()
+            {
+                // A message the binding answered with: kept to be pressed.
+                st.next_id += 1;
+                let channel = interaction
+                    .and_then(|i| st.pressed.get(i).copied())
+                    .unwrap_or(1);
+                let m = Msg {
+                    id: st.next_id.to_string(),
+                    channel: channel.to_string(),
+                    content: content.clone(),
+                    nonce: None,
+                    components: rows(&data["components"]),
+                    reply_to: None,
+                    edits: 0,
+                    created_ms: now_ms(),
+                    allowed_mentions: Value::Null,
+                    mentions: vec![],
+                    author: BOT_ID.to_string(),
+                    versions: vec![content.clone()],
+                    buttons: buttons(&data["components"]),
+                    components_json: data["components"].clone(),
+                    pinned: false,
+                    flags: data["flags"].as_u64().unwrap_or(0),
+                };
+                if let Some(i) = interaction {
+                    st.ephemerals.insert(i.to_string(), m);
+                }
+            }
+            st.replies.push(r);
+        }
         if kind == "callback" {
             return reply_empty(stream);
         }
@@ -1625,7 +1875,8 @@ fn message_json(m: &Msg) -> Value {
         "webhook_id": m.hook.as_ref().map(|_| m.author.clone()),
         "timestamp": "2026-09-30T00:00:00.000000+00:00", "edited_timestamp": null, "tts": false,
         "mention_everyone": false, "mentions": mentions, "mention_roles": [], "attachments": [], "embeds": [],
-        "pinned": m.pinned, "type": 0, "nonce": m.nonce,
+        "pinned": m.pinned, "type": 0, "nonce": m.nonce, "flags": m.flags,
+        "components": if m.components_json.is_array() { m.components_json.clone() } else { json!([]) },
     })
 }
 
@@ -1645,6 +1896,7 @@ fn reply(mut stream: TcpStream, status: u16, body: &Value) -> std::io::Result<()
     let text = body.to_string();
     let reason = match status {
         200 => "OK",
+        400 => "Bad Request",
         404 => "Not Found",
         503 => "Service Unavailable",
         _ => "Status",

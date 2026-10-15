@@ -62,7 +62,7 @@ impl Lane {
     }
 
     /// Pin the board, best-effort: a refusal is logged once a lane.
-    async fn pin(&mut self, channel: u64, message: u64) {
+    pub(super) async fn pin(&mut self, channel: u64, message: u64) {
         match self
             .shared
             .http
