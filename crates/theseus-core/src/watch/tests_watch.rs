@@ -22,12 +22,12 @@ use crate::provider::FakeProvider;
 use crate::store::Store;
 use crate::{Config, Core};
 
-const DM: &str = "dm:42";
-const TARGET: &str = "discord:dm:42";
+pub(super) const DM: &str = "dm:42";
+pub(super) const TARGET: &str = "discord:dm:42";
 
-struct Life {
-    core: Arc<Core>,
-    model: Arc<FakeProvider>,
+pub(super) struct Life {
+    pub(super) core: Arc<Core>,
+    pub(super) model: Arc<FakeProvider>,
     events: tokio::sync::mpsc::UnboundedReceiver<Message>,
     driver: Option<tokio::task::JoinHandle<()>>,
 }
@@ -42,7 +42,7 @@ impl Drop for Life {
 
 /// One life of the daemon over the store in `dir`, with a DM bound; the
 /// driver runs when `drive` says so.
-fn life(dir: &Path, drive: bool, tweak: impl FnOnce(&mut Config)) -> Life {
+pub(super) fn life(dir: &Path, drive: bool, tweak: impl FnOnce(&mut Config)) -> Life {
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
@@ -70,7 +70,7 @@ fn life(dir: &Path, drive: bool, tweak: impl FnOnce(&mut Config)) -> Life {
 
 impl Life {
     /// End this life: the driver stops and the core is let go.
-    async fn stop(mut self) -> Arc<Core> {
+    pub(super) async fn stop(mut self) -> Arc<Core> {
         if let Some(d) = self.driver.take() {
             d.abort();
             let _ = d.await;
@@ -79,7 +79,7 @@ impl Life {
     }
 }
 
-fn dm_session(core: &Arc<Core>) -> String {
+pub(super) fn dm_session(core: &Arc<Core>) -> String {
     let sid = core
         .open_session(theseus_protocol::SessionOpenParams {
             dir: None,
@@ -173,7 +173,7 @@ fn ledger_len(core: &Core) -> usize {
 }
 
 /// The notices the outbox holds: (target, text).
-fn posts(core: &Core) -> Vec<(String, String)> {
+pub(super) fn posts(core: &Core) -> Vec<(String, String)> {
     core.kernel
         .outbox_actions()
         .unwrap()

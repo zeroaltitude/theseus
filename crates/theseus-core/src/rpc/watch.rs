@@ -52,6 +52,7 @@ impl Core {
             },
         )
         .map_err(failure)?;
+        let p = crate::watch::reply::resolved(&p, &self.runner.place_rule).map_err(invalid)?;
         let by = conn.actor(p.author.as_deref());
         let (session_id, execution_id, home) = match &p.session_id {
             Some(s) => {

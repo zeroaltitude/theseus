@@ -1684,6 +1684,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (a real core: a file met within an interval, twenty unchanged checks write no frame, a planted secret scrubbed,
   three failures inform once, expiry, a restart, the cap), `watch/tests_watch_tool.rs` (the approval and the command
   that never changes, `then: turn`), and each pure module's own.
+  **The `reply` check** (theseus-rlnbf; no store change): `{kind: "reply", place, from?, words?}` waits for a message,
+  never on a timer. `watch/reply.rs` (the pure matchers, `Core::watch_reply_seen` and `watch_reply_met`, `Entry::replied`)
+  and the board's place index (`Board::reply_matches`, kept by `insert`/`insert_new`/`remove`, so a restart rebuilds it with
+  `watch_load`; one atomic load when no reply watch is open, one map lookup when none is for the place). The Discord
+  binding calls `watch_reply_seen` for each message, before routing, reads only (`runtime/reply.rs`); a match is one
+  frame (`watch.met` with the message id, author and `external: true`, the value the first 200 scrubbed characters) and
+  a notice in a private place (`reply_target`: the watch's own place when private, else the owner's Home, never the
+  shared place the reply came from). A reply watch only notices (`then: turn|task` is refused: a stranger's words are
+  outside text and would drive a turn). `place` is a bound place's name, its target, or a channel's id (`reply::resolve_place`);
+  `from` a user id, `discord:<id>` or a name (any case, contained); `words` text in any case or a `/pattern/`. Its seed is due
+  at its expiry, which is its one look. Set by the owner's `watch.create` (the place rule is `Act::Watch`'s) and the model's
+  `watch` tool (asks the owner once). Tests: `watch/tests_reply.rs`.
 - **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
   start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
   the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start

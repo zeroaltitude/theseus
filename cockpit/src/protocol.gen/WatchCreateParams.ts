@@ -14,7 +14,7 @@ export type WatchCreateParams = {
 title: string, check: WatchCheck, 
 /**
  * The condition: `exit 0`, `equals X`, `contains X`, `matches RE`,
- * `changes`, `above N`, `below N`, `exists`.
+ * `changes`, `above N`, `below N`, `exists`. A `reply` check has none.
  */
 until: string, 
 /**

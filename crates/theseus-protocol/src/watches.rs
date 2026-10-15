@@ -29,6 +29,19 @@ pub enum WatchCheck {
     },
     /// A file: its text is the value, and `exists` asks whether it is there.
     File { path: String },
+    /// A reply (theseus-rlnbf): a new message in `place` (a bound place's name,
+    /// `#ops`, or its target) that `from` wrote (a user id, `discord:<id>`, or a
+    /// name) and whose text has `words` (text, or `/pattern/`). Nothing polls:
+    /// the Discord binding tells the core of each message as it arrives.
+    Reply {
+        place: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(test, ts(optional))]
+        from: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(test, ts(optional))]
+        words: Option<String>,
+    },
 }
 
 /// What happens when the condition holds.
@@ -53,7 +66,8 @@ pub struct WatchCreateParams {
     pub title: String,
     pub check: WatchCheck,
     /// The condition: `exit 0`, `equals X`, `contains X`, `matches RE`,
-    /// `changes`, `above N`, `below N`, `exists`.
+    /// `changes`, `above N`, `below N`, `exists`. A `reply` check has none.
+    #[serde(default)]
     pub until: String,
     /// How often it checks: `1m` at the most often, `5m` by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -88,7 +102,7 @@ pub struct WatchInfo {
     pub session_id: String,
     pub execution_id: String,
     pub title: String,
-    /// `run`, `fetch` or `file`.
+    /// `run`, `fetch`, `file` or `reply`.
     pub kind: String,
     /// The command, the URL or the path, as people read it.
     pub target: String,

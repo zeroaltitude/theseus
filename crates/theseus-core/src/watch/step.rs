@@ -18,7 +18,7 @@
 use theseus_kernel::{ProbeNews, ProbeVerdict, WatchState};
 
 use super::cond::Observed;
-use super::spec::{Spec, Then};
+use super::spec::{Check, Spec, Then};
 
 /// The most a failing watch waits between checks, when its interval is
 /// shorter than this.
@@ -63,6 +63,11 @@ impl Entry {
         next_ms: u64,
     ) -> Entry {
         let s = state.unwrap_or_default();
+        // A reply is never due: its one look is its expiry.
+        let next_ms = match spec.check {
+            Check::Reply { .. } => spec.expires_ms,
+            _ => next_ms,
+        };
         Entry {
             execution_id,
             wake_id,
@@ -79,7 +84,7 @@ impl Entry {
         }
     }
 
-    fn state(&self) -> WatchState {
+    pub(super) fn state(&self) -> WatchState {
         WatchState {
             first: self.first.clone(),
             last: self.last.clone(),
@@ -153,6 +158,9 @@ impl Entry {
     fn seen(&mut self, now: u64, seen: Observed) -> Step {
         self.failures = 0;
         self.failing = None;
+        if matches!(self.spec.check, Check::Reply { .. }) {
+            return Step::Quiet;
+        }
         let first_before = self.first.clone();
         if self.first.is_none() {
             self.first = Some(seen.value.clone());
@@ -175,6 +183,7 @@ impl Entry {
             verdict,
             state: self.state(),
             text,
+            detail: serde_json::Value::Null,
         })
     }
 

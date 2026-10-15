@@ -68,6 +68,7 @@ mod inbound;
 mod jev;
 mod live;
 mod orders;
+mod reply;
 mod source;
 mod thread;
 mod thread_ask;
@@ -1113,6 +1114,7 @@ impl Shared {
         if m.author.bot || m.author.id.get() == self.bot_id() {
             return;
         }
+        self.tell_replies(m); // theseus-rlnbf: reads only, before routing
         let (found, bot_roles) = {
             let r = self.routes.lock().unwrap();
             let found = r.resolve(

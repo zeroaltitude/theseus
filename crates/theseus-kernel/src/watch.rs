@@ -86,6 +86,9 @@ pub struct ProbeNews {
     /// The message: a met watch's node and post, an expiry's or a failure's
     /// post. Empty for a change.
     pub text: String,
+    /// More fields for the verdict's ledger row (a reply's message id and
+    /// author); null for none.
+    pub detail: serde_json::Value,
 }
 
 /// What `probe_result` wrote.
@@ -168,6 +171,11 @@ impl Kernel {
         }
         if let Some(f) = &s.failing {
             row["error"] = json!(clip(f));
+        }
+        if let Some(d) = news.detail.as_object() {
+            for (k, v) in d {
+                row[k] = v.clone();
+            }
         }
         let mut frame = Vec::new();
         let mut post = None;
