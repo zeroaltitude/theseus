@@ -9,7 +9,7 @@ use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
 use crate::config::{PersonaConfig, PersonaEngage};
-use crate::tests_route::{mode, rig, turn, Rig};
+use crate::tests_route::{mode, rig, turn, until_late, Rig};
 
 fn personas(c: &mut crate::Config, act: bool) {
     for (key, card) in [
@@ -396,4 +396,40 @@ async fn a_seal_yes_in_a_thread_proposes_and_never_seals() {
         assert!(t.sealed.is_none(), "Jev never seals");
         assert_eq!(t.seal_pending.is_some(), want);
     }
+}
+
+/// A persona verdict that missed the wait changes nothing: the prior stands
+/// for that turn, and the late verdict, carried to the next message for the
+/// mode, is not a persona's for it either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_persona_verdict_leaves_the_prior() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    persona(&jev, "birch", 0.97);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = rig(Some(&jev), 2, |c| {
+        personas(c, true);
+        c.routing.max_wait_ms = 200;
+        c.judge.total_secs = 30;
+    });
+    let one = turn(&r.core, None, "Is this CVE a sandbox escape?", None).await;
+    assert_eq!(
+        engaged(&r)[0]["how"],
+        "prior",
+        "the verdict missed the wait"
+    );
+    jev.release();
+    until_late(&r.core, &one.session_id).await;
+    turn(&r.core, Some(&one.session_id), "And the other CVE?", None).await;
+    jev.release();
+    let rows = engaged(&r);
+    assert_eq!(
+        (rows[1]["persona"].as_str(), rows[1]["how"].as_str()),
+        (Some("alder"), Some("prior")),
+        "a carried verdict is the last message's"
+    );
+    assert_eq!(
+        tail(&r.claude.requests()[1]).last().unwrap(),
+        "Alder answers this turn"
+    );
 }
