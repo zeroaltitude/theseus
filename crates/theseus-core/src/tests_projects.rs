@@ -205,6 +205,64 @@ async fn a_moved_date_moves_its_reminder_and_a_close_cancels_it() {
     assert_eq!(list["projects"][0]["next_title"], "Chart the channel");
 }
 
+/// A closed project takes its milestones' reminders with it, open
+/// milestones included (reviewer D's planted revert, a project's state not
+/// read, passed every test until this one).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_project_cancels_every_milestones_reminders() {
+    let r = rig();
+    let s = session(&r.core);
+    let p = made(&r, json!({"review": "none"})).await;
+    let id = p["project"]["id"].as_str().unwrap().to_string();
+    assert_eq!(reminders(&r.core).len(), 6);
+    let version = r.task(&id).version;
+    r.calls(&[(
+        "task_close",
+        json!({"id": id, "version": version, "outcome": "done",
+               "evidence": [{"identity": "report:harbour"}]}),
+    )]);
+    turn(&r.core, &s, "the harbour survey is done").await;
+    assert!(r.task(&id).state.is_closed());
+    let left = reminders(&r.core);
+    assert!(left.is_empty(), "{left:?}");
+}
+
+/// A milestone whose date has passed sets no reminder when it is synced
+/// again (a re-sync after its wakes fired, or a project-wide one): it would
+/// fire at once (reviewer D's planted revert of `at > now` passed every test
+/// until this one). The date itself is refused at creation, so the sync is
+/// driven directly, as the overdue test does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_milestone_dated_in_the_past_sets_no_reminder() {
+    use crate::project::remind::{sync_milestone, Place};
+    let r = rig();
+    let p = rpc(
+        &r.core,
+        "project.create",
+        json!({"title": "Harbour survey", "review": "none",
+               "milestones": [{"title": "Survey the moorings", "due": "1h"}]}),
+    )
+    .await
+    .unwrap();
+    let mut rec = r.task(&milestone(&r, &p, 1));
+    rec.due_at_ms = Some(r.core.kernel.now_ms() - 60_000);
+    let tasks = vec![r.task(&rec.parent.clone().unwrap()), rec.clone()];
+    let home = r.core.home().unwrap();
+    let place = Place {
+        execution_id: home.execution_id.clone(),
+        target: None,
+    };
+    for (_, w) in r.core.kernel.pending_wakes().unwrap() {
+        r.core
+            .kernel
+            .cancel_wake(&home.execution_id, &w.id, "test")
+            .unwrap();
+    }
+    let s = sync_milestone(&r.core.kernel, &tasks, &rec, (&place, "test"), 1_000).unwrap();
+    assert_eq!(s.set, 0, "{s:?}");
+    assert!(reminders(&r.core).is_empty());
+}
+
 /// A milestone's date fires its reminder: a notice in the owner's Home, no
 /// model call, and `wake.noticed` carrying its words.
 #[tokio::test(flavor = "multi_thread")]

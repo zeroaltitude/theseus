@@ -172,8 +172,11 @@ fn a_big_project_stays_within_its_bound_and_says_what_it_left_out() {
         t.push(s);
     }
     let s = render(&t, "tsk_harbour", NOW, &local).unwrap();
+    // The row's promise is a literal: at most 300 tokens (reviewer D's planted
+    // revert raised MAX_TOKENS itself, and a test reading the constant passed).
+    assert_eq!(MAX_TOKENS, 300);
     assert!(
-        s.summary.tokens <= MAX_TOKENS,
+        s.summary.tokens <= 300,
         "{} tokens: {}",
         s.summary.tokens,
         s.text
