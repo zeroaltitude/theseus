@@ -1,0 +1,18 @@
+{
+  "from": 100,
+  "to": 240,
+  "from_ledger": false,
+  "now": { "needs_you": 1, "working": 2, "done": 4, "failed": 1, "total": 8 },
+  "questions": [
+    {
+      "id": "act_0000a1b2c3", "kind": "approval", "asked_by": { "id": "exe_task", "kind": "task", "title": "Kelp count" },
+      "prompt": "fs.write create notes.txt (40 B)", "options": [], "floor": false, "may_answer": true, "asked_at_ms": 1791000000000
+    }
+  ],
+  "lines": [
+    { "at_ms": 1791000100000, "kind": "reported", "work": { "id": "exe_h", "kind": "conversation", "session_id": "ses_h", "title": "harbour survey" }, "words": "📋 3 tasks reported to harbour survey", "count": 3 },
+    { "at_ms": 1791000200000, "kind": "failed", "work": { "id": "exe_t", "kind": "task", "session_id": "ses_t", "title": "Tide table" }, "words": "✗ Tide table failed", "count": 1 },
+    { "at_ms": 1791000300000, "kind": "answered", "work": { "id": "act_1", "kind": "question", "session_id": "ses_h", "title": "fs.write notes.txt" }, "words": "✓ you answered: fs.write notes.txt", "count": 1 },
+    { "at_ms": 1791009999999, "kind": "reported", "work": { "id": "exe_late", "kind": "task", "title": "After the look began" }, "words": "📋 After the look began reported", "count": 1 }
+  ]
+}

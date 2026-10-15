@@ -102,6 +102,14 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   2,000 characters (each section's top three and a count of the rest, never a second message). A place whose class is
   not private is told that an imported or another session's note was there, and shown none of its words. A read of
   the core: no frame, no ledger row (not even `discord.command`'s). Tests: `runtime/tests_why.rs`.
+- **`/digest`** (theseus-qkoi3, `runtime/digest.rs`): `work.digest` as this binding, naming the place's own session,
+  ephemeral, the protocol's summary and a line each within 2,000 characters (the oldest are counted, not shown). Discord's
+  last read is this process's (the digest's end, by session); after a restart the first one reaches back a day. A DM
+  whose owner starts typing after four quiet hours (`WELCOME_AFTER_MS`, from this process's last sight of the DM) is
+  welcomed back with one notice line when the digest is not empty: it answers the owner's own typing, so it is no
+  unprompted post and uses no pacer. `runtime.rs` is at its ceiling: the typing event goes through `Place::typed`, the
+  command is registered beside `/why`'s, and `/digest`'s interaction follows `/why`'s in the chain (`why.rs`).
+  Tests: `runtime/tests_digest.rs`.
 - **A message sent while a turn runs** (theseus-qu1lc, `runtime/steer.rs`): with the core's `[kernel] steer_queued` on
   (the default), a place whose turn is in flight sends the new message as a `turn.submit` at once instead of holding it
   in `queued`. The core's running turn takes it in at its next loop (or, if that turn ends first, runs it as the next

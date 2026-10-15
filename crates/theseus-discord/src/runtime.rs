@@ -103,6 +103,7 @@ mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
 pub(crate) mod calendar;
+mod digest;
 #[cfg(test)]
 mod tests_held;
 #[cfg(test)]
@@ -712,6 +713,7 @@ enum Control {
     Revoke(String, Option<DiscordOrigin>),
     /// What the last turn was shown, and why (theseus-ighf, `runtime/why.rs`).
     Why,
+    Digest, // theseus-qkoi3, `runtime/digest.rs`
     /// Revoke a standing record, as the presser (theseus-a7vi, `runtime/orders.rs`).
     Unorder(String, Option<DiscordOrigin>),
     /// "halt self" (theseus-pw1q.2, `runtime/halt.rs`): why, and its author's ids.
@@ -2002,7 +2004,7 @@ impl Place {
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
             PlaceMsg::Unbind | PlaceMsg::Thread(_) => {}
-            PlaceMsg::Typing(origin) => typing::notice(&self.shared.rpc, &self.session_id, origin),
+            PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
@@ -2209,7 +2211,7 @@ impl Place {
             Control::Trust(origin) => self.trust(origin, by).await,
             Control::Publish(ask) => self.publish(*ask, by).await,
             Control::Extensions => self.extensions().await,
-            Control::Why => self.why().await,
+            c @ (Control::Why | Control::Digest) => self.read_only(c).await,
             Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
             Control::Unorder(id, origin) => self.unorder(id, origin, by).await,
             Control::HaltSelf(..) | Control::ResumeSelf(_) | Control::SelfWord(_) => {

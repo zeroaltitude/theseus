@@ -14,9 +14,10 @@ import {
   Anchor, ArrowUpRight, Bell, BellRing, Check, ChevronDown, ChevronRight, CircleCheck, Clock, Coins, Cog, Eye, Hexagon, History, Hourglass,
   Play, Square, Telescope, TriangleAlert, type LucideIcon,
 } from 'lucide-react'
-import type { LedgerEntry } from '@protocol'
+import type { LedgerEntry, WorkDigestResult } from '@protocol'
 import { useCalm } from '@/lib/calm'
 import { useHistoryRows } from '@/lib/history'
+import { useRpc } from '@/lib/rpc'
 import { useAsOf } from '@/lib/timemachine'
 import { clock, cn, stamp } from '@/lib/format'
 import type { ShipData } from './useShipData'
@@ -26,6 +27,7 @@ import {
   type WatchTarget,
 } from './watch.ts'
 import { LOOKED_KEY, lookAt, looked, replayMoments, SEEN_EVERY_MS, sinceOf, StretchWalk, type Looked, type Since, type SincePart } from './since.ts'
+import { plateOf } from './sincedigest.ts'
 import './watch.css'
 
 export type { WatchKey, WatchTarget } from './watch.ts'
@@ -106,8 +108,13 @@ export function Watch({ model, data, focus, onFocus, onFly }: WatchProps) {
   const [walk] = useState(() => new StretchWalk())
   const watch = useMemo(() => watchOf({ model, actions, confirms, rows, rowsReady: history.ready, now, dayStart, dayEnd }, day),
     [model, actions, confirms, rows, history.ready, now, dayStart, dayEnd, day])
-  const since = useMemo(() => sinceOf({ model, actions, confirms, rows, rowsReady: history.ready, since: look.since, until: look.until, now }, walk),
-    [model, actions, confirms, rows, history.ready, look.since, look.until, now, walk])
+  // Live, the plate is told by the daemon's digest (theseus-qkoi3); the time machine and a replay fold the ledger at their
+  // moment, since a row after the moment is never read. The fold still gives the cells the digest does not tell.
+  const digest = useRpc<WorkDigestResult>('work.digest', { since_ms: look.since }, 0, { enabled: !past }).data
+  const since = useMemo(() => {
+    const fold = sinceOf({ model, actions, confirms, rows, rowsReady: history.ready, since: look.since, until: look.until, now }, walk)
+    return plateOf(fold, digest, !!past, now)
+  }, [model, actions, confirms, rows, history.ready, look.since, look.until, now, walk, digest, past])
   const plates = useMemo(() => [...platesOf(watch), since], [watch, since])
 
   // The overlay follows its plate: what it lights changes as things start and settle; with nothing left, it goes.

@@ -163,6 +163,12 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   connect with a thread current, and after a reply in a thread; keys in the picker send none but the acts. Tests:
   `src/tests_threads.rs`.
 
+- Since you last looked (theseus-qkoi3): while the terminal has focus, each view the board takes moves the machine's
+  look (`Seen::look`, written with the seen file); a blur writes it. At each connect, and when focus returns after
+  `AWAY_MS` (60 s), the app asks `work.digest {since}` (never on a first start) and shows the summary as the footer's
+  notice line, then moves the look to the digest's end. A daemon that does not know the method is not complained of.
+  Tests: `src/tests_digest.rs`.
+
 ## Invariants
 
 - **The protocol is the only way in.** What needs you is each view's `attention`, which the daemon computes; an

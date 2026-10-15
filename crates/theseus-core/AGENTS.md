@@ -699,6 +699,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `remind_at`. `task.create { notify_done }` is stored on `TaskOf` (store format 34) and flags the task's work view, so the
   policy's report row interrupts. Tests: `tests_m3/ask.rs`, `tests_ask.rs` (a task asks, the CLI answers, it resumes), the
   Discord crate's `tests_gateway/ask.rs`, `notices::tests` for the flag.
+- **`work.digest`** (theseus-qkoi3; `rpc/digest.rs`, `push/work/digest.rs`): "since you last looked", in a few lines. Params
+  `{since: position | since_ms, roots?: [session_id]}`, answer `{from, to, lines, from_ledger, now, questions}`; the
+  protocol (`work_digest.rs`) words a `DigestLine` once (`digest_words`), folds bursts (three or more of one kind under
+  one root within ten minutes of each other become one line, `fold_digest`) and words the summary line every surface prints
+  (`digest_summary`). From the work board's notice ring when it reaches back to `since` (`notices_since` complete), plus
+  the board's cancelled tasks (the policy gives a cancel no notice); else from the ledger by kind (`task.ended`,
+  `action.confirm_answered`, `execution.failed`, `wake.fired`, `tool.late_result`, the newest 2,000 rows) on the blocking
+  pool, and the answer says so. A time is turned into a position by the ledger index's first row at or after it. Both
+  sources make the same `Raw` lines, so a window told from either has the same kind, work and count (the test
+  `the_ring_and_the_ledger_agree_on_the_same_window`); a job that ended well is no news in either. Seen stays the
+  client's: the daemon keeps no position per surface, and writes no frame. The place rule is `work.watch`'s: a
+  connection that reads no private text names its roots and is told of a shared place's alone, scrubbed and unable to
+  answer; the in-process Discord binding may also name a private place (its DM), and only what lies under the roots it
+  names. `roots: [task]` is that task's own timeline. Tests: `tests_work_digest.rs` (a child of `tests_work.rs`: the
+  scenario told from both sources, a window past the ring's start, a task's timeline, the place rule).
 - **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
   `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
   stored as a state: the record keeps only `retired` (superseded or by hand; empty is derived past `[sessions]

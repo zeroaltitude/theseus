@@ -41,6 +41,7 @@ mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
 mod agenda;
+mod digest;
 mod earned;
 mod forecast;
 mod grants;
