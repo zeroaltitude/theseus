@@ -83,27 +83,68 @@ fn argv_of(input: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The row's account of a finished replay, with the deterministic comparison.
+fn whole_row(
+    (loops, capped): (u32, Option<String>),
+    hands: &Hands<'_>,
+    (original, scratch): (&Facts, &scratch::Scratch),
+    caveats: Vec<String>,
+) -> WholeReplay {
+    let replay = Facts {
+        changed: hands.changed.clone(),
+        runs: hands
+            .ran
+            .iter()
+            .map(|r| TestRun {
+                argv: r.argv.clone(),
+                exit: r.exit,
+            })
+            .collect(),
+    };
+    WholeReplay {
+        loops,
+        capped,
+        calls: hands.calls.clone(),
+        changed: replay.changed.iter().cloned().collect(),
+        original_changed: original.changed.iter().cloned().collect(),
+        tests: replay.tests(),
+        original_tests: original.tests(),
+        same: compare::same(original, &replay),
+        caveats,
+        scratch_files: scratch.files,
+        scratch_bytes: scratch.bytes,
+        label: None,
+    }
+}
+
+/// Each call's result by its id: whether it succeeded, its meta and its text.
+fn results_by_id(
+    transcript: &crate::store::Transcript,
+) -> std::collections::HashMap<String, (bool, Value, String)> {
+    let mut results = std::collections::HashMap::new();
+    for (_, n) in transcript {
+        if let Body::ToolResult {
+            tool_use_id,
+            is_error,
+            meta,
+            content,
+            status,
+            ..
+        } = &n.body
+        {
+            let ok = !is_error && *status == crate::node::ResultStatus::Ok;
+            results.insert(tool_use_id.clone(), (ok, meta.clone(), content.clone()));
+        }
+    }
+    results
+}
+
 impl Core {
     /// The original turn: its final reply, what it changed and ran, its
     /// recorded results, and the calls from its start on.
     fn read_turn(&self, session: &str, turn: &str, first: &Said) -> anyhow::Result<Turn> {
         let transcript = self.store.transcript(session)?;
-        let mut results: std::collections::HashMap<String, (bool, Value, String)> =
-            std::collections::HashMap::new();
-        for (_, n) in &transcript {
-            if let Body::ToolResult {
-                tool_use_id,
-                is_error,
-                meta,
-                content,
-                status,
-                ..
-            } = &n.body
-            {
-                let ok = !is_error && *status == crate::node::ResultStatus::Ok;
-                results.insert(tool_use_id.clone(), (ok, meta.clone(), content.clone()));
-            }
-        }
+        let results = results_by_id(&transcript);
         let start = transcript
             .iter()
             .position(|(_, n)| n.turn_id.as_deref() == Some(turn))
@@ -210,52 +251,8 @@ impl Core {
         let t0 = Instant::now();
         let rt = self.runner.tools.clone();
         let orig_cwd = rt.cwd_for(original.session.dir.as_deref());
-
-        // The copy of the directory as it was.
-        let me = self.clone();
-        let (session, turn, first) = (p.session.clone(), p.turn.clone(), original.said.clone());
-        let read = tokio::task::spawn_blocking(move || me.read_turn(&session, &turn, &first))
-            .await
-            .context("the turn was not read")??;
-        let reg = rt.clone();
-        let span = undo::collect(
-            read.span.iter().map(|(tool, input, ok, meta)| Call {
-                tool,
-                input,
-                ok: *ok,
-                meta,
-            }),
-            |t| {
-                reg.registry
-                    .get(t)
-                    .is_some_and(|t| t.class() == theseus_tools::ToolClass::Write)
-            },
-        )?;
-        let (cwd, max) = (orig_cwd.clone(), route.whole_tree_mb * 1024 * 1024);
-        let tag = p.turn.clone();
-        let skip: Vec<std::path::PathBuf> = rt
-            .policy
-            .approve_paths
-            .iter()
-            .chain(&rt.policy.floor_paths)
-            .cloned()
-            .collect();
-        let copied = tokio::task::spawn_blocking(move || {
-            let s = scratch::copy(&cwd, &std::env::temp_dir(), &tag, (max, &skip))?;
-            let notes = undo::undo(&cwd, &s.dir, &span.written)?;
-            Ok::<_, crate::own_bench::rebuild::NotRebuildable>((s, notes, span.programs))
-        })
-        .await
-        .context("the copy did not finish")??;
-        let (scratch, notes, programs_unrecorded) = copied;
-        let mut caveats = scratch.caveats.clone();
-        caveats.extend(notes);
-        if programs_unrecorded > 0 {
-            caveats.push(format!(
-                "{programs_unrecorded} programs ran from this turn on whose file changes are not \
-                 recorded, so the copy may differ from the directory as it was"
-            ));
-        }
+        let read = self.read_turn_blocking(p, original).await?;
+        let (scratch, caveats) = self.copy_as_it_was(p, original, &read).await?;
 
         // The loop.
         let mut hands = Hands::new(
@@ -341,31 +338,7 @@ impl Core {
         replay.text = final_text;
         replay.cost_usd = theseus_kernel::micros_to_usd(total);
 
-        let replay_facts = Facts {
-            changed: hands.changed.clone(),
-            runs: hands
-                .ran
-                .iter()
-                .map(|r| TestRun {
-                    argv: r.argv.clone(),
-                    exit: r.exit,
-                })
-                .collect(),
-        };
-        let whole = WholeReplay {
-            loops,
-            capped,
-            calls: hands.calls.clone(),
-            changed: replay_facts.changed.iter().cloned().collect(),
-            original_changed: read.facts.changed.iter().cloned().collect(),
-            tests: replay_facts.tests(),
-            original_tests: read.facts.tests(),
-            same: compare::same(&read.facts, &replay_facts),
-            caveats,
-            scratch_files: scratch.files,
-            scratch_bytes: scratch.bytes,
-            label: None,
-        };
+        let whole = whole_row((loops, capped), &hands, (&read.facts, &scratch), caveats);
         drop(hands);
         drop(scratch);
         Ok(Done {
@@ -374,5 +347,72 @@ impl Core {
             whole,
             original: read.original,
         })
+    }
+}
+
+impl Core {
+    /// The original turn, read on the blocking pool.
+    async fn read_turn_blocking(
+        self: &Arc<Self>,
+        p: &TurnReplayParams,
+        original: &Original,
+    ) -> anyhow::Result<Turn> {
+        let me = self.clone();
+        let (session, turn, first) = (p.session.clone(), p.turn.clone(), original.said.clone());
+        tokio::task::spawn_blocking(move || me.read_turn(&session, &turn, &first))
+            .await
+            .context("the turn was not read")?
+    }
+
+    /// The directory as it was at the turn's start, and what the copy could
+    /// not be.
+    async fn copy_as_it_was(
+        self: &Arc<Self>,
+        p: &TurnReplayParams,
+        original: &Original,
+        read: &Turn,
+    ) -> anyhow::Result<(scratch::Scratch, Vec<String>)> {
+        let rt = self.runner.tools.clone();
+        let reg = rt.clone();
+        let span = undo::collect(
+            read.span.iter().map(|(tool, input, ok, meta)| Call {
+                tool,
+                input,
+                ok: *ok,
+                meta,
+            }),
+            |t| {
+                reg.registry
+                    .get(t)
+                    .is_some_and(|t| t.class() == theseus_tools::ToolClass::Write)
+            },
+        )?;
+        let cwd = rt.cwd_for(original.session.dir.as_deref());
+        let max = self.cfg.route.whole_tree_mb * 1024 * 1024;
+        let tag = p.turn.clone();
+        let skip: Vec<std::path::PathBuf> = rt
+            .policy
+            .approve_paths
+            .iter()
+            .chain(&rt.policy.floor_paths)
+            .cloned()
+            .collect();
+        let copied = tokio::task::spawn_blocking(move || {
+            let s = scratch::copy(&cwd, &std::env::temp_dir(), &tag, (max, &skip))?;
+            let notes = undo::undo(&cwd, &s.dir, &span.written)?;
+            Ok::<_, crate::own_bench::rebuild::NotRebuildable>((s, notes, span.programs))
+        })
+        .await
+        .context("the copy did not finish")??;
+        let (scratch, notes, programs_unrecorded) = copied;
+        let mut caveats = scratch.caveats.clone();
+        caveats.extend(notes);
+        if programs_unrecorded > 0 {
+            caveats.push(format!(
+                "{programs_unrecorded} programs ran from this turn on whose file changes are not \
+                 recorded, so the copy may differ from the directory as it was"
+            ));
+        }
+        Ok((scratch, caveats))
     }
 }

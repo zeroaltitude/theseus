@@ -105,6 +105,16 @@ pub(super) fn said_of_response(resp: &crate::provider::ModelResponse, cost: u64)
     }
 }
 
+/// The effort the original turn ran at, as a word; empty: the profile's own.
+fn from_effort(original: &Original) -> String {
+    original
+        .spec
+        .turn_effort
+        .or(original.spec.effort)
+        .map(super::effort_word)
+        .unwrap_or_default()
+}
+
 /// Whether a request's messages carry a file: an image or a document block,
 /// at any depth (a tool result's too).
 pub fn carries_attachment(v: &Value) -> bool {
@@ -283,12 +293,7 @@ impl Core {
             self.label_whole(p, &target.profile, &mut result);
         }
         result.elapsed_ms = t0.elapsed().as_millis() as u64;
-        let from_effort = original
-            .spec
-            .turn_effort
-            .or(original.spec.effort)
-            .map(super::effort_word)
-            .unwrap_or_default();
+        let from_effort = from_effort(&original);
         self.rec(Some(&p.session))
             .in_turn(Some(&p.turn))
             .record(&TurnReplayed {

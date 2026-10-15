@@ -179,6 +179,23 @@ fn train_errors<'a>(
     errors
 }
 
+/// Whether a label settles some whole question of `s`'s answers; with
+/// `machine` false, a machine-sourced label (a whole-turn replay's) is no
+/// label.
+fn graded_by(s: &Seen, labels: &HashMap<String, Vec<LabelRow>>, machine: bool) -> bool {
+    let ls = labels.get(&s.judgment.id).map_or(&[][..], Vec::as_slice);
+    let ls: Vec<LabelRow> = ls
+        .iter()
+        .filter(|l| machine || l.source != super::REPLAY_SOURCE)
+        .cloned()
+        .collect();
+    s.judgment
+        .answers
+        .iter()
+        .filter(|a| a.about.is_none())
+        .any(|a| resolve(&ls, &a.def, a).is_some_and(|(_, t)| graded(a, &t).is_some()))
+}
+
 /// The split a run used, in its proposal.
 fn record_split(prop: &mut JudgeProposal, rule: SplitRule) {
     match rule {
@@ -571,24 +588,14 @@ impl Core {
         // Labeled by a label of any source for the train split; by the
         // owner's and the system's alone for the holdout: a machine label (a
         // whole-turn replay's, theseus-pw1q.20) never grades it.
-        let graded_by = |s: &Seen, machine: bool| {
-            let ls = scope
-                .labels
-                .get(&s.judgment.id)
-                .map_or(&[][..], Vec::as_slice);
-            let ls: Vec<LabelRow> = ls
-                .iter()
-                .filter(|l| machine || l.source != super::REPLAY_SOURCE)
-                .cloned()
-                .collect();
-            s.judgment
-                .answers
-                .iter()
-                .filter(|a| a.about.is_none())
-                .any(|a| resolve(&ls, &a.def, a).is_some_and(|(_, t)| graded(a, &t).is_some()))
-        };
-        let labeled: Vec<&Seen> = seen.iter().filter(|s| graded_by(s, true)).collect();
-        let owned: Vec<&Seen> = seen.iter().filter(|s| graded_by(s, false)).collect();
+        let labeled: Vec<&Seen> = seen
+            .iter()
+            .filter(|s| graded_by(s, &scope.labels, true))
+            .collect();
+        let owned: Vec<&Seen> = seen
+            .iter()
+            .filter(|s| graded_by(s, &scope.labels, false))
+            .collect();
         let window = Window::latest(super::local_midnight(now), self.cfg.judge.holdout_days);
         let rule = match split_at {
             Some(t) => SplitRule::Time {

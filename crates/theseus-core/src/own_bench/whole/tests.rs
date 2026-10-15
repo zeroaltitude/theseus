@@ -427,7 +427,7 @@ fn recorded_writes_are_put_back_or_refused() {
     let made = Written::Created {
         path: orig.join("new.txt"),
     };
-    let notes = undo(&orig, &scratch, &[edit.clone(), made]).unwrap();
+    let notes = undo(&orig, &scratch, &[edit, made]).unwrap();
     assert!(notes.is_empty());
     assert_eq!(
         std::fs::read_to_string(scratch.join("a.txt")).unwrap(),
