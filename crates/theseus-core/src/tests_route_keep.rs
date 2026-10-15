@@ -44,12 +44,17 @@ use crate::tests_route::{mode, rig, turn};
 /// And 43,900 and 38,400 before `extend.propose`'s `hands` joined it (theseus-pw1q.14: 43,900 and
 /// 44,100 rang; 44,300 to 44,900 hold: a sweep at its join), and 44,500 before owner-ask's
 /// `owner_ask` and `task_create`'s `notify_done` joined it (theseus-j7cje: 44,300, 44,500 and
-/// 45,100 rang; 44,700 and 44,900 hold: a sweep at its join).
-const WINDOW: u64 = 44_800;
+/// 45,100 rang; 44,700 and 44,900 hold: a sweep at its join), and 44,800 before projects'
+/// `task_create` fields and `project.attach` joined it (theseus-n5ui2: no window held with
+/// the first answer billed at 38,600, 43,800 to 45,000 rang and 45,100 and up never compacted
+/// the second loop; with it billed at 39,400, 45,200 and 45,600 hold, 44,800 and 46,000 do
+/// not: a sweep at its join).
+const WINDOW: u64 = 45_400;
 const OUTPUT: u32 = 1_000;
 
-/// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 38_600;
+/// The input the first answer is billed at, past the request budget (38,600
+/// before projects joined, theseus-n5ui2: the band above).
+const BILLED: u64 = 39_400;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {
