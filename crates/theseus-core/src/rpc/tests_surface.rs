@@ -145,6 +145,7 @@ impl Rig {
             opened_from: None,
             thread: None,
             via: via.map(str::to_string),
+            surface: None,
             speaking: None,
             in_reply_to: None,
         };

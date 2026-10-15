@@ -65,6 +65,7 @@ async fn say(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<Recompi
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            surface: None,
             answer_at: None,
         })
         .await

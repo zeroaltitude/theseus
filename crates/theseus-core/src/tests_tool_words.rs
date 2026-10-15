@@ -97,6 +97,7 @@ async fn say(r: &Rig, input: &str) -> TurnSubmitResult {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            surface: None,
             answer_at: None,
         })
         .await

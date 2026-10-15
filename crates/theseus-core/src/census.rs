@@ -251,6 +251,7 @@ impl TurnRunner {
         let scope = crate::standing::Scope {
             session: sid,
             place: place.as_deref(),
+            surface: None,
         };
         match crate::standing::Block::of(&all, scope, class, theseus_protocol::now_unix_ms()) {
             Some(b) => {

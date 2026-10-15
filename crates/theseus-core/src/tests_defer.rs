@@ -102,6 +102,7 @@ async fn turn_as(
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            surface: None,
         })
         .await
         .unwrap()

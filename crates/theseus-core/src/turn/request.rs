@@ -23,6 +23,10 @@ pub struct TurnRequest {
     /// An MCP server's prompt as the input (M7 36c): its messages are the
     /// input's nodes, and `input` is their text. `None` for any other turn.
     pub prompt: Option<crate::mcp::prompts::PromptInput>,
+    /// Where the reply is posted when it is not the session's own place (a
+    /// message in the owner's DM answered there, in a thread's turn;
+    /// theseus-sjzm).
+    pub answer_at: Option<String>,
     /// The surface the input came through (`standing::surface_name`), which
     /// the records scoped to a surface read (theseus-slvl.4); none for a
     /// continuation and for a caller that names none.

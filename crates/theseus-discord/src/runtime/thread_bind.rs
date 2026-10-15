@@ -204,6 +204,7 @@ impl Shared {
             show_thinking: true,
             silent: None,
             ping_window_secs: None,
+            voice_status: None,
         }
     }
 
@@ -768,6 +769,7 @@ impl Place {
                     answer_at: Some(answer_at),
                 }),
                 via: None,
+                surface: None,
             };
             let r = rpc
                 .call::<_, TurnSubmitResult>(method::TURN_SUBMIT, params)

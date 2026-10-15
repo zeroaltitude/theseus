@@ -247,6 +247,7 @@ async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> s
                 answer_at: Some(answer_at.into()),
             }),
             via: None,
+            surface: None,
         },
     );
     let mut line = serde_json::to_string(&req).unwrap();

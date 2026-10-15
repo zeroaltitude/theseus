@@ -357,5 +357,6 @@ fn resubmission(session: &str, routed: &Routed) -> TurnSubmitParams {
         speaking: None,
         in_reply_to: None,
         via: None,
+        surface: None,
     }
 }

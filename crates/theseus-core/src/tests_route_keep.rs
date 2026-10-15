@@ -38,12 +38,14 @@ use crate::tests_route::{mode, rig, turn};
 /// `say_only` joined it (theseus-8ux6x: 300 more), and 42,200 and 36,700
 /// before `routine.create` (theseus-pvm5c: 600 more), `watch` (theseus-f2r2b:
 /// 600 more) and `thread.read` (theseus-f2g0: 300 more) joined it (43,400 and
-/// 37,900 rang with all three; their joins' review).
-const WINDOW: u64 = 43_700;
+/// 37,900 rang with all three; their joins' review), and 43,700 and 38,200 before
+/// standing-surface (theseus-slvl.4) and wait-cost (theseus-7m7w.3) joined (43,700
+/// rang with both; 43,800 to 44,200 hold: a sweep at their join).
+const WINDOW: u64 = 43_900;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 38_200;
+const BILLED: u64 = 38_400;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {
