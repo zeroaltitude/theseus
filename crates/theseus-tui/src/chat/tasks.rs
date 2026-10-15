@@ -104,21 +104,24 @@ impl Chat {
             if prev.is_some_and(|p| p.position >= v.position) {
                 continue;
             }
-            let events: Vec<(Line, bool)> = task_tree::events(prev, &v)
+            // A question is told by its event's line, once: the snapshot's
+            // `tell_question` skips what an event already said.
+            let events: Vec<(Line, Option<String>)> = task_tree::events(prev, &v)
                 .iter()
                 .filter(|e| task_event_is_ours(e))
-                .map(|e| (words(e), matches!(e, TaskEvent::Asked(..))))
+                .map(|e| {
+                    let asked = match e {
+                        TaskEvent::Asked(_, q) => Some(q.id.clone()),
+                        _ => None,
+                    };
+                    (words(e), asked)
+                })
                 .collect();
-            let asked = events.iter().any(|(_, a)| *a);
-            for (line, _) in events {
+            for (line, asked) in events {
                 self.say(&line);
+                self.board.told.extend(asked);
             }
             self.board.views.insert(v.id.clone(), v);
-            if asked {
-                if let Some(p) = self.task_questions().into_iter().last() {
-                    self.tell_question(&p);
-                }
-            }
         }
         for id in c.gone {
             self.board.views.remove(&id);
@@ -267,26 +270,18 @@ impl Chat {
         out.into_iter().map(|(_, p)| p).collect()
     }
 
-    /// A question announced in the transcript, once. Its keys are the dock's.
+    /// A question that already waits when the chat connects, announced in
+    /// the transcript once. Its keys are the dock's.
     fn tell_question(&mut self, p: &TaskQ) {
         if !self.board.told.insert(p.id.clone()) {
             return;
         }
-        // The line the task's event printed already names the question
-        // when it just came; a snapshot's has none yet.
         let line = Line::from([
             span(Sty::Yellow, "● "),
             span(Sty::Bold, p.who.clone()),
             span(Sty::Plain, format!(" asks: {}?", p.words)),
         ]);
-        if !self.out_has_ask(&p.who, &p.words) {
-            self.say(&line);
-        }
-    }
-
-    fn out_has_ask(&self, who: &str, words: &str) -> bool {
-        let needle = format!("{who} asks: {words}?");
-        self.out.iter().rev().take(3).any(|l| l.contains(&needle))
+        self.say(&line);
     }
 
     /// `work.answer` for a task's question, unless this is a job's shell.

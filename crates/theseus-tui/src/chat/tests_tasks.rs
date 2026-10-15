@@ -564,3 +564,22 @@ async fn tab_goes_round_the_questions() {
     r.press(KeyCode::Tab).await;
     r.shows("Theseus asks").await;
 }
+
+/// A question whose words wrap in the transcript is told once, by its
+/// event's line; the snapshot's announcement skips what an event said (the
+/// live check found it twice when the prompt was long).
+#[tokio::test(start_paused = true)]
+async fn a_long_question_is_told_once() {
+    let mut r = ready(60, 40, &[conversation()]).await;
+    let mut v = asking(10, false);
+    v.question.as_mut().unwrap().prompt =
+        "write regatta/paint-log.md under the committee boat's long project directory".into();
+    push(&r, 10, vec![v]);
+    r.shows("[y] approve").await;
+    let told = r
+        .screen()
+        .iter()
+        .filter(|l| l.starts_with("● Paint log asks"))
+        .count();
+    assert_eq!(told, 1, "{}", r.text());
+}
