@@ -45,7 +45,7 @@ use crate::{Config, Core};
 /// tokens past the summary's room once theseus-ggqf's terminal words joined
 /// (the join's review). 48,000 leaves room; at 44,000 the override test's
 /// probe and its glm turn ring at different turns.
-const WINDOW: u64 = 48_000;
+const WINDOW: u64 = 48_400;
 const OUTPUT: u32 = 2_000;
 
 pub(crate) struct Rig {
@@ -580,7 +580,7 @@ async fn the_newest_exchange_past_the_window_fails_with_context_overage() {
     assert_eq!(te.class, OVERAGE_CLASS);
     let message = format!("{:#}", te.source);
     for part in [
-        "the newest exchange alone does not fit claude-sonnet-5-5's window of 48,000",
+        "the newest exchange alone does not fit claude-sonnet-5-5's window of 48,400",
         "upper bound) against the 41,904 the window leaves",
         "Nothing was sent.",
     ] {

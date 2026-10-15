@@ -281,7 +281,7 @@ mod tests {
         theseus_client::render::time::pin_for_tests();
         let l = list_lines(&[info()], 1_789_999_000_000);
         assert!(
-            l[0].starts_with("▰▰▰▱▱▱▱ 3/7  harbour Harbour survey"),
+            l[0].starts_with("▰▰▰▱▱▱▱ 3/7  arbour Harbour survey"),
             "{}",
             l[0]
         );

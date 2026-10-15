@@ -318,10 +318,10 @@ impl Tool for TaskCreate {
                 "check_of": {"type": "string", "description": "Start a check of this task (its id, or the end of it): one this conversation started, which has reported."},
                 "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
                 "start_after": {"type": "string", "description": "Defer the task: it sleeps and starts this long from now, a duration such as 2h or 1d (1 second to 365 days). Its budget is carved now."},
-                "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: a long-term plan item. `project`: a goal (`objective`, `acceptance`) with `milestones` [{title, due}] and a weekly `review` routine (a schedule such as `mon 08:00`, the default, or `none`; it waits for the owner's yes). `milestone`: a dated step, `parent` a project, `due` its date; the owner is reminded on the day."},
+                "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (with `objective`, `milestones` [{title, due}], a weekly `review` schedule or `none`; the review waits for the owner's yes) or `milestone` (`parent` a project, `due` its date; the owner is reminded)."},
                 "due": {"type": "string", "description": "A milestone's or project's date: `2026-11-03`, `fri 09:00`, `in 3d`."},
-                "milestones": {"type": "array", "maxItems": 32, "items": {"type": "object", "properties": {"title": {"type": "string"}, "due": {"type": "string"}}, "required": ["title"], "additionalProperties": false}, "description": "For `kind: project`: its milestones, made with it."},
-                "review": {"type": "string", "description": "For `kind: project`: the weekly review's schedule, or `none`."},
+                "milestones": {"type": "array", "maxItems": 32, "items": {"type": "object", "properties": {"title": {"type": "string"}, "due": {"type": "string"}}, "required": ["title"]}},
+                "review": {"type": "string"},
                 "start_at": {"type": "string", "description": "Defer the task: it starts at this RFC 3339 time with its offset, such as 2026-10-16T09:00:00-07:00 (1 second to 365 days ahead)."}
             },
             "additionalProperties": false

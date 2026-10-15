@@ -33,16 +33,15 @@ impl Tool for ProjectAttach {
     }
 
     fn description(&self) -> &'static str {
-        "Attach this conversation to a project (a task of kind `project`): from the next turn, \
-         every request ends with the project's slice, its goal, open milestones with dates and \
-         next steps, which stays through compactions. `project` is its id, or `none` to detach."
+        "Attach this conversation to a project (kind `project`): from the next turn every request \
+         ends with its slice (goal, milestones, next steps). `none` detaches."
     }
 
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "project": {"type": "string", "description": "The project's id (tsk_…), or `none`."}
+                "project": {"type": "string", "description": "A project id, or none."}
             },
             "required": ["project"],
             "additionalProperties": false
