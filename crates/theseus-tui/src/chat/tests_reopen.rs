@@ -366,3 +366,32 @@ async fn each_directory_keeps_its_own_up_arrow_history() {
     assert!(r.text().contains("› beta reef"), "{}", r.text());
     assert!(!r.text().contains("alpha tides"));
 }
+
+/// A continued conversation's Esc stops that conversation's execution
+/// (chat-ask's stop, on the session `-c` resumed; a join fix).
+#[tokio::test(start_paused = true)]
+async fn a_continued_conversations_esc_stops_its_execution() {
+    let sessions = vec![session(
+        "ses_old000001",
+        "the earlier work",
+        json!({"execution_id": "exe_old000001"}),
+    )];
+    let mut r = started(
+        Start::Continue,
+        daemon_with(sessions, vec![], transcript(2), 2),
+    )
+    .await;
+    r.shows("prompt number 1").await;
+    r.tell(theseus_protocol::Event::TurnStarted(
+        theseus_protocol::TurnStarted {
+            session_id: "ses_old000001".into(),
+            turn_id: "trn_9".into(),
+            ..Default::default()
+        },
+    ));
+    r.shows("◐ thinking").await;
+    r.press(KeyCode::Esc).await;
+    r.asked("execution.stop", 1).await;
+    let s = &r.daemon.asked("execution.stop")[0];
+    assert_eq!(s["execution_id"], "exe_old000001");
+}

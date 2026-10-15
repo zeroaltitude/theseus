@@ -142,6 +142,7 @@ impl Chat {
         self.profile = info.profile.clone();
         self.model = self.model.take().or(info.model.clone());
         self.cost = info.cost_usd;
+        self.execution = info.execution_id.clone();
         let sid = info.session_id;
         self.banner.last = Some(None);
         let mut out = self.opened(&sid);
