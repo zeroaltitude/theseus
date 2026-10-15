@@ -166,7 +166,7 @@ pub struct Chat {
     /// Esc was pressed once on an idle, empty line (a second opens the picker).
     pub(super) esc_armed: bool,
     /// The rewind picker, while it is open.
-    pub(super) picker: Option<super::rewind::Picker>,
+    pub(super) rewind_picker: Option<super::rewind::Picker>,
     /// The conversation a rewind left, named once under the fork's history.
     pub(super) rewound: Option<String>,
     pub menu: usize,
@@ -221,7 +221,7 @@ impl Chat {
             notice: None,
             quit_armed: false,
             esc_armed: false,
-            picker: None,
+            rewind_picker: None,
             rewound: None,
             menu: 0,
             started_ms: now_ms,
@@ -416,8 +416,8 @@ impl Chat {
         if !matches!(action, Action::Escape) {
             self.esc_armed = false;
         }
-        if self.picker.is_some() {
-            return self.picker_key(action);
+        if self.rewind_picker.is_some() {
+            return self.rewind_key(action);
         }
         // A question waits and the line is empty: one key answers it.
         if self.editor.is_empty() {

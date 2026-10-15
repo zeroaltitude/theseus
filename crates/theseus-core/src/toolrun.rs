@@ -43,6 +43,7 @@ use guarded::guarded_paths;
 pub use guarded::sandbox_for;
 mod batch;
 mod calls;
+mod complete;
 pub mod fit;
 mod glide;
 pub(crate) mod handles;
@@ -1946,38 +1947,6 @@ impl ToolRuntime {
                 text.push_str(&format!(" It is not shown: {why}."));
                 None
             }
-        }
-    }
-
-    /// An in-process result's completion frame, and what the kernel did with
-    /// it. A result marked external (DD5) that its session is the first to
-    /// read since it was last trusted brings the session's hold in the same
-    /// frame, under the session record's lock (theseus-9bp): no crash leaves
-    /// the text in the context without the hold.
-    /// Complete a call, with records that ride in the same frame (an edit's
-    /// pre-images, theseus-23rk).
-    fn complete(
-        &self,
-        tc: &TurnCtx<'_>,
-        c: &Completion,
-        node: &Node,
-        extra: Vec<theseus_store::NewRecord>,
-    ) -> Result<Accepted> {
-        let sid = tc.session_id;
-        let (accepted, newly) =
-            crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |mut frame| {
-                frame.extend(extra);
-                tc.kernel.accept_completion_with(c, frame)
-            })?;
-        self.held(tc, newly);
-        Ok(accepted)
-    }
-
-    /// The narrative's line for a hold a result began.
-    fn held(&self, tc: &TurnCtx<'_>, newly: Option<theseus_protocol::ExternalText>) {
-        if let Some(h) = newly {
-            let mode = self.external_text;
-            tc.record(&fact::tool::HoldTaken { hold: &h, mode });
         }
     }
 }

@@ -75,7 +75,7 @@ impl Chat {
             self.flash("nothing to rewind to yet");
             return Vec::new();
         }
-        self.picker = Some(Picker {
+        self.rewind_picker = Some(Picker {
             points: r.points,
             sel: 0,
             stage: Stage::Choose,
@@ -84,12 +84,14 @@ impl Chat {
     }
 
     /// A key while the picker is open. It takes every key.
-    pub(super) fn picker_key(&mut self, action: Action) -> Vec<Effect> {
-        let Some(p) = self.picker.as_mut() else {
+    pub(super) fn rewind_key(&mut self, action: Action) -> Vec<Effect> {
+        let Some(p) = self.rewind_picker.as_mut() else {
             return Vec::new();
         };
         match (p.stage, action) {
-            (_, Action::Escape | Action::DoubleEscape | Action::Interrupt) => self.picker = None,
+            (_, Action::Escape | Action::DoubleEscape | Action::Interrupt) => {
+                self.rewind_picker = None
+            }
             (Stage::Choose, Action::Up) => p.sel = p.sel.saturating_sub(1),
             (Stage::Choose, Action::Down) => p.sel = (p.sel + 1).min(p.points.len() - 1),
             (Stage::Choose, Action::Submit) => p.stage = Stage::Mode,
@@ -104,7 +106,7 @@ impl Chat {
         let Some(sid) = self.session.clone() else {
             return Vec::new();
         };
-        let Some(p) = self.picker.as_ref() else {
+        let Some(p) = self.rewind_picker.as_ref() else {
             return Vec::new();
         };
         let point = p.points[p.sel].clone();
@@ -120,7 +122,7 @@ impl Chat {
             );
             return Vec::new();
         }
-        self.picker = None;
+        self.rewind_picker = None;
         let going = Rewinding {
             text: point.message.clone(),
             fork_at: conversation.then(|| point.fork_at.clone()).flatten(),
@@ -215,7 +217,7 @@ impl Chat {
 
 /// The picker's rows in the dock.
 pub(super) fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
-    let Some(p) = &chat.picker else {
+    let Some(p) = &chat.rewind_picker else {
         return Vec::new();
     };
     let mut out = Vec::new();

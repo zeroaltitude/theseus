@@ -73,6 +73,7 @@ async fn say(r: &Rig, input: &str) {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -82,6 +83,7 @@ async fn say(r: &Rig, input: &str) {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
         })
         .await
         .unwrap();

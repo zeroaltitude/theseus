@@ -3,8 +3,8 @@
 //! transcript then says what ended, and what the daemon verified, and asks
 //! what to do instead. Esc has other uses first: it leaves a note, goes back
 //! to typing from a question, and closes the command list. With nothing
-//! running it only clears the notice, and the double Esc is left free for a
-//! later row (rewind).
+//! running, Esc then Esc opens the rewind's picker (theseus-23rk), and Esc
+//! clears the notice.
 
 use serde_json::json;
 use theseus_protocol::{method, CancelVerdict, ExecutionStopResult};
@@ -24,6 +24,9 @@ impl Chat {
         }
         if self.live.turn.is_some() {
             return self.stop_turn();
+        }
+        if let Some(effects) = self.rewind_escape() {
+            return effects;
         }
         self.menu = 0;
         self.notice = None;

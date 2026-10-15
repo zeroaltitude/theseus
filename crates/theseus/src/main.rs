@@ -1276,12 +1276,7 @@ async fn run(cli: Cli) -> Result<()> {
     if let Cmd::Postmortem(a) = cli.cmd {
         return postmortem::go(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
     }
-    let mut conn = match (&cli.spawn, &cli.cmd) {
-        // One run's daemon, followed for its bound (theseus-mqxk).
-        (Some(bin), Cmd::Ask(a)) => Conn::spawn_with(bin, &follow::daemon_args(a.follow_for))?,
-        (Some(bin), _) => Conn::spawn(bin)?,
-        (None, _) => Conn::socket(&cli.socket).await?,
-    };
+    let mut conn = connect(&cli).await?;
     let (c, json, spawned) = (&mut conn, cli.json, cli.spawn.is_some());
     // `herdr sync`'s own socket, for its panes: none for a spawned daemon.
     let herdr_socket = cli.spawn.is_none().then_some(cli.socket.as_str());
@@ -1371,6 +1366,16 @@ async fn run(cli: Cli) -> Result<()> {
     };
     close(conn).await;
     result
+}
+
+/// The daemon's connection: one run's own (`--spawn`), followed for its bound when it asks
+/// (theseus-mqxk), or the socket's.
+async fn connect(cli: &Cli) -> Result<Conn> {
+    Ok(match (&cli.spawn, &cli.cmd) {
+        (Some(bin), Cmd::Ask(a)) => Conn::spawn_with(bin, &follow::daemon_args(a.follow_for))?,
+        (Some(bin), _) => Conn::spawn(bin)?,
+        (None, _) => Conn::socket(&cli.socket).await?,
+    })
 }
 
 /// A spawned daemon stops cleanly, not by a kill, so the next open of its
