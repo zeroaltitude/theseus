@@ -47,6 +47,7 @@ mod self_cmd;
 mod standing_cmd;
 mod status;
 mod status_notify;
+mod task_lines;
 mod task_start;
 mod thread;
 mod why;
@@ -322,6 +323,10 @@ enum Cmd {
     Chat {
         /// A conversation to go on with.
         session: Option<String>,
+        /// Line mode, as `watch --interactive` with the tasks' events as lines: no footer and no
+        /// one-key answers. A pipe, or `TERM=dumb`, is line mode too.
+        #[arg(long)]
+        plain: bool,
     },
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
@@ -371,13 +376,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<ExecutionsCmd>,
     },
-    /// Tasks: the background sessions conversations started with task.create, the newest
-    /// first, with state, spend of their carved limit, and what each waits on.
-    Tasks {
-        /// Only the tasks this session started.
-        #[arg(long, short)]
-        session: Option<String>,
-    },
+    /// Tasks (work.watch), one line each under its conversation: a mark, its short id, its title,
+    /// how long it has run and what it is doing; under one that asks, the command that answers it;
+    /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
+    /// reports or fails. `--graph` is the task graph and each task's state and spend as before;
+    /// `--json` the same list as data.
+    Tasks(work::WorkArgs),
     /// Task: `task start BRIEF` starts a task from your word with no model turn (theseus-7oq0w): now,
     /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
     /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
@@ -436,9 +440,7 @@ enum Cmd {
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
     Status(status::StatusArgs),
-    /// The work board as a tree (work.watch): each conversation that needs you or works with its
-    /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
-    /// for. `--watch` keeps it current from the push: a line for each change and each notice.
+    /// The work board, kept current: `tasks --watch`.
     Work(work::WorkArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
@@ -1183,7 +1185,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
-        Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
+        Cmd::Tasks(a) => work::run(c, json, a).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
@@ -1202,8 +1204,9 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
-        Cmd::Work(a) => work::run(c, json, a).await,
-        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
+        Cmd::Work(a) => work::run(c, json, a.watching()).await,
+        Cmd::Chat { session, .. } => chat_cmd::line_mode(c, json, session).await,
+        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } => {
             unreachable!("returned above, or exec'd by main")
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,

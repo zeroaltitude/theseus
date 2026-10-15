@@ -1,46 +1,83 @@
-//! `theseus work` (theseus-hkx30): the daemon's work board as a tree. A
-//! conversation at the top, its tasks, plan steps, jobs, questions and wakes
-//! below it, each with what it needs from you or is doing. `--watch` keeps the
-//! connection and prints a line for each `work.changed` view and each
-//! `work.notice`, driven by the push.
-//!
-//! This is the minimal reader the board shipped with (`cli-tasks` builds the
-//! real tree on it): it uses `work.watch` and nothing else, so it is the
-//! second client of the wire as well as a way to see the board.
+//! `theseus tasks` and `theseus work` (theseus-hkx30, theseus-mnd9g): the
+//! daemon's work board as a list of tasks. One `work.watch` read draws the
+//! tree (`render::task_tree`): a conversation, its tasks one line each with
+//! what each is doing, the command that answers a task that asks, and a
+//! footer of counts. `--watch` keeps the connection and prints a line for
+//! each task event (started, asks, reported, failed) and each notice the
+//! policy makes that is not one of those, driven by the push, and tells the
+//! daemon a person is looking (`interactive`). `theseus work` is `tasks
+//! --watch`. `--graph` is the task graph and `--json` the task list, as
+//! before.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use anyhow::Result;
 use clap::Args;
 use serde_json::Value;
+use theseus_client::render::task_tree;
 use theseus_client::Conn;
-use theseus_protocol::notices::Notice;
-use theseus_protocol::work::{WorkKind, WorkView};
-use theseus_protocol::{method, notify, Event, Level, Message, WorkWatchParams, WorkWatchResult};
+use theseus_protocol::notices::{Notice, Why};
+use theseus_protocol::work::WorkView;
+use theseus_protocol::{method, notify, Event, Message, WorkWatchParams, WorkWatchResult};
 
-#[derive(Args, Debug)]
+use crate::cmd;
+
+/// How many of the conversations that need no one are listed besides those
+/// that need you or work.
+const LIMIT: u32 = 20;
+
+#[derive(Args, Debug, Default)]
 pub struct WorkArgs {
-    /// Keep the connection: print a line for each change of the board and each notice the
-    /// notification policy makes, until Ctrl-C.
+    /// Only this session's tasks (the tasks it started).
+    #[arg(long, short)]
+    pub session: Option<String>,
+    /// The task graph (every record as a tree) and each task's pieces, as `tasks` printed
+    /// before the tree.
     #[arg(long)]
-    watch: bool,
+    pub graph: bool,
+    /// Keep the connection: print a line for each task that starts, asks, reports or fails, and
+    /// each other notice the notification policy makes, until Ctrl-C.
+    #[arg(long)]
+    pub watch: bool,
     /// How many of the conversations that need no one are listed besides those that need you or
     /// work (the most recent first). Default 20.
     #[arg(long)]
-    limit: Option<u32>,
+    pub limit: Option<u32>,
 }
 
-/// Run `theseus work`.
-pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
-    let mut early: Vec<(String, Value)> = Vec::new();
-    let params = WorkWatchParams {
-        limit: Some(a.limit.unwrap_or(20)),
-        roots: None,
-        // A person is looking at it, but only while it watches.
-        interactive: Some(a.watch),
+impl WorkArgs {
+    /// `theseus work`: the same, watching.
+    pub fn watching(self) -> Self {
+        Self {
+            watch: true,
+            ..self
+        }
+    }
+}
+
+/// The params of the one read: only the session's own tree when one is named.
+async fn params(conn: &mut Conn, a: &WorkArgs, interactive: bool) -> Result<Value> {
+    let roots = match a.session.as_deref() {
+        Some(s) => Some(vec![theseus_client::resolve::session(conn, s).await?]),
+        None => None,
     };
+    Ok(serde_json::to_value(WorkWatchParams {
+        limit: Some(a.limit.unwrap_or(LIMIT)),
+        roots,
+        // A person is looking at it, but only while it watches.
+        interactive: Some(interactive),
+    })?)
+}
+
+/// Run `theseus tasks`.
+pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
+    if a.graph || (json && !a.watch) {
+        return cmd::tasks(conn, json, a.session).await;
+    }
+    let mut early: Vec<(String, Value)> = Vec::new();
+    let p = params(conn, &a, a.watch).await?;
     let v = conn
-        .call(method::WORK_WATCH, serde_json::to_value(params)?, |m, p| {
+        .call(method::WORK_WATCH, p, |m, p| {
             early.push((m.to_string(), p.clone()))
         })
         .await?;
@@ -48,12 +85,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
     if json {
         println!("{}", serde_json::json!({"result": v}));
     } else {
-        for l in tree_lines(&snap.views) {
-            println!("{l}");
-        }
-        if snap.views.is_empty() {
-            println!("nothing is going on");
-        }
+        print_tree(&snap);
     }
     if !a.watch {
         let _ = conn
@@ -67,10 +99,10 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
         snap.total,
         snap.position
     );
-    let mut last: BTreeMap<String, u64> = snap
+    let mut last: HashMap<String, WorkView> = snap
         .views
         .iter()
-        .map(|v| (v.id.clone(), v.position))
+        .map(|v| (v.id.clone(), v.clone()))
         .collect();
     for (m, p) in early {
         show(&m, &p, json, &mut last)?;
@@ -81,31 +113,20 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
         };
         if n.method == notify::EVENTS_LOST {
             // Fell behind: the snapshot again, then on.
-            let v = conn
-                .call(
-                    method::WORK_WATCH,
-                    serde_json::to_value(WorkWatchParams {
-                        limit: Some(a.limit.unwrap_or(20)),
-                        roots: None,
-                        interactive: Some(true),
-                    })?,
-                    |_, _| {},
-                )
-                .await?;
+            let p = params(conn, &a, true).await?;
+            let v = conn.call(method::WORK_WATCH, p, |_, _| {}).await?;
             let snap: WorkWatchResult = serde_json::from_value(v)?;
             if !json {
                 println!(
                     "-- events were lost; the board again at position {} --",
                     snap.position
                 );
-                for l in tree_lines(&snap.views) {
-                    println!("{l}");
-                }
+                print_tree(&snap);
             }
             last = snap
                 .views
                 .iter()
-                .map(|v| (v.id.clone(), v.position))
+                .map(|v| (v.id.clone(), v.clone()))
                 .collect();
             continue;
         }
@@ -114,9 +135,32 @@ pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
     Ok(())
 }
 
-/// One notification, printed: each view newer than the last printed for its
-/// id, each id that left, each notice.
-fn show(m: &str, p: &Value, json: bool, last: &mut BTreeMap<String, u64>) -> Result<()> {
+/// The snapshot, drawn at the terminal's width.
+fn print_tree(snap: &WorkWatchResult) {
+    let lines = tree_lines_at(
+        &snap.views,
+        theseus_protocol::now_unix_ms(),
+        theseus_client::render::style::terminal_width(),
+        snap.total,
+    );
+    for l in lines {
+        println!("{l}");
+    }
+}
+
+/// The tree as text; `total` is how many roots the board holds.
+pub fn tree_lines_at(views: &[WorkView], now_ms: u64, width: usize, total: u64) -> Vec<String> {
+    let roots = views.iter().filter(|v| v.parent.is_none()).count() as u64;
+    task_tree::tree(views, now_ms, width, total.saturating_sub(roots).min(total))
+        .into_iter()
+        .map(|l| l.text)
+        .collect()
+}
+
+/// One notification, printed: a line for each task event of each view newer
+/// than the last printed for its id, each id that left, each notice that
+/// is not a task's own event.
+fn show(m: &str, p: &Value, json: bool, last: &mut HashMap<String, WorkView>) -> Result<()> {
     if json {
         if m == notify::WORK_CHANGED || m == notify::WORK_NOTICE {
             println!("{}", serde_json::json!({"method": m, "params": p}));
@@ -126,94 +170,31 @@ fn show(m: &str, p: &Value, json: bool, last: &mut BTreeMap<String, u64>) -> Res
     match Event::from_notification(m, p)? {
         Some(Event::WorkChanged(c)) => {
             for v in &c.views {
-                let seen = last.entry(v.id.clone()).or_default();
-                if v.position > *seen {
-                    *seen = v.position;
-                    println!("{}", change_line(v));
+                let prev = last.get(&v.id);
+                if prev.is_some_and(|p| p.position >= v.position) {
+                    continue;
                 }
+                for e in task_tree::events(prev, v) {
+                    println!("{}", task_tree::event_line(&e).text);
+                }
+                last.insert(v.id.clone(), v.clone());
             }
             for id in &c.gone {
                 last.remove(id);
-                println!("@{} {id} left the board", c.position);
             }
         }
-        Some(Event::WorkNotice(n)) => println!("{}", notice_line(&n)),
+        Some(Event::WorkNotice(n)) if !told_by_events(&n) => println!("{}", notice_line(&n)),
         _ => {}
     }
     Ok(())
 }
 
-/// The glyph of a level.
-fn glyph(l: Level) -> &'static str {
-    match l {
-        Level::NeedsYou => "●",
-        Level::Working => "◐",
-        Level::Ready => "○",
-        Level::Idle => "✓",
-    }
-}
-
-/// What kind of work a view is, as a word.
-fn kind_word(k: WorkKind) -> &'static str {
-    match k {
-        WorkKind::Conversation => "conversation",
-        WorkKind::Task => "task",
-        WorkKind::Step => "step",
-        WorkKind::Job => "job",
-        WorkKind::Question => "question",
-        WorkKind::Wake => "wake",
-        WorkKind::System => "system",
-    }
-}
-
-/// A view as one line of the tree: its glyph, its title, and what it says of
-/// itself (its attention's label), then its progress and rollup.
-fn view_line(v: &WorkView) -> String {
-    let title = if v.title.is_empty() {
-        format!(
-            "{} {}",
-            kind_word(v.kind),
-            &v.id[v.id.len().saturating_sub(6)..]
-        )
-    } else {
-        v.title.clone()
-    };
-    let mut s = format!(
-        "{} {title}  {}",
-        glyph(v.attention.level),
-        v.attention.label
-    );
-    if let Some(p) = &v.progress {
-        s.push_str(&format!("  [{}/{} steps]", p.steps_done, p.steps_total));
-    }
-    if let Some(e) = &v.eta {
-        s.push_str(&format!("  [usually {} s]", e.usual_ms / 1000));
-    }
-    if let Some(b) = &v.below {
-        if b.total > 0 {
-            s.push_str(&format!(
-                "  ({} need you, {} working, {} done, {} failed)",
-                b.needs_you, b.working, b.done, b.failed
-            ));
-        }
-    }
-    s
-}
-
-/// A change, as `--watch` prints it.
-fn change_line(v: &WorkView) -> String {
-    let before = v
-        .previous
-        .filter(|p| *p != v.state)
-        .map(|p| format!("{} → ", p.as_str()));
-    format!(
-        "@{} {} {} {}{}  {}",
-        v.position,
-        kind_word(v.kind),
-        &v.id[v.id.len().saturating_sub(6)..],
-        before.unwrap_or_default(),
-        v.state.as_str(),
-        view_line(v)
+/// Whether the view's change already printed this notice's words: a
+/// question, a failure, a block and a task's report are task events.
+fn told_by_events(n: &Notice) -> bool {
+    matches!(
+        n.why,
+        Why::Asked | Why::Failed | Why::Blocked | Why::Reported | Why::Answered
     )
 }
 
@@ -226,41 +207,6 @@ fn notice_line(n: &Notice) -> String {
     };
     format!("{who} {}", n.line)
 }
-
-/// The snapshot as a tree: each root, needs-you first, with its views
-/// beneath it in order of when they began, indented by depth.
-pub fn tree_lines(views: &[WorkView]) -> Vec<String> {
-    let mut kids: BTreeMap<&str, Vec<&WorkView>> = BTreeMap::new();
-    let mut roots: Vec<&WorkView> = Vec::new();
-    let ids: std::collections::HashSet<&str> = views.iter().map(|v| v.id.as_str()).collect();
-    for v in views {
-        match v.parent.as_deref() {
-            Some(p) if ids.contains(p) => kids.entry(p).or_default().push(v),
-            _ => roots.push(v),
-        }
-    }
-    roots.sort_by_key(|v| (v.attention.level.rank(), v.state_since_ms, v.id.clone()));
-    let mut out = Vec::new();
-    for r in roots {
-        push_tree(r, 0, &kids, &mut out);
-    }
-    out
-}
-
-fn push_tree(
-    v: &WorkView,
-    depth: usize,
-    kids: &BTreeMap<&str, Vec<&WorkView>>,
-    out: &mut Vec<String>,
-) {
-    out.push(format!("{}{}", "  ".repeat(depth), view_line(v)));
-    let mut below = kids.get(v.id.as_str()).cloned().unwrap_or_default();
-    below.sort_by_key(|k| (k.started_at_ms, k.id.clone()));
-    for k in below {
-        push_tree(k, depth + 1, kids, out);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,23 +251,27 @@ mod tests {
             view(
                 json!({"id": "act_ask", "kind": "question", "parent": "exe_1", "root": "exe_1",
                 "title": "fs.write notes.txt", "state": "needs_you", "started_at_ms": 4,
+                "question": {"id": "act_ask", "kind": "approval", "prompt": "fs.write notes.txt",
+                    "asked_by": {"id": "exe_1", "kind": "conversation", "title": "Beta summary"},
+                    "options": [
+                        {"id": "approve", "label": "Approve", "style": "primary", "takes_note": false, "effect": "runs"},
+                        {"id": "decline", "label": "Decline", "style": "plain", "takes_note": true, "effect": "does not"}],
+                    "floor": false, "may_answer": true},
                 "attention": {"level": "needs_you", "label": "confirm fs.write: notes.txt", "since_ms": 4}}),
             ),
         ];
         assert_eq!(
-            tree_lines(&views),
+            tree_lines_at(&views, 61_000, 100, 0),
             vec![
-                "◐ Beta summary  turn 3  [1/3 steps]  (1 need you, 1 working, 0 done, 0 failed)",
-                "  ◐ Read the buoys  turn 1",
-                "    ◐ cargo test -p core  running  [usually 94 s]",
-                "  ● fs.write notes.txt  confirm fs.write: notes.txt",
-                "○ Quiet one  ready",
+                "● exe_1  Beta summary",
+                "          theseus answer ct_ask approve · theseus answer ct_ask decline --note …",
+                "  ◐ e_task  Read the buoys  1:00  job 1:00",
+                "1 needs you · 1 working",
             ]
         );
     }
 
-    /// A change says its position, kind, short id and the state it moved from;
-    /// a notice says how loud it is.
+    /// A task that ended says so in words; a notice says how loud it is.
     #[test]
     fn a_change_and_a_notice_are_one_line_each() {
         let v = view(
@@ -330,8 +280,11 @@ mod tests {
             "attention": {"level": "idle", "label": "complete", "since_ms": 9}}),
         );
         assert_eq!(
-            change_line(&v),
-            "@9 task 123456 running → done  ✓ Buoys  complete"
+            theseus_client::render::task_tree::event_line(
+                &theseus_client::render::task_tree::events(None, &v)[0]
+            )
+            .text,
+            "✓ Buoys finished"
         );
         let n: Notice = serde_json::from_value(json!({
             "urgency": "interrupt", "why": "asked",
