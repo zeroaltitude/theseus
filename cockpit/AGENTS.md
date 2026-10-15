@@ -8,12 +8,26 @@ build.
 
 ## What's here
 
-- `src/views/`: the seventeen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the eighteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
   `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
+- The Agenda (theseus-p17fd; horizon HZ9): `src/views/Agenda.tsx` at `/agenda` (rail group Live, `g d`; `?w=` the week, `?sel=` the
+  selected mark). A week strip (`src/components/WeekStrip.tsx`: seven local days by the hour; a dot a reminder, a ring a
+  check-in, a tick a routine run, a ✓ ✗ – for a past one by outcome, ▷ a deferred task's start, a flag a milestone, a bar a
+  watch's window; a click opens the mark's verbs, each one call), the Routines table (`RoutinesTable.tsx`: schedule, next
+  and last run, 30-day record, month spend of limit, a cost sparkline, and the last 30 runs of `routine.runs` in an
+  expandable row), the watch and project lists (`FutureLists.tsx`), and the Wakes panel (`Wakes.tsx`), which moved here from
+  Actions with every field it showed and its Cancel (Actions keeps a link, the Bridge's "Wakes due" tile opens the page).
+  Pure half `src/lib/agenda.ts` (the window by local midnights, so a DST day is 23 or 25 hours and a mark still sits at its
+  wall-clock hour; the layout; the verbs; the table's rows; `wakeFacts`; `page`), tested by `test/agenda.test.ts`. It
+  reads `work.agenda` and `wake.list` (`src/lib/agendawatch.ts`) once per window and again only when `work.changed`
+  touches a wake, routine, watch, project or deferred task (`touchesFuture`), the board's views from the one `work.watch`
+  the Threads views keep, and each routine's `routine.runs` when its signature changes: the page polls nothing (a test
+  reads its files for a timer). A window the daemon's 200-line cap does not fill is one read; a busier one (a routine
+  every five minutes) is read on from where its lines stopped, at most 12 reads. It shows the present only.
 - Threads on the work board (theseus-5i8i): `src/views/Threads.tsx` (`/threads`: each live thread as a group, its open
   tasks, questions and wakes under it, needs you first, a seal waiting as a red line; `/threads/:slug`: the thread's
   goal, card, working set, `parent`/`split_from`/`merged_into` links, recent turns by `session.history`, and its open
