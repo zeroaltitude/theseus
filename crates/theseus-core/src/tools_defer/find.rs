@@ -70,7 +70,7 @@ fn query_of(input: &Value) -> Result<String, String> {
     Ok(q.chars().take(200).collect())
 }
 
-fn tokens(s: &str) -> Vec<String> {
+pub(super) fn tokens(s: &str) -> Vec<String> {
     s.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| t.len() > 1)

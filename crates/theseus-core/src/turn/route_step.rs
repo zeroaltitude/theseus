@@ -82,6 +82,9 @@ pub(super) struct RouteState {
     pub(super) steer: Option<Steering>,
     /// The message's content words, for a correction to find it by.
     pub(super) words: Vec<String>,
+    /// The message's text, its first characters: what a model without tool
+    /// search is given the tools for (theseus-jpjcd).
+    pub(super) ask: String,
     /// The turn is the owner's correction itself: a later correction finds
     /// the turn it corrected, not this one.
     pub(super) correcting: bool,

@@ -605,3 +605,72 @@ async fn context_explain_reads_the_tools_a_request_sent_not_the_whole_catalog() 
         tools.tokens
     );
 }
+
+/// A stand-in for the Haiku 5.5 install #29 saw (theseus-jpjcd): it calls a
+/// tool the request carries when the person asked for it, never calls
+/// `tools_find`, and otherwise says the tool is not loaded.
+fn haiku(req: &ProviderRequest) -> Scripted {
+    if answers_a_call(req) {
+        return Scripted::text("Done.");
+    }
+    if last_user(req).contains("terminal") && offered(req).contains(&"term_open".to_string()) {
+        return Scripted::tools("", &[("h1", "term_open", json!({"argv": ["true"]}))]);
+    }
+    Scripted::text("That tool is not loaded here.")
+}
+
+fn rig_haiku() -> Rig {
+    rig_deferring(
+        |c| {
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                CatalogRow {
+                    tool_search: Some(false),
+                    ..Default::default()
+                },
+            );
+        },
+        haiku,
+    )
+}
+
+#[tokio::test]
+async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_message_names() {
+    let r = rig_haiku();
+    let sid = session(&r.core, None);
+    let res = say(&r.core, &sid, "open a terminal and run true").await;
+    let req = &r.requests()[0];
+    assert!(
+        offered(req).contains(&"term_open".to_string()),
+        "{:?}",
+        offered(req)
+    );
+    assert_eq!(res.tool_calls, 1, "the call reached the tool");
+    assert!(rows(&r.core, "tools.missed").is_empty());
+    // The conversation's next turn holds the set still: no cache rewrite.
+    let first = tool_bytes(req);
+    say(&r.core, &sid, "and another terminal").await;
+    assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
+}
+
+#[tokio::test]
+async fn a_message_that_names_nothing_leaves_the_fallback_request_as_it_was() {
+    let r = rig_haiku();
+    let sid = session(&r.core, None);
+    let res = say(&r.core, &sid, "hello there").await;
+    assert_eq!(res.tool_calls, 0);
+    let names = offered(&r.requests()[0]);
+    assert!(names.contains(&"tools_find".to_string()), "{names:?}");
+    assert!(!names.contains(&"term_open".to_string()), "{names:?}");
+}
+
+#[tokio::test]
+async fn a_model_with_tool_search_sends_the_same_first_request_whatever_the_message_names() {
+    let r = rig();
+    let (a, b) = (session(&r.core, None), session(&r.core, None));
+    say(&r.core, &a, "hello there").await;
+    say(&r.core, &b, "open a terminal and run true").await;
+    let reqs = r.requests();
+    assert_eq!(tool_bytes(&reqs[0]), tool_bytes(&reqs[1]));
+    assert!(deferred(&reqs[1], "term_open"));
+}

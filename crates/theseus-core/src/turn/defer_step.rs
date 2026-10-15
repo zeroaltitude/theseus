@@ -30,11 +30,24 @@ impl TurnRunner {
     /// loads now, and how the model reaches the rest. Nothing when
     /// `[tools.defer]` is off.
     pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
-        spec.defer = self.deferral(t.tc.session_id, t.tc.task.is_some(), spec);
+        spec.defer = self.deferral_for(t.tc.session_id, t.tc.task.is_some(), spec, &t.route.ask);
     }
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
+        self.deferral_for(sid, task, spec, "")
+    }
+
+    /// The fresh choice for a turn whose message said `ask`: where the model
+    /// has no tool search, the families the message names load too
+    /// (`tools_defer::want`, theseus-jpjcd).
+    fn deferral_for(
+        &self,
+        sid: &str,
+        task: bool,
+        spec: &RequestSpec,
+        ask: &str,
+    ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
         if !cfg.enabled {
             return None;
@@ -45,17 +58,20 @@ impl TurnRunner {
             _ => Mechanism::Find,
         };
         let known = tools_defer::families_of(&spec.tools);
-        let sel = self.tools.defer.select(
-            sid,
-            kind,
-            cfg,
-            self.kernel.now_ms(),
-            &known,
-            &BTreeSet::new(),
-        );
+        let now = self.kernel.now_ms();
+        let board = &self.tools.defer;
+        let mut loaded = board
+            .select(sid, kind, cfg, now, &known, &BTreeSet::new())
+            .loaded();
+        if mechanism == Mechanism::Find {
+            let extra = tools_defer::want::extra(ask, kind, &spec.tools, &loaded);
+            if !extra.is_empty() {
+                loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
+            }
+        }
         Some(Deferral {
             mechanism,
-            loaded: sel.loaded(),
+            loaded,
             resolved: false,
         })
     }
