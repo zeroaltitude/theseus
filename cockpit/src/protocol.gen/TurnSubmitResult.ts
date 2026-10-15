@@ -92,4 +92,8 @@ cites?: Array<Citation>,
 /**
  * Where the turn ran when its place had threads to choose between (theseus-rha2): its tag.
  */
-thread?: ThreadTag, };
+thread?: ThreadTag, 
+/**
+ * The turn in the cockpit (`[cockpit] public_url`, theseus-x9swu): the link a reply's footer carries.
+ */
+inspect_url?: string, };

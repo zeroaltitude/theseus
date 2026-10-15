@@ -18,10 +18,16 @@ use theseus_protocol::{notify, Notification, TurnSubmitResult};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 pub(super) fn test_core(reply: &str) -> Arc<Core> {
+    test_core_with(reply, |_| {})
+}
+
+/// `test_core` over a config `edit` has changed.
+pub(super) fn test_core_with(reply: &str, edit: impl FnOnce(&mut Config)) -> Arc<Core> {
     let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    edit(&mut cfg);
     let secrets = SecretBoard::new(["anthropic_api_key".to_string()], std::time::Instant::now());
     secrets.publish(
         [(
@@ -46,7 +52,7 @@ pub(super) fn test_core(reply: &str) -> Arc<Core> {
 }
 
 /// Drive a connection over an in-memory duplex: returns (lines received) after `n_requests` responses.
-async fn roundtrip(core: Arc<Core>, requests: Vec<Request>) -> Vec<Message> {
+pub(super) async fn roundtrip(core: Arc<Core>, requests: Vec<Request>) -> Vec<Message> {
     let (client, server) = duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(server);
     let srv = tokio::spawn(core.serve_connection(sr, sw, "test".into()));
@@ -132,7 +138,7 @@ fn serving_core(
     (core, board)
 }
 
-fn submit(id: u64, input: &str) -> Request {
+pub(super) fn submit(id: u64, input: &str) -> Request {
     Request::new(
         Id::Num(id),
         method::TURN_SUBMIT,

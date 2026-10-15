@@ -14,6 +14,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - `src/render/preview.rs` (theseus-z6au): an edit's approval card carries its hunk, the question's `preview`, as a
   ```` ```diff ```` block of at most 800 characters with a marker where it was cut. The tool lines are unchanged:
   `summarize` is `theseus_protocol::term::words::argument`.
+- A reply's footer ends with `[inspect](<url>)` (theseus-x9swu): a masked link whose angle brackets keep Discord from drawing an embed,
+  from the result's `inspect_url` (`[cockpit] public_url`), on the footer's one line: no part, message or ping is added.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out. A reply's footer gives
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a

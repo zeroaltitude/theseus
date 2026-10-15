@@ -20,6 +20,7 @@ pub use cache::{CacheConfig, CacheTtl};
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
+mod cockpit;
 pub mod earned;
 pub(crate) mod import;
 mod judge;
@@ -36,6 +37,7 @@ pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+pub use cockpit::CockpitConfig;
 pub use routines::RoutinesConfig;
 mod watches;
 pub use route::RouteConfig;
@@ -174,6 +176,9 @@ pub struct Config {
     /// `[watches]`: checks with no model until a condition holds (theseus-f2r2b), `config/watches.rs`.
     #[serde(default, skip_serializing_if = "WatchesConfig::is_default")]
     pub watches: WatchesConfig,
+    /// `[cockpit]`: the link a reply's footer carries (theseus-x9swu), `config/cockpit.rs`.
+    #[serde(default, skip_serializing_if = "CockpitConfig::is_default")]
+    pub cockpit: CockpitConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1408,6 +1413,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.cockpit.validate()?;
         self.routines.validate()?;
         self.watches.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;

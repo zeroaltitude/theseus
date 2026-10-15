@@ -37,6 +37,7 @@ mod keys;
 mod ledger_verify;
 mod mcp;
 mod ontology;
+mod open;
 mod own_bench;
 mod packs;
 mod pages;
@@ -237,6 +238,15 @@ enum Cmd {
     /// recently active. A read: nothing is recompiled or written. --json prints what the daemon
     /// answered.
     Context { session: Option<String> },
+    /// Open a turn in the cockpit's inspector (theseus-x9swu): its flame graph, each loop's request
+    /// and thinking, each tool call. `theseus open turn [TURN]`: TURN is a turn's id, or a unique
+    /// start or end of one (four characters at least); it defaults to the session's last. Prints
+    /// the link (`[cockpit] public_url`) and opens it in a browser where one is found; --print
+    /// only prints it.
+    Open {
+        #[command(subcommand)]
+        what: open::What,
+    },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
     /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
@@ -1265,6 +1275,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
         Cmd::Context { session } => why::context(c, json, session).await,
+        Cmd::Open { what } => open::open(c, json, what).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         Cmd::Places => cmd::places(c, json).await,

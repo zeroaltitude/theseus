@@ -41,6 +41,7 @@ mod history;
 pub mod import;
 pub mod import_sync;
 pub mod index;
+pub mod inspect;
 pub mod job_follow;
 pub mod judge;
 pub mod judge_runs;
@@ -337,6 +338,9 @@ pub mod method {
         CONTEXT_EXPLAIN = "context.explain",
         /// The next request, counted part by part down to each tool (theseus-7m7w.1; `census`). A read.
         CONTEXT_CENSUS = "context.census",
+        /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
+        /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
+        TURN_INSPECT = "turn.inspect",
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
@@ -2157,6 +2161,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub thread: Option<thread_route::ThreadTag>,
+    /// The turn in the cockpit (`[cockpit] public_url`, theseus-x9swu): the link a reply's footer carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub inspect_url: Option<String>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

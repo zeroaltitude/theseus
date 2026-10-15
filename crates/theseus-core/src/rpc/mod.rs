@@ -18,6 +18,7 @@ mod budgets;
 mod cites;
 mod confirms;
 mod context;
+mod inspect;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
 mod disk_watch;
@@ -87,6 +88,8 @@ mod tests_health_imported;
 mod tests_history;
 #[cfg(test)]
 mod tests_imported;
+#[cfg(test)]
+mod tests_inspect;
 #[cfg(test)]
 mod tests_ledger;
 #[cfg(test)]

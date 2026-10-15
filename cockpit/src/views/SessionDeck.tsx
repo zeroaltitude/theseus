@@ -442,6 +442,7 @@ function AtInstant({ trace, t }: { trace: Span | null | undefined; t: number }) 
 }
 
 function TimelineTab({ turns, traces, rows }: { turns: TurnRow[]; traces: Map<string, Span>; rows: Rows }) {
+  const { id: sid = '' } = useParams()
   const withTrace = turns.filter((t) => traces.has(t.turn_id))
   const [pick, setPick] = useState<string | null>(null)
   const [span, setSpan] = useState<PickedSpan | null>(null)
@@ -470,6 +471,7 @@ function TimelineTab({ turns, traces, rows }: { turns: TurnRow[]; traces: Map<st
         ))}
       </div>
       <ReplayBar replay={replay} />
+      {turnId && <div className="flex items-center gap-2 border-b border-line px-3 py-1"><Link to={`/session/${sid}/turn/${turnId}`} className="rounded px-2 py-0.5 text-[11.5px] text-live ring-1 ring-inset ring-live/30 hover:bg-live/10">Inspect this turn</Link><span className="text-[11px] text-ink-faint">every loop's request and thinking, each tool call, the flame graph whole</span></div>}
       <Judgments trace={trace} rows={rows} />
       {trace && (
         <div className="flex items-start gap-3 border-b border-line px-3 py-1.5">

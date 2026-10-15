@@ -65,6 +65,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::LEDGER_VERIFY
         || name == method::TOOL_DEFER
         || name == method::FORECAST_CALIBRATION
+        || name == method::TURN_INSPECT
 }
 
 impl Core {
@@ -132,6 +133,9 @@ impl Core {
         }
         if name == method::FORECAST_CALIBRATION {
             return super::server::reply(self.forecast_calibration().await?);
+        }
+        if name == method::TURN_INSPECT {
+            return self.rpc_inspect(params, conn).await;
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

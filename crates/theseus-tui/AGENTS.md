@@ -92,6 +92,8 @@ new lines, the dock again, in synchronized-output mode 2026).
 - `chat/keys.rs`: the one key map (`Action`). `chat/commands.rs`: the one command registry (`COMMANDS`; `/help`,
   `/quit`; a debug build also has `/panic`, the test that proves the panic hook). A later row adds an entry and its
   handler in a module of its own. `/` lists them, filtered as you type.
+- A turn's end prints `  inspect <url>` under its line when the result carries a link (theseus-x9swu), and `/inspect` says the
+  last one again (`Chat::last_inspect`).
 - `chat/dock.rs`: the dock's rows, from provider functions (`ABOVE_INPUT`: the live line, calls in flight, a question,
   a notice) a later row adds to (cli-tasks puts its task rows there), the input, the command list, and the status line
   as a list of `Segment`s (mode · directory · model · cost; the lowest `keep` goes first when it is too wide).

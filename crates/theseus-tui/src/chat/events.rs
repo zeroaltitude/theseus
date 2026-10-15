@@ -583,6 +583,11 @@ impl Chat {
             parts.push(r.stop_reason.clone());
         }
         self.say_plain(Sty::Dim, &format!("  {}", parts.join(" · ")));
+        // The turn in the cockpit (theseus-x9swu); `/inspect` prints it again.
+        if let Some(u) = &r.inspect_url {
+            self.say_plain(Sty::Dim, &format!("  inspect {u}"));
+            self.last_inspect = Some(u.clone());
+        }
         for l in r.harness_lines() {
             self.say_plain(Sty::Dim, &format!("  {l}"));
         }

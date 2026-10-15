@@ -62,6 +62,8 @@ const router = createBrowserRouter(
             // The threads on the work board (theseus-5i8i), and one thread's view. The route loads its chunk.
             { path: 'threads', lazy: async () => ({ Component: (await import('./views/Threads')).default }) },
             { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
+            // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
+            { path: 'session/:id/turn/:turn', lazy: async () => ({ Component: (await import('./views/TurnInspect')).default }) },
             { path: 'actions', element: wrap(<Actions />) },
             { path: 'ledger', element: wrap(<Ledger />) },
             { path: 'economics', element: wrap(<Economics />) },

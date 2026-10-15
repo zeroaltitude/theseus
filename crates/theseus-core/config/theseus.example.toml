@@ -983,6 +983,14 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
 
+# ---------------------------------------------------------------- cockpit
+# Each reply's footer links to its turn in the cockpit (`<public_url>/session/
+# <session>/turn/<turn>`): the flame graph, each loop's request and thinking,
+# each tool call. Set public_url where a relay forwards another port to the
+# daemon's web port. The link carries no key or token.
+# [cockpit]
+# public_url = "http://localhost:7433"    # the address a browser reaches the cockpit at
+
 # ---------------------------------------------------------------- routines
 # A routine is recurring work that is its own execution: a schedule (`weekdays
 # 08:00`, `every 30m`, `monthly 09:00`, or cron such as `0 8 * * 1-5`, in the

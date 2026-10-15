@@ -126,6 +126,8 @@ pub struct Chat {
     pub fill: Option<(u64, u64)>,
     /// What each turn this chat saw end cost.
     pub(super) turn_costs: Vec<Option<f64>>,
+    /// The last turn's link in the cockpit (theseus-x9swu), which `/inspect` says again.
+    pub last_inspect: Option<String>,
     pub mode: String,
     pub live: Live,
     pub question: Option<ConfirmRequest>,
@@ -185,6 +187,7 @@ impl Chat {
             cost: 0.0,
             fill: None,
             turn_costs: Vec::new(),
+            last_inspect: None,
             mode: "default".to_string(),
             live: Live::default(),
             question: None,

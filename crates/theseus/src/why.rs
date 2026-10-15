@@ -149,7 +149,7 @@ pub async fn ask(conn: &mut Conn, session_id: &str, turn: Option<&str>) -> Resul
 }
 
 /// A turn of the session by a whole id, or by a unique start or end of one.
-async fn find_turn(conn: &mut Conn, session_id: &str, given: &str) -> Result<String> {
+pub(crate) async fn find_turn(conn: &mut Conn, session_id: &str, given: &str) -> Result<String> {
     let s = resolve::trimmed(given);
     let list = conn
         .request(
@@ -193,7 +193,7 @@ fn pick_turn(x: &ContextExplainResult, s: &str) -> Result<String> {
 
 /// The session a command means when it names none: the most recently active
 /// (as `theseus history` picks it).
-async fn latest_session(conn: &mut Conn) -> Result<String> {
+pub(crate) async fn latest_session(conn: &mut Conn) -> Result<String> {
     let l: SessionListResult =
         serde_json::from_value(conn.request(method::SESSION_LIST, Value::Null).await?)?;
     l.sessions

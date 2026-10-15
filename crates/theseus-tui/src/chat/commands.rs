@@ -37,6 +37,11 @@ pub const COMMANDS: &[Command] = &[
         run: super::usage::cost,
     },
     Command {
+        name: "inspect",
+        help: "the last turn in the cockpit: flame graph, requests, thinking",
+        run: inspect,
+    },
+    Command {
         name: "quit",
         help: "leave; the conversation goes on",
         run: quit,
@@ -86,6 +91,15 @@ fn help(chat: &mut Chat, _args: &str) -> Vec<Effect> {
         chat.say_plain(super::style::Sty::Dim, &l);
     }
     chat.gap();
+    Vec::new()
+}
+
+fn inspect(chat: &mut Chat, _args: &str) -> Vec<Effect> {
+    let line = match &chat.last_inspect {
+        Some(u) => format!("  inspect {u}"),
+        None => "  no turn has ended here yet".to_string(),
+    };
+    chat.say_plain(super::style::Sty::Dim, &line);
     Vec::new()
 }
 

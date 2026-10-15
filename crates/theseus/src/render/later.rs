@@ -75,4 +75,21 @@ mod tests {
             " · a result not read, 2 wakes not fired: the run ended"
         );
     }
+
+    /// The status line ends with the turn's link in the cockpit when the
+    /// result carries one (theseus-x9swu), and has none without.
+    #[test]
+    fn the_status_line_ends_with_the_turns_link() {
+        let mut r = TurnSubmitResult {
+            session_id: "ses_reef42".into(),
+            ..TurnSubmitResult::default()
+        };
+        assert!(!crate::render::status_line(&r).contains("inspect"));
+        r.inspect_url = Some("http://localhost:7433/session/ses_reef42/turn/trn_1".into());
+        let line = crate::render::status_line(&r);
+        assert!(
+            line.ends_with(" · inspect http://localhost:7433/session/ses_reef42/turn/trn_1]"),
+            "{line}"
+        );
+    }
 }
