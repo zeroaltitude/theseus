@@ -54,8 +54,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod events;
 mod threads;
 
+pub use events::{FakeEvent, GUILD_EVENT_LIMIT};
 pub use threads::{FakeHook, FakeThread};
 
 use crate::fake_gateway::{self, FakeGateway, GatewayState, Where};
@@ -441,6 +443,11 @@ struct State {
     threads: BTreeMap<u64, FakeThread>,
     webhooks: Vec<FakeHook>,
     forums: std::collections::BTreeSet<u64>,
+    /// Scheduled events (`events.rs`): what is held, the id counter, and the switches.
+    events: Vec<FakeEvent>,
+    next_event: u64,
+    event_limit: Option<usize>,
+    refuse_events: bool,
     /// Listing or making a webhook answers 403.
     refuse_webhooks: bool,
     /// The last big id given a thread or a webhook.
@@ -982,6 +989,12 @@ impl FakeDiscord {
             }
             ("PATCH", ["webhooks", id, token, "messages", m]) if self.is_hook(id) => {
                 self.hook_edit(stream, (id, token, m), &body)
+            }
+            (_, ["guilds", g, "scheduled-events"]) => {
+                self.event_route(stream, &method, route, (g, None), &body)
+            }
+            (_, ["guilds", g, "scheduled-events", id]) => {
+                self.event_route(stream, &method, route, (g, Some(id)), &body)
             }
             ("GET", ["guilds", g, rest @ ..]) => self.guild_read(stream, route, g, rest, &full),
             ("POST" | "PATCH", ["interactions" | "webhooks", ..]) => {

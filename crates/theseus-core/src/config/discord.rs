@@ -71,6 +71,7 @@ impl Default for DiscordConfig {
             rest_proxy: None,
             gateway_proxy: None,
             thread: Vec::new(),
+            calendar: Default::default(),
         }
     }
 }

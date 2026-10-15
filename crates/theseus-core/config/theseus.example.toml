@@ -772,6 +772,16 @@ ping_window_secs = 0                    # at most one ping per place in this man
 # [[discord.thread]]
 # channel = "123456789012345678"
 # thread = "my-thread"
+# The guild's Events tab as a calendar (horizon HZ11): the next days of reminders, routine
+# runs and milestones as scheduled events, each settled as it passes. Off by default. It goes
+# only in a guild the bindings file trusts (`private = true`); an event is named for its
+# title only when the item speaks in a private place, else `Theseus · reminder`, and never
+# holds a dollar figure.
+[discord.calendar]
+enabled = false
+# guild = "123456789012345678"          # the trusted guild's id; required when enabled
+days = 7                                # how many days ahead
+max_events = 10                         # at most this many events stand at once (1 to 50)
 
 # ---------------------------------------------------------------- voice
 # Voice in a Discord voice channel. Bind the voice channel in the bindings

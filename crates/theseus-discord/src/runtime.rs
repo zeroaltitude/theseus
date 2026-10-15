@@ -89,6 +89,7 @@ mod succession;
 mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
+pub(crate) mod calendar;
 #[cfg(test)]
 mod tests_held;
 #[cfg(test)]
@@ -434,6 +435,8 @@ async fn event_loop(
     let mut shard = Shard::with_config(ShardId::ONE, gateway.build());
     voice::attach(shared, &shard, me.id);
     let mut last_latency = std::time::Instant::now();
+    // The guild calendar, once Ready (off by default; theseus-4zc4d).
+    let mut calendar = None;
     // The loop ends when the daemon's stop begins, not when the stream does:
     // a task still mid-poll when the runtime ends would hold the core, and
     // its store, past a `shutdown_timeout` (theseus-9ggu).
@@ -477,6 +480,7 @@ async fn event_loop(
                     json!({"bot": me.name, "guilds": r.guilds.len(), "revision": bindings.revision}),
                 );
                 tracing::info!(bot = %me.name, "discord gateway ready");
+                calendar::ready(&mut calendar, shared, cfg, bindings);
                 // Back: whatever waited goes now (the lanes back off alone).
                 shared.wake_lanes();
             }

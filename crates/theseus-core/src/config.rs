@@ -17,6 +17,7 @@ mod context;
 pub use context::ContextConfig;
 mod cache;
 pub use cache::{CacheConfig, CacheTtl};
+pub mod calendar;
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
@@ -277,6 +278,9 @@ pub struct DiscordConfig {
     /// thread's place (theseus-sjzm); none by default.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub thread: Vec<discord::ThreadBind>,
+    /// `[discord.calendar]`: the agenda as the guild's scheduled events; off by default.
+    #[serde(default)]
+    pub calendar: calendar::CalendarConfig,
 }
 
 fn default_discord_token_secret() -> String {
@@ -1418,6 +1422,7 @@ impl Config {
         self.routines.validate()?;
         self.watches.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;
+        self.discord.calendar.validate()?;
         self.route.validate()?;
         self.prefix.validate()?;
         self.cache.validate(self)?;

@@ -1230,4 +1230,11 @@ impl TurnRunner {
             }
         }
     }
+
+    /// Whether `session_id` speaks in a private place (the CLI, the web UI,
+    /// the owner's DM, a channel bound private), as `place_of` reads it. The
+    /// guild calendar names an event for its title only then (theseus-4zc4d).
+    pub fn speaks_privately(&self, session_id: &str) -> bool {
+        self.place_of(session_id) == Place::Private
+    }
 }
