@@ -9,6 +9,8 @@
 
 use std::collections::BTreeSet;
 
+use theseus_protocol::modes::SessionMode;
+
 use super::{Turn, TurnRunner};
 use crate::compiler::{Compiled, RequestSpec};
 use crate::fact::tools_defer::{ToolsMissed, ToolsSearched, ToolsUsed};
@@ -75,12 +77,18 @@ impl TurnRunner {
         let known = tools_defer::families_of(&spec.tools);
         let now = self.kernel.now_ms();
         let board = &self.tools.defer;
-        let mut loaded = board
-            .select(sid, kind, cfg, now, &known, &BTreeSet::new())
-            .loaded();
+        // A conversation in plan mode loads the family that holds the plan's
+        // tools (theseus-lyxy), since the refusal in plan mode names one of them.
+        let mut extra: BTreeSet<String> = (self.tools.earned.modes.mode_of(sid)
+            == SessionMode::Plan)
+            .then(|| tools_defer::PLAN_FAMILY.to_string())
+            .into_iter()
+            .collect();
+        let mut loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
         if mechanism == Mechanism::Find {
-            let extra = tools_defer::want::extra(ask, kind, &spec.tools, &loaded);
-            if !extra.is_empty() {
+            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded);
+            if !wanted.is_empty() {
+                extra.extend(wanted);
                 loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
             }
         }

@@ -1896,7 +1896,7 @@ pub fn tui(socket: &str, spawn: bool, args: &[String]) -> Result<()> {
 
 /// The session a command means when it names none: the newest opened. One
 /// page of one: the daemon reads that session, not every one (theseus-7bee).
-async fn latest_session(conn: &mut Conn) -> Result<String> {
+pub(crate) async fn latest_session(conn: &mut Conn) -> Result<String> {
     let l: SessionListResult =
         serde_json::from_value(conn.request(method::SESSION_LIST, NEWEST).await?)?;
     l.sessions

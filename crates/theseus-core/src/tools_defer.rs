@@ -49,6 +49,9 @@ pub use family::PlaceKind;
 /// `tools_find`'s wire name, and its family.
 pub const FIND: &str = "tools_find";
 pub const FAMILY: &str = "tools";
+/// The family of the plan's two tools (theseus-lyxy): loaded while the
+/// conversation is in plan mode, deferred everywhere else.
+pub const PLAN_FAMILY: &str = "plan";
 /// The provider's tool search tool: its name and its type.
 pub const SEARCH_TOOL: &str = "tool_search_tool_bm25";
 pub const SEARCH_TYPE: &str = "tool_search_tool_bm25_20251119";

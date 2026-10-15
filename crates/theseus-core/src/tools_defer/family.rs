@@ -62,6 +62,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "projects",
         "long-term projects: attach this conversation to one",
     ),
+    (
+        "plan",
+        "plan mode: put a plan to the owner for approval, and mark its steps as you do them",
+    ),
     ("extensions", "propose a new extension of your own tools"),
     ("self", "propose and inspect changes to Theseus itself"),
 ];
@@ -91,6 +95,7 @@ pub fn of_wire(wire: &str) -> String {
             "routine" | "watch" => "routines",
             "thread" => "threads",
             "project" => "projects",
+            "plan" => "plan",
             "term" => "terminals",
             "lsp" => "code",
             "channel" => "channels",
@@ -239,6 +244,8 @@ mod tests {
             ("text_diff", "files"),
             ("file_read", "files"),
             ("proc_run", "commands"),
+            ("plan_present", "plan"),
+            ("plan_step", "plan"),
             ("job_wait", "commands"),
             ("http_fetch", "web"),
             ("web_search", "web"),

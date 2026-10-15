@@ -49,6 +49,8 @@ mod tests_horizon;
 #[cfg(test)]
 mod tests_markdown;
 #[cfg(test)]
+mod tests_mode;
+#[cfg(test)]
 mod tests_names;
 #[cfg(test)]
 mod tests_new_task;

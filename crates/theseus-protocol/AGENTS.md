@@ -126,6 +126,13 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `grants.rs` (theseus-drjs): scoped grants on the wire: a question's `GrantOffer` (scope, kind `prefix` or `edits`,
   pattern, words, its key `a`/`e`, its button label and its `approve_grant` option), an answer's `GrantAnswer` (the
   pattern echoed), a live `SessionGrant`, and `policy.grants`' params and result.
+- `modes.rs` (theseus-lyxy): a conversation's mode (`SessionMode`: ask, edits, plan, auto; `next()` is Shift+Tab's order,
+  `status()` the status line's `edits (shift+tab)`), a plan item as a surface shows it (`PlanItem {id, title, state}`: a view
+  of the task graph's plan item, `PlanState::of_task`; the plan is the work board's, never a second list) with `plan_line`
+  (`plan 2/5`, done over the items not skipped, the board's own count), `checklist` (`✔ 1. add the function`, `◼` under way,
+  `☐` not begun, `⊘` skipped: the marks F10's S12c reads) and `plan_text`, `session.mode`'s params and result (with `plan`)
+  and the `session.mode` notification (`SessionModeChanged`: mode, plan, by). `grants.rs` also has `KIND_MODE` and
+  `GrantOffer::mode_edits` (a plan question's other yes, key `e`).
 - `window.rs` (theseus-m2tiu): `ledger.window`'s params and result and `POSTMORTEM_KINDS`, the kinds `theseus postmortem`
   reads: one page of a time window, read only, the daemon's answer scrubbed and (for a surface that reads no private
   text) narrowed to the session named.

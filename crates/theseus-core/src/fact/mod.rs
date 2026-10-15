@@ -62,6 +62,7 @@ pub mod limits;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;
+pub mod modes;
 pub mod ontology;
 pub mod own_bench;
 pub mod people;
@@ -539,6 +540,8 @@ facts![
     persona_import::PersonaImported<'static>,
     persona_import::StandingProposalAnswered<'static>,
     standing::StandingAdded<'static>,
+    modes::ModeChanged<'static>,
+    modes::PlanMoved<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,
     capture::StandingCaptured<'static>,

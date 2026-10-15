@@ -24,6 +24,7 @@
 //!   request's tail.
 
 pub mod lease;
+pub mod plan;
 pub mod tools;
 pub mod view;
 

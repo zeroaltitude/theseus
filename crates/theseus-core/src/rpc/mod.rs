@@ -39,6 +39,7 @@ mod ledger_verify;
 mod mcp;
 mod memory;
 mod methods;
+mod modes;
 pub(crate) use methods::ledger_tags;
 mod agenda;
 mod capture;

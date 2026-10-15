@@ -276,7 +276,7 @@ pub fn prefix_of(argv: &[String]) -> Option<(Vec<String>, String)> {
 
 /// A project directory an edits grant may name: not `/`, and not the home
 /// directory itself.
-fn root_ok(root: &Path) -> bool {
+pub(crate) fn root_ok(root: &Path) -> bool {
     root.is_absolute()
         && root.parent().is_some()
         && std::env::var_os("HOME")
@@ -304,6 +304,12 @@ pub(crate) fn offer(
     input: &Value,
     asked: &Asked<'_>,
 ) -> Option<GrantOffer> {
+    // A plan's question offers its other yes, edits mode (theseus-lyxy): no
+    // grant, so none of a grant's conditions on the call apply.
+    if tool.name() == super::modes::PLAN_PRESENT {
+        return (asked.approve && !asked.l1 && class == PlaceClass::Private)
+            .then(GrantOffer::mode_edits);
+    }
     if !asked.approve
         || asked.floor
         || asked.external
@@ -382,7 +388,7 @@ pub(crate) fn offered(
     offer(rt, tc.class, tc.dir, tool.as_ref(), &g.plan, input, &asked)
 }
 
-fn has_env(input: &Value) -> bool {
+pub(crate) fn has_env(input: &Value) -> bool {
     input
         .get("env")
         .is_some_and(|e| !e.is_null() && !e.as_object().is_some_and(|o| o.is_empty()))
@@ -390,7 +396,7 @@ fn has_env(input: &Value) -> bool {
 
 /// A plan as `covers` reads it: the normalised argv, the program as
 /// written, the resources canonical.
-fn view(plan: &Plan) -> (Vec<String>, Option<String>, Vec<PathBuf>) {
+pub(crate) fn view(plan: &Plan) -> (Vec<String>, Option<String>, Vec<PathBuf>) {
     let argv = plan.argv.as_deref().unwrap_or(&[]);
     let resources = plan
         .resources

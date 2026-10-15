@@ -301,6 +301,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     `PATCH` rename, so 40 requests a day; the worst minute (ten tasks started in it) is ten of each create and notice, and the
     transitions cost no request on the thread side. On the forum side a post is written at most 30 times a minute (its card), so
     200 transitions are at most 200 card edits in that minute and 10 tag edits over 5 minutes.
+- **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
+  not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
+  redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
 - **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its
   `private` beside it) and format 2 (a `[[guild]]` each, with its own `private`, and each `[[channel]]` naming its
   `guild`); a file that mixes them is refused, naming the line. `runtime/guilds.rs` tells the core each guild's word

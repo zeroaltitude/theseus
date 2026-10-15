@@ -21,9 +21,11 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
+use theseus_protocol::grants::KIND_MODE;
 use theseus_protocol::grants::{
     GrantAnswer, GrantOffer, PolicyGrantsParams, PolicyGrantsResult, SessionGrant,
 };
+use theseus_protocol::modes::SessionMode;
 use theseus_protocol::{GateRecord, LedgerKind};
 use theseus_store::{kinds, NewRecord};
 
@@ -99,6 +101,24 @@ impl Core {
                 answer.pattern,
                 offered.pattern
             );
+        }
+        // A plan's second yes is a mode, not a grant: the plan's own tool
+        // moves the conversation once the call runs (theseus-lyxy).
+        if offered.kind == KIND_MODE {
+            let modes = &self.tools.earned.modes;
+            modes.pick(correlation_id, SessionMode::Edits);
+            let done = self.confirm_action_with(
+                correlation_id,
+                true,
+                note,
+                who,
+                trust,
+                Default::default(),
+            );
+            if done.is_err() {
+                modes.unpick(correlation_id);
+            }
+            return done;
         }
         let argv = gate
             .as_ref()

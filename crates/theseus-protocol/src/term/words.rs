@@ -122,6 +122,21 @@ pub fn summarize(tool: &str, input: &Value) -> String {
         "job.read" => format!("Read job {arg}"),
         "job.wait" => format!("Wait for job {arg}"),
         "job.stop" => format!("Stop job {arg}"),
+        "plan.present" => {
+            let n = input
+                .get("steps")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            format!(
+                "Approve this plan ({n} step{})",
+                if n == 1 { "" } else { "s" }
+            )
+        }
+        "plan.step" => format!(
+            "Plan step {}: {}",
+            input.get("index").map_or("?".into(), |i| i.to_string()),
+            text(input, "state").unwrap_or_default()
+        ),
         t if t.starts_with("aws.") => format!("AWS {arg}"),
         _ => {
             return if arg.is_empty() || arg == "{}" {

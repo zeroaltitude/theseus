@@ -24,6 +24,10 @@ pub const SCOPE_SESSION: &str = "session";
 pub const KIND_PREFIX: &str = "prefix";
 /// A grant on edits under the project directory.
 pub const KIND_EDITS: &str = "edits";
+/// A plan question's other yes (theseus-lyxy): approve the plan and move the
+/// conversation to edits mode. It makes no grant: the plan's tool sets the
+/// mode.
+pub const KIND_MODE: &str = "mode";
 
 /// What a question offers besides a plain yes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,9 +67,21 @@ impl GrantOffer {
         }
     }
 
+    /// A plan question's offer (theseus-lyxy): the plan, and then edits mode.
+    pub fn mode_edits() -> Self {
+        Self {
+            scope: SCOPE_SESSION.into(),
+            kind: KIND_MODE.into(),
+            pattern: "edits".into(),
+            words:
+                "yes, and move this conversation to edits mode (file edits here run with a notice)"
+                    .into(),
+        }
+    }
+
     /// The key a surface answers it with: `a` for a command, `e` for edits.
     pub fn key(&self) -> char {
-        if self.kind == KIND_EDITS {
+        if self.kind == KIND_EDITS || self.kind == KIND_MODE {
             'e'
         } else {
             'a'
@@ -88,7 +104,9 @@ impl GrantOffer {
 
     /// A button's label (Discord, the cockpit).
     pub fn button(&self) -> &'static str {
-        if self.kind == KIND_EDITS {
+        if self.kind == KIND_MODE {
+            "Approve the plan + edits mode"
+        } else if self.kind == KIND_EDITS {
             "Approve + edits in this project for the conversation"
         } else {
             "Approve + this command for the conversation"

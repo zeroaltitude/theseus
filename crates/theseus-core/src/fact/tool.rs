@@ -179,6 +179,9 @@ impl Fact for InvalidInput<'_> {
         let place = format!("{}: ", crate::toolrun::PLACE_REFUSAL);
         let why = match self.reason.starts_with(&place) {
             true => "this place is shared, and the call reaches past what a shared place may",
+            false if self.reason.starts_with("mode: ") => {
+                "this conversation is in plan mode, which is read-only"
+            }
             false => "the input is invalid",
         };
         say.line(Tool, format!("{}: {why}, so it does not run.", self.tool));
