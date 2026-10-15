@@ -369,6 +369,30 @@ fn first_line(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A row words only a state its glyph shows: the work view's level must be
+    /// the board's (the two streams may be a frame apart). Reviewer A's planted
+    /// revert of this rule was caught by no test.
+    #[test]
+    fn a_row_takes_the_work_views_words_only_at_the_boards_level() {
+        let v: WorkView = serde_json::from_value(serde_json::json!({
+            "id": "exe_1", "kind": "task", "position": 3, "at_ms": 1, "root": "exe_1",
+            "session_id": "ses_task", "title": "t", "state": "running",
+            "attention": {"level": "working", "label": "turn 1", "since_ms": 1},
+            "started_at_ms": 1, "state_since_ms": 1, "flagged": false,
+            "progress": {"steps_done": 1, "steps_total": 3, "said": "Laying out.", "at_ms": 1}
+        }))
+        .unwrap();
+        let mut w = Work::default();
+        assert!(w.apply(v));
+        let jobs = HashMap::new();
+        assert!(w
+            .facts("ses_task", theseus_protocol::Level::Working, &jobs)
+            .is_some());
+        assert!(w
+            .facts("ses_task", theseus_protocol::Level::NeedsYou, &jobs)
+            .is_none());
+    }
+
     #[test]
     fn a_clock_reads_minutes_and_seconds_and_hours() {
         assert_eq!(clock(0), "0:00");

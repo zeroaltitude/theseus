@@ -383,14 +383,14 @@ pub struct Execution {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_reason: Option<String>,
     /// The owner dismissed this execution's failure (`execution.dismiss`,
-    /// theseus-7zgsm, store format 34): a failed, blocked or
+    /// theseus-7zgsm, store format 35): a failed, blocked or
     /// budget-exhausted execution that is dismissed needs no one on any
     /// surface. Read through `Execution::dismissal`, which also ends it
     /// when the execution takes another turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dismissed: Option<Dismissal>,
     /// The failed task this one retries (`task.retry`, theseus-7zgsm, store
-    /// format 34); a retry of a retry names its predecessor.
+    /// format 35); a retry of a retry names its predecessor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_of: Option<ExecutionId>,
     pub created_at_ms: u64,
