@@ -525,6 +525,7 @@ facts![
     rsi_pipeline::Cleared,
     rsi_pipeline::Ended,
     prefix::PrefixPicked<'static>,
+    persona::PersonaEngaged<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

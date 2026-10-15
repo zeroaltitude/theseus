@@ -3,17 +3,28 @@
 // confirmed first, and is `route.correct` on that turn, judged by the core as any surface's (the owner, from a private
 // place): it labels the turn's route judgment as the owner's, and the session's next turn runs where the owner said.
 import { useState } from 'react'
-import type { ProfileList, RouteCorrectResult, TurnResult } from '@protocol'
+import { useEffect, useState as useS } from 'react'
+import type { PersonaListResult, ProfileList, RouteCorrectResult, TurnResult } from '@protocol'
 import { call } from '@/lib/rpc'
-import { correctionChoices, routeLine } from '@/lib/routefooter'
+import { correctionChoices, personaChoices, routeLine } from '@/lib/routefooter'
 
 export function RouteFooter({ sessionId, result, profiles }: { sessionId: string; result: TurnResult; profiles?: ProfileList }) {
+  // The persona menu (route.v5): who else should have answered. Read once, and only where a persona answered.
+  const [personas, setPersonas] = useS<PersonaListResult['personas']>([])
+  const answered = result.route?.persona
+  useEffect(() => {
+    if (!answered) return
+    call<PersonaListResult>('persona.list', {}).then((r) => setPersonas(r.personas)).catch(() => {})
+  }, [answered?.name])
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
   const line = routeLine(result.route, result.profile)
   if (!line) return null
   const correct = async (to: string) => {
-    if (!window.confirm(`Correct this turn's routing: it should have run on ${to}? It labels the turn's route judgment as yours, and the session's next turn runs there.`)) return
+    const asks = to.startsWith('persona:')
+      ? `Correct this turn's persona: it should have been answered by ${to.slice(8)}? It labels the turn's persona question as yours, and the next message is answered there.`
+      : `Correct this turn's routing: it should have run on ${to}? It labels the turn's route judgment as yours, and the session's next turn runs there.`
+    if (!window.confirm(asks)) return
     setBusy(true)
     try {
       const r = await call<RouteCorrectResult>('route.correct', { session_id: sessionId, turn_id: result.turn_id, to, via: 'cockpit', provenance: 'press' })
@@ -33,6 +44,13 @@ export function RouteFooter({ sessionId, result, profiles }: { sessionId: string
           className="rounded bg-transparent text-[10.5px] ring-1 ring-line">
           <option value="">on…</option>
           {choices.slice(2).map((c) => <option key={c.to} value={c.to}>{c.text}</option>)}
+        </select>
+      )}
+      {answered && personaChoices(personas, answered.key).length > 0 && (
+        <select disabled={busy} value="" onChange={(e) => e.target.value && correct(e.target.value)} title="it should have been answered by…"
+          className="rounded bg-transparent text-[10.5px] ring-1 ring-line">
+          <option value="">answered by…</option>
+          {personaChoices(personas, answered.key).map((c) => <option key={c.to} value={c.to}>{c.text}</option>)}
         </select>
       )}
       {said && <span className="text-live">{said}</span>}

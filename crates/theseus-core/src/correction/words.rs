@@ -24,6 +24,9 @@ pub enum To {
     Stronger,
     /// A cheaper one.
     Cheaper,
+    /// A persona that should have answered, by its `[personas]` key
+    /// (route.v5, theseus-c1uz).
+    Persona(String),
 }
 
 /// A correction, read.
@@ -41,6 +44,8 @@ pub struct Names {
     pub profiles: Vec<(String, String)>,
     /// The route pack's modes, by id (`deep_coding`).
     pub modes: Vec<String>,
+    /// Each configured persona: its key and what it is called.
+    pub personas: Vec<(String, String)>,
 }
 
 /// The longest message read as a correction, in characters.
@@ -106,8 +111,11 @@ pub fn tokens(text: &str) -> Vec<String> {
 
 /// The correction `text` says, if it is one.
 pub fn read(text: &str, names: &Names) -> Option<Said> {
-    if text.chars().count() > MAX_CHARS || text.trim_start().starts_with('/') {
+    if text.chars().count() > MAX_CHARS {
         return None;
+    }
+    if text.trim_start().starts_with('/') {
+        return as_alone(text, names);
     }
     let all = tokens(text);
     let mut w: &[String] = &all;
@@ -128,6 +136,41 @@ pub fn read(text: &str, names: &Names) -> Option<Said> {
         .or_else(|| should(&w, names))
         .or_else(|| use_for(&w, names))
         .or_else(|| needed(&w))
+        .or_else(|| that_was_for(&w, names))
+}
+
+/// `/as birch` and nothing else: the persona that should have answered the
+/// last reply (a reply to a message with it says which). With words after it,
+/// it is an address to the persona, not a correction.
+fn as_alone(text: &str, names: &Names) -> Option<Said> {
+    let rest = text.trim().strip_prefix("/as ")?;
+    let to = persona_named(&[rest.trim().to_lowercase().as_str()], names)?;
+    Some(Said { to, rerun: false })
+}
+
+/// "that was for birch", "this was meant for birch": a persona that should
+/// have answered. Only a persona is named this way, so a profile's name
+/// after "for" is no correction.
+fn that_was_for(w: &[&str], names: &Names) -> Option<Said> {
+    let [s, was, rest @ ..] = w else { return None };
+    (SUBJECT.contains(s) && ["was", "is"].contains(was)).then_some(())?;
+    let rest = rest.strip_prefix(&["meant"]).unwrap_or(rest);
+    let rest = rest.strip_prefix(&["for"])?;
+    let name = persona_named(rest, names)?;
+    Some(Said {
+        to: name,
+        rerun: false,
+    })
+}
+
+/// A persona named by its key or its name.
+fn persona_named(w: &[&str], names: &Names) -> Option<To> {
+    let joined = w.join(" ");
+    names
+        .personas
+        .iter()
+        .find(|(k, n)| k.to_lowercase() == joined || n.to_lowercase() == joined)
+        .map(|(k, _)| To::Persona(k.clone()))
 }
 
 /// "rerun that on opus", "redo it with fable", "run that again on opus",
@@ -177,7 +220,7 @@ fn should(w: &[&str], names: &Names) -> Option<Said> {
 fn named_plainly(w: &[&str], names: &Names) -> Option<To> {
     let to = name_of(w, names)?;
     let plain = match &to {
-        To::Profile(_) => true,
+        To::Profile(_) | To::Persona(_) => true,
         To::Mode(_) => w.len() > 1,
         To::Stronger | To::Cheaper => w.last().is_some_and(|n| MODEL_WORDS.contains(n)),
     };
@@ -256,6 +299,7 @@ fn name_of(w: &[&str], names: &Names) -> Option<To> {
         .iter()
         .find(|m| m.to_lowercase() == under)
         .map(|m| To::Mode(m.clone()))
+        .or_else(|| persona_named(w, names))
 }
 
 /// "a stronger model", "more effort", "something cheaper", "less thought".
@@ -289,6 +333,7 @@ mod tests {
 
     fn names() -> Names {
         Names {
+            personas: vec![("birch".into(), "Birch".into())],
             profiles: [
                 ("sonnet", "claude-sonnet-5-5"),
                 ("opus", "claude-opus-5-5"),
@@ -367,6 +412,33 @@ mod tests {
             "this needs less effort",
         ] {
             assert_eq!(to(t), Some(To::Cheaper), "{t}");
+        }
+    }
+
+    /// A persona that should have answered: "that was for birch", and `/as
+    /// birch` alone. With words after it, `/as` is an address, not a
+    /// correction; a profile after "for" is no persona.
+    #[test]
+    fn a_persona_that_should_have_answered_is_named() {
+        let birch = Some(To::Persona("birch".into()));
+        for t in [
+            "that was for Birch",
+            "no, that was meant for birch",
+            "this is for birch",
+            "that should have gone to Birch",
+            "/as birch",
+            "/as Birch ",
+        ] {
+            assert_eq!(to(t), birch, "{t}");
+        }
+        for t in [
+            "/as birch what is a CVE?",
+            "that was for fable",
+            "that was for nobody",
+            "/as alder",
+            "that was for birch and also fix the parser",
+        ] {
+            assert_eq!(to(t), None, "{t}");
         }
     }
 

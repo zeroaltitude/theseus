@@ -267,7 +267,7 @@ async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
         .iter()
         .map(|s| s.body["questions"].clone())
         .collect();
-    for id in ["classify.v2/kind", "role.v1/role", "route.v4/mode"] {
+    for id in ["classify.v2/kind", "role.v1/role", "route.v5/mode"] {
         let n = asked.iter().filter(|q| q.get(id).is_some()).count();
         assert_eq!(n, 1, "{id}: {asked:?}");
     }
@@ -697,7 +697,7 @@ async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
     assert_eq!(
         jev.connections(),
         2,
-        "and two calls: route.v4's and the batch"
+        "and two calls: route.v5's and the batch"
     );
     turn(&r.core, Some(&one.session_id), "And where is it?", None).await;
     assert_eq!(jev.warmups(), 2, "warm: no second warm-up");
@@ -858,7 +858,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v4".into(),
+                pack: "route.v5".into(),
                 why: None,
                 off: false,
             },
@@ -880,7 +880,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
     let h = r.core.health().judge.unwrap();
     assert!(
         h.packs
-            .contains(&"route.v4: rolled back (owner: the owner rolled it back)".to_string()),
+            .contains(&"route.v5: rolled back (owner: the owner rolled it back)".to_string()),
         "{:?}",
         h.packs
     );
@@ -1029,7 +1029,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v4".into(),
+                pack: "route.v5".into(),
                 why: None,
                 off: false,
             },
@@ -1048,7 +1048,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
     r.core
         .pack_promote(
             &theseus_protocol::packs::PackPromoteParams {
-                pack: "route.v4".into(),
+                pack: "route.v5".into(),
                 to: "live".into(),
                 share: None,
                 report: None,
@@ -1161,7 +1161,7 @@ async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v4".into(),
+                pack: "route.v5".into(),
                 why: None,
                 off: false,
             },

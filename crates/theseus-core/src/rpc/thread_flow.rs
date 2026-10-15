@@ -434,6 +434,7 @@ impl Core {
                 route,
                 chosen: None,
                 task: false,
+                persona: self.runner.persona_ctx(home, class),
             });
             if let Some(mut e) = started {
                 if let Some(rx) = e.thread.take() {

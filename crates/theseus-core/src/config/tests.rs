@@ -583,21 +583,46 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
             .collect()
     };
     let system = |p: &str| (p.to_string(), None);
+    // With two or more personas every persona's files are in the request
+    // whoever is in play (theseus-c1uz), the system level first.
+    let all = [
+        system("~/w/USER.md"),
+        system("/nowhere/RULES.md"),
+        ("~/w/persona.md".to_string(), Some("theseus".to_string())),
+    ];
     assert_eq!(
         paths(Some("theseus")),
-        [
-            system("~/w/USER.md"),
-            system("/nowhere/RULES.md"),
-            ("~/w/persona.md".to_string(), Some("theseus".to_string())),
-        ],
-        "the system level first, then the persona's"
+        all,
+        "the system level first, then every persona's"
     );
     assert_eq!(
         paths(Some("quiet")),
-        [system("~/w/USER.md"), system("/nowhere/RULES.md")],
-        "a persona that names no files adds none"
+        all,
+        "a persona that names no files adds none of its own"
     );
     assert_eq!(paths(None), paths(Some("quiet")));
+    // With one persona, the persona in play's files only, as before.
+    let (one, _) = Config::parse(
+        "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+         [context]\nfiles = [\"~/w/USER.md\"]\ndefault_persona = \"theseus\"\n\n\
+         [personas.theseus]\nfiles = [\"~/w/persona.md\"]\n",
+    )
+    .unwrap();
+    let one_paths = |persona: Option<&str>| -> Vec<(String, Option<String>)> {
+        one.context_paths(persona)
+            .into_iter()
+            .map(|p| (p.path, p.persona))
+            .collect()
+    };
+    assert_eq!(
+        one_paths(Some("theseus")),
+        [system("~/w/USER.md"), all[2].clone()]
+    );
+    assert_eq!(
+        one_paths(None),
+        [system("~/w/USER.md")],
+        "no persona in play, none of its files"
+    );
     for (bad, key) in [
         ("[context]\nfiles = [\"USER.md\"]", "context.files"),
         ("[personas.p]\nfiles = [\"~other/x\"]", "personas.p.files"),

@@ -1055,8 +1055,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
-  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v4` since
-    theseus-p8dy, with a `review` mode, live at once in place of `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
+  - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v5` since
+    theseus-c1uz, route.v4's `mode` (with its `review`) and `reply_effort` word for word and two questions that decide
+    nothing for its promotion, `persona` and `seal` (below), live at once in place of `route.v4`, `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
     the batch of `classify.v1` and `role.v1` (theseus-ddbi: one question answers sooner than the batch), live while
     `[judge]` is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot
     (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
@@ -1114,6 +1115,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for the daemon's life (`turn/effort_step.rs`, `provider.effort_refused`).
     Tests: `tests_turn_effort.rs`.
+  - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
+    `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`),
+    **every persona's files are in the persona layer and the header is the built-in default** whoever answers
+    (`context_paths` loads all, `owned` is false), so a persona is not in the cached prefix at all: the engaged one is
+    **one tail line**, `<Name> answers this turn`, attached after the cached blocks of the request's last message
+    (`persona_line`, like the surface's standing records), so a switch changes no prefix byte. The decision
+    (`engage::decide`, pure) is, in order: an explicit address (`engage::address`: a name then a comma or colon at the
+    message's start, `@name`, `/as name`; confidence 1; Jev still asked), the owner's persona correction (`Steer::Persona`,
+    how `corrected`) or the layer's entry close to the message (`learned`), Jev's `persona` answer when
+    `[threads] persona_engage = "act"` and the judgment acts (at the pack's act bar silent, from confirm to act with the
+    why shown, below that or late the prior), else the prior: who answered the session's last turn
+    (`persona::Board::engaged`, in memory), else the session's own. A late verdict, or one carried from the last message,
+    never changes a persona. The inbound point decides an address, a correction or a turn routing does not wait on
+    (`engage_start`); otherwise `compile_first` decides beside the route decision (`engage_verdict`), so the wait is the
+    route wait (`[routing] max_wait_ms`) the turn already makes, with no timer of its own. The persona and seal
+    questions ride the one route request (the state adds the personas' cards, the speaker, and in a thread its title,
+    goal and last three turns with who answered each; `PersonaCtx` in `judge/inbound.rs`): `tests_engage.rs` holds the
+    call count. In a shared place only the place's own persona and those marked `shareable = true` are options. Each
+    engaged turn is a `persona.engaged` row (how, p, runner-up, matched card terms, Jev's pick when it differs) and
+    `TurnRoute.persona`, which every surface words as `RoutePersona::words` (CLI and TUI `render.rs`, Discord's footer,
+    the cockpit's `routefooter.ts`). **Corrections teach it**: `route.correct { to: "persona:<key>" }` (`theseus judge
+    correct persona:birch`, the cockpit footer's "answered by…", a reaction of the persona's `emoji` on Discord, "that
+    was for Birch", `/as birch` alone) labels the turn's route judgment on the `persona` question, steers the next
+    message at once and a close one through the layer (`nearest_persona`), retired with the pack version. "Birch, answer
+    that" is an address: the turn runs in the same session with only the tail line changed. **Seal**: a `seal` yes at
+    the confirm bar or above, in a thread, calls `Core::thread_recommend_seal` when `[threads] seal_recommend` is on
+    (`judge/seal.rs`); Jev never seals. Known limits: the prior and the thread's answered-by history are in memory
+    (lost at a restart; the prior then falls back to the session's own persona); the router's early inbound call
+    (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

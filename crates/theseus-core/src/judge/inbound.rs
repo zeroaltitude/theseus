@@ -31,7 +31,9 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use theseus_judge::builders::{InboundInput, RoleInput, TaskInput, ThreadInput};
+use theseus_judge::builders::{
+    InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
+};
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
@@ -56,7 +58,7 @@ pub const ROLE_PACK: &str = "role.v1";
 /// with route.v1's rollback rules; `route.v3` (theseus-qe3v), `route.v2`
 /// (theseus-3okf) and `route.v1` stay embedded for their history, and the
 /// ladder never runs them again.
-pub const ROUTE_PACK: &str = "route.v4";
+pub const ROUTE_PACK: &str = "route.v5";
 /// The packs asked at `inbound`, in the order they are asked.
 pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
 
@@ -129,6 +131,25 @@ pub const SEED_ROLES: [(&str, &str); 12] = [
     ("archivist", "Curatorial: memory, contradictions, and supersessions first; proposes merges and forgetting."),
 ];
 
+/// What route.v5's persona and seal questions read (theseus-c1uz): the
+/// personas the place may be answered as, the one that answered last, and
+/// the thread the message arrives in. Empty (the default) asks neither.
+#[derive(Debug, Clone, Default)]
+pub struct PersonaCtx {
+    pub personas: Vec<PersonaInput>,
+    pub speaker: Option<String>,
+    pub thread: Option<ThreadHead>,
+}
+
+/// A thread's head for the state: its title and goal, and which persona
+/// answered the session's recent turns (turn id, key).
+#[derive(Debug, Clone)]
+pub struct ThreadHead {
+    pub title: String,
+    pub goal: String,
+    pub answered: Vec<(String, Option<String>)>,
+}
+
 /// What the turn hands the point once its input node is written.
 pub struct Inbound {
     pub session_id: String,
@@ -155,6 +176,8 @@ pub struct Inbound {
     pub chosen: Option<String>,
     /// The turn is a task's.
     pub task: bool,
+    /// route.v5's persona and seal inputs.
+    pub persona: PersonaCtx,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -454,6 +477,16 @@ impl JudgeService {
                     .collect::<Vec<_>>());
             }
             if pack.name() == ROUTE_PACK {
+                if msg.persona.personas.len() >= 2 {
+                    // The ids the `persona` question offered, so a label of
+                    // its answer names what was on offer (theseus-c1uz).
+                    context["personas"] = json!(msg
+                        .persona
+                        .personas
+                        .iter()
+                        .map(|p| p.id.as_str())
+                        .collect::<Vec<_>>());
+                }
                 context["pinned"] = json!(msg.chosen.is_some());
                 if let Some(c) = &msg.chosen {
                     context["chosen"] = json!(c);
@@ -585,6 +618,27 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         minutes_since_last_message,
         live_tasks,
         live_threads: msg.threads.clone(),
+        personas: msg.persona.personas.clone(),
+        speaker: msg.persona.speaker.clone(),
+        thread_now: msg.persona.thread.as_ref().map(|h| ThreadNow {
+            title: h.title.clone(),
+            goal: h.goal.clone(),
+            turns: before
+                .iter()
+                .filter(|n| n.origin == Origin::Operator)
+                .filter_map(|n| match &n.body {
+                    Body::UserMessage { text, .. } => Some(TurnInput {
+                        said: text.clone(),
+                        answered_by: n
+                            .turn_id
+                            .as_deref()
+                            .and_then(|t| h.answered.iter().find(|(id, _)| id == t))
+                            .and_then(|(_, k)| k.clone()),
+                    }),
+                    _ => None,
+                })
+                .collect(),
+        }),
         current_role: None,
         roles: SEED_ROLES
             .iter()
@@ -635,6 +689,8 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         effort,
         judgment: j.id.clone(),
         turn: turn.to_string(),
+        persona: crate::engage::persona_answer(j).map(Box::new),
+        seal: crate::engage::seal_answer(j).map(Box::new),
     })
 }
 
@@ -694,6 +750,17 @@ async fn hand_thread_answer(
     judgments
 }
 
+/// The route judgment's `seal` verdict, handed on (theseus-c1uz).
+fn seal_of(me: &Weak<JudgeService>, session: &str, judgments: &[theseus_judge::Judgment]) {
+    let found = judgments
+        .iter()
+        .find(|j| j.pack == ROUTE_PACK)
+        .and_then(crate::engage::seal_answer);
+    if let (Some(a), Some(svc)) = (found, me.upgrade()) {
+        svc.seal_verdict(session, &a);
+    }
+}
+
 /// One inbound decision point, in its own task: `route.v1`'s ask in a
 /// request of its own, and the other packs' asks batched into one, the two
 /// at once (theseus-ddbi). The verdict goes to the turn as its request
@@ -725,6 +792,7 @@ async fn judge_inbound(
         total,
     );
     let turn = msg.turn_id.clone();
+    let session = msg.session_id.clone();
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
         .await
@@ -779,6 +847,7 @@ async fn judge_inbound(
     let rest = hand_thread_answer(rest, thread);
     let (mut judgments, rest) = futures_util::future::join(routed, rest).await;
     judgments.extend(rest);
+    seal_of(&me, &session, &judgments);
     tracing::debug!(
         ms = t0.elapsed().as_millis() as u64,
         "judge: the inbound packs judged"

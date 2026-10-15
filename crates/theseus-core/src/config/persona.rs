@@ -60,6 +60,10 @@ pub struct PersonaConfig {
     pub avatar: Option<String>,
     #[serde(default, skip_serializing_if = "Initiative::is_default")]
     pub initiative: Initiative,
+    /// Whether a shared place may be answered by this persona beyond its own
+    /// (route.v5's persona question and an explicit address, theseus-c1uz).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shareable: bool,
 }
 
 /// The built-in default persona (`persona/default.md`): who Theseus is, a
@@ -83,6 +87,7 @@ pub struct PersonaView {
     pub avatar: Option<String>,
     pub initiative: Initiative,
     pub files: Vec<ContextEntry>,
+    pub shareable: bool,
 }
 
 impl PersonaView {
@@ -96,6 +101,7 @@ impl PersonaView {
             avatar: None,
             initiative: Initiative::Normal,
             files: Vec::new(),
+            shareable: false,
         }
     }
 
@@ -109,6 +115,7 @@ impl PersonaView {
             avatar: p.avatar.clone(),
             initiative: p.initiative,
             files: p.files.clone(),
+            shareable: p.shareable,
         }
     }
 }

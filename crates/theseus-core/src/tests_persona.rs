@@ -147,6 +147,19 @@ fn system(req: &ProviderRequest) -> String {
     blocks(req).join("\n")
 }
 
+/// Who the request's tail line says answers (two or more personas: every
+/// persona's files are in the prefix, and the one in play is this line,
+/// theseus-c1uz).
+fn answering(req: &ProviderRequest) -> Option<String> {
+    let last = req.messages.last()?;
+    last["content"].as_array()?.iter().rev().find_map(|b| {
+        b["text"]
+            .as_str()?
+            .strip_suffix(" answers this turn")
+            .map(str::to_string)
+    })
+}
+
 impl Rig {
     fn last(&self) -> ProviderRequest {
         self.model.requests.lock().unwrap().last().unwrap().clone()
@@ -244,32 +257,35 @@ async fn the_persona_is_the_sessions_then_the_places_then_the_default_then_the_b
         cfg.context.default_persona = Some("alder".into());
     });
     bind_dm(&r.core, Some("birch"));
+    // With three personas every persona's files are in the request whoever
+    // is in play, and the one in play is the tail line (theseus-c1uz).
+    let everyone = |req: &ProviderRequest| {
+        let s = system(req);
+        ["ALDER words.", "BIRCH words.", "CEDAR words."]
+            .iter()
+            .all(|w| s.contains(w))
+    };
     // No place, no choice: the default's.
     let plain = session(&r.core, None);
     turn(&r.core, &plain, "one").await;
-    assert!(system(&r.last()).contains("ALDER words."));
+    assert_eq!(answering(&r.last()).as_deref(), Some("Alder"));
+    assert!(everyone(&r.last()));
     // The place's.
     let placed = session(&r.core, Some(&format!("dm:{OWNER}")));
     turn(&r.core, &placed, "two").await;
-    let s = system(&r.last());
-    assert!(
-        s.contains("BIRCH words.") && !s.contains("ALDER words."),
-        "{s}"
-    );
+    assert_eq!(answering(&r.last()).as_deref(), Some("Birch"));
+    assert!(everyone(&r.last()));
     // The session's own, over its place's.
     let own = session(&r.core, Some(&format!("dm:{OWNER}")));
     r.core.set_session_persona(&own, "cedar").unwrap();
     turn(&r.core, &own, "three").await;
-    let s = system(&r.last());
-    assert!(
-        s.contains("CEDAR words.") && !s.contains("BIRCH words."),
-        "{s}"
-    );
+    assert_eq!(answering(&r.last()).as_deref(), Some("Cedar"));
+    assert!(everyone(&r.last()));
     // A place naming a persona the config lacks falls through to the default's.
     bind_dm(&r.core, Some("gone"));
     let lost = session(&r.core, Some(&format!("dm:{OWNER}")));
     turn(&r.core, &lost, "four").await;
-    assert!(system(&r.last()).contains("ALDER words."));
+    assert_eq!(answering(&r.last()).as_deref(), Some("Alder"));
     // The pure rule.
     let cfg = &r.core.cfg;
     assert_eq!(
@@ -468,9 +484,10 @@ async fn a_missing_persona_file_compiles_on_the_default_with_one_notice() {
     let _ = &r.dir;
 }
 
-/// Sessions of one persona share the cached blocks byte for byte; another
-/// persona's context block differs, and an owned persona's header carries none
-/// of the default, so two owned personas share the header too.
+/// With two or more personas every session shares the cached blocks byte for
+/// byte whoever answers (theseus-c1uz): the header is the built-in default and
+/// the persona layer holds every persona's files, so only the tail line
+/// differs between a session of one persona and a session of another.
 #[tokio::test]
 async fn sessions_of_one_persona_share_the_cached_blocks() {
     let r = rig(|cfg, dir| {
@@ -487,18 +504,33 @@ async fn sessions_of_one_persona_share_the_cached_blocks() {
     );
     r.core.set_session_persona(&b, "birch").unwrap();
     let mut got = Vec::new();
+    let mut said = Vec::new();
     for sid in [&a1, &a2, &b] {
         turn(&r.core, sid, "hello").await;
         got.push(blocks(&r.last()));
+        said.push(answering(&r.last()));
     }
+    assert_eq!(
+        said,
+        [
+            Some("Alder".into()),
+            Some("Alder".into()),
+            Some("Birch".into())
+        ],
+        "only the tail line tells them apart"
+    );
     assert_eq!(
         got[0][..2],
         got[1][..2],
         "two alder sessions share both blocks"
     );
-    assert_eq!(got[0][0], got[2][0], "owned personas share the header");
-    assert_ne!(
-        got[0][1], got[2][1],
-        "the context block is the persona's own"
+    assert_eq!(
+        got[0][0], got[2][0],
+        "the header is the same whoever answers"
     );
+    assert_eq!(
+        got[0][1], got[2][1],
+        "the persona layer holds every persona's files, so it is the same too"
+    );
+    assert!(got[0][1].contains("ALDER words.") && got[0][1].contains("BIRCH words."));
 }

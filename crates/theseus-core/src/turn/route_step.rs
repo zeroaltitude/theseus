@@ -90,6 +90,13 @@ pub(super) struct RouteState {
     pub(super) correcting: bool,
     /// route.v3's effort for the turn (theseus-qe3v), once decided.
     effort: Option<EffortDecision>,
+    /// The turn's persona choices, prior and address (theseus-c1uz), while
+    /// two or more personas could answer; and the persona once decided.
+    pub(super) engage: Option<super::persona_engage::Engage>,
+    pub(super) persona: Option<crate::engage::Engaged>,
+    /// A persona correction or the layer's entry placing the persona ahead of
+    /// Jev's pick (theseus-c1uz).
+    pub(super) persona_steer: Option<Steering>,
 }
 
 impl RouteState {
@@ -346,6 +353,7 @@ impl TurnRunner {
             .await;
         if let Ok(Ok(c)) = &mut compiled {
             self.apply_effort(t, spec, c);
+            Self::persona_line(t, c);
         }
         Self::recall_routed(t);
         compiled
@@ -471,6 +479,7 @@ impl TurnRunner {
         t.route.effort = verdict
             .as_ref()
             .and_then(|v| self.route_effort(t, v, decision.as_ref(), reason.is_none()));
+        self.engage_verdict(t, verdict.as_ref());
         Self::record_route(
             t,
             verdict.as_ref(),
@@ -675,6 +684,7 @@ impl TurnRunner {
             effort_applied: applied.is_some(),
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
         });
+        let persona_shown = t.route.result.take().and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
             reason: reason.as_str().into(),
@@ -683,6 +693,7 @@ impl TurnRunner {
             effort: answer.map(|a| a.level.clone()),
             effort_reason: e.map(|e| e.reason.as_str().into()),
             effort_applied: applied.map(|e| effort::name(e).into()),
+            persona: persona_shown,
         });
     }
 
@@ -828,6 +839,7 @@ impl TurnRunner {
             kept: None,
         });
         Self::standing_here(t, &mut compiled);
+        Self::persona_line(t, &mut compiled);
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
             return Ok(Err(f));
@@ -901,6 +913,8 @@ mod tests {
             effort: None,
             judgment: "jdg_1".into(),
             turn: "turn_1".into(),
+            persona: None,
+            seal: None,
         }
     }
 

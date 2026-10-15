@@ -153,6 +153,9 @@ pub struct Observed {
 pub struct Board {
     seen: Mutex<Option<BTreeMap<String, Seen>>>,
     sessions: RwLock<Option<HashMap<String, String>>>,
+    /// Which persona answered each session's recent turns, in memory
+    /// (theseus-c1uz).
+    pub engaged: crate::engage::Engagements,
 }
 
 impl Board {

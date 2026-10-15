@@ -100,12 +100,35 @@ pub(crate) fn direction(emoji: &EmojiReactionType) -> Option<&'static str> {
     }
 }
 
+/// A persona's reaction (route.v5, theseus-c1uz): the emoji a `[personas]`
+/// table gives it, with or without the variation selector. The key is what
+/// `route.correct` names as `persona:<key>`.
+pub(crate) fn persona_emoji<'a>(
+    emoji: &EmojiReactionType,
+    personas: impl IntoIterator<Item = (&'a String, Option<&'a str>)>,
+) -> Option<String> {
+    let EmojiReactionType::Unicode { name } = emoji else {
+        return None;
+    };
+    let name = name.trim_end_matches('\u{fe0f}');
+    personas
+        .into_iter()
+        .find(|(_, e)| e.is_some_and(|e| e.trim_end_matches('\u{fe0f}') == name))
+        .map(|(k, _)| format!("persona:{k}"))
+}
+
 /// The footer's word on where routing ran a turn: `routed: quick`, or
 /// `routed: correction` when the owner's correction placed it.
 pub(crate) fn routed(r: &theseus_protocol::TurnSubmitResult) -> Option<String> {
     let t = r.route.as_ref()?;
-    let what = t.source.clone().or_else(|| t.mode.clone())?;
-    Some(format!("routed: {what}"))
+    let who = t.persona.as_ref().map(|p| p.words());
+    let what = t.source.clone().or_else(|| t.mode.clone());
+    match (who, what) {
+        (Some(w), Some(m)) => Some(format!("routed: {w} · {m}")),
+        (Some(w), None) => Some(format!("routed: {w}")),
+        (None, Some(m)) => Some(format!("routed: {m}")),
+        (None, None) => None,
+    }
 }
 
 /// The place a reaction came from, as the bindings name it.
@@ -128,9 +151,20 @@ impl Shared {
         if r.user_id.get() == self.bot_id() {
             return;
         }
-        let Some(to) = direction(&r.emoji) else {
-            return;
+        let personas = self
+            .core
+            .cfg
+            .personas
+            .iter()
+            .map(|(k, p)| (k, p.emoji.as_deref()));
+        let to = match direction(&r.emoji) {
+            Some(d) => d.to_string(),
+            None => match persona_emoji(&r.emoji, personas) {
+                Some(p) => p,
+                None => return,
+            },
         };
+        let to = to.as_str();
         let Some(turn) = self.replies.turn(r.message_id.get()) else {
             return;
         };
@@ -188,6 +222,51 @@ mod tests {
         assert_eq!(routed(&r).as_deref(), Some("routed: quick"));
         r.route.as_mut().unwrap().source = Some("correction".into());
         assert_eq!(routed(&r).as_deref(), Some("routed: correction"));
+    }
+
+    #[test]
+    fn the_footer_says_who_answered_and_why() {
+        let mut r = theseus_protocol::TurnSubmitResult {
+            route: Some(theseus_protocol::route::TurnRoute {
+                mode: Some("deep_coding".into()),
+                reason: "verdict".into(),
+                from: "opus".into(),
+                persona: Some(theseus_protocol::route::RoutePersona {
+                    key: Some("birch".into()),
+                    name: "Birch".into(),
+                    how: "jev_shown".into(),
+                    why: "\"CVE\" \u{b7} 0.74 \u{b7} next alder 0.12".into(),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            routed(&r).as_deref(),
+            Some("routed: Birch \u{b7} \"CVE\" \u{b7} 0.74 \u{b7} next alder 0.12 \u{b7} deep_coding")
+        );
+        // No mode, but a persona: it still says who.
+        r.route.as_mut().unwrap().mode = None;
+        assert!(routed(&r).unwrap().starts_with("routed: Birch"));
+    }
+
+    /// A persona's own emoji, with or without the variation selector, is a
+    /// correction naming it; an emoji no persona has is nothing.
+    #[test]
+    fn a_personas_emoji_corrects_to_that_persona() {
+        let u = |s: &str| EmojiReactionType::Unicode { name: s.into() };
+        let birch = "birch".to_string();
+        let alder = "alder".to_string();
+        let ps = || vec![(&birch, Some("\u{1f332}")), (&alder, None)];
+        assert_eq!(
+            persona_emoji(&u("\u{1f332}"), ps()).as_deref(),
+            Some("persona:birch")
+        );
+        assert_eq!(
+            persona_emoji(&u("\u{1f332}\u{fe0f}"), ps()).as_deref(),
+            Some("persona:birch")
+        );
+        assert_eq!(persona_emoji(&u("\u{1f44d}"), ps()), None);
     }
 
     #[test]

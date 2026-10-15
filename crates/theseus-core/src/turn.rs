@@ -79,6 +79,7 @@ mod inbound_step;
 mod later_step;
 mod noop_step;
 pub mod nudge_step;
+mod persona_engage;
 mod persona_step;
 mod prompt_input;
 mod recall_step;

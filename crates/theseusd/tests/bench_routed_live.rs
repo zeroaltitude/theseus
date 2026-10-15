@@ -164,7 +164,7 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["data"]["pack"] == "route.v4" && r["data"]["cost_micros"].is_u64()),
+            .any(|r| r["data"]["pack"] == "route.v5" && r["data"]["cost_micros"].is_u64()),
         "{calls}"
     );
     // The key reached Jev, as a bearer token of its length.

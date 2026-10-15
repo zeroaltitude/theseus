@@ -469,7 +469,7 @@ async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
     type Event = fn(String) -> CanaryEvent;
     let cases: [(&str, usize, Event, &str); 3] = [
         (
-            "route.v4",
+            "route.v5",
             3,
             |day| CanaryEvent::Pinned { day },
             "pins_per_day",
@@ -723,9 +723,9 @@ async fn a_canary_judgment_records_its_arm() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_three_live_packs_are_adopted_once_after_serving() {
     let dir = tempfile::tempdir().unwrap();
-    let live = ["route.v4", "rerank.v1", "security.v3"];
+    let live = ["route.v5", "rerank.v1", "security.v3"];
     let why = |p: &str| match p {
-        "route.v4" => "decision of 2026-10-11",
+        "route.v5" => "decision of 2026-10-13",
         _ => "decision of 2026-10-04",
     };
     let c = core_at(dir.path(), None, |_| {});

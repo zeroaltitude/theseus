@@ -62,6 +62,8 @@ impl TurnRunner {
         );
         // The records of this turn's surface (theseus-slvl.4), in the tail too.
         Self::standing_here(t, compiled);
+        // Who answers this turn, one tail line (theseus-c1uz).
+        Self::persona_line(t, compiled);
         tasks
     }
 

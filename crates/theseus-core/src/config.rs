@@ -37,7 +37,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 pub mod rsi;
-pub use persona::{Initiative, PersonaConfig, PersonaView};
+pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod sessions;
 mod threads;
 mod wake_limits;
@@ -48,7 +48,7 @@ pub use notify::NotifyConfig;
 pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
-pub use threads::ThreadsConfig;
+pub use threads::{PersonaEngage, ThreadsConfig};
 pub use watches::WatchesConfig;
 pub mod defer;
 mod sparse;
@@ -1720,9 +1720,14 @@ impl Config {
             persona: None,
             public: p.readers() == crate::context_files::ContextReaders::Public,
         });
-        let own = persona
-            .and_then(|name| self.personas.get_key_value(name))
-            .into_iter()
+        // With two or more personas every persona's files are in the request
+        // (the persona layer), so a message's persona is a line in its tail
+        // and a switch changes no byte of the prefix (theseus-c1uz).
+        let engaging = self.persona_engaging();
+        let own = self
+            .personas
+            .iter()
+            .filter(|(name, _)| engaging || Some(name.as_str()) == persona)
             .flat_map(|(name, p)| {
                 p.files.iter().map(|f| ContextPath {
                     path: f.path().into(),
@@ -1731,6 +1736,13 @@ impl Config {
                 })
             });
         system.chain(own).collect()
+    }
+
+    /// Two or more `[personas]`: the request carries all their files, the
+    /// header is the built-in default whoever answers, and each message is
+    /// answered by the persona it calls for (`engage`, theseus-c1uz).
+    pub fn persona_engaging(&self) -> bool {
+        self.personas.len() >= 2
     }
 
     /// The persona in play for a session (theseus-slvl.2): the session's own
