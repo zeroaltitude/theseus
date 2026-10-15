@@ -10,6 +10,61 @@ impl TurnRunner {
     /// compilation, or a recompile (persisted with the session's pointer).
     /// The images the provider refused in the session render as their line;
     /// `strip` recompiles without the prefix's thinking (theseus-0s4).
+    /// The prefix library's pick for this loop's spec (theseus-rr15): at a
+    /// compile point (`point`), else the current compilation's plan replayed.
+    fn prefix_pick(
+        &self,
+        t: &Turn<'_>,
+        spec: &RequestSpec,
+        (current, nodes): (
+            Option<&crate::compiler::Compilation>,
+            &[(u64, crate::stub::Stub)],
+        ),
+        point: bool,
+        i: u32,
+    ) -> (
+        Option<RequestSpec>,
+        Option<std::sync::Arc<crate::prefix::Picked>>,
+    ) {
+        let at = crate::prefix::turn::At {
+            current,
+            nodes,
+            point,
+            first: i == 0,
+            class: t.tc.class,
+        };
+        self.prefix_spec(spec, at)
+    }
+
+    /// The request's last block, in its order: the task view, the wakes and
+    /// routines, then the surface's standing records.
+    fn tail_blocks(
+        &self,
+        t: &mut Turn<'_>,
+        session: &SessionRecord,
+        compiled: &mut Compiled,
+    ) -> Option<theseus_protocol::tasks::TaskViewSummary> {
+        // A check sees the task it checks by title and state (theseus-w8ys).
+        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled);
+        // The wakes this conversation has pending, in the same last block
+        // (theseus-lherl): from the turn's list, never a read of its own.
+        // And the routines it made, from memory (theseus-pvm5c).
+        let routines = crate::routine::lines(
+            &self.kernel,
+            &self.tools.routines.made_in(&session.session_id),
+        );
+        crate::commitments::attach(
+            t.tc.commitments,
+            &routines,
+            self.kernel.now_ms(),
+            compiled,
+            &|w| crate::watch::run::shown_value(&self.kernel, w),
+        );
+        // The records of this turn's surface (theseus-slvl.4), in the tail too.
+        Self::standing_here(t, compiled);
+        tasks
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn compile_step(
         &self,
@@ -41,14 +96,8 @@ impl TurnRunner {
         let read_before = crate::stub::read(&nodes);
         ph.mark("views");
         // The prefix library's third layer, picked only at a compile point.
-        let at = crate::prefix::turn::At {
-            current: current.as_ref(),
-            nodes: &nodes,
-            point: current.is_none() || force.is_some() || cold_spec.is_some(),
-            first: i == 0,
-            class: t.tc.class,
-        };
-        let (prefix_spec, picked) = self.prefix_spec(spec, at);
+        let point = current.is_none() || force.is_some() || cold_spec.is_some();
+        let (prefix_spec, picked) = self.prefix_pick(t, spec, (current.as_ref(), &nodes), point, i);
         let spec = prefix_spec.as_ref().unwrap_or(spec);
         let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
@@ -104,25 +153,7 @@ impl TurnRunner {
         }
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
-        // A check sees the task it checks by title and state (theseus-w8ys).
-        let tasks =
-            crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);
-        // The wakes this conversation has pending, in the same last block
-        // (theseus-lherl): from the turn's list, never a read of its own.
-        // And the routines it made, from memory (theseus-pvm5c).
-        let routines = crate::routine::lines(
-            &self.kernel,
-            &self.tools.routines.made_in(&session.session_id),
-        );
-        crate::commitments::attach(
-            t.tc.commitments,
-            &routines,
-            self.kernel.now_ms(),
-            &mut compiled,
-            &|w| crate::watch::run::shown_value(&self.kernel, w),
-        );
-        // The records of this turn's surface (theseus-slvl.4), in the tail too.
-        Self::standing_here(t, &mut compiled);
+        let tasks = self.tail_blocks(t, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

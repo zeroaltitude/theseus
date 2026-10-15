@@ -1016,10 +1016,10 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     assert_eq!(rows[0].1, p);
 }
 
-/// A prefix header as format 34 writes it (theseus-rr15, the first layout):
+/// A prefix header as format 41 writes it (theseus-rr15, the first layout):
 /// a literal, so a later change to `prefix::Header` must still read it and
 /// write it back byte for byte.
-pub(crate) const PREFIX_HEADER_AT_34: &str = r##"{"digest":"a3f1","layer":"project","class":"private","lower":"9c0e","sections":[{"name":"files","digest":"5d2b","bytes":24},{"name":"# Guidance (topic tides)","digest":"77e0","bytes":52}],"text":"The harbour log. wave wave\n\n# Guidance (topic tides)\n\nQuote every level in metres.","sketch":[12,-3,0,127],"created_at_ms":1790000000342}"##;
+pub(crate) const PREFIX_HEADER_AT_41: &str = r##"{"digest":"a3f1","layer":"project","class":"private","lower":"9c0e","sections":[{"name":"files","digest":"5d2b","bytes":24},{"name":"# Guidance (topic tides)","digest":"77e0","bytes":52}],"text":"The harbour log. wave wave\n\n# Guidance (topic tides)\n\nQuote every level in metres.","sketch":[12,-3,0,127],"created_at_ms":1790000000342}"##;
 
 #[test]
 fn a_format_33_compilation_reads_with_no_header_and_a_header_writes_back_byte_for_byte() {
@@ -1029,10 +1029,10 @@ fn a_format_33_compilation_reads_with_no_header_and_a_header_writes_back_byte_fo
         serde_json::to_string(&c).unwrap(),
         COMPILATION_BEFORE_PREFIX
     );
-    let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_34).unwrap();
+    let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_41).unwrap();
     assert_eq!((h.layer.as_str(), h.class.as_str()), ("project", "private"));
     assert_eq!(h.sections.len(), 2);
-    assert_eq!(serde_json::to_string(&h).unwrap(), PREFIX_HEADER_AT_34);
+    assert_eq!(serde_json::to_string(&h).unwrap(), PREFIX_HEADER_AT_41);
     let mut with = c;
     with.manifest.prefix = Some(crate::prefix::PrefixUse {
         header: "a3f1".into(),
@@ -1063,7 +1063,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
     let lib = crate::prefix::Library::default();
     lib.loaded(&store).unwrap();
     assert_eq!(lib.stats(0).headers, 0);
-    let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_34).unwrap();
+    let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_41).unwrap();
     let hits = crate::prefix::Hits {
         reuses: 2,
         last_read_ms: 1_790_000_000_400,

@@ -186,6 +186,7 @@ fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
             signals: None,
             assembled: None,
             situation: &situation::Situation::ConversationStart,
+            kept: None,
         })
     };
     let next = append(&s);

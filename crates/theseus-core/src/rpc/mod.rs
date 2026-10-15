@@ -109,9 +109,9 @@ mod tests_ordered;
 #[cfg(test)]
 mod tests_peek;
 #[cfg(test)]
-mod tests_rewind;
-#[cfg(test)]
 mod tests_prefix;
+#[cfg(test)]
+mod tests_rewind;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]

@@ -9,7 +9,7 @@
 //!   as a [`Header`]: its sections, its text, its sketch (`sketch`), its place
 //!   class and the digest of the layers before it (`lower`: the tools, the
 //!   header and the persona layer, which the cache reads first). A META record
-//!   `prefix:<digest>` (store format 34), written in the frame of the
+//!   `prefix:<digest>` (store format 41), written in the frame of the
 //!   compilation that minted it; never edited. Its hit log is the META record
 //!   `prefix.hits.<digest>` (reuses, last read), written in the frame of each
 //!   compilation that reuses it; a retired one is `prefix.retired.<digest>`.
@@ -64,7 +64,7 @@ pub const RETIRED: &str = "prefix.retired.";
 /// The layer the library picks.
 pub const PROJECT: &str = crate::compiler::layers::PROJECT;
 
-/// A header, as stored (META `prefix:<digest>`, store format 34).
+/// A header, as stored (META `prefix:<digest>`, store format 41).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Header {
     pub digest: String,
@@ -96,7 +96,7 @@ pub struct Retired {
     pub why: String,
 }
 
-/// What a compilation's manifest records of the library (store format 34):
+/// What a compilation's manifest records of the library (store format 41):
 /// the header its third layer is, and the digest of the fresh layer it
 /// stands for. An append renders the same bytes while the fresh layer is
 /// unchanged; when it changes, the system does, and the recompile picks again.

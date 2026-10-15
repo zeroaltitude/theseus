@@ -143,7 +143,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     only when that is not enough (a ring, summarized as any ring is), to `[threads] working_tokens`. Unthreaded
     sessions and warm threads are never touched by it. Tests: `compiler/tests_layers.rs`, `tests_cold.rs`,
     `rpc/tests_thread_context.rs`.
-  - **The prefix library** (theseus-rr15, T13; store format 34; `prefix.rs`, `prefix/`, `config/prefix.rs`,
+  - **The prefix library** (theseus-rr15, T13; store format 41; `prefix.rs`, `prefix/`, `config/prefix.rs`,
     `fact/prefix.rs`, `rpc/prefix.rs`): layer 3 (the project: the system-level files, then the topics' guidance) is
     kept as a header by digest (META `prefix:<digest>`, its hit log `prefix.hits.<digest>`, a retirement
     `prefix.retired.<digest>`, all in the frame of the compilation that minted or reused it) and reused byte for

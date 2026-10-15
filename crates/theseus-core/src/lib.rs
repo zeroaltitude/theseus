@@ -398,11 +398,11 @@ mod tests_route_rows;
 #[cfg(test)]
 mod tests_route_wait;
 #[cfg(test)]
+mod tests_route_warm;
+#[cfg(test)]
 mod tests_routine_trust;
 #[cfg(test)]
 mod tests_routines;
-#[cfg(test)]
-mod tests_route_warm;
 #[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]

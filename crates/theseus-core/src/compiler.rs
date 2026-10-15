@@ -121,7 +121,7 @@ pub struct Manifest {
     /// deferral, or with it off. An append takes these again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loaded: Option<Vec<String>>,
-    /// The prefix library's header the third layer is (theseus-rr15, format 34).
+    /// The prefix library's header the third layer is (theseus-rr15, format 41).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<crate::prefix::PrefixUse>,
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
