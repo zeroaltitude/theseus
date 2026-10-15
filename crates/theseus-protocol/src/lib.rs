@@ -330,9 +330,8 @@ pub mod method {
         FACT_RETRACT = "fact.retract",
         /// Your own benchmark (theseus-pw1q.12; `own_bench`): a past turn's first request replayed on another profile (the owner's run), and the report of what the owner's turns need (a read).
         TURN_REPLAY = "turn.replay", ROUTE_REPORT = "route.report",
-        /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
-        /// `judge.call` rows, by pack, session, and time, without their
-        /// states. A read.
+        /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest `judge.call` rows, by pack, session, and
+        /// time, without their states. A read.
         JUDGE_LIST = "judge.list",
         /// One judgment by its id (`judge::JudgeGetParams`): its row, and the
         /// state Jev was sent, from its blob. A read.
@@ -375,8 +374,7 @@ pub mod method {
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
         BENCH_HISTORY = "bench.history",
-        /// The L1 jobs running now, with their commands (M4 17b,
-        /// theseus-kpz1), for the cockpit's boundaries board
+        /// The L1 jobs running now, with their commands (M4 17b, theseus-kpz1), for the cockpit's boundaries board
         /// (`sandbox::SandboxUsage`). A read of the daemon's memory.
         SANDBOX_USAGE = "sandbox.usage",
         /// The AWS bootstrap (AWS design §5, C2; `AwsBootstrapParams`): the
@@ -452,15 +450,13 @@ pub mod notify {
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",
-        /// An execution's view changed (theseus-in3): to the session's
-        /// watchers and to every `executions.watch` subscriber, once per
-        /// committed frame that changed it. Its params are an
-        /// `ExecutionView`, whose frame carries the ledger rows.
+        /// An execution's view changed (theseus-in3): to the session's watchers and to every `executions.watch`
+        /// subscriber, once per committed frame that changed it. Its params are an `ExecutionView`, whose frame
+        /// carries the ledger rows.
         EXECUTION_CHANGED = "execution.changed",
-        /// The connection fell behind (theseus-in3): its queue passed the
-        /// backlog cap, so notifications were dropped, counted, until the
-        /// queue drained. Re-read each stream named. Transport, like
-        /// `narrative.line`: counted in health, never a ledger row.
+        /// The connection fell behind (theseus-in3): its queue passed the backlog cap, so notifications were dropped,
+        /// counted, until the queue drained. Re-read each stream named. Transport, like `narrative.line`: counted in
+        /// health, never a ledger row.
         EVENTS_LOST = "events.lost",
         /// A notified call's `security.v1` score, after its notice (M5 24).
         JUDGE_SCORED = "judge.scored",
