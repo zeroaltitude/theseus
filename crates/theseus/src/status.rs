@@ -115,6 +115,9 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         }
         let mut board = Board::default();
         board.reload(&mut conn).await?;
+        if !a.short && !json {
+            board.read_due(&mut conn).await;
+        }
         let titles = if a.short || json {
             HashMap::new()
         } else {
@@ -200,6 +203,8 @@ fn short_summary_with(r: &StatusShortResult, new: u32, shown: &HashMap<String, u
         new,
         wake_at_ms: None,
         first: r.first.clone(),
+        next_due_ms: r.next_due_ms,
+        routines_failed: r.routines_failed,
     }
 }
 
@@ -227,6 +232,9 @@ pub struct Board {
     /// A watch that pings keeps the snapshot's executions, whole, for its notices.
     track: bool,
     snapshot: Vec<ExecutionView>,
+    /// The next reminder and the failed routines, read with the board
+    /// (`status.short`; an older daemon answers none).
+    due: (Option<u64>, u32),
 }
 
 impl Board {
@@ -248,6 +256,16 @@ impl Board {
             }
         }
         Ok(())
+    }
+
+    /// The next reminder and the failed routines (`status.short`), for the
+    /// one-shot long form; a watch does not ask, and an older daemon says none.
+    pub async fn read_due(&mut self, conn: &mut Conn) {
+        if let Ok(v) = conn.request(method::STATUS_SHORT, ()).await {
+            if let Ok(r) = serde_json::from_value::<StatusShortResult>(v) {
+                self.due = (r.next_due_ms, r.routines_failed);
+            }
+        }
     }
 
     fn load(&mut self, snap: ExecutionsWatchResult) {
@@ -319,6 +337,8 @@ impl Board {
                 .iter()
                 .find(|v| v.attention.level == Level::NeedsYou)
                 .map(|v| v.execution_id.clone()),
+            next_due_ms: self.due.0,
+            routines_failed: self.due.1,
         }
     }
 
@@ -373,6 +393,10 @@ pub struct Summary {
     pub wake_at_ms: Option<u64>,
     /// The execution that has needed you longest.
     pub first: Option<String>,
+    /// When the next reminder falls due (`⏰ 16:52`), and the routines whose
+    /// last run failed (`🔁✗1`): from `status.short` (theseus-nuhsz).
+    pub next_due_ms: Option<u64>,
+    pub routines_failed: u32,
 }
 
 impl Summary {
@@ -384,10 +408,11 @@ impl Summary {
 
 // ------------------------------------------------------------------ forms
 
-/// `●1 ◐3 ✗1 ◆2`: each count only when it is not zero; empty when nothing
-/// works or waits and nothing is new.
+/// `●1 ◐3 ✗1 ◆2 ⏰ 16:52 🔁✗1`: each count only when it is not zero, the next
+/// reminder's time, and the routines that failed; empty when nothing works,
+/// waits, is new or is due.
 pub fn short_line(s: &Summary) -> String {
-    [
+    let mut parts: Vec<String> = [
         ('●', s.needs_you),
         ('◐', s.working),
         ('✗', s.failed),
@@ -396,8 +421,14 @@ pub fn short_line(s: &Summary) -> String {
     .iter()
     .filter(|(_, n)| *n > 0)
     .map(|(g, n)| format!("{g}{n}"))
-    .collect::<Vec<_>>()
-    .join(" ")
+    .collect();
+    if let Some(at) = s.next_due_ms {
+        parts.push(format!("⏰ {}", theseus_client::render::time::fmt_hm(at)));
+    }
+    if s.routines_failed > 0 {
+        parts.push(format!("🔁✗{}", s.routines_failed));
+    }
+    parts.join(" ")
 }
 
 /// The long form's first line: `theseus 18:16 · ● 1 needs you · ◐ 3 working ·
@@ -420,8 +451,11 @@ pub fn header_line(s: &Summary, now_ms: u64, hm: &dyn Fn(u64) -> String) -> Stri
     if s.quiet() && s.new == 0 && s.failed_seen == 0 {
         parts.push("nothing needs you or works".into());
     }
-    if let Some(w) = s.wake_at_ms {
+    if let Some(w) = s.wake_at_ms.or(s.next_due_ms) {
         parts.push(format!("⏰ {}", hm(w)));
+    }
+    if s.routines_failed > 0 {
+        parts.push(format!("🔁✗ {} routine failed", s.routines_failed));
     }
     parts.join(" · ")
 }

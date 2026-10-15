@@ -26,4 +26,12 @@ failed: Array<ShortFailed>,
 /**
  * The execution that has needed you longest: not failed if any is not.
  */
-first?: string, };
+first?: string, 
+/**
+ * When the next reminder falls due (theseus-nuhsz), unpaused and unfired.
+ */
+next_due_ms?: number, 
+/**
+ * Routines whose last run failed or blocked.
+ */
+routines_failed?: number, };

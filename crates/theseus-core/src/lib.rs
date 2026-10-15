@@ -247,6 +247,8 @@ mod tests_grants;
 #[cfg(test)]
 mod tests_harness;
 #[cfg(test)]
+mod tests_horizon;
+#[cfg(test)]
 mod tests_inbound;
 #[cfg(test)]
 mod tests_job_handles;

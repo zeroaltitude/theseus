@@ -78,6 +78,11 @@ pub enum Purpose {
     ThreadAct(String),
     /// `turn.submit` that opens a thread's session (its slug).
     SubmitThread(String),
+    /// `work.watch`: the future views the Horizon section keeps.
+    Horizon,
+    /// A key in the Horizon section (a snooze, a pause, a run): the words
+    /// the footer says when it is done.
+    HorizonAct(String),
 }
 
 /// What the loop does for the app.
@@ -144,6 +149,8 @@ pub enum Mode {
     Help,
     /// Ctrl-T: the thread picker (theseus-j0yh).
     Threads,
+    /// `H`: the Horizon section has the keys (theseus-nuhsz).
+    Horizon,
 }
 
 /// Which pane a narrow screen shows: the list, or the session in focus.
@@ -218,6 +225,8 @@ pub struct App {
     pub thread_file: Option<(PathBuf, String)>,
     /// The remembered thread's pane has been opened (once, at the first list).
     pub(crate) threads_focused: bool,
+    /// The future under the task tree (theseus-nuhsz).
+    pub horizon: crate::horizon::Section,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -260,6 +269,7 @@ impl App {
             picker: None,
             thread_file: None,
             threads_focused: false,
+            horizon: Default::default(),
         }
     }
 
@@ -431,6 +441,7 @@ impl App {
         let mut out = vec![
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
+            horizon_watch(),
         ];
         // A thread chosen before: its row, for the status line.
         if self.thread.is_some() {
@@ -490,6 +501,7 @@ impl App {
             }
             Event::EventsLost(lost) => out.extend(self.lost(&lost)),
             Event::WakeNoticed(n) => out.extend(self.noticed(&n)),
+            Event::WorkChanged(c) => self.horizon.apply(&c),
             _ => {}
         }
         out
@@ -552,6 +564,9 @@ impl App {
         let all = lost.streams.is_empty();
         if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
+        }
+        if all || lost.streams.iter().any(|s| s == "work") {
+            out.push(horizon_watch());
         }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             let stream = format!("session:{sid}");
@@ -667,6 +682,7 @@ impl App {
             Purpose::ThreadAct(_) => return self.thread_acted(v),
             Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
+            Purpose::Horizon | Purpose::HorizonAct(_) => self.horizon_answered(purpose, v),
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
@@ -675,7 +691,10 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(
+            purpose,
+            Purpose::Typing | Purpose::Health | Purpose::Horizon
+        ) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -712,6 +731,8 @@ impl App {
             Purpose::Threads => method::THREAD_LIST,
             Purpose::ThreadAct(_) => "thread.pause, resume or done",
             Purpose::SubmitThread(_) => method::TURN_SUBMIT,
+            Purpose::Horizon => method::WORK_WATCH,
+            Purpose::HorizonAct(_) => "the Horizon section",
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -799,6 +820,7 @@ impl App {
         }
         match self.mode.clone() {
             Mode::Threads => self.picker_key(k),
+            Mode::Horizon => self.horizon_key(k),
             Mode::Help => {
                 self.mode = Mode::Normal;
                 Vec::new()
@@ -849,6 +871,7 @@ impl App {
             }
             KeyCode::Char('/') => self.mode = Mode::Filter,
             KeyCode::Char('N') => self.new_task_prompt(),
+            KeyCode::Char('H') => self.focus_horizon(),
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -1166,7 +1189,7 @@ impl App {
                 }
             }
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
-            Mode::Normal | Mode::Help | Mode::Armed(..) => {
+            Mode::Normal | Mode::Help | Mode::Horizon | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop | Arm::StopAll => "not stopped",
@@ -1314,6 +1337,13 @@ fn sync_warning(v: Value) -> Option<String> {
 /// `executions.watch`: the board's snapshot, then its events.
 fn snapshot() -> Effect {
     call(method::EXECUTIONS_WATCH, json!({}), Purpose::Snapshot)
+}
+
+/// `work.watch` with no roots to list: the future views come beside them, and
+/// `work.changed` after (theseus-nuhsz). An older daemon refuses it, and the
+/// section stays empty.
+fn horizon_watch() -> Effect {
+    call(method::WORK_WATCH, json!({"limit": 0}), Purpose::Horizon)
 }
 
 /// A session's pane: its newest nodes, then its events (design §2.9: the

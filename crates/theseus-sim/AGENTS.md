@@ -102,6 +102,11 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `--check` holds p90 to 5 ms: meant for a release-thin build on the owner's machine (a debug build on a 4-core VM
     reads p90 about 6 ms at 1,000 sessions, 4.9 at 10, where the process's own start is about 3.7). Outside lifecycle's
     gated phases; `--record` writes the `status_short` column.
+  - `bench agenda` (`src/perf/agenda.rs`, theseus-nuhsz): `work.agenda` at its 200 lines: a scratch daemon holding
+    `--reminders` (90, half of them daily series) and `--routines` (3, hourly), the call timed over `--runs` (300) for a week's
+    window, with `status.short` as the floor beside it. `--check` holds p90 to 5 ms: meant for a release-thin build on the
+    owner's machine (the debug build on this 4-core VM reads p50 8 ms of which the floor is 0.6). Outside lifecycle's gated phases;
+    `--record` writes the `work_agenda` column.
   - `bench concurrency` (`src/perf/concurrency.rs`, theseus-4g0l): M task turns (`--turns 8,16,32,80`) submitted 5 ms
     apart, then a person's turn 0.5 s after the first, on a stand-in that holds each call `--hold-ms` (2000): total
     wall, each turn's wall and admission (its `admission.wait` span), inversions inside the tasks' class (admitted and

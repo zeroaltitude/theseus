@@ -12,6 +12,7 @@
 //! (`render`) are this package's library, which the TUI shares, and
 //! `print.rs` writes the lines they return.
 
+mod agenda;
 mod answer;
 mod budgets;
 mod chat_cmd;
@@ -444,6 +445,10 @@ enum Cmd {
     /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
     /// for. `--watch` keeps it current from the push: a line for each change and each notice.
     Work(work::WorkArgs),
+    /// The future in one view: Now, Today, This week, Later, Recurring (routines and repeating
+    /// reminders), Waiting on the world (watches) and Projects, with the verbs that act on them.
+    /// `--watch` keeps it current.
+    Agenda(agenda::AgendaArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -1209,10 +1214,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Remind(a) => remind::remind(c, json, a).await,
         Cmd::Answer(a) => answer::answer(c, json, a).await,
-        Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
-        Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
-        Cmd::Resume { wake } => remind::resume(c, json, wake).await,
-        Cmd::Done { wake } => remind::done(c, json, wake).await,
+        cmd @ (Cmd::Snooze { .. } | Cmd::Pause { .. } | Cmd::Resume { .. } | Cmd::Done { .. }) => {
+            wake_verb(c, json, cmd).await
+        }
         Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
         Cmd::Wait {
             session: Some(session),
@@ -1223,6 +1227,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => cmd::wait(c, json, session, until, after, timeout).await,
         Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
         Cmd::Work(a) => work::run(c, json, a).await,
+        Cmd::Agenda(a) => agenda::run(c, json, a).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
             unreachable!("returned above, or exec'd by main")
         }
@@ -1249,6 +1254,17 @@ async fn run(cli: Cli) -> Result<()> {
     };
     close(conn).await;
     result
+}
+
+/// The owner's verbs on one wake, one call each (`remind.rs`).
+async fn wake_verb(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
+        Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
+        Cmd::Resume { wake } => remind::resume(c, json, wake).await,
+        Cmd::Done { wake } => remind::done(c, json, wake).await,
+        _ => unreachable!("run sends the wake verbs here"),
+    }
 }
 
 /// A spawned daemon stops cleanly, not by a kill, so the next open of its

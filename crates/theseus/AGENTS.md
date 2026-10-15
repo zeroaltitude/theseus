@@ -40,6 +40,16 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   failed execution stays on the board for good, so it would end every call); one that happens while waiting answers.
   `tests/status_edges.rs`: a daemon that connects and never answers (`--short` exit 1, silent, after 2 s), a dead
   daemon's socket file (exit 3), and a signal's clearing of the tab on a pseudo-terminal.
+- `src/agenda.rs` and `src/render/horizon.rs` (theseus-nuhsz): `theseus agenda [--watch]`, the future in one view: a header of
+  counts, then Now, Today, This week, Later, Recurring · 30 days, Waiting on the world, Projects (a section only when it has rows),
+  and a verbs line. It reads `work.watch {limit: 0}` (the snapshot holds the future views beside the tree) and `work.agenda` for
+  the next 30 days, and draws with `render::horizon::build` (pure; the day is this machine's: `local_day`, `horizon_of`), which the
+  TUI's Horizon section shares (`Row.compact` is the sidebar's words; `lines_from_views` builds the day sections from the views
+  alone). `--watch` redraws on `work.changed`, after `events.lost`, and at the next local midnight (a client-side deadline; the
+  daemon sends nothing for the day turning). A hidden `--now MS` is the tests' clock. `--json` is the two answers as they came.
+  `theseus status` reads `status.short` too: `⏰ 16:52` (the next reminder) and `🔁✗1` (routines whose last run failed) join the
+  short line, and the long one says `🔁✗ 1 routine failed`. Tests: `render/horizon_tests.rs` (the golden `render/horizon_golden.txt`,
+  `THESEUS_GOLDEN=write`), `tests/agenda.rs` (a scripted daemon; `tests/golden/agenda.txt`).
 - `src/answer.rs` (theseus-ds5os): `theseus answer ID OPTION [--note WORDS]`, one `work.answer` for every kind of question
   (a call, a spend limit, a layer-1 change, an extension's ack, a reminder). The id is sent as typed: the daemon resolves
   a whole id or a unique end of at least four characters, and an end naming two questions is refused naming both. The

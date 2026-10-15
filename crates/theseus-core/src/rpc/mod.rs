@@ -37,6 +37,7 @@ mod mcp;
 mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
+mod agenda;
 mod earned;
 mod grants;
 mod memory_read;

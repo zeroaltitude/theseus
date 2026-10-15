@@ -3,4 +3,4 @@
 /**
  * What a piece of work is.
  */
-export type WorkKind = "conversation" | "task" | "step" | "job" | "question" | "wake" | "system";
+export type WorkKind = "conversation" | "task" | "step" | "job" | "question" | "wake" | "system" | "routine" | "watch" | "project";

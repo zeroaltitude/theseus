@@ -25,6 +25,7 @@
 //!   against itself later; nothing wakes the board for it.
 
 mod eta;
+mod horizon;
 mod place;
 mod views;
 
@@ -70,6 +71,7 @@ const ROWS: &[&str] = &[
     "action.denied",
     "action.expired",
     "wake.",
+    "watch.",
     "task.",
 ];
 
@@ -145,6 +147,8 @@ struct Taken {
     rows: Vec<LedgerRow>,
     tasks: Vec<(u64, TaskRecord)>,
     sessions: Vec<SessionRecord>,
+    /// Routine records the frame carried (horizon).
+    routines: Vec<theseus_protocol::routines::RoutineSpec>,
 }
 
 /// What a frame changed on the board: the work board's `work.changed`, and
@@ -188,6 +192,15 @@ pub(super) struct WorkBoard {
     /// The newest position of a notice that left the ring.
     evicted: u64,
     rules: Rules,
+    /// Routines and watches by their wake's id (`horizon.rs`).
+    routines: HashMap<String, horizon::RoutineIn>,
+    watches: HashMap<String, horizon::WatchIn>,
+    /// The newest frame's time: the clock a view's windows count from.
+    now_ms: u64,
+    /// Series that fired and went on: if one later leaves, it was run out.
+    fired_series: HashSet<String>,
+    /// The ids of the views that belong to the future (`horizon::is_future`).
+    futures: HashSet<String>,
 }
 
 /// Entities marked for building again.
@@ -262,6 +275,14 @@ impl WorkBoard {
             self.open_below(&r.id, &mut out);
         }
         out.extend(rest.into_iter().cloned());
+        // The future is kept beside the tree, whatever its root is doing.
+        let held: HashSet<String> = out.iter().map(|v| v.id.clone()).collect();
+        out.extend(
+            self.future(scope)
+                .into_iter()
+                .filter(|v| !held.contains(&v.id))
+                .cloned(),
+        );
         (self.position, out, total)
     }
 
@@ -297,6 +318,16 @@ impl WorkBoard {
         self.eta.usual(key)
     }
 
+    /// `work.agenda` (see `horizon.rs`).
+    pub(super) fn work_agenda(
+        &self,
+        p: &theseus_protocol::work::horizon::AgendaParams,
+        scope: &Scope,
+        zone: &theseus_kernel::TimeZone,
+    ) -> theseus_protocol::work::horizon::AgendaResult {
+        self.agenda(p, scope, zone)
+    }
+
     /// The root (execution id) of a session's tree, if the board holds it.
     pub(super) fn root_of_session(&self, session: &str) -> Option<String> {
         let id = self.by_session.get(session)?;
@@ -316,8 +347,12 @@ impl WorkBoard {
         changed: &[ExecutionView],
     ) -> Option<Out> {
         self.position = self.position.max(f.position);
+        self.now_ms = self.now_ms.max(f.at_ms);
         let taken = Self::decode(core, f);
         let mut d = Dirty::default();
+        for spec in &taken.routines {
+            self.take_routine_spec(spec.clone(), &mut d);
+        }
         self.take_rows(&taken.rows, &mut d);
         for t in &taken.tasks {
             self.take_task(core, t, &mut d);
@@ -343,9 +378,21 @@ impl WorkBoard {
             rows: Vec::new(),
             tasks: Vec::new(),
             sessions: Vec::new(),
+            routines: Vec::new(),
         };
         for (kind, pos, payload) in &f.records {
             match *kind {
+                kinds::META => {
+                    // A routine's record: its payload begins with the
+                    // session id and holds its wake's.
+                    if payload.starts_with(br#"{"session_id":""#)
+                        && payload.windows(10).any(|w| w == br#""wake_id":"#)
+                    {
+                        if let Ok(r) = serde_json::from_slice(payload) {
+                            t.routines.push(r);
+                        }
+                    }
+                }
                 kinds::EXECUTION => {
                     if let Ok(e) = core.kernel.decode_execution(payload) {
                         t.execs.retain(|(_, x)| x.id != e.id);
@@ -421,7 +468,12 @@ impl WorkBoard {
                         self.early.push_back(r.clone());
                     }
                 }
-                "wake.fired" => self.take_fired(r, d),
+                "wake.fired" => {
+                    self.take_horizon_row(r, d);
+                    self.take_fired(r, d);
+                }
+                "wake.skipped" | "watch.checked" | "watch.met" | "watch.expired"
+                | "watch.failing" => self.take_horizon_row(r, d),
                 _ => {}
             }
         }
@@ -481,6 +533,11 @@ impl WorkBoard {
         };
         ei.woke = Some(views::woke_of(&w));
         d.execs.insert(exec.to_string());
+        if w.repeat.is_some() {
+            // A series goes on under the same id: it has not ended.
+            self.fired_series.insert(wake.to_string());
+            return;
+        }
         self.ended_wakes.insert(
             wake.to_string(),
             EndedWake {
@@ -770,9 +827,9 @@ impl WorkBoard {
                         .entry(wid.clone())
                         .or_insert_with(|| EndedWake {
                             exec: id.clone(),
+                            fired: self.fired_series.contains(&wid),
                             wake: w,
                             at_ms: e.updated_at_ms,
-                            fired: false,
                         });
                     d.wakes.insert(wid);
                 }
@@ -787,6 +844,7 @@ impl WorkBoard {
         if ei.woke.is_some() && !matches!(ei.x.state.as_str(), "queued" | "running") {
             ei.woke = None;
         }
+        self.touch_routine(&id, d);
         d.execs.insert(id);
     }
 
@@ -832,6 +890,7 @@ impl WorkBoard {
             },
         );
         d.execs.insert(e.id.clone());
+        self.touch_routine(&e.id, d);
         // What was waiting for it: its steps and its actions.
         let waiting: Vec<String> = self
             .steps
@@ -850,6 +909,8 @@ mod seed;
 mod settle;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_horizon;
 
 pub(super) use seed::{read_warm, seed};
 

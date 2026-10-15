@@ -114,6 +114,8 @@ impl Short {
                 .first()
                 .or_else(|| self.failed_order.first())
                 .map(|(_, id)| id.clone()),
+            next_due_ms: None,
+            routines_failed: 0,
         }
     }
 }

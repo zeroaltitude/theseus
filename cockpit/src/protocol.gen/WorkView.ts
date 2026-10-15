@@ -4,8 +4,12 @@ import type { Cost } from "./Cost";
 import type { Doing } from "./Doing";
 import type { Eta } from "./Eta";
 import type { Progress } from "./Progress";
+import type { ProjectView } from "./ProjectView";
 import type { Question } from "./Question";
 import type { Rollup } from "./Rollup";
+import type { RoutineView } from "./RoutineView";
+import type { Series } from "./Series";
+import type { WatchView } from "./WatchView";
 import type { Woke } from "./Woke";
 import type { WorkKind } from "./WorkKind";
 import type { WorkReport } from "./WorkReport";
@@ -98,4 +102,33 @@ woke?: Woke,
 /**
  * The owner asked to hear when it is done ("tell me when it's done").
  */
-flagged?: boolean, };
+flagged?: boolean, 
+/**
+ * Why a wake exists: `remind`, `check`, `routine`, `watch`.
+ */
+purpose?: string, 
+/**
+ * When it is next due: a reminder's time, a routine's next run, a
+ * watch's next check, a deferred task's start.
+ */
+next_at_ms?: number, 
+/**
+ * A repeating wake's or a routine's series.
+ */
+series?: Series, 
+/**
+ * Held by the owner: it does not fire until resumed.
+ */
+paused?: boolean, 
+/**
+ * A routine's schedule, last run, counts and month.
+ */
+routine?: RoutineView, 
+/**
+ * A watch's check, condition and last value.
+ */
+watch?: WatchView, 
+/**
+ * A project's goal, tallies and next date.
+ */
+project?: ProjectView, };

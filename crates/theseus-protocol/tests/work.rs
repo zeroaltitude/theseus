@@ -140,6 +140,13 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
             purpose: None,
         }),
         flagged: true,
+        purpose: None,
+        next_at_ms: None,
+        series: None,
+        paused: false,
+        routine: None,
+        watch: None,
+        project: None,
     };
     v.attention = attention_of(&v);
     v
@@ -327,5 +334,140 @@ fn an_empty_watch_and_a_changed_without_gone_decode() {
     assert_eq!(
         serde_json::to_string(&c).unwrap(),
         r#"{"position":5,"at_ms":9,"views":[]}"#
+    );
+}
+
+// ------------------------------------------------------------ the future
+
+/// A routine, a watch and a project as the board sends them, and `work.agenda`'s
+/// params and answer (theseus-nuhsz), each compared with its fixture.
+#[test]
+fn the_future_shapes() {
+    use theseus_protocol::work::horizon::*;
+    let mut routine = whole(
+        "wak_a41d04",
+        WorkKind::Routine,
+        WorkState::Ready,
+        "Morning digest",
+    );
+    routine.purpose = Some("routine".into());
+    routine.next_at_ms = Some(AT + 3_600_000);
+    routine.series = Some(Series {
+        every: Some("1d".into()),
+        days: vec![
+            "mon".into(),
+            "tue".into(),
+            "wed".into(),
+            "thu".into(),
+            "fri".into(),
+        ],
+        occurrence: 22,
+        missed_last: 2,
+        ..Default::default()
+    });
+    routine.routine = Some(RoutineView {
+        schedule: "weekdays 08:00".into(),
+        last: Some(RoutineLast {
+            outcome: "ok".into(),
+            at_ms: AT - 600_000,
+            duration_ms: 41_000,
+            cost_usd: 0.12,
+            line: Some("Two tides today.".into()),
+        }),
+        runs_30d: RunCounts {
+            ok: 20,
+            failed: 1,
+            skipped: 2,
+        },
+        month: Month {
+            spent_usd: 2.5,
+            limit_usd: 10.0,
+        },
+        deliver_to: "dm".into(),
+    });
+    wire("view_routine", &routine);
+    let mut watch = whole(
+        "wak_c3d4e5",
+        WorkKind::Watch,
+        WorkState::Waiting,
+        "PR 123 merged?",
+    );
+    watch.purpose = Some("watch".into());
+    watch.watch = Some(WatchView {
+        check: "gh pr view 123".into(),
+        until: "equals MERGED".into(),
+        last: Some(WatchLast {
+            value: "OPEN".into(),
+            at_ms: AT - 60_000,
+        }),
+        checks: 611,
+        expires_at_ms: Some(AT + 72 * 3_600_000),
+        failing: None,
+    });
+    wire("view_watch", &watch);
+    let mut project = whole(
+        "prj_000a1b",
+        WorkKind::Project,
+        WorkState::Running,
+        "Harbour map",
+    );
+    project.project = Some(ProjectView {
+        goal: "Ship the harbour map".into(),
+        steps: Tally { done: 3, total: 9 },
+        milestones: Tally { done: 1, total: 3 },
+        next: Some(NextDue {
+            title: "Survey the north quay".into(),
+            due_at_ms: Some(AT + 86_400_000),
+        }),
+        overdue: 0,
+        review: None,
+    });
+    wire("view_project", &project);
+}
+
+/// `work.agenda`'s params and answer, the horizon's name, and `status.short`'s
+/// two new facts.
+#[test]
+fn the_agenda_shapes() {
+    use theseus_protocol::work::horizon::*;
+    wire(
+        "agenda_params",
+        &AgendaParams {
+            from_ms: AT,
+            to_ms: AT + 7 * 86_400_000,
+            roots: None,
+        },
+    );
+    wire(
+        "agenda_result",
+        &AgendaResult {
+            from_ms: AT,
+            to_ms: AT + 7 * 86_400_000,
+            lines: vec![AgendaLine {
+                at_ms: AT + 3_600_000,
+                id: "wak_a41d04".into(),
+                kind: WorkKind::Routine,
+                what: AgendaWhat::Run,
+                title: "Morning digest".into(),
+                session_id: Some("ses_q7f3k2".into()),
+                purpose: Some("routine".into()),
+                occurrence: Some(22),
+            }],
+            more: false,
+        },
+    );
+    // The horizon names and the status line's two new facts.
+    wire("horizon", &Horizon::Week);
+    wire(
+        "status_short",
+        &theseus_protocol::StatusShortResult {
+            position: 9,
+            needs_you: 1,
+            working: 2,
+            failed: vec![],
+            first: None,
+            next_due_ms: Some(AT + 60_000),
+            routines_failed: 1,
+        },
     );
 }

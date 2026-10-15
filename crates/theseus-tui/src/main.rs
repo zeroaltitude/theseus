@@ -12,6 +12,7 @@ mod board;
 mod card;
 mod chat;
 mod detail;
+mod horizon;
 mod new_task;
 mod notice;
 mod run;
@@ -30,6 +31,8 @@ mod tests_cite;
 mod tests_diff;
 #[cfg(test)]
 mod tests_grant;
+#[cfg(test)]
+mod tests_horizon;
 #[cfg(test)]
 mod tests_markdown;
 #[cfg(test)]

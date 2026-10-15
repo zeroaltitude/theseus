@@ -18,6 +18,14 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   their own) and one deadline; reconnecting with backoff; the frame clock.
 - `src/app.rs`: the state and every change to it (keys, the daemon's messages, answers). It does no I/O: it returns
   the requests to send.
+- `src/horizon.rs` (theseus-nuhsz): the Horizon section under the task tree (`ui::sidebar` gives it up to a third of the sidebar's
+  height, none while nothing is ahead). The TUI sends `work.watch {limit: 0}` at each connect (and after `events.lost` names the
+  `work` stream), keeps the future views by the position rule from `work.changed`, and draws `theseus_client::render::horizon`'s
+  compact rows. `H` gives the section the keys (`Mode::Horizon`): `j`/`k` move, `z` snoozes a reminder (`wake.snooze`), `p` pauses
+  or resumes a reminder or a routine, `r` runs a routine now, `x` cancels a reminder, a watch or a deferred task (a routine says
+  to pause it or `theseus routine rm`), enter opens a routine's conversation, esc/`H`/tab leave; a key that does not fit the row
+  says so and sends nothing. No timer of its own: the local midnight moves a reminder from This week to Today at the next draw.
+  Tests: `src/tests_horizon.rs`.
 - `src/new_task.rs` (theseus-7oq0w): `N` opens a one-line prompt for a brief; enter sends one `task.start` under the
   conversation the cursor is on (Home when it is on a task or on nothing), with no model turn, and esc starts nothing.
   `Mode::NewTask`, `App::brief`, `Purpose::NewTask`. Tests: `src/tests_new_task.rs`.

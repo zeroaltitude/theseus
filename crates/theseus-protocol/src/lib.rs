@@ -270,7 +270,7 @@ pub mod method {
         /// The work board (theseus-hkx30): every root that needs you or works with
         /// its open subtree, then `work.changed` and `work.notice` until
         /// `work.unwatch` (`work_watch.rs`). A read.
-        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
+        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch", WORK_AGENDA = "work.agenda",
         /// The counts behind `theseus status --short` (theseus-8kn12), read from
         /// the board's O(1) fields: no per-execution view, no subscription.
         /// `push::StatusShortResult`. A read.

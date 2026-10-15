@@ -118,6 +118,20 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
 }
 
 fn sidebar(app: &App, area: Rect, buf: &mut Buffer) {
+    // The future sits under the task tree (theseus-nuhsz).
+    let below = crate::horizon::rows_for(app, area.height);
+    if below > 0 && area.height > below + 1 {
+        let tree = Rect::new(area.x, area.y, area.width, area.height - below);
+        crate::horizon::rule(Rect::new(area.x, tree.y + tree.height, area.width, 1), buf);
+        let section = Rect::new(area.x, tree.y + tree.height + 1, area.width, below - 1);
+        tree_rows(app, tree, buf);
+        crate::horizon::draw(app, section, buf);
+        return;
+    }
+    tree_rows(app, area, buf);
+}
+
+fn tree_rows(app: &App, area: Rect, buf: &mut Buffer) {
     let rows = &app.rows();
     if rows.is_empty() {
         let text = match (&app.link, app.only, app.filter.is_empty()) {
@@ -473,6 +487,9 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
     let room = (area.width as usize).saturating_sub(keys.width() + 1);
     if let Some((tag, text)) = &app.flash {
         buf.set_stringn(area.x + 1, area.y, text, room, tag_style(*tag));
+    } else if app.mode == Mode::Horizon {
+        let hint = "horizon: j/k move · z snooze · p pause/resume · r run now · x cancel · enter open · esc back";
+        buf.set_stringn(area.x + 1, area.y, hint, room, dim());
     }
     let x = area.x + area.width.saturating_sub(keys.width() as u16);
     buf.set_stringn(x, area.y, keys, keys.width(), dim());
@@ -514,7 +531,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 20] = [
+    const KEYS: [&str; 21] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -531,6 +548,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " b w r d a  only needs you, working, ready, done; all",
         " ctrl-t     the threads: pick one (enter), pause p, resume r, done d",
         " /t         in the input line: the threads; /t N or /t NAME picks one",
+        " H          the Horizon (reminders, routines, watches): j k move, z snooze, p pause, r run now, x cancel",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",

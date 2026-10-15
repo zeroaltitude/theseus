@@ -57,6 +57,13 @@ fn root(state: WorkState, at: u64, since: u64) -> WorkView {
         report: None,
         woke: None,
         flagged: false,
+        purpose: None,
+        next_at_ms: None,
+        series: None,
+        paused: false,
+        routine: None,
+        watch: None,
+        project: None,
     }
 }
 
