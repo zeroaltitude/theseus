@@ -152,6 +152,20 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   A watch on a session that already failed prints why, then waits. When the work board's views drop in, only `from_execution`'s
   call changes. Tests: `tests/herdr.rs` (a fake herdr and a scripted daemon, `Restarting` for a restart),
   `tests/herdr_sync.rs`.
+- `src/herdr_up.rs`, `src/herdr_up/state.rs`, `src/herdr_up/wire.rs` (theseus-fuw5d): `theseus herdr up [--follow] [--boot] [--pin S]
+  [--finished-grace SECS] [--herdr-socket P]`. `up` lays out herdr's `theseus` workspace (one `layout.apply`, a tab per task whose
+  pane's argv is `theseus watch <sid> --interactive`, nothing typed into a shell) and exits; run again it sends only reads.
+  `--follow` (and `--boot`, which first closes the workspace's panes with no `kind` token) makes the `board` tab, whose pane runs
+  `up --follow --here`, and exits; `--here` is the follower: one `work.watch` connection and one herdr `events.subscribe`
+  (`pane.exited`, `tab.focused`, `pane.focused`), reconnecting to both, one `notification.show` when the daemon is lost and one
+  when it is back, the Space row's counts (`workspace.report_metadata`) and `agent.view.set`. `state.rs` is pure (every method takes
+  `now`): a task wants a tab while it needs you, works, waits or ended unseen (a conversation only while it needs you, a pinned
+  session always); a cancelled task's closes at once, a finished one's a grace (600 s) after its tab or pane was focused; one
+  deadline timer, none while nothing awaits. A task already finished at the first read gets a tab only if it ended within the
+  grace. `wire.rs` builds each herdr request in one function: the shapes of `layout.apply`, `events.subscribe`,
+  `workspace.report_metadata` and `agent.view.set` follow the design and were not checked against herdr's schema. `sync` is
+  unchanged but for pins: `--pin` writes a `pinned` token on the pane, and a later sync keeps it. Tests: `tests/herdr_up.rs`
+  (a scripted herdr and daemon), unit tests in `state.rs` and `wire.rs`.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.

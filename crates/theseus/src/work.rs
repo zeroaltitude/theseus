@@ -168,7 +168,7 @@ fn kind_word(k: WorkKind) -> &'static str {
 
 /// A view as one line of the tree: its glyph, its title, and what it says of
 /// itself (its attention's label), then its progress and rollup.
-fn view_line(v: &WorkView) -> String {
+pub(crate) fn view_line(v: &WorkView) -> String {
     let title = if v.title.is_empty() {
         format!(
             "{} {}",
@@ -201,7 +201,7 @@ fn view_line(v: &WorkView) -> String {
 }
 
 /// A change, as `--watch` prints it.
-fn change_line(v: &WorkView) -> String {
+pub(crate) fn change_line(v: &WorkView) -> String {
     let before = v
         .previous
         .filter(|p| *p != v.state)

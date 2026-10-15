@@ -59,6 +59,9 @@ pub enum HerdrCmd {
         #[arg(long, value_name = "PATH")]
         herdr_socket: Option<PathBuf>,
     },
+    /// Lay out herdr's `theseus` workspace for the tasks there are, a tab each running
+    /// `theseus watch <session> --interactive`, and exit; with `--follow`, keep it so.
+    Up(crate::herdr_up::UpArgs),
 }
 
 /// What runs in a pane, by herdr's view of its foreground job
@@ -192,7 +195,7 @@ pub fn split_target(layout: &Value) -> Option<(String, &'static str)> {
 /// herdr's default API socket, as herdr resolves it: `$HERDR_SOCKET_PATH`,
 /// then `$HERDR_SESSION`'s, then its own, under `$XDG_CONFIG_HOME` or
 /// `~/.config`.
-fn default_socket() -> Result<PathBuf> {
+pub(crate) fn default_socket() -> Result<PathBuf> {
     let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
     if let Some(p) = var("HERDR_SOCKET_PATH") {
         return Ok(p.into());
@@ -235,6 +238,8 @@ struct Held {
     /// The pane's `$kind` token: `task` or `conversation` marks it as
     /// Theseus's own (theseus-qb1es), whatever agent name it reports under.
     kind: Option<String>,
+    /// The pane's `pinned` token: a pin made by an earlier `--pin` (theseus-d5oc).
+    pinned: bool,
     occupant: Occupant,
 }
 
@@ -286,7 +291,10 @@ pub async fn run(
         pin,
         close_finished,
         herdr_socket,
-    } = cmd;
+    } = cmd
+    else {
+        bail!("`herdr up` connects for itself (main sends it before the connection)");
+    };
     let Some(theseus_socket) = theseus_socket else {
         bail!(
             "`theseus herdr sync` needs a running theseusd, not --spawn: \
@@ -304,7 +312,8 @@ pub async fn run(
         conn.request(method::SESSION_LIST, Value::Null).await?,
     )?
     .sessions;
-    let pinned = resolve_pins(&pin, &sessions)?;
+    let mut pinned = resolve_pins(&pin, &sessions)?;
+    let asked_pins = pinned.clone();
     let known = |sid: &str| sessions.iter().find(|s| s.session_id == sid);
 
     // herdr's side: the workspace, and each pane that holds one of this
@@ -349,10 +358,29 @@ pub async fn run(
             session_id: sid.to_string(),
             agent: p["agent"].as_str().map(str::to_string),
             kind: p["tokens"]["kind"].as_str().map(str::to_string),
+            pinned: p["tokens"]["pinned"].is_string(),
             occupant: occupant(&info["process_info"]),
         });
     }
 
+    // A pin made before is kept: the pane's `pinned` token says so.
+    pinned.extend(
+        held.iter()
+            .filter(|p| p.pinned)
+            .map(|p| p.session_id.clone()),
+    );
+    // A pin asked for now is written on the session's pane, so a later sync keeps it.
+    for p in held
+        .iter()
+        .filter(|p| !p.pinned && asked_pins.contains(&p.session_id))
+    {
+        h.call(
+            "pane.report_metadata",
+            json!({"pane_id": p.pane_id, "source": herdr::SOURCE, "agent": herdr::AGENT,
+                   "tokens": {"pinned": "1"}, "seq": herdr::next_seq()}),
+        )
+        .await?;
+    }
     let mut steps = Vec::new();
     // The panes first: sweep a dead watch's state, and close a finished
     // session's pane when asked.
