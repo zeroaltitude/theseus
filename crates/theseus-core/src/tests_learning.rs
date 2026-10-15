@@ -28,7 +28,7 @@ use crate::rpc::Core;
 use crate::session::{SessionRecord, TaskOf};
 use crate::tests_judge::{off, rig_on, texts, turn, Rig};
 
-const T: Thresholds = Thresholds {
+pub(crate) const T: Thresholds = Thresholds {
     act: 0.9,
     confirm: 0.6,
 };
@@ -60,7 +60,7 @@ fn noul(q: &str, p: f64) -> AnswerRecord {
     }
 }
 
-fn choice(q: &str, top: &str, confidence: f64, options: &[&str]) -> AnswerRecord {
+pub(crate) fn choice(q: &str, top: &str, confidence: f64, options: &[&str]) -> AnswerRecord {
     let rest = (1.0 - confidence) / (options.len() as f64 - 1.0).max(1.0);
     let answer = Answer::Choice {
         choice: top.into(),
@@ -88,7 +88,13 @@ const WORK: [&str; 6] = [
     "other",
 ];
 
-fn judgment(id: &str, pack: &str, answers: Vec<AnswerRecord>, context: Value, ms: u64) -> Judgment {
+pub(crate) fn judgment(
+    id: &str,
+    pack: &str,
+    answers: Vec<AnswerRecord>,
+    context: Value,
+    ms: u64,
+) -> Judgment {
     let point = match pack.split('.').next() {
         Some("loop") => "loop_end",
         Some("security") => "gate",
@@ -110,7 +116,7 @@ fn judgment(id: &str, pack: &str, answers: Vec<AnswerRecord>, context: Value, ms
 }
 
 /// A judgment's `judge.call` row, as the sink writes it, at `at_ms`.
-fn call_row(j: &Judgment, at_ms: u64) -> NewRecord {
+pub(crate) fn call_row(j: &Judgment, at_ms: u64) -> NewRecord {
     let f = crate::fact::judge::JudgeCall {
         judgment: j,
         budget: "shadow",
@@ -126,7 +132,7 @@ fn call_row(j: &Judgment, at_ms: u64) -> NewRecord {
     )
 }
 
-fn row_at(
+pub(crate) fn row_at(
     kind: LedgerKind,
     session: Option<&str>,
     data: Value,
@@ -1246,4 +1252,84 @@ async fn the_task_briefs_walk_reads_no_imported_record() {
         many, one,
         "300 imported sessions add no record to the read ({one} past 1)"
     );
+}
+
+/// The report's holdout is graded by the owner's and the system's labels
+/// alone: a machine label (a whole-turn replay's) on a judgment inside the
+/// window counts nowhere in it, and counts in the whole report.
+#[test]
+fn a_machine_label_never_grades_the_reports_holdout() {
+    use crate::learning::{report::pack_report, LabelRow, Seen, REPLAY_SOURCE, REPLAY_WEIGHT};
+    use theseus_judge::learn::Window;
+    let options = ["routine_coding", "chat"];
+    let day = DAY_MS;
+    let end = 40 * day;
+    let window = Window::latest(end, 14);
+    let seen = |id: &str, at: u64| Seen {
+        position: at,
+        at_ms: at,
+        judgment: judgment(
+            id,
+            "route.v4",
+            vec![choice("mode", "chat", 0.95, &options)],
+            json!({}),
+            10,
+        ),
+    };
+    let label = |id: &str, j: &str, source: &str, weight: f64| LabelRow {
+        position: 1,
+        at_ms: 1,
+        id: id.into(),
+        judgment: j.into(),
+        pack: "route.v4".into(),
+        question: Some("mode".into()),
+        about: None,
+        label: json!("routine_coding"),
+        source: source.into(),
+        weight,
+    };
+    let judgments = vec![
+        seen("jdg_owner_in", end - day),
+        seen("jdg_machine_in", end - 2 * day),
+        seen("jdg_machine_train", end - 30 * day),
+    ];
+    let mut labels = std::collections::HashMap::new();
+    labels.insert(
+        "jdg_owner_in".to_string(),
+        vec![label("lbl_o", "jdg_owner_in", "operator", 1.0)],
+    );
+    labels.insert(
+        "jdg_machine_in".to_string(),
+        vec![label(
+            "lbl_m1",
+            "jdg_machine_in",
+            REPLAY_SOURCE,
+            REPLAY_WEIGHT,
+        )],
+    );
+    labels.insert(
+        "jdg_machine_train".to_string(),
+        vec![label(
+            "lbl_m2",
+            "jdg_machine_train",
+            REPLAY_SOURCE,
+            REPLAY_WEIGHT,
+        )],
+    );
+    let report = pack_report("route.v4", &judgments, &labels, window);
+    let h = &report.holdout;
+    assert_eq!(
+        h.judgments.len(),
+        2,
+        "both inside judgments are in the window"
+    );
+    assert_eq!(h.labels, ["lbl_o"], "only the owner's label grades it");
+    assert_eq!(h.labeled_per_question.get("mode"), Some(&1));
+    let whole = report
+        .questions
+        .iter()
+        .find(|q| q.question == "mode")
+        .unwrap();
+    assert_eq!(whole.labeled, 3, "the whole report counts them all");
+    assert_eq!(h.train, 1);
 }

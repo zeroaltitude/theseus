@@ -1052,6 +1052,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # routing: a pack that would climbs the ladder on its frozen holdout.
 # [route]
 # replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
+# whole_loops = 24                        # a whole-turn replay (`theseus turn replay --whole`) makes at most this many model calls
+# whole_seconds = 300                     # ... runs at most this long
+# whole_usd = 0.5                         # ... spends at most this much on the model
+# whole_tree_mb = 256                     # ... copies at most this much of the turn's directory to scratch
+# whole_label_bar = 0.9                   # a judged whole-turn match this sure becomes a machine label for routing's learning (train split only); 0 writes none
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

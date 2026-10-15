@@ -17,6 +17,11 @@ rung_down?: string,
  */
 replayed: number, matched: number, 
 /**
+ * Whole turns replayed there (tools and all, theseus-pw1q.20), judged
+ * the same or better, and the ones whose tests ran the same.
+ */
+whole_replayed: number, whole_matched: number, tests_same: number, 
+/**
  * Turns the owner checked (a label on their routing, or a correction).
  */
 checked: number, 

@@ -131,7 +131,7 @@ impl Core {
     /// written it yet (its window is 2 s), the `tool.notified` row of the
     /// notice that names it, which carries its pack and call, so a notice's
     /// label counts the moment the notice is seen.
-    fn judgment_row(&self, judgment: &str) -> anyhow::Result<LedgerRow> {
+    pub(crate) fn judgment_row(&self, judgment: &str) -> anyhow::Result<LedgerRow> {
         if let Some(r) = self.store.ledger_by_key(judgment)? {
             let row: LedgerRow = r.decode()?;
             if row.kind != LedgerKind::JudgeCall.as_str() {
@@ -293,6 +293,7 @@ impl Core {
                 match l.source.as_str() {
                     "system" => counts.system += 1,
                     "audit" => counts.audit += 1,
+                    learning::REPLAY_SOURCE => counts.replay += 1,
                     _ => counts.operator += 1,
                 }
             }

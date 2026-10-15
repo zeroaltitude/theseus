@@ -1,6 +1,6 @@
 //! `theseus route report [--week]` and `theseus turn replay …` (own-benchmark,
 //! theseus-pw1q.12): which model your own turns need, and one past turn's
-//! first request sent to another profile. The report reads rows; the replay
+//! first request (or, with `--whole`, the whole turn) sent to another profile. The report reads rows; the replay
 //! spends money and is the owner's (refused inside a job, `client::OPERATORS`).
 
 use anyhow::Result;
@@ -46,6 +46,14 @@ pub enum TurnCmd {
         /// Do not judge the replies.
         #[arg(long)]
         no_compare: bool,
+        /// Run the whole turn, tools and all, on a scratch copy of its directory: programs in L1
+        /// with their writes discarded, tools that would reach you or the world answered with a
+        /// recorded stub (the row names each), under `[route] whole_loops|whole_seconds|whole_usd`.
+        /// The replies are judged and the tests, the paths changed and the exit codes compared; a
+        /// confident match becomes a machine label for routing's learning (train split only).
+        /// Refused when the turn's directory cannot be put back as it was.
+        #[arg(long)]
+        whole: bool,
     },
 }
 
@@ -100,13 +108,14 @@ async fn turn(conn: &mut Conn, json: bool, cmd: TurnCmd) -> Result<()> {
             profile,
             effort,
             no_compare,
+            whole,
         } => {
             let p = TurnReplayParams {
                 session,
                 turn,
                 profile,
                 effort,
-                scope: None,
+                scope: whole.then(|| "whole_turn".to_string()),
                 compare: no_compare.then_some(false),
             };
             let v = conn

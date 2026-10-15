@@ -622,3 +622,60 @@ async fn a_security_candidate_waits_on_the_owners_card() {
     assert!(again.why.contains("one open proposal"), "{}", again.why);
     assert_eq!(r.fake.requests().len(), 1);
 }
+
+/// A machine label (a whole-turn replay's, theseus-pw1q.20): source `replay`.
+fn replay_label(id: &str, j: &str, value: &str) -> NewRecord {
+    let mut row = LedgerRow::new(
+        LedgerKind::JudgeLabel,
+        None,
+        None,
+        json!({"id": id, "judgment": j, "pack": "loop.v1", "question": "work_state",
+            "label": value, "source": "replay", "who": "replay", "via": "replay",
+            "weight": crate::learning::REPLAY_WEIGHT, "note": "", "rule": "whole_turn"}),
+    );
+    row.at_unix_ms = 1;
+    let mut r = NewRecord::json(kinds::LEDGER, None, &row).unwrap();
+    r.key = Some(id.to_string());
+    r.scoped("judge:loop")
+}
+
+/// One `loop.v1` judgment of `name` labeled by a machine alone, at `at_ms`.
+fn seed_machine(c: &Core, name: &str, at_ms: u64) {
+    let (state, blob) = loop_state(c, &format!("Paint the {name} boat by the pier."));
+    let j = judgment(
+        &format!("jdg_{name}"),
+        "loop.v1",
+        &state,
+        vec![choice("complete", 0.95)],
+        json!({"blob": blob, "session": "ses_harbor", "turn": format!("trn_{name}"),
+            "class": "reply", "decision": "no_tool_calls"}),
+    );
+    c.store
+        .append(&[
+            call_row(&j, at_ms),
+            replay_label(&format!("lbl_{name}"), &j.id, "progressing"),
+        ])
+        .unwrap();
+}
+
+/// A machine label trains and never grades: a judgment labeled by a replay
+/// alone counts on the train side, and one inside the holdout's window is
+/// not a holdout judgment, so the holdout is the owner's two as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_machine_label_trains_but_never_enters_the_holdout() {
+    let jev = fake(false);
+    let r = rig(vec![writer_reply(); 3], &jev, |_| {});
+    let c = &r.core;
+    let split = split_now();
+    seed(c, 10, 0, split);
+    seed_machine(c, "kite", split - 50_000);
+    seed_machine(c, "osprey", split + 30);
+    let p = learn(c, split).await;
+    assert_eq!(
+        (p.train, p.holdout),
+        (11, 2),
+        "the machine-labeled train judgment counts, the holdout one does not: {p:?}"
+    );
+    // The machine label is no error the writer reads: only the owner's are.
+    assert_eq!(p.new_errors, 10, "{p:?}");
+}

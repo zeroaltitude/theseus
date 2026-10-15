@@ -15,6 +15,12 @@
 //! - `replay.rs`: `turn.replay`. It writes a `turn.replayed` row and nothing
 //!   else: no node, no session, no execution.
 //! - `rung.rs`: the rung table, pure.
+//! - `whole/`: part (c), `turn.replay {scope: "whole_turn"}` (theseus-pw1q.20):
+//!   the whole turn run again with its tools on a scratch copy of its directory
+//!   (`scratch.rs`, `undo.rs`), the programs in L1 and the owner-facing tools
+//!   stubbed (`hands.rs`), under caps (`runloop.rs`), compared by words and by
+//!   facts (`compare.rs`), and a match becomes a machine label for routing's
+//!   learning (`label.rs`).
 //! - `sampler.rs`: the nightly pass. `report.rs`: `route.report`.
 //!
 //! A yardstick, not a self-change: nothing here moves routing. A pack that
@@ -25,6 +31,7 @@ pub mod replay;
 pub mod report;
 pub mod rung;
 pub mod sampler;
+pub mod whole;
 
 #[cfg(test)]
 mod tests;

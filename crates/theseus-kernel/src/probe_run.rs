@@ -32,21 +32,37 @@ pub struct ProbeRun {
 /// each stream (the head). The environment is a bare `PATH` and the daemon's
 /// `HOME`: nothing the daemon holds reaches the command.
 pub fn run(l1: &L1, argv: &[String], deadline_ms: u64, max_bytes: usize) -> ProbeRun {
+    let cwd = std::env::var("HOME")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/".into());
+    run_in(l1, argv, (&cwd, &[]), "watch", deadline_ms, max_bytes)
+}
+
+/// `run` in a directory of the caller's, with variables of its own beside
+/// `PATH` and `HOME` (a whole-turn replay's program, theseus-pw1q.20): `id`
+/// names the job in L1's own notes.
+pub fn run_in(
+    l1: &L1,
+    argv: &[String],
+    (cwd, extra): (&std::path::Path, &[(String, String)]),
+    id: &str,
+    deadline_ms: u64,
+    max_bytes: usize,
+) -> ProbeRun {
     let mut env = vec![(
         "PATH".to_string(),
         "/usr/local/bin:/usr/bin:/bin".to_string(),
     )];
     env.extend(std::env::var("HOME").ok().map(|h| ("HOME".to_string(), h)));
+    env.extend(extra.iter().cloned());
     let args = WrapperArgs {
         spool_dir: PathBuf::new(),
-        correlation_id: "watch".into(),
+        correlation_id: id.into(),
         deadline_ms,
         notify_socket: None,
         argv: argv.to_vec(),
-        cwd: std::env::var("HOME")
-            .ok()
-            .map(PathBuf::from)
-            .or(Some("/".into())),
+        cwd: Some(cwd.to_path_buf()),
         env,
         umask: None,
         redact: vec![],

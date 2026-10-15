@@ -18,7 +18,10 @@ profile: string,
  */
 effort?: string, 
 /**
- * `first_loop`, the only scope: the turn's first request, no tool run.
+ * `first_loop` (the default): the turn's first request, no tool run; or
+ * `whole_turn`: the turn run again with its tools in L1 on a scratch
+ * copy of its directory, its writes discarded, the owner-facing tools
+ * stubbed (theseus-pw1q.20).
  */
 scope?: string, 
 /**

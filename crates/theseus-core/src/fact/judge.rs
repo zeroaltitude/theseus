@@ -364,7 +364,7 @@ pub struct JudgeLabel<'a> {
     /// `helps.3`, 32d): the key it was asked about.
     pub about: Option<&'a str>,
     pub label: Value,
-    /// `operator`, `system`, or `audit`.
+    /// `operator`, `system`, `audit`, or `replay` (a whole-turn replay's).
     pub source: &'a str,
     pub who: &'a str,
     /// Through what: `cli`, `discord`, `web`.
@@ -395,7 +395,7 @@ impl Fact for JudgeLabel<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
         // A system label is the report's, said in its summary, and an
         // audit's its run's (25d); a person's is said here.
-        if self.source == "system" || self.source == "audit" {
+        if matches!(self.source, "system" | "audit" | "replay") {
             return;
         }
         let what = self

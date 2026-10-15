@@ -20,7 +20,10 @@ pub struct TurnReplayParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub effort: Option<String>,
-    /// `first_loop`, the only scope: the turn's first request, no tool run.
+    /// `first_loop` (the default): the turn's first request, no tool run; or
+    /// `whole_turn`: the turn run again with its tools in L1 on a scratch
+    /// copy of its directory, its writes discarded, the owner-facing tools
+    /// stubbed (theseus-pw1q.20).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub scope: Option<String>,
@@ -84,6 +87,80 @@ pub struct TurnReplayResult {
     pub cost_usd: f64,
     #[cfg_attr(test, ts(type = "number"))]
     pub elapsed_ms: u64,
+    /// What a `whole_turn` replay did beyond the reply: its loops, its tool
+    /// calls, the paths it changed, and the deterministic comparison.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub whole: Option<WholeReplay>,
+}
+
+/// A program run that tests something: its words and how it ended.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TestRun {
+    pub argv: Vec<String>,
+    /// Its exit status; none when it did not start or was ended by a signal.
+    pub exit: Option<i32>,
+}
+
+/// One tool call of a whole-turn replay: what ran (`ran`), what returned a
+/// recorded stub (`stub`: a tool that would reach the owner or the world),
+/// and what the replay refused (`refused`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct WholeCall {
+    pub tool: String,
+    /// `ran`, `stub` or `refused`.
+    pub how: String,
+    /// A program's exit status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub exit: Option<i32>,
+}
+
+/// The deterministic half of a whole-turn comparison, where the turn has
+/// one: whether the replay's test runs, changed paths and exit codes equal
+/// the original's. `tests` is none when neither ran a test.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct WholeSame {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tests: Option<bool>,
+    pub files: bool,
+    pub exits: bool,
+}
+
+/// What a `whole_turn` replay did (theseus-pw1q.20).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct WholeReplay {
+    /// Model calls made, and why the replay ended when a cap ended it
+    /// (`loops`, `seconds`, `usd`).
+    pub loops: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub capped: Option<String>,
+    pub calls: Vec<WholeCall>,
+    /// Paths (relative to the directory) the replay changed, and the
+    /// original turn's.
+    pub changed: Vec<String>,
+    pub original_changed: Vec<String>,
+    pub tests: Vec<TestRun>,
+    pub original_tests: Vec<TestRun>,
+    pub same: WholeSame,
+    /// What the scratch tree could not be, or could not do: unrecorded
+    /// programs in the original, paths left out of the copy.
+    pub caveats: Vec<String>,
+    /// Files and bytes in the scratch copy.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub scratch_files: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub scratch_bytes: u64,
+    /// The machine label this replay wrote for routing, if it wrote one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub label: Option<String>,
 }
 
 /// `route.report`'s params: the window is a week with `week`, else a day.
@@ -114,6 +191,14 @@ pub struct RouteCell {
     pub replayed: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub matched: u64,
+    /// Whole turns replayed there (tools and all, theseus-pw1q.20), judged
+    /// the same or better, and the ones whose tests ran the same.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub whole_replayed: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub whole_matched: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub tests_same: u64,
     /// Turns the owner checked (a label on their routing, or a correction).
     #[cfg_attr(test, ts(type = "number"))]
     pub checked: u64,
@@ -148,6 +233,10 @@ pub struct RouteReportResult {
     /// The replays' cost today against `[route] replay_day_usd`.
     pub replay_today_usd: f64,
     pub replay_day_usd: f64,
+    /// Machine labels the whole-turn replays fed to routing's learning loop
+    /// (train split only), in the window.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub labels_fed: u64,
     /// Why the sampler is off or stopped, when it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
