@@ -133,7 +133,11 @@ impl Place {
         match m {
             PlaceMsg::Press(p) => self.task_press(*p).await,
             PlaceMsg::Board => self.board(),
-            _ => self.live_board(),
+            _ => {
+                self.live_board();
+                self.sync_task_threads();
+                self.sync_task_posts();
+            }
         }
     }
 
@@ -144,11 +148,13 @@ impl Place {
         }
         let p = self.shared.tasks.project(&self.session_id);
         let quiet = self.shared.tasks.quiet_until(&self.target);
+        let links = self.shared.task_links(&p);
         let comps = board_v2::render(&Parts {
             needs: &p.needs,
             working: &p.working,
             done: &p.done,
             quiet_until_ms: quiet,
+            links: &links,
         });
         let content = serde_json::to_string(&comps).unwrap_or_default();
         let _ = self.lane.send(if p.is_empty() {

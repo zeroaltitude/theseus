@@ -185,6 +185,45 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     task opened from the Answer button and the select, an answer pressed in its view, and Stop asking twice). The fake
     Discord holds V2 messages to Discord's rules (40 components, 4,000 characters, no `content` beside the flag,
     unique ids) in a validator of its own.
+- **A thread per task, and the task forum** (theseus-i3do6; the plan's §1.8, 8: guild tasks get threads, the forum is offered and
+  off by default). `runtime/threads.rs`, `runtime/forum.rs`; the bindings' `[[channel]] task_threads` (default on; off in a voice
+  channel) and `kind = "forum"` (`Bindings.forums`, apart from `channel`, so no place loop sees a forum).
+  - **A thread.** A guild channel's place reads its tasks in the work model each time they change (`Place::sync_task_threads`,
+    from `task_msg`; `Tasks::all_of`, whatever their state or a Clear). A task seen working with no thread gets one through the
+    activity threads' one helper (`guild_thread_create`, with the archive duration as its argument): `type: 11` given and
+    `auto_archive_duration: 1440`, named `⚙️ a1b2c3 · <title>` (`task_name`, at most 100 characters), and the channel gets one
+    quiet line (`<#thread>`, `say_pointer`). The task's session then has a place of its own, started by hand (`start_task_place`:
+    no `place_limit`, which would overwrite the task's carve; no bind notice; no session opened): a lane (its own rate bucket;
+    the parent's ping words), its events (`route` reads `TaskThreads::place_of`, so it is in no `by_session`, which the board's
+    watch roots, the broadcasts and `/new` read), and its posts (`Outbox::bind_place`, so the task's replies, tool lines and approval
+    cards go there; the channel keeps the conversation's own). **The class is the parent's** (`bound_place`: privacy, guild,
+    ceiling and persona, read again at each sync), so a task in a shared channel stays shared in its thread. One rename at the end
+    (`✅` done, `❌` failed, cancelled or expired); the thread archives itself a day after its last word; its place and lane go
+    `GRACE` (10 min) after the rename (`retire_task_thread`). A create that fails is said on the board and tried again after
+    5 minutes; the task goes on in the channel meanwhile. The open threads are one META list, `discord.task_threads` (written at
+    create, at the rename and when the place goes; no store format), whose lanes and bound places return at `start_lanes`
+    (`revive_task_threads`) and whose place starts at the first sync (`Next::Revive`). **What lands where.** The task's events are
+    heard from the moment the task is first seen (a mailbox made and `session.watch` called before the thread is created, so they
+    wait in it), but anything the task did before that is not replayed (live progress is best effort, Item 6): the first tool
+    line, and a loop's first words when `turn.started` came first (a delta names only its turn), may be in neither place. A
+    post staged before the thread exists (an approval card the task asks in its first moments) goes where the task's records
+    send it, the channel, as it did before threads. The task's **report** (`📋 Task … finished`) stays in the channel: it is the
+    conversation's news, posted to the place the task reports to. The board's rows link the thread (`Parts.links`,
+    `TaskThreads::url_of`, kept in memory after the place goes). Tests: `tests_task_threads.rs`, `runtime/threads.rs`'s.
+  - **A message in the thread** is an operator message to the task (`Place::task_message`, from `handle_in`): `turn.submit` on
+    its session, under the kernel's rule (a waiting or blocked task is woken, a running one queues it as its next turn, an ended one
+    refuses it `execution_*`); a refused message goes to the conversation that started the task, quoting it, and the thread says so.
+    `/new` in a task's thread is refused: the thread is the task's.
+  - **The forum.** The worker (`forum::run`) is the only thing that talks to a forum. Each task of an eligible place is a post
+    (`takes`: a private forum shows every task, a shared one only the shared places' of its own guild): the first message is the
+    task's card (`task_view::post_card`, no button that acts; a link to its thread), edited on change at most once in 2 s; the four
+    tags `needs you`, `running`, `done`, `failed` are made once if the forum lacks them; a tag edit is made at most once in 5 minutes
+    (`Pace`/`wait`) and the final state at once. The DM's board row, and a channel's, link to the task's post or thread
+    (`Parts.links`). Open posts: META `discord.task_posts`. Tests: `forum.rs`'s and `tests_task_threads.rs`.
+  - **The busy day** (10 tasks, 200 transitions): a thread costs one `GET` of its channel, one `POST`, one quiet notice and one
+    `PATCH` rename, so 40 requests a day; the worst minute (ten tasks started in it) is ten of each create and notice, and the
+    transitions cost no request on the thread side. On the forum side a post is written at most 30 times a minute (its card), so
+    200 transitions are at most 200 card edits in that minute and 10 tag edits over 5 minutes.
 - **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its
   `private` beside it) and format 2 (a `[[guild]]` each, with its own `private`, and each `[[channel]]` naming its
   `guild`); a file that mixes them is refused, naming the line. `runtime/guilds.rs` tells the core each guild's word

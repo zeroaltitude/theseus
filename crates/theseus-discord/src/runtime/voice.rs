@@ -164,6 +164,7 @@ impl Voice {
             format: 2,
             guilds: Vec::new(),
             channel: Vec::new(),
+            forums: Vec::new(),
             dm: Vec::new(),
             revision: String::new(),
         };

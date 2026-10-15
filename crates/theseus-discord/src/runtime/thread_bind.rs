@@ -206,6 +206,8 @@ impl Shared {
             ping_window_secs: None,
             voice_status: None,
             persona: None,
+            forum: false,
+            task_threads: false,
         }
     }
 
@@ -665,6 +667,23 @@ impl Place {
         match m {
             PlaceMsg::Thread(t) => self.on_thread(t).await,
             PlaceMsg::Inbound(i) if i.thread.is_some() => self.thread_turn(i),
+            PlaceMsg::Inbound(i) if self.shared.task_threads.is_thread(i.channel.get()) => {
+                self.task_message(i);
+            }
+            // A task's thread is the task's own conversation: `/new` would
+            // take it off the task (theseus-i3do6).
+            PlaceMsg::Control {
+                cmd: super::Control::New,
+                reply,
+                ..
+            } if self
+                .channel
+                .is_some_and(|c| self.shared.task_threads.is_thread(c.get())) =>
+            {
+                let _ = reply.send(
+                    "A task's thread is the task's own: it cannot start a new conversation.".into(),
+                );
+            }
             m => self.handle(m).await,
         }
     }

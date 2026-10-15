@@ -41,6 +41,48 @@ pub fn detail(
     calls: &[String],
     question: Option<(&Question, &[AnswerOption])>,
 ) -> Vec<Value> {
+    let mut inner = body(v, calls);
+    if let Some((q, options)) = question {
+        inner.push(separator());
+        inner.push(text(format!(
+            "**Asks** · {}\nasked {}",
+            clip(&q.prompt, 300),
+            ago(q.asked_at_ms.max(v.state_since_ms))
+        )));
+        inner.extend(card_v2::buttons(&q.id, options));
+    }
+    if !v.state.ended() && v.kind == theseus_protocol::work::WorkKind::Task {
+        inner.push(separator());
+        inner.push(row(vec![button(
+            format!("{STOP}{}", v.id),
+            "Stop",
+            Look::Danger,
+        )]));
+    }
+    vec![container(Some(0x3E_63_DD), inner)]
+}
+
+/// The task's card for its forum post (theseus-i3do6): the view's words
+/// without a button that acts (a post is no place that answers), the open
+/// question as text, and a link to where the task can be answered.
+pub fn post_card(v: &WorkView, calls: &[String], link: Option<&str>) -> Vec<Value> {
+    let mut inner = body(v, calls);
+    if let Some(q) = v.question.as_ref().filter(|_| !v.state.ended()) {
+        inner.push(separator());
+        inner.push(text(format!(
+            "**Asks** · {}\nasked {}",
+            clip(&q.prompt, 300),
+            ago(q.asked_at_ms.max(v.state_since_ms))
+        )));
+    }
+    if let Some(url) = link {
+        inner.push(row(vec![super::v2::link_button(url, "Open the task ↗")]));
+    }
+    vec![container(Some(0x3E_63_DD), inner)]
+}
+
+/// A task's head, doing, plan, last calls and report.
+fn body(v: &WorkView, calls: &[String]) -> Vec<Value> {
     let mut head = format!(
         "**{}** `…{}`\n{}",
         clip(v.title.trim(), 120),
@@ -114,24 +156,7 @@ pub fn detail(
             )));
         }
     }
-    if let Some((q, options)) = question {
-        inner.push(separator());
-        inner.push(text(format!(
-            "**Asks** · {}\nasked {}",
-            clip(&q.prompt, 300),
-            ago(q.asked_at_ms.max(v.state_since_ms))
-        )));
-        inner.extend(card_v2::buttons(&q.id, options));
-    }
-    if !v.state.ended() && v.kind == theseus_protocol::work::WorkKind::Task {
-        inner.push(separator());
-        inner.push(row(vec![button(
-            format!("{STOP}{}", v.id),
-            "Stop",
-            Look::Danger,
-        )]));
-    }
-    vec![container(Some(0x3E_63_DD), inner)]
+    inner
 }
 
 /// Stop's second question.
