@@ -786,7 +786,7 @@ impl TurnRunner {
         (detour.card, detour.cold) = (None, None);
         detour.context_files = Vec::new();
         detour.walk = None;
-        let compiled = compile(CompileInput {
+        let mut compiled = compile(CompileInput {
             session_id: sid,
             current: None,
             nodes: &nodes,
@@ -805,6 +805,7 @@ impl TurnRunner {
             situation: &crate::compiler::situation::Situation::Detour,
             kept: None,
         });
+        Self::standing_here(t, &mut compiled);
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
             return Ok(Err(f));

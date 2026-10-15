@@ -6,7 +6,7 @@
 // address, so any view deep-links. The pure parts are lib/explorer.ts.
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Search, Shapes, Telescope, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Pin, Search, Shapes, Telescope, X } from 'lucide-react'
 import type { Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { cn, stamp } from '@/lib/format'
@@ -18,6 +18,7 @@ import { Empty, Field, Panel, Pill } from '@/components/ui'
 import { ChartPanel, StatTile, TipArea, TipBody, TipTarget } from '@/components/ChartPanel'
 import { useInPast } from '@/components/OntologyParts'
 import { AskIndex, TurnContext } from '@/components/ContextTurn'
+import { StandingRecords } from '@/components/StandingRecords'
 import {
   PAGE, TABS, ancestors, count, filtersOf, monthBins, namedParams, ontologyPaths, paramsOf, sensitivityWords, tabOf, topicTree, veiled, when,
   type FilterKey, type Tab,
@@ -41,6 +42,7 @@ const TAB_WORDS: Record<Tab, { word: string; icon: ReactNode }> = {
   turn: { word: 'A turn’s context', icon: <Layers size={13} /> },
   search: { word: 'Ask the index', icon: <Search size={13} /> },
   books: { word: 'The books', icon: <BookOpen size={13} /> },
+  standing: { word: 'Standing', icon: <Pin size={13} /> },
 }
 
 export default function Context() {
@@ -64,6 +66,7 @@ export default function Context() {
       {tab === 'episodes' && <Episodes params={params} set={set} />}
       {tab === 'turn' && <TurnContext session={params.get('session')} turn={params.get('turn')} set={set} />}
       {tab === 'search' && <AskIndex ask={params.get('ask') ?? ''} set={set} />}
+      {tab === 'standing' && <StandingRecords />}
       {tab === 'books' && <Books go={(book) => set({ tab: null, book, page: null, episode: null })} />}
     </div>
   )

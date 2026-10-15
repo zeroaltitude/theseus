@@ -60,6 +60,11 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   footnote block under them (`session.history`'s `cites`, the CLI's `render::cite`), and `Detail::cited` does the same
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays
   raw until the history is read again. Tests: `src/tests_cite.rs`.
+- The owner's standing records (theseus-slvl.4; `src/standing.rs`): a `📌 N` pill in the header, the live records that hold
+  in the focused session on this surface (`standing.list {session_id, surface: "terminal"}`: asked when a session is
+  focused, after a turn of this TUI's, at a reconnect and when `p` opens the list), and `p`, a box over the body with a
+  line a record (id, kind, scope, text) that any key closes. Nothing polls; an older daemon's refusal says nothing.
+  Tests: `src/tests_standing.rs`.
 
 ## The chat (theseus-cyha)
 
@@ -159,6 +164,9 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
 - `src/tests_work.rs` (theseus-k2vca): the regatta (a job, a model, a tool, a question, a failure) at 80 and 120
   columns, the minute tick and the countdown on the paused clock, header and title counts, a report under its row, the
   old daemon's fallback, and `events.lost` on the work stream.
+- `src/tests_standing.rs` (theseus-slvl.4): the pill counts the records the daemon says hold in the open session (asked
+  for its session and the `terminal` surface), none shows no pill, an older daemon's refusal says nothing, `p` lists them
+  by kind and scope, and with no session open it says so.
 - `src/tests_sync.rs` (theseus-pjmj7): `health` is read at each connect (`Purpose::Health`) and the OpenClaw sync's `warn`, a
   failed or a missed night, shows in the header; an older daemon's answer or refusal says nothing.
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2

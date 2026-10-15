@@ -53,6 +53,7 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     let (live, _) = r.core.live_profile();
     let req = TurnRequest {
         prompt: None,
+        surface: None,
         sink: EventSink::new(r.core.bus.clone(), &rec.session_id, None),
         session: rec,
         input: Some("do the thing".into()),

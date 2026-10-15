@@ -598,7 +598,7 @@ enum Cmd {
     },
     /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
-    /// preference|fact] [--scope everywhere|place:T|session:ID] TEXT` and `standing revoke ID` are
+    /// preference|fact] [--scope everywhere|place:T|session:ID | --surface NAME] TEXT` and `standing revoke ID` are
     /// yours alone (refused inside a job).
     Standing {
         #[command(subcommand)]

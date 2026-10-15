@@ -84,4 +84,12 @@ in_reply_to?: string,
  * surface decides the rest, and a word this build does not know is
  * read as none.
  */
-via?: string, };
+via?: string, 
+/**
+ * A finer name for the surface than the connection's (theseus-slvl.4):
+ * the Discord binding says `voice` for a spoken turn, which the records
+ * scoped to the `voice` surface hold on. The core reads it from a Discord
+ * connection alone; any other value, or any other connection, is the
+ * connection's own surface.
+ */
+surface?: string, };

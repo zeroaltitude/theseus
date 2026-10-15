@@ -80,4 +80,10 @@ tasks?: TaskViewSummary,
  * The situation the loop compiled in (M6 35a, §2.11), which decides what
  * its request may admit; absent from a daemon before it.
  */
-situation?: Situation, };
+situation?: Situation, 
+/**
+ * The standing records the request's tail carried, because the turn's
+ * surface holds them (theseus-slvl.4); absent when none. The system's
+ * own are the compilation's `manifest.standing`.
+ */
+standing_here?: Array<string>, };

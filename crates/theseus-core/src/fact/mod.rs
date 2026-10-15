@@ -508,6 +508,7 @@ facts![
     rsi_narrow::NarrowReverted,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
+    standing::StandingRepeated<'static>,
     thread::ThreadCreated<'static>,
     thread::ThreadEdited<'static>,
     thread::ThreadPaused<'static>,

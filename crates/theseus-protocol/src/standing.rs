@@ -39,24 +39,34 @@ impl StandingKind {
     }
 }
 
+/// The surfaces a record may be scoped to (theseus-slvl.4): what the turn's
+/// input came through. `terminal` is the CLI and the TUI, `cockpit` the web
+/// UI, `discord` the binding's text, `voice` its spoken turns, `mcp` the
+/// MCP server.
+pub const SURFACES: [&str; 5] = ["terminal", "discord", "voice", "cockpit", "mcp"];
+
 /// Where a record holds: one session, one place (a transport target such as
-/// `discord:channel:<id>`), or everywhere.
+/// `discord:channel:<id>`), one surface (`terminal`, `discord`, `voice`,
+/// `cockpit`, `mcp`), or everywhere.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case", tag = "kind", content = "of")]
 pub enum StandingScope {
     Session(String),
     Place(String),
+    /// Turns whose input came through this surface, wherever the session is.
+    Surface(String),
     #[default]
     Everywhere,
 }
 
 impl StandingScope {
-    /// `everywhere`, `place:<target>`, or `session:<id>`.
+    /// `everywhere`, `place:<target>`, `surface:<name>`, or `session:<id>`.
     pub fn words(&self) -> String {
         match self {
             Self::Session(s) => format!("session:{s}"),
             Self::Place(p) => format!("place:{p}"),
+            Self::Surface(s) => format!("surface:{s}"),
             Self::Everywhere => "everywhere".into(),
         }
     }
@@ -111,6 +121,11 @@ pub struct StandingListParams {
     /// scope when none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// With a session: the surface the asker speaks through, so the records
+    /// scoped to it are in the scope too. Without one, only the other
+    /// scopes are (a surface's records show on that surface).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
     /// Who asks. The text of a preference or a fact goes only to the owner,
     /// from a private place; to anyone else it reads `(private)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

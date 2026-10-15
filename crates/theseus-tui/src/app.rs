@@ -22,6 +22,7 @@ use crate::detail::Detail;
 use crate::follow::Follow;
 use crate::notice::{Delivery, Notices};
 use crate::selfview::SelfView;
+use crate::standing::{self, Standing};
 use crate::threads::Picker;
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
@@ -73,6 +74,9 @@ pub enum Purpose {
     Health,
     /// `self.log`, for the self view (theseus-pw1q.19).
     SelfLog,
+    /// `standing.list` for the session in focus on this surface, for the
+    /// header's pill and the list `p` opens (theseus-slvl.4).
+    Standing(String),
     /// `execution.stop`.
     Stop(String),
     /// `task.cancel`.
@@ -174,6 +178,8 @@ pub enum Mode {
     Threads,
     /// `l`: what Theseus changed about itself (theseus-pw1q.19).
     SelfView,
+    /// `p`: the standing records that hold in the session in focus.
+    Standing,
 }
 
 /// Which pane a narrow screen shows: the list, or the session in focus.
@@ -239,6 +245,8 @@ pub struct App {
     pub sync_warn: Option<String>,
     /// The self view's last read (theseus-pw1q.19).
     pub selfview: SelfView,
+    /// The standing records that hold in the session in focus here.
+    pub standing: Option<Standing>,
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
@@ -296,6 +304,7 @@ impl App {
             threads_focused: false,
             follow: None,
             selfview: SelfView::default(),
+            standing: None,
         }
     }
 
@@ -495,6 +504,7 @@ impl App {
         }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
+            out.push(read_standing(&sid));
         }
         out.extend(self.follow_reconnected());
         if self.mode == Mode::SelfView {
@@ -757,6 +767,7 @@ impl App {
             // A turn's answer comes at its end; its events said the rest.
             // The turn's sources, when its reply cited any (theseus-ejdk).
             Purpose::Submit(sid) => return self.submitted(&sid, v),
+            Purpose::Standing(sid) => self.standing_read(&sid, v),
             Purpose::Health => self.health_read(v),
             Purpose::Threads => return self.threads_listed(v),
             Purpose::ThreadAct(_) => return self.thread_acted(v),
@@ -770,16 +781,19 @@ impl App {
     }
 
     /// A turn's answer, at its end (its events said the rest): the sources its
-    /// reply cited (theseus-ejdk), and the thread list again for a thread's
-    /// session (theseus-j0yh).
+    /// reply cited (theseus-ejdk), the thread list again for a thread's session
+    /// (theseus-j0yh), and the standing records, which may have changed while
+    /// the turn ran (theseus-slvl.4).
     fn submitted(&mut self, sid: &str, v: Value) -> Vec<Effect> {
+        let mut out = Vec::new();
         if let Ok(r) = serde_json::from_value::<theseus_protocol::TurnSubmitResult>(v) {
             if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
                 d.cited(&r.cites);
             }
-            return self.thread_replied(sid);
+            out = self.thread_replied(sid);
         }
-        Vec::new()
+        out.push(read_standing(sid));
+        out
     }
 
     /// The answer to `execution.dismiss` or `task.retry` (theseus-7zgsm): a
@@ -813,7 +827,10 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health | Purpose::Work) {
+        if matches!(
+            purpose,
+            Purpose::Typing | Purpose::Health | Purpose::Work | Purpose::Standing(_)
+        ) {
             return;
         }
         // An older daemon lacks `work.watch`: the rows say their labels, as
@@ -873,6 +890,7 @@ impl App {
             Purpose::FollowStart => return self.follow_failed(method::ACTION_OUTPUT, e),
             Purpose::Unfollow => return,
             Purpose::SelfLog => method::SELF_LOG,
+            Purpose::Standing(_) => method::STANDING_LIST,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -935,6 +953,8 @@ impl App {
         self.mark_shown();
         self.save_at = Some(self.now_ms + SAVE_AFTER_MS);
         out.extend(read_session(sid));
+        self.standing = None;
+        out.push(read_standing(sid));
         out.extend(self.follow_up());
         out
     }
@@ -960,7 +980,7 @@ impl App {
         }
         match self.mode.clone() {
             Mode::Threads => self.picker_key(k),
-            Mode::Help => {
+            Mode::Help | Mode::Standing => {
                 self.mode = Mode::Normal;
                 Vec::new()
             }
@@ -975,6 +995,32 @@ impl App {
             Mode::NewTask(home) => self.new_task_key(k, home),
             Mode::Normal => self.normal_key(k),
         }
+    }
+
+    /// `standing.list`'s answer for `sid`, kept while that session is in focus.
+    fn standing_read(&mut self, sid: &str, v: Value) {
+        if self.detail.as_ref().is_some_and(|d| d.session_id == sid) {
+            self.standing = Standing::read(sid, v);
+        }
+    }
+
+    /// `p`: the standing records of the session in focus, read again.
+    fn standing_key(&mut self) -> Vec<Effect> {
+        let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
+            self.flash = Some((Tag::Dim, "open a session first (enter)".to_string()));
+            return Vec::new();
+        };
+        self.mode = Mode::Standing;
+        vec![read_standing(&sid)]
+    }
+
+    /// The header's pill: the live records that hold in the session in focus.
+    pub fn standing_pill(&self) -> Option<String> {
+        let d = self.detail.as_ref()?;
+        self.standing
+            .as_ref()
+            .filter(|s| s.session == d.session_id)?
+            .pill()
     }
 
     fn normal_key(&mut self, k: KeyEvent) -> Vec<Effect> {
@@ -993,6 +1039,7 @@ impl App {
             KeyCode::Char('q') => return vec![Effect::Quit],
             KeyCode::Char('?') => self.mode = Mode::Help,
             KeyCode::Char('L') => return self.open_self(),
+            KeyCode::Char('p') => return self.standing_key(),
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
             KeyCode::Enter => {
@@ -1373,7 +1420,7 @@ impl App {
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             // The self view takes no paste.
             Mode::SelfView => {}
-            Mode::Normal | Mode::Help | Mode::Armed(..) => {
+            Mode::Normal | Mode::Help | Mode::Standing | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop | Arm::StopAll => "not stopped",
@@ -1496,6 +1543,15 @@ fn pasted(text: &str) -> String {
         }
     }
     out
+}
+
+/// `standing.list` for `sid` on this surface (theseus-slvl.4).
+fn read_standing(sid: &str) -> Effect {
+    call(
+        method::STANDING_LIST,
+        standing::params(sid),
+        Purpose::Standing(sid.to_string()),
+    )
 }
 
 pub(crate) fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {

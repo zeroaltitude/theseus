@@ -98,6 +98,7 @@ pub(crate) async fn turn_in(
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,

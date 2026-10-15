@@ -116,6 +116,7 @@ async fn try_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<()
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -664,3 +665,5 @@ async fn a_place_scope_names_a_bound_places_target() {
         .unwrap()
         .is_empty());
 }
+
+mod surface;

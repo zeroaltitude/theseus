@@ -84,6 +84,7 @@ pub async fn ask(
     });
     let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || thread.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
+        surface: None,
         dir,
         carried: false,
         prompt: None,

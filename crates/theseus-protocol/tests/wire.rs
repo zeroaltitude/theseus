@@ -844,6 +844,7 @@ fn summary(recompile: bool) -> ContextCompiled {
         situation: recompile.then(|| theseus_protocol::Situation::Recompile {
             trigger: "window".into(),
         }),
+        standing_here: vec![],
     }
 }
 

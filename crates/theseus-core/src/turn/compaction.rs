@@ -54,11 +54,13 @@ const NODE_CHARS: usize = 6_000;
 /// the summary model's window (theseus-3ki0).
 const MIN_NODE_CHARS: usize = 400;
 
-/// The summary call's instructions.
+/// The summary call's instructions. Its clause on format, length and tone is
+/// why "for now, be brief" outlives a compaction (theseus-slvl.4).
 const INSTRUCTIONS: &str = "You summarize the earlier part of a conversation between an operator \
 and Theseus, a coding and operations agent, so the agent can go on without it. Keep what the \
 rest of the conversation may need: the operator's requests and decisions, what was found and \
 done (files, commands, results, numbers, names), what failed and why, and what is still open. \
+Keep any instruction the operator gave about format, length or tone, in their words. \
 Leave out pleasantries and repetition. Write plain prose or short lists, in the past tense, \
 under 600 words. Write only the summary.";
 

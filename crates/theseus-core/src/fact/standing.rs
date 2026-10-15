@@ -67,3 +67,21 @@ impl Fact for StandingRevoked<'_> {
         );
     }
 }
+
+/// The owner said a live record's words again (`standing.repeated`,
+/// theseus-slvl.4): the record, and the node of the message that restated it.
+/// The capture row writes it; counting these per record is how a later row and
+/// the exam know a preference was said more than once, with no change to the
+/// record or the store's format. The row holds ids, never the words.
+pub struct StandingRepeated<'a> {
+    pub record: &'a str,
+    pub node: &'a str,
+}
+
+impl Fact for StandingRepeated<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::StandingRepeated);
+
+    fn row(&self) -> Value {
+        json!({"record": self.record, "node": self.node})
+    }
+}

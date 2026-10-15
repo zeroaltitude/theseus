@@ -106,6 +106,7 @@ async fn the_block_survives_three_compactions() {
         core.runner
             .run(TurnRequest {
                 prompt: None,
+                surface: None,
                 session: rec,
                 input: Some(words(&format!("turn{k}"), 6_000)),
                 target,

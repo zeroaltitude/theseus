@@ -9,7 +9,7 @@ use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::standing::{
     StandingAddParams, StandingChanged, StandingKind, StandingListParams, StandingListResult,
-    StandingRevokeParams, StandingScope,
+    StandingRevokeParams, StandingScope, SURFACES,
 };
 
 use crate::cmd::output;
@@ -32,9 +32,14 @@ pub enum StandingCmd {
         #[arg(long, default_value = "order")]
         kind: String,
         /// `everywhere` (default), `place:TARGET` (a bound place's target, `discord:dm:<user id>` or
-        /// `discord:channel:<id>`, as `theseus places` lists it), or `session:ID`.
-        #[arg(long, default_value = "everywhere")]
+        /// `discord:channel:<id>`, as `theseus places` lists it), `surface:NAME`, or `session:ID`.
+        #[arg(long, default_value = "everywhere", conflicts_with = "surface")]
         scope: String,
+        /// Hold only on turns that came through this surface: `terminal` (the CLI and the TUI),
+        /// `discord`, `voice`, `cockpit`, or `mcp`. It rides the turn's tail, so the system prompt
+        /// stays the same on every surface. Shorthand for `--scope surface:NAME`.
+        #[arg(long, value_name = "NAME")]
+        surface: Option<String>,
         /// It lapses by itself after this long: `30m`, `12h`, `7d`, `2w`.
         #[arg(long, value_name = "AGE")]
         until: Option<String>,
@@ -52,7 +57,11 @@ fn scope_of(s: &str) -> Result<StandingScope> {
         None if s == "everywhere" => StandingScope::Everywhere,
         Some(("place", p)) if !p.is_empty() => StandingScope::Place(p.to_string()),
         Some(("session", id)) if !id.is_empty() => StandingScope::Session(id.to_string()),
-        _ => bail!("`{s}` is no scope: write everywhere, place:TARGET, or session:ID"),
+        Some(("surface", n)) if SURFACES.contains(&n) => StandingScope::Surface(n.to_string()),
+        Some(("surface", n)) => bail!("`{n}` is no surface: write {}", SURFACES.join(", ")),
+        _ => {
+            bail!("`{s}` is no scope: write everywhere, place:TARGET, surface:NAME, or session:ID")
+        }
     })
 }
 
@@ -97,6 +106,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: StandingCmd) -> Result<()> {
         StandingCmd::Add {
             kind,
             scope,
+            surface,
             until,
             replaces,
             text,
@@ -107,7 +117,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: StandingCmd) -> Result<()> {
             let p = StandingAddParams {
                 kind,
                 text: text.join(" "),
-                scope: scope_of(&scope)?,
+                scope: scope_of(&surface.map_or(scope, |n| format!("surface:{n}")))?,
                 until_ms: until
                     .as_deref()
                     .map(age_ms)
@@ -276,6 +286,11 @@ mod tests {
             scope_of("session:ses_a").unwrap(),
             StandingScope::Session("ses_a".into())
         );
+        assert_eq!(
+            scope_of("surface:terminal").unwrap(),
+            StandingScope::Surface("terminal".into())
+        );
+        assert!(scope_of("surface:phone").is_err() && scope_of("surface:").is_err());
         assert!(scope_of("place:").is_err() && scope_of("here").is_err());
         assert_eq!(age_ms("7d").unwrap(), 7 * 86_400_000);
         assert!(age_ms("7").is_err());

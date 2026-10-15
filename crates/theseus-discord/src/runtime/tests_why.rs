@@ -74,6 +74,7 @@ async fn turn_that_asks(core: &Arc<Core>) -> String {
         .call(
             theseus_protocol::method::TURN_SUBMIT,
             TurnSubmitParams {
+                surface: None,
                 carried: false,
                 prompt: None,
                 session_id: Some(sid.clone()),

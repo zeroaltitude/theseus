@@ -14,6 +14,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::app::{App, Link, Mode};
 use crate::board::{short, Only, Row};
 use crate::card;
+use crate::standing::Standing;
 use crate::styled::{self, PaneRow};
 use crate::work::Form;
 
@@ -65,6 +66,14 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     }
     if app.mode == Mode::Threads {
         crate::threads::draw_picker(app, body, buf);
+    }
+    if app.mode == Mode::Standing {
+        let lines = app
+            .standing
+            .as_ref()
+            .map(Standing::lines)
+            .unwrap_or_default();
+        overlay(&lines, body, buf);
     }
     cursor
 }
@@ -125,6 +134,9 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
     }
     if let Some(w) = &app.sync_warn {
         left.push_str(&format!(" · ⚠ {w}"));
+    }
+    if let Some(p) = app.standing_pill() {
+        left.push_str(&format!(" · {p}"));
     }
     if app.only != Only::All {
         left.push_str(&format!(" · only {}", app.only.word()));
@@ -678,7 +690,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 23] = [
+    const KEYS: [&str; 24] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -698,18 +710,26 @@ fn help(area: Rect, buf: &mut Buffer) {
         " /t         in the input line: the threads; /t N or /t NAME picks one",
         " r d o      on a failed row: retry (a task) / dismiss / open it",
         " L          what Theseus changed about itself (esc closes)",
+        " p          the standing records that hold in the open session",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",
         " any key closes this",
     ];
-    let w = KEYS.iter().map(|l| l.width()).max().unwrap_or(0) as u16 + 2;
-    let h = KEYS.len() as u16;
+    overlay(&KEYS, area, buf);
+}
+
+/// Lines in a box over the body, the first one bold; the same look as the
+/// keys.
+fn overlay<S: AsRef<str>>(lines: &[S], area: Rect, buf: &mut Buffer) {
+    let w = lines.iter().map(|l| l.as_ref().width()).max().unwrap_or(0) as u16 + 2;
+    let h = lines.len() as u16;
     let x = area.x + area.width.saturating_sub(w) / 2;
     let y = area.y + area.height.saturating_sub(h) / 2;
     let rect = Rect::new(x, y, w.min(area.width), h.min(area.height));
     buf.set_style(rect, Style::default().bg(Color::Black));
-    for (i, l) in KEYS.iter().enumerate().take(rect.height as usize) {
+    for (i, l) in lines.iter().enumerate().take(rect.height as usize) {
+        let l = l.as_ref();
         let style = if i == 0 {
             Style::default().add_modifier(Modifier::BOLD)
         } else {

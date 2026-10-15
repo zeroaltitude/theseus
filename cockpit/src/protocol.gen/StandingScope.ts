@@ -2,6 +2,7 @@
 
 /**
  * Where a record holds: one session, one place (a transport target such as
- * `discord:channel:<id>`), or everywhere.
+ * `discord:channel:<id>`), one surface (`terminal`, `discord`, `voice`,
+ * `cockpit`, `mcp`), or everywhere.
  */
-export type StandingScope = { "kind": "session", "of": string } | { "kind": "place", "of": string } | { "kind": "everywhere" };
+export type StandingScope = { "kind": "session", "of": string } | { "kind": "place", "of": string } | { "kind": "surface", "of": string } | { "kind": "everywhere" };

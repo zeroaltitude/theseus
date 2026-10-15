@@ -546,7 +546,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 38);
+    assert_eq!(moved["format"], 39);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -557,7 +557,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 38. The
+/// with a row that counts and pins them, and the manifest moves to 39. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -598,7 +598,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 38);
+    assert_eq!(moved["format"], 39);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -606,7 +606,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 38,
+/// both with no origin and no inherited run, and moves the manifest to 39,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -653,7 +653,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 38);
+    assert_eq!(moved["format"], 39);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -682,7 +682,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 38,
+/// it, reads an empty board, takes a thread and moves the manifest to 39,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -705,7 +705,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 38);
+    assert_eq!(moved["format"], 39);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -791,7 +791,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 38);
+    assert_eq!(moved["format"], 39);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -831,7 +831,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 38,
+/// A store of format 33 opens, and its first write moves the manifest to 39,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -856,7 +856,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 38);
+    assert_eq!(moved["format"], 39);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -876,4 +876,66 @@ fn a_user_message_records_its_surface_and_an_old_one_has_none() {
     assert_eq!(v["surface"], "terminal:tui");
     let back: Node = serde_json::from_value(v).unwrap();
     assert_eq!(back.surface.as_deref(), Some("terminal:tui"));
+}
+
+/// A standing record as format 33 wrote it (theseus-a7vi's scopes: session,
+/// place, everywhere): a literal, so the surface scope added at 34
+/// (theseus-slvl.4) must leave it reading and writing back byte for byte.
+pub(crate) const STANDING_AT_33: &str = r#"{"id":"std_00000331","kind":"preference","text":"short answers","scope":{"kind":"place","of":"discord:dm:7"},"since_ms":1790000000331,"source":"the CLI"}"#;
+
+/// A surface scope is one more variant: `{"kind":"surface","of":"terminal"}`.
+#[test]
+fn a_format_33_standing_record_reads_and_a_surface_scope_writes_back() {
+    use theseus_protocol::{StandingRecord, StandingScope};
+    let old: StandingRecord = serde_json::from_str(STANDING_AT_33).unwrap();
+    assert_eq!(old.scope, StandingScope::Place("discord:dm:7".into()));
+    assert_eq!(serde_json::to_string(&old).unwrap(), STANDING_AT_33);
+    let new = StandingRecord {
+        scope: StandingScope::Surface("terminal".into()),
+        ..old
+    };
+    let bytes = serde_json::to_string(&new).unwrap();
+    assert!(
+        bytes.contains(r#""scope":{"kind":"surface","of":"terminal"}"#),
+        "{bytes}"
+    );
+    assert_eq!(serde_json::from_str::<StandingRecord>(&bytes).unwrap(), new);
+}
+
+/// A store of format 33 that holds a standing record: the build opens it,
+/// reads the record, takes a surface-scoped one, and moves the manifest to 39,
+/// which an older build then refuses.
+#[test]
+fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
+    use theseus_protocol::{StandingRecord, StandingScope};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let old: StandingRecord = serde_json::from_str(STANDING_AT_33).unwrap();
+        crate::standing::Board::default()
+            .write(&store, |_| Ok(vec![old.clone()]), |_, _| Ok(vec![]))
+            .unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    let board = crate::standing::Board::default();
+    assert_eq!(board.all(&store).unwrap().len(), 1);
+    let mut next: StandingRecord = serde_json::from_str(STANDING_AT_33).unwrap();
+    next.id = "std_00000332".into();
+    next.scope = StandingScope::Surface("terminal".into());
+    board
+        .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 39);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    let all = crate::standing::Board::default().all(&again).unwrap();
+    assert_eq!(all.len(), 2);
+    assert!(all
+        .iter()
+        .any(|r| r.scope == StandingScope::Surface("terminal".into())));
 }

@@ -105,6 +105,14 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub via: Option<String>,
+    /// A finer name for the surface than the connection's (theseus-slvl.4):
+    /// the Discord binding says `voice` for a spoken turn, which the records
+    /// scoped to the `voice` surface hold on. The core reads it from a Discord
+    /// connection alone; any other value, or any other connection, is the
+    /// connection's own surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub surface: Option<String>,
 }
 
 #[cfg(test)]

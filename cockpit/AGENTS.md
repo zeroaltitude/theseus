@@ -69,6 +69,11 @@ build.
   pure parts are `src/lib/explorer.ts`, tested by `test/explorer.test.ts`. The Ship's vessel panel and the session
   deck's Context tab link to it (`contextHref`). Personal and partner-confidential text is veiled on screen until
   opened (`?veil=off` lifts it); the daemon gives imported text only to a private place.
+- The standing records (theseus-slvl.4): the Context page's `Standing` tab, `src/components/StandingRecords.tsx` over
+  `src/lib/standing.ts` (pure: `groupsOf`, `scopeWords`, `lapses`, `revokeQuestion`, `tallyWords`; `test/standing.test.ts`):
+  `standing.list`'s live records by kind (orders, preferences, facts), each with its scope (a surface's as `on terminal`),
+  since, source and how many compiles carried it, and Revoke (`standing.revoke`, confirmed first, which the core judges
+  as the owner's act from this private connection). It reads only while on screen.
 - A reply's citations (theseus-ejdk): `src/lib/cites.ts` (pure: the handles in a reply, the numbered marks, the card's words; `test/cites.test.ts`) and `src/components/Cites.tsx`
   (`ReplyMarkdown`: the reply as markdown with each cited handle a mark linking to its source's session, with a hover card of
   the source's header, excerpt and the command that opens it). The sources are `session.history`'s `cites`; a handle with no

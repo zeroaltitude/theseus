@@ -80,6 +80,7 @@ async fn turn_on(mut c: Config, script: Vec<Scripted>, cfg: impl FnOnce(&mut Con
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("diff these, again and again".into()),
             target,

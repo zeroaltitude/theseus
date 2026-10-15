@@ -1033,6 +1033,7 @@ impl Core {
             Some((conn.client.to_string(), conn.tx.clone())),
         )
         .from_surface(self.surface_of(conn.surface, p.via.as_deref(), &session.session_id));
+        let voice = p.surface.as_deref() == Some("voice");
         let result = self
             .runner
             .run(TurnRequest {
@@ -1050,6 +1051,7 @@ impl Core {
                 reply_to: p.reply_to,
                 prompt,
                 answer_at,
+                surface: crate::standing::surface_name(conn.surface, voice),
             })
             .await;
         if let Some(routing) = &routing {

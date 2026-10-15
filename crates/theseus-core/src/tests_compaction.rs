@@ -162,6 +162,7 @@ async fn turn_on(
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -1091,4 +1092,110 @@ async fn a_self_tasks_compaction_is_counted_on_the_self_budget() {
         v.day_spent_usd
     );
     assert_eq!(v.branches[0].open_usd, 0.0, "nothing is left open");
+}
+
+/// A stand-in summarizer that does what the instructions' clause on format,
+/// length and tone asks, and only when they ask it: it writes, in the
+/// operator's words, each sentence of theirs that names how to answer. With
+/// the clause gone from its instructions it writes the plain recap a
+/// summary without the clause would.
+struct StyleKeeper {
+    asked: std::sync::Mutex<Vec<ProviderRequest>>,
+}
+
+const KEEP_CLAUSE: &str =
+    "Keep any instruction the operator gave about format, length or tone, in their words.";
+
+impl crate::provider::Provider for StyleKeeper {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: crate::provider::DeltaSink<'a>,
+    ) -> crate::provider::ProviderFuture<'a> {
+        self.asked.lock().unwrap().push(req.clone());
+        let instructions = req.system[0]["text"].as_str().unwrap_or_default();
+        let read = text_of(req);
+        let mut kept = Vec::new();
+        if instructions.contains(KEEP_CLAUSE) {
+            for sentence in read.split(['.', '?', '!', '\n']) {
+                let s = sentence.trim();
+                if ["sentences", "brief", "bullet", "formal tone"]
+                    .iter()
+                    .any(|w| s.contains(w))
+                {
+                    kept.push(s.trim_matches(|c| c == '"' || c == '\\').to_string());
+                }
+            }
+        }
+        let text = match kept.is_empty() {
+            true => "The operator asked about the tides and the keeper answered.".to_string(),
+            false => format!("The operator said: \"{}\".", kept.join("\"; \"")),
+        };
+        Box::pin(async move {
+            FakeProvider::scripted(vec![summary(&text, 9_000, 60)])
+                .stream_message(req, on_delta)
+                .await
+        })
+    }
+}
+
+/// "For now, two sentences max" is the operator's, said once and early; a
+/// forced compaction summarizes it away unless the summary is told to keep
+/// style requests, and the summary call is. The stand-in obeys that clause,
+/// so the next request, which begins with the summary, still carries the
+/// words as the operator wrote them.
+#[tokio::test]
+async fn a_style_request_survives_a_compaction_in_the_operators_words() {
+    const ASK: &str = "for now, two sentences max";
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::scripted(vec![]));
+    let glm = Arc::new(StyleKeeper {
+        asked: Default::default(),
+    });
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let cfg = config(&root.canonicalize().unwrap(), dir.path(), "glm");
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts.providers.insert("zai".into(), glm.clone());
+    let core = Core::build(parts).unwrap();
+    let sid = session(&core);
+    turn(&core, &sid, &format!("Chart the tides. {ASK}, please."))
+        .await
+        .unwrap();
+    for k in 0..12 {
+        turn(&core, &sid, &words(&format!("turn{k}"), 6_000))
+            .await
+            .unwrap();
+        if rows(&core, "context.compiled")
+            .last()
+            .is_some_and(|c| c["strategy"] == "compaction")
+        {
+            break;
+        }
+    }
+    assert_eq!(rows(&core, "context.compacted").len(), 1, "it rang");
+    let asked = glm.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1);
+    // The summary was asked to keep it, and was shown it whole.
+    assert!(asked[0].system[0]["text"]
+        .as_str()
+        .unwrap()
+        .contains(KEEP_CLAUSE));
+    assert!(text_of(&asked[0]).contains(ASK));
+    // The next request begins with a summary that says it in the operator's words.
+    let sent = model.requests();
+    let q = sent.last().unwrap();
+    assert!(
+        first_text(q).contains(&format!("\"{ASK}")),
+        "{}",
+        first_text(q)
+    );
+    assert!(
+        !text_of(q).contains("Chart the tides"),
+        "the message itself was summarized away"
+    );
 }

@@ -48,6 +48,7 @@ async fn the_loop_that_asks_the_budget_question_writes_its_loop_ended_row() {
         .runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("diff these".into()),
             target,

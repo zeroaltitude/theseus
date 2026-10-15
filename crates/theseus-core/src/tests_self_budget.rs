@@ -94,6 +94,7 @@ async fn try_turn_on(
     core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some("go".into()),
             target,

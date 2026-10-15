@@ -73,6 +73,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<()> {
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -150,6 +151,7 @@ async fn submit(core: &Arc<Core>, sid: &str, input: &str) -> theseus_protocol::R
     let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
     let (cr, mut cw) = tokio::io::split(client);
     let params = TurnSubmitParams {
+        surface: None,
         dir: None,
         carried: false,
         prompt: None,

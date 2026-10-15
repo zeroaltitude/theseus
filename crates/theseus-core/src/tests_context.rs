@@ -67,6 +67,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: Some(input.into()),
             target,

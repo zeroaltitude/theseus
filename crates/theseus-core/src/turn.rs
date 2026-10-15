@@ -81,6 +81,7 @@ pub mod nudge_step;
 mod prompt_input;
 mod recall_step;
 mod reply_step;
+mod request;
 mod rerank_step;
 mod retract_step;
 mod retry_step;
@@ -95,6 +96,7 @@ mod stopping_step;
 mod surface_step;
 mod title_step;
 
+pub use request::TurnRequest;
 pub use route_step::{LiveSwitched, SWITCHED};
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
@@ -307,32 +309,6 @@ struct SecretRefusal {
     error: String,
 }
 
-/// One turn to run.
-pub struct TurnRequest {
-    pub session: SessionRecord,
-    /// `None`: a continuation.
-    pub input: Option<String>,
-    pub target: Target,
-    pub sink: EventSink,
-    /// The client that asked (`web#3`) or `harness` for a continuation.
-    pub author: String,
-    pub recompile: Option<Recompile>,
-    /// Files that came with the input (theseus-9g2); kept on its node.
-    pub attachments: Vec<theseus_protocol::Attachment>,
-    /// When the request reached the daemon; `None`: now.
-    pub arrived: Option<Instant>,
-    /// The surface's message it answers (a Discord message id), which the
-    /// reply's post names (theseus-q4v).
-    pub reply_to: Option<String>,
-    /// An MCP server's prompt as the input (M7 36c): its messages are the
-    /// input's nodes, and `input` is their text. `None` for any other turn.
-    pub prompt: Option<crate::mcp::prompts::PromptInput>,
-    /// Where the reply is posted when it is not the session's own place (a
-    /// message in the owner's DM answered there, in a thread's turn;
-    /// theseus-sjzm).
-    pub answer_at: Option<String>,
-}
-
 /// The principal of every local protocol client (file permissions are the auth).
 pub const OPERATOR: &str = "operator";
 
@@ -428,8 +404,8 @@ struct Turn<'a> {
     fallback: Option<fallback_step::FellBack>,
     /// The stop judged live, and the one nudge (theseus-fh0u).
     nudge: nudge_step::Nudge,
-    /// The standing block the turn's spec carries (theseus-a7vi).
-    standing: Option<crate::standing::Block>,
+    /// The standing blocks the turn's spec and tail carry, and its surface.
+    standing: standing_step::Held,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -555,7 +531,7 @@ impl<'a> Turn<'a> {
             route: route_step::RouteState::default(),
             fallback: None,
             nudge: nudge_step::Nudge::default(),
-            standing: None,
+            standing: standing_step::Held::default(),
         }
     }
 
@@ -1527,6 +1503,7 @@ impl TurnRunner {
             reply_to,
             prompt,
             answer_at,
+            surface,
             ..
         } = req;
         // The caller's copy may be stale: re-read under the lock. Its
@@ -1605,6 +1582,7 @@ impl TurnRunner {
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
         t.reply_to = reply_to;
         t.answer_at = answer_at;
+        t.standing.surface = surface;
         t.route.read = read;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
         let asked = Asked {

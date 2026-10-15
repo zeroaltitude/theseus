@@ -105,6 +105,8 @@ impl TurnRunner {
             &mut compiled,
             &|w| crate::watch::run::shown_value(&self.kernel, w),
         );
+        // The records of this turn's surface (theseus-slvl.4), in the tail too.
+        Self::standing_here(t, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
@@ -246,6 +248,9 @@ impl TurnRunner {
             signals: compiled.signals.fired.clone(),
             tasks,
             situation: Some(compiled.situation.clone()),
+            standing_here: (t.standing.here.iter())
+                .flat_map(|b| b.used.iter().map(|u| u.id.clone()))
+                .collect(),
         }
     }
 }

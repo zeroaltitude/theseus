@@ -116,6 +116,7 @@ async fn a_cancel_aborts_an_async_tools_task_and_verifies_it() {
             core.runner
                 .run(TurnRequest {
                     prompt: None,
+                    surface: None,
                     session: rec,
                     input: Some("fetch the page".into()),
                     target,

@@ -224,7 +224,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   one line (`standing::WITHHELD`) for preferences and facts, never their text; `standing.list` gives their text to
   the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
   `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
-  should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`). `standing.add` and `.revoke`
+  should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`).
+  **A surface scope** (theseus-slvl.4, store format 34; `StandingScope::Surface(name)`, `terminal` for the CLI and the TUI,
+  `cockpit`, `discord`, `voice`, `mcp`): the record is in no system block, so the system and tools stay byte-identical
+  across surfaces. `Block::here` renders the turn's surface's records as a "Standing here:" block with the same kinds
+  and the same privacy rule, and `standing_step::standing_here` attaches it to the request's last message
+  (`task_graph::view::attach_text`, after the cached prefix, beside the task view and the commitments), counted in the
+  estimate; `standing::missing_here` refuses a request that dropped it, and the compile's `context.compiled` row names
+  them in `standing_here`. The surface is `TurnRequest.surface` (`standing::surface_name` of the connection; a
+  continuation and a caller that names none have none, so no surface record holds), kept in the turn's `Held`
+  beside the blocks. `standing.list` takes the asker's `surface` with a `session_id`; its tally counts only the
+  system's records (no manifest lists the tail). `standing.repeated {record, node}` is a row of ids
+  (`Core::standing_repeated`, for the capture row to call), counted per record without a format change.
+  The compaction summary's instructions keep a style request ("for now, be brief") in the operator's words
+  (`turn/compaction.rs`, `tests_compaction`). `standing.add` and `.revoke`
   are `judge_act(Act::Standing)`: the owner, from a private place; the CLI refuses them inside a job
   (`client::OPERATORS`). `standing.list` tallies the manifests (compilations of each live record's scope since it
   began, and those lacking it), a scan of the sessions' compilations: a read for a person, never a turn's path. Tests:

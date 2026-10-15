@@ -153,6 +153,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
 - `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,
   `ReplayReply`, `ReplayVerdict`) and `route.report`'s (`RouteReportParams`, `RouteReportResult`, `RouteCell`).
+- `standing.rs` (theseus-a7vi, theseus-slvl.4): the standing records' wire types. `StandingScope` has a `Surface(name)` variant
+  (store format 34), `SURFACES` names the five (`terminal`, `discord`, `voice`, `cockpit`, `mcp`); `StandingListParams.surface`
+  is the asker's surface with a `session_id`. `turn.submit`'s optional `surface` (in `submit.rs`) lets the Discord binding say
+  `voice`; `context.compiled` names the tail's records in `standing_here`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

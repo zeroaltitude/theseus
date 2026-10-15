@@ -63,6 +63,7 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result
     core.runner
         .run(TurnRequest {
             prompt: None,
+            surface: None,
             session: rec,
             input: input.map(str::to_string),
             target,
