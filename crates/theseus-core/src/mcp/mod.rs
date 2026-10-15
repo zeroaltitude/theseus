@@ -155,13 +155,15 @@ pub struct Connected {
 pub trait Connect: Send + Sync + 'static {
     /// Start (stdio) or reach (HTTP) `server`, and run the handshake. `env`
     /// is what a stdio server gets besides the job's environment; `bearer`
-    /// an HTTP server's key.
+    /// an HTTP server's key; `serve` the requests of its own this one
+    /// connection answers (an extension's hands broker, theseus-pw1q.14).
     fn connect(
         &self,
         server: &str,
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
         bearer: Option<String>,
+        serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>>;
 }
 
@@ -192,8 +194,12 @@ impl Connect for Spawn {
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
         bearer: Option<String>,
+        serve: Option<theseus_mcp::client::Served>,
     ) -> BoxFuture<'static, Result<Connected, String>> {
-        let opts = options(cfg);
+        let opts = theseus_mcp::Options {
+            serve,
+            ..options(cfg)
+        };
         let transport = match &cfg.url {
             Some(url) => {
                 let mut t = theseus_mcp::client::HttpTarget::new(url.clone());
@@ -306,6 +312,9 @@ pub struct Server {
     pub calls: AtomicU64,
     pub errors: AtomicU64,
     restart: Notify,
+    /// The requests of its own its connection answers: an extension's hands
+    /// broker (theseus-pw1q.14), none for any other server.
+    serve: Option<theseus_mcp::client::Served>,
 }
 
 impl Server {
@@ -331,6 +340,7 @@ impl Server {
             calls: AtomicU64::new(0),
             errors: AtomicU64::new(0),
             restart: Notify::new(),
+            serve: None,
         }
     }
 
@@ -743,7 +753,9 @@ impl McpBoard {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        let c = connect.connect(&s.name, &s.cfg, env, bearer).await?;
+        let c = connect
+            .connect(&s.name, &s.cfg, env, bearer, s.serve.clone())
+            .await?;
         let tools = c.client.list_tools().await.map_err(|e| e.to_string())?;
         let prompts = match c.client.server_info().capabilities.prompts.is_some() {
             true => c.client.list_prompts().await.unwrap_or_default(),

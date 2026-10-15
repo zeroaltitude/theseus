@@ -12,7 +12,7 @@ import { call, useRpc } from '@/lib/rpc'
 import { ago } from '@/lib/format'
 import { stateTone } from '@/lib/taxonomy'
 import { Empty, Field, Panel, Pill } from '@/components/ui'
-import { networkWords, proposalsNotLoaded, shortDigest, usageWords } from '@/lib/extensions'
+import { handsWords, networkWords, proposalsNotLoaded, shortDigest, usageWords } from '@/lib/extensions'
 
 export function ExtensionsCard({ now }: { now: number }) {
   const { data } = useRpc<ExtendListResult>('extend.list', { usage: true }, 5000)
@@ -54,6 +54,7 @@ function Loaded({ l, manifest, now }: { l: ExtendLoadedInfo; manifest?: ExtendIn
       {manifest && <Field label="files" mono>{manifest.files ?? 0} files · {(manifest.bytes ?? 0).toLocaleString()} bytes, frozen from {manifest.source}</Field>}
       <Field label="frozen" mono>{l.frozen}</Field>
       {l.usage && <Field label="used" mono><span className={l.usage.failures ? 'text-wait' : ''}>{usageWords(l.usage)}</span></Field>}
+      {l.hands && <Field label="hands" mono>{handsWords(l.hands)}</Field>}
       <Field label="calls · errors" mono><span className={l.errors ? 'text-wait' : ''}>{l.calls} · {l.errors}</span></Field>
       {l.replaced && <Field label="replaced" mono>{shortDigest(l.replaced)}</Field>}
       {l.last_error && <Field label="last error" mono><span className="text-fault">{l.last_error}</span></Field>}

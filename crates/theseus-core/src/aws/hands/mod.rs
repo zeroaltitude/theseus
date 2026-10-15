@@ -46,11 +46,14 @@ pub mod overdue;
 pub mod poller;
 pub mod quota;
 pub mod runaway;
+pub mod start;
 pub mod tool;
 pub mod watch;
 
 pub use launch::{HAND, RUN};
 
+#[cfg(test)]
+mod tests_broker;
 #[cfg(test)]
 mod tests_hand;
 #[cfg(test)]

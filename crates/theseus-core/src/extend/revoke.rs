@@ -88,6 +88,16 @@ impl Core {
         self.tools.extend.floors.clear(&server);
         self.mcp.unload_extension(&server);
         self.session_rec(session).announce(&fact);
+        // Its running groups stop, each by its backend's means, after any
+        // launch under way (theseus-pw1q.14): the channel closed with it.
+        if l.capabilities.hands.is_some() {
+            if let (Some(core), Ok(rt)) = (
+                self.tools.extend.core(),
+                tokio::runtime::Handle::try_current(),
+            ) {
+                rt.spawn(core.hands_revoked(l.name.clone()));
+            }
+        }
         Ok(ExtensionRevokeResult {
             name: l.name.clone(),
             digest: l.digest.clone(),

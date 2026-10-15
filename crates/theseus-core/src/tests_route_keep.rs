@@ -41,11 +41,12 @@ use crate::tests_route::{mode, rig, turn};
 /// 37,900 rang with all three; their joins' review), and 43,700 and 38,200 before
 /// standing-surface (theseus-slvl.4) and wait-cost (theseus-7m7w.3) joined (43,700
 /// rang with both; 43,800 to 44,200 hold: a sweep at their join).
-const WINDOW: u64 = 43_900;
+/// And 43,900 and 38,400 before `extend.propose`'s `hands` joined it (theseus-pw1q.14) (200 more).
+const WINDOW: u64 = 44_100;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 38_400;
+const BILLED: u64 = 38_600;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

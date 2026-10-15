@@ -540,15 +540,10 @@ pub fn answer_options(q: &Question) -> Vec<AnswerOption> {
             ),
             decline("the task stays as it is"),
         ],
+        // The Load card (theseus-pw1q.14): its question names what loads.
         QuestionKind::Extension => vec![
-            option(
-                "ack",
-                "Acknowledge",
-                Style::Primary,
-                false,
-                "the extension goes on",
-            ),
-            decline("the extension stops"),
+            option("ack", "Load", Style::Primary, false, "the extension loads"),
+            option("decline", "Don't load", Style::Plain, true, "nothing loads"),
         ],
         QuestionKind::Ask => {
             let mut out: Vec<AnswerOption> = q

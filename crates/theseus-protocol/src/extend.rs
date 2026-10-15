@@ -86,6 +86,45 @@ pub struct ExtendLoadedInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub usage: Option<ExtendUsage>,
+    /// Its hands, when its ack granted them (theseus-pw1q.14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub hands: Option<ExtendHandsInfo>,
+}
+
+/// A loaded extension's hands: its grant, and its spend.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExtendHandsInfo {
+    /// The day's cap, in dollars.
+    pub usd_cap: f64,
+    /// `lambda`, `fargate`.
+    pub backends: Vec<String>,
+    /// The most hands it runs at a time.
+    pub max_group: u32,
+    /// Today's spend and what its running hands hold, against the cap.
+    pub today_usd: f64,
+    /// Every day's spend.
+    pub spent_usd: f64,
+    /// Its hands running or waiting now.
+    pub running: u32,
+}
+
+impl ExtendHandsInfo {
+    /// The one line every surface shows: "up to 20 hands at a time on
+    /// lambda · $0.08 of $2.00 today · $1.20 in all · 3 running".
+    pub fn line(&self) -> String {
+        format!(
+            "up to {} hand{} at a time on {} · ${:.2} of ${:.2} today · ${:.2} in all · {} running",
+            self.max_group,
+            if self.max_group == 1 { "" } else { "s" },
+            self.backends.join(" or "),
+            self.today_usd,
+            self.usd_cap,
+            self.spent_usd,
+            self.running
+        )
+    }
 }
 
 /// How much a loaded extension was used over a window (theseus-pw1q.13),
@@ -197,4 +236,23 @@ fn is_zero(n: &u64) -> bool {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn an_extensions_hands_line_is_one_wording() {
+        let h = super::ExtendHandsInfo {
+            usd_cap: 2.0,
+            backends: vec!["lambda".into()],
+            max_group: 20,
+            today_usd: 0.08,
+            spent_usd: 1.2,
+            running: 3,
+        };
+        assert_eq!(
+            h.line(),
+            "up to 20 hands at a time on lambda · $0.08 of $2.00 today · $1.20 in all · 3 running"
+        );
+    }
 }

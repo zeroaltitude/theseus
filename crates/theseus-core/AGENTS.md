@@ -731,6 +731,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   in the CLI's `OPERATORS`): one frame (the record without it, its manifest `revoked`, `extend.revoked`), then the
   board drops it and SIGTERMs its group; the frozen copy stays. Tests: `extend/tests_load.rs`, theseusd's
   `tests/extend.rs`.
+  **Hands** (theseus-pw1q.14; store format 34; `extend/hands.rs`, `extend/broker.rs`, `aws/hands/start.rs`,
+  `fact/extend_hands.rs`): `extend.propose { hands: { usd_cap, backends, max_group } }` (all required; `HandsCap`)
+  is frozen into the digest (`freeze::with_caps`: the tree's digest, then the ask's canonical JSON; no ask, the tree's
+  own) and said on the Load card ("This extension may run up to 20 hands at a time on Lambda, at most $2.00 a day.",
+  buttons Load and Don't load). The ack's load gives that server's connection, and no other, a channel
+  (`Extensions::channel`, `theseus_mcp::client::Serve`): its own stdio pipe answers `hands.run`, `hands.status` and
+  `hands.cancel` (`broker.rs`'s module doc is the threat model). `hands.run` is checked against the loaded record
+  (backend, `max_group` over its open groups' hands; `image`, `profile`, `account`, `region` and a relayed `hand`
+  refused), then runs on the extension's day session (META `extend.hands.<name>`, principal `ext:<name>`, an
+  execution pinned at `usd_cap`: the kernel refuses the reservation past it in the group's frame) through
+  `aws.hands.run`'s own start (`start::plan`, which the turn's `run_hands` shares, then `launch_first`), runaway
+  mode's lines included; one launch at a time (`Extensions::launches`). The day session never wakes for a turn: its
+  results queue on an execution waiting on input. A group's record names its `extension`, and its settle (or
+  cancel) writes `extend.hands.settled` beside `aws.hands.settled`; `extend.hands.launched` and `.refused` (with its
+  reason; at most `REFUSALS_A_MINUTE` rows an extension a minute) are the broker's. A revoke spawns
+  `hands_revoked`, which stops every open group by its backend's means. `extend.list`'s loaded entry carries
+  `hands` (`ExtendHandsInfo::line`, the CLI's and the cockpit's words). Tests: `aws/hands/tests_broker.rs` (the hands
+  rig's fake AWS), `extend/hands.rs`'s, `extend/tests.rs`' card test, `freeze.rs`'s digest test, the layouts'
+  format-33 samples.
 - **Self-improvement's spine** (theseus-pw1q.2, theseus-pw1q.4; off by default): `rsi/`. `rsi::gate(&ctx)` is the
   one question every self step asks before it starts and between its phases: `Off` while `[self] mode = "off"`
   (`config/rsi.rs`, read at the start), `Halted` while the kill switch is on (whatever the mode; a store never

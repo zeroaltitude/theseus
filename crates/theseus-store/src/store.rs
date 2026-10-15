@@ -645,7 +645,10 @@ const BULK: usize = 4096;
 /// (the header its third layer is), the META keys `prefix:<digest>` (a
 /// header), `prefix.hits.<digest>` and `prefix.retired.<digest>`, and the
 /// ledger kind `prefix.picked`.
-const MANIFEST_FORMAT: u32 = 41;
+/// 42 = an extension's hands (theseus-pw1q.14): a manifest's and a loaded
+/// extension's `capabilities.hands`, a hands group's `extension`, and the
+/// META keys `extend.hands.<name>` (its day sessions).
+const MANIFEST_FORMAT: u32 = 42;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

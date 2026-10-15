@@ -25,7 +25,10 @@
 //! call whose connection ends gets [`Error::Closed`], whose outcome is
 //! unknown. The server's own requests are answered at once: `ping`, and
 //! "method not found" for anything else, since v1 declares no sampling,
-//! elicitation, or roots.
+//! elicitation, or roots, unless the core gave this one connection a
+//! [`Serve`] (theseus-pw1q.14: an extension's `hands.*`): its methods are
+//! answered by it, at most [`SERVED_AT_ONCE`] at a time, declared under
+//! `capabilities.experimental` at `initialize`.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -66,6 +69,37 @@ pub struct Options {
     /// A message (a line, a JSON body, an event) larger than this is
     /// refused.
     pub max_message_bytes: usize,
+    /// The server's own requests this connection answers besides `ping`:
+    /// none unless the core offers this one server a channel.
+    pub serve: Option<Served>,
+}
+
+/// How many of the server's own requests a [`Serve`] answers at once; one
+/// more is refused at once, never queued.
+pub const SERVED_AT_ONCE: usize = 8;
+
+/// The requests a core answers for one server it starts (theseus-pw1q.14):
+/// a channel no other process holds, since it is that server's own pipe.
+pub trait Serve: Send + Sync + 'static {
+    /// The methods it answers, declared at `initialize`.
+    fn methods(&self) -> &'static [&'static str];
+    /// The answer to one request: its result, or a JSON-RPC error's code and
+    /// message.
+    fn answer(
+        &self,
+        method: String,
+        params: Value,
+    ) -> futures_util::future::BoxFuture<'static, Result<Value, (i64, String)>>;
+}
+
+/// A [`Serve`], as [`Options`] carries it.
+#[derive(Clone)]
+pub struct Served(pub Arc<dyn Serve>);
+
+impl std::fmt::Debug for Served {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Served").field(&self.0.methods()).finish()
+    }
 }
 
 impl Default for Options {
@@ -76,6 +110,7 @@ impl Default for Options {
             call_timeout: Duration::from_secs(110),
             max_pages: 100,
             max_message_bytes: 16 << 20,
+            serve: None,
         }
     }
 }
@@ -543,6 +578,8 @@ struct Shared {
 struct State {
     pending: HashMap<i64, Waiter>,
     closed: Option<String>,
+    /// The server's own requests a [`Serve`] is answering now.
+    serving: usize,
 }
 
 struct Waiter {
@@ -643,7 +680,11 @@ impl Shared {
                 Ok(Incoming::Notification { method, params }) => {
                     self.event(Event::from_notification(method, params));
                 }
-                Ok(Incoming::Request { id, method, .. }) => {
+                Ok(Incoming::Request { id, method, params }) => {
+                    if let Some(s) = self.served(&method) {
+                        self.serve(s, id, method, params);
+                        continue;
+                    }
                     let answer = if method == "ping" {
                         jsonrpc::response(id, json!({}))
                     } else {
@@ -660,6 +701,45 @@ impl Shared {
                 }
             }
         }
+    }
+
+    /// The [`Serve`] that answers `method`, if this connection has one.
+    fn served(&self, method: &str) -> Option<Arc<dyn Serve>> {
+        self.opts
+            .serve
+            .as_ref()
+            .filter(|s| s.0.methods().contains(&method))
+            .map(|s| s.0.clone())
+    }
+
+    /// Answer the server's own request `id` by `s`, in a task of its own,
+    /// so the reader goes on; past [`SERVED_AT_ONCE`] it is refused at once.
+    fn serve(self: &Arc<Self>, s: Arc<dyn Serve>, id: Value, method: String, params: Value) {
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        {
+            let mut st = self.lock();
+            if st.serving >= SERVED_AT_ONCE {
+                drop(st);
+                let busy = format!("at most {SERVED_AT_ONCE} requests are answered at once");
+                self.send(
+                    jsonrpc::error_response(id, jsonrpc::code::BUSY, &busy),
+                    None,
+                );
+                return;
+            }
+            st.serving += 1;
+        }
+        let me = self.clone();
+        rt.spawn(async move {
+            let msg = match s.answer(method, params).await {
+                Ok(v) => jsonrpc::response(id, v),
+                Err((c, m)) => jsonrpc::error_response(id, c, &m),
+            };
+            me.lock().serving -= 1;
+            me.send(msg, None);
+        });
     }
 
     /// The connection ended: every waiting call fails with `reason`, once.
@@ -773,9 +853,13 @@ impl Drop for Outstanding<'_> {
 }
 
 async fn initialize(shared: &Arc<Shared>) -> Result<ServerInfo, Error> {
+    let capabilities = match &shared.opts.serve {
+        Some(s) => json!({"experimental": {"theseus": {"methods": s.0.methods()}}}),
+        None => json!({}),
+    };
     let params = json!({
         "protocolVersion": crate::LATEST_PROTOCOL_VERSION,
-        "capabilities": {},
+        "capabilities": capabilities,
         "clientInfo": shared.opts.client_info,
     });
     let v = request(shared, "initialize", params, shared.opts.request_timeout).await?;

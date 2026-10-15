@@ -36,7 +36,7 @@ impl From<&Manifest> for ExtendInfo {
 }
 
 /// A loaded extension as `extend.list` shows it, with its server now.
-fn loaded_info(l: &Loaded, board: &crate::mcp::McpBoard) -> ExtendLoadedInfo {
+fn loaded_info(l: &Loaded, board: &crate::mcp::McpBoard, core: &Core) -> ExtendLoadedInfo {
     let server = l.server();
     let status = board.status().into_iter().find(|s| s.name == server);
     ExtendLoadedInfo {
@@ -59,6 +59,7 @@ fn loaded_info(l: &Loaded, board: &crate::mcp::McpBoard) -> ExtendLoadedInfo {
         errors: status.as_ref().map_or(0, |s| s.errors),
         last_error: status.and_then(|s| s.last_error),
         usage: None,
+        hands: core.hands_info(l),
         server,
     }
 }
@@ -93,7 +94,7 @@ impl Core {
         let mut loaded: Vec<ExtendLoadedInfo> = set
             .loaded
             .values()
-            .map(|l| loaded_info(l, &self.mcp))
+            .map(|l| loaded_info(l, &self.mcp, self))
             .collect();
         if p.usage && !loaded.is_empty() {
             let days = self.cfg.self_improve.graduate_window_days;

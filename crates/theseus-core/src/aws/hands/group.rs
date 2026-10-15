@@ -68,6 +68,25 @@ pub struct GroupRecord {
     /// How it ended, once it has.
     #[serde(default)]
     pub settled: Option<String>,
+    /// The extension whose broker started it (theseus-pw1q.14; format 34):
+    /// none for a model's own call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<String>,
+}
+
+/// An extension's group's `extend.hands.settled` row, beside
+/// `aws.hands.settled`, in its frame: none for any other group.
+pub fn extension_row(rec: &GroupRecord, tally: &Tally) -> Result<Option<NewRecord>> {
+    let Some(name) = &rec.extension else {
+        return Ok(None);
+    };
+    let f = fact::extend_hands::HandsSettled {
+        name,
+        group: &rec.group,
+        settled: rec.settled.as_deref().unwrap_or("not_met"),
+        cost_micros: (tally.spent_usd * 1e6).round() as u64,
+    };
+    Ok(Some(fact::row(&f, Some(rec.session_id.as_str()), None)?))
 }
 
 /// One hand of a group.
@@ -549,7 +568,7 @@ fn settle(ctx: &Ctx<'_>, mut rec: GroupRecord, met: bool, why: Option<&str>) -> 
         .collect();
     rec.settled = Some(if met { "met" } else { "not_met" }.into());
     let session = Some(rec.session_id.as_str());
-    let extra = vec![
+    let mut extra = vec![
         rec.record()?,
         fact::row(
             &Settled {
@@ -562,6 +581,7 @@ fn settle(ctx: &Ctx<'_>, mut rec: GroupRecord, met: bool, why: Option<&str>) -> 
             None,
         )?,
     ];
+    extra.extend(extension_row(&rec, &t)?);
     let c = Completion {
         correlation_id: rec.group.clone(),
         outcome: if met {

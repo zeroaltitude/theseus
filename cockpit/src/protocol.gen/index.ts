@@ -141,6 +141,7 @@ export type * from './ExecutionsWatchParams';
 export type * from './ExecutionsWatchResult';
 export type * from './ExplainCondition';
 export type * from './ExplainLayer';
+export type * from './ExtendHandsInfo';
 export type * from './ExtendHealth';
 export type * from './ExtendInfo';
 export type * from './ExtendListParams';

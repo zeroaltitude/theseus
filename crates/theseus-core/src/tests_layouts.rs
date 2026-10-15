@@ -558,7 +558,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -569,7 +569,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 41. The
+/// with a row that counts and pins them, and the manifest moves to 42. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -610,7 +610,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -618,7 +618,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 41,
+/// both with no origin and no inherited run, and moves the manifest to 42,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -665,7 +665,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -694,7 +694,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 41,
+/// it, reads an empty board, takes a thread and moves the manifest to 42,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -717,7 +717,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -803,7 +803,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -843,7 +843,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 41,
+/// A store of format 33 opens, and its first write moves the manifest to 42,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -868,7 +868,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -915,7 +915,7 @@ fn a_format_33_standing_record_reads_and_a_surface_scope_writes_back() {
 }
 
 /// A store of format 33 that holds a standing record: the build opens it,
-/// reads the record, takes a surface-scoped one, and moves the manifest to 41,
+/// reads the record, takes a surface-scoped one, and moves the manifest to 42,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
@@ -942,7 +942,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -986,7 +986,7 @@ fn a_format_40_pre_image_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 39, which holds a session and no pre-image: the build
-/// opens it, takes a pre-image, and moves the manifest to 41, which an older
+/// opens it, takes a pre-image, and moves the manifest to 42, which an older
 /// build then refuses. The record reads back through its scope.
 #[test]
 fn a_format_39_store_opens_and_takes_a_pre_image() {
@@ -1008,7 +1008,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1085,7 +1085,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 41);
+    assert_eq!(moved["format"], 42);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let lib = crate::prefix::Library::default();
@@ -1098,4 +1098,66 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         })
         .unwrap();
     assert_eq!(&*plan.header, h.text.as_str());
+}
+
+/// An extension's manifest as format 33 wrote it (43a's layout, unchanged
+/// since), before an ask for hands (`capabilities.hands`, format 42,
+/// theseus-pw1q.14): it reads with no hands, so its load gets no channel.
+/// By hand, in the layout the build before theseus-pw1q.14 (0baeed6) writes.
+pub(crate) const MANIFEST_BEFORE_HANDS: &str = r#"{"name":"tidewc","digest":"3f2a1c00000000000000000000000000000000000000000000000000009e4b7d","description":"Counts the words of a tide log.","command":["python3","server.py"],"source":"/work/tidewc","frozen":"/state/extensions/tidewc/3f2a1c00000000000000000000000000000000000000000000000000009e4b7d","files":2,"bytes":180,"tools":[{"name":"count","description":"Counts words.","input_schema":{"type":"object"}}],"tests":[{"tool":"count","arguments":{"text":"two words"},"expect":{"contains":"2"},"passed":true,"got":"2"}],"capabilities":{"network":[],"scratch":true},"proposed_by":{"session_id":"ses_00000000000000000000000000000341","execution_id":"exe_00000000000000000000000000000341","correlation_id":"act_00000000000000000000000000000341","principal":"operator"},"proposed_at_ms":1790000000340,"question":"act_00000000000000000000000000000342","state":"acked","answered_by":"the CLI","answered_at_ms":1790000000341}"#;
+
+/// The loaded extensions' record (META `extensions`) as format 33 wrote it
+/// (43b's layout), before `capabilities.hands`: no hands, no channel. By
+/// hand, in the build before theseus-pw1q.14's layout.
+pub(crate) const LOADED_BEFORE_HANDS: &str = r#"{"loaded":{"tidewc":{"name":"tidewc","digest":"3f2a1c00000000000000000000000000000000000000000000000000009e4b7d","description":"Counts the words of a tide log.","command":["python3","server.py"],"frozen":"/state/extensions/tidewc/3f2a1c00000000000000000000000000000000000000000000000000009e4b7d","source":"/work/tidewc","tools":["count"],"capabilities":{"network":[],"scratch":true},"acked_by":"the CLI","acked_via":"cli","acked_at_ms":1790000000341,"question":"act_00000000000000000000000000000342","proposed_by":{"session_id":"ses_00000000000000000000000000000341","execution_id":"exe_00000000000000000000000000000341","correlation_id":"act_00000000000000000000000000000341","principal":"operator"}}}}"#;
+
+/// A hands group's record (META `aws.hands.group.<group>`) as format 33
+/// wrote it (step 40's layout, unchanged since part 2), before its
+/// `extension` (format 42, theseus-pw1q.14): a model's own call, which
+/// writes no `extend.hands.settled` row. Its bytes are a group the build
+/// writes with no extension, which leaves the field out, trimmed to one hand.
+pub(crate) const GROUP_BEFORE_EXTENSION: &str = r#"{"v":1,"group":"act_00000000000000000000000000000331","execution_id":"exe_00000000000000000000000000000331","session_id":"ses_00000000000000000000000000000331","account":"111122223333","region":"us-west-2","deployment":"theseus-example","backend":"lambda","request":{"argv":["sh","-c","transform {input}"],"inputs":[["in/file-000.txt","in/file-001.txt","in/file-002.txt","in/file-003.txt","in/file-004.txt","in/file-005.txt","in/file-006.txt","in/file-007.txt","in/file-008.txt","in/file-009.txt"]],"image":null,"vcpu":1.0,"memory_mb":2048,"ttl_secs":60,"max_usd":null,"until":"all","concurrency":1,"profile":"basic","backend":null,"account":null,"region":null},"env":{"bucket":"example-bucket","queue_url":"https://sqs.us-west-2.amazonaws.com/111122223333/theseus-completions","cluster_arn":"arn:aws:ecs:us-west-2:111122223333:cluster/theseus-hands","log_group":"/theseus/hands","subnets":["subnet-0example0a","subnet-0example0b"],"security_group":"sg-0example","nat":false,"lambda_function":"arn:aws:lambda:us-west-2:111122223333:function:theseus-hand-basic","hand_image":"example.invalid/theseus/hand@sha256:00","execution_role_arn":"arn:aws:iam::111122223333:role/theseus-hand-execution","roles":{"basic":"arn:aws:iam::111122223333:role/theseus-hand-basic","read":"arn:aws:iam::111122223333:role/theseus-hand-read"},"lambda_memory_mb":2048},"task_definition":null,"hands":[{"index":0,"correlation_id":"act_00000000000000000000000000000332","external_op_id":"inv-6"}],"ttl_at":"2026-10-14T07:25:54Z","hand_max_usd":0.0020002040000000002,"created_at_ms":1791962694366,"endpoint":"http://127.0.0.1:34263","settled":null}"#;
+
+#[test]
+fn format_33_extension_and_hands_records_read_and_write_back_byte_for_byte() {
+    let m: crate::extend::Manifest = serde_json::from_str(MANIFEST_BEFORE_HANDS).unwrap();
+    assert!(m.capabilities.hands.is_none());
+    assert_eq!(
+        m.question_text(),
+        "Load tidewc 3f2a1c: 1 tool, 1 of 1 test passed, no network?"
+    );
+    assert_eq!(serde_json::to_string(&m).unwrap(), MANIFEST_BEFORE_HANDS);
+    let set: crate::extend::load::LoadedSet = serde_json::from_str(LOADED_BEFORE_HANDS).unwrap();
+    assert!(set.loaded["tidewc"].capabilities.hands.is_none());
+    assert_eq!(serde_json::to_string(&set).unwrap(), LOADED_BEFORE_HANDS);
+    let g: crate::aws::hands::group::GroupRecord =
+        serde_json::from_str(GROUP_BEFORE_EXTENSION).unwrap();
+    assert!(g.extension.is_none());
+    assert_eq!(serde_json::to_string(&g).unwrap(), GROUP_BEFORE_EXTENSION);
+}
+
+/// A store of format 33 opens, reads its extensions with no hands, takes an
+/// extension's hands book, and moves the manifest to 42, which an older
+/// build then refuses.
+#[test]
+fn a_format_33_store_opens_with_no_hands_and_takes_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let set: crate::extend::load::LoadedSet =
+            serde_json::from_str(LOADED_BEFORE_HANDS).unwrap();
+        store.append(&[set.record().unwrap()]).unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    let set = crate::extend::load::LoadedSet::read(&store).unwrap();
+    assert!(set.loaded["tidewc"].capabilities.hands.is_none());
+    let book = crate::extend::broker::Book::default();
+    store
+        .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 42);
 }

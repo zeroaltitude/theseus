@@ -12,7 +12,10 @@ Key modules: `client.rs`, `fake.rs`, `names.rs`, `types.rs`, `server.rs`. Read b
 - `client.rs`: one connection to one server, over stdio, pipes, or streamable HTTP: the handshake and its
   revision, every page of a list, calls with a timeout, cancel on drop (`notifications/cancelled`), and a stream
   of the server's notifications (`Event`). A stdio server is in its own process group; a stop sends SIGTERM to it
-  and never waits.
+  and never waits. `Options::serve` (theseus-pw1q.14) is the requests of the server's own one connection answers
+  beyond `ping` (`Serve`: the core's hands broker for an extension acked with `hands`), at most `SERVED_AT_ONCE`
+  at a time, declared under `capabilities.experimental.theseus` at `initialize`; with none, every other request is
+  "method not found", as before.
 - `fake.rs` and `bin/theseus-mcp-fake.rs`: a fake server (modes `ok`, `slow`, `crash-after N`, `change-tools`,
   `error`) over pipes, stdio, or HTTP. `theseus-sim fake-mcp` serves the same one.
 - `names.rs`: a tool's canonical name (`mcp:<server>/<tool>`) and its wire name (`mcp__<server>__<tool>`, at most

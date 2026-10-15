@@ -49,6 +49,7 @@ pub mod disk;
 pub mod driver;
 pub mod durability;
 pub mod extend;
+pub mod extend_hands;
 pub mod import;
 pub mod index;
 pub mod judge;
@@ -550,6 +551,9 @@ facts![
     thread::ThreadMerged<'static>,
     thread::ThreadUnmerged<'static>,
     thread::ThreadSplit<'static>,
+    extend_hands::HandsLaunched<'static>,
+    extend_hands::HandsSettled<'static>,
+    extend_hands::HandsRefused<'static>,
 ];
 
 #[cfg(test)]
