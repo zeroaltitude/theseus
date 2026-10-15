@@ -170,6 +170,7 @@ mod tests {
         assert_eq!(
             ask,
             [
+                "◐ started: Paint log (2a329e)",
                 "● Paint log asks: write regatta/paint-log.md (37 B)?",
                 "  theseus answer 2a329e approve · theseus answer 2a329e decline --note …",
             ]

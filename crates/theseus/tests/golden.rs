@@ -1969,7 +1969,10 @@ fn stop_names_the_session_and_says_what_goes_on() {
 fn tasks_and_wakes_when_there_are_none() {
     golden(
         "tasks_none",
-        &run(&["tasks"], vec![step("task.list", json!({"tasks": []}))]),
+        &run(
+            &["tasks", "--graph"],
+            vec![step("task.list", json!({"tasks": []}))],
+        ),
     );
     golden(
         "tasks_json",

@@ -144,14 +144,17 @@ async fn watch_work(
     sid: &str,
     early: &mut Vec<Notification>,
 ) -> Option<theseus_protocol::WorkWatchResult> {
-    let v = call(
+    // Bounded: a daemon that never answers the method leaves the watch as it was.
+    let asked = call(
         conn,
         method::WORK_WATCH,
         json!({ "roots": [sid], "limit": 0, "interactive": true }),
         early,
-    )
-    .await
-    .ok()?;
+    );
+    let v = tokio::time::timeout(Duration::from_secs(1), asked)
+        .await
+        .ok()?
+        .ok()?;
     serde_json::from_value(v).ok()
 }
 
