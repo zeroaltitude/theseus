@@ -90,6 +90,11 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
     // on its own.
     table(&mut t, "judge").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
+    // Tools are not deferred in a test daemon unless its test turns them on
+    // (`tests/defer.rs`): a stand-in model that calls a tool of a family the
+    // place does not load would be answered with the search's words
+    // (theseus-7m7w.2), and most tests are not about that.
+    table(table(&mut t, "tools"), "defer").insert("enabled".into(), false.into());
     table(&mut t, "kernel").insert("spend_limit_usd".into(), spend_limit_usd.into());
     toml::to_string(&t).unwrap()
 }

@@ -460,6 +460,19 @@ search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Bra
 [tools.term]
 keep_background = true                  # false: every close ends everything the terminal started
 
+# Which tool families a request loads. Every model call reads the whole tool set, so a
+# family a place does not need is declared deferred (Anthropic's API: the model finds
+# it with its tool search) or left out with a `tools_find` tool to ask for it (any
+# other model). The set per place kind starts from the built-in defaults and is learned
+# from the ledger's use; it changes only where the conversation recompiles anyway, so
+# the prompt cache holds. `theseus tools` lists what each place loads, with its misses.
+[tools.defer]
+enabled = true                          # false: every offered tool loads
+always_loaded = ["files", "commands"]   # families that load in every place
+load_share = 0.10                       # a family used in this share of a place kind's turns loads
+window_days = 14                        # ... over this many days
+hide_after_days = 14                    # a family loaded by default and unused this long hides
+
 # ---------------------------------------------------------------- aws
 # The AWS accounts Theseus owns, each by its id, with its key (the root of
 # trust) as two [secrets] entries. After serving, the key is checked once:

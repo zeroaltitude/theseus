@@ -44,6 +44,7 @@ fn spec() -> RequestSpec {
         cold: None,
         context_files: vec![],
         persona: None,
+        defer: None,
         tools: vec![
             json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
         ],

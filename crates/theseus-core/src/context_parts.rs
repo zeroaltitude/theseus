@@ -83,6 +83,7 @@ impl TurnRunner {
             session,
             rec.as_ref().and_then(|r| r.compilation_id.as_deref()),
         );
+        spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
         let header = self.header_parts(target, place);
         let Some(walk) = self.walk(session, place.class) else {
             return Built {

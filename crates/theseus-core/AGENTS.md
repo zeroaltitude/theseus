@@ -1552,6 +1552,32 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `forked_from` and the result's `not_restored`), and R21's surfaces (the TUI's `f`, Discord's "Fork from here", the
   Ship's mark), which call `session.fork`. Tests: `tests_fork.rs`, the layouts' format-29 samples, the CLI's
   `golden_fork.rs`.
+- **Deferred tools** (theseus-7m7w.2; store format 33): `tools_defer.rs` and `tools_defer/`. Every tool belongs to a
+  family by its wire name (`family.rs`: files, commands, web, memory, tasks, terminals, code, channels, aws, extensions,
+  self, and `mcp:<server>`; an unknown tool is `other` and always loads, and a test fails a registered tool in it), and a
+  request loads whole families. `RequestSpec.defer` is the turn's fresh choice (`turn/defer_step.rs`, once a turn:
+  `Board::select` over the in-memory counts: a place kind's committed defaults (`PlaceKind::defaults`, never a
+  benchmark's or a harness's name), `[tools.defer] always_loaded`, a family used in `load_share` of the kind's turns over
+  `window_days`, a default unused `hide_after_days` hidden; `select.rs` is pure). `compile` resolves it through
+  `tools_defer::forks`, the way it already forks the ontology's memberships: an **append takes the loaded set its current
+  compilation recorded** (`Manifest.loaded`), so the request's tool bytes are identical turn after turn; a recompile, a
+  clearing pass or a ring (all rendered from `recompiled`) takes the fresh set. A compilation with no `loaded` (before
+  format 33) appends with every tool. On a model whose catalog entry has `tool_search` the hidden tools go out with
+  `defer_loading: true` and the BM25 tool search tool is first in `tools`; elsewhere they are left out and `tools_find
+  {query}` (`find.rs`, a read of the conversation's hidden tools; its answer names the family and says it loads at the
+  next compaction) is offered, and what it found loads at the conversation's next boundary. `tools.find` is never in the
+  catalog (`tools_defer::listed`) and joins a request only here. The tool search's blocks (`server_tool_use`,
+  `tool_search_tool_result`) ride in the assistant node as the provider returned them (`scan.rs` reads them). **Misses**:
+  `defer_unloaded` (before `run_calls`) answers a call to a tool the request hid, when no search of the conversation
+  surfaced it, with `Not run: … search for it first` and a `tools.missed` row; a search is a `tools.searched` row (and
+  whether a call followed in its turn); a turn's row `tools.used` carries the place kind, the families loaded, used,
+  searched and loaded-but-unused, and is what the next selection counts. The counts (`board.rs`) are read from those
+  rows once after serving (`Core::warm_tools_use`) and kept by each turn; the conversation's notes (surfaced tools,
+  families asked for) are memory only (the oldest of 256 go). A server tool's streamed input (the search's query) is assembled
+  into its block like a call's (`provider.rs`). The metric is `theseus.tools.events` by event (used, searched, missed,
+  unused), place and family. `theseus tools` (over `tool.defer`), health's `tools:` line and the cockpit's
+  Actions panel show it all. Per-message additions are the `extra` argument of `Board::select` (Jev's branches, later).
+  Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

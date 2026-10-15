@@ -291,6 +291,7 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         cold: None,
         context_files: vec![],
         persona: None,
+        defer: None,
         tools: vec![],
         effort: None,
         turn_effort: None,

@@ -33,6 +33,7 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         cold: None,
         context_files: vec![],
         persona: None,
+        defer: None,
         tools: vec![],
         effort: None,
         turn_effort: None,

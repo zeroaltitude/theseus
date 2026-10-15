@@ -18,13 +18,11 @@
 //!   ring's kept turns, as of the summary's position, so the next request
 //!   appends to its bytes.
 
-use std::borrow::Cow;
-
 use theseus_protocol::memory::BudgetDrop;
 
 use super::{
     budget_report, cache_layout, counted_part, estimate, render_request, renderable, CompileInput,
-    Compiled, RequestSpec,
+    Compiled,
 };
 use crate::catalog::TokenRates;
 use crate::node::Node;
@@ -162,10 +160,10 @@ pub fn compact(
     summary: &str,
     drops: Vec<BudgetDrop>,
 ) -> Compiled {
-    let mut spec: Cow<'_, RequestSpec> = match input.spec.walk.as_deref() {
-        Some(walk) => crate::ontology::guided(input.spec, walk.compose(&walk.current)),
-        None => Cow::Borrowed(input.spec),
-    };
+    // The ring's own spec: the walk's current memberships and the fresh
+    // choice of loaded tools (`tools_defer::forks`), so the request carries
+    // the tools its manifest says (theseus-7m7w.2).
+    let (_, mut spec) = crate::tools_defer::forks(&input);
     // A new compilation takes the thread's card as it stands.
     if let Some(card) = spec.card.clone() {
         spec.to_mut().card = Some(super::card::Card {

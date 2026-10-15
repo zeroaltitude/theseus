@@ -87,6 +87,7 @@ pub mod thread_import;
 pub mod thread_route;
 pub mod thread_seal;
 pub mod tool;
+pub mod tools_defer;
 pub mod turn;
 pub mod wake;
 pub mod watch;
@@ -515,6 +516,9 @@ facts![
     thread_route::ThreadAnswered<'static>,
     thread_route::ThreadMoved<'static>,
     thread_route::MisrouteHeld<'static>,
+    tools_defer::ToolsUsed<'static>,
+    tools_defer::ToolsSearched<'static>,
+    tools_defer::ToolsMissed<'static>,
 ];
 
 #[cfg(test)]

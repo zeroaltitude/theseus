@@ -179,7 +179,7 @@ impl PlaceView {
     /// set, narrowed by the ceiling (never widened).
     pub fn offered(&self, name: &str, public: &[std::path::PathBuf]) -> bool {
         crate::places::offered(self.class, name, public)
-            && self.ceiling.is_none_or(|c| c.offers(name))
+            && (name == "tools.find" || self.ceiling.is_none_or(|c| c.offers(name)))
     }
 }
 

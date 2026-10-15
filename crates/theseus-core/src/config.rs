@@ -40,6 +40,7 @@ mod watches;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 pub use watches::WatchesConfig;
+pub mod defer;
 mod sparse;
 pub mod term;
 mod web;
@@ -365,6 +366,9 @@ pub struct ToolsConfig {
     pub web: WebToolsConfig,
     #[serde(default)]
     pub term: term::TermToolsConfig,
+    /// `[tools.defer]`: which tool families a request loads (theseus-7m7w.2).
+    #[serde(default)]
+    pub defer: defer::DeferConfig,
 }
 
 fn default_approve_paths() -> Vec<String> {
@@ -455,6 +459,7 @@ impl Default for ToolsConfig {
             outputs_max_bytes: outputs::max_bytes(),
             web: WebToolsConfig::default(),
             term: term::TermToolsConfig::default(),
+            defer: defer::DeferConfig::default(),
         }
     }
 }
@@ -1311,6 +1316,7 @@ impl Config {
                 self.model.provider
             );
         }
+        self.tools.defer.check().map_err(anyhow::Error::msg)?;
         if self.server.stop_grace_ms > MAX_STOP_GRACE_MS {
             anyhow::bail!(
                 "server.stop_grace_ms = {} is over {MAX_STOP_GRACE_MS}: a clean stop waits at most \

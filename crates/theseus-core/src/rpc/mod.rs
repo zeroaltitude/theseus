@@ -446,6 +446,7 @@ impl Core {
         self.runner.judge.export_to(t.clone());
         self.runner.memory.export_to(t.clone());
         self.runner.tools.stops.export_to(t.clone());
+        self.runner.tools.defer.export_to(t.clone());
         let _ = self.telemetry.set(t);
         out
     }
@@ -804,6 +805,7 @@ impl Core {
             runner.judge.export_to(t.clone());
             runner.memory.export_to(t.clone());
             runner.tools.stops.export_to(t.clone());
+            runner.tools.defer.export_to(t.clone());
             let _ = runner.keep_warm.telemetry.set(t.clone());
             let _ = telemetry_cell.set(t);
         }
@@ -1349,7 +1351,13 @@ impl Core {
 impl Parts {
     /// Parts for tests: one provider (a `FakeProvider`) under the config's
     /// default provider name, no secrets, no telemetry, and jobs run on a thread.
-    pub fn for_tests(cfg: Config, provider: Arc<dyn Provider>, store: Store) -> Self {
+    ///
+    /// Tools are not deferred in a test's core unless it turns `[tools.defer]` on
+    /// after this (`tests_defer`): a stand-in model that calls a tool of a family
+    /// the place does not load by default would be answered with the search's
+    /// words (theseus-7m7w.2), and most tests are not about that.
+    pub fn for_tests(mut cfg: Config, provider: Arc<dyn Provider>, store: Store) -> Self {
+        cfg.tools.defer.enabled = false;
         let mut providers = BTreeMap::new();
         providers.insert(cfg.model.provider.clone(), provider);
         Self {

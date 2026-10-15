@@ -719,6 +719,13 @@ async fn follow_resumed(
 /// `theseus tools`: the toollets, their postures, and calls so far.
 pub async fn tools(conn: &mut Conn, json: bool, verbose: bool) -> Result<()> {
     let v = conn.request(method::TOOL_LIST, Value::Null).await?;
+    // An older daemon has no `tool.defer`: the list is the tools alone.
+    let families = match conn.request(method::TOOL_DEFER, Value::Null).await {
+        Ok(d) if !json => serde_json::from_value::<theseus_protocol::defer::DeferListResult>(d)
+            .map(|d| render::defer::defer_list(&d, verbose))
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
     output(json, v, |l: ToolListResult| {
         println!(
             "{:<12} {:<12} {:<6} {:<7} {:<8} {:>6}",
@@ -744,6 +751,10 @@ pub async fn tools(conn: &mut Conn, json: bool, verbose: bool) -> Result<()> {
                 println!("    {}", t.description);
                 println!("    input: {}", serde_json::to_string(&t.input_schema)?);
             }
+        }
+        // The families each kind of place loads, from a daemon that has them.
+        for line in &families {
+            println!("{line}");
         }
         eprintln!(
             "[roots: {} · {} call(s) · shell-fallback ratio {:.0}% (proc.run / all calls)]",

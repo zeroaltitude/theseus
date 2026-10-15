@@ -22,6 +22,7 @@ pub mod cite;
 pub mod context;
 mod cost;
 pub mod cred;
+pub mod defer;
 pub mod diff;
 pub mod earned;
 mod events;
@@ -140,8 +141,7 @@ pub const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
 /// its spend may go back to $0. Answered with `action.confirm` like any other.
 pub const BUDGET_TOOL: &str = "budget.reset";
 
-/// The `tool` of a provider call's action. It is authorized in the frame after
-/// its plan and never asks the operator.
+/// The `tool` of a provider call's action. It is authorized in the frame after its plan and never asks the operator.
 pub const PROVIDER_TOOL: &str = "provider.messages";
 
 /// A module of wire names, from one table: each constant with its docs, and
@@ -158,16 +158,14 @@ macro_rules! names {
     };
 }
 
-/// Method names. Requests (client → server). `ALL` lets a server say which
-/// only read (theseus-2fo).
+/// Method names. Requests (client → server). `ALL` lets a server say which only read (theseus-2fo).
 pub mod method {
     names! {
         HEALTH = "health",
         SESSION_OPEN = "session.open", SESSION_LIST = "session.list",
         /// A session's retirement by the owner, and its undo (theseus-emqx).
         SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
-        /// Someone began to type into a session: the daemon warms what the
-        /// message will wait for (theseus-tnky).
+        /// Someone began to type into a session: the daemon warms what the message will wait for (theseus-tnky).
         SESSION_TYPING = "session.typing",
         TURN_SUBMIT = "turn.submit",
         LEDGER_TAIL = "ledger.tail", LEDGER_WINDOW = "ledger.window",
@@ -185,8 +183,7 @@ pub mod method {
         SESSION_WATCH = "session.watch",
         SESSION_UNWATCH = "session.unwatch",
         SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge",
-        /// A new conversation from any moment of another, by reference
-        /// (theseus-2qzx, `fork::SessionForkParams`).
+        /// A new conversation from any moment of another, by reference (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",
         CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
         /// Where a node went (theseus-n4m, step 12a): the contexts of its own
@@ -194,6 +191,9 @@ pub mod method {
         /// `derived_from`, each with theirs. A read, computed when asked.
         NODE_REACH = "node.reach",
         TOOL_LIST = "tool.list",
+        /// The tool families each kind of place loads or defers, with their use
+        /// and misses (theseus-7m7w.2, `defer::DeferListResult`).
+        TOOL_DEFER = "tool.defer",
         SHUTDOWN = "shutdown",
         /// The narrative (`narrative = true`): the recent tail, then every new
         /// line as a `narrative.line` notification until `narrative.unwatch`.
@@ -216,8 +216,7 @@ pub mod method {
         /// and their guidance, and memberships; then the operator's writes,
         /// judged as an approval is (the owner, from a private place).
         ONTOLOGY_LIST = "ontology.list",
-        /// Each hands group, its cells by state, and its cost against its
-        /// cap (step 40 part 2): the cockpit's grid.
+        /// Each hands group, its cells by state, and its cost against its cap (step 40 part 2): the cockpit's grid.
         HANDS_LIST = "hands.list",
         /// Each open execution's money and where its limit comes from, its
         /// tasks under it, and the totals (step 42a, `BudgetListResult`). A read.
@@ -237,8 +236,7 @@ pub mod method {
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move",
         STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
-        /// Tasks (DD7): the child sessions conversations started, with state and
-        /// spend.
+        /// Tasks (DD7): the child sessions conversations started, with state and spend.
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
         TASK_CANCEL = "task.cancel",
@@ -246,8 +244,7 @@ pub mod method {
         TASK_GET = "task.get",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
-        /// Wakes (DD8): the turns conversations asked for at a time, with
-        /// `wake.at`, that have not run yet.
+        /// Wakes (DD8): the turns conversations asked for at a time, with `wake.at`, that have not run yet.
         WAKE_LIST = "wake.list",
         /// Cancel a pending wake: nothing fires.
         WAKE_CANCEL = "wake.cancel",
@@ -295,8 +292,7 @@ pub mod method {
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.
         MEMORY_RECALLS = "memory.recalls",
-        /// The sources of the handles a session's replies cite
-        /// (`cite::MemoryCitesParams`; theseus-ejdk). A read.
+        /// The sources of the handles a session's replies cite (`cite::MemoryCitesParams`; theseus-ejdk). A read.
         MEMORY_CITES = "memory.cites",
         /// An operator's label on a node recall offered or should have
         /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
@@ -365,14 +361,11 @@ pub mod method {
         /// The alerts subscription confirmed with the token from SNS's email,
         /// authenticated on unsubscribe (theseus-9p40). The operator's alone.
         AWS_CONFIRM_ALERTS = "aws.confirm_alerts",
-        /// The MCP servers the config attaches and their tools (M7 36b,
-        /// `mcp::McpListResult`). A read.
+        /// The MCP servers the config attaches and their tools (M7 36b, `mcp::McpListResult`). A read.
         MCP_LIST = "mcp.list",
-        /// Restart one MCP server (`mcp::McpRestartParams`), a failed one
-        /// included.
+        /// Restart one MCP server (`mcp::McpRestartParams`), a failed one included.
         MCP_RESTART = "mcp.restart",
-        /// The prompts the MCP servers list (M7 36c,
-        /// `mcp::McpPromptListParams`). A read.
+        /// The prompts the MCP servers list (M7 36c, `mcp::McpPromptListParams`). A read.
         MCP_PROMPT_LIST = "mcp.prompt.list",
         /// Proposed and loaded extensions (M7 43a, 43b; `extend::ExtendListResult`). A read.
         EXTEND_LIST = "extend.list",
@@ -780,6 +773,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub resident: Option<resident::ResidentHealth>,
+    /// Deferred tools: the selector's state in one line (theseus-7m7w.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tools_defer: Option<defer::DeferHealth>,
     /// Self-improvement's mode, kill switch and gate (theseus-pw1q.2): health's `self` line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

@@ -228,6 +228,23 @@ pub(crate) fn rig_scripted(
 type Script = Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>;
 
 fn rig_full(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store), script: Script) -> Rig {
+    rig_defer(tweak, setup, script, false)
+}
+
+/// `rig_scripted`, its tools deferred as a daemon's are (`tests_defer`).
+pub(crate) fn rig_deferring(
+    tweak: impl FnOnce(&mut Config),
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+) -> Rig {
+    rig_defer(tweak, |_| {}, Box::new(script), true)
+}
+
+fn rig_defer(
+    tweak: impl FnOnce(&mut Config),
+    setup: impl FnOnce(&Store),
+    script: Script,
+    deferring: bool,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("open")).unwrap();
@@ -242,7 +259,10 @@ fn rig_full(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store), script:
         script,
         requests: Mutex::default(),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let wanted = cfg.tools.defer.enabled;
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts.cfg.tools.defer.enabled = deferring && wanted;
+    let core = Core::build(parts).unwrap();
     tokio::spawn(crate::harness::drive(core.clone()));
     Rig {
         core,

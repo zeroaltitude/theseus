@@ -629,7 +629,10 @@ const BULK: usize = 4096;
 /// 35 = a failure's dismissal and a retry's link (theseus-7zgsm): an
 /// execution's `dismissed` and `retry_of`, and the ledger kinds
 /// `execution.dismissed` and `task.retried`.
-const MANIFEST_FORMAT: u32 = 35;
+/// 36 = deferred tools (theseus-7m7w.2): a compilation manifest's `loaded`, the
+/// tool families its request loaded, which an append takes again; and the
+/// ledger kinds `tools.used`, `tools.searched` and `tools.missed`.
+const MANIFEST_FORMAT: u32 = 36;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

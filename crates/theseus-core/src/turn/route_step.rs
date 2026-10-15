@@ -729,6 +729,7 @@ impl TurnRunner {
         s.walk = self.walk(t.tc.session_id, t.tc.class);
         self.stand(t, &mut s);
         self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
+        self.defer_tools(t, &mut s);
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
