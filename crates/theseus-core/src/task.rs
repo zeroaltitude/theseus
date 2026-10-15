@@ -257,15 +257,15 @@ impl Tool for TaskCreate {
                 "budget_usd": {
                     "type": "number",
                     "exclusiveMinimum": 0,
-                    "description": "Its spend limit in US dollars, capped at what this session has left (default: a quarter of that)."
+                    "description": "Spend limit in US dollars, capped at what this session has left (default: a quarter of it)."
                 },
                 "wake_parent": {
                     "type": "boolean",
-                    "description": "When the task finishes or fails, its report starts this conversation's next turn, so you review it and start the next step of a chain (default: false; a cancelled task wakes nothing)."
+                    "description": "Its report, done or failed, starts this conversation's next turn (default: false; a cancel wakes nothing)."
                 },
                 "notify_done": {
                     "type": "boolean",
-                    "description": "Tell the owner when the task is done: its finish notifies them, wherever they are (default: false)."
+                    "description": "Its finish notifies the owner, wherever they are (default: false)."
                 },
                 "arrangement": {
                     "type": "object",
@@ -313,19 +313,19 @@ impl Tool for TaskCreate {
                     "type": "boolean",
                     "description": "Start it anyway when the fidelity check fails: a brief under 200 characters, from a long discussion, with a single piece (default: false)."
                 },
-                "title": {"type": "string", "description": "The task's title in the task graph (default: the brief's first line). Without `brief`, the plan item's title."},
+                "title": {"type": "string", "description": "Its title in the task graph (default: the brief's first line)."},
                 "objective": {"type": "string", "description": "What the task is for, when no `objective` piece says it."},
                 "acceptance": {"type": "array", "items": {"type": "string"}, "description": "How to know it is done, one line each, beside any `acceptance` pieces."},
                 "parent": {"type": "string", "description": "The task it goes under (tsk_…)."},
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
-                "check_of": {"type": "string", "description": "Start a check of this task (its id, or the end of it): one this conversation started, which has reported."},
+                "check_of": {"type": "string", "description": "Check this task (its id or its end): one this conversation started that has reported."},
                 "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
-                "start_after": {"type": "string", "description": "Defer the task: it sleeps and starts this long from now, a duration such as 2h or 1d (1 second to 365 days). Its budget is carved now."},
-                "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (with `objective`, `milestones` [{title, due}], a weekly `review` schedule or `none`; the review waits for the owner's yes) or `milestone` (`parent` a project, `due` its date; the owner is reminded)."},
-                "due": {"type": "string", "description": "A milestone's or project's date: `2026-11-03`, `fri 09:00`, `in 3d`."},
+                "start_after": {"type": "string", "description": "Start this long from now: 2h, 1d (1 second to 365 days)."},
+                "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (`objective`, `milestones`, a weekly `review` or `none`, which waits for the owner's yes) or `milestone` (`parent` a project, `due`; the owner is reminded)."},
+                "due": {"type": "string", "description": "A date: `2026-11-03`, `fri 09:00`, `in 3d`."},
                 "milestones": {"type": "array", "maxItems": 32, "items": {"type": "object", "properties": {"title": {"type": "string"}, "due": {"type": "string"}}, "required": ["title"]}},
                 "review": {"type": "string"},
-                "start_at": {"type": "string", "description": "Defer the task: it starts at this RFC 3339 time with its offset, such as 2026-10-16T09:00:00-07:00 (1 second to 365 days ahead)."}
+                "start_at": {"type": "string", "description": "Start at this RFC 3339 time with its offset: 2026-10-16T09:00:00-07:00 (up to 365 days ahead)."}
             },
             "additionalProperties": false
         })
