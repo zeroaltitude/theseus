@@ -48,13 +48,17 @@ use crate::tests_route::{mode, rig, turn};
 /// `task_create` fields and `project.attach` joined it (theseus-n5ui2: no window held with
 /// the first answer billed at 38,600, 43,800 to 45,000 rang and 45,100 and up never compacted
 /// the second loop; with it billed at 39,400, 45,200 and 45,600 hold, 44,800 and 46,000 do
-/// not: a sweep at its join).
-const WINDOW: u64 = 45_400;
+/// not: a sweep at its join), and 45,400 before modes' `plan_present` and `plan_step` joined the
+/// catalog (theseus-lyxy: deferred in the `plan` family, so no request sends them, but this rig's
+/// catalog counts them whole; billed at 39,400 no window held from 45,400 to 46,600; billed at
+/// 40,200, 45,800 and 46,200 hold, 45,400 and 46,600 do not: a sweep at its join).
+const WINDOW: u64 = 46_000;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget (38,600
-/// before projects joined, theseus-n5ui2: the band above).
-const BILLED: u64 = 39_400;
+/// before projects joined, theseus-n5ui2, and 39,400 before modes, theseus-lyxy:
+/// the band above).
+const BILLED: u64 = 40_200;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

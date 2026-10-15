@@ -82,13 +82,15 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// joined it (theseus-j7cje: 43,300 and 43,500 compacted; 43,700 to 44,300 hold).
 /// And 43,900 until projects' `task_create` fields and `project.attach` joined it (theseus-n5ui2: 43,900
 /// compacted; 44,100 to 44,900 hold: a sweep at its join).
+/// And 44,300 until modes' `plan_present` and `plan_step` joined the catalog (theseus-lyxy: deferred,
+/// counted whole here; 44,300 and 44,500 compacted, 44,700 to 45,100 hold: a sweep at its join).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(44_300),
+            context_window: Some(44_900),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },
