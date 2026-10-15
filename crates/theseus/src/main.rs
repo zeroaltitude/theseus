@@ -1281,20 +1281,14 @@ async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     }
 }
 
-/// The daemon's connection: a spawned one, or its socket's.
-async fn connect(cli: &Cli) -> Result<Conn> {
-    Ok(match (&cli.spawn, &cli.cmd) {
-        // One run's daemon, followed for its bound (theseus-mqxk).
-        (Some(bin), Cmd::Ask(a)) => Conn::spawn_with(bin, &follow::daemon_args(a.follow_for))?,
-        (Some(bin), _) => Conn::spawn(bin)?,
-        (None, _) => Conn::socket(&cli.socket).await?,
-    })
-}
-
 /// `theseus herdr answer|plugin|setup|popup|link` connect nothing for themselves (theseus-pkaq).
 async fn run_or_own(cli: Cli) -> Result<()> {
-    match &cli.cmd {
-        Cmd::Herdr { cmd } if cmd.is_own() => herdr_keys::run_own(&cli.socket, cmd).await,
+    match cli.cmd {
+        Cmd::Herdr { ref cmd } if cmd.is_own() => herdr_keys::run_own(&cli.socket, cmd).await,
+        // `theseus herdr up` connects for itself (theseus-fuw5d).
+        Cmd::Herdr {
+            cmd: HerdrCmd::Up(a),
+        } => herdr_up::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await,
         _ => run(cli).await,
     }
 }
@@ -1304,12 +1298,6 @@ async fn run(cli: Cli) -> Result<()> {
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
     if let Cmd::Status(a) = &cli.cmd {
         return status::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
-    }
-    if let Cmd::Herdr {
-        cmd: HerdrCmd::Up(a),
-    } = cli.cmd
-    {
-        return herdr_up::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
     }
     // `theseus postmortem --from-rows FILE` reports from kept rows and asks no daemon.
     if let Cmd::Postmortem(a) = cli.cmd {
