@@ -212,6 +212,30 @@ fn more(n: usize) -> String {
     format!("-# +{n} more · /tasks")
 }
 
+/// The "Open a task…" choices: the rows the board shows, needs-you first, at
+/// most 25 (Discord's bound).
+fn picks(p: &Parts<'_>, [cn, cw, cd]: [usize; 3]) -> Vec<(String, String)> {
+    p.needs
+        .iter()
+        .take(cn)
+        .map(|v| (format!("🔴 {}", title_of(v)), v.id.clone()))
+        .chain(
+            p.working
+                .iter()
+                .rev()
+                .take(cw)
+                .map(|v| (format!("⚙️ {}", title_of(v)), v.id.clone())),
+        )
+        .chain(
+            p.done
+                .iter()
+                .take(cd)
+                .map(|v| (format!("✅ {}", title_of(v)), v.id.clone())),
+        )
+        .take(25)
+        .collect()
+}
+
 /// The board's components, within Discord's limits. `caps` are the most of
 /// each part to show; `render` lowers them until the message fits.
 fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
@@ -296,26 +320,7 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
         quiet,
         button(NEW, "➕ New task", Look::Secondary),
     ]));
-    let options: Vec<(String, String)> = p
-        .needs
-        .iter()
-        .take(cn)
-        .map(|v| (format!("🔴 {}", title_of(v)), v.id.clone()))
-        .chain(
-            p.working
-                .iter()
-                .rev()
-                .take(cw)
-                .map(|v| (format!("⚙️ {}", title_of(v)), v.id.clone())),
-        )
-        .chain(
-            p.done
-                .iter()
-                .take(cd)
-                .map(|v| (format!("✅ {}", title_of(v)), v.id.clone())),
-        )
-        .take(25)
-        .collect();
+    let options = picks(p, [cn, cw, cd]);
     if !options.is_empty() {
         inner.push(select(PICK, "Open a task…", &options));
     }
