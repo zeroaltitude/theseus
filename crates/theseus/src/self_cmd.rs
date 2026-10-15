@@ -22,6 +22,8 @@ mod branches;
 
 mod exams;
 
+mod revert;
+
 #[derive(Subcommand, Debug)]
 pub enum SelfCmd {
     /// What Theseus changed about itself, newest first: the self steps' rows and today's
@@ -66,6 +68,12 @@ pub enum SelfCmd {
     /// The self-exams: counted items by family and half, and today's candidates with their
     /// reviews. A sealed item shows as a number, never as text.
     Exams,
+    /// Undo a self-join: the owner's veto, from their own shell. Reverts the merge off main
+    /// (the gate runs on the revert, so it can take minutes) and drops its backlog item for good.
+    Revert {
+        /// The self-join's merge commit, as `self log` prints it (7 characters or more).
+        merge: String,
+    },
 }
 
 /// `7d`, `12h`, `30m`, `2w` in milliseconds.
@@ -156,6 +164,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Branches => branches::run(conn, json).await,
         SelfCmd::Exams => exams::run(conn, json).await,
+        SelfCmd::Revert { merge } => revert::run(conn, json, merge).await,
         SelfCmd::Digest => {
             let v = conn
                 .request(

@@ -71,6 +71,7 @@ pub mod rsi_exams;
 pub mod rsi_graduate;
 pub mod rsi_join;
 pub mod rsi_pr;
+pub mod rsi_revert;
 pub mod rsi_sealed;
 pub mod sandbox;
 pub mod situation;
@@ -487,6 +488,8 @@ facts![
     rsi_join::SelfJoined,
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
+    rsi_revert::SelfReverted,
+    rsi_revert::SelfVetoed,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

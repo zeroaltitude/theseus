@@ -418,6 +418,8 @@ export type * from './SelfMode';
 export type * from './SelfMoveParams';
 export type * from './SelfMoveResult';
 export type * from './SelfResumeParams';
+export type * from './SelfRevertParams';
+export type * from './SelfRevertResult';
 export type * from './SelfState';
 export type * from './SelfSwitchResult';
 export type * from './SessionForkParams';

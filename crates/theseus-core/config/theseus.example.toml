@@ -1009,6 +1009,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # holds; point it at the outer loop's so their joins never overlap
 # install = false                         # true: a joined merge is built and installed on this machine, and
 #                                         # the daemon restarts onto it (the owner's standing OK)
+# revert_window_hours = 24                # hours after a self-join in which a red it caused reverts it on its
+#                                         # own, with a notice; 0 watches nothing (the owner's veto always works)
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day

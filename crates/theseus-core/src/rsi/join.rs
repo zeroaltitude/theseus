@@ -233,7 +233,7 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
 }
 
 /// Why a self step may not run now; none when it may.
-fn refused(core: &Core) -> Option<String> {
+pub(crate) fn refused(core: &Core) -> Option<String> {
     match super::gate(&core.self_ctx()) {
         Gate::Allowed => None,
         Gate::Off => Some("[self] mode is \"off\"".into()),
@@ -258,7 +258,9 @@ pub fn lock_dir(cfg: &crate::Config) -> std::path::PathBuf {
 }
 
 /// Blocking work on the blocking pool.
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+pub(crate) async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
     tokio::task::spawn_blocking(f).await?
 }
 

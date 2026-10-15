@@ -205,6 +205,7 @@ impl ActRefused<'_> {
             | Act::Session { .. }
             | Act::SelfResume { .. }
             | Act::SelfBacklog { .. }
+            | Act::SelfRevert { .. }
             | Act::Earned { .. }
             | Act::Retract { .. }
             | Act::Task { .. }
@@ -260,7 +261,7 @@ impl Fact for ActRefused<'_> {
                 json!({"act": act.method(), "from_job": from_job, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
-            Act::SelfBacklog { what, from_job, .. } => {
+            Act::SelfBacklog { what, from_job, .. } | Act::SelfRevert { what, from_job } => {
                 json!({"act": act.method(), "what": what, "from_job": from_job, "who": r.who,
                        "via": r.via, "why": r.why, "by": self.by})
             }
@@ -348,6 +349,10 @@ impl Fact for ActRefused<'_> {
                 Act::SelfBacklog { method, what, .. } => format!(
                     "{method} of {what} on the self backlog, from {who} through {via}, did not \
                      count: {why}. The backlog is as it was."
+                ),
+                Act::SelfRevert { what, .. } => format!(
+                    "A veto of self-join {what}, from {who} through {via}, did not count: {why}. \
+                     Nothing was reverted."
                 ),
                 Act::Revoke { name } => format!(
                     "Revoking extension {name}, from {who} through {via}, did not count: {why}. It \

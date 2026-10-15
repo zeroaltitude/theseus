@@ -45,6 +45,7 @@ pub mod exams;
 pub mod join;
 mod log;
 pub mod pr;
+pub mod revert;
 pub mod sealed;
 mod switch;
 #[cfg(test)]

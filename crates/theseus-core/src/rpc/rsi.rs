@@ -3,9 +3,12 @@
 //! sends a job's `THESEUS_SESSION` so the core refuses and ledgers it),
 //! `self.log`, `self.digest`, `self.branches` (theseus-pw1q.8) and `self.exams` (reads). The work is `crate::rsi`'s.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfDropParams, SelfHaltParams, SelfMoveParams, SelfResumeParams,
+    SelfRevertParams,
 };
 use theseus_protocol::{error_code, method};
 
@@ -14,7 +17,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 9] = [
+pub(super) const OWN: [&str; 10] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
@@ -24,6 +27,7 @@ pub(super) const OWN: [&str; 9] = [
     method::SELF_MOVE,
     method::SELF_BRANCHES,
     method::SELF_EXAMS,
+    method::SELF_REVERT,
 ];
 
 impl Core {
@@ -61,6 +65,44 @@ impl Core {
             }),
             _ => route(params, |p| Ok(self.self_digest(&p)?)),
         }
+    }
+}
+
+impl Core {
+    /// `self.revert`: the owner's veto of a self-join (theseus-pw1q.10). It
+    /// runs the whole revert, gate included, before it answers.
+    pub(super) async fn rpc_self_revert(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: SelfRevertParams = serde_json::from_value(or_empty(params))
+            .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        let r = self
+            .self_revert(&p, &who, &crate::rsi::revert::Seams::default())
+            .await
+            .map_err(revert_refused)?;
+        super::server::reply(r)
+    }
+}
+
+/// A refused veto answers as the owner's acts do; a bad merge name is the
+/// caller's mistake; any other error is the daemon's.
+fn revert_refused(e: anyhow::Error) -> RpcFailure {
+    match e.downcast::<crate::rsi::revert::BadMerge>() {
+        Ok(b) => RpcFailure::new(error_code::INVALID_PARAMS, b.to_string()),
+        Err(e) => match e.downcast::<Refusal>() {
+            Ok(r) => RpcFailure {
+                code: error_code::REFUSED,
+                message: format!(
+                    "a veto of a self-join from {} does not count: {}. Nothing was reverted.",
+                    r.who, r.why
+                ),
+                data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+            },
+            Err(e) => e.into(),
+        },
     }
 }
 

@@ -239,6 +239,8 @@ ledger_kinds! {
     SelfReviewVerdict = "self.review.verdict",
     SelfHalted = "self.halted",
     SelfResumed = "self.resumed",
+    SelfReverted = "self.reverted",
+    SelfVetoed = "self.vetoed",
     ServerCrashed = "server.crashed",
     ServerServing = "server.serving",
     ServerStarted = "server.started",

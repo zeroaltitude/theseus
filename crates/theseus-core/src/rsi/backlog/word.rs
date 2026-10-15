@@ -162,6 +162,33 @@ impl Core {
         })
     }
 
+    /// The owner's veto drops the item its change was built for, and the
+    /// cause is never filed again (theseus-pw1q.10). False when the name finds
+    /// no item (it left the backlog) or the item was dropped already. The
+    /// caller has judged the act; this only writes.
+    pub(crate) fn self_drop_vetoed(&self, item: &str, by: &str) -> Result<bool> {
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut w = self.backlog_work()?;
+        let Ok(id) = Self::backlog_item(&w, item) else {
+            return Ok(false);
+        };
+        if w.st.dropped.iter().any(|d| d.item == id) {
+            return Ok(false);
+        }
+        w.drop_item(
+            &id,
+            by,
+            "its change was vetoed and reverted by the owner",
+            true,
+        );
+        self.backlog_write(&mut w)?;
+        Ok(true)
+    }
+
     /// Move an open item to a rank: the owner's word. It keeps the rank.
     pub fn self_move(&self, p: &SelfMoveParams, who: &Answerer) -> Result<SelfMoveResult> {
         let from_job = p

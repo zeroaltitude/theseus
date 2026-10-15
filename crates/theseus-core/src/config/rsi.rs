@@ -42,6 +42,9 @@
 //!   standing OK) builds and installs a joined merge on this machine and
 //!   restarts the daemon onto it, through a transient `systemd-run --user`
 //!   unit.
+//! - `revert_window_hours` (theseus-pw1q.10): `24` by default. For this many
+//!   hours after a self-join, a red the join caused reverts it on its own
+//!   (`rsi::revert`); `0` watches nothing. The owner's veto works at any time.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -86,6 +89,17 @@ pub struct SelfConfig {
     /// Build, install and restart onto a joined merge (theseus-pw1q.9).
     #[serde(default)]
     pub install: bool,
+    /// Hours after a self-join in which a red it caused reverts it
+    /// (theseus-pw1q.10); 0 watches nothing.
+    #[serde(default = "default_revert_window_hours")]
+    pub revert_window_hours: u64,
+}
+
+/// `[self] revert_window_hours`'s default.
+pub const REVERT_WINDOW_HOURS: u64 = 24;
+
+fn default_revert_window_hours() -> u64 {
+    REVERT_WINDOW_HOURS
 }
 
 /// `[self] graduate_min_calls`'s default.
@@ -137,6 +151,7 @@ impl Default for SelfConfig {
             reviewer_profile: default_reviewer_profile(),
             join_lock: None,
             install: false,
+            revert_window_hours: REVERT_WINDOW_HOURS,
         }
     }
 }
@@ -470,5 +485,18 @@ mod tests {
         assert_eq!(cfg.reviewer_profile, "opus");
         assert_eq!(cfg.join_lock.as_deref(), Some("/srv/joins.lock"));
         assert!(cfg.install);
+    }
+
+    /// Auto-revert's window (theseus-pw1q.10): a day by default, 0 watches
+    /// nothing; the template names it.
+    #[test]
+    fn the_revert_window_defaults_to_a_day_and_the_template_names_it() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!(none.revert_window_hours, 24);
+        assert!(Config::EXAMPLE_TOML.contains("\n# revert_window_hours = 24"));
+        let cfg = Config::from_toml("[self]\nrevert_window_hours = 6\n")
+            .unwrap()
+            .self_improve;
+        assert_eq!(cfg.revert_window_hours, 6);
     }
 }

@@ -89,6 +89,9 @@ impl Core {
         if super::people::ROUTE.contains(&name) {
             return self.rpc_ontology(name, params, conn);
         }
+        if name == method::SELF_REVERT {
+            return self.rpc_self_revert(params, conn).await;
+        }
         if super::rsi::OWN.contains(&name) {
             return self.rpc_self(name, params, conn);
         }

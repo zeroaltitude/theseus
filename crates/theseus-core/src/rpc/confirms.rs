@@ -622,6 +622,18 @@ impl Core {
             Act::SelfBacklog { from_job: None, .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // The owner's veto of a self-join (theseus-pw1q.10): the resume's rule.
+            Act::SelfRevert {
+                from_job: Some(job),
+                ..
+            } => Err(format!(
+                "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
+                 vetoes a self-join, from their own shell, the web UI, or their own account on a \
+                 bound transport"
+            )),
+            Act::SelfRevert { from_job: None, .. } => {
+                crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
+            }
             _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
         let Err(why) = verdict else {
@@ -867,6 +879,13 @@ pub(crate) enum Act<'a> {
         what: &'a str,
         from_job: Option<&'a str>,
     },
+    /// The owner's veto of a self-join (theseus-pw1q.10, `self.revert`): it
+    /// reverts a change on main, so only the owner, from any place, and never
+    /// a job's shell. `what` names the merge the owner typed.
+    SelfRevert {
+        what: &'a str,
+        from_job: Option<&'a str>,
+    },
     /// Earned autonomy (theseus-uttu): a grant's yes or a group's pass (the
     /// owner's, from a private place, since a yes loosens), a card posted
     /// now, and a grant's revoke (`tightens`: anyone's, as "should have
@@ -909,6 +928,7 @@ impl Act<'_> {
             Act::Thread { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::SelfBacklog { method, .. } => method,
+            Act::SelfRevert { .. } => theseus_protocol::method::SELF_REVERT,
             Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
             Act::Task { .. } => theseus_protocol::method::TASK_START,
