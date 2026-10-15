@@ -78,6 +78,15 @@ pub fn is_future(v: &WorkView) -> bool {
     ) || v.next_at_ms.is_some()
 }
 
+/// What a verb names: a routine by its session (`routine pause 9d0939`), the
+/// rest by their own id.
+fn name_of(kind: WorkKind, id: &str, session: Option<&str>) -> String {
+    match (kind, session) {
+        (WorkKind::Routine, Some(s)) => short(s),
+        _ => short(id),
+    }
+}
+
 fn icon(kind: WorkKind, purpose: Option<&str>) -> &'static str {
     match (kind, purpose) {
         (WorkKind::Routine, _) => "🔁",
@@ -187,7 +196,7 @@ pub fn build(views: &[WorkView], lines: &[AgendaLine], now_ms: u64, day: &LocalD
                     "{when:<12} {} {}{what}  {}",
                     icon(l.kind, l.purpose.as_deref()),
                     clip(&l.title, 60),
-                    short(&l.id)
+                    name_of(l.kind, &l.id, l.session_id.as_deref())
                 ),
                 format!(
                     "{when} {} {}",
@@ -265,7 +274,7 @@ fn now_row(v: &WorkView, now_ms: u64) -> Row {
             "{} {}  {} · {}{overdue}",
             icon(v.kind, v.purpose.as_deref()),
             clip(&v.title, 50),
-            short(&v.id),
+            name_of(v.kind, &v.id, v.session_id.as_deref()),
             v.attention.label
         ),
         format!(
@@ -309,7 +318,7 @@ fn recurring_row(v: &WorkView, now_ms: u64) -> Row {
         format!(
             "{} {}  {}  {} · {next}{stats}{missed}",
             icon(v.kind, v.purpose.as_deref()),
-            short(&v.id),
+            name_of(v.kind, &v.id, v.session_id.as_deref()),
             series_words(v),
             clip(&v.title, 40),
         ),
