@@ -655,4 +655,75 @@ mod tests {
             }
         );
     }
+
+    /// A pinned session's tab stays whatever its task does: finished, seen,
+    /// and past the grace, it is not closed (a review's planted revert).
+    #[test]
+    fn a_pinned_tab_stays_after_its_task_ends_and_is_seen() {
+        let t0 = Instant::now();
+        let mut f = Follower::new(G);
+        f.pin("ses_t1", WorkKind::Task, "title of ses_t1".into());
+        f.apply(
+            &[view("exe_1", "ses_t1", "task", "running", "working", 1)],
+            &[],
+            false,
+            t0,
+            0,
+        );
+        f.opened("ses_t1", tab(1), t0);
+        f.apply(
+            &[view("exe_1", "ses_t1", "task", "done", "idle", 2)],
+            &[],
+            false,
+            t0,
+            0,
+        );
+        f.focus("w1:t1", t0);
+        assert!(f.plan(t0 + G * 3).is_empty(), "a pinned tab stays");
+    }
+
+    /// A conversation's tab closes once it stops needing you, with no grace
+    /// (a review's planted revert).
+    #[test]
+    fn a_conversations_tab_closes_once_it_stops_needing_you() {
+        let t0 = Instant::now();
+        let mut f = Follower::new(G);
+        f.apply(
+            &[view(
+                "exe_2",
+                "ses_c1",
+                "conversation",
+                "needs_you",
+                "needs_you",
+                1,
+            )],
+            &[],
+            false,
+            t0,
+            0,
+        );
+        f.opened("ses_c1", tab(2), t0);
+        assert!(f.plan(t0).is_empty(), "it needs you: the tab stays");
+        f.apply(
+            &[view(
+                "exe_2",
+                "ses_c1",
+                "conversation",
+                "running",
+                "working",
+                2,
+            )],
+            &[],
+            false,
+            t0,
+            0,
+        );
+        assert_eq!(
+            f.plan(t0),
+            [Act::Close {
+                tab_id: "w1:t2".into(),
+                sid: "ses_c1".into()
+            }]
+        );
+    }
 }

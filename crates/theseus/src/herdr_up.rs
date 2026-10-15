@@ -476,7 +476,7 @@ async fn daemon_said(ctx: &mut Ctx, f: &mut Follower, link: &mut Link, m: Result
             {
                 let applied = f.apply(&c.views, &c.gone, false, now, herdr::now_ms());
                 for v in &applied.changed {
-                    println!("{}", crate::work::change_line(v));
+                    println!("{}", crate::work::change_line(v, herdr::now_ms()));
                 }
             }
         }
@@ -534,7 +534,7 @@ async fn notice(ctx: &mut Ctx, body: &str) {
 /// The queue the board tab shows: what needs you, what works, what finished unseen.
 fn print_board(f: &Follower) {
     let line = |t: &state::Task| match &t.last {
-        Some(v) => crate::work::view_line(v),
+        Some(v) => crate::work::view_line(v, herdr::now_ms()),
         None => format!("{} {}", t.kind.as_str(), t.name),
     };
     let mut sections: [(&str, Vec<String>); 3] = [
