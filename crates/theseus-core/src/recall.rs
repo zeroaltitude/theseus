@@ -36,7 +36,12 @@ pub mod labels;
 pub mod outcomes;
 pub mod render;
 pub mod retention;
+pub mod stamp;
+pub mod temporal;
 pub mod when;
+
+#[cfg(test)]
+mod tests_time;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -489,6 +494,7 @@ impl Memory {
             new_node: None,
             words_only: None,
             when,
+            temporal: None,
             max_items: None,
         }
     }
@@ -606,6 +612,9 @@ pub struct Begun {
     pub new_node: Option<String>,
     /// The span of time the question named (theseus-w9qv).
     pub when: Option<when::When>,
+    /// The kind of question about time it asked, which orders the pack by
+    /// the time of the events (theseus-q1tbn).
+    pub temporal: Option<temporal::Kind>,
     /// The most items the pack admits, when not `[memory] recall_max_items`:
     /// a `memory.lookup` page's (theseus-w9qv).
     pub max_items: Option<usize>,
@@ -739,6 +748,7 @@ impl Memory {
             activation: scene.activation.clone(),
             outcome: begun.outcome().into(),
             why: begun.words_only.clone(),
+            temporal: begun.temporal.map(|k| k.as_str().into()),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
             place: place_words(&scene.place),
@@ -798,6 +808,7 @@ impl Memory {
                     fused: h.fused,
                     index_rank: i + 1,
                     place,
+                    time_ms: h.time_ms,
                 }
             })
             .collect();
@@ -823,7 +834,10 @@ impl Memory {
             threads: lens.as_ref(),
         };
         let params = begun.params(self.cfg.params(), m.budget_tokens);
-        let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
+        let pack = match begun.temporal {
+            Some(kind) => temporal::pack(kind, &*scene.science, &asker, &candidates, &params),
+            None => pipeline::recall(&*scene.science, &asker, candidates.clone(), &params),
+        };
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
         self.retention_items(&*scene.science, &mut m, &retention, asker.now_ms);

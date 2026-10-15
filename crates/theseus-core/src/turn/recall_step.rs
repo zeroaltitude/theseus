@@ -134,7 +134,14 @@ impl TurnRunner {
                 return None;
             }
         };
-        let (query, as_of) = query_of(&nodes, t.tc.turn_id)?;
+        let (mut query, as_of) = query_of(&nodes, t.tc.turn_id)?;
+        // A question about time searches on its event: the temporal words
+        // match every dated note (theseus-q1tbn).
+        let temporal = crate::recall::temporal::of_turn(&nodes, t.tc.turn_id);
+        if temporal.is_some() {
+            query.words = crate::recall::temporal::subject(&query.words);
+            query.vector = query.vector.map(|v| crate::recall::temporal::subject(&v));
+        }
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
         // A span of time the turn's words name keeps recall inside it
         // (theseus-w9qv): read here, in microseconds, with no call.
@@ -149,6 +156,7 @@ impl TurnRunner {
             when,
             Vec::new(),
         );
+        begun.temporal = temporal.map(|a| a.kind);
         // The turn's new node seeds a spread (32b).
         begun.new_node = nodes
             .iter()

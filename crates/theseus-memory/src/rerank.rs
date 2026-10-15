@@ -222,6 +222,7 @@ mod tests {
 
     fn cand(node: &str, place: Place, fused: f64) -> Candidate {
         Candidate {
+            time_ms: 0,
             node_id: node.into(),
             chunk: 0,
             session_id: format!("ses_{node}"),

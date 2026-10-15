@@ -139,6 +139,12 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub when: Option<RecallWhen>,
+    /// The kind of question about time the turn asked (`when`, `order`,
+    /// `duration`, `latest`, `earliest`; theseus-q1tbn), which ordered the
+    /// candidates by the time of their events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub temporal: Option<String>,
 }
 
 /// What a recall's index answer held (theseus-y9a3).

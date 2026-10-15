@@ -530,7 +530,7 @@ async fn a_shared_place_recalls_no_import_and_a_private_place_recalls_it_with_it
         .expect("the first episode's decision is recalled");
     let (_, header) = theseus_protocol::cite::split_header(&first.header).expect("a handle");
     assert!(
-        header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), 2026-05-02 14:03 UTC (as of @"),
+        header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), said "),
         "{}",
         first.header
     );
@@ -544,7 +544,10 @@ async fn a_shared_place_recalls_no_import_and_a_private_place_recalls_it_with_it
     let q = r.model.requests.lock().unwrap().last().unwrap().clone();
     let all = serde_json::to_string(&q.messages).unwrap();
     assert!(
-        all.contains("2026-05-02 14:03 UTC"),
+        all.contains(&format!(
+            "said {}",
+            crate::recall::stamp::said_in(FIRST_MS, &crate::recall::stamp::system)
+        )),
         "the model sees its time"
     );
     assert!(all.contains("boathouse ledger"), "and the fact");
