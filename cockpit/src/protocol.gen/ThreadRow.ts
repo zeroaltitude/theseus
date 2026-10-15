@@ -25,4 +25,9 @@ cache_ttl_secs?: number,
  * The day's cold resumes, warm hits and keep-warm reads of the session
  * (theseus-ytt8); none while it has none of them.
  */
-cache?: ThreadCacheStats, };
+cache?: ThreadCacheStats, 
+/**
+ * The threads merged into this one, and those split from it
+ * (theseus-vt9k): the other ends of `merged_into` and `split_from`.
+ */
+merged_from?: Array<string>, split_to?: Array<string>, };

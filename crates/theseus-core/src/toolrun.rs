@@ -1683,6 +1683,8 @@ impl ToolRuntime {
                 // Another thread, read on purpose (theseus-f2g0).
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 crate::tools_defer::FAMILY => self.defer.run(tc.session_id, &input),
+                // Part of a thread, a thread of its own (theseus-vt9k).
+                crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
                 // A job's handle needs its session (theseus-n8gk).
                 theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),
@@ -2200,6 +2202,7 @@ pub fn build_runtime(
         }));
         r.register(Arc::new(crate::watch_tool::WatchTool));
         r.register(Arc::new(crate::thread_context::ThreadNote));
+        r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

@@ -59,6 +59,9 @@ pub enum Class {
     Repair,
     /// A task's arrangement (M5 27).
     Arrangement,
+    /// The turns a split thread opens with, quoted from its source's
+    /// (theseus-vt9k): an arrangement the thread's own session holds first.
+    Quoted,
     /// A compaction's summary, first in its prefix (30c).
     Summary,
     /// An assembled prefix's recall section (30c).
@@ -80,6 +83,7 @@ impl Class {
             Self::LateResult => "late_result",
             Self::Repair => "repair",
             Self::Arrangement => "arrangement",
+            Self::Quoted => "quoted",
             Self::Summary => "summary",
             Self::RecallSection => "recall_section",
             Self::RecallNote => "recall_note",
@@ -108,7 +112,10 @@ impl Class {
 /// (theseus-783a).
 pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
     use Class::*;
-    let common = matches!(class, Inbound | Reply | ToolResult | LateResult | Repair);
+    let common = matches!(
+        class,
+        Inbound | Reply | ToolResult | LateResult | Repair | Quoted
+    );
     match situation {
         Situation::ConversationStart => common || matches!(class, Summary | TaskView | RecallNote),
         Situation::TaskStart => {
@@ -236,6 +243,7 @@ pub fn pieces(
             Body::AssistantMessage { .. } => Class::Reply,
             Body::ToolResult { late: false, .. } => Class::ToolResult,
             Body::ToolResult { late: true, .. } => Class::LateResult,
+            Body::Arrangement { .. } if crate::thread_split::is_quote(n) => Class::Quoted,
             Body::Arrangement { .. } => Class::Arrangement,
             // In a tail a summary renders nothing: its range is still in
             // the prefix.
@@ -409,6 +417,7 @@ mod tests {
             (LateResult, false, [true, true, true, true, true, true]),
             (Repair, false, [true, true, true, true, true, true]),
             (Arrangement, false, [false, true, true, true, true, true]),
+            (Quoted, false, [true, true, true, true, true, true]),
             (Summary, false, [true, false, true, true, true, false]),
             (
                 RecallSection,

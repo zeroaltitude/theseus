@@ -115,6 +115,9 @@ impl Core {
             method::THREAD_RESUME => route(params, |p: ThreadNameParams| {
                 self.thread_resume(&p.slug, conn.answerer(p.author, p.discord))
             }),
+            method::THREAD_MERGE | method::THREAD_UNMERGE | method::THREAD_SPLIT => {
+                self.rpc_thread_joins(name, params, conn)
+            }
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),
@@ -304,6 +307,8 @@ impl Core {
             today_usd: 0.0,
             cache_ttl_secs: None,
             cache: None,
+            merged_from: vec![],
+            split_to: vec![],
         })
     }
 
@@ -361,6 +366,7 @@ impl Core {
     /// compilations and today's spend rows: a read for a person, never a
     /// turn's path.
     pub(super) fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
+        let board = self.threads();
         let sessions: BTreeSet<String> = threads
             .iter()
             .filter_map(|t| t.session_id.clone())
@@ -383,12 +389,15 @@ impl Core {
                 if let Some(r) = &rec {
                     t.last_active_ms = t.last_active_ms.max(r.last_active_ms);
                 }
+                let (merged_from, split_to) = board.links_of(&t.slug);
                 ThreadRow {
                     cache_ttl_secs: rec
                         .as_ref()
                         .and_then(|r| r.last_target.as_ref())
                         .and_then(|t| self.runner.cfg.ttl_of(&t.profile))
                         .map(|(ttl, _)| ttl.secs()),
+                    merged_from,
+                    split_to,
                     today_usd: t
                         .session_id
                         .as_ref()
@@ -922,7 +931,7 @@ fn unique<'a>(items: impl Iterator<Item = &'a str>) -> Vec<String> {
 }
 
 /// A write's error on the wire: a judged refusal is `REFUSED`.
-fn failure(e: anyhow::Error) -> RpcFailure {
+pub(super) fn failure(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
             code: error_code::REFUSED,

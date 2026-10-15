@@ -73,6 +73,7 @@ mod thread_import;
 mod thread_move;
 mod thread_seal;
 mod thread_surface;
+mod thread_join;
 mod threads;
 mod wake_owner;
 mod watch;
@@ -137,6 +138,8 @@ mod tests_thread_recall;
 mod tests_thread_route;
 #[cfg(test)]
 mod tests_thread_surface;
+#[cfg(test)]
+mod tests_thread_join;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
@@ -894,6 +897,7 @@ impl Core {
         core.tools.lookup.attach(&core);
         core.tools.thread_read.attach(&core);
         core.tools.jobs.attach(&core);
+        core.runner.threads.attach(&core);
         core.runner.judge.attach(&core);
         // The judge's sink writes between turns, as the pass does.
         core.runner

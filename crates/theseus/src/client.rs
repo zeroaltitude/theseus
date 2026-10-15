@@ -374,6 +374,9 @@ pub const OPERATORS: [(&str, &str); 66] = [
         method::THREAD_SEAL_DISMISS,
         "theseus thread seal --not-needed",
     ),
+    (method::THREAD_MERGE, "theseus thread merge"),
+    (method::THREAD_UNMERGE, "theseus thread unmerge"),
+    (method::THREAD_SPLIT, "theseus thread split"),
     (method::TASK_START, "theseus task start"),
 ];
 
@@ -510,6 +513,9 @@ mod tests {
             method::THREAD_SEAL,
             method::THREAD_UNSEAL,
             method::THREAD_SEAL_DISMISS,
+            method::THREAD_MERGE,
+            method::THREAD_UNMERGE,
+            method::THREAD_SPLIT,
         ] {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
             assert!(e.to_string().contains("theseus thread"), "{e}");

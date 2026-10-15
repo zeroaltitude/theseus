@@ -315,7 +315,9 @@ pub fn authority_for(
     // call, so this is not the place that clears their question; layer 1 only
     // guards the owner's tasks.
     let own = name == crate::routine_tool::CREATE || name == crate::watch_tool::WATCH;
-    if plan.authority.is_some() && !own && !waits(store, name, input) {
+    // Only a task edit's authority is conditional; another tool that names one
+    // (`thread.split`) always waits for the owner.
+    if plan.authority.is_some() && !own && is_edit(name) && !waits(store, name, input) {
         plan.authority = None;
     }
     plan

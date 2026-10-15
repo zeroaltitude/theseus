@@ -533,6 +533,9 @@ facts![
     tools_defer::ToolsUsed<'static>,
     tools_defer::ToolsSearched<'static>,
     tools_defer::ToolsMissed<'static>,
+    thread::ThreadMerged<'static>,
+    thread::ThreadUnmerged<'static>,
+    thread::ThreadSplit<'static>,
 ];
 
 #[cfg(test)]
