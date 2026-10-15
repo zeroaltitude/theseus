@@ -253,6 +253,10 @@ pub struct App {
     pub selfview: SelfView,
     /// The standing records that hold in the session in focus here.
     pub standing: Option<Standing>,
+    /// The daemon's own work (theseus-jn17m): the `Theseus` root and its jobs,
+    /// from `work.watch` naming `system`, by id, kept by the position rule.
+    /// The header says the root collapsed (`⚙ importing 41/120`).
+    pub system: std::collections::BTreeMap<String, theseus_protocol::work::WorkView>,
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
@@ -312,6 +316,7 @@ impl App {
             follow: None,
             selfview: SelfView::default(),
             standing: None,
+            system: Default::default(),
         }
     }
 
@@ -570,6 +575,7 @@ impl App {
                 for id in &c.gone {
                     self.board.work.gone(id);
                 }
+                self.system_changed(&c);
                 self.board_threads.changed(c);
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
@@ -585,6 +591,12 @@ impl App {
                 out.extend(self.lost(&lost))
             }
             Event::WakeNoticed(n) => out.extend(self.noticed(&n)),
+            // A system job that failed or ended after a long run: a line in
+            // the footer, no ring (an Inform; the TUI's own notices are the
+            // executions').
+            Event::WorkNotice(n) if n.work.kind == theseus_protocol::work::WorkKind::System => {
+                self.flash = Some((Tag::Warn, n.line));
+            }
             _ => {}
         }
         out
@@ -703,6 +715,13 @@ impl App {
             Purpose::Work => match serde_json::from_value::<WorkWatchResult>(v) {
                 Ok(snap) => {
                     self.board.work.snapshot(snap.views.clone());
+                    // The daemon's own jobs (theseus-jn17m) ride the same watch.
+                    self.system = snap
+                        .views
+                        .iter()
+                        .filter(|w| w.kind == theseus_protocol::work::WorkKind::System)
+                        .map(|w| (w.id.clone(), w.clone()))
+                        .collect();
                     self.board_threads.snapshot(snap);
                 }
                 // An answer this build can't read is no board: rows say
@@ -1007,6 +1026,27 @@ impl App {
             Mode::NewTask(home) => self.new_task_key(k, home),
             Mode::BoardThreads => self.board_threads_key(k),
             Mode::Normal => self.normal_key(k),
+        }
+    }
+
+    /// The daemon's own jobs from a `work.changed` (theseus-jn17m): the system
+    /// views, each kept by the position rule; a view gone leaves.
+    fn system_changed(&mut self, c: &theseus_protocol::WorkChanged) {
+        for v in c
+            .views
+            .iter()
+            .filter(|v| v.kind == theseus_protocol::work::WorkKind::System)
+        {
+            if self
+                .system
+                .get(&v.id)
+                .is_none_or(|o| v.position > o.position)
+            {
+                self.system.insert(v.id.clone(), v.clone());
+            }
+        }
+        for id in &c.gone {
+            self.system.remove(id);
         }
     }
 

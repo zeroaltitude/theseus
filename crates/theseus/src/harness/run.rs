@@ -18,7 +18,7 @@ use theseus_protocol::method;
 
 use super::{convert, Counts, Source};
 use crate::cmd::output;
-use crate::import::{BATCH_BYTES, BATCH_LINES, PAUSE};
+use crate::import::{Numbered, BATCH_BYTES, BATCH_LINES, PAUSE};
 
 /// What the daemon says of an episode whose id it holds under another hash:
 /// the file grew (or changed) since it was imported.
@@ -160,6 +160,64 @@ struct Pending {
     bytes: usize,
 }
 
+/// The numbers a run's batches carry (theseus-jn17m): the board shows `batch 41
+/// of 120`. The total is an estimate until the last batch, which says it is the
+/// last: the larger of the files over a batch's lines and the bytes the
+/// episodes have come to so far, scaled to all the files' bytes, over a batch's
+/// bytes.
+pub(super) struct Pace {
+    files: usize,
+    src_total: u64,
+    src_done: u64,
+    ep_done: u64,
+    sent: u32,
+}
+
+impl Pace {
+    fn of(files: &[PathBuf]) -> Self {
+        let src_total = files
+            .iter()
+            .filter_map(|f| std::fs::metadata(f).ok())
+            .map(|m| m.len())
+            .sum();
+        Self {
+            files: files.len(),
+            src_total,
+            src_done: 0,
+            ep_done: 0,
+            sent: 0,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_tests(files: usize, src_total: u64, src_done: u64, ep_done: u64) -> Self {
+        Self {
+            files,
+            src_total,
+            src_done,
+            ep_done,
+            sent: 0,
+        }
+    }
+
+    /// A file read: its size, and its episode's.
+    fn took(&mut self, path: &Path, episode_bytes: usize) {
+        self.src_done += std::fs::metadata(path).map_or(0, |m| m.len());
+        self.ep_done += episode_bytes as u64;
+    }
+
+    /// The next batch's numbers.
+    pub(super) fn next(&mut self, last: bool) -> Numbered {
+        self.sent += 1;
+        let by_lines = self.files.div_ceil(BATCH_LINES);
+        let by_bytes = (self.src_total as f64 * self.ep_done as f64
+            / self.src_done.max(1) as f64
+            / BATCH_BYTES as f64)
+            .ceil() as usize;
+        Numbered::of(self.sent, by_lines.max(by_bytes).max(1) as u32, last)
+    }
+}
+
 /// The import is the owner's act: refused inside a job, before a file is read.
 pub(super) fn operator_only(session: Option<&str>) -> Result<()> {
     theseus_client::client::refuse_in_a_job(method::IMPORT_EPISODES, session)
@@ -229,6 +287,7 @@ pub async fn run(
         );
     }
     let mut pending = Pending::default();
+    let mut pace = Pace::of(&files);
     for (i, path) in files.iter().enumerate() {
         report.files += 1;
         let name = path.display().to_string();
@@ -257,6 +316,7 @@ pub async fn run(
         if fr.empty {
             report.empty_files += 1;
         }
+        pace.took(path, c.episode.as_deref().map_or(0, str::len));
         if let Some(text) = c.episode {
             pending.bytes += text.len();
             pending.paths.push(name);
@@ -266,20 +326,24 @@ pub async fn run(
             });
         }
         report.per_file.push(fr);
-        if pending.lines.len() >= BATCH_LINES || pending.bytes >= BATCH_BYTES {
+        let last = i + 1 == files.len();
+        if pending.lines.len() >= BATCH_LINES || pending.bytes >= BATCH_BYTES || last {
+            let n = pace.next(last);
             send(
                 conn,
                 &dir,
                 std::mem::take(&mut pending),
                 &files,
                 &mut report,
+                n,
             )
             .await?;
             tokio::time::sleep(PAUSE).await;
         }
     }
     if !pending.lines.is_empty() {
-        send(conn, &dir, pending, &files, &mut report).await?;
+        let n = pace.next(true);
+        send(conn, &dir, pending, &files, &mut report, n).await?;
     }
     if json {
         output(
@@ -315,10 +379,13 @@ async fn send(
     batch: Pending,
     files: &[PathBuf],
     report: &mut Report,
+    n: Numbered,
 ) -> Result<()> {
     let p = ImportEpisodesParams {
         file: dir.display().to_string(),
         lines: batch.lines,
+        batch: Some(n.batch),
+        batches: Some(n.batches),
     };
     let v = conn
         .request(method::IMPORT_EPISODES, serde_json::to_value(p)?)

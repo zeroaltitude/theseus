@@ -140,6 +140,11 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
     if let Some(p) = app.standing_pill() {
         left.push_str(&format!(" · {p}"));
     }
+    // The daemon's own work, the root collapsed (theseus-jn17m).
+    let system: Vec<_> = app.system.values().cloned().collect();
+    if let Some(s) = theseus_protocol::work_system::collapsed(&system) {
+        left.push_str(&format!(" · {s}"));
+    }
     if app.only != Only::All {
         left.push_str(&format!(" · only {}", app.only.word()));
     }

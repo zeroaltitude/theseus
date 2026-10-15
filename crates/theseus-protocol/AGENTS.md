@@ -41,6 +41,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `action.output.end` (`outcome`) to the asking connection alone, `action.unfollow`, and `job_words` (`job 0:05 of
   usual 0:31`), the one wording of a job's time. `Doing.last_line` (work.rs) is a running job's last output line.
   Fixtures: `tests/wire/action_output_*.json`, `tests/wire/work/view_job_running.json`.
+- `work_system.rs` (theseus-jn17m): the daemon's own work on the board: `ROOT` (`system`), the hour jobs stay
+  (`KEEP_MS`), the quiet time that ends a silent one (`QUIET_MS`), and the pure words every surface shares: `line` (`title
+  · count · 3:12`), `count_words`, `status_words` (`⚙ importing 41/120`, the first line of `theseus status`) and `collapsed`
+  (the root closed, for the TUI). `ImportEpisodesParams` carries `batch`/`batches`, which only the work board reads.
 - `work_watch.rs` (theseus-hkx30): `work.watch`'s params and snapshot (`WorkWatchParams`: `limit`, `roots` (session
   ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
   frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries

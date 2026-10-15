@@ -56,7 +56,7 @@ pub(super) fn bump(r: &mut Rollup, v: &WorkView) {
             WorkState::Failed => r.failed += 1,
             WorkState::NeedsYou if v.question.is_none() => r.needs_you += 1,
             WorkState::NeedsYou => {}
-            WorkState::Done if v.kind == WorkKind::Task => r.done += 1,
+            WorkState::Done if matches!(v.kind, WorkKind::Task | WorkKind::System) => r.done += 1,
             WorkState::Queued if v.kind == WorkKind::Step => {}
             s if s.working() => r.working += 1,
             _ => {}
@@ -84,6 +84,9 @@ impl WorkBoard {
         }
         for id in &d.steps {
             built.push((id.clone(), self.step_view(id)));
+        }
+        for id in &d.system {
+            built.push((id.clone(), self.system.view(id)));
         }
         for (id, new) in built {
             match new {
@@ -201,7 +204,10 @@ impl WorkBoard {
         // until the rollup pass makes them again.
         if let Some(o) = &old {
             new.below = o.below;
-            new.progress = super::progress::carried(o.progress.as_ref(), &new, f.at_ms);
+            // A system job's progress is its own, built from its rows.
+            if new.kind != WorkKind::System {
+                new.progress = super::progress::carried(o.progress.as_ref(), &new, f.at_ms);
+            }
         }
         new.position = f.position;
         new.at_ms = f.at_ms;
@@ -434,6 +440,7 @@ impl WorkBoard {
                     set.remove(&gid);
                 }
                 self.ended_wakes.remove(&gid);
+                self.system.forget(&gid);
                 self.steps.remove(&gid);
                 if let Some(ei) = self.execs.remove(&gid) {
                     self.by_session.remove(&ei.x.session_id);

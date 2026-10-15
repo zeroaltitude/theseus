@@ -1166,6 +1166,7 @@ async fn an_imported_session_does_not_end_the_task_briefs_walk() {
             line: 1,
             text: ep.to_string(),
         }],
+        ..Default::default()
     };
     let got = crate::import::write::import_batch(&c.store, &p, "cli").unwrap();
     assert_eq!(got.imported, 1, "{got:?}");
@@ -1221,6 +1222,7 @@ async fn the_task_briefs_walk_reads_no_imported_record() {
             let p = theseus_protocol::import::ImportEpisodesParams {
                 file: "walk.jsonl".into(),
                 lines: chunk.to_vec(),
+                ..Default::default()
             };
             let got = crate::import::write::import_batch(&c.store, &p, "cli").unwrap();
             assert_eq!(got.imported as usize, chunk.len(), "{got:?}");

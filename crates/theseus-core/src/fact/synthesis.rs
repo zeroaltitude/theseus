@@ -25,16 +25,34 @@ pub struct SynthesisProposed<'a> {
     pub model: &'a str,
     pub cost_usd: f64,
     pub trigger: &'a str,
+    /// Where it stands in its run (theseus-jn17m): the run (its plan's time),
+    /// this cluster's number from 1, and the run's clusters, which the work
+    /// board shows as `Consolidating memory · 14 clusters`.
+    pub at: Option<RunAt>,
+}
+
+/// A cluster's place in its consolidation run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunAt {
+    pub run: u64,
+    pub n: u32,
+    pub of: u32,
 }
 
 impl Fact for SynthesisProposed<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::SynthesisProposed);
 
     fn row(&self) -> Value {
-        json!({"synthesis_id": self.synthesis_id, "cluster": self.cluster,
+        let mut row = json!({"synthesis_id": self.synthesis_id, "cluster": self.cluster,
                "sources": self.sources, "turns": self.turns, "text": self.text,
                "profile": self.profile, "model": self.model,
-               "cost_usd": self.cost_usd, "trigger": self.trigger})
+               "cost_usd": self.cost_usd, "trigger": self.trigger});
+        if let Some(a) = self.at {
+            row["run"] = json!(a.run);
+            row["n"] = json!(a.n);
+            row["of"] = json!(a.of);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

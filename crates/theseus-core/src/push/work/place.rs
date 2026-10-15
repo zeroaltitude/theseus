@@ -36,6 +36,13 @@ impl Scope {
 
     /// Whether a view under `root` is one it sees.
     pub fn sees(&self, root: &str) -> bool {
+        // System work is the owner's (theseus-jn17m): the whole board has it,
+        // and a scope that reads private text sees it when it names `system`
+        // among its roots; a guarded scope (a surface that reads no private
+        // text) never does, whatever it names.
+        if theseus_protocol::work_system::is_root(root) {
+            return !self.guarded && self.roots.as_ref().is_none_or(|r| r.contains(root));
+        }
         self.roots.as_ref().is_none_or(|r| r.contains(root))
     }
 

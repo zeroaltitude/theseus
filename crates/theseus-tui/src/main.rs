@@ -64,6 +64,8 @@ mod tests_stop_all;
 #[cfg(test)]
 mod tests_sync;
 #[cfg(test)]
+mod tests_system;
+#[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
 mod tests_typing;

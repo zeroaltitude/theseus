@@ -12,6 +12,10 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
 
 - `src/main.rs`: the arguments (`--socket`, `--notify`), raw mode and the alternate screen, the signals that end
   the loop as a quit does (`ending_signals`: SIGTERM, SIGHUP, SIGINT and SIGQUIT), and the loop's start.
+- The daemon's own work (theseus-jn17m): at each connect the TUI asks `work.watch` for `system` alone
+  (`Purpose::System`), keeps the `Theseus` root's views by the position rule from `work.changed`, and the header says the
+  root closed (`⚙ importing 41/120`, else `⚙ Theseus · 2 done, 1 failed`: `work_system::collapsed`). A system job's
+  failure or long end (an Inform) is a line in the footer, never a ring.
 - `src/term.rs`: the TUI's own terminal modes, focus events and bracketed paste: on when the loop starts, off on
   every way out (a quit, an error, a signal, and a panic's hook) (theseus-8hcg).
 - `src/run.rs`: the loop. One connection, read in one `select!` with the terminal's events (read on a thread of

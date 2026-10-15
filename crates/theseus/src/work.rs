@@ -213,9 +213,30 @@ fn kind_word(k: WorkKind) -> &'static str {
     }
 }
 
+/// The daemon's own work (theseus-jn17m): the root as `⚙ Theseus  (1
+/// working, 2 done, 0 failed)`, a job as `◐ Importing Claude Code history ·
+/// batch 41 of 120 · 3:12`; a failed one is marked `✗`.
+fn system_line(v: &WorkView, now: u64) -> String {
+    if theseus_protocol::work_system::is_root(&v.id) {
+        let b = v.below.unwrap_or_default();
+        return format!(
+            "⚙ {}  ({} working, {} done, {} failed)",
+            v.title, b.working, b.done, b.failed
+        );
+    }
+    let glyph = match v.state {
+        theseus_protocol::work::WorkState::Failed => "✗",
+        _ => glyph(v.attention.level),
+    };
+    format!("{glyph} {}", theseus_protocol::work_system::line(v, now))
+}
+
 /// A view as one line of the tree: its glyph, its title, and what it says of
 /// itself (its attention's label), then its progress and rollup.
 fn view_line(v: &WorkView, now: u64) -> String {
+    if v.kind == WorkKind::System {
+        return system_line(v, now);
+    }
     let title = if v.title.is_empty() {
         format!(
             "{} {}",
@@ -378,6 +399,7 @@ fn push_tree(
     kids: &BTreeMap<&str, Vec<&WorkView>>,
     now: u64,
     out: &mut Vec<String>,
+    now: u64,
 ) {
     out.push(format!("{}{}", "  ".repeat(depth), view_line(v, now)));
     let mut below = kids.get(v.id.as_str()).cloned().unwrap_or_default();
@@ -560,6 +582,55 @@ mod tests {
         assert!(lines[1].starts_with("🔒 PR round"), "{}", lines[1]);
         assert_eq!(lines[0], "Threads: 2 live, 3 need you");
         assert!(lines.contains(&"  ● seal recommended: the notes are private".to_string()));
+    }
+
+    /// The daemon's own work (theseus-jn17m): the root closed over its count,
+    /// a running job with its count and its time, an ended one with how it
+    /// ended and how long it took, a failed one marked.
+    #[test]
+    fn the_theseus_root_lists_its_jobs_with_progress_and_time() {
+        let sys = |v: Value| {
+            let mut base = json!({
+                "kind": "system", "position": 9, "at_ms": 9, "root": "system", "parent": "system",
+                "state": "running",
+                "attention": {"level": "working", "label": "running", "since_ms": 5},
+                "started_at_ms": 1_000, "state_since_ms": 1_000
+            });
+            for (k, x) in v.as_object().unwrap() {
+                base[k] = x.clone();
+            }
+            serde_json::from_value::<WorkView>(base).unwrap()
+        };
+        let views = vec![
+            sys(
+                json!({"id": "system", "parent": null, "title": "Theseus", "state": "ready",
+                "attention": {"level": "ready", "label": "ready", "since_ms": 5},
+                "below": {"needs_you": 0, "working": 1, "done": 1, "failed": 1, "total": 3}}),
+            ),
+            sys(
+                json!({"id": "sys_a", "title": "Importing Claude Code history",
+                "attention": {"level": "working", "label": "batch 41 of 120", "since_ms": 5}}),
+            ),
+            sys(
+                json!({"id": "sys_b", "title": "Rebuilding the index", "started_at_ms": 2_000,
+                "state": "done", "ended_at_ms": 62_000,
+                "attention": {"level": "idle", "label": "done", "since_ms": 5}}),
+            ),
+            sys(
+                json!({"id": "sys_c", "title": "Syncing OpenClaw history", "started_at_ms": 3_000,
+                "state": "failed", "ended_at_ms": 4_000,
+                "attention": {"level": "idle", "label": "failed: the exporter's cursor is ahead of the file", "since_ms": 5}}),
+            ),
+        ];
+        assert_eq!(
+            tree_lines(&views, 193_000),
+            vec![
+                "⚙ Theseus  (1 working, 1 done, 1 failed)",
+                "  ◐ Importing Claude Code history · batch 41 of 120 · 3:12",
+                "  ✓ Rebuilding the index · done · 1:00",
+                "  ✗ Syncing OpenClaw history · failed: the exporter's cursor is ahead of the file · 0:01",
+            ]
+        );
     }
 
     /// A change says its position, kind, short id and the state it moved from;

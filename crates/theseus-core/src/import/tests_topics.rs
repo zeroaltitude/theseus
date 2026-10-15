@@ -123,6 +123,7 @@ fn import(
         &ImportEpisodesParams {
             file: "terns.jsonl".into(),
             lines,
+            ..Default::default()
         },
         "test",
     )

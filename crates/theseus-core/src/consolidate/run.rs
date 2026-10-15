@@ -48,7 +48,7 @@ use theseus_store::{kinds, NewRecord, Page, Store as _};
 
 use super::{CitationCheck, Stage};
 use crate::config::memory::SUMMARY_SESSION;
-use crate::fact::synthesis::{SynthesisChecked, SynthesisProposed, SynthesisScored, SCOPE};
+use crate::fact::synthesis::{RunAt, SynthesisChecked, SynthesisProposed, SynthesisScored, SCOPE};
 use crate::graph::{Edge, EdgeKind, VIA_SYNTHESIS};
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, RecalledRef};
@@ -75,6 +75,13 @@ pub const INSTRUCTIONS: &str = "You write one short encyclopedia entry from numb
 Use only what the notes say. Write at most 120 words, in plain sentences. End every sentence \
 with the numbers of the notes that support it, in brackets, as [1] or [2][3]. Reply with the \
 entry alone.";
+
+/// Where a cluster's frame stands: who asked for the run, and its place in
+/// it (the rows carry it for the work board).
+struct Mark<'a> {
+    trigger: &'a str,
+    at: RunAt,
+}
 
 /// One cluster's sources, read.
 struct Source {
@@ -394,10 +401,19 @@ impl Core {
             limit,
             now,
         } = plan;
-        for (c, sources, profile, report) in todo {
+        let of = todo.len() as u32;
+        for (i, (c, sources, profile, report)) in todo.into_iter().enumerate() {
+            let mark = Mark {
+                trigger,
+                at: RunAt {
+                    run: now,
+                    n: i as u32 + 1,
+                    of,
+                },
+            };
             let step = self
                 .synthesize(
-                    &c, &sources, &profile, report, &mut spent, limit, trigger, &rows,
+                    &c, &sources, &profile, report, &mut spent, limit, &mark, &rows,
                 )
                 .await?;
             match step {
@@ -432,7 +448,7 @@ impl Core {
         mut report: SynthesisReport,
         spent: &mut Micros,
         limit: Micros,
-        trigger: &str,
+        mark: &Mark<'_>,
         rows: &[RecallManifest],
     ) -> anyhow::Result<Step> {
         let (live, _) = self.live_profile();
@@ -479,7 +495,7 @@ impl Core {
                 report.outcome = "failed".into();
                 report.why = Some(format!("{e:#}"));
                 report.cost_usd = micros_to_usd(need);
-                self.write_failed(c, profile, &target.model, need, trigger)
+                self.write_failed(c, profile, &target.model, need, mark)
                     .await?;
                 return Ok(Step::Done(report));
             }
@@ -509,7 +525,7 @@ impl Core {
             profile,
             &model,
             cost,
-            trigger,
+            mark,
             &verdict,
             rows,
             session.as_deref(),
@@ -612,7 +628,7 @@ impl Core {
         profile: &str,
         model: &str,
         cost: Micros,
-        trigger: &str,
+        mark: &Mark<'_>,
         verdict: &Verdict,
         rows: &[RecallManifest],
         session: Option<&str>,
@@ -631,7 +647,8 @@ impl Core {
             profile,
             model,
             cost_usd: micros_to_usd(cost),
-            trigger,
+            trigger: mark.trigger,
+            at: Some(mark.at),
         };
         out.push(key(crate::fact::row(&proposed, None, None)?));
         let (word, least, judgment, mode, why, bad) = match verdict {
@@ -720,7 +737,7 @@ impl Core {
         profile: &str,
         model: &str,
         cost: Micros,
-        trigger: &str,
+        mark: &Mark<'_>,
     ) -> anyhow::Result<()> {
         let id = crate::new_id("syn");
         let f = SynthesisProposed {
@@ -732,7 +749,8 @@ impl Core {
             profile,
             model,
             cost_usd: micros_to_usd(cost),
-            trigger,
+            trigger: mark.trigger,
+            at: Some(mark.at),
         };
         let mut rec = crate::fact::row(&f, None, None)?;
         rec.key = Some(id);

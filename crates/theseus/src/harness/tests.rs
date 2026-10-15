@@ -440,3 +440,45 @@ fn the_import_is_refused_inside_a_job() {
     assert!(e.ends_with("Run it from your own shell."), "{e}");
     assert!(run::operator_only(None).is_ok());
 }
+
+/// A batch's number ends the board's job only at the run's last batch: an
+/// estimate is kept above its own batch's number, so a low guess never ends
+/// the job early (theseus-jn17m).
+#[test]
+fn only_the_last_batch_says_it_is_the_last() {
+    use crate::import::Numbered;
+    assert_eq!(
+        Numbered::of(3, 2, false),
+        Numbered {
+            batch: 3,
+            batches: 4
+        }
+    );
+    assert_eq!(Numbered::of(3, 9, false).batches, 9);
+    assert_eq!(
+        Numbered::of(3, 9, true),
+        Numbered {
+            batch: 3,
+            batches: 3
+        }
+    );
+}
+
+/// The estimate is the larger of the files over a batch's lines and the
+/// bytes the episodes have come to so far, scaled to all the files.
+#[test]
+fn the_estimate_grows_with_the_bytes_the_episodes_come_to() {
+    use super::run::Pace;
+    let mut few = Pace::for_tests(300, 10_000_000, 1_000_000, 500_000);
+    assert_eq!(
+        few.next(false).batches,
+        2,
+        "300 files are two batches of lines"
+    );
+    let mut big = Pace::for_tests(300, 400_000_000, 4_000_000, 4_000_000);
+    let n = big.next(false);
+    assert!(
+        n.batches > 90,
+        "{n:?}: 400 MB of episodes over 4 MiB batches"
+    );
+}

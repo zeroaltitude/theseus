@@ -298,3 +298,76 @@ fn a_guarded_scope_scrubs_and_cannot_answer() {
     assert!(whole.question.as_ref().unwrap().may_answer);
     assert!(serde_json::to_string(&whole).unwrap().contains(&token));
 }
+
+/// A fixture history imported in four numbered batches (theseus-jn17m): a
+/// watcher hears the daemon's own job, `batch 1 of 4` to `batch 3 of 4`,
+/// then its end, on `work.changed`, under the one root, `Theseus`. A fresh
+/// watcher's snapshot has it for the owner's surface, a binding's none of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_import_shows_its_progress_on_work_changed_and_ends() {
+    use crate::import::tests::{fixture, lines};
+    use theseus_protocol::WorkChanged;
+    let r = rig();
+    let mut cli = connect(&r.core, "cli", Surface::Cli, 1 << 20);
+    snapshot(cli.call(1, method::WORK_WATCH, json!({})).await);
+    let all = lines(&fixture());
+    for (i, chunk) in all.chunks(3).enumerate() {
+        let p = json!({"file": "reef.jsonl", "lines": chunk, "batch": i + 1, "batches": 4});
+        let got = cli.call(10 + i as u64, method::IMPORT_EPISODES, p).await;
+        assert!(got.error.is_none(), "{:?}", got.error);
+    }
+    let mut labels: Vec<String> = Vec::new();
+    let mut root_seen = false;
+    let mut take = |n: &theseus_protocol::Notification, labels: &mut Vec<String>| {
+        if n.method != notify::WORK_CHANGED {
+            return;
+        }
+        let c: WorkChanged = serde_json::from_value(n.params.clone()).unwrap();
+        for v in c.views {
+            if v.kind == WorkKind::System && v.parent.is_some() {
+                labels.push(v.attention.label.clone());
+            }
+            root_seen |= v.id == "system";
+        }
+    };
+    for n in std::mem::take(&mut cli.notes) {
+        take(&n, &mut labels);
+    }
+    while labels.last().map(String::as_str) != Some("done · 12 sessions") {
+        let line = tokio::time::timeout(Duration::from_secs(30), cli.lines.next_line())
+            .await
+            .expect("the job's end in 30 s")
+            .unwrap()
+            .expect("open");
+        if let Ok(Message::Notification(n)) = serde_json::from_str::<Message>(&line) {
+            take(&n, &mut labels);
+        }
+    }
+    assert_eq!(
+        labels,
+        [
+            "batch 1 of 4",
+            "batch 2 of 4",
+            "batch 3 of 4",
+            "done · 12 sessions"
+        ]
+    );
+    assert!(root_seen, "the root arrived with its job");
+
+    // A new watcher on the owner's surface has the root and its job; a
+    // binding that names a conversation of a shared place has neither.
+    let mut fresh = connect(&r.core, "fresh", Surface::Cli, 1 << 20);
+    let owner = snapshot(fresh.call(1, method::WORK_WATCH, json!({})).await);
+    assert!(owner.views.iter().any(|v| v.id == "system"));
+    assert!(owner
+        .views
+        .iter()
+        .any(|v| v.kind == WorkKind::System && v.state == theseus_protocol::work::WorkState::Done));
+    let mut binding = Raw::connect(&r.core, "binding", 1 << 20);
+    let theirs = snapshot(
+        binding
+            .call(1, method::WORK_WATCH, json!({"roots": ["ses_nothing"]}))
+            .await,
+    );
+    assert!(theirs.views.is_empty(), "{:?}", theirs.views);
+}

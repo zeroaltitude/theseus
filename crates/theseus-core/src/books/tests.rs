@@ -108,6 +108,7 @@ pub(crate) fn import(core: &Core, tag: &str, from: usize, n: usize) {
         let p = ImportEpisodesParams {
             file: "marsh.jsonl".into(),
             lines: chunk.to_vec(),
+            ..Default::default()
         };
         let r = write::import_batch(&core.store, &p, "test").unwrap();
         assert!(r.rejected.is_empty(), "{:?}", r.rejected);

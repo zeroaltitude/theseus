@@ -133,6 +133,7 @@ fn import(core: &Core, i: usize) {
                 line: i as u64 + 1,
                 text: episode_line(i),
             }],
+            ..Default::default()
         },
         "test",
     )

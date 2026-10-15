@@ -57,6 +57,8 @@ mod tests_people;
 #[cfg(test)]
 mod tests_sync;
 #[cfg(test)]
+mod tests_system;
+#[cfg(test)]
 mod tests_topics;
 
 use serde::{Deserialize, Serialize};

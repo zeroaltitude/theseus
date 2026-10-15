@@ -13,7 +13,9 @@ limit?: number,
 /**
  * Only these roots (a conversation's session id): what a binding for a
  * shared place asks. A connection that reads no private text must name
- * them, and sees the roots of a shared place alone.
+ * them, and sees the roots of a shared place alone. `system` names the
+ * daemon's own work (`work_system`): the root `Theseus` and its jobs, for a
+ * connection that reads private text; a shared place's never has it.
  */
 roots?: Array<string>, 
 /**

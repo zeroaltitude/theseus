@@ -42,6 +42,17 @@ pub struct ImportEpisodesParams {
     /// report and the ledger's row.
     pub file: String,
     pub lines: Vec<ImportLine>,
+    /// This batch's number in the client's run, from 1, and how many batches
+    /// the client expects to send (an estimate when it cannot know: the
+    /// daemon never shows a number past the total). The work board shows
+    /// `batch 41 of 120` from them (theseus-jn17m); a client that sends
+    /// neither is shown as running, without a count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub batch: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub batches: Option<u32>,
 }
 
 /// A line the import did not take, and why.

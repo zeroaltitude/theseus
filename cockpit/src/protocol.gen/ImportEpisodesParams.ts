@@ -9,4 +9,12 @@ export type ImportEpisodesParams = {
  * The file the lines came from, as the client names it: for the
  * report and the ledger's row.
  */
-file: string, lines: Array<ImportLine>, };
+file: string, lines: Array<ImportLine>, 
+/**
+ * This batch's number in the client's run, from 1, and how many batches
+ * the client expects to send (an estimate when it cannot know: the
+ * daemon never shows a number past the total). The work board shows
+ * `batch 41 of 120` from them (theseus-jn17m); a client that sends
+ * neither is shown as running, without a count.
+ */
+batch?: number, batches?: number, };

@@ -192,6 +192,7 @@ fn import(core: &Core) {
         &ImportEpisodesParams {
             file: "terns.jsonl".into(),
             lines,
+            ..Default::default()
         },
         "test",
     )

@@ -1845,7 +1845,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   rule: a connection that reads no private text names its roots, hears only a shared place's, scrubbed, and cannot
   answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
-  question's reminder (rule 2 of the policy) is not made. Tests: `tests_work.rs` (the scenario and its golden,
+  question's reminder (rule 2 of the policy) is not made. **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
+  one root, `system` (`Theseus`, kind `System`), whose children are the system jobs of the last hour, made from rows the
+  daemon already writes, in the frames it already writes: `import.batch` (a client's `batch` and `batches` ride the
+  params and the row, and the tag's source; the last batch, `batch == batches`, ends the job; the sync's batches carry no
+  total and its `import.synced` ends them, with its error when it failed), `import.erasing` (an erase's frames, the
+  progress; `import.erased` stays the receipt, which what counts erases still counts), `import.topics` and `import.people`
+  (`done` of `of` records), `synthesis.proposed` (`run`, `n`, `of`: a cluster's place in its consolidation) and
+  `index.rebuild` (`rpc/index_rebuild.rs`: the owner's `index.rebuild` through the core, `requested`, `progress` at each
+  fifth of the WAL's backfill, `finished` or `failed`, by a task on tokio's timer that reads the tender's status every
+  3 s while one is outstanding). A job is a title (`Importing Claude Code history`), a count (`Doing.label`: `batch 41
+  of 120`, `14 clusters`, `41%`; `progress` carries the numbers and the unit) and a time; `protocol::work_system::line`
+  writes them as `title · count · 3:12`. The board has no timer, so a running job whose rows stopped for `QUIET_MS` (5
+  min; a rebuild 30) is cancelled at the next frame, and an ended one leaves an hour after it ended (`sweep`); after a
+  start `warm_system` reads the last hour's rows again (the warm-up, after serving, no notice). The policy's system arms
+  (rule 8): a failed job is an Inform with its reason, one that ends after `long_run_ms` an Inform, progress nothing.
+  A failed job is at rest (`Idle`), never needs-you. **System work is the owner's**: `Scope::sees("system")` is false
+  for a guarded scope whatever it names, and a private scope has it on the whole board or by naming `system` in `roots`
+  (the TUI and `theseus status` ask for it alone). Tests: `push/work/tests_system.rs`, `import/tests_system.rs` (frames
+  per import unchanged), `tests_push/work.rs` (over `work.changed`). Tests: `tests_work.rs` (the scenario and its golden,
   `tests/golden/work_board.txt`), `tests_push/work.rs`, `push/work/tests.rs`, `push/tests/work.rs` (the seed equals the
   replay).
 - **The push's board**: `crates/theseus-core/src/push/board.rs` (and `push.rs`), fed by `Kernel::observe`; `attention()` is in

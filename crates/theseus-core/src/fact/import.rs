@@ -18,6 +18,12 @@ pub struct ImportBatch<'a> {
     pub nodes: u64,
     /// Episodes whose messages grew: only the new ones were written.
     pub appended: u64,
+    /// The client's batch number and its run's total, when it said
+    /// (`ImportEpisodesParams`), and the tag's source: the work board's
+    /// `batch 41 of 120` and its title read them (theseus-jn17m).
+    pub batch: Option<u32>,
+    pub batches: Option<u32>,
+    pub source: Option<&'a str>,
 }
 
 impl Fact for ImportBatch<'_> {
@@ -28,6 +34,15 @@ impl Fact for ImportBatch<'_> {
                "imported": self.imported, "nodes": self.nodes});
         if self.appended > 0 {
             row["appended"] = json!(self.appended);
+        }
+        if let Some(b) = self.batch {
+            row["batch"] = json!(b);
+        }
+        if let Some(b) = self.batches {
+            row["batches"] = json!(b);
+        }
+        if let Some(s) = self.source {
+            row["source"] = json!(s);
         }
         row
     }
@@ -64,6 +79,40 @@ pub struct ImportErased<'a> {
     pub nodes: u64,
 }
 
+/// An erase's frame before the last (theseus-jn17m): the sessions erased so
+/// far this run and the run's total, which the work board shows as progress
+/// (`import.erasing`; the receipt, `import.erased`, is the last frame's alone,
+/// so what counts receipts counts erases).
+pub struct ImportErasing<'a> {
+    pub tag: &'a str,
+    pub by: &'a str,
+    pub progress: Progress,
+}
+
+impl Fact for ImportErasing<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ImportErasing);
+
+    fn row(&self) -> Value {
+        let mut row = json!({"tag": self.tag, "by": self.by});
+        self.progress.put(&mut row);
+        row
+    }
+}
+
+/// How far a run of frames has come: records written, of the records it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress {
+    pub done: u64,
+    pub of: u64,
+}
+
+impl Progress {
+    fn put(self, row: &mut Value) {
+        row["done"] = json!(self.done);
+        row["of"] = json!(self.of);
+    }
+}
+
 impl Fact for ImportErased<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ImportErased);
 
@@ -96,14 +145,20 @@ pub struct ImportTopics<'a> {
     pub joined: u64,
     pub taken: u64,
     pub retired: u64,
+    /// The records written so far this run, of its total (theseus-jn17m).
+    pub progress: Option<Progress>,
 }
 
 impl Fact for ImportTopics<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ImportTopics);
 
     fn row(&self) -> Value {
-        json!({"tag": self.tag, "by": self.by, "made": self.made, "joined": self.joined,
-               "taken": self.taken, "retired": self.retired})
+        let mut row = json!({"tag": self.tag, "by": self.by, "made": self.made, "joined": self.joined,
+               "taken": self.taken, "retired": self.retired});
+        if let Some(p) = self.progress {
+            p.put(&mut row);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -140,14 +195,20 @@ pub struct ImportPeople<'a> {
     pub made: u64,
     pub joined: u64,
     pub retired: u64,
+    /// The records written so far this run, of its total (theseus-jn17m).
+    pub progress: Option<Progress>,
 }
 
 impl Fact for ImportPeople<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ImportPeople);
 
     fn row(&self) -> Value {
-        json!({"tag": self.tag, "by": self.by, "made": self.made, "joined": self.joined,
-               "retired": self.retired})
+        let mut row = json!({"tag": self.tag, "by": self.by, "made": self.made, "joined": self.joined,
+               "retired": self.retired});
+        if let Some(p) = self.progress {
+            p.put(&mut row);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

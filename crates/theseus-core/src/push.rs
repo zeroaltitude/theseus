@@ -397,6 +397,13 @@ impl Push {
             let open = core.push.work.lock().unwrap().open_jobs();
             let (runs, argvs) = work::read_warm(&core, &open);
             core.push.work.lock().unwrap().warm(runs, argvs);
+            // The daemon's own jobs of the last hour (theseus-jn17m).
+            let now = theseus_protocol::now_unix_ms();
+            let rows = work::read_system(&core, now);
+            let out = core.push.work.lock().unwrap().warm_system(rows, now);
+            if let Some(out) = out {
+                core.bus.publish_work(&out, &core.tools.scrubber);
+            }
         });
     }
 

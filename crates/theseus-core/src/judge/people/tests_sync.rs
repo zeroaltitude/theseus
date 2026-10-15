@@ -31,6 +31,7 @@ fn import(r: &Rig, episodes: &[serde_json::Value]) {
         &ImportEpisodesParams {
             file: "sync.jsonl".into(),
             lines,
+            ..Default::default()
         },
         "test",
     )

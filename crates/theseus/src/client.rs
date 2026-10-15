@@ -296,7 +296,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 64] = [
+pub const OPERATORS: [(&str, &str); 65] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::WORK_ANSWER, "theseus answer"),
     (method::THREAD_ANSWER, "theseus thread answer"),
@@ -327,6 +327,7 @@ pub const OPERATORS: [(&str, &str); 64] = [
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::FACT_RETRACT, "theseus retract"),
     (method::MEMORY_CONSOLIDATE, "theseus memory consolidate"),
+    (method::INDEX_REBUILD, "theseus index rebuild"),
     (method::JUDGE_LABEL, "theseus judge label"),
     (method::ROUTE_CORRECT, "theseus judge correct"),
     (method::EXTENSION_REVOKE, "theseus extend revoke"),

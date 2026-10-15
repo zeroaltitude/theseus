@@ -71,6 +71,7 @@ pub(crate) fn import(core: &Core, episodes: &[Value]) -> Vec<String> {
                 text: serde_json::to_string(e).unwrap(),
             })
             .collect(),
+        ..Default::default()
     };
     let r = crate::import::write::import_batch(&core.store, &p, "cli").unwrap();
     assert_eq!(r.imported, episodes.len() as u64, "{r:?}");

@@ -55,6 +55,7 @@ fn import(core: &Core, tag: &str, from: usize, n: usize) {
             &ImportEpisodesParams {
                 file: "terns.jsonl".into(),
                 lines: chunk.to_vec(),
+                ..Default::default()
             },
             "test",
         )

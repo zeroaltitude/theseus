@@ -108,6 +108,13 @@ impl Core {
         };
         let mut roots: HashSet<String> = HashSet::new();
         for sid in named {
+            // The daemon's own work, for a surface that reads private text.
+            if sid == theseus_protocol::work_system::ROOT {
+                if !guarded {
+                    roots.insert(sid.clone());
+                }
+                continue;
+            }
             let Ok(rec) = self.session(sid) else { continue };
             if guarded && !matches!(self.runner.place_of(sid), Place::Shared(_)) {
                 continue;
