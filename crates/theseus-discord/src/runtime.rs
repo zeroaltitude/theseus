@@ -2097,21 +2097,14 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
-                        dir: None,
-                        carried: false,
-                        prompt: None,
                         session_id: Some(sid),
                         input,
-                        profile: None,
-                        provider: None,
-                        model: None,
                         author: Some(author),
                         attachments,
                         reply_to: anchor.map(|a| a.to_string()),
-                        opened_from: None,
-                        thread: None,
                         speaking: None,
                         in_reply_to: reply_turn,
+                        ..Default::default()
                     },
                 )
                 .await
@@ -2982,21 +2975,14 @@ pub(crate) mod tests {
             .call(
                 theseus_protocol::method::TURN_SUBMIT,
                 TurnSubmitParams {
-                    dir: None,
-                    carried: false,
-                    prompt: None,
                     session_id: Some(sid.clone()),
                     input: "FIRST write a file".into(),
-                    profile: None,
-                    provider: None,
-                    model: None,
                     author: Some("test".into()),
                     attachments: vec![],
                     reply_to: None,
-                    opened_from: None,
-                    thread: None,
                     speaking: None,
                     in_reply_to: None,
+                    ..Default::default()
                 },
             )
             .await

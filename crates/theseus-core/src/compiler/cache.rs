@@ -10,22 +10,6 @@
 use super::{Compilation, ProviderRequest};
 use crate::blobs::Blobs;
 
-impl super::CacheLayout {
-    /// The breakpoints set, by name, the conversation's last.
-    pub fn breakpoints(&self) -> Vec<&str> {
-        let mut out: Vec<&str> = self
-            .blocks
-            .iter()
-            .filter(|b| b.marked)
-            .map(|b| b.block.as_str())
-            .collect();
-        if self.caches {
-            out.push("conversation");
-        }
-        out
-    }
-}
-
 /// The texts of a request's system blocks, in order.
 fn texts(request: &ProviderRequest) -> Vec<&str> {
     request

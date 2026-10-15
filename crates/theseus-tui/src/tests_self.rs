@@ -132,7 +132,7 @@ fn rig(width: u16, height: u16, self_log: Value) -> Rig {
 async fn open(rig: &mut Rig) {
     rig.asked("health", 1).await;
     rig.settle().await;
-    rig.press(&[KeyCode::Char('l')]).await;
+    rig.press(&[KeyCode::Char('L')]).await;
     rig.asked("self.log", 1).await;
 }
 

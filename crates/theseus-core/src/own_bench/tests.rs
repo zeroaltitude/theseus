@@ -169,6 +169,32 @@ async fn a_turns_first_request_is_rebuilt_byte_for_byte() {
     assert_eq!(std::fs::read_to_string(path).unwrap(), text);
 }
 
+/// With deferred tools on (theseus-7m7w.2), a turn's first request is still
+/// rebuilt byte for byte: the tools as its compilation loaded them, deferred
+/// as they were sent.
+#[tokio::test]
+async fn a_turns_first_request_is_rebuilt_with_its_tools_deferred() {
+    let rig = crate::tests_recall::rig_built(
+        MemoryMode::Off,
+        |_| {},
+        |p| {
+            p.secrets = board();
+            p.cfg.tools.defer.enabled = true;
+        },
+    );
+    script(&rig, &[ORIGINAL]);
+    let (sid, t) = asked(&rig).await;
+    let sent = &rig.model.requests()[0];
+    assert!(
+        sent.tools
+            .iter()
+            .any(|t| t.get("defer_loading") == Some(&serde_json::Value::Bool(true))),
+        "the turn deferred some tools"
+    );
+    let got = rig.core.rebuild_first(&sid, &t).expect("rebuildable");
+    assert_eq!(&got.request, sent, "the rebuilt request is the one sent");
+}
+
 /// A part that cannot be rebuilt is named, never guessed: a block whose blob
 /// is gone; a compilation from before blocks were kept by digest; blobs that
 /// are not the text they are named for.

@@ -271,6 +271,22 @@ pub fn forks<'a>(input: &CompileInput<'a>) -> (Option<Cow<'a, RequestSpec>>, Cow
     (app, tooled(guided_rec, Some(fresh)))
 }
 
+/// `spec` as an append to the compilation of `current` renders it: the
+/// families that compilation recorded loading, as `forks` takes them (a
+/// turn's request rebuilt, own-benchmark's replay). With deferral off now,
+/// `spec` as it is.
+pub fn as_recorded(spec: RequestSpec, current: &crate::compiler::Manifest) -> RequestSpec {
+    let Some(fresh) = spec.defer.clone().filter(|d| !d.resolved) else {
+        return spec;
+    };
+    let sticky = current.loaded.as_ref().map(|l| Deferral {
+        mechanism: fresh.mechanism,
+        loaded: l.iter().cloned().collect(),
+        resolved: false,
+    });
+    tooled(Cow::Owned(spec), sticky.as_ref()).into_owned()
+}
+
 /// The tools a request hides, for the conversation's notes: those it sends
 /// with `defer_loading`, and those of the catalog it leaves out.
 pub fn hidden_of(catalog: &[Value], sent: &[Value]) -> Vec<HiddenTool> {

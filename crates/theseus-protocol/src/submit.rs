@@ -26,7 +26,7 @@ pub struct SessionOpenParams {
     pub dir: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnSubmitParams {
     /// Omit to open a fresh conversation session for this turn.

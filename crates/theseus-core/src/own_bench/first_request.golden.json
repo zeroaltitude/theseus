@@ -26,9 +26,7 @@
     },
     {
       "bytes": false,
-      "cache_control": {
-        "type": "ephemeral"
-      }
+      "cache_control": null
     }
   ],
   "thinking": {

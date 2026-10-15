@@ -316,16 +316,25 @@ impl Core {
                 Some(m.memberships.as_slice()),
             )
             .spec;
+        // The layers' names (theseus-h4a7); a compilation from before them
+        // names its project block `context`.
+        let project = texts
+            .remove(crate::compiler::layers::PROJECT)
+            .or_else(|| texts.remove("context"));
         for (name, slot) in [
-            ("header", &mut spec.system_text),
-            ("context", &mut spec.context_text),
+            (crate::compiler::layers::HEADER, &mut spec.system_text),
+            (crate::compiler::layers::PERSONA, &mut spec.persona_text),
             (crate::compiler::session_block::NAME, &mut spec.session_text),
         ] {
             *slot = texts.remove(name).unwrap_or_default();
         }
+        spec.context_text = project.unwrap_or_default();
         if let Some(extra) = texts.keys().next() {
             return Err(no("system", format!("a block named {extra} has no place")));
         }
+        // The tools as its requests sent them: the families the compilation
+        // recorded loading (theseus-7m7w.2), whose digest the manifest holds.
+        let spec = crate::tools_defer::as_recorded(spec, m);
         let tools = theseus_kernel::digest_json(&Value::Array(spec.tools.clone()));
         if tools[..16] != m.tools_digest {
             return Err(no(

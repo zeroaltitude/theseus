@@ -1015,18 +1015,6 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [route]
 # replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
 
-# ---------------------------------------------------------------- route
-# Your own benchmark (own-benchmark, theseus-pw1q.12). Nightly, paced by
-# pressure, a few of your recent turns per (model, effort) cell are rebuilt
-# byte for byte, sent one rung down the routing table (`[routing.modes.*]`),
-# and judged by compare.v1 against the reply they got; `theseus route report`
-# says per cell what matched and what moving it would have saved. Never a
-# shared place's turn, and never one that would send a sealed thread's, a
-# veiled recall's or an attachment's bytes to another provider. It moves no
-# routing: a pack that would climbs the ladder on its frozen holdout.
-# [route]
-# replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
-
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
 # human-facing text and returns candidate people through a tool schema; Jev

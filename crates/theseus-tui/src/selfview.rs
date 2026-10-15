@@ -90,7 +90,7 @@ fn read() -> Effect {
 }
 
 impl App {
-    /// `l`: open the pane and read the log.
+    /// `L`: open the pane and read the log.
     pub(crate) fn open_self(&mut self) -> Vec<Effect> {
         self.mode = Mode::SelfView;
         self.selfview.picked = 0;
@@ -139,15 +139,15 @@ impl App {
     }
 
     /// A key in the pane: up and down pick, enter shows the row whole, esc
-    /// (or `l`) closes.
+    /// (or `L`) closes.
     pub(crate) fn selfview_key(&mut self, k: KeyEvent) -> Vec<Effect> {
         let wide = self.width >= WIDE;
         let last = self.selfview.shown(wide).len().saturating_sub(1);
         let v = &mut self.selfview;
         match k.code {
             KeyCode::Char('q') => return vec![Effect::Quit],
-            KeyCode::Esc | KeyCode::Char('l') if v.whole => v.whole = false,
-            KeyCode::Esc | KeyCode::Char('l') => self.mode = Mode::Normal,
+            KeyCode::Esc | KeyCode::Char('L') if v.whole => v.whole = false,
+            KeyCode::Esc | KeyCode::Char('L') => self.mode = Mode::Normal,
             KeyCode::Down | KeyCode::Char('j') => v.picked = (v.picked + 1).min(last),
             KeyCode::Up | KeyCode::Char('k') => v.picked = v.picked.saturating_sub(1),
             KeyCode::Enter => v.whole = !v.whole && !v.shown(wide).is_empty(),

@@ -67,6 +67,10 @@ pub struct BlockBreakpoint {
     /// whose prefix still falls short is skipped by the provider without an
     /// error, and the usage shows no write for it.
     pub marked: bool,
+    /// The block's text's SHA-256, its blob's name (`cache::stamp`); absent
+    /// in a compilation from before own-benchmark (theseus-pw1q.12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 /// Bytes a token takes at the fewest, for the minimum's check. A prefix
@@ -141,6 +145,7 @@ pub fn cache_layout(spec: &RequestSpec, catalog: &Catalog) -> CacheLayout {
                 marked: caches
                     && block != session_block::NAME
                     && bytes >= min_tokens as u64 * MIN_BYTES_PER_TOKEN,
+                digest: None,
             }
         })
         .collect();
