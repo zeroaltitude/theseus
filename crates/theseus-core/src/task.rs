@@ -627,6 +627,7 @@ pub fn create<'a>(
     let s = short(&task.session_id);
     let limit = task.budget.limit_micros;
     if opened.opened {
+        tc.commitments.scheduled_one();
         if let Some(t) = &target {
             tc.outbox.task_bound(&task.session_id, t);
         }

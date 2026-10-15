@@ -41,6 +41,7 @@ mod history;
 pub mod import;
 pub mod import_sync;
 pub mod index;
+pub mod initiative;
 pub mod inspect;
 pub mod job_follow;
 pub mod judge;
@@ -119,6 +120,7 @@ pub use hands::*;
 pub use health::*;
 pub use history::*;
 pub use index::TenderStatus;
+pub use initiative::{Initiative, Proactive};
 pub use job_follow::*;
 pub use ledger::*;
 pub use ledger_verify::*;
@@ -252,6 +254,8 @@ pub mod method {
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", PREFIX_REPORT = "prefix.report",
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list",
+        /// A 👍 or 👎 on a message Theseus sent first, and the week's promises and verdicts (theseus-slvl.9; `initiative`).
+        INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week",
         VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.

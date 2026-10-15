@@ -858,7 +858,7 @@ impl Lane {
             // hand role and the red after its apply (theseus-pw1q.15): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" => self.jev_post(a, &body).await,
+            | "self_narrow_red" | "initiative" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1339,6 +1339,13 @@ impl Lane {
                 body["text"].as_str().unwrap_or("").to_string(),
                 format!("seal:{}", a.correlation_id),
                 Buttons::Seal(crate::runtime::seal_slug(body)),
+            ),
+            // What Theseus said first, in its persona's voice (theseus-slvl.9):
+            // its key names the message, so a 👍 or 👎 on it finds it.
+            "initiative" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("ini:{}", body["id"].as_str().unwrap_or(&a.correlation_id)),
+                Buttons::Keep,
             ),
             _ => {
                 let t = body["text"].as_str().unwrap_or("").to_string();

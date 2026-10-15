@@ -39,6 +39,7 @@ mod routines;
 pub(crate) mod routing;
 pub mod rsi;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
+mod initiative;
 mod sessions;
 mod threads;
 mod wake_limits;
@@ -47,6 +48,7 @@ pub use routines::RoutinesConfig;
 mod watches;
 pub use notify::NotifyConfig;
 pub use prefix::PrefixConfig;
+pub use initiative::InitiativeConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use threads::{PersonaEngage, ThreadsConfig};
@@ -180,6 +182,9 @@ pub struct Config {
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
+    /// `[initiative]`: what Theseus says first, in its persona's voice (theseus-slvl.9), `config/initiative.rs`.
+    #[serde(default, skip_serializing_if = "InitiativeConfig::is_default")]
+    pub initiative: InitiativeConfig,
     /// `[watches]`: checks with no model until a condition holds (theseus-f2r2b), `config/watches.rs`.
     #[serde(default, skip_serializing_if = "WatchesConfig::is_default")]
     pub watches: WatchesConfig,
@@ -1435,6 +1440,7 @@ impl Config {
         self.cockpit.validate()?;
         self.routines.validate()?;
         self.watches.validate()?;
+        self.initiative.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;
         self.discord.calendar.validate()?;
         self.route.validate()?;

@@ -52,6 +52,7 @@ pub mod extend;
 pub mod extend_hands;
 pub mod import;
 pub mod index;
+pub mod initiative;
 pub mod judge;
 pub mod judge_runs;
 pub mod ladder;
@@ -526,6 +527,10 @@ facts![
     rsi_pipeline::Ended,
     prefix::PrefixPicked<'static>,
     persona::PersonaEngaged<'static>,
+    initiative::PromiseKept<'static>,
+    initiative::PromiseUnkept<'static>,
+    initiative::InitiativeSpoke<'static>,
+    initiative::InitiativeRated<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

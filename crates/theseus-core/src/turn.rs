@@ -81,6 +81,7 @@ mod noop_step;
 pub mod nudge_step;
 mod persona_engage;
 mod persona_step;
+mod promise_step;
 mod prompt_input;
 mod recall_step;
 mod reply_step;
@@ -3211,6 +3212,7 @@ impl TurnRunner {
             inspect_url: Some(self.cfg.cockpit.turn_url(t.tc.session_id, t.tc.turn_id)),
         };
         self.defer_ended(&mut t);
+        self.initiative_rows(&mut t, &result);
         t.record(&fact::turn::TurnBooked {
             result: &result,
             session_usage: &session.usage,

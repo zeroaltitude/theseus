@@ -9,29 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::context_files::ContextEntry;
 
-/// How readily a persona speaks first (`quiet`, `normal`, `chatty`). Read by
-/// the ping rule later rows wire (`initiative-voice`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Initiative {
-    Quiet,
-    #[default]
-    Normal,
-    Chatty,
-}
+pub use theseus_protocol::Initiative;
 
-impl Initiative {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Initiative::Quiet => "quiet",
-            Initiative::Normal => "normal",
-            Initiative::Chatty => "chatty",
-        }
-    }
-
-    fn is_default(&self) -> bool {
-        *self == Initiative::Normal
-    }
+fn normal(i: &Initiative) -> bool {
+    *i == Initiative::Normal
 }
 
 /// `[personas.<name>]`: a persona's context files, compiled after the system
@@ -58,7 +39,11 @@ pub struct PersonaConfig {
     /// A path or a URL, for Discord.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
-    #[serde(default, skip_serializing_if = "Initiative::is_default")]
+    /// How readily it speaks first (theseus-slvl.9): `quiet`, `normal` (the
+    /// default) or `chatty`. `notices::policy` reads it through
+    /// `Rules::initiative`, and the daemon's own proactive posts through
+    /// `Initiative::lets`.
+    #[serde(default, skip_serializing_if = "normal")]
     pub initiative: Initiative,
     /// Whether a shared place may be answered by this persona beyond its own
     /// (route.v5's persona question and an explicit address, theseus-c1uz).

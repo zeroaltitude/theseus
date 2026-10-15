@@ -92,6 +92,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
   Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).
 - `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watches` (list), `watches add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watches add TITLE --reply PLACE [--from WHO] [--words TEXT|/RE/] [--for 5d]` (a reply in a Discord place, no checks: theseus-rlnbf), `watches rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
+- `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watches` (list), `watches add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watches rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
+- `src/notices_cmd.rs` (theseus-slvl.9): `theseus notices rate up|down [ID] [--session S]`, the owner's verdict on a message
+  Theseus sent first (`initiative.rate`; in `client::OPERATORS`), and `theseus persona`'s last lines, the week's promises kept and
+  👍/👎 (`persona_cmd::week_lines`, over `initiative.week`; `--json` stays the persona list alone).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
   today's dollars, title), `thread new|show|edit|pause|resume|done|reopen`, and `ask --thread SLUG` (a turn in the
   thread's session). The writes are in `client::OPERATORS`, so a job's shell cannot make them.
