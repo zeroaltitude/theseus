@@ -451,6 +451,8 @@ impl Shared {
             .map(|u| snowflake("user id", u))
             .collect::<anyhow::Result<Vec<_>>>()?;
         let key = format!("channel:{}", c.id);
+        self.task_threads
+            .configure(channel.get(), c.task_threads && !c.voice);
         let (label, mention_only) = (c.label(), c.mention_only);
         self.clone()
             .start_place(
@@ -514,6 +516,7 @@ impl Shared {
         // taken out of `new` and stays unbound.
         guilds::tell_core(&self.core, new);
         self.place_bits.replace(new);
+        self.task_posts.set_forums(new);
         let (was, now) = (places(old), places(new));
         fn find<'a>(list: &[(String, Spot<'a>)], k: &str) -> Option<Spot<'a>> {
             list.iter().find(|(o, _)| o == k).map(|(_, p)| *p)
@@ -671,6 +674,9 @@ impl Shared {
             Spot::Channel(c) => {
                 let users: Vec<u64> = c.users.iter().filter_map(|u| u.parse().ok()).collect();
                 let show = super::show::Show::of_channel(c);
+                if let Ok(id) = c.id.parse() {
+                    self.task_threads.configure(id, c.task_threads && !c.voice);
+                }
                 self.pings
                     .set(&format!("discord:{key}"), PlacePings::of_channel(c));
                 (c.label(), users, c.mention_only, show)

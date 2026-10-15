@@ -80,6 +80,9 @@ pub struct Parts<'a> {
     pub future: Option<&'a FutureParts>,
     /// The clock the future's lines are drawn at.
     pub now_ms: u64,
+    /// Where each task's thread or forum post is, by task id (theseus-i3do6):
+    /// a row that has one ends with a link to it.
+    pub links: &'a std::collections::HashMap<String, String>,
 }
 
 /// The header line: the counts, `0`s left out.
@@ -188,6 +191,23 @@ pub(super) fn done_line(v: &WorkView) -> String {
     s
 }
 
+/// No task has a thread or a post: the links of a place that makes none.
+#[cfg(test)]
+pub fn no_links() -> &'static std::collections::HashMap<String, String> {
+    static NONE: std::sync::LazyLock<std::collections::HashMap<String, String>> =
+        std::sync::LazyLock::new(std::collections::HashMap::new);
+    &NONE
+}
+
+/// ` · ↗` linking the task's thread or post, if it has one. The angle
+/// brackets keep Discord from drawing an embed for it.
+fn link_of(p: &Parts<'_>, v: &WorkView) -> String {
+    p.links
+        .get(&v.id)
+        .map(|url| format!(" · [↗ thread](<{url}>)"))
+        .unwrap_or_default()
+}
+
 fn more(n: usize) -> String {
     format!("-# +{n} more · /tasks")
 }
@@ -210,10 +230,11 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
         for v in p.needs.iter().take(cn) {
             inner.push(section(
                 vec![text(format!(
-                    "**{}** `…{}`\n{}",
+                    "**{}** `…{}`\n{}{}",
                     title_of(v),
                     short(&v.id),
-                    ask_line(v)
+                    ask_line(v),
+                    link_of(p, v)
                 ))],
                 button(format!("{OPEN}{}", v.id), "Answer ↗", Look::Primary),
             ));
@@ -226,7 +247,13 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
         inner.push(separator());
         // The newest first; the oldest fold.
         let mut lines = vec!["**⚙️ Now**".to_string()];
-        lines.extend(p.working.iter().rev().take(cw).map(working_line));
+        lines.extend(
+            p.working
+                .iter()
+                .rev()
+                .take(cw)
+                .map(|v| format!("{}{}", working_line(v), link_of(p, v))),
+        );
         if p.working.len() > cw {
             lines.push(more(p.working.len() - cw));
         }
@@ -235,7 +262,12 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     if !p.done.is_empty() {
         inner.push(separator());
         let mut lines = vec!["**✅ Done, not yet seen**".to_string()];
-        lines.extend(p.done.iter().take(cd).map(done_line));
+        lines.extend(
+            p.done
+                .iter()
+                .take(cd)
+                .map(|v| format!("{}{}", done_line(v), link_of(p, v))),
+        );
         if p.done.len() > cd {
             lines.push(more(p.done.len() - cd));
         }
@@ -482,7 +514,38 @@ mod tests {
             quiet_until_ms: None,
             future: None,
             now_ms: NOW,
+            links: no_links(),
         }
+    }
+
+    /// A task with a thread or a post has a link to it on its row, in every
+    /// part, and one without has none (theseus-i3do6).
+    #[test]
+    fn a_row_links_the_tasks_thread_or_post() {
+        let (n, w, d) = (
+            vec![view(1, WorkState::NeedsYou)],
+            vec![view(2, WorkState::Running)],
+            vec![view(3, WorkState::Done)],
+        );
+        let mut links = std::collections::HashMap::new();
+        for v in n.iter().chain(&w).chain(&d).take(2) {
+            links.insert(
+                v.id.clone(),
+                format!("https://discord.com/channels/1/{}", v.position),
+            );
+        }
+        let mut p = parts(&n, &w, &d);
+        p.links = &links;
+        let t = texts(&render(&p)).join("\n");
+        assert!(
+            t.contains("[↗ thread](<https://discord.com/channels/1/1>)"),
+            "{t}"
+        );
+        assert!(
+            t.contains("[↗ thread](<https://discord.com/channels/1/2>)"),
+            "{t}"
+        );
+        assert_eq!(t.matches("↗ thread").count(), 2, "the third has none: {t}");
     }
 
     fn shown(p: &Parts<'_>) -> String {
@@ -727,7 +790,7 @@ mod tests {
 
             /// However many tasks of each part, and however long their words, the board is
             /// within 40 components and 4,000 characters, and its ids are unique.
-            #[test]
+                #[test]
             fn any_board_fits_and_has_unique_ids(a in 0usize..40, b in 0usize..60, c in 0usize..40, long in 1usize..400) {
                 let n: Vec<_> = (0..a).map(|i| { let mut v = asking(i); v.title = "t".repeat(long); v.question.as_mut().unwrap().prompt = "p".repeat(long); v }).collect();
                 let w: Vec<_> = (0..b).map(|i| { let mut v = working(1000 + i); v.title = "w".repeat(long); v }).collect();

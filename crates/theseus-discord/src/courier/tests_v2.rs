@@ -24,6 +24,7 @@ fn board(n: usize) -> String {
         quiet_until_ms: None,
         future: None,
         now_ms: 0,
+        links: board_v2::no_links(),
     });
     serde_json::to_string(&c).unwrap()
 }

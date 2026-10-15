@@ -62,6 +62,7 @@ pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use seal::{buttons as seal_buttons, slug_of as seal_slug};
 pub(crate) use source::source_buttons;
 mod extensions;
+mod forum;
 mod guild_thread;
 mod guilds;
 mod halt;
@@ -99,6 +100,7 @@ mod steer;
 mod succession;
 mod task_cmds;
 mod tasks;
+pub(crate) mod threads;
 mod typing;
 #[cfg(test)]
 pub(crate) use succession::open_at_bind;
@@ -368,6 +370,8 @@ async fn connect(
         pings: Default::default(),
         threads: Default::default(),
         tasks: Default::default(),
+        task_threads: Default::default(),
+        task_posts: Default::default(),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -402,6 +406,7 @@ async fn start_places(
     tokio::spawn(route(shared.clone(), notes));
     board::hear_every_change(shared);
     shared.start_threads();
+    shared.start_task_forums(bindings);
     tasks::watch_loop(shared);
     // A card whose question closed while the binding was away (a raise at
     // the vault's confirmation, an answer from the CLI) says how, and loses
@@ -591,6 +596,10 @@ pub(crate) struct Shared {
     pub(crate) threads: thread_bind::State,
     /// The work engine's tasks, as the binding's places show them (theseus-2j2ka).
     pub(crate) tasks: tasks::Tasks,
+    /// Each task's thread in a guild channel (theseus-i3do6).
+    pub(crate) task_threads: threads::TaskThreads,
+    /// The task forums and their posts (theseus-i3do6).
+    pub(crate) task_posts: forum::TaskPosts,
 }
 
 #[derive(Default)]
@@ -811,6 +820,7 @@ impl Shared {
             None,
         );
         self.revive_thread_lanes();
+        self.revive_task_threads();
         Ok(())
     }
 
@@ -1451,6 +1461,7 @@ impl Shared {
             .unwrap()
             .by_session
             .contains_key(session_id)
+            || self.task_threads.has_session(session_id)
     }
 
     /// The DM an approval card goes to when its place is shared (the place
@@ -1825,7 +1836,10 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
                     r.turns.remove(t);
                 }
             }
-            sid.and_then(|s| r.by_session.get(&s).cloned())
+            sid.and_then(|s| {
+                let place = r.by_session.get(&s).cloned();
+                place.or_else(|| shared.task_threads.place_of(&s))
+            })
         };
         if let Some(tx) = target {
             let _ = tx.send(PlaceMsg::Event(Box::new(e)));
@@ -2346,6 +2360,8 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         pings: Default::default(),
         threads: Default::default(),
         tasks: Default::default(),
+        task_threads: Default::default(),
+        task_posts: Default::default(),
     })
 }
 

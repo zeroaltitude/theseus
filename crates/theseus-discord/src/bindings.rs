@@ -31,6 +31,9 @@ pub struct Bindings {
     /// Every guild, in the file's order: format 1's one, or format 2's.
     pub guilds: Vec<GuildBinding>,
     pub channel: Vec<ChannelBinding>,
+    /// The forums (`kind = "forum"`, theseus-i3do6): no place, so apart from
+    /// `channel`, which every place loop reads. Off unless the owner binds one.
+    pub forums: Vec<ChannelBinding>,
     pub dm: Vec<DmBinding>,
     /// First 12 hex of the file's SHA-256.
     pub revision: String,
@@ -95,6 +98,14 @@ pub struct ChannelBinding {
     /// config; theseus-slvl.2): absent, the default persona. A name the config
     /// lacks is passed over, and the core's health says so.
     pub persona: Option<String>,
+    /// `kind = "forum"` (theseus-i3do6): a forum channel, each task of its
+    /// guild's places a post in it. It is no place: it takes no message and
+    /// runs no session. Off unless the owner binds one.
+    pub forum: bool,
+    /// A task started from this place gets a Discord thread of its own, where
+    /// its tool lines and replies render (theseus-i3do6). On by default; a DM
+    /// has no threads.
+    pub task_threads: bool,
 }
 
 /// A `[[channel]]` as the file writes it, with where its keys are.
@@ -127,6 +138,10 @@ struct RawChannel {
     ping_window_secs: Option<u64>,
     #[serde(default)]
     persona: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default = "yes")]
+    task_threads: bool,
 }
 
 /// The file as written, with where its format's keys are.
@@ -299,7 +314,7 @@ impl Bindings {
     /// rule's one check): each one bound private, outside a trusted guild.
     /// In one, none: the operator's word covers the guild (theseus-rdqg).
     pub fn read_at_start(&self) -> impl Iterator<Item = &ChannelBinding> {
-        self.channel.iter().filter(|c| {
+        self.channel.iter().chain(&self.forums).filter(|c| {
             let trusted = self.guild(&c.guild).is_some_and(|g| g.private);
             !trusted && self.is_private(c)
         })
@@ -322,6 +337,7 @@ impl Bindings {
             .into_iter()
             .map(|c| Self::channel_of(c, format, &guilds, text))
             .collect::<Result<Vec<_>>>()?;
+        let (forums, channel): (Vec<_>, Vec<_>) = channel.into_iter().partition(|c| c.forum);
         let mut dm = Vec::new();
         for d in raw.dm {
             snowflake("dm user", &d.user)?;
@@ -343,6 +359,7 @@ impl Bindings {
             format,
             guilds,
             channel,
+            forums,
             dm,
             revision: hex::encode(digest)[..12].to_string(),
         })
@@ -429,6 +446,14 @@ impl Bindings {
             snowflake("user id", u)?;
         }
         let label = format!("#{}", c.name.as_deref().unwrap_or(&id));
+        let forum = match c.kind.as_deref().map(str::trim) {
+            None | Some("text") => false,
+            Some("forum") if c.voice => {
+                bail!("{label}: a forum is not a voice channel (kind = \"forum\", voice = true)")
+            }
+            Some("forum") => true,
+            Some(k) => bail!("{label}: kind {k:?} is not text or forum"),
+        };
         let ceiling = c.ceiling.map(|x| x.check(&label)).transpose()?.flatten();
         Ok(ChannelBinding {
             guild,
@@ -445,6 +470,8 @@ impl Bindings {
             silent: c.silent,
             ping_window_secs: c.ping_window_secs,
             persona: persona_of(c.persona, &label)?,
+            forum,
+            task_threads: c.task_threads,
         })
     }
 }
@@ -800,6 +827,30 @@ mod tests {
         // An empty ceiling narrows nothing.
         let empty = TWO.replacen("[dm.ceiling]\nprofile = \"deep\"\n", "[dm.ceiling]\n", 1);
         assert_eq!(Bindings::parse(&empty).unwrap().dm[0].ceiling, None);
+    }
+
+    /// `task_threads` is on unless the channel says no, and a `kind = "forum"`
+    /// channel is a forum, kept apart from the places (theseus-i3do6).
+    #[test]
+    fn task_threads_default_on_and_a_forum_is_no_place() {
+        let head = "guild_id = \"100000000000000001\"\n";
+        let text = format!(
+            "{head}[[channel]]\nid = \"223456789012345678\"\nusers = [\"100000000000000007\"]\n\
+             [[channel]]\nid = \"223456789012345679\"\nusers = [\"100000000000000007\"]\ntask_threads = false\n\
+             [[channel]]\nid = \"223456789012345680\"\nname = \"tasks\"\nkind = \"forum\"\nusers = [\"100000000000000007\"]\nprivate = true\n"
+        );
+        let b = Bindings::parse(&text).unwrap();
+        assert_eq!(b.channel.len(), 2, "the forum is no place: {:?}", b.channel);
+        assert!(b.channel[0].task_threads && !b.channel[1].task_threads);
+        assert!(!b.channel[0].forum);
+        assert_eq!(b.forums.len(), 1);
+        assert!(b.forums[0].forum && b.is_private(&b.forums[0]));
+        assert_eq!(b.forums[0].label(), "#tasks");
+        let bad = text.replace("kind = \"forum\"", "kind = \"stage\"");
+        let e = Bindings::parse(&bad).unwrap_err().to_string();
+        assert!(e.contains("not text or forum"), "{e}");
+        let voice = text.replace("kind = \"forum\"", "kind = \"forum\"\nvoice = true");
+        assert!(Bindings::parse(&voice).is_err());
     }
 
     #[test]

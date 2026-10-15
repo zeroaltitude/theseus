@@ -143,7 +143,11 @@ impl Place {
             PlaceMsg::Press(p) => self.task_press(*p).await,
             PlaceMsg::Cmd(c) => self.task_cmd(*c).await,
             PlaceMsg::Board => self.board(),
-            _ => self.live_board(),
+            _ => {
+                self.live_board();
+                self.sync_task_threads();
+                self.sync_task_posts();
+            }
         }
     }
 
@@ -156,6 +160,7 @@ impl Place {
         let quiet = self.shared.tasks.quiet_until(&self.target);
         // The future is a private place's alone (theseus-j90w2).
         let future = super::horizon::parts_for(&self.shared, &self.target);
+        let links = self.shared.task_links(&p);
         let comps = board_v2::render(&Parts {
             needs: &p.needs,
             working: &p.working,
@@ -163,6 +168,7 @@ impl Place {
             quiet_until_ms: quiet,
             future: future.as_ref(),
             now_ms: theseus_protocol::now_unix_ms(),
+            links: &links,
         });
         let content = serde_json::to_string(&comps).unwrap_or_default();
         let _ = self.lane.send(if p.is_empty() && future.is_none() {

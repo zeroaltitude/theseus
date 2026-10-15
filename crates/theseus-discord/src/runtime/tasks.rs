@@ -292,6 +292,31 @@ impl Tasks {
         };
     }
 
+    /// Every task under the conversation `session_id` is the session of,
+    /// whatever its state and whether its done ones were cleared, the oldest
+    /// first (the thread sync reads it, theseus-i3do6).
+    pub fn all_of(&self, session_id: &str) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        let Some(root) = m
+            .views
+            .values()
+            .find(|v| {
+                v.kind == WorkKind::Conversation && v.session_id.as_deref() == Some(session_id)
+            })
+            .map(|v| v.id.clone())
+        else {
+            return Vec::new();
+        };
+        let mut all: Vec<WorkView> = m
+            .views
+            .values()
+            .filter(|v| v.root == root && counted(v))
+            .cloned()
+            .collect();
+        all.sort_by_key(|v| (v.started_at_ms, v.id.clone()));
+        all
+    }
+
     /// The place's done tasks are seen: the board drops them from now.
     pub fn clear_done(&self, session_id: &str) {
         let mut m = self.model.lock().unwrap();

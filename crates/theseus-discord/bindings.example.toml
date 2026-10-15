@@ -41,6 +41,13 @@ voice = false                      # true for a voice channel: /join from a priv
 # voice_status = true              # a voice channel: while Theseus is in the call, the channel's status
                                    # reads the task counts (`🎧 Theseus · ⚙️ 3 tasks · 🔴 1 needs you`);
                                    # false: not here. Absent: [voice] status
+# task_threads = true              # a task started here gets a Discord thread of its own, where its
+                                   # tool lines and replies go and the channel gets one linking line;
+                                   # false: they interleave in the channel, as before
+# kind = "forum"                   # a forum channel (default "text"): each task of this guild's places
+                                   # is a post whose first message is the task's live card, tagged
+                                   # needs you / running / done / failed. Takes no message and runs
+                                   # no session; off unless you bind one
 # show_tools = true                # false: no tool lines or notice embeds here (the calls still run, and
                                    # their cards still post)
 # show_thinking = true             # false: no thinking atop the tool lines here; the turn still thinks

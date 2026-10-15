@@ -156,7 +156,10 @@ impl Shared {
     ) -> anyhow::Result<()> {
         let name = thread_name(&c.title, c.sealed);
         let starter = format!("🧵 {} · `thread:{}`", c.title, c.slug);
-        let (thread, guild) = self.guild_thread_create(parent, &name, &starter).await?;
+        let week = AutoArchiveDuration::Week;
+        let (thread, guild) = self
+            .guild_thread_create(parent, &name, &starter, week)
+            .await?;
         self.core.store.put_meta(
             &made_key(&c.slug),
             &Made {
@@ -178,21 +181,23 @@ impl Shared {
     }
 
     /// A Discord thread in `parent`, a text channel's or a forum's, named
-    /// `name`; the forum's first post says `starter`. Its id and its guild.
+    /// `name`, archiving itself after `archive` of quiet (an activity thread's
+    /// is a week, a task's a day); the forum's first post says `starter`. Its
+    /// id and its guild.
     pub(super) async fn guild_thread_create(
         &self,
         parent: u64,
         name: &str,
         starter: &str,
+        archive: AutoArchiveDuration,
     ) -> anyhow::Result<(u64, Option<u64>)> {
         let channel = self.http.channel(Id::new(parent)).await?.model().await?;
         let guild = channel.guild_id.map(Id::get);
-        let week = AutoArchiveDuration::Week;
         let made = if channel.kind == ChannelType::GuildForum {
             let post = self
                 .http
                 .create_forum_thread(Id::new(parent), name)
-                .auto_archive_duration(week)
+                .auto_archive_duration(archive)
                 .message()
                 .content(starter)
                 .await?
@@ -202,7 +207,7 @@ impl Shared {
         } else {
             self.http
                 .create_thread(Id::new(parent), name, ChannelType::PublicThread)
-                .auto_archive_duration(week)
+                .auto_archive_duration(archive)
                 .await?
                 .model()
                 .await?

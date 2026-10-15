@@ -54,6 +54,14 @@ impl Default for Show {
 }
 
 impl View {
+    /// The words this place shows now (a task's thread shows its parent's).
+    pub(crate) fn show(&self) -> Show {
+        Show {
+            tools: self.tools,
+            thinking: self.thinking,
+        }
+    }
+
     pub(crate) fn new(s: Show) -> Self {
         Self {
             tools: s.tools,

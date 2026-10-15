@@ -70,6 +70,12 @@ pub fn button(custom_id: impl Into<String>, label: &str, look: Look) -> Value {
            "custom_id": custom_id.into()})
 }
 
+/// A button that opens a link (style 5): no `custom_id`, so a press is never
+/// sent back.
+pub fn link_button(url: &str, label: &str) -> Value {
+    json!({"type": BUTTON, "style": 5, "label": clip(label, LABEL_LIMIT), "url": url})
+}
+
 /// A row of up to five buttons.
 pub fn row(buttons: Vec<Value>) -> Value {
     json!({"type": ACTION_ROW, "components": buttons})
