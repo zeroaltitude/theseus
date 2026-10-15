@@ -49,8 +49,20 @@ impl Core {
             .join("\n");
         let brief = format!("Tonight's memory pass wrote {n} new notes. The first:\n{named}");
         let core = Arc::downgrade(self);
+        let pace = 1000 * self.cfg.notify.unprompted_pace_secs;
         tokio::spawn(async move {
-            let Some(core) = core.upgrade() else { return };
+            // The one pacing rule (`pacer.rs`): the finding waits for the
+            // window before its model call.
+            let core = loop {
+                let Some(core) = core.upgrade() else { return };
+                let now = theseus_protocol::now_unix_ms();
+                if core.outbox.pacer.open(now, pace) {
+                    break core;
+                }
+                let wait = (core.outbox.pacer.last_ms() + pace).saturating_sub(now);
+                drop(core);
+                tokio::time::sleep(std::time::Duration::from_millis(wait.max(1_000))).await;
+            };
             let spoken = core
                 .initiative_speak(&Facts {
                     kind: "consolidation",

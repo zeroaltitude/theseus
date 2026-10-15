@@ -293,6 +293,7 @@ async fn a_tasks_request_carries_its_parents_persona() {
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     r.core.store.put_session(&child.session_id, &child).unwrap();
     let (live, _) = r.core.live_profile();
@@ -495,6 +496,35 @@ async fn the_morning_note_obeys_the_level_and_goes_once_on_a_day_something_happe
         !busy.core.post_morning_if_due(),
         "a second ask the same day writes none"
     );
+}
+
+/// The morning note is unprompted: it waits for the pacer's window (another
+/// unprompted post was just written) and claims the day only once it opens.
+#[tokio::test]
+async fn the_morning_note_waits_for_the_pacers_window() {
+    let r = rig(Initiative::Normal, |c| {
+        c.initiative.morning_hour = 0;
+        c.notify.unprompted_pace_secs = 2;
+    });
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "PROMISE").await;
+    r.core.outbox.pacer.took(theseus_protocol::now_unix_ms());
+    assert!(!r.core.post_morning_if_due(), "the window is closed");
+    assert!(
+        r.core
+            .store
+            .get_meta::<String>(crate::initiative::morning::MARK)
+            .ok()
+            .flatten()
+            .is_none(),
+        "the day is not claimed while it waits"
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(2_100)).await;
+    assert!(r.core.post_morning_if_due(), "the window opened");
+    until("the morning note", || {
+        !rows(&r.core, "initiative.spoke").is_empty()
+    })
+    .await;
 }
 
 /// A verdict is recorded against the message it names, the last one stands,

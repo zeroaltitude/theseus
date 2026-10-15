@@ -99,6 +99,10 @@ impl Rig {
         discord.insert("enabled".into(), true.into());
         discord.insert("rest_proxy".into(), fake.addr.clone().into());
         discord.insert("gateway_proxy".into(), "ws://127.0.0.1:9".into());
+        // A morning note (theseus-slvl.9) is a short model call from
+        // `[initiative] morning_hour` on, on a day a wake fired: this rig
+        // counts the model's calls, so its notes are the template.
+        table(&mut t, "initiative").insert("day_usd".into(), 0.0.into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         std::fs::write(
             path("state/bindings.toml"),

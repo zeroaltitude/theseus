@@ -84,6 +84,12 @@ impl Core {
             if !self.runner.place_rule.owner_dm_bound() {
                 return false;
             }
+            // The one pacing rule (`pacer.rs`): an unprompted post waits for
+            // the window, and the day is claimed only when it is open.
+            let pace = 1000 * self.cfg.notify.unprompted_pace_secs;
+            if !self.outbox.pacer.open(now, pace) {
+                return false;
+            }
             *last = Some(day.clone());
         }
         let core = Arc::downgrade(self);
