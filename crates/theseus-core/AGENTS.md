@@ -158,9 +158,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     report`) joins them with the turn's cache read and what went wrong after (a correction, a re-ask): a reuse below
     `act` that went wrong is a false fit. `[prefix] enabled = false` renders each session's own layers. A session's
     and a place's standing records are the session's block's, not the header's (`standing::Block::local`), so layer
-    1 is the same for every session of a place class. Not yet: routing's cold estimate and keep-warm read the
-    library's warmth (`Library::is_warm`, `most_read` are built for them), and Jev's `prefix` pack. Tests:
-    `prefix/tests.rs`, `rpc/tests_prefix.rs`, `compiler/tests_layers.rs`, the layouts' format-34 samples.
+    1 is the same for every session of a place class. Warmth is per header and model, in memory (each compile
+    touches its header): routing's cold estimate takes off what a warm header that fits holds on the switch's
+    target model, under that target's own lower layers (`warm_prefix_tokens`, asked only for a cache hold). The
+    keep-warm read compiles with the replayed header and the standing block, as the turn does. Not yet: keep-warm
+    refreshing the most-read headers alone instead of one read a session, and Jev's `prefix` pack (the fit is
+    code's). Tests: `prefix/tests.rs`, `rpc/tests_prefix.rs`, `compiler/tests_layers.rs`, `tests_route_warm.rs`,
+    the layouts' format-34 samples.
   - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
     task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a

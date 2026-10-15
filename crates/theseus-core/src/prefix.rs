@@ -307,43 +307,30 @@ impl Library {
         }
     }
 
-    /// The header `digest` is in `model`'s cache now.
-    pub fn is_warm(&self, digest: &str, model: &str, now_ms: u64) -> bool {
+    /// The biggest header on `lower` and `class` that fits `fresh` at
+    /// `confirm` or above and is warm on `model` now: its bytes, which a
+    /// request there reads from the cache. None while the library is not
+    /// loaded, or with none.
+    pub fn warm_fit(
+        &self,
+        fresh: &[Section],
+        (lower, class): (&str, &str),
+        model: &str,
+        confirm: f64,
+        now_ms: u64,
+    ) -> Option<u64> {
         let g = self.0.lock().unwrap();
-        g.as_ref()
-            .and_then(|s| s.entries.get(digest))
-            .is_some_and(|e| e.warm_on(model, now_ms))
-    }
-
-    /// The headers read most recently, at most `n`, each with the models it
-    /// is warm on: what keep-warm refreshes.
-    pub fn most_read(&self, n: usize, now_ms: u64) -> Vec<(Arc<Header>, Vec<String>)> {
-        let g = self.0.lock().unwrap();
-        let Some(s) = g.as_ref() else { return vec![] };
-        let mut all: Vec<&Entry> = s
+        g.as_ref()?
             .entries
             .values()
-            .filter(|e| e.warm_anywhere(now_ms))
-            .collect();
-        all.sort_by_key(|e| {
-            (
-                std::cmp::Reverse(e.hits.reuses),
-                std::cmp::Reverse(e.last_read()),
-            )
-        });
-        all.into_iter()
-            .take(n)
-            .map(|e| {
-                let mut models: Vec<String> = e
-                    .warm
-                    .iter()
-                    .filter(|(_, w)| now_ms < w.at_ms + w.ttl_ms)
-                    .map(|(m, _)| m.clone())
-                    .collect();
-                models.sort();
-                (e.header.clone(), models)
+            .filter(|e| {
+                let h = &e.header;
+                h.layer == PROJECT && h.class == class && h.lower == lower
             })
-            .collect()
+            .filter(|e| e.warm_on(model, now_ms))
+            .filter(|e| fit::fit(fresh, &e.header.sections).is_some_and(|f| f >= confirm))
+            .map(|e| e.header.text.len() as u64)
+            .max()
     }
 
     pub fn stats(&self, now_ms: u64) -> Stats {

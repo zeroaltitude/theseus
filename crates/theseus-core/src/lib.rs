@@ -358,6 +358,8 @@ mod tests_route_rows;
 #[cfg(test)]
 mod tests_route_wait;
 #[cfg(test)]
+mod tests_route_warm;
+#[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;

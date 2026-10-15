@@ -600,19 +600,37 @@ impl TurnRunner {
             .as_ref()
             .filter(|r| r.profile.is_some())
             .and_then(|r| r.from.as_deref());
-        routing::decide(
-            &self.cfg.routing,
-            &profiles,
-            &routing::Ask {
-                verdict: v,
-                base: &t.target.profile,
-                est_tokens,
-                hold: hold.as_ref(),
-                from,
-                images: t.route.images,
-                cap,
-            },
-        )
+        let ask = |est_tokens| {
+            routing::decide(
+                &self.cfg.routing,
+                &profiles,
+                &routing::Ask {
+                    verdict: v,
+                    base: &t.target.profile,
+                    est_tokens,
+                    hold: hold.as_ref(),
+                    from,
+                    images: t.route.images,
+                    cap,
+                },
+            )
+        };
+        let d = ask(est_tokens);
+        // A switch held back because its target would write the request cold:
+        // what the prefix library holds warm on that model is read, not
+        // written (theseus-rr15).
+        let (routing::Reason::CacheHold, routing::HoldNext::Set(h)) = (d.reason, &d.hold) else {
+            return d;
+        };
+        let warm = self
+            .resolve_target(&t.target.profile, Some(&h.profile), None, None)
+            .map_or(0, |to| {
+                self.warm_prefix_tokens(&to, session.kind, t.tc.session_id, t.tc.place())
+            });
+        if warm == 0 {
+            return d;
+        }
+        ask(est_tokens.saturating_sub(warm))
     }
 
     /// The `route.decided` row, and what the turn's result says.

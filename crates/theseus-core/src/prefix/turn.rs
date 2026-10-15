@@ -117,8 +117,7 @@ impl TurnRunner {
             },
             read: entry.cache_read_per_mtok,
         };
-        let tools = serde_json::to_string(&spec.tools).unwrap_or_default();
-        let lower = sha(&[tools.as_str(), &spec.system_text, &spec.persona_text].join("\u{0}"));
+        let lower = lower_of(spec);
         // What the new work is about: the newest message, the thread's card
         // and the layer's own section names.
         let message = at
@@ -159,6 +158,54 @@ impl TurnRunner {
         library.pick(&q)
     }
 
+    /// The tokens of a request on `target` for `session_id` that the cache
+    /// holds warm through the library (theseus-rr15): the tools and the system
+    /// through a warm header that fits the session's third layer there, under
+    /// that target's own lower layers. 0 with none, or with the library off.
+    /// Routing's cold estimate takes them off the request's (`route_step`);
+    /// asked only for a switch the estimate holds back, never on a warm turn.
+    pub(crate) fn warm_prefix_tokens(
+        &self,
+        target: &crate::turn::Target,
+        kind: theseus_protocol::SessionKind,
+        session_id: &str,
+        place: crate::ceiling::PlaceView,
+    ) -> u64 {
+        if !self.cfg.prefix.enabled {
+            return 0;
+        }
+        let (mut spec, _) = self.request_spec(target, kind, place);
+        spec.walk = self.walk(session_id, place.class);
+        if let Some(b) = self.standing_block(session_id, place.class) {
+            b.apply(&mut spec);
+        }
+        self.thread_spec(&mut spec, session_id, None);
+        let guidance = spec
+            .walk
+            .as_deref()
+            .map(|w| w.compose(&w.current).sections)
+            .unwrap_or_default();
+        let sections: Vec<fit::Section> = fit::sections_of(&spec.context_text, &guidance)
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect();
+        let warm = self.prefix.warm_fit(
+            &sections,
+            (&lower_of(&spec), class_name(place.class)),
+            &spec.model,
+            self.cfg.prefix.confirm,
+            theseus_protocol::now_unix_ms(),
+        );
+        let Some(header) = warm else { return 0 };
+        let tools = serde_json::to_string(&spec.tools).map_or(0, |t| t.len() as u64);
+        let text = (spec.system_text.len() + spec.persona_text.len()) as u64 + header;
+        let rates = self.catalog.get(&spec.model).map_or_else(
+            || crate::catalog::TokenRates::of(&spec.model),
+            |e| e.bytes_per_token,
+        );
+        (tools as f64 / rates.json.max(1.0) + text as f64 / rates.text.max(1.0)) as u64
+    }
+
     /// The loop's request carried the header its compilation names: its cache
     /// entry on the model is read or written now.
     pub(crate) fn prefix_touched(&self, compiled: &crate::compiler::Compiled, spec: &RequestSpec) {
@@ -168,6 +215,13 @@ impl TurnRunner {
                 .touch(&u.header, &spec.model, ttl_ms(spec.cache_ttl), now);
         }
     }
+}
+
+/// The digest of what the cache reads before the third layer: the tools,
+/// the header and the persona layer.
+fn lower_of(spec: &RequestSpec) -> String {
+    let tools = serde_json::to_string(&spec.tools).unwrap_or_default();
+    sha(&[tools.as_str(), &spec.system_text, &spec.persona_text].join("\u{0}"))
 }
 
 /// The class's name in a header.
