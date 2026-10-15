@@ -3,9 +3,9 @@
 // sessions that hold external text (trust), and the task graph (39b: its records as a tree, `?taskgraph=1` as a graph). `?execution=` narrows the calls to one execution, as picking one in the
 // Observatory's table did.
 import { memo, useDeferredValue, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence } from 'motion/react'
-import { CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, X } from 'lucide-react'
+import { CalendarClock, CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, X } from 'lucide-react'
 import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, SessionInfo, TaskArrangement, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -62,7 +62,9 @@ export default function Actions() {
           </Panel>
           {!world && (
             <Panel help="actions.wakes" title="Wakes" icon={<Hourglass size={13} />} bodyClassName="p-2">
-              <Wakes h={h} />
+              <Link to="/agenda" className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] text-live ring-1 ring-line hover:bg-white/[0.03]" data-testid="wakes-link">
+                <CalendarClock size={14} /> {h?.wakes?.length ? `${h.wakes.length} wake${h.wakes.length === 1 ? '' : 's'} set, next ${h.wakes[0].due_local}` : 'no wakes set'}: they are on the Agenda page, with Cancel
+              </Link>
             </Panel>
           )}
           <Tasks past={world ? { t: world.t, tasks: world.tasks } : undefined} />
@@ -249,28 +251,6 @@ function holdHow(h: ExternalTextInfo['held']): string {
   return h.via === 'task.create' ? `from the session that started it (${short(h.from_session)})`
     : h.via === 'task.report' ? `from task ${short(h.from_session)}'s report`
     : h.via === 'egress' ? 'an L1 job here reached these hosts' : 'read here'
-}
-
-function Wakes({ h }: { h?: Health }) {
-  const nav = useNavigate()
-  const now = useTick(1000)
-  const { busy, run } = useAct()
-  const wakes = h?.wakes ?? []
-  if (!wakes.length) return <Empty>no wakes set</Empty>
-  return (
-    <div className="flex flex-col gap-1.5">
-      {wakes.map((w) => (
-        <div key={w.wake_id} className="flex items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-line">
-          <Hourglass size={14} className="text-live" />
-          <div className="min-w-0 flex-1" title={`${w.wake_id}\nset ${clock(w.set_at_ms)}${w.target ? `\nits reply goes to ${w.target}` : ''}`}>
-            <div className="truncate text-[12.5px] text-ink">{w.note}</div>
-            <div className="num text-[11px] text-ink-faint">{w.short} · <button onClick={() => nav(`/session/${w.session_id}`)} className="hover:text-live">{w.task ? `task ${w.task}` : (w.session_title ?? short(w.session_id))}</button> <StatePill state={w.state} /> · {w.due_local} · <span className={w.due_at_ms > now ? 'text-live' : 'text-wait'}>{w.due_at_ms > now ? `in ${ms(w.due_at_ms - now)}` : `due ${ms(now - w.due_at_ms)} ago`}</span></div>
-          </div>
-          <Btn tone="fault" busy={busy === w.wake_id} onClick={() => run(w.wake_id, 'wake.cancel', { wake: w.wake_id }, `Cancel the wake “${w.note}”?`)}><OctagonX size={13} /> Cancel</Btn>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 function Postures({ tl, tightenings, past }: { tl?: ToolList; tightenings: Tightening[]; past?: number }) {

@@ -21,6 +21,28 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Fleet is every place and session; Ship is one session with its turns and tool calls; Turn is one turn’s model calls; Call is one call’s data. The lit dot is where you are. Scrolling the chart moves it too.',
     'When a ship looks wrong at fleet depth, go down a depth at a time to find the turn and the call that caused it, instead of searching the ledger.'),
 
+  // ---- the Agenda (theseus-p17fd)
+  'agenda.week': e(
+    'Show the week ahead on one strip: what is due, what runs, what is being watched and what starts, with the week just gone for the routines.',
+    'Seven columns, one a day, the hours down each (today in gold, the red line is now). A dot is a reminder, a ring a check-in, a bar a routine run due, a ✓ or ✗ a run that ended, a ▷ a task that starts, a flag a milestone, a tall bar a watch across its window. Hover names it; a click opens its verbs.',
+    'It is the one place to see every horizon at once. A crowded hour, a run that failed, or a reminder at the wrong time is cheaper to fix here than after it fires.'),
+  'agenda.routines': e(
+    'Show each routine with its schedule, its last run and what it costs, so you can tell a routine that earns its keep from one that does not.',
+    'One row a routine: when it runs next, how its last run ended and what it cost, its 30-day record, the month spent against its limit, and a line of the cost of each of its last runs. The arrow opens the last 30 runs.',
+    'A routine that fails, or whose cost line climbs, is spending your money for nothing. Pause it, or open its last run to see why.'),
+  'agenda.watches': e(
+    'Show what Theseus is waiting on in the world: each watch, its condition and the last value it saw.',
+    'One row a watch: what it checks, the condition it waits for, the last value and when it was seen, how many checks it has made and when it gives up. A red mark says why its last checks failed.',
+    'A watch that has failed three times in a row is checking nothing. Cancel it or fix what it looks at.'),
+  'agenda.projects': e(
+    'Show the projects Theseus is carrying, how far along each is and what is due next.',
+    'One row a project: its goal, a bar of steps done over steps in all, milestones done, the next milestone with its date, anything overdue and when its review is.',
+    'An overdue milestone is the first sign a project is slipping. The next date tells you what to look at before it does.'),
+  'agenda.wakes': e(
+    'Show the wake-ups Theseus has set for itself and for you, with a way to pause or cancel each.',
+    'One row per wake: the note it will act on, its short id, the session or task it belongs to, its state, when it is due and how long from now, and a series when it repeats. Pause holds it; Cancel removes it.',
+    'A wake that never fires, or one that fires too often, explains a session that is silent when it should work, or busy when it should rest.'),
+
   // ---- the Threads (theseus-5i8i)
   'threads.list': e(
     'Show each live thread as one group, with what is open under it and what waits on you.',
@@ -113,8 +135,8 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'One row per held session: the tool that brought the text in (a web search or fetch), what it asked for, how long ago, and how it holds. “Trust” lets the session act again. When nothing is held it says every session is trusted.',
     'Outside text can carry instructions meant to steer the model, so a session that read some waits for you before it acts. Trust it only when you have judged what it read.'),
   'actions.wakes': e(
-    'Show the wake-ups Theseus has set for itself.',
-    'One row per wake: the note it will act on, its short id, the session or task it belongs to and when it was set, with a button to cancel it.',
+    'Point to the wake-ups Theseus has set, which moved to the Agenda page.',
+    'One line: how many wakes are set and when the next is due. Click it to open the Agenda, where each wake keeps every field it had here and its Cancel.',
     'A wake that never fires, or one that fires too often, explains a session that is silent when it should work, or busy when it should rest.'),
   'actions.postures': e(
     'Show how each tool is treated by the gate, and tighten it.',
