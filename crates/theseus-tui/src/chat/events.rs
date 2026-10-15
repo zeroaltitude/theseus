@@ -148,7 +148,7 @@ impl Chat {
                 json!({ "session_id": sid }),
                 Purpose::Watch,
             ),
-            self.watch_work(sid),
+            Self::watch_work(sid),
         ];
         for text in std::mem::take(&mut self.unsent) {
             out.push(self.submit_call(sid, text));

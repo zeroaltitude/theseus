@@ -232,7 +232,7 @@ impl Chat {
                     json!({ "session_id": sid }),
                     Purpose::Watch,
                 ),
-                self.watch_work(&sid),
+                Self::watch_work(&sid),
             ];
         }
         self.started_ms = now_ms;

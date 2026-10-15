@@ -29,6 +29,8 @@ fn task(i: usize, title: &str, position: u64, extra: Value) -> Value {
     v
 }
 
+type Asked = Arc<Mutex<Vec<(String, Value)>>>;
+
 fn note(method: &str, params: Value) -> String {
     format!(
         "{}\n",
@@ -36,112 +38,115 @@ fn note(method: &str, params: Value) -> String {
     )
 }
 
+/// The scripted daemon: one connection, the tree watched, then the task events.
+fn serve(listener: UnixListener, seen: Asked) {
+    let (s, _) = listener.accept().unwrap();
+    let mut reader = BufReader::new(&s);
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+        let req: Value = serde_json::from_str(&line).unwrap();
+        line.clear();
+        let method = req["method"].as_str().unwrap().to_string();
+        seen.lock()
+            .unwrap()
+            .push((method.clone(), req["params"].clone()));
+        let result = match method.as_str() {
+            "session.open" => {
+                json!({"session_id": "ses_0123456789abcdef", "kind": "conversation",
+                    "created_at_unix_ms": 1, "turns": 0})
+            }
+            "session.list" => json!({"sessions": [{"session_id": "ses_0123456789abcdef",
+                    "kind": "conversation", "created_at_unix_ms": 1, "turns": 0}]}),
+            "session.wait" => json!({"reached": "settled", "already": true, "confirms": []}),
+            "work.watch" => json!({"position": 5, "views": [], "total": 0}),
+            _ => json!({}),
+        };
+        let a = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
+        (&s).write_all(format!("{a}\n").as_bytes()).unwrap();
+        if method == "work.watch" {
+            let names = [
+                "Paint log",
+                "Buoy survey",
+                "Tide tables",
+                "Rigging check",
+                "Weather brief",
+            ];
+            for (i, n) in names.iter().enumerate() {
+                let v = task(i, n, 10 + i as u64, json!({}));
+                let c = note(
+                    "work.changed",
+                    json!({"position": 10 + i, "at_ms": 1, "views": [v]}),
+                );
+                (&s).write_all(c.as_bytes()).unwrap();
+            }
+            let mut ask = task(
+                0,
+                "Paint log",
+                20,
+                json!({
+                    "state": "needs_you",
+                    "attention": {"level": "needs_you", "label": "confirm fs.write", "since_ms": 1},
+                    "question": {"id": "act_x2a329e", "kind": "approval", "prompt": "write regatta/paint-log.md (37 B)",
+                        "asked_by": {"id": "exe_t0", "kind": "task", "title": "Paint log"},
+                        "options": [
+                            {"id": "approve", "label": "Approve", "style": "primary", "takes_note": false, "effect": "x"},
+                            {"id": "decline", "label": "Decline", "style": "plain", "takes_note": true, "effect": "x"}],
+                        "floor": false, "may_answer": true}
+                }),
+            );
+            ask["position"] = json!(20);
+            (&s).write_all(
+                note(
+                    "work.changed",
+                    json!({"position": 20, "at_ms": 1, "views": [ask]}),
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+            let done = task(
+                4,
+                "Weather brief",
+                21,
+                json!({
+                    "state": "done", "attention": {"level": "idle", "label": "complete", "since_ms": 2},
+                    "report": {"outcome": "done", "first_line": "Fair winds Saturday"}}),
+            );
+            (&s).write_all(
+                note(
+                    "work.changed",
+                    json!({"position": 21, "at_ms": 2, "views": [done]}),
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+            let failed = task(
+                3,
+                "Rigging check",
+                22,
+                json!({
+                    "state": "failed", "attention": {"level": "needs_you", "label": "failed: x", "since_ms": 2},
+                    "report": {"outcome": "failed", "reason": "the provider refused the request (400)"}}),
+            );
+            (&s).write_all(
+                note(
+                    "work.changed",
+                    json!({"position": 22, "at_ms": 2, "views": [failed]}),
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        }
+    }
+}
+
 #[test]
 fn plain_chat_opens_a_conversation_and_tells_each_task_event_as_a_line() {
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("sock");
     let listener = UnixListener::bind(&sock).unwrap();
-    let asked: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    let asked: Asked = Arc::default();
     let seen = asked.clone();
-    let daemon = std::thread::spawn(move || {
-        let (s, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(&s);
-        let mut line = String::new();
-        while reader.read_line(&mut line).unwrap_or(0) > 0 {
-            let req: Value = serde_json::from_str(&line).unwrap();
-            line.clear();
-            let method = req["method"].as_str().unwrap().to_string();
-            seen.lock()
-                .unwrap()
-                .push((method.clone(), req["params"].clone()));
-            let result = match method.as_str() {
-                "session.open" => {
-                    json!({"session_id": "ses_0123456789abcdef", "kind": "conversation",
-                    "created_at_unix_ms": 1, "turns": 0})
-                }
-                "session.list" => json!({"sessions": [{"session_id": "ses_0123456789abcdef",
-                    "kind": "conversation", "created_at_unix_ms": 1, "turns": 0}]}),
-                "session.wait" => json!({"reached": "settled", "already": true, "confirms": []}),
-                "work.watch" => json!({"position": 5, "views": [], "total": 0}),
-                _ => json!({}),
-            };
-            let a = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
-            (&s).write_all(format!("{a}\n").as_bytes()).unwrap();
-            if method == "work.watch" {
-                let names = [
-                    "Paint log",
-                    "Buoy survey",
-                    "Tide tables",
-                    "Rigging check",
-                    "Weather brief",
-                ];
-                for (i, n) in names.iter().enumerate() {
-                    let v = task(i, n, 10 + i as u64, json!({}));
-                    let c = note(
-                        "work.changed",
-                        json!({"position": 10 + i, "at_ms": 1, "views": [v]}),
-                    );
-                    (&s).write_all(c.as_bytes()).unwrap();
-                }
-                let mut ask = task(
-                    0,
-                    "Paint log",
-                    20,
-                    json!({
-                        "state": "needs_you",
-                        "attention": {"level": "needs_you", "label": "confirm fs.write", "since_ms": 1},
-                        "question": {"id": "act_x2a329e", "kind": "approval", "prompt": "write regatta/paint-log.md (37 B)",
-                            "asked_by": {"id": "exe_t0", "kind": "task", "title": "Paint log"},
-                            "options": [
-                                {"id": "approve", "label": "Approve", "style": "primary", "takes_note": false, "effect": "x"},
-                                {"id": "decline", "label": "Decline", "style": "plain", "takes_note": true, "effect": "x"}],
-                            "floor": false, "may_answer": true}
-                    }),
-                );
-                ask["position"] = json!(20);
-                (&s).write_all(
-                    note(
-                        "work.changed",
-                        json!({"position": 20, "at_ms": 1, "views": [ask]}),
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-                let done = task(
-                    4,
-                    "Weather brief",
-                    21,
-                    json!({
-                    "state": "done", "attention": {"level": "idle", "label": "complete", "since_ms": 2},
-                    "report": {"outcome": "done", "first_line": "Fair winds Saturday"}}),
-                );
-                (&s).write_all(
-                    note(
-                        "work.changed",
-                        json!({"position": 21, "at_ms": 2, "views": [done]}),
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-                let failed = task(
-                    3,
-                    "Rigging check",
-                    22,
-                    json!({
-                    "state": "failed", "attention": {"level": "needs_you", "label": "failed: x", "since_ms": 2},
-                    "report": {"outcome": "failed", "reason": "the provider refused the request (400)"}}),
-                );
-                (&s).write_all(
-                    note(
-                        "work.changed",
-                        json!({"position": 22, "at_ms": 2, "views": [failed]}),
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-            }
-        }
-    });
+    let daemon = std::thread::spawn(move || serve(listener, seen));
 
     let mut child = Command::new(THESEUS)
         .args(["--socket"])

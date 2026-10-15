@@ -385,7 +385,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
     for ((row, header), cell) in all.iter().zip(&cells) {
         out.push(layout.line(row, cell, *header));
         if let Some(q) = row.asks {
-            let pad = " ".repeat(layout.prefix(row));
+            let pad = " ".repeat(Layout::prefix(row));
             let room = width.saturating_sub(pad.len());
             out.push(Line::new(
                 Tag::Dim,
@@ -473,7 +473,7 @@ impl Layout {
     }
 
     /// The columns before the title: the indent, the mark, the id.
-    fn prefix(&self, r: &Row) -> usize {
+    fn prefix(r: &Row) -> usize {
         r.indent + 2 + 6 + 2
     }
 

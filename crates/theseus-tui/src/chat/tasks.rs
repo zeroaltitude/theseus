@@ -89,7 +89,7 @@ impl Chat {
     // ------------------------------------------------------ the watch
 
     /// `work.watch` for this conversation, as a screen a person looks at.
-    pub(super) fn watch_work(&self, sid: &str) -> Effect {
+    pub(super) fn watch_work(sid: &str) -> Effect {
         call(
             method::WORK_WATCH,
             json!({ "roots": [sid], "limit": 0, "interactive": true }),
