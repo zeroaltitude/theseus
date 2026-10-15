@@ -54,8 +54,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-mod events;
 pub mod commands;
+mod events;
 mod threads;
 
 pub use events::{FakeEvent, GUILD_EVENT_LIMIT};

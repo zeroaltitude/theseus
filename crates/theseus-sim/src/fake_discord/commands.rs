@@ -88,7 +88,7 @@ impl FakeDiscord {
     }
 
     /// The autocomplete of `command`'s option `focused`, after `typed`.
-    pub fn autocomplete(
+    pub fn autocomplete_typed(
         &self,
         from: &Sender<'_>,
         command: &str,
@@ -240,7 +240,9 @@ impl FakeDiscord {
                     o.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
                 self.slash(&from, s("command"), &o)
             }
-            "autocomplete" => self.autocomplete(&from, s("command"), s("focused"), s("typed")),
+            "autocomplete" => {
+                self.autocomplete_typed(&from, s("command"), s("focused"), s("typed"))
+            }
             "message_command" => self.message_command(&from, s("command"), s("content")),
             "modal" => {
                 let t = pairs("texts");

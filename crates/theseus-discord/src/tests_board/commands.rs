@@ -168,7 +168,10 @@ async fn task_autocomplete_ranks_needs_you_first_stops_at_25_and_asks_the_daemon
     let mut first = None;
     for typed in ["", "b", "bu", "buo", "buoy"] {
         let t0 = Instant::now();
-        let iid = r.fake.autocomplete(&ana(), "task", "name", typed).unwrap();
+        let iid = r
+            .fake
+            .autocomplete_typed(&ana(), "task", "name", typed)
+            .unwrap();
         let rep = answered(&r, &iid).await;
         ms.push(t0.elapsed().as_millis());
         if typed.is_empty() {
@@ -220,7 +223,10 @@ async fn cancel_autocomplete_lists_the_places_tasks_by_short_id() {
     let board = boards(&r, ANA_DM).remove(0);
     let (_, running) = ids_of(&board);
     tokio::time::sleep(Duration::from_millis(400)).await;
-    let iid = r.fake.autocomplete(&ana(), "cancel", "id", "").unwrap();
+    let iid = r
+        .fake
+        .autocomplete_typed(&ana(), "cancel", "id", "")
+        .unwrap();
     let rep = answered(&r, &iid).await;
     assert!(
         rep.choices
@@ -469,7 +475,7 @@ async fn answer_autocomplete_lists_what_the_presser_may_answer_and_reads_the_dae
     for typed in ["", "r", "re", "ree"] {
         let iid = r
             .fake
-            .autocomplete(&ana(), "answer", "question", typed)
+            .autocomplete_typed(&ana(), "answer", "question", typed)
             .unwrap();
         last = Some(answered(&r, &iid).await);
     }
@@ -484,7 +490,7 @@ async fn answer_autocomplete_lists_what_the_presser_may_answer_and_reads_the_dae
     // A person who may not answer here is offered nothing.
     let cy = r
         .fake
-        .autocomplete(&cy_in_lab(), "answer", "question", "")
+        .autocomplete_typed(&cy_in_lab(), "answer", "question", "")
         .unwrap();
     assert!(answered(&r, &cy).await.choices.is_empty());
 }
