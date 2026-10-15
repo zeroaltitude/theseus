@@ -534,6 +534,8 @@ async fn an_approved_glide_posts_once_in_the_other_places_lane() {
         c.policy
             .tools
             .insert("channel.post".into(), Posture::Notify);
+        // The glide is the subject here, not the DM's deferral of the channels family (theseus-to0xw).
+        c.tools.defer.always_loaded.push("channels".into());
     });
     tokio::spawn(theseus_core::harness::drive(core.clone()));
     let bindings = format!(

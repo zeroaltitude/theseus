@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The kinds of place a fresh session's first request is counted for.
-pub const PLACES: [&str; 4] = ["cli", "dm", "task", "harness"];
+pub const PLACES: [&str; 6] = ["cli", "dm", "channel", "task", "headless", "harness"];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -19,7 +19,7 @@ pub struct ContextCensusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
-    /// With no session: `cli`, `dm`, `task` or `harness` (default `cli`).
+    /// With no session: `cli`, `dm`, `channel`, `task`, `headless` or `harness` (default `cli`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub place: Option<String>,

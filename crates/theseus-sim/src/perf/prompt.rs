@@ -1,5 +1,5 @@
 //! `bench prompt` (theseus-7m7w.1): what a fresh session's first request is, in tokens, for each kind of
-//! place (`cli`, `dm`, `task` on the default config, `harness` on the benchmark's profile), by `context.census`
+//! place (`cli`, `dm`, `channel`, `task`, `headless` on the default config, `harness` on the benchmark's profile), by `context.census`
 //! on a scratch daemon of each. It compares each with a committed baseline
 //! (`baselines/prompt.json`) and warns at more than 5 % over it. A warning and never a failure: other rows add
 //! tools every week, and the baseline is moved on purpose (`--update`), with the census beside it to say why.
@@ -217,7 +217,7 @@ pub fn prompt_cmd(a: PromptArgs) -> Result<()> {
     let mut model = String::new();
     {
         let d = start(&theseusd, toml::Table::new())?;
-        for place in ["cli", "dm", "task"] {
+        for place in ["cli", "dm", "channel", "task", "headless"] {
             let c = census(&d.sock, place)?;
             model = c.model.clone();
             rows.push(row(place, &c, &baseline));

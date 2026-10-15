@@ -168,8 +168,12 @@ impl PlaceKind {
             // are the largest family (about 6,000 tokens of 15,500), and a
             // coding session's use of them is what the ledger learns.
             PlaceKind::Cli => &["code", "memory"],
-            // A person's message: memory, tasks and reminders, the web.
-            PlaceKind::Dm => &["memory", "tasks", "web", "channels"],
+            // A person's message: memory, tasks and reminders, the web. Posting
+            // to and reading other places is deferred (theseus-to0xw): a
+            // direct message answers in itself, and the family is 855 tokens
+            // of the DM's 15,000 budget; a search loads it, and the ledger's
+            // use puts it back where a DM calls it in 1 of 10 turns.
+            PlaceKind::Dm => &["memory", "tasks", "web"],
             PlaceKind::Channel => &["memory", "tasks", "web", "channels"],
             // A task's session works: the code. Its wakes and sub-tasks load
             // once its place kind has used them.

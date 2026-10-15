@@ -1,4 +1,4 @@
-//! `theseus census [SESSION] [--place cli|dm|task|harness] [--exact] [--json]` (theseus-7m7w.1): the next
+//! `theseus census [SESSION] [--place cli|dm|channel|task|headless|harness] [--exact] [--json]` (theseus-7m7w.1): the next
 //! request of a session, or a fresh session's first request for a kind of place, counted part by part down to
 //! each tool and its use. One read (`context.census`): it compiles once on the daemon and sends nothing.
 

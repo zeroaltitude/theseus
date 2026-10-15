@@ -120,7 +120,8 @@ impl TurnRunner {
             rec.and_then(|r| r.compilation_id.as_deref()),
         );
         // The families it loads and defers, as a turn chooses them (theseus-7m7w.2).
-        spec.defer = self.deferral(&sid, kind == SessionKind::Task, &spec);
+        let fresh = rec.is_none().then_some(place_kind);
+        spec.defer = self.census_deferral(&sid, kind == SessionKind::Task, fresh, &spec);
         let built = self.built_parts(
             &sid,
             &target,
@@ -235,6 +236,8 @@ impl TurnRunner {
                             PlaceClass::Private.into()
                         }
                     },
+                    // A channel of a group place: the public tools alone.
+                    "channel" => PlaceView::from(PlaceClass::Shared),
                     _ => PlaceView::from(PlaceClass::Private),
                 };
                 (kind, view, "ses_census".to_string(), notes)

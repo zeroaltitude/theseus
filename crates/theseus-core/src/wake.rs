@@ -299,9 +299,7 @@ impl Tool for WakeAt {
         "Wake this conversation later: at that time it gets a turn of its own, whose input is \
          `note`, marked as a wake (`⏰ wake (set 13:05): <note>`), and your reply posts where \
          this conversation posts. Use it for \"remind me in 10 minutes\" or \"check the build at \
-         3 pm\". Give `after`, a duration such as `90s`, `10m`, `2h`, or `1h30m`, or `at`, an \
-         RFC 3339 time with its offset such as `2026-09-30T15:00:00-07:00`; at least 1 second \
-         and at most 365 days ahead. `for: \"owner\"` makes it a reminder for the owner, who \
+         3 pm\". Give `after` or `at`, from 1 second to 365 days ahead. `for: \"owner\"` makes it a reminder for the owner, who \
          hears it wherever they are, and `say_only: true` posts the note itself, with no turn \
          of yours. Write the note as the instruction you will want then. It \
          fires once. Messages that come before it are answered as usual, and it still fires \
