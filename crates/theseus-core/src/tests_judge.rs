@@ -292,6 +292,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "memory.v1: shadow",
             "attribution.v1: shadow",
             "citation.v1: shadow",
+            "compare.v1: shadow",
             "people.v1: live",
             "people_seen.v1: live"
         ]
@@ -483,6 +484,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "memory.v1: shadow",
             "attribution.v1: shadow",
             "citation.v1: shadow",
+            "compare.v1: shadow",
             "people.v1: live",
             "people_seen.v1: live"
         ]

@@ -151,6 +151,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   run) and result (`ThreadCandidate` rows, `ThreadApplied` with the card and its cited handles, `ThreadSkipped`, the spend).
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0: `thread.seal` (`ThreadSealParams`, `ThreadSealResult`,
   `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
+- `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,
+  `ReplayReply`, `ReplayVerdict`) and `route.report`'s (`RouteReportParams`, `RouteReportResult`, `RouteCell`).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

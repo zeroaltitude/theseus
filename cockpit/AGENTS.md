@@ -56,7 +56,7 @@ build.
   harnesses on two properties the operator picks, and every run, newest first) and `src/views/BenchRun.tsx`
   (`/benchmarks/<report>`: a run's report whole, every figure with its table). The runs are `docs/benchmarks/` as the
   build embeds it (`src/lib/benchfiles.ts`, Vite's `import.meta.glob`: each report's files a chunk of their own, every
-  figure's SVG an asset); no protocol method reads them, and the view reads nothing from the daemon. Its pure half is
+  figure's SVG an asset); no protocol method reads them, and the view reads nothing from the daemon but one panel's: "Your work" (`src/components/YourWork.tsx` over `src/lib/yourwork.ts`, `test/yourwork.test.ts`: `route.report`, one row a model-and-effort cell, theseus-pw1q.12). Its pure half is
   `src/lib/bench.ts` (`test/bench.test.ts`, on the real reports): the index, a task set's per-trial table folded into
   points (a harness in one run), the properties and their better directions, the reports' intervals, and the frontier.
   **Only measured data**: a condition the data holds is computed; one only a report's words hold is a note carrying the

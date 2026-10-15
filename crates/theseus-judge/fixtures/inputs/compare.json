@@ -1,0 +1,11 @@
+{
+  "request": "Which port does the kestrel relay listen on, and where does it log?",
+  "a": {
+    "text": "The kestrel relay listens on port 7714 and logs to /var/log/kestrel.",
+    "calls": []
+  },
+  "b": {
+    "text": "It listens on 7714. I have not checked where it logs; let me look.",
+    "calls": ["fs_read"]
+  }
+}

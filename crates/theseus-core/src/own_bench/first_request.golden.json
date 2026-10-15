@@ -1,0 +1,38 @@
+{
+  "betas": [],
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Which port does the kestrel relay listen on?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-5-5",
+  "output_config": null,
+  "system_blocks": [
+    {
+      "bytes": true,
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    },
+    {
+      "bytes": false,
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  }
+}

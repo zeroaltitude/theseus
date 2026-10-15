@@ -29,6 +29,7 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 mod outputs;
 pub(crate) mod people;
+pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 pub mod rsi;
@@ -37,6 +38,7 @@ mod threads;
 mod wake_limits;
 pub use routines::RoutinesConfig;
 mod watches;
+pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 pub use watches::WatchesConfig;
@@ -163,6 +165,9 @@ pub struct Config {
     /// `[routines]`: recurring work, a run a task (theseus-pvm5c), `config/routines.rs`.
     #[serde(default, skip_serializing_if = "RoutinesConfig::is_default")]
     pub routines: RoutinesConfig,
+    /// `[route]`: your own benchmark's sampler (theseus-pw1q.12), `config/route.rs`.
+    #[serde(default, skip_serializing_if = "RouteConfig::is_default")]
+    pub route: RouteConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
@@ -1402,6 +1407,7 @@ impl Config {
         self.routines.validate()?;
         self.watches.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;
+        self.route.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

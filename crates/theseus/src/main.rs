@@ -37,6 +37,7 @@ mod keys;
 mod ledger_verify;
 mod mcp;
 mod ontology;
+mod own_bench;
 mod packs;
 mod pages;
 mod policy_explain;
@@ -627,6 +628,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<routine::RoutineCmd>,
     },
+    /// Your own benchmark (theseus-pw1q.12): `route report [--week]`, and `turn replay`.
+    #[command(flatten)]
+    OwnBench(own_bench::OwnBench),
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -1198,6 +1202,17 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
+/// `theseus ledger`: a check of the chain, or the rows.
+async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
+    match l {
+        Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
+        Cmd::Ledger {
+            n, kind, session, ..
+        } => cmd::ledger(c, json, n, kind, session).await,
+        _ => unreachable!("only the ledger comes here"),
+    }
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
@@ -1280,10 +1295,7 @@ async fn run(cli: Cli) -> Result<()> {
             unreachable!("returned above, or exec'd by main")
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
-        Cmd::Ledger { cmd: Some(cmd), .. } => ledger_verify::run(c, json, cmd).await,
-        Cmd::Ledger {
-            n, kind, session, ..
-        } => cmd::ledger(c, json, n, kind, session).await,
+        l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, herdr_socket).await,
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
@@ -1297,6 +1309,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

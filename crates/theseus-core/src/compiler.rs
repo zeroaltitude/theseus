@@ -36,6 +36,7 @@ mod budget;
 use budget::{budget_report, request_budget};
 pub use layers::{cache_layout, BlockBreakpoint, CacheLayout, MIN_BYTES_PER_TOKEN};
 use layers::{system_blocks, system_digest};
+pub mod cache;
 pub mod card;
 mod clearing;
 pub mod cold;

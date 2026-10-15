@@ -540,7 +540,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 36);
+    assert_eq!(moved["format"], 37);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -551,7 +551,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 36. The
+/// with a row that counts and pins them, and the manifest moves to 37. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -592,7 +592,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 36);
+    assert_eq!(moved["format"], 37);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -600,7 +600,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 36,
+/// both with no origin and no inherited run, and moves the manifest to 37,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -647,7 +647,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 36);
+    assert_eq!(moved["format"], 37);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -676,7 +676,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 36,
+/// it, reads an empty board, takes a thread and moves the manifest to 37,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -699,7 +699,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 36);
+    assert_eq!(moved["format"], 37);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -785,7 +785,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 36);
+    assert_eq!(moved["format"], 37);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -797,4 +797,61 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
         .unwrap();
     let e: theseus_kernel::Execution = serde_json::from_slice(&rec.payload).unwrap();
     assert!(e.dismissal().is_some());
+}
+
+/// A compilation as format 37 wrote it (own-benchmark, theseus-pw1q.12): each
+/// system block of its cache layout names its text by SHA-256 (`digest`), the
+/// text in the blobs. A literal, so a later change to the layout must read it
+/// and write it back byte for byte; the earlier layouts above, which carry no
+/// digest, still read and write back without one.
+pub(crate) const COMPILATION_AT_34: &str = r#"{"id":"cmp_00000000000000000000000000000341","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000341,"trigger":"new_session","strategy":"transcript","as_of":81,"includes":["msg_00000000000000000000000000000341"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true,"digest":"cad307321e83979f3900d77b4fa45d4f722eab609eaedc9528beec55daa1982a"}]}}}"#;
+
+#[test]
+fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
+    let c: crate::compiler::Compilation = serde_json::from_str(COMPILATION_AT_34).unwrap();
+    let b = &c.manifest.cache.as_ref().unwrap().blocks[0];
+    assert_eq!(b.block, "header");
+    assert_eq!(b.digest.as_deref().map(str::len), Some(64));
+    assert_eq!(serde_json::to_string(&c).unwrap(), COMPILATION_AT_34);
+    // The same compilation before 37 has no digest, and writes none.
+    let old = COMPILATION_AT_34.replace(
+        r#","digest":"cad307321e83979f3900d77b4fa45d4f722eab609eaedc9528beec55daa1982a""#,
+        "",
+    );
+    let c: crate::compiler::Compilation = serde_json::from_str(&old).unwrap();
+    assert!(c.manifest.cache.as_ref().unwrap().blocks[0]
+        .digest
+        .is_none());
+    assert_eq!(serde_json::to_string(&c).unwrap(), old);
+}
+
+/// A store of format 33 opens, and its first write moves the manifest to 37,
+/// which an older build then refuses.
+#[test]
+fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        store.put_session(&rec.session_id, &rec).unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    let c: crate::compiler::Compilation = serde_json::from_str(COMPILATION_AT_34).unwrap();
+    store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::COMPILATION,
+            Some(&c.id),
+            &c,
+        )
+        .unwrap()
+        .scoped(&c.session_id)])
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 37);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
 }

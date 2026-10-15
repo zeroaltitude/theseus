@@ -1079,6 +1079,7 @@ async fn after_serving(
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();
     core.consolidate_after_serving();
+    core.route_replay_after_serving();
     // The self backlog's nightly read, an hour after consolidation, only with `[self] mode = "act"`.
     core.backlog_after_serving();
     // The self-join (theseus-pw1q.9): the install's notice, then a pass every 15 minutes, only with `[self] mode = "act"`.

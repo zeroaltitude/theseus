@@ -56,7 +56,7 @@ pub(crate) fn rig_with_secrets(
     rig_built(mode, tweak, |p| p.secrets = board)
 }
 
-fn rig_built(
+pub(crate) fn rig_built(
     mode: MemoryMode,
     tweak: impl FnOnce(&mut Config),
     parts: impl FnOnce(&mut crate::rpc::Parts),

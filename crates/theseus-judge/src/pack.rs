@@ -65,6 +65,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v3", include_str!("../packs/route.v3.toml")),
     ("route.v4", include_str!("../packs/route.v4.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
+    ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
     (
         "people_seen.v1",
@@ -89,6 +90,8 @@ pub enum Point {
     MemoryPass,
     /// Off every turn: consolidation's citation check (M6 31b).
     Consolidation,
+    /// Off every turn: a replayed turn's comparison (own-benchmark).
+    Replay,
 }
 
 /// The state builder a pack names (a closed set, in code).
@@ -118,6 +121,8 @@ pub enum Builder {
     /// `people_seen.v1`'s: a private exchange's lines and the held people it
     /// may involve (theseus-u5n8, the gate on people.v1's live point).
     PeopleSeen,
+    /// `compare.v1`'s: a request and two replies (own-benchmark).
+    Compare,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -1362,9 +1367,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            19,
+            20,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3 and v4, citation.v1, people.v1, people_seen.v1 and classify.v2"
+             v3 and v4, citation.v1, people.v1, people_seen.v1, classify.v2 and compare.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

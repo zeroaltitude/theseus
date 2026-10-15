@@ -228,6 +228,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A run near or over its line means a change made something slower. The gate refuses it, so this shows how close to the edge each promise runs.'),
 
   // ---- Benchmarks
+  'bench.yourwork': e(
+    'Say which model your own turns need, measured on your own past work.',
+    'One row per model and effort your turns ran at: how many turns and what they cost, the turns you checked (you corrected their routing), and, once the nightly sampler has replayed some one rung down the routing table, how many a judge called the same or better, with the lowest match rate that holds at the stated confidence and the dollars moving the row down would have saved. The last line is the replays’ own cost against its day cap.',
+    'It is a yardstick, not a switch: nothing here moves routing. Read it before you cheapen a profile, and when a row is expensive and keeps matching a rung down, ask whether that work needs the dearer model.'),
   'bench.frontier': e(
     'Show where Theseus sits among the harnesses it was measured against.',
     'Each point is a harness in one run on one task set, on the two properties you pick (each with its better direction). The points joined by the line are the frontier: none beats them on both. Dimmed points are beaten. Click a point for its report.',
