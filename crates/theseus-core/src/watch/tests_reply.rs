@@ -336,6 +336,7 @@ async fn the_notice_never_goes_into_a_shared_place() {
             kind: None,
             label: None,
             opened_from: None,
+            persona: None,
         })
         .unwrap()
         .session_id;
