@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use theseus_client::render::{self, Show, Tag};
 use theseus_protocol::cite::{mark_into, Citation};
+use theseus_protocol::modes::{PlanStep, SessionMode};
 use theseus_protocol::{Event, NodeInfo, SessionHistoryResult};
 
 /// The most lines the pane keeps; the oldest go first.
@@ -68,6 +69,10 @@ pub struct Detail {
     places: Vec<(String, Option<usize>)>,
     /// The calls in flight, so a `←` line can name its call (theseus-d1hi).
     flight: render::Flight,
+    /// The conversation's mode and its approved plan (theseus-lyxy), from
+    /// `session.mode`'s answer and its notifications.
+    pub mode: SessionMode,
+    pub steps: Vec<PlanStep>,
 }
 
 impl Detail {
@@ -222,6 +227,9 @@ impl Detail {
         if !ours {
             return;
         }
+        if let Event::SessionMode(m) = e {
+            self.set_mode(m.mode, &m.steps);
+        }
         let question = matches!(e, Event::ConfirmRequested(_));
         for l in self.flight.event(e, SHOW) {
             match l.tag {
@@ -235,6 +243,12 @@ impl Detail {
                 }
             }
         }
+    }
+
+    /// The mode and the plan, as `session.mode` says them.
+    pub fn set_mode(&mut self, mode: SessionMode, steps: &[PlanStep]) {
+        self.mode = mode;
+        self.steps = steps.to_vec();
     }
 
     /// An operator's message was written in the session: false if it is one

@@ -34,6 +34,7 @@ mod judge_runs;
 mod keys;
 mod ledger_verify;
 mod mcp;
+mod mode_cmd;
 mod ontology;
 mod packs;
 mod pages;
@@ -481,6 +482,10 @@ enum Cmd {
         #[arg(long, visible_alias = "tasks")]
         all: bool,
     },
+    /// A conversation's mode, as Shift+Tab sets it: `ask`, `edits` (file edits in this project run
+    /// with a notice), `plan` (read-only until you approve a plan) or `auto` (what only its posture
+    /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
+    Mode(mode_cmd::ModeArgs),
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
         #[command(subcommand)]
@@ -1194,6 +1199,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Resume { wake } => remind::resume(c, json, wake).await,
         Cmd::Done { wake } => remind::done(c, json, wake).await,
         Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
+        Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
         Cmd::Wait {
             session: Some(session),
             until,

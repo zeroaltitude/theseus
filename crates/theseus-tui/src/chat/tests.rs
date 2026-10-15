@@ -331,7 +331,7 @@ async fn the_banner_names_the_model_the_directory_and_its_branch() {
         screen
             .last()
             .unwrap()
-            .starts_with("default · ~/work/harbour-tides · Sonnet 5.5 · $0.00"),
+            .starts_with("ask (shift+tab) · ~/work/harbour-tides · Sonnet 5.5 · $0.00"),
         "{screen:?}"
     );
 }
@@ -793,7 +793,10 @@ async fn a_resize_redraws_the_dock_and_not_the_transcript() {
             "{transcript:?} was written again on a resize: {wrote:?}"
         );
     }
-    assert!(wrote.contains("default"), "the status line is the dock's");
+    assert!(
+        wrote.contains("ask (shift+tab)"),
+        "the status line is the dock's"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -810,7 +813,7 @@ async fn the_dock_stays_at_the_bottom_when_the_transcript_scrolls() {
     }
     let screen = r.screen();
     assert!(
-        screen.last().unwrap().starts_with("default · "),
+        screen.last().unwrap().starts_with("ask (shift+tab) · "),
         "{screen:?}"
     );
     assert_eq!(screen.len(), 12, "the screen is full: {screen:?}");

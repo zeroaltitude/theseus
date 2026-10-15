@@ -33,6 +33,8 @@ mod style;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_mode;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;

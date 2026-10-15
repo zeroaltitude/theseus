@@ -91,6 +91,9 @@ pub struct Earned {
     inner: RwLock<Stored>,
     /// The conversations' own grants (theseus-drjs), one answer's each.
     pub scoped: super::grants::Grants,
+    /// The conversations' modes and plans (theseus-lyxy), beside their grants:
+    /// the gate reads both for a session in one step.
+    pub modes: super::modes::Modes,
 }
 
 impl Earned {

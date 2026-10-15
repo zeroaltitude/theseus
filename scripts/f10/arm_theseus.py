@@ -9,8 +9,9 @@ How each step reaches Theseus (the rules the baseline was measured by):
   them: enter opens the session, `i` the input line, `y` answers a question.
 - S7's interrupt is Ctrl-C, the key a person presses in a terminal; the stop
   that B3 verifies is the TUI's own (`s`, then `s`).
-- An arm with no key or command for a step (S5's mode, S9's undo, S11's
-  reopen and picker, S12's plan mode) records none, and its checks say so.
+- S5's mode key and S12's plan mode are Shift+Tab at the board's input line
+  (theseus-lyxy); an arm with no key or command for a step (S9's undo, S11's
+  reopen and picker) records none, and its checks say so.
 
 The daemon's config is the defaults, with the stand-in as the model, the
 scratch project as its workspace, Discord, the web UI, the index and the
@@ -309,7 +310,20 @@ class Theseus:
         # this command's prefix for the rest of the conversation.
         ctx.tmux.keys("a")
         self.settle(ctx)
-        ctx.rec("S5", grant_keys=["a"], mode_keys=None)
+        # The mode key (theseus-lyxy): Shift+Tab at the input line moves the
+        # conversation from `ask` to `edits`, and the pane says it accepts
+        # edits. The conversation goes back to `ask` through the CLI, so the
+        # steps after this one see the config's postures.
+        ctx.tmux.keys("i")
+        time.sleep(0.2)
+        ctx.tmux.keys("BTab")
+        ctx.tmux.wait(lambda t: "accepting edits" in t, 10, every=0.1)
+        time.sleep(0.3)
+        ctx.capture("S5.mode")
+        ctx.tmux.keys("Escape")
+        time.sleep(0.2)
+        self.cli("mode", "ask", self.session_id())
+        ctx.rec("S5", grant_keys=["a"], mode_keys=["BTab"])
 
     def s6(self, ctx):
         """S6 runs in the chat, where the dock shows the elapsed time of a
@@ -443,4 +457,28 @@ class Theseus:
         ctx.rec("S11", alive_after_restart=bool(ctx.survey_pids()), restart_how="theseusd's stop and start")
 
     def s12(self, ctx):
-        ctx.rec("S12", plan_keys=None)
+        """S12 in the board: Shift+Tab at the input line twice (ask, edits,
+        plan: one key, pressed as often as it takes) reads the conversation
+        read-only; the prompt then makes the model present its plan, which is
+        the card; `e` approves it into edits mode, so the edit and each step's
+        mark go through without another question."""
+        # S11 left the board; it opens again on the conversation.
+        ctx.tmux.keys("C-l")
+        self.open_tui(ctx)
+        before = ctx.file_digest()
+        ctx.tmux.keys("i")
+        time.sleep(0.2)
+        ctx.tmux.keys("BTab")
+        ctx.tmux.keys("BTab")
+        ctx.tmux.wait(lambda t: "planning" in t, 10, every=0.1)
+        time.sleep(0.3)
+        ctx.capture("S12.mode")
+        ctx.tmux.type(steps.PROMPTS["S12"])
+        ctx.tmux.keys("Enter")
+        self.card(ctx)
+        ctx.capture("S12.plan")
+        ctx.rec("S12", plan_keys=["BTab", "BTab"], unchanged_at_plan=ctx.file_digest() == before)
+        ctx.tmux.keys("e")
+        self.settle(ctx)
+        ctx.capture("S12.progress")
+        ctx.rec("S12", edited_after_plan=ctx.file_digest() != before)

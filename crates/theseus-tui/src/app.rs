@@ -71,6 +71,9 @@ pub enum Purpose {
     NewTask,
     /// `action.confirm`: an answer to a question.
     Answer { correlation_id: String },
+    /// `session.mode`: the focused conversation's mode, read when it is
+    /// focused and set by Shift+Tab (theseus-lyxy).
+    Mode(String),
 }
 
 /// What the loop does for the app.
@@ -630,9 +633,19 @@ impl App {
                 self.sync_warn = sync_warning(v);
             }
             Purpose::NewTask => self.task_started(v),
+            Purpose::Mode(sid) => self.mode_read(&sid, v),
             Purpose::Watch | Purpose::Typing => {}
         }
         Vec::new()
+    }
+
+    /// `session.mode`'s answer: the conversation's mode and plan, if it is
+    /// still the one in focus.
+    fn mode_read(&mut self, sid: &str, v: Value) {
+        let r = serde_json::from_value::<theseus_protocol::modes::SessionModeResult>(v);
+        if let (Ok(r), Some(d)) = (r, self.detail.as_mut().filter(|d| d.session_id == sid)) {
+            d.set_mode(r.mode, &r.steps);
+        }
     }
 
     /// A request that failed: say so where the operator looks.
@@ -672,6 +685,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::Mode(_) => method::SESSION_MODE,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -966,6 +980,20 @@ impl App {
 
     /// `tab` / `shift-tab`: the next or previous session that needs attention
     /// (design §2.2's queue), focused with its pane open. Both wrap.
+    /// Shift+Tab: the open conversation's next mode, ask → edits → plan →
+    /// auto, asked of the daemon, which says whether it counts.
+    fn cycle_mode(&mut self) -> Vec<Effect> {
+        let Some(d) = self.detail.as_ref() else {
+            return Vec::new();
+        };
+        let params = json!({"session_id": d.session_id, "mode": d.mode.next()});
+        vec![call(
+            method::SESSION_MODE,
+            params,
+            Purpose::Mode(d.session_id.clone()),
+        )]
+    }
+
     fn jump(&mut self, forward: bool) -> Vec<Effect> {
         let queue = self.board.queue(&|v| self.is_done(v));
         if queue.is_empty() {
@@ -1035,6 +1063,9 @@ impl App {
     fn input_key(&mut self, k: KeyEvent) -> Vec<Effect> {
         match k.code {
             KeyCode::Esc => self.mode = Mode::Normal,
+            // At the prompt, Shift+Tab sets the conversation's mode (theseus-lyxy);
+            // in the list it still walks back through the queue.
+            KeyCode::BackTab => return self.cycle_mode(),
             KeyCode::Backspace => {
                 self.input.pop();
             }
@@ -1273,6 +1304,12 @@ fn read_session(sid: &str) -> Vec<Effect> {
             method::SESSION_WATCH,
             json!({ "session_id": sid }),
             Purpose::Watch,
+        ),
+        // Its mode and plan, which its notifications then keep (theseus-lyxy).
+        call(
+            method::SESSION_MODE,
+            json!({ "session_id": sid }),
+            Purpose::Mode(sid.to_string()),
         ),
     ]
 }

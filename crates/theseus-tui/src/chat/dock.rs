@@ -24,6 +24,9 @@ pub type DockRows = fn(&Chat, &DockCtx) -> Vec<Line>;
 /// Every provider, top row first.
 pub const ABOVE_INPUT: &[DockRows] = &[turn_rows, tool_rows, question_rows, notice_rows];
 
+/// The most rows of a question's text preview the dock shows.
+const MAX_PREVIEW: usize = 12;
+
 /// One part of the status line. When the line is too wide the segments of
 /// the lowest `keep` go first.
 pub struct Segment {
@@ -36,7 +39,7 @@ pub struct Segment {
 pub fn status_segments(chat: &Chat) -> Vec<Segment> {
     let mut out = vec![
         Segment {
-            text: chat.mode.clone(),
+            text: chat.mode.status(),
             keep: 3,
         },
         Segment {
@@ -54,6 +57,10 @@ pub fn status_segments(chat: &Chat) -> Vec<Segment> {
         text: cost_words(chat.cost),
         keep: 5,
     });
+    // The approved plan's count, `plan 2/5` (theseus-lyxy).
+    if let Some(p) = theseus_protocol::modes::plan_line(&chat.steps) {
+        out.push(Segment { text: p, keep: 3 });
+    }
     if chat.tasks > 0 {
         out.push(Segment {
             text: format!(
@@ -164,11 +171,20 @@ fn question_rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     ) {
         out.push(one(Sty::Dim, format!("  {}", row.trim_start())));
     }
+    // A plan's steps, numbered, are its question (theseus-lyxy).
+    if let Some(p) = q.preview.as_ref().filter(|p| p.kind == "text") {
+        for line in p.body.lines().take(MAX_PREVIEW) {
+            out.push(one(Sty::Plain, format!("  {line}")));
+        }
+    }
     let yes = q
         .yes_option()
         .map_or("approve", |o| o.label.as_str())
         .to_lowercase();
     let mut keys = format!("  [y] {yes} · [n] decline");
+    if let Some(o) = &q.grant_offer {
+        keys.push_str(&format!(" · [{}] {}", o.key(), o.button().to_lowercase()));
+    }
     if q.external_text.is_some() {
         keys.push_str(" · [t] approve and trust");
     }

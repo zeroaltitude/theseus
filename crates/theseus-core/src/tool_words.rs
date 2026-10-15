@@ -46,6 +46,20 @@ fn command(input: &Value, ctx: &ToolCtx) -> Option<ConfirmPreview> {
     })
 }
 
+/// A plan's steps as its question shows them.
+fn plan_text(input: &Value) -> Option<ConfirmPreview> {
+    let steps: Vec<String> = input
+        .get("steps")?
+        .as_array()?
+        .iter()
+        .filter_map(|s| s.as_str().map(str::to_string))
+        .collect();
+    Some(ConfirmPreview {
+        kind: ConfirmPreview::TEXT.into(),
+        body: theseus_protocol::modes::plan_text(&steps),
+    })
+}
+
 impl ToolRuntime {
     /// A question's preview of the call it asks about, from the files as they
     /// are now, scrubbed as the model's copy is.
@@ -60,6 +74,8 @@ impl ToolRuntime {
         let ctx = &ctx;
         let mut p = match tool {
             "proc.run" => command(input, ctx),
+            // The plan is the question (theseus-lyxy): the steps, numbered.
+            crate::policy::modes::PLAN_PRESENT => plan_text(input),
             _ => theseus_tools::change::preview(tool, input, ctx),
         }?;
         p.body = self.scrubber.scrub(&p.body).0;

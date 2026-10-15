@@ -169,14 +169,25 @@ fn tree(tasks: &[&TaskRecord], now_ms: u64, version: bool) -> (Vec<String>, Opti
 
 /// The board: the place's tasks as a tree (id, title, state, owner, claim).
 /// None while the place has no task.
-pub fn board(records: &[TaskRecord], session: &str, now_ms: u64) -> Option<String> {
+pub fn board(
+    records: &[TaskRecord],
+    session: &str,
+    now_ms: u64,
+    mode: theseus_protocol::modes::SessionMode,
+) -> Option<String> {
     let mine = homed(records, session);
     if mine.is_empty() {
         return None;
     }
     let open = mine.iter().filter(|t| !t.state.is_closed()).count();
+    // The conversation's mode (theseus-lyxy), on this line alone: Discord has
+    // no key for it, and `ask` is not worth a word.
+    let mode = match mode {
+        theseus_protocol::modes::SessionMode::Ask => String::new(),
+        m => format!(" · mode: {}", m.name()),
+    };
     let mut out = vec![format!(
-        "{BOARD_HEAD} · {open} open, {} closed",
+        "{BOARD_HEAD} · {open} open, {} closed{mode}",
         mine.len() - open
     )];
     let (lines, left) = tree(&mine, now_ms, false);
@@ -280,6 +291,31 @@ mod tests {
         }
     }
 
+    /// The board's first line names the conversation's mode, `ask` aside
+    /// (theseus-lyxy); nothing else of the board changes.
+    #[test]
+    fn the_board_line_names_the_mode_unless_it_is_ask() {
+        use theseus_protocol::modes::SessionMode;
+        let records = vec![task("tsk_000000reef", None, TaskState::Accepted)];
+        let first = |m| {
+            board(&records, "ses_0000lagoon", 1_000, m)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(
+            first(SessionMode::Ask),
+            "📋 **Task board** · 1 open, 0 closed"
+        );
+        assert_eq!(
+            first(SessionMode::Plan),
+            "📋 **Task board** · 1 open, 0 closed · mode: plan"
+        );
+        assert!(first(SessionMode::Edits).ends_with(" · mode: edits"));
+    }
+
     /// The board renders the place's tree with each claim while it holds,
     /// and nothing of another place's tasks; `/tasks` adds versions.
     #[test]
@@ -296,7 +332,7 @@ mod tests {
         other.origin.session = "ses_00000atoll".into();
         let records = vec![reef, north, other];
         let now = 1_790_000_000_000;
-        let b = board(&records, "ses_0000lagoon", now).unwrap();
+        let b = board(&records, "ses_0000lagoon", now, Default::default()).unwrap();
         let hm = theseus_core::push::hm(until);
         assert_eq!(
             b,
@@ -307,11 +343,13 @@ mod tests {
                  -# Edited in place as the tasks change."
             )
         );
-        assert!(board(&records, "ses_00000nobody", now).is_none());
+        assert!(board(&records, "ses_00000nobody", now, Default::default()).is_none());
         // Past its lease the claim reads free.
-        assert!(!board(&records, "ses_0000lagoon", until)
-            .unwrap()
-            .contains('🔒'));
+        assert!(
+            !board(&records, "ses_0000lagoon", until, Default::default())
+                .unwrap()
+                .contains('🔒')
+        );
         let t = tasks_here(&records, "ses_0000lagoon", &[], now);
         assert!(
             t.starts_with("**Task graph here** · 1 open, 1 closed"),
@@ -342,7 +380,7 @@ mod tests {
             .map(|i| made(&format!("tsk_{i:010}"), None, TaskState::Done, i))
             .collect();
         records.push(made("tsk_000000reef", None, TaskState::Accepted, 29));
-        let b = board(&records, "ses_0000lagoon", 1_000).unwrap();
+        let b = board(&records, "ses_0000lagoon", 1_000, Default::default()).unwrap();
         let lines: Vec<&str> = b.lines().collect();
         assert_eq!(lines[0], "📋 **Task board** · 1 open, 29 closed");
         assert_eq!(
@@ -397,7 +435,7 @@ mod tests {
             TaskState::Accepted,
             30,
         ));
-        let b = board(&records, "ses_0000lagoon", 1_000).unwrap();
+        let b = board(&records, "ses_0000lagoon", 1_000, Default::default()).unwrap();
         let lines: Vec<&str> = b.lines().collect();
         assert_eq!(lines[0], "📋 **Task board** · 3 open, 28 closed");
         assert_eq!(
@@ -429,7 +467,7 @@ mod tests {
             .map(|i| made(&format!("tsk_{i:010}"), None, TaskState::Accepted, i))
             .collect();
         many.push(made("tsk_00000atoll", None, TaskState::Done, 30));
-        let b = board(&many, "ses_0000lagoon", 1_000).unwrap();
+        let b = board(&many, "ses_0000lagoon", 1_000, Default::default()).unwrap();
         assert!(
             b.contains("\n-# and 6 more, 5 of them open; `theseus tasks` lists them all\n"),
             "{b}"

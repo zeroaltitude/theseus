@@ -44,10 +44,10 @@ use super::Core;
 
 /// The methods that change a session, each applied in its arrival order on
 /// its connection: a turn's input, an answer, `/stop` and the cancel, a
-/// recompile asked for, and the owner's retire and reopen. A task's cancel
+/// recompile asked for, the owner's retire and reopen, and a mode's change. A task's cancel
 /// and a wake's name another execution than the caller's session, and
 /// `profile.use` no session at all: they stay unordered.
-pub(super) const ORDERED: [&str; 8] = [
+pub(super) const ORDERED: [&str; 9] = [
     method::TURN_SUBMIT,
     method::ACTION_CONFIRM,
     method::WORK_ANSWER,
@@ -56,6 +56,7 @@ pub(super) const ORDERED: [&str; 8] = [
     method::SESSION_RECOMPILE,
     method::SESSION_RETIRE,
     method::SESSION_REOPEN,
+    method::SESSION_MODE,
 ];
 
 /// The ordered methods that stop what runs: they wait for an earlier input

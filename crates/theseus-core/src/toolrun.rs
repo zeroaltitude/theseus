@@ -1116,7 +1116,7 @@ impl ToolRuntime {
             Err(e) => GateResult {
                 gate: "deny".into(),
                 reason: Some(match refused {
-                    Some(_) => format!("{PLACE_REFUSAL}: {e}"),
+                    Some(_) => crate::policy::modes::refusal_reason(e),
                     None => format!("validation: {e}"),
                 }),
                 by: None,
@@ -1176,7 +1176,7 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         let (reason, text) = match bad.refused {
             true => (
-                format!("{PLACE_REFUSAL}: {}", bad.error),
+                crate::policy::modes::refusal_reason(&bad.error),
                 format!("Not run: {}", bad.error),
             ),
             false => (
@@ -1475,6 +1475,9 @@ impl ToolRuntime {
                     edit.records.extend(records);
                     done
                 })
+            }
+            crate::policy::modes::PLAN_PRESENT | crate::policy::modes::PLAN_STEP => {
+                self.run_plan(tc, tool.name(), &call.input, correlation_id)
             }
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
@@ -2151,6 +2154,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::wake_tools::WakeCancel));
         r.register(Arc::new(crate::wake_tools::WakeMove));
         r.register(Arc::new(crate::thread_context::ThreadNote));
+        r.register(Arc::new(crate::policy::modes::PlanPresent));
+        r.register(Arc::new(crate::policy::modes::PlanStepTool));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

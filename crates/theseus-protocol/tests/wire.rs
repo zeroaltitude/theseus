@@ -585,6 +585,34 @@ fn policy_and_trust() {
     );
 }
 
+/// A conversation's mode and approved plan, as `session.mode` sends them
+/// (theseus-lyxy).
+#[test]
+fn session_mode() {
+    use theseus_protocol::modes::{PlanState, PlanStep, SessionMode, SessionModeChanged};
+    wire(
+        "session_mode",
+        &line(
+            notify::SESSION_MODE,
+            SessionModeChanged {
+                session_id: S.into(),
+                mode: SessionMode::Edits,
+                steps: vec![
+                    PlanStep {
+                        text: "add the function".into(),
+                        state: PlanState::Done,
+                    },
+                    PlanStep {
+                        text: "test it".into(),
+                        state: PlanState::Doing,
+                    },
+                ],
+                by: "plan approved".into(),
+            },
+        ),
+    );
+}
+
 #[test]
 fn narrative_line() {
     wire(
@@ -1105,7 +1133,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 42);
+    assert_eq!(n, 43);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

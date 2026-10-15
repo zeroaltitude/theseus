@@ -1657,6 +1657,7 @@ mod admission;
 mod earned;
 /// Scoped grants (theseus-drjs).
 mod grants;
+mod modes;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;

@@ -40,8 +40,31 @@ pub(super) fn hear_every_change(shared: &std::sync::Arc<Shared>) {
     });
 }
 
+/// Whether a notification is the board's: a task change is routed to its
+/// home's place, and a conversation's mode change redraws its own place's
+/// board line (theseus-lyxy). The caller goes on with anything else.
+pub(super) fn routed(shared: &Shared, e: &theseus_protocol::Event) -> bool {
+    match e {
+        theseus_protocol::Event::TaskChanged(c) => route(shared, c),
+        theseus_protocol::Event::SessionMode(m) => {
+            let tx = shared
+                .routes
+                .lock()
+                .unwrap()
+                .by_session
+                .get(&m.session_id)
+                .cloned();
+            if let Some(tx) = tx {
+                let _ = tx.send(PlaceMsg::Board);
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
 /// Hand a change to its home's place, if one routes it.
-pub(super) fn route(shared: &Shared, c: &TaskChanged) {
+fn route(shared: &Shared, c: &TaskChanged) {
     let records = theseus_core::task_graph::all(&shared.core.store);
     let records = match records {
         Ok(r) => r,
@@ -70,7 +93,12 @@ impl Place {
             }
         };
         let now = core.kernel.now_ms();
-        if let Some(content) = render::board(&records, &self.session_id, now) {
+        if let Some(content) = render::board(
+            &records,
+            &self.session_id,
+            now,
+            core.tools.earned.modes.mode_of(&self.session_id),
+        ) {
             let _ = self.lane.send(LaneMsg::Live(Op::Upsert {
                 key: render::BOARD_KEY.into(),
                 content,

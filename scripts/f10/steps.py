@@ -140,6 +140,10 @@ S6_TALK_REPLY = "The low water is the 12:00 reading, at 0.60 m."
 S7_LONG_REPLY = "Tides are predicted by summing harmonic constituents."
 S8_REPLY = "The log says the gauge at station 17 stopped answering, then the survey gave up."
 S12_REPLY = "Plan: 1. add mean_height to tides.py 2. test it 3. run the tests."
+# S12's plan, as an arm with a plan tool (Theseus's `plan_present`) is asked for it.
+S12_PLAN = ["Add mean_height to tides.py", "Check it against the tide table", "Run the tests"]
+S12_MEAN_OLD = "    return round(highest - lowest, 2)"
+S12_MEAN_NEW = S12_MEAN_OLD + "\n\n\ndef mean_height(readings):\n    return round(sum(readings) / len(readings), 2)"
 
 
 def survey_log(lines=60):
@@ -194,5 +198,20 @@ def stand_in_rules(project):
         ], "then": "Added the comment."},
         {"when": PROMPTS["S11"], "calls": [{"name": "proc_run", "input": survey}],
          "then": "The survey is running in the background."},
-        {"when": PROMPTS["S12"], "text": S12_REPLY},
+        # S12, for an arm with a plan tool (theseus-lyxy): the plan first, then, once it is
+        # approved, the edit and each step's mark, and the answer.
+        {"when": PROMPTS["S12"], "steps": [
+            {"calls": [{"name": "plan_present", "input": {"steps": S12_PLAN}}]},
+            {"calls": [
+                {"name": "plan_step", "input": {"index": 1, "state": "doing"}},
+                {"name": "fs_edit", "input": {"path": tides, "old_string": S12_MEAN_OLD, "new_string": S12_MEAN_NEW}},
+                {"name": "plan_step", "input": {"index": 1, "state": "done"}},
+                {"name": "plan_step", "input": {"index": 2, "state": "doing"}},
+            ]},
+            {"calls": [
+                {"name": "plan_step", "input": {"index": 2, "state": "done"}},
+                {"name": "plan_step", "input": {"index": 3, "state": "doing"}},
+            ]},
+            {"text": "Added mean_height, and checked it."},
+        ]},
     ]

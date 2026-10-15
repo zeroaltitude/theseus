@@ -1038,7 +1038,7 @@ async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
     assert_eq!(
         rows[1..17],
         [
-            " ses …dm0001 · DM · glm-5.3-flash · ○ ready",
+            " ses …dm0001 · DM · glm-5.3-flash · ○ ready · ask (shift+tab)",
             " [07:13:30.000] operator (discord:zeroaltitude): when is low water?",
             " [07:13:31.000] glm-5.3-flash: (1 tool call(s))",
             "       ↳ tool_use · in 1200 out 40 · $0.0004",

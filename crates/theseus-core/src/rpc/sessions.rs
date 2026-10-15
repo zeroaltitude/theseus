@@ -19,14 +19,15 @@ use crate::session::SessionRecord;
 
 /// The methods routed here: the list, the owner's two acts, a person's
 /// first keystroke (theseus-tnky), the stop nudge's switch (theseus-fh0u),
-/// and a fork (theseus-2qzx).
-pub(super) const OWN: [&str; 6] = [
+/// a fork (theseus-2qzx), and a conversation's mode (theseus-lyxy).
+pub(super) const OWN: [&str; 7] = [
     method::SESSION_LIST,
     method::SESSION_RETIRE,
     method::SESSION_REOPEN,
     method::SESSION_TYPING,
     method::SESSION_NUDGE,
     method::SESSION_FORK,
+    method::SESSION_MODE,
 ];
 
 impl Core {
@@ -43,6 +44,7 @@ impl Core {
             method::SESSION_TYPING => route(params, |p| Ok(self.session_typing(p, conn))),
             method::SESSION_NUDGE => route(params, |p| self.session_nudge(p)),
             method::SESSION_FORK => route(params, |p| self.session_fork(p, conn.surface)),
+            method::SESSION_MODE => route(params, |p| self.session_mode(p, conn)),
             _ => route(params, |p| self.rpc_session_reopen(p, conn)),
         }
     }
@@ -111,7 +113,7 @@ impl Core {
 }
 
 /// A refusal as the owner's acts answer one; any other error is the params'.
-fn refused(e: anyhow::Error) -> RpcFailure {
+pub(super) fn refused(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
             code: error_code::REFUSED,

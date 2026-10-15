@@ -137,6 +137,13 @@ const PREVIEW_ROWS: usize = 12;
 
 /// `  [a] don't ask again: python3 -m unittest, this conversation`.
 pub fn offer_line(o: &theseus_protocol::grants::GrantOffer) -> String {
+    // A plan's other yes is a mode, not a grant (theseus-lyxy).
+    if o.kind == theseus_protocol::grants::KIND_MODE {
+        return format!(
+            "  [{}] approve the plan, and accept edits: file edits here run with a notice",
+            o.key()
+        );
+    }
     let what = match o.kind.as_str() {
         theseus_protocol::grants::KIND_EDITS => format!("edits under {}", o.pattern),
         _ => o.pattern.clone(),

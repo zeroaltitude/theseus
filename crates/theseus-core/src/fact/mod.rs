@@ -58,6 +58,7 @@ pub mod limits;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;
+pub mod modes;
 pub mod ontology;
 pub mod people;
 pub mod place;
@@ -489,6 +490,7 @@ facts![
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
     standing::StandingAdded<'static>,
+    modes::ModeChanged<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,
     thread::ThreadEdited<'static>,

@@ -47,6 +47,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
+pub mod modes;
 pub mod notices;
 pub mod nudge;
 mod ontology;
@@ -178,6 +179,7 @@ pub mod method {
         SESSION_WATCH = "session.watch",
         SESSION_UNWATCH = "session.unwatch",
         SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge",
+        SESSION_MODE = "session.mode",
         /// A new conversation from any moment of another, by reference
         /// (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",
@@ -434,6 +436,8 @@ pub mod notify {
         TASK_CHANGED = "task.changed",
         /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
         WAKE_NOTICED = "wake.noticed",
+        /// A conversation's mode or plan changed (theseus-lyxy): `modes::SessionModeChanged`.
+        SESSION_MODE = "session.mode",
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",

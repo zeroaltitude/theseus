@@ -34,6 +34,9 @@ pub enum Action {
     Escape,
     /// Ctrl-O: the folded paste, whole.
     ShowPaste,
+    /// Shift+Tab: the conversation's next mode, ask → edits → plan → auto
+    /// (theseus-lyxy).
+    CycleMode,
 }
 
 pub fn map(k: KeyEvent) -> Option<Action> {
@@ -78,6 +81,7 @@ pub fn map(k: KeyEvent) -> Option<Action> {
         KeyCode::Home => Action::Home,
         KeyCode::End => Action::End,
         KeyCode::Tab => Action::Tab,
+        KeyCode::BackTab => Action::CycleMode,
         KeyCode::Esc => Action::Escape,
         _ => return None,
     })
@@ -107,6 +111,15 @@ mod tests {
             key(KeyCode::Char('j'), KeyModifiers::CONTROL),
             Some(Action::Newline)
         );
+    }
+
+    #[test]
+    fn shift_tab_cycles_the_mode_and_tab_completes() {
+        assert_eq!(
+            key(KeyCode::BackTab, KeyModifiers::SHIFT),
+            Some(Action::CycleMode)
+        );
+        assert_eq!(key(KeyCode::Tab, KeyModifiers::NONE), Some(Action::Tab));
     }
 
     #[test]

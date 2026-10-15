@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use crossterm::event::KeyEvent;
 use serde_json::{json, Value};
+use theseus_protocol::modes::{PlanStep, SessionMode};
 use theseus_protocol::{method, warm::Typist, ConfirmRequest};
 
 use super::banner;
@@ -50,6 +51,9 @@ pub enum Purpose {
     Submit,
     Answer,
     Typing,
+    /// `session.mode`: read when the conversation opens, set by Shift+Tab
+    /// (theseus-lyxy).
+    Mode,
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +98,9 @@ pub struct Chat {
     /// The model in the status line and the turn lines.
     pub model: Option<String>,
     pub cost: f64,
-    pub mode: String,
+    /// The conversation's mode and approved plan (theseus-lyxy).
+    pub mode: SessionMode,
+    pub steps: Vec<PlanStep>,
     pub live: Live,
     pub question: Option<ConfirmRequest>,
     pub offline: bool,
@@ -139,7 +145,8 @@ impl Chat {
             profile: None,
             model: None,
             cost: 0.0,
-            mode: "default".to_string(),
+            mode: SessionMode::default(),
+            steps: Vec::new(),
             live: Live::default(),
             question: None,
             offline: false,
@@ -401,6 +408,7 @@ impl Chat {
                     self.editor.history_next();
                 }
             }
+            Action::CycleMode => return self.cycle_mode(),
             Action::Tab => {
                 if let Some(name) = self.completing() {
                     self.editor.clear();
@@ -567,6 +575,20 @@ impl Chat {
         call(method::TURN_SUBMIT, params, Purpose::Submit)
     }
 
+    /// Shift+Tab: the next mode, asked of the daemon, which says whether it
+    /// counts; its notification then sets the status line.
+    fn cycle_mode(&mut self) -> Vec<Effect> {
+        let Some(sid) = self.session.clone() else {
+            self.flash("open a conversation first");
+            return Vec::new();
+        };
+        vec![call(
+            method::SESSION_MODE,
+            json!({ "session_id": sid, "mode": self.mode.next() }),
+            Purpose::Mode,
+        )]
+    }
+
     /// The first key of an idle spell: one cheap `session.typing`.
     fn typing(&mut self) -> Vec<Effect> {
         let Some(sid) = self.session.clone() else {
@@ -603,6 +625,14 @@ impl Chat {
                 .to_string(),
             'n' | 'N' => "decline".to_string(),
             't' | 'T' if q.external_text.is_some() => "approve_trust".to_string(),
+            // A grant's key (theseus-drjs), and a plan's edits mode (theseus-lyxy).
+            c if q
+                .grant_offer
+                .as_ref()
+                .is_some_and(|o| o.key() == c.to_ascii_lowercase()) =>
+            {
+                theseus_protocol::grants::APPROVE_GRANT.to_string()
+            }
             _ => return None,
         };
         Some(vec![call(

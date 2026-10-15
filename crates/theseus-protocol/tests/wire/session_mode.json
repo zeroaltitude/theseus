@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"session.mode","params":{"by":"plan approved","mode":"edits","session_id":"ses_q7f3k2","steps":[{"state":"done","text":"add the function"},{"state":"doing","text":"test it"}]}}
