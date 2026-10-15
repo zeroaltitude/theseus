@@ -647,3 +647,34 @@ async fn a_failing_routine_pings_once_a_day_with_its_streak() {
     let listed = runs(&r.core, &id).await;
     assert!(listed.iter().all(|x| x["state"] == "failed"), "{listed:?}");
 }
+
+/// The model's `routine.create` card shows the grant, and a grant that no
+/// grant may hold fails before a card is raised.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_creation_card_shows_the_grant() {
+    use theseus_tools::Tool;
+    let r = rig(900).await;
+    let tool = crate::routine_tool::RoutineCreate {
+        zone: r.core.kernel.config().zone.clone(),
+        cfg: Default::default(),
+        floor_ms: 60_000,
+    };
+    let input = |grant: Value| json!({"title": "Digest", "schedule": "weekdays 08:00", "brief": "Summarize", "grant": grant});
+    let plan = tool
+        .plan(&input(json!(["gog.gmail.search"])), &r.core.tools.ctx)
+        .unwrap();
+    assert!(
+        plan.summary
+            .contains("runs use without asking: gog.gmail.search"),
+        "{}",
+        plan.summary
+    );
+    assert!(
+        plan.authority.is_some(),
+        "it still waits for the owner's yes"
+    );
+    let e = tool
+        .plan(&input(json!(["proc.run"])), &r.core.tools.ctx)
+        .unwrap_err();
+    assert!(e.contains("proc.run"), "{e}");
+}

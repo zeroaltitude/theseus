@@ -387,6 +387,24 @@ fn duration(ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_list_shows_the_grant_and_the_streak() {
+        let mut i = info();
+        i.grant = vec!["gog.gmail.search".into(), "channel.post #digest".into()];
+        i.streak = 2;
+        let l = &list_lines(&[i])[0];
+        assert!(l.contains("2 runs in a row failed or were blocked"), "{l}");
+        assert!(
+            l.contains("grant: gog.gmail.search, channel.post #digest"),
+            "{l}"
+        );
+        let plain = &list_lines(&[info()])[0];
+        assert!(
+            !plain.contains("grant") && !plain.contains("in a row"),
+            "{plain}"
+        );
+    }
+
     use super::*;
 
     fn info() -> RoutineInfo {

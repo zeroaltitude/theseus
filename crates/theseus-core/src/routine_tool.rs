@@ -82,10 +82,7 @@ impl Tool for RoutineCreate {
          30m`, `monthly 09:00`, or cron), each run a fresh task that does not see this \
          conversation, reporting to the owner's DM. It waits for the owner's yes on one card. A \
          run may spend `budget_usd` (default $0.50), the routine `month_usd` a month (default \
-         $10); a spent month skips runs. `grant` names the tools its runs use without \
-         asking, even after reading outside text (`gog.gmail.search`, or a post with its \
-         place, `channel.post #digest`); any other call asks, and a run nobody answers ends \
-         blocked. The card shows the grant: name only what the routine needs."
+         $10); a spent month skips runs."
     }
 
     fn input_schema(&self) -> Value {
@@ -99,7 +96,7 @@ impl Tool for RoutineCreate {
                 "month_usd": {"type": "number", "exclusiveMinimum": 0},
                 "deliver_to": {"type": "string", "description": "`dm` (default), `none`, or a place."},
                 "speak": {"type": "string", "enum": ["always", "when_notable"], "description": "`when_notable`: a report ending NOTHING NEW is not posted."},
-                "grant": {"type": "array", "items": {"type": "string"}, "description": "Tools its runs use without asking: `gog.gmail.search`, or `channel.post #digest`."}
+                "grant": {"type": "array", "items": {"type": "string"}}
             },
             "required": ["title", "schedule", "brief"],
             "additionalProperties": false
