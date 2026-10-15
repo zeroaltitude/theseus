@@ -1085,10 +1085,9 @@ async fn after_serving(
     // The self backlog's nightly read, an hour after consolidation, only with `[self] mode = "act"`.
     core.backlog_after_serving();
     // The self-join (theseus-pw1q.9): the install's notice, then a pass every 15 minutes, only with `[self] mode = "act"`.
-    core.self_join_after_serving();
-    core.self_revert_after_serving();
-    // The self pipeline (theseus-pw1q.16): builds started, reviews and joins handed on, only with `[self] mode = "act"`.
-    core.pipeline_after_serving();
+    // The self-improvement tenders: the join's, the revert watch's, and the
+    // pipeline's (theseus-pw1q.16), each idle unless `[self] mode` acts.
+    core.self_after_serving();
     // The weekly earned-autonomy card (theseus-uttu), at the same hour.
     core.earned_after_serving();
     // People's nightly sweep (theseus-j8qb), at the same hour.

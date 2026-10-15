@@ -21,6 +21,14 @@ pub const FIRST: Duration = Duration::from_secs(60);
 pub const EVERY: Duration = Duration::from_secs(120);
 
 impl Core {
+    /// The self-improvement tenders after serving, in their order: the
+    /// join's, the revert watch's (theseus-pw1q.10) and the pipeline's.
+    pub fn self_after_serving(self: &Arc<Self>) {
+        self.self_join_after_serving();
+        self.self_revert_after_serving();
+        self.pipeline_after_serving();
+    }
+
     /// The tender, after serving: nothing with the mode off.
     pub fn pipeline_after_serving(self: &Arc<Self>) {
         if self.cfg.self_improve.mode != SelfMode::Act {
