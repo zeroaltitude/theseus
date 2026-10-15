@@ -27,8 +27,10 @@ mod events;
 mod guard;
 mod keys;
 mod live;
+mod picker;
 mod queue;
 mod render_seam;
+mod reopen;
 mod run;
 mod screen;
 mod state;
@@ -39,11 +41,14 @@ mod style;
 mod tests;
 #[cfg(test)]
 mod tests_ask;
+#[cfg(test)]
+mod tests_reopen;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;
 
 use self::run::{Connector, Runner};
+pub use self::state::Start;
 use self::state::{Cfg, Chat};
 
 /// What `theseus-tui chat` is given.
@@ -51,6 +56,8 @@ pub struct Args {
     pub socket: String,
     /// A conversation to go on with.
     pub resume: Option<String>,
+    /// With none named: a new conversation, the last here, or a pick.
+    pub start: Start,
 }
 
 /// Run the chat on the terminal in front of us.
@@ -87,6 +94,7 @@ pub async fn run(args: Args) -> Result<()> {
         branch: env::git_branch(&dir),
         dir: dir_text,
         resume: args.resume,
+        start: args.start,
         color: style::color_wanted(),
         history,
         history_path,

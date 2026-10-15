@@ -439,6 +439,10 @@ impl Core {
         p: theseus_protocol::SessionListParams,
     ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
         let Some(ids) = p.ids else {
+            if p.dir.is_some() || p.with_text {
+                let dir = p.dir.clone();
+                return self.session_list_in(p, dir.as_deref());
+            }
             if let Some(n) = p.n {
                 return self.session_page(n.min(1000), p.before);
             }
@@ -672,6 +676,7 @@ impl Core {
             .as_deref()
             .and_then(|id| self.kernel.execution(id).ok().flatten());
         i.execution_state = e.as_ref().map(|e| e.state.as_str().to_string());
+        i.started_on = self.started_on(r);
         let asks = r
             .execution_id
             .as_deref()

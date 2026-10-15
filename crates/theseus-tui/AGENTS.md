@@ -98,7 +98,9 @@ new lines, the dock again, in synchronized-output mode 2026).
 - `chat/render_seam.rs`: the one place a reply and a tool call are worded: `reply_lines` is term-render's markdown
   renderer, `tool_line` tool-words' `summarize`; nothing else renders text.
 - `chat/editor.rs`: the multi-line input (Ctrl-J, Alt/Shift-Enter, `\` then Enter), this directory's history
-  (`$XDG_STATE_HOME/theseus/chat-history.json`, `chat/env.rs`), and the folded paste: more than 5 lines is one chip
+  (a file of its own under `$XDG_STATE_HOME/theseus/history/`, named for the directory's last component and an FNV-1a
+  hash of its path, `chat/env.rs`; a directory with no file yet reads the one file of before, `chat-history.json`, and
+  never changes it), and the folded paste: more than 5 lines is one chip
   (a private-use character in the buffer, written back whole by `take`), so the whole message is one `turn.submit`.
 - `chat/run.rs`: the loop, as `run.rs`: quiet by construction (a deadline only while something runs: the dock's clock
   at 10 Hz, the banner's 250 ms wait, a notice), at most 30 frames a second. `chat/guard.rs`: raw mode and bracketed
@@ -114,6 +116,18 @@ new lines, the dock again, in synchronized-output mode 2026).
   (jobs that went to the background run on) and the transcript says what was verified. `chat/queue.rs`: a message
   typed while a turn runs waits in the dock, ↑ pulls it back, Ctrl-Enter stops and sends; it goes when the turn ends
   (steer-queued will deliver it into the turn: only `release_queue` changes). Tests: `chat/tests_ask.rs`.
+- **Coming back** (theseus-6yka). `theseus -c` (`theseus-tui chat -c`) asks `session.list {dir, n: 50}` and continues
+  the directory's most recently active conversation (`chat/reopen.rs`: `last_here`: a conversation, with a turn, not
+  retired, `started_on` not `discord`, so never a task's, a DM's or a shared place's); with none it says so and opens
+  a new one. `theseus -r` (`chat -r`) asks `session.list {dir, n: 200, with_text}` once and shows the picker
+  (`chat/picker.rs`, in the dock in place of the input): typing filters the list in memory (every word of the query in
+  the title, labels, directory, or the words of the first and last message and of the newest prompts; no request, no
+  model), up/down choose, Enter continues it, Tab reads and shows every directory's (`session.list {n: 1000,
+  with_text}`, once), Esc clears the query and then opens a new conversation, Ctrl-D leaves. The chosen conversation's
+  `session.history {n: 500}` is replayed through the transcript's own lines (`events.rs::history`): the last 30 turns
+  (`reopen::window`; a message over 6 lines is shown folded, its last lines kept), older turns one line, `N earlier
+  turns · /history shows them`, which `/history` answers a page back (`before` the first replayed node). Leaving
+  prints `theseus -c` and `theseus chat END`. Tests: `chat/tests_reopen.rs`, `picker.rs`'s own.
 
 Tests: `chat/tests.rs` (a scripted daemon through `Conn::over`, its bytes read back as a screen by `vt100`, a dev-dependency
 only; the paused clock and the chat's wall clock move together; goldens `tests/golden/chat_80.txt`, `chat_120.txt`,

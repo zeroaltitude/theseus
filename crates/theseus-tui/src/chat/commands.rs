@@ -22,6 +22,11 @@ pub const COMMANDS: &[Command] = &[
         run: help,
     },
     Command {
+        name: "history",
+        help: "print the earlier turns the reopening folded",
+        run: |chat, args| chat.earlier_cmd(args),
+    },
+    Command {
         name: "quit",
         help: "leave; the conversation goes on",
         run: quit,

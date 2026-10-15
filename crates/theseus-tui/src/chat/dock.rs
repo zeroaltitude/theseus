@@ -88,7 +88,7 @@ fn cost_words(x: f64) -> String {
 }
 
 /// The status line, fitted to `width`.
-fn status_line(chat: &Chat, width: usize) -> Line {
+pub(super) fn status_line(chat: &Chat, width: usize) -> Line {
     let mut segs = status_segments(chat);
     loop {
         let text = segs
@@ -164,6 +164,9 @@ pub fn build(chat: &Chat) -> Dock {
         now_ms: chat.now_ms,
         width,
     };
+    if let Some(p) = &chat.picker {
+        return super::picker::dock(chat, p, &ctx);
+    }
     let mut rows: Vec<Line> = Vec::new();
     for provider in ABOVE_INPUT {
         rows.extend(provider(chat, &ctx));

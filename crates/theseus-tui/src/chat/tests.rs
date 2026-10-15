@@ -92,6 +92,7 @@ pub fn cfg(history_path: std::path::PathBuf) -> Cfg {
         shown_dir: shown_dir("/home/ada/work/harbour-tides", Some("/home/ada")),
         branch: Some("main".into()),
         resume: None,
+        start: super::state::Start::New,
         color: false,
         history: Vec::new(),
         history_path: Some(history_path),
@@ -104,9 +105,19 @@ impl Rig {
     }
 
     pub async fn with(width: u16, height: u16, script: Script) -> Self {
+        Self::with_cfg(width, height, script, |_| {}).await
+    }
+
+    /// The chat as `change` configures it (how it starts, say).
+    pub async fn with_cfg(
+        width: u16,
+        height: u16,
+        script: Script,
+        change: impl FnOnce(&mut Cfg),
+    ) -> Self {
         BASE.with(|b| b.set(Some(Instant::now())));
         let dir = tempfile::tempdir().unwrap();
-        let history = dir.path().join("chat-history.json");
+        let history = dir.path().join("history");
         let (conn, d) = daemon(script.clone());
         let later = Arc::new(Mutex::new(Vec::new()));
         let kept = later.clone();
@@ -116,7 +127,9 @@ impl Rig {
             Box::pin(async move { Ok(conn) })
         });
         let (keys, events) = mpsc::unbounded_channel();
-        let mut chat = Chat::new(cfg(history.clone()), clock());
+        let mut cfg = cfg(history.clone());
+        change(&mut cfg);
+        let mut chat = Chat::new(cfg, clock());
         chat.resized(width, height);
         let term = Arc::new(Mutex::new(Term {
             parser: vt100::Parser::new(height, width, 2000),
@@ -715,7 +728,7 @@ async fn ctrl_c_clears_the_line_and_twice_leaves_saying_the_conversation_goes_on
     assert!(!r.runner.quitting());
     r.ctrl('c').await;
     assert!(r.runner.quitting());
-    r.shows("left · the conversation goes on · theseus chat abcdef")
+    r.shows("left · the conversation goes on · theseus -c · theseus chat abcdef")
         .await;
 }
 

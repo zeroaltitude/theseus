@@ -65,4 +65,16 @@ title_was?: Array<string>,
 /**
  * The directory it works in, as its client sent it (theseus-aab7).
  */
-dir?: string, };
+dir?: string, 
+/**
+ * Where it started, as `session.list` reads it (theseus-6yka):
+ * `discord` when it speaks to a place there, `cli` when a terminal
+ * client gave it a directory, else absent.
+ */
+started_on?: string, 
+/**
+ * With `session.list`'s `with_text`: the words of its first user
+ * message and of its last message, cut short; and `prompts`, the head
+ * and the tail of each of its newest user messages, for a search.
+ */
+first_text?: string, last_text?: string, prompts?: string, };

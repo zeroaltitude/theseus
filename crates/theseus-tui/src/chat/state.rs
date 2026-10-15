@@ -21,6 +21,18 @@ use super::style::{one, render, span, wrap_words, Line, Sty};
 /// What the chat's requests carry as their author.
 pub const AUTHOR: &str = "theseus chat";
 
+/// How the chat finds its conversation when none is named (theseus-6yka).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Start {
+    /// A new conversation: bare `theseus`.
+    #[default]
+    New,
+    /// This directory's last conversation: `theseus -c`.
+    Continue,
+    /// The picker: `theseus -r`.
+    Pick,
+}
+
 /// What the chat is told when it starts.
 #[derive(Debug, Clone)]
 pub struct Cfg {
@@ -31,6 +43,8 @@ pub struct Cfg {
     pub branch: Option<String>,
     /// A conversation to go on with, as the person named it.
     pub resume: Option<String>,
+    /// With none named: a new conversation, the last here, or a pick.
+    pub start: Start,
     pub color: bool,
     /// This directory's messages, oldest first.
     pub history: Vec<String>,
@@ -45,6 +59,14 @@ pub enum Purpose {
     ListLast,
     /// All sessions, to find the one a person named.
     ListResume(String),
+    /// This directory's sessions, for `-c`.
+    ListContinue,
+    /// This directory's sessions with their words, for the picker.
+    ListPick,
+    /// Every directory's, when Tab widens the picker.
+    ListWide,
+    /// The turns above the replay, for `/history`.
+    Earlier(String),
     History(String),
     Watch,
     Submit,
@@ -119,6 +141,10 @@ pub struct Chat {
     pub(super) unsent: Vec<String>,
     pub(super) typist: Typist,
     pub(super) banner: Banner,
+    /// `-r`: the list of conversations, in the dock in place of the input.
+    pub(super) picker: Option<super::picker::Picker>,
+    /// The position the replay began at, while turns remain above it.
+    pub(super) earlier: Option<u64>,
     /// A line in the dock for a few seconds, and when it goes.
     pub notice: Option<(String, u64)>,
     quit_armed: bool,
@@ -166,6 +192,8 @@ impl Chat {
             unsent: Vec::new(),
             typist: Typist::default(),
             banner: Banner::default(),
+            picker: None,
+            earlier: None,
             notice: None,
             quit_armed: false,
             menu: 0,
@@ -228,6 +256,7 @@ impl Chat {
         self.started_ms = now_ms;
         let mut out = vec![call(method::HEALTH, Value::Null, Purpose::Health)];
         match self.cfg.resume.clone() {
+            None if self.cfg.start != Start::New => out.extend(self.start_listing()),
             None => {
                 out.push(call(
                     method::SESSION_OPEN,
@@ -338,6 +367,9 @@ impl Chat {
 
     /// A paste is one event, never keys: a pasted `q` or `y` is text.
     pub fn paste(&mut self, text: &str) -> Vec<Effect> {
+        if self.picker.is_some() {
+            return self.picker_paste(text);
+        }
         self.quit_armed = false;
         self.editor.paste(text);
         self.menu = 0;
@@ -348,6 +380,9 @@ impl Chat {
         let Some(action) = keys::map(k) else {
             return Vec::new();
         };
+        if self.picker.is_some() {
+            return self.picker_key(action);
+        }
         if !matches!(action, Action::Interrupt) {
             self.quit_armed = false;
         }
@@ -479,9 +514,11 @@ impl Chat {
                 .collect();
             let busy = self.live.active();
             let text = if busy {
-                format!("left · the conversation and its work go on · theseus chat {end}")
+                format!(
+                    "left · the conversation and its work go on · theseus -c · theseus chat {end}"
+                )
             } else {
-                format!("left · the conversation goes on · theseus chat {end}")
+                format!("left · the conversation goes on · theseus -c · theseus chat {end}")
             };
             self.say_plain(Sty::Dim, &text);
         }

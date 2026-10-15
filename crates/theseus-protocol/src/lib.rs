@@ -1919,6 +1919,24 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub dir: Option<String>,
+    /// Where it started, as `session.list` reads it (theseus-6yka):
+    /// `discord` when it speaks to a place there, `cli` when a terminal
+    /// client gave it a directory, else absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub started_on: Option<String>,
+    /// With `session.list`'s `with_text`: the words of its first user
+    /// message and of its last message, cut short; and `prompts`, the head
+    /// and the tail of each of its newest user messages, for a search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub first_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub prompts: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

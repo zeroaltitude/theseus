@@ -424,6 +424,10 @@ impl SessionRecord {
             supersedes: self.supersedes.clone(),
             title_was: Some(self.title_was.clone()).filter(|t| !t.is_empty()),
             dir: self.dir.clone(),
+            started_on: None,
+            first_text: None,
+            last_text: None,
+            prompts: None,
         }
     }
 }

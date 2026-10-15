@@ -20,4 +20,16 @@ before?: number,
 /**
  * Only sessions in this state (theseus-emqx). Absent: every session.
  */
-state?: SessionState, };
+state?: SessionState, 
+/**
+ * Only the sessions that work in this directory or in its git root
+ * (theseus-6yka): a session's recorded directory counts when its git
+ * root (or itself, outside a repository) is this one's. With `n` and
+ * `before`, the page is of those sessions alone, newest first.
+ */
+dir?: string, 
+/**
+ * With `dir`: each session carries the text of its first and last
+ * message (`first_text`, `last_text`), for a picker's search.
+ */
+with_text?: boolean, };

@@ -116,6 +116,31 @@ fn theseus_chat_passes_the_session_and_the_environments_socket() {
 }
 
 #[test]
+fn dash_c_and_dash_r_reopen_and_pick_in_the_chat() {
+    let (bin, empty) = (scratch(), scratch());
+    let cli = cli_in(bin.path());
+    stand_in(bin.path());
+    let want = |last: &str| {
+        format!("arg [--socket]\narg [~/.theseus/theseus.sock]\narg [chat]\narg [{last}]\n")
+    };
+    for (args, flag) in [
+        (vec!["-c"], "-c"),
+        (vec!["-r"], "-r"),
+        (vec!["chat", "-c"], "-c"),
+        (vec!["chat", "-r"], "-r"),
+    ] {
+        let (code, out) = on_a_terminal(&cli, empty.path(), &args);
+        assert_eq!(code, 0, "{args:?}: {out}");
+        assert_eq!(out, want(flag), "{args:?}");
+    }
+    // A session and `-c` together, or `-c` beside other words, are usage errors.
+    let (code, _) = on_a_terminal(&cli, empty.path(), &["chat", "a1b2c3", "-c"]);
+    assert_eq!(code, 2);
+    let (code, _) = on_a_terminal(&cli, empty.path(), &["-c", "extra"]);
+    assert_eq!(code, 2);
+}
+
+#[test]
 fn a_pipe_keeps_the_usage_text_and_exit_2() {
     let (bin, empty) = (scratch(), scratch());
     let cli = cli_in(bin.path());

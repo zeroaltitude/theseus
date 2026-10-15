@@ -53,7 +53,8 @@ pub fn git_branch(dir: &Path) -> Option<String> {
     None
 }
 
-/// `$XDG_STATE_HOME/theseus/chat-history.json`, else under `~/.local/state`.
+/// `$XDG_STATE_HOME/theseus/history/`, else under `~/.local/state`: one file
+/// for each directory (`file_for`), so each project keeps its own.
 pub fn history_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
@@ -61,42 +62,66 @@ pub fn history_path() -> Option<PathBuf> {
         .or_else(|| {
             std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state"))
         })?;
-    Some(base.join("theseus").join("chat-history.json"))
+    Some(base.join("theseus").join("history"))
+}
+
+/// The file in `folder` that holds `dir`'s messages: its last component for a
+/// person to recognise, and a hash of the whole path (FNV-1a, which is the
+/// same on every build) so two directories of one name stay apart.
+pub fn file_for(folder: &Path, dir: &str) -> PathBuf {
+    let hash = dir.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    let name: String = dir
+        .rsplit('/')
+        .find(|c| !c.is_empty())
+        .unwrap_or("root")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(40)
+        .collect();
+    folder.join(format!("{name}-{hash:016x}.json"))
 }
 
 /// This directory's messages, oldest first: an unreadable or foreign file is
-/// no history.
-pub fn load_history(path: &Path, dir: &str) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
+/// no history. Before per-directory files, one file beside the folder held
+/// every directory's (`chat-history.json`); it is read when the directory has
+/// no file of its own yet, and never changed.
+pub fn load_history(folder: &Path, dir: &str) -> Vec<String> {
+    let own = std::fs::read_to_string(file_for(folder, dir))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    let v = match own {
+        Some(Value::Array(a)) => return strings(&a),
+        _ => folder
+            .parent()
+            .map(|p| p.join("chat-history.json"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok()),
     };
-    let Ok(v) = serde_json::from_str::<Value>(&text) else {
-        return Vec::new();
-    };
-    v.get(dir)
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|m| m.as_str().map(String::from))
-                .collect()
-        })
+    v.and_then(|v| v.get(dir).and_then(Value::as_array).map(|a| strings(a)))
         .unwrap_or_default()
 }
 
-/// Write this directory's messages, keeping the other directories' as the file
-/// holds them: a temporary file beside it, then a rename. The file is the
-/// owner's alone (0600): a message or a paste can hold what no one else on the
-/// machine should read.
-pub fn save_history(path: &Path, dir: &str, messages: &[String]) -> std::io::Result<()> {
-    let mut all: serde_json::Map<String, Value> = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+fn strings(a: &[Value]) -> Vec<String> {
+    a.iter()
+        .filter_map(|m| m.as_str().map(String::from))
+        .collect()
+}
+
+/// Write this directory's messages to its own file: a temporary file beside
+/// it, then a rename. The file is the owner's alone (0600): a message or a
+/// paste can hold what no one else on the machine should read.
+pub fn save_history(folder: &Path, dir: &str, messages: &[String]) -> std::io::Result<()> {
+    let path = file_for(folder, dir);
     let from = messages.len().saturating_sub(HISTORY_KEPT);
-    all.insert(dir.to_string(), json!(&messages[from..]));
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    std::fs::create_dir_all(folder)?;
     let tmp = path.with_extension("json.tmp");
     let _ = std::fs::remove_file(&tmp);
     let mut f = std::fs::OpenOptions::new()
@@ -104,7 +129,7 @@ pub fn save_history(path: &Path, dir: &str, messages: &[String]) -> std::io::Res
         .create_new(true)
         .mode(0o600)
         .open(&tmp)?;
-    f.write_all(&serde_json::to_vec(&all)?)?;
+    f.write_all(&serde_json::to_vec(&json!(&messages[from..]))?)?;
     drop(f);
     std::fs::rename(&tmp, path)
 }
@@ -147,25 +172,51 @@ mod tests {
     #[test]
     fn history_is_kept_per_directory_and_survives_a_foreign_file() {
         let t = tempfile::tempdir().unwrap();
-        let p = t.path().join("state/chat-history.json");
+        let p = t.path().join("state/history");
         assert!(load_history(&p, "/a").is_empty());
         save_history(&p, "/a", &["one".into(), "two".into()]).unwrap();
         save_history(&p, "/b", &["other".into()]).unwrap();
         assert_eq!(load_history(&p, "/a"), ["one", "two"]);
         assert_eq!(load_history(&p, "/b"), ["other"]);
-        std::fs::write(&p, "not json").unwrap();
+        // Each directory has a file of its own, and two of one name differ.
+        assert_ne!(file_for(&p, "/a"), file_for(&p, "/b"));
+        assert_ne!(file_for(&p, "/x/work"), file_for(&p, "/y/work"));
+        assert_eq!(std::fs::read_dir(&p).unwrap().count(), 2);
+        std::fs::write(file_for(&p, "/a"), "not json").unwrap();
         assert!(load_history(&p, "/a").is_empty());
         save_history(&p, "/a", &["three".into()]).unwrap();
         assert_eq!(load_history(&p, "/a"), ["three"]);
+        assert_eq!(load_history(&p, "/b"), ["other"], "the other is untouched");
+    }
+
+    #[test]
+    fn a_directory_without_a_file_reads_the_one_file_of_before() {
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("state/history");
+        std::fs::create_dir_all(t.path().join("state")).unwrap();
+        std::fs::write(
+            t.path().join("state/chat-history.json"),
+            r#"{"/a":["old one","old two"],"/b":["elsewhere"]}"#,
+        )
+        .unwrap();
+        assert_eq!(load_history(&p, "/a"), ["old one", "old two"]);
+        save_history(&p, "/a", &["new".into()]).unwrap();
+        assert_eq!(load_history(&p, "/a"), ["new"], "its own file wins");
+        assert_eq!(load_history(&p, "/b"), ["elsewhere"]);
+        assert!(t.path().join("state/chat-history.json").exists());
     }
 
     #[test]
     fn the_history_file_is_the_owners_alone() {
         use std::os::unix::fs::PermissionsExt;
         let t = tempfile::tempdir().unwrap();
-        let p = t.path().join("state/chat-history.json");
+        let p = t.path().join("state/history");
         save_history(&p, "/a", &["a pasted token".into()]).unwrap();
-        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
+        let mode = std::fs::metadata(file_for(&p, "/a"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o600, "{mode:o}");
     }
 }

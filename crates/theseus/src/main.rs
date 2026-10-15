@@ -346,6 +346,12 @@ enum Cmd {
     Chat {
         /// A conversation to go on with.
         session: Option<String>,
+        /// Continue this directory's last conversation (`theseus -c`).
+        #[arg(short = 'c', long = "continue", conflicts_with_all = ["session", "resume"])]
+        cont: bool,
+        /// Pick a conversation to continue, searched as you type (`theseus -r`).
+        #[arg(short = 'r', long, conflicts_with = "session")]
+        resume: bool,
     },
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
