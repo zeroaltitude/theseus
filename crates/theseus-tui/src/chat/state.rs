@@ -78,6 +78,11 @@ pub enum Purpose {
     Context,
     /// `/cost`: the day, from health.
     Cost,
+    /// Rewind (theseus-23rk): the picker's messages, a restore of the files,
+    /// and a fork at the node before the message.
+    RewindPoints,
+    RewindRestore(super::rewind::Rewinding),
+    RewindFork(super::rewind::Rewinding),
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +163,12 @@ pub struct Chat {
     /// A line in the dock for a few seconds, and when it goes.
     pub notice: Option<(String, u64)>,
     quit_armed: bool,
+    /// Esc was pressed once on an idle, empty line (a second opens the picker).
+    pub(super) esc_armed: bool,
+    /// The rewind picker, while it is open.
+    pub(super) picker: Option<super::rewind::Picker>,
+    /// The conversation a rewind left, named once under the fork's history.
+    pub(super) rewound: Option<String>,
     pub menu: usize,
     pub(super) started_ms: u64,
 }
@@ -209,6 +220,9 @@ impl Chat {
             earlier: None,
             notice: None,
             quit_armed: false,
+            esc_armed: false,
+            picker: None,
+            rewound: None,
             menu: 0,
             started_ms: now_ms,
         }
@@ -399,6 +413,12 @@ impl Chat {
         if !matches!(action, Action::Interrupt) {
             self.quit_armed = false;
         }
+        if !matches!(action, Action::Escape) {
+            self.esc_armed = false;
+        }
+        if self.picker.is_some() {
+            return self.picker_key(action);
+        }
         // A question waits and the line is empty: one key answers it.
         if self.editor.is_empty() {
             if let Action::Insert(c) = action {
@@ -474,6 +494,11 @@ impl Chat {
                     self.editor.clear();
                     self.editor.insert_str(&format!("/{name} "));
                 }
+            }
+            Action::DoubleEscape => {
+                let mut effects = self.act(Action::Escape);
+                effects.extend(self.act(Action::Escape));
+                return effects;
             }
             Action::Escape => return self.escape(),
             Action::SendNow => return self.send_now(),

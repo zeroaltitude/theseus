@@ -83,6 +83,7 @@ pub mod recall;
 pub mod resident;
 pub mod restore;
 pub mod retract;
+pub mod rewind;
 pub mod routine;
 pub mod routine_tool;
 pub mod routing;

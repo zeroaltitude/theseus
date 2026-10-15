@@ -31,6 +31,7 @@ mod picker;
 mod queue;
 mod render_seam;
 mod reopen;
+mod rewind;
 mod run;
 mod screen;
 mod state;
@@ -44,6 +45,8 @@ mod tests;
 mod tests_ask;
 #[cfg(test)]
 mod tests_reopen;
+#[cfg(test)]
+mod tests_rewind;
 #[cfg(test)]
 mod tests_usage;
 

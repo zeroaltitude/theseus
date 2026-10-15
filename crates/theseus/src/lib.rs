@@ -27,6 +27,7 @@ pub mod notify;
 pub mod outcome;
 pub mod render;
 pub mod resolve;
+pub mod rewind;
 pub mod seen;
 pub mod shown;
 

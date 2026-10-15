@@ -638,7 +638,10 @@ const BULK: usize = 4096;
 /// `route.replay.judged`.
 /// 39 = a standing record's surface scope (theseus-slvl.4): the scope variant
 /// `{"kind":"surface","of":"terminal"}` in a `standing:<id>` META record.
-const MANIFEST_FORMAT: u32 = 39;
+/// 40 = pre-images (theseus-23rk): the `PRE_IMAGE` record kind, one for each
+/// file an edit tool changed, scoped `rewind:<session>`, and the ledger kinds
+/// `files.restored` and `session.rewound`.
+const MANIFEST_FORMAT: u32 = 40;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

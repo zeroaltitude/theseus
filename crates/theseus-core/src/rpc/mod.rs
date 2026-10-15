@@ -55,6 +55,7 @@ mod proposal_groups;
 mod proposals;
 mod publish;
 mod retry;
+mod rewind;
 mod route_correct;
 mod routines;
 mod rsi;
@@ -102,6 +103,8 @@ mod tests_node_names;
 mod tests_ordered;
 #[cfg(test)]
 mod tests_peek;
+#[cfg(test)]
+mod tests_rewind;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]

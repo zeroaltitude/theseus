@@ -27,6 +27,7 @@ pub const ABOVE_INPUT: &[DockRows] = &[
     tool_rows,
     super::ask::rows,
     super::queue::rows,
+    super::rewind::rows,
     notice_rows,
 ];
 

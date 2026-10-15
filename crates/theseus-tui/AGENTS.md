@@ -97,6 +97,13 @@ new lines, the dock again, in synchronized-output mode 2026).
 - `chat/dock.rs`: the dock's rows, from provider functions (`ABOVE_INPUT`: the live line, calls in flight, a question,
   a notice) a later row adds to (cli-tasks puts its task rows there), the input, the command list, and the status line
   as a list of `Segment`s (mode · directory · model · cost; the lowest `keep` goes first when it is too wide).
+- `chat/rewind.rs` (theseus-23rk): Esc Esc on an empty line while no turn runs (`Chat::rewind_escape`; a single Esc during a
+  turn is chat-ask's stop and is not bound) asks `files.changes` and opens the picker in the dock (`rewind::rows`, a
+  provider in `ABOVE_INPUT`): each of your messages with its time and `tides.py +1 −1` or `no file changes`; Enter, then
+  `f` (`files.restore`, then `session.fork` at `fork_at`), `c` (fork only) or `o` (restore only), Esc never mind. After
+  a fork the chat goes on in it: the screen is cleared (`screen::CLEAR`, a finished line written raw), the fork's
+  history is read and shown, and the message is back in the input. The first message has no node before it, so `f` and
+  `c` refuse it. Tests: `chat/tests_rewind.rs`.
 - `chat/render_seam.rs`: the one place a reply and a tool call are worded: `reply_lines` is term-render's markdown
   renderer, `tool_line` tool-words' `summarize`; nothing else renders text.
 - `chat/editor.rs`: the multi-line input (Ctrl-J, Alt/Shift-Enter, `\` then Enter), this directory's history

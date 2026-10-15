@@ -22,6 +22,11 @@ pub struct Screen {
     at: usize,
 }
 
+/// A finished line that is this clears the screen and homes the cursor (a
+/// rewind starts the conversation again on a clean screen, theseus-23rk). It
+/// is written as it is, with no newline after it.
+pub const CLEAR: &str = "\x1b[2J\x1b[H";
+
 const BEGIN: &str = "\x1b[?2026h";
 const END: &str = "\x1b[?2026l";
 
@@ -43,6 +48,10 @@ impl Screen {
         let mut out = String::from(BEGIN);
         self.erase(&mut out);
         for l in scroll {
+            if l == CLEAR {
+                out.push_str(l);
+                continue;
+            }
             out.push_str(l);
             out.push_str("\x1b[K\r\n");
         }

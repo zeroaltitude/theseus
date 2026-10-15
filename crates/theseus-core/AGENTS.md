@@ -1690,6 +1690,30 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
   `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
   `report::tests`, `rung::tests`.
+- **Rewind** (theseus-23rk, R20; store format 40): `rewind.rs`, `rewind/{restore,points}.rs`, `rpc/rewind.rs`. Before `fs.edit`,
+  `fs.write` or `fs.patch` runs, the files its plan writes are kept (`rewind::hold`, in the tool's own closure on the CPU
+  pool, `toolrun::run_inproc`): a regular file up to `MAX_KEPT` (1 MiB) is put in its own blob directory
+  (`<store>/rewind/blobs/`, apart from attachments' so an erase deletes only its own), synced before the edit runs; a
+  bigger one, a missing one and a non-file are noted (`Before::{Kept, Absent, TooBig, Unread}`). After the run one
+  `PRE_IMAGE` record (kind 13, scope `rewind:<session>`) for each file that changed rides the call's completion frame
+  (`ToolRuntime::complete`'s `extra`): the prior state, the digest of the bytes the edit left (`after`), the lines
+  added and removed. So a plain turn writes the frames it did, an edit adds one blob sync before the edit and no frame.
+  A crash between the blob and the edit leaves a blob nothing names; a crash after the edit and before the frame leaves
+  an edit with no record, which a restore reads as a file changed since (listed, never touched). `files.restore
+  {session_id, since_node, dry_run}` (node or `@<position>`) restores, newest change first, the first change's prior
+  bytes of each file the session's edits changed after that position, **only where the file's bytes still equal
+  `after` of its last row**; else it is listed ("changed since"), as are a copy that was not kept and a file over
+  1 MiB. A file the session made is removed when it is still what the edit wrote. Files a program changed are in no
+  row, so they are never touched (the result counts the `proc.run` calls since, in words). The restore's own changes
+  are pre-images too (tool `files.restore`), so `files.restore {since_node: "@<undo_since>"}` undoes it; one
+  `files.restored` row with the frame (owner's act: `judge_act(Act::Session)`, refused for a surface that reads no
+  private text, which a file path is). `files.changes {session_id, node?}` lists the person's messages newest first
+  with the files changed since each (a fork's list includes its source's edits through the fork point:
+  `rewind::rows`) and `fork_at`, the nearest earlier node a fork can end at (none for the first message). The
+  conversation's half is `session.fork` at `fork_at`; `theseus_client::rewind::run` and the chat call the two in turn.
+  `rewind::forget` deletes a session's blobs that no other session's record names (called by `import.erase`; an
+  imported session has none). Tests: `rpc/tests_rewind.rs`, `tests_layouts.rs` (the format-33 store and the first
+  layout).
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

@@ -439,12 +439,42 @@ class Theseus:
         self.back_to_board(ctx)
 
     def s9(self, ctx):
-        self.say(ctx, steps.PROMPTS["S9.edit"])
+        """S9 edits tides.py, then takes the edit back in the chat: Esc Esc on
+        the empty line opens the picker (theseus-23rk), the latest prompt is
+        chosen (Enter), and `f` puts back the files and the conversation. The
+        keys are recorded; the driver compares tides.py's bytes."""
+        prompt = steps.PROMPTS["S9.edit"]
+        before = ctx.file_digest()
+        self.say(ctx, prompt)
         self.card(ctx)
         ctx.tmux.keys("y")
         self.settle(ctx)
-        ctx.capture("S9.after")
-        ctx.rec("S9", undo_keys=None)
+        changed = ctx.file_digest() != before
+        self.open_chat(ctx)
+        keys = ["Escape", "Escape"]
+        ctx.tmux.keys(*keys)
+        ctx.tmux.wait(lambda t: "Rewind to before which message?" in t, 10)
+        ctx.capture("S9.menu")
+        for k in ("Enter", "f"):
+            ctx.tmux.keys(k)
+            keys.append(k)
+            time.sleep(0.3)
+        # The fork's history is shown on a clean screen and the prompt is
+        # back in the input line.
+        ctx.tmux.wait(
+            lambda t: prompt in t and "Added the comment" not in t and "Rewind to before" not in t, 20
+        )
+        time.sleep(0.5)
+        after = ctx.capture("S9.after")
+        ctx.rec(
+            "S9",
+            undo_keys=keys,
+            file_restored=changed and ctx.file_digest() == before,
+            answer_gone="Added the comment" not in after,
+        )
+        # The prompt waits in the input line; clear it, then back to the board.
+        ctx.tmux.keys("C-u")
+        self.back_to_board(ctx)
 
     def s10(self, ctx):
         """S10 asks the chat: `/cost` then `/context` (theseus-wy6v.2), both

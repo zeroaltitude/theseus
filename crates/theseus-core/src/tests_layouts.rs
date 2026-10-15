@@ -546,7 +546,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -557,7 +557,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 39. The
+/// with a row that counts and pins them, and the manifest moves to 40. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -598,7 +598,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -606,7 +606,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 39,
+/// both with no origin and no inherited run, and moves the manifest to 40,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -653,7 +653,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -682,7 +682,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 39,
+/// it, reads an empty board, takes a thread and moves the manifest to 40,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -705,7 +705,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -791,7 +791,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -831,7 +831,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 39,
+/// A store of format 33 opens, and its first write moves the manifest to 40,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -856,7 +856,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -903,7 +903,7 @@ fn a_format_33_standing_record_reads_and_a_surface_scope_writes_back() {
 }
 
 /// A store of format 33 that holds a standing record: the build opens it,
-/// reads the record, takes a surface-scoped one, and moves the manifest to 39,
+/// reads the record, takes a surface-scoped one, and moves the manifest to 40,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
@@ -930,7 +930,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 39);
+    assert_eq!(moved["format"], 40);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -938,4 +938,68 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
     assert!(all
         .iter()
         .any(|r| r.scope == StandingScope::Surface("terminal".into())));
+}
+
+/// A pre-image as format 40 wrote it (theseus-23rk, the record kind's first
+/// layout): a literal, so a later change to `PreImage` must still read it and
+/// write it back byte for byte.
+pub(crate) const PRE_IMAGE_AT_40: &str = r#"{"session_id":"ses_harbour","call_id":"toolu_edit1","tool":"fs.edit","path":"/work/tides.py","before":{"state":"kept","digest":"6b1e2f0c9a4d7e3b5c8f1a2d4e6b9c0f3a5d7e9b1c4f6a8d0e2b5c7f9a1d3e6b","bytes":812},"after":"9f2c1d7e0a5b3c8d6e4f1a2b7c9d0e3f5a8b6c4d2e1f0a9b8c7d6e5f4a3b2c1d","added":1,"removed":1,"at_ms":1790000000340}"#;
+
+#[test]
+fn a_format_40_pre_image_reads_and_writes_back_byte_for_byte() {
+    let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
+    assert_eq!(p.tool, "fs.edit");
+    assert!(matches!(
+        p.before,
+        crate::rewind::Before::Kept { bytes: 812, .. }
+    ));
+    assert_eq!(serde_json::to_string(&p).unwrap(), PRE_IMAGE_AT_40);
+    // The other states of a file before an edit round-trip too.
+    for before in [
+        crate::rewind::Before::Absent,
+        crate::rewind::Before::TooBig { bytes: 2_000_000 },
+        crate::rewind::Before::Unread {
+            why: "not a regular file".into(),
+        },
+    ] {
+        let q = crate::rewind::PreImage {
+            before,
+            after: None,
+            ..p.clone()
+        };
+        let again: crate::rewind::PreImage =
+            serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
+        assert_eq!(again, q);
+    }
+}
+
+/// A store of format 39, which holds a session and no pre-image: the build
+/// opens it, takes a pre-image, and moves the manifest to 40, which an older
+/// build then refuses. The record reads back through its scope.
+#[test]
+fn a_format_39_store_opens_and_takes_a_pre_image() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        store.put_session(&rec.session_id, &rec).unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 39, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    assert!(store
+        .scope_after("rewind:ses_harbour", 0)
+        .unwrap()
+        .is_empty());
+    let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
+    store.append(&[p.record(0).unwrap()]).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 40);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, p);
 }

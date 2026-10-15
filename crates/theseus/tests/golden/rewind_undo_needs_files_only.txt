@@ -1,0 +1,7 @@
+$ theseus rewind ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664 --to @166900
+--- requests
+
+--- stdout
+--- stderr
+theseus: `--to @POSITION` is a point in time, not a message: add --files-only
+--- exit 1
