@@ -330,10 +330,10 @@ impl Place {
                 // An outbox card is settled by its settle post, on every
                 // surface that shows it; any other message (a task's view)
                 // is settled here.
-                let ephemeral = p.i.message.as_ref().is_some_and(|m| {
-                    m.flags
-                        .is_some_and(|f| f.contains(MessageFlags::EPHEMERAL))
-                });
+                let ephemeral =
+                    p.i.message.as_ref().is_some_and(|m| {
+                        m.flags.is_some_and(|f| f.contains(MessageFlags::EPHEMERAL))
+                    });
                 if ephemeral || !s.core.outbox.has_card(&done.question_id) {
                     let word = if option.starts_with("choice:") {
                         // An ask's choice answers it: it neither approves nor declines.

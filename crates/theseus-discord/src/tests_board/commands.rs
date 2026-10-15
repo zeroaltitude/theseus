@@ -340,7 +340,8 @@ async fn answer_resolves_a_seven_answer_ask_through_its_select_and_settles_the_c
         [sel.as_str()],
         "seven answers are one select, not seven buttons"
     );
-    r.fake
+    let pick = r
+        .fake
         .pick_in_reply(&iid, &sel, &["choice:2"], ANA, "ana")
         .unwrap();
     r.until("the answer", || {
@@ -351,7 +352,10 @@ async fn answer_resolves_a_seven_answer_ask_through_its_select_and_settles_the_c
     .await;
     assert_eq!(r.core.confirm_list().unwrap().len(), 0);
     // The view the select was on closes, saying it was answered.
-    r.until("the view is closed", || said(&r, &pick).contains("Answered")).await;
+    r.until("the view is closed", || {
+        said(&r, &pick).contains("Answered")
+    })
+    .await;
     // The needs-you card that waited in the DM is settled too.
     r.until("every card settled", || {
         let cards: Vec<Msg> = r

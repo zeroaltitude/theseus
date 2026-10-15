@@ -581,14 +581,16 @@ fn short_of(id: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    #[test]
-    fn interaction_callbacks_go_out_on_a_client_with_no_rate_limiter() {
+    #[tokio::test]
+    async fn interaction_callbacks_go_out_on_a_client_with_no_rate_limiter() {
         let cfg = theseus_core::config::DiscordConfig::default();
         let lane = super::super::client_with("fake-token-not-a-secret", &cfg, true);
         let callbacks = super::super::client_with("fake-token-not-a-secret", &cfg, false);
-        assert!(lane.ratelimiter().is_some(), "the lane's client waits its turn");
+        assert!(
+            lane.ratelimiter().is_some(),
+            "the lane's client waits its turn"
+        );
         assert!(
             callbacks.ratelimiter().is_none(),
             "a busy lane never delays a callback's three-second deadline"
