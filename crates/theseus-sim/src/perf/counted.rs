@@ -9,11 +9,15 @@
 //!   those before the request left. Each one is an `fdatasync` a person waits
 //!   for before anything comes back. Budget: today's count; a step that
 //!   writes fewer passes, and lowers it (turn-one-frame, tool-loop-frames).
-//! - **The first request's bytes**: what a fresh session's first request
-//!   carries with the default tools (a daemon of the default config, beside
-//!   the bench's), at most [`FIRST_REQUEST_KB`]. The bench's own config is
-//!   the template's every section (AWS, GitHub, MCP), whose tools are
-//!   recorded beside it, not judged.
+//! - **The first request's tokens, as sent** (theseus-to0xw): what a fresh
+//!   session's first request is for each kind of place on a daemon of the
+//!   default config (beside the bench's), counted as the provider bills it
+//!   (the deferred tools at their constant, the search tool at its size:
+//!   `context.census`'s total, the number `theseus census` prints), at most
+//!   `theseus_core::first_request::budget`: 8,000 in the cli and task
+//!   places, 15,000 in the DM's, and the channel's and the headless run's own
+//!   (today's and a tenth). Its bytes are recorded beside it, and the bench's
+//!   own config (the template's every section: AWS, GitHub, MCP), not judged.
 //! - **No timer between a delta and its write**: a stream of
 //!   [`Pace::default`]'s chunks reaches the client as as many `model.delta`
 //!   notifications (a timer that gathers deltas sends fewer), and in lockstep,
@@ -44,11 +48,9 @@ use crate::walcount::Tail;
 /// goes down.
 pub const SYNCS_BEFORE_FIRST_BYTE: f64 = super::PLAIN_SYNCS_BEFORE_CALL;
 
-/// A fresh session's first request, with the bench's tools, in KB (1,024
-/// bytes): the head-to-head's bar. 42 since 2026-10-14 (40 before), the
-/// owner's temporary raise for three new tools, until a token budget
-/// replaces this byte line (theseus-to0xw).
-pub const FIRST_REQUEST_KB: f64 = 42.0;
+/// The kinds of place a fresh session's first request is counted for: the
+/// ones `theseus_core::first_request::budget` holds to a budget.
+pub const PLACES: [&str; 5] = ["cli", "task", "dm", "channel", "headless"];
 
 /// How long the lockstep stand-in holds a chunk for the client to see the
 /// last: far past any delta's way to the client, so only a delta held for
@@ -180,9 +182,14 @@ pub struct Counted {
     /// byte.
     pub syncs_before_request: Vec<usize>,
     pub syncs_before_first_byte: Vec<usize>,
-    /// A fresh session's first request, in bytes: on a daemon of the
-    /// default config (its default tools), judged; and on the bench's (the
-    /// template's every section: AWS, GitHub, MCP), recorded.
+    /// A fresh session's first request on a daemon of the default config,
+    /// in tokens as sent for each kind of place (`PLACES`): judged against
+    /// `theseus_core::first_request::budget`.
+    pub first_request_tokens: std::collections::BTreeMap<String, u64>,
+    /// The same request's bytes with the default tools, and with the
+    /// bench's (the template's every section: AWS, GitHub, MCP): recorded,
+    /// never judged (a deferred tool's definition is bytes the provider
+    /// does not bill as tokens).
     pub first_request_bytes: u64,
     pub first_request_bytes_bench: u64,
     /// The free stream: the deltas the client got, of `chunks`.
@@ -202,10 +209,8 @@ impl Counted {
             .max()
             .copied()
             .unwrap_or(0);
-        let kb = self.first_request_bytes as f64 / 1024.0;
         let rows = [
             ("syncs_first_byte", worst as f64, SYNCS_BEFORE_FIRST_BYTE),
-            ("first_request_kb", kb, FIRST_REQUEST_KB),
             // A count of what went missing: 0 is the only pass.
             (
                 "deltas_gathered",
@@ -218,9 +223,15 @@ impl Counted {
                 0.0,
             ),
         ];
+        let tokens = self.first_request_tokens.iter().filter_map(|(place, n)| {
+            let budget = theseus_core::first_request::budget(place)? as f64;
+            Some((format!("first_request_tokens_{place}"), *n as f64, budget))
+        });
         rows.into_iter()
+            .map(|(phase, p95, budget)| (phase.to_string(), p95, budget))
+            .chain(tokens)
             .map(|(phase, p95, budget)| Verdict {
-                phase: phase.to_string(),
+                phase,
                 p95,
                 budget,
                 margin: 0.0,
@@ -246,8 +257,16 @@ impl Counted {
                 self.syncs_before_first_byte, self.syncs_before_request
             ),
             format!(
-                "  a fresh session's first request: {:.1} KB with the default tools (budget {FIRST_REQUEST_KB} KB); \
-                 {:.1} KB with the bench config's (recorded, not judged)",
+                "  a fresh session's first request in tokens as sent, with the default tools: {} ({:.1} KB of \
+                 bytes in the cli's, and {:.1} KB with the bench config's: recorded, not judged)",
+                self.first_request_tokens
+                    .iter()
+                    .map(|(place, n)| {
+                        let budget = theseus_core::first_request::budget(place);
+                        format!("{place} {n}/{}", budget.map_or("-".to_string(), |b| b.to_string()))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 self.first_request_bytes as f64 / 1024.0,
                 self.first_request_bytes_bench as f64 / 1024.0
             ),
@@ -263,7 +282,7 @@ impl Counted {
 pub fn unit(phase: &str) -> &'static str {
     match phase {
         p if p.starts_with("syncs_") => "sync(s)",
-        "first_request_kb" => "KB",
+        p if p.starts_with("first_request_tokens_") => "tokens",
         p if p.starts_with("deltas_") => "delta(s) missing",
         _ => "frame(s)",
     }
@@ -271,10 +290,21 @@ pub fn unit(phase: &str) -> &'static str {
 
 /// `turn.submit` on a connection of its own, each line it reads handed to
 /// `line` until the answer.
-fn submit_on(sock: &Path, params: Value, mut line_seen: impl FnMut(&Value)) -> Result<Value> {
+fn submit_on(sock: &Path, params: Value, line_seen: impl FnMut(&Value)) -> Result<Value> {
+    call_on(sock, "turn.submit", params, line_seen)
+}
+
+/// One request on a connection of its own, each line it reads handed to
+/// `line_seen` until the answer.
+fn call_on(
+    sock: &Path,
+    method: &str,
+    params: Value,
+    mut line_seen: impl FnMut(&Value),
+) -> Result<Value> {
     let s = UnixStream::connect(sock).context("connecting for a counted turn")?;
     s.set_read_timeout(Some(Duration::from_secs(60)))?;
-    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), "turn.submit", params);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), method, params);
     let mut line = serde_json::to_string(&req)?;
     line.push('\n');
     std::io::Write::write_all(&mut &s, line.as_bytes())?;
@@ -316,15 +346,17 @@ fn counted_turn(
     Ok(counter.take())
 }
 
-/// What a daemon of the default config sends as a fresh session's first
-/// request, in bytes: a scratch daemon of its own (its config only the
-/// stand-in, a key from the environment, and its paths), one turn, then its
+/// What a fresh session's first request is on a daemon of the default
+/// config: its bytes as the stand-in received them, and its tokens as sent
+/// for each kind of place (`PLACES`) by `context.census` (nothing is sent to
+/// a model). A scratch daemon of its own (its config only the stand-in, a
+/// key from the environment, and its paths), one turn, the census, then its
 /// clean stop.
 fn default_first_request(
     theseusd: &Path,
     base: &str,
     model_entries: &impl Fn(usize) -> Vec<Entry>,
-) -> Result<u64> {
+) -> Result<(u64, std::collections::BTreeMap<String, u64>)> {
     const OPENING: &str = "the default tools' first request";
     let dir = tempfile::tempdir()?;
     let (state, sock, projects) = (
@@ -380,12 +412,21 @@ fn default_first_request(
             json!({"input": OPENING, "author": "bench", "attachments": []}),
             |_| {},
         )?;
-        model_entries(before + 1)
+        let bytes = model_entries(before + 1)
             .iter()
             .skip(before)
             .find(|e| e.opening.contains(OPENING))
             .map(|e| e.req_bytes)
-            .context("the stand-in logged no request from the daemon of the default config")
+            .context("the stand-in logged no request from the daemon of the default config")?;
+        let mut tokens = std::collections::BTreeMap::new();
+        for place in PLACES {
+            let census = call_on(&sock, "context.census", json!({"place": place}), |_| {})?;
+            let total = census["total_tokens"]
+                .as_u64()
+                .with_context(|| format!("the census of the {place} place has no total"))?;
+            tokens.insert(place.to_string(), total);
+        }
+        Ok((bytes, tokens))
     })();
     let stop = UnixStream::connect(&sock).and_then(|s| {
         let req =
@@ -425,7 +466,8 @@ pub fn run(
     model_entries: impl Fn(usize) -> Vec<Entry>,
 ) -> Result<Counted> {
     let chunks = Pace::default().chunks;
-    let first_request_bytes = default_first_request(&d.rig.theseusd, base, &model_entries)?;
+    let (first_request_bytes, first_request_tokens) =
+        default_first_request(&d.rig.theseusd, base, &model_entries)?;
     let fresh = d.open_session("bench counted")?;
     let before = model_entries(0).len();
     counted_turn(d, counter, &fresh, false, 0)?;
@@ -456,10 +498,64 @@ pub fn run(
         chunks,
         syncs_before_request: before_req,
         syncs_before_first_byte: before_byte,
+        first_request_tokens,
         first_request_bytes,
         first_request_bytes_bench,
         deltas_seen,
         deltas_alone: a.alone,
         delta_ms: Summary::of(&delta_ms),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn counted(tokens: &[(&str, u64)]) -> Counted {
+        Counted {
+            chunks: 8,
+            deltas_seen: 8,
+            deltas_alone: 8,
+            syncs_before_first_byte: vec![2],
+            first_request_tokens: tokens.iter().map(|(p, n)| (p.to_string(), *n)).collect(),
+            // The bytes are information: a request of any size in bytes passes on its tokens.
+            first_request_bytes: 400 * 1024,
+            ..Counted::default()
+        }
+    }
+
+    fn verdict(c: &Counted, place: &str) -> Verdict {
+        c.verdicts()
+            .into_iter()
+            .find(|v| v.phase == format!("first_request_tokens_{place}"))
+            .unwrap_or_else(|| panic!("no verdict for {place}"))
+    }
+
+    /// The owner's budgets: 8,000 tokens in the cli and task places, 15,000 in the DM's; the channel's
+    /// and the headless run's are their own, and none is above the DM's.
+    #[test]
+    fn a_first_request_over_its_places_budget_fails_and_one_at_it_passes() {
+        for (place, budget) in [("cli", 8_000), ("task", 8_000), ("dm", 15_000)] {
+            let at = counted(&[(place, budget)]);
+            assert!(verdict(&at, place).ok, "{place} at {budget}");
+            assert_eq!(verdict(&at, place).budget, budget as f64);
+            let over = counted(&[(place, budget + 1)]);
+            assert!(!verdict(&over, place).ok, "{place} at {}", budget + 1);
+        }
+        for place in ["channel", "headless"] {
+            let budget = theseus_core::first_request::budget(place).unwrap();
+            assert!(budget <= 15_000, "{place}");
+            assert!(verdict(&counted(&[(place, budget)]), place).ok);
+            assert!(!verdict(&counted(&[(place, budget + 1)]), place).ok);
+        }
+    }
+
+    /// The byte line is gone: a request big in bytes (deferred tools' definitions) is judged on its tokens.
+    #[test]
+    fn the_byte_line_is_gone() {
+        let c = counted(&[("cli", 7_000)]);
+        assert!(c.verdicts().iter().all(|v| v.ok), "{:?}", c.verdicts());
+        assert!(c.verdicts().iter().all(|v| v.phase != "first_request_kb"));
+        assert_eq!(unit("first_request_tokens_dm"), "tokens");
+    }
 }
