@@ -134,6 +134,7 @@ async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask) -> RecallM
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         threads: c.runner.thread_scene(Some(asker), message, true),
+        persona: None,
     };
     memory.manifest(
         &scene,

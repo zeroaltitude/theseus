@@ -641,7 +641,12 @@ const BULK: usize = 4096;
 /// 40 = pre-images (theseus-23rk): the `PRE_IMAGE` record kind, one for each
 /// file an edit tool changed, scoped `rewind:<session>`, and the ledger kinds
 /// `files.restored` and `session.rewound`.
-const MANIFEST_FORMAT: u32 = 40;
+/// 41 = a standing record's persona scope (theseus-a8n7): the scope variant
+/// `{"kind":"persona","of":"wren"}` in a `standing:<id>` META record, and the
+/// `standing.proposal:<id>` META records (an imported agent's feedback,
+/// proposed and never live), with the ledger kinds `persona.imported` and
+/// `standing.proposal_answered`.
+const MANIFEST_FORMAT: u32 = 41;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

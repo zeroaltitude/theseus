@@ -686,6 +686,9 @@ pub struct Scene<'a> {
     /// The threads' part of the recall (theseus-f2g0); none when no thread
     /// exists or the recall is not a session's.
     pub threads: Option<crate::thread_recall::ThreadScene>,
+    /// The engaged persona's part of the recall (theseus-a8n7); none when no
+    /// persona is engaged.
+    pub persona: Option<crate::persona_recall::PersonaScene>,
 }
 
 impl Scene<'_> {
@@ -827,6 +830,7 @@ impl Memory {
             threads: lens.as_ref(),
         };
         let mut params = begun.params(self.cfg.params(), m.budget_tokens);
+        params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
         (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
         let pack = match begun.temporal {
             Some(kind) => temporal::pack(kind, &*scene.science, &asker, &candidates, &params),

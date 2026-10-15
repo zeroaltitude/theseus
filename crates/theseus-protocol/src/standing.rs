@@ -47,7 +47,7 @@ pub const SURFACES: [&str; 5] = ["terminal", "discord", "voice", "cockpit", "mcp
 
 /// Where a record holds: one session, one place (a transport target such as
 /// `discord:channel:<id>`), one surface (`terminal`, `discord`, `voice`,
-/// `cockpit`, `mcp`), or everywhere.
+/// `cockpit`, `mcp`), one persona, or everywhere.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case", tag = "kind", content = "of")]
@@ -56,6 +56,10 @@ pub enum StandingScope {
     Place(String),
     /// Turns whose input came through this surface, wherever the session is.
     Surface(String),
+    /// Turns that speak as this persona (a `[personas]` key), wherever they
+    /// are (theseus-a8n7): what an imported agent's feedback becomes once the
+    /// owner keeps it.
+    Persona(String),
     #[default]
     Everywhere,
 }
@@ -67,6 +71,7 @@ impl StandingScope {
             Self::Session(s) => format!("session:{s}"),
             Self::Place(p) => format!("place:{p}"),
             Self::Surface(s) => format!("surface:{s}"),
+            Self::Persona(p) => format!("persona:{p}"),
             Self::Everywhere => "everywhere".into(),
         }
     }

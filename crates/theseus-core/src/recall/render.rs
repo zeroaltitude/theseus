@@ -153,6 +153,22 @@ pub fn thread_mark(title: &str, n: &Node, position: u64) -> String {
     )
 }
 
+/// The mark an item of the engaged persona's own agent begins its header with
+/// (theseus-a8n7): `[from Wren, 2026-09-14, @4210]`, the persona's name, the
+/// source's day (UTC) and its position. The name is one line, at most 40
+/// characters, and holds no bracket.
+pub fn persona_mark(name: &str, n: &Node, position: u64) -> String {
+    let name: String = name
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .filter(|c| !matches!(c, '[' | ']'))
+        .take(40)
+        .collect();
+    format!("[from {name}, {}, @{position}]", utc_day(n.created_at_ms))
+}
+
 /// `2026-09-30`: a source's day (UTC), as a thread's citations name it
 /// (the mark above and `thread.read`'s hits).
 pub fn utc_day(ms: u64) -> String {

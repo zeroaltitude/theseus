@@ -51,6 +51,7 @@ mod pages;
 mod peek;
 mod people;
 mod persona;
+mod persona_import;
 mod persona_view;
 mod policy;
 mod proposal_groups;
@@ -66,6 +67,7 @@ mod session_dir;
 mod session_find;
 mod sessions;
 mod standing;
+mod standing_proposals;
 mod stop_all;
 mod task_start;
 mod thread_flow;
@@ -106,6 +108,10 @@ mod tests_ordered;
 #[cfg(test)]
 mod tests_peek;
 #[cfg(test)]
+mod tests_persona_import;
+#[cfg(test)]
+mod tests_persona_threads;
+#[cfg(test)]
 mod tests_rewind;
 #[cfg(test)]
 mod tests_self;
@@ -119,6 +125,8 @@ mod tests_self_graduate;
 mod tests_session_find;
 #[cfg(test)]
 mod tests_session_states;
+#[cfg(test)]
+mod tests_standing_proposals;
 #[cfg(test)]
 mod tests_stop_all;
 #[cfg(test)]

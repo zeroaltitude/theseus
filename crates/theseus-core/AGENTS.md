@@ -244,6 +244,39 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
   format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
   the block.
+- **The owner's agents as personas** (theseus-a8n7, T10b; store format 41; `persona_import/`, `persona_recall.rs`,
+  `standing_proposals.rs`, `rpc/persona_import.rs`, `rpc/standing_proposals.rs`, `config/persona_settings.rs`, `[persona]`
+  because `[personas]` is a map of personas). `persona.import {from, name, agent?, dry_run}` (the import's act:
+  `judge_act(Act::Import)`, refused in a job by the CLI; `theseus persona import`) reads an agent's workspace on the
+  daemon's machine and carries `[persona] import_files` (`SOUL.md`, `IDENTITY.md`, `USER.md`, `AGENTS.md`, `MEMORY.md`,
+  and the folder `memory`) **byte for byte** into `<state>/personas/<name>/`; the top-level files are the persona's context
+  files (the CLI writes `[personas.<name>] files` into the config), the folder's notes are carried and read for feedback
+  but not compiled. A file over the 64 KB context limit is cut at its headings into `NAME.partN.md`, every part verbatim
+  (`split.rs`: the parts joined are the file). A later import whose bytes differ is a new version: the replaced files move
+  to `.versions/<n>/`, `import.json` (`Manifest`: agent, version, digests, the drafted card) is rewritten, and the next
+  compile that sees the digests change writes the usual `persona.changed` row. Nothing is edited, summarized or
+  reformatted (`tests.rs`: a CRLF file with curly quotes and no trailing newline comes back identical). **The card** is
+  drafted without a model (`card.rs`: the identity file's role line, the agents file's level 1 and 2 headings) and is a
+  *draft* while the config's card equals the manifest's draft and the owner has not kept it (`persona edit --confirm-card`
+  = `persona.card_confirm`, or edited the text): `persona.list` says `card_draft`, and `offered` (a card and no draft) is
+  what route.v5's persona question will read. **Feedback** (`feedback.rs`: a note whose frontmatter says `type:
+  feedback` gives its first paragraph, a `## Feedback` heading gives its bullets; `order` when the words command, else
+  `preference`) becomes *proposals* (`StandingProposal`, META `standing.proposal:<id>`, ids stable per persona, kind
+  and words), filed with the import's `persona.imported` row in one frame and never as a record. `standing.proposals`
+  lists them, `standing.keep` is `standing.add` of the words scoped `StandingScope::Persona(name)` and then closes the
+  proposal (`standing.proposal_answered`), `standing.dismiss` closes it for good; a closed proposal is never proposed
+  again. A persona scope holds for turns whose `Target.persona` is that persona (`standing::Scope.persona`).
+  **Recall** (`persona_recall.rs`): while a persona is engaged (the turn's `Target.persona`; route.v5's verdict will
+  engage one the same way) `[persona] own_boost` (1.2; 1.0 off) multiplies the rank score of an imported episode of its
+  own agent (`ImportedFrom.agent`, matched lower case against `Manifest.agent`, else the persona's key) in the pure
+  pipeline (`theseus_memory::PersonaBoost` in `Params`; filters see the index's score, so it admits nothing), and that
+  item's frozen header begins `[from Wren, 2026-09-14, @4210]` (`render::persona_mark`). A model's own lookups and
+  `memory.search` do not boost. **Threads**: `thread.new { place }` takes the place's persona (the bindings file's, when
+  the config has it) as the thread's `persona`; the router's new-thread tap and Discord's `/thread new` pass their
+  place. Tests: `persona_import/tests.rs`, `rpc/tests_persona_import.rs`, `rpc/tests_standing_proposals.rs`,
+  `rpc/tests_persona_threads.rs`, `tests_persona_recall.rs`, theseus-memory's `tests_persona.rs`, `tests_layouts.rs`
+  (a format-40 standing record, the persona scope), and the fixtures `tests/fixtures/agents/{wren,finch}` (invented
+  workspaces; `.gitattributes` keeps their bytes).
 - **The surface tag** (theseus-slvl.3; store format 34; `surface.rs`, `turn/surface_step.rs`): a person's message node
   records the surface it was written from (`Node.surface`: `terminal:ask`, `terminal:tui`, `terminal`, `cockpit`, `mcp`,
   `discord:dm`, `discord:channel:<shared|private>:#name`, `voice`), settled by `Core::surface_of` in `turn.submit` from

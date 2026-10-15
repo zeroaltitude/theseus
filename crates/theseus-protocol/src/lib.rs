@@ -60,6 +60,7 @@ mod outbox;
 pub mod own_bench;
 pub mod packs;
 pub mod persona;
+pub mod persona_import;
 mod places;
 mod push;
 pub mod resident;
@@ -73,6 +74,7 @@ pub mod sandbox;
 pub mod sessions;
 pub mod signals;
 pub mod standing;
+pub mod standing_proposals;
 mod submit;
 pub mod surface;
 pub mod task_start;
@@ -124,6 +126,7 @@ pub use outbox::OutboxStatus;
 pub use persona::{
     PersonaFile, PersonaInfo, PersonaListParams, PersonaListResult, PersonaPlace, PersonaTally,
 };
+pub use persona_import::*;
 pub use places::*;
 pub use push::*;
 pub use retry::*;
@@ -133,6 +136,7 @@ pub use rewind::{
 };
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use standing::*;
+pub use standing_proposals::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
 pub use toolinfo::{ToolInfo, ToolListResult};
@@ -249,7 +253,9 @@ pub mod method {
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move",
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list",
-        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
+        /// An agent's workspace carried over as a persona, byte for byte (theseus-a8n7, `persona_import::PersonaImportParams`), and the owner's yes to its drafted card.
+        PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm",
+        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.
         FORECAST_CALIBRATION = "forecast.calibration",

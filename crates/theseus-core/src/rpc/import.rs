@@ -67,6 +67,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::FORECAST_CALIBRATION
         || name == method::TURN_INSPECT
         || name == method::PERSONA_LIST
+        || super::persona_import::OWN.contains(&name)
 }
 
 impl Core {
@@ -140,6 +141,9 @@ impl Core {
         }
         if name == method::PERSONA_LIST {
             return super::server::route(params, |p| self.persona_list(p));
+        }
+        if super::persona_import::OWN.contains(&name) {
+            return self.rpc_persona_import(name, params, conn).await;
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

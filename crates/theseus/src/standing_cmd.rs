@@ -11,6 +11,10 @@ use theseus_protocol::standing::{
     StandingAddParams, StandingChanged, StandingKind, StandingListParams, StandingListResult,
     StandingRevokeParams, StandingScope, SURFACES,
 };
+use theseus_protocol::{
+    StandingProposal, StandingProposalAnswer, StandingProposalAnswered, StandingProposalsParams,
+    StandingProposalsResult,
+};
 
 use crate::cmd::output;
 
@@ -50,6 +54,21 @@ pub enum StandingCmd {
     },
     /// Revoke a record by its id (or the start of it): it leaves every prompt at its next turn.
     Revoke { id: String },
+    /// The records an imported agent's feedback proposes (`theseus persona import`): none is live
+    /// until you keep it.
+    Proposals {
+        /// The kept and dismissed ones too.
+        #[arg(long)]
+        all: bool,
+        /// Only this persona's.
+        #[arg(long)]
+        persona: Option<String>,
+    },
+    /// Keep a proposal (its id, or the start of it): it becomes a standing record for that persona
+    /// alone. Only you, from a private place.
+    Keep { id: String },
+    /// Dismiss a proposal: no record is made, and the same words are not proposed again.
+    Dismiss { id: String },
 }
 
 fn scope_of(s: &str) -> Result<StandingScope> {
@@ -59,8 +78,12 @@ fn scope_of(s: &str) -> Result<StandingScope> {
         Some(("session", id)) if !id.is_empty() => StandingScope::Session(id.to_string()),
         Some(("surface", n)) if SURFACES.contains(&n) => StandingScope::Surface(n.to_string()),
         Some(("surface", n)) => bail!("`{n}` is no surface: write {}", SURFACES.join(", ")),
+        Some(("persona", n)) if !n.is_empty() => StandingScope::Persona(n.to_string()),
         _ => {
-            bail!("`{s}` is no scope: write everywhere, place:TARGET, surface:NAME, or session:ID")
+            bail!(
+                "`{s}` is no scope: write everywhere, place:TARGET, surface:NAME, persona:NAME, or \
+                 session:ID"
+            )
         }
     })
 }
@@ -134,6 +157,20 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: StandingCmd) -> Result<()> {
                 Ok(())
             })
         }
+        StandingCmd::Proposals { all, persona } => {
+            let p = StandingProposalsParams { all, persona };
+            let v = conn
+                .request(method::STANDING_PROPOSALS, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: StandingProposalsResult| {
+                for l in proposal_lines(&r) {
+                    println!("{l}");
+                }
+                Ok(())
+            })
+        }
+        StandingCmd::Keep { id } => answer(conn, json, method::STANDING_KEEP, id).await,
+        StandingCmd::Dismiss { id } => answer(conn, json, method::STANDING_DISMISS, id).await,
         StandingCmd::Revoke { id } => {
             let p = StandingRevokeParams {
                 id,
@@ -151,6 +188,67 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: StandingCmd) -> Result<()> {
             })
         }
     }
+}
+
+async fn answer(conn: &mut Conn, json: bool, m: &'static str, id: String) -> Result<()> {
+    let p = StandingProposalAnswer {
+        id,
+        ..Default::default()
+    };
+    let v = conn.request(m, serde_json::to_value(&p)?).await?;
+    output(json, v, |r: StandingProposalAnswered| {
+        println!("{}", answered_line(&r));
+        Ok(())
+    })
+}
+
+/// What a keep or a dismissal answers.
+pub fn answered_line(r: &StandingProposalAnswered) -> String {
+    let p = &r.proposal;
+    match &r.record {
+        Some(rec) => format!(
+            "Kept {} as {} {} for persona {}: its prompts carry it from their next turn.",
+            p.id,
+            rec.kind.name(),
+            rec.id,
+            p.persona
+        ),
+        None => format!(
+            "Dismissed {}: no record is made, and it is not proposed again.",
+            p.id
+        ),
+    }
+}
+
+/// `theseus standing proposals`: a row a proposal, then how to answer.
+pub fn proposal_lines(r: &StandingProposalsResult) -> Vec<String> {
+    if r.proposals.is_empty() {
+        return vec!["No standing records are proposed.".into()];
+    }
+    let line = |p: &StandingProposal| {
+        let state = if p.state == "open" {
+            String::new()
+        } else {
+            format!(" [{}]", p.state)
+        };
+        format!(
+            "{}  {:<10} for {}  {}  (from {}){state}",
+            p.id,
+            p.kind.name(),
+            p.persona,
+            p.text,
+            p.from
+        )
+    };
+    let mut out: Vec<String> = r.proposals.iter().map(line).collect();
+    if r.proposals.iter().any(|p| p.state == "open") {
+        out.push(
+            "None is live. `theseus standing keep <id>` makes it a record for that persona; `dismiss` \
+             drops it for good."
+                .into(),
+        );
+    }
+    out
 }
 
 /// What an add answers.
@@ -314,5 +412,68 @@ mod tests {
             added_line(&r),
             "Added preference std_0000aaaa for everywhere, replacing std_1111bbbb: every prompt of that scope carries it from its next turn."
         );
+    }
+
+    /// The proposals are listed with their persona, their words and where they came from, and the
+    /// list says none is live; a persona scope parses; a keep and a dismissal answer in words.
+    #[test]
+    fn proposals_are_listed_as_not_live_and_a_persona_scope_parses() {
+        let open = StandingProposal {
+            id: "stp_0123456789ab".into(),
+            persona: "wren".into(),
+            kind: StandingKind::Order,
+            text: "Always give tide heights in metres.".into(),
+            from: "memory/lessons.md".into(),
+            proposed_ms: 1_790_000_000_000,
+            state: "open".into(),
+            record: None,
+        };
+        let lines = proposal_lines(&StandingProposalsResult {
+            proposals: vec![open.clone()],
+        });
+        assert!(lines[0].contains("stp_0123456789ab") && lines[0].contains("for wren"));
+        assert!(lines[0].contains("Always give tide heights in metres."));
+        assert!(lines[0].contains("(from memory/lessons.md)"));
+        assert!(lines[1].starts_with("None is live."), "{lines:?}");
+        let closed = StandingProposal {
+            state: "dismissed".into(),
+            ..open.clone()
+        };
+        let lines = proposal_lines(&StandingProposalsResult {
+            proposals: vec![closed.clone()],
+        });
+        assert!(
+            lines[0].ends_with("[dismissed]") && lines.len() == 1,
+            "{lines:?}"
+        );
+        assert!(proposal_lines(&StandingProposalsResult::default())[0].starts_with("No standing"));
+        assert_eq!(
+            scope_of("persona:wren").unwrap(),
+            StandingScope::Persona("wren".into())
+        );
+        assert!(scope_of("persona:").is_err());
+        let kept = StandingProposalAnswered {
+            proposal: StandingProposal {
+                state: "kept".into(),
+                ..open
+            },
+            record: Some(theseus_protocol::StandingRecord {
+                id: "std_aabbccdd".into(),
+                kind: StandingKind::Order,
+                text: "x".into(),
+                scope: StandingScope::Persona("wren".into()),
+                since_ms: 1,
+                until_ms: None,
+                source: "persona-import:stp_0123456789ab".into(),
+                ends: None,
+            }),
+        };
+        assert!(answered_line(&kept)
+            .contains("Kept stp_0123456789ab as order std_aabbccdd for persona wren"));
+        assert!(answered_line(&StandingProposalAnswered {
+            proposal: closed,
+            record: None
+        })
+        .starts_with("Dismissed stp_0123456789ab"));
     }
 }

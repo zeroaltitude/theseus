@@ -7,7 +7,9 @@ use anyhow::{bail, Result};
 use clap::Subcommand;
 use theseus_client::{render, Conn};
 use theseus_protocol::{
-    method, HealthResult, LedgerTailParams, LedgerTailResult, PersonaListParams, PersonaListResult,
+    method, HealthResult, LedgerTailParams, LedgerTailResult, PersonaCardConfirmParams,
+    PersonaCardConfirmResult, PersonaImportParams, PersonaImportResult, PersonaListParams,
+    PersonaListResult,
 };
 
 use crate::cmd::output;
@@ -40,6 +42,26 @@ pub enum PersonaCmd {
         /// `quiet`, `normal` or `chatty`.
         #[arg(long)]
         initiative: Option<String>,
+        /// Keep the card an import drafted as it is: Jev is offered it from then on.
+        #[arg(long)]
+        confirm_card: bool,
+    },
+    /// Carry an agent's workspace over as a persona, unchanged (theseus-a8n7): its persona files are copied
+    /// byte for byte into the state dir, `[personas.<name>]` is pointed at them, a specialization card is
+    /// drafted for you to read, and the agent's feedback is proposed as standing records. Yours alone.
+    Import {
+        /// The agent's workspace folder (SOUL.md, IDENTITY.md, USER.md, AGENTS.md, MEMORY.md, memory/).
+        #[arg(long, value_name = "DIR")]
+        from: String,
+        /// The persona's key in `[personas]`.
+        #[arg(long, value_name = "NAME")]
+        name: String,
+        /// The name its imported episodes carry, when it is not the persona's key.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Say what would be carried and written, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// The `persona.changed` rows, newest first: which persona, which file or field, and the
     /// digests either side.
@@ -111,7 +133,22 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
                 Ok(())
             })
         }
-        PersonaCmd::Edit { persona, .. } => edit(conn, persona.as_deref(), fields_of(&cmd)).await,
+        PersonaCmd::Import {
+            from,
+            name,
+            agent,
+            dry_run,
+        } => import(conn, json, from, name, agent.as_deref(), *dry_run).await,
+        PersonaCmd::Edit {
+            persona,
+            confirm_card,
+            ..
+        } => {
+            if *confirm_card {
+                return confirm(conn, json, persona.as_deref()).await;
+            }
+            edit(conn, persona.as_deref(), fields_of(&cmd)).await
+        }
     }
 }
 
@@ -173,11 +210,17 @@ async fn edit(
         );
         return Ok(());
     }
+    write_fields(conn, &key, &fields).await
+}
+
+/// Set `fields` under `[personas.<key>]` in the config file (a vault note is
+/// told what to hold instead).
+async fn write_fields(conn: &mut Conn, key: &str, fields: &[(&'static str, String)]) -> Result<()> {
     let health: HealthResult = serde_json::from_value(
         conn.request(method::HEALTH, serde_json::Value::Null)
             .await?,
     )?;
-    let doc = set_fields_doc(&fields)?;
+    let doc = set_fields_doc(fields)?;
     if health.config.source != "file" {
         bail!(
             "the config is the vault note {}: edit it there. Under [personas.{key}] set:\n{doc}",
@@ -186,7 +229,7 @@ async fn edit(
     }
     let path = std::path::PathBuf::from(&health.config.reference);
     let text = std::fs::read_to_string(&path)?;
-    let edited = set_fields(&text, &key, &fields)?;
+    let edited = set_fields(&text, key, fields)?;
     if edited == text {
         println!("{key} already has those values.");
         return Ok(());
@@ -208,6 +251,169 @@ async fn edit(
     Ok(())
 }
 
+/// `persona import`: the daemon carries the files; this writes the config.
+async fn import(
+    conn: &mut Conn,
+    json: bool,
+    from: &str,
+    name: &str,
+    agent: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
+    if let Some(s) = std::env::var("THESEUS_SESSION")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    {
+        bail!(
+            "theseus persona import refused: it is the operator's to run, and this shell is a \
+             Theseus job's (THESEUS_SESSION={s} is set). Run it from your own shell."
+        );
+    }
+    // The daemon reads the folder on its own machine: a relative path is made whole here.
+    let from = std::fs::canonicalize(from)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| from.to_string());
+    let v = conn
+        .request(
+            method::PERSONA_IMPORT,
+            serde_json::to_value(PersonaImportParams {
+                from,
+                name: name.to_string(),
+                agent: agent.map(str::to_string),
+                dry_run,
+            })?,
+        )
+        .await?;
+    let r: PersonaImportResult = serde_json::from_value(v.clone())?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        for l in import_lines(&r) {
+            println!("{l}");
+        }
+    }
+    if dry_run || r.unchanged {
+        return Ok(());
+    }
+    let listed: PersonaListResult = serde_json::from_value(
+        conn.request(
+            method::PERSONA_LIST,
+            serde_json::to_value(PersonaListParams::default())?,
+        )
+        .await?,
+    )?;
+    let has_card = listed
+        .personas
+        .iter()
+        .find(|p| p.key.as_deref() == Some(name))
+        .is_some_and(|p| p.card.is_some());
+    let mut fields = vec![("files", r.context_paths.join("\n"))];
+    // The owner's own card is never replaced by a draft.
+    if let (Some(card), false) = (&r.card, has_card) {
+        fields.push(("card", card.clone()));
+    }
+    write_fields(conn, name, &fields).await
+}
+
+/// What an import (or a dry run of one) says, line by line.
+pub fn import_lines(r: &PersonaImportResult) -> Vec<String> {
+    let mut out = Vec::new();
+    let head = if r.dry_run {
+        format!(
+            "Dry run: persona {} from agent {}, nothing written.",
+            r.name, r.agent
+        )
+    } else if r.unchanged {
+        format!(
+            "Persona {} is as it was (version {}): every file's bytes equal the copy.",
+            r.name, r.version
+        )
+    } else {
+        format!(
+            "Persona {} imported as version {} into {}.",
+            r.name, r.version, r.dir
+        )
+    };
+    out.push(head);
+    for f in &r.files {
+        let kind = match (&f.part_of, f.note) {
+            (Some(of), _) => format!("part of {of}"),
+            (None, true) => "note, carried not compiled".into(),
+            (None, false) => "persona file".into(),
+        };
+        out.push(format!(
+            "  {}  {}  digest {}  ({kind}{})",
+            f.rel,
+            render::fmt_bytes(f.bytes),
+            f.digest,
+            if f.changed { ", new or changed" } else { "" }
+        ));
+    }
+    for o in &r.over_limit {
+        out.push(format!(
+            "  {} is {}, over the 64 KB file limit: carried verbatim as {} parts cut at its headings",
+            o.rel,
+            render::fmt_bytes(o.bytes),
+            o.parts
+        ));
+    }
+    for s in &r.skipped {
+        out.push(format!("  not carried: {s}"));
+    }
+    match &r.card {
+        Some(c) => out.push(format!(
+            "  card (a DRAFT; no model wrote it): {c}\n  Read it, edit it with `theseus persona edit {} --card \"…\"`, \
+             or keep it as it is with `theseus persona edit {} --confirm-card`; Jev is offered it only then.",
+            r.name, r.name
+        )),
+        None => out.push("  no card could be drafted: write one with `theseus persona edit --card`".into()),
+    }
+    if r.proposals_known > 0 {
+        out.push(format!(
+            "  {} already proposed earlier (`theseus standing proposals --all`)",
+            r.proposals_known
+        ));
+    }
+    if !r.proposals.is_empty() {
+        out.push(format!(
+            "  {} standing record(s) proposed from the agent's feedback; none is live until you keep it:",
+            r.proposals.len()
+        ));
+        for p in &r.proposals {
+            out.push(format!(
+                "    {} [{}] {}  (from {})",
+                p.id,
+                p.kind.name(),
+                p.text,
+                p.from
+            ));
+        }
+    }
+    out
+}
+
+/// `persona edit --confirm-card`: the owner has read the drafted card.
+async fn confirm(conn: &mut Conn, json: bool, persona: Option<&str>) -> Result<()> {
+    let Some(name) = persona else {
+        bail!("name the persona: `theseus persona edit <name> --confirm-card`");
+    };
+    let v = conn
+        .request(
+            method::PERSONA_CARD_CONFIRM,
+            serde_json::to_value(PersonaCardConfirmParams {
+                name: name.to_string(),
+            })?,
+        )
+        .await?;
+    output(json, v, |r: PersonaCardConfirmResult| {
+        println!(
+            "Kept {}'s card; Jev is offered it from now on: {}",
+            r.name, r.card
+        );
+        Ok(())
+    })
+}
+
 fn names(r: &PersonaListResult) -> String {
     let known: Vec<_> = r.personas.iter().filter_map(|p| p.key.as_deref()).collect();
     match known.is_empty() {
@@ -227,6 +433,14 @@ fn set_fields_doc(fields: &[(&'static str, String)]) -> Result<String> {
 
 /// A field's value as TOML, checked.
 fn value_of(field: &str, v: &str) -> Result<String> {
+    // `files` is a list: its paths, one a line.
+    if field == "files" {
+        let paths: Vec<&str> = v.lines().filter(|l| !l.trim().is_empty()).collect();
+        if paths.is_empty() {
+            bail!("files names no path");
+        }
+        return Ok(serde_json::to_string(&paths)?);
+    }
     if v.trim().is_empty() {
         bail!(
             "--{} is empty: leave the flag out instead",
@@ -311,7 +525,12 @@ pub fn show_lines(r: &PersonaListResult) -> Vec<String> {
         let play = if p.in_play { "  [in play]" } else { "" };
         out.push(format!("{shown}{emoji}  initiative {}{play}", p.initiative));
         if let Some(c) = &p.card {
-            out.push(format!("  card: {c}"));
+            let state = if p.card_draft {
+                " (DRAFT: not offered to Jev until you keep it)"
+            } else {
+                ""
+            };
+            out.push(format!("  card{state}: {c}"));
         }
         if let Some(v) = &p.tts_voice {
             out.push(format!("  voice: {v}"));
@@ -493,6 +712,84 @@ mod tests {
             "665 bytes, digest d1",
         ] {
             assert!(lines.contains(want), "{want:?} not in\n{lines}");
+        }
+    }
+
+    /// `files` is written as a TOML list of the paths, one a line in, and the line is a valid
+    /// array of strings.
+    #[test]
+    fn the_files_field_is_a_list_of_paths() {
+        let paths = "/s/personas/wren/SOUL.md\n/s/personas/wren/IDENTITY.md";
+        let out = set_fields(
+            "",
+            "wren",
+            &[f("files", paths), f("card", "Tides. Areas: a; b.")],
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            "[personas.wren]\nfiles = [\"/s/personas/wren/SOUL.md\",\"/s/personas/wren/IDENTITY.md\"]\ncard = \"Tides. Areas: a; b.\"\n"
+        );
+        // A JSON array of strings is a TOML array of strings.
+        let line = out
+            .lines()
+            .nth(1)
+            .unwrap()
+            .strip_prefix("files = ")
+            .unwrap();
+        let listed: Vec<String> = serde_json::from_str(line).unwrap();
+        assert_eq!(listed.len(), 2);
+        assert!(value_of("files", "\n \n").is_err());
+    }
+
+    /// The import's report says what is carried, what is a draft, and that nothing is live.
+    #[test]
+    fn the_import_report_names_the_draft_and_the_proposals() {
+        use theseus_protocol::{ImportedFile, OverLimit, ProposedStanding, StandingKind};
+        let r = PersonaImportResult {
+            name: "wren".into(),
+            agent: "wren".into(),
+            dry_run: true,
+            dir: "/s/personas/wren".into(),
+            version: 1,
+            files: vec![ImportedFile {
+                rel: "SOUL.md".into(),
+                path: "/s/personas/wren/SOUL.md".into(),
+                bytes: 120,
+                digest: "0123456789abcdef".into(),
+                changed: true,
+                ..Default::default()
+            }],
+            over_limit: vec![OverLimit {
+                rel: "AGENTS.md".into(),
+                bytes: 90_000,
+                parts: 2,
+            }],
+            skipped: vec!["USER.md: empty".into()],
+            card: Some("Tides.".into()),
+            proposals: vec![ProposedStanding {
+                id: "stp_aaaaaaaaaaaa".into(),
+                kind: StandingKind::Order,
+                text: "Never pad.".into(),
+                from: "memory/b.md".into(),
+            }],
+            ..Default::default()
+        };
+        let text = import_lines(&r).join("\n");
+        for want in [
+            "Dry run: persona wren from agent wren, nothing written.",
+            "SOUL.md",
+            "digest 0123456789abcdef",
+            "new or changed",
+            "AGENTS.md is",
+            "2 parts cut at its headings",
+            "not carried: USER.md: empty",
+            "card (a DRAFT; no model wrote it): Tides.",
+            "--confirm-card",
+            "none is live until you keep it",
+            "stp_aaaaaaaaaaaa [order] Never pad.",
+        ] {
+            assert!(text.contains(want), "{want:?} not in\n{text}");
         }
     }
 }

@@ -320,6 +320,7 @@ async fn hits(core: &Arc<Core>, query: &str, sessions: Vec<String>) -> Result<Ve
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         threads: None,
+        persona: None,
     };
     let m = memory.manifest(
         &scene,

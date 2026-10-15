@@ -29,6 +29,19 @@ digest: string,
  */
 changed_ms?: number, tally?: PersonaTally, 
 /**
+ * The card was drafted by `persona import` and not yet read and kept by
+ * the owner (`persona.card_confirm`, or an edit of it).
+ */
+card_draft?: boolean, 
+/**
+ * Jev is offered this persona's card: it has one and it is no draft.
+ */
+offered?: boolean, 
+/**
+ * The name its imported episodes carry, when that is not its key.
+ */
+agent?: string, 
+/**
  * The built-in default's text stands in for it: no file is readable.
  */
 on_default?: boolean, places: Array<PersonaPlace>, 

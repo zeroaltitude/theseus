@@ -64,6 +64,8 @@ pub struct Scope<'a> {
     pub place: Option<&'a str>,
     /// The surface the turn's input came through (`surface_name`).
     pub surface: Option<&'a str>,
+    /// The persona the turn speaks as (theseus-a8n7).
+    pub persona: Option<&'a str>,
 }
 
 impl Scope<'_> {
@@ -73,6 +75,7 @@ impl Scope<'_> {
             StandingScope::Session(s) => s == self.session,
             StandingScope::Place(p) => self.place == Some(p.as_str()),
             StandingScope::Surface(s) => self.surface == Some(s.as_str()),
+            StandingScope::Persona(p) => self.persona == Some(p.as_str()),
         }
     }
 }
@@ -522,6 +525,7 @@ mod tests {
             session: "ses_me",
             place: Some("discord:dm:u1"),
             surface: None,
+            persona: None,
         };
         let b = Block::of(&all, scope, PlaceClass::Private, 100).unwrap();
         assert!(
@@ -562,11 +566,39 @@ mod tests {
             Scope {
                 session: "s",
                 place: None,
-                surface: None
+                surface: None,
+                persona: None
             },
             PlaceClass::Private,
             5
         )
         .is_none());
+    }
+
+    /// A persona-scoped record (what an imported agent's kept feedback becomes)
+    /// holds for turns that speak as that persona and for no other turn.
+    #[test]
+    fn a_persona_scoped_record_holds_for_that_persona_alone() {
+        let mut r = rec(
+            "std_w",
+            StandingKind::Order,
+            "give tide heights in metres",
+            10,
+        );
+        r.scope = StandingScope::Persona("wren".into());
+        assert_eq!(r.scope.words(), "persona:wren");
+        let at = |persona| Scope {
+            session: "ses_me",
+            place: None,
+            surface: None,
+            persona,
+        };
+        assert!(at(Some("wren")).holds(&r));
+        assert!(!at(Some("finch")).holds(&r));
+        assert!(!at(None).holds(&r));
+        let all = vec![r];
+        let b = Block::of(&all, at(Some("wren")), PlaceClass::Private, 100).unwrap();
+        assert!(b.text.contains("give tide heights in metres"), "{}", b.text);
+        assert!(Block::of(&all, at(None), PlaceClass::Private, 100).is_none());
     }
 }

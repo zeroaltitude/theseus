@@ -75,6 +75,8 @@ pub mod own_bench;
 pub mod parked;
 pub mod peer;
 pub mod persona;
+pub mod persona_import;
+pub mod persona_recall;
 pub mod place_warnings;
 pub mod places;
 pub mod policy;
@@ -98,6 +100,7 @@ pub mod self_card;
 pub mod session;
 pub mod signals;
 pub mod standing;
+pub mod standing_proposals;
 pub mod startup;
 pub mod store;
 pub mod stub;
@@ -321,6 +324,8 @@ mod tests_overflow;
 mod tests_people_proposals;
 #[cfg(test)]
 mod tests_persona;
+#[cfg(test)]
+mod tests_persona_recall;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]

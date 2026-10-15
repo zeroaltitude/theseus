@@ -546,7 +546,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -598,7 +598,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -653,7 +653,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -705,7 +705,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -791,7 +791,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -856,7 +856,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -930,7 +930,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -996,10 +996,38 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, p);
+}
+
+/// A standing record as format 40 wrote it (an `everywhere` order, a
+/// surface-scoped preference): the persona scope added at 41
+/// (theseus-a8n7) is a new variant, so both read as they were and write back
+/// byte for byte; the new variant round-trips beside them.
+pub(crate) const STANDING_ORDER_AT_40: &str = r#"{"id":"std_0a1b2c3d","kind":"order","text":"never push to main","scope":{"kind":"everywhere"},"since_ms":1790000000100,"source":"cli"}"#;
+pub(crate) const STANDING_PREF_AT_40: &str = r#"{"id":"std_4e5f6a7b","kind":"preference","text":"keep terminal answers short","scope":{"kind":"surface","of":"terminal"},"since_ms":1790000000200,"source":"cli"}"#;
+
+#[test]
+fn a_format_40_standing_record_reads_and_a_persona_scope_round_trips() {
+    for old in [STANDING_ORDER_AT_40, STANDING_PREF_AT_40] {
+        let r: theseus_protocol::StandingRecord = serde_json::from_str(old).unwrap();
+        assert_eq!(serde_json::to_string(&r).unwrap(), old);
+    }
+    let r: theseus_protocol::StandingRecord = serde_json::from_str(STANDING_ORDER_AT_40).unwrap();
+    let persona = theseus_protocol::StandingRecord {
+        scope: theseus_protocol::StandingScope::Persona("wren".into()),
+        ..r
+    };
+    let text = serde_json::to_string(&persona).unwrap();
+    assert!(
+        text.contains(r#""scope":{"kind":"persona","of":"wren"}"#),
+        "{text}"
+    );
+    let back: theseus_protocol::StandingRecord = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, persona);
+    assert_eq!(back.scope.words(), "persona:wren");
 }

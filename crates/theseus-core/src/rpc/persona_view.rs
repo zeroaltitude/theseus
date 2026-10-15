@@ -123,7 +123,21 @@ impl Core {
             .zip(seen.as_ref())
             .filter(|_| owned)
             .and_then(|(k, s)| self.persona_tally(k, s.at_ms, &files));
+        // What an import left (theseus-a8n7): whether the card is still the
+        // draft it wrote, and the name its episodes carry.
+        let manifest = view.key.as_deref().and_then(|k| {
+            crate::persona_import::Manifest::read(&crate::persona_import::run::dir_of(
+                &self.cfg.state_dir(),
+                k,
+            ))
+        });
+        let card_draft = manifest
+            .as_ref()
+            .is_some_and(|m| m.card_is_draft(view.card.as_deref()));
         PersonaInfo {
+            card_draft,
+            offered: view.card.is_some() && !card_draft,
+            agent: manifest.as_ref().map(|m| m.agent.clone()),
             key: view.key.clone(),
             name: view.name.clone(),
             emoji: view.emoji.clone(),

@@ -12,7 +12,8 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::json;
 use theseus_protocol::{
     error_code, method, StandingAddParams, StandingChanged, StandingInfo, StandingKind,
-    StandingListParams, StandingListResult, StandingRecord, StandingRevokeParams,
+    StandingListParams, StandingListResult, StandingProposalAnswer, StandingProposalsParams,
+    StandingRecord, StandingRevokeParams,
 };
 
 use super::confirms::Act;
@@ -37,6 +38,15 @@ impl Core {
             }),
             method::STANDING_ADD => route(params, |p: StandingAddParams| {
                 self.standing_add(&p, conn.answerer(p.author.clone(), p.discord.clone()))
+            }),
+            method::STANDING_PROPOSALS => route(params, |p: StandingProposalsParams| {
+                self.standing_proposals(&p, conn.answerer(None, None))
+            }),
+            method::STANDING_KEEP => route(params, |p: StandingProposalAnswer| {
+                self.standing_keep(&p, conn.answerer(p.author.clone(), p.discord.clone()))
+            }),
+            method::STANDING_DISMISS => route(params, |p: StandingProposalAnswer| {
+                self.standing_dismiss(&p, conn.answerer(p.author.clone(), p.discord.clone()))
             }),
             _ => route(params, |p: StandingRevokeParams| {
                 self.standing_revoke(&p, conn.answerer(p.author.clone(), p.discord.clone()))
@@ -77,10 +87,15 @@ impl Core {
             .session_id
             .as_deref()
             .and_then(|s| self.runner.target_of(s));
+        let persona = p.session_id.as_deref().and_then(|s| {
+            let rec = self.store.get_session::<SessionRecord>(s).ok().flatten()?;
+            self.runner.persona_of(&rec)
+        });
         let scope = p.session_id.as_deref().map(|session| Scope {
             session,
             place: place.as_deref(),
             surface: p.surface.as_deref(),
+            persona: persona.as_deref(),
         });
         let shown: Vec<(&StandingRecord, &'static str)> = all
             .iter()
@@ -134,10 +149,12 @@ impl Core {
                 continue;
             }
             let place = self.runner.target_of(&s.session_id);
+            let persona = self.runner.persona_of(&s);
             let scope = Scope {
                 session: &s.session_id,
                 place: place.as_deref(),
                 surface: None,
+                persona: persona.as_deref(),
             };
             // A surface's records ride the request's tail, which no manifest
             // lists: the tally has nothing to count them against.
@@ -312,6 +329,17 @@ impl Core {
                 return Err(RpcFailure::invalid(anyhow!(
                     "`{name}` is no surface: write {}",
                     theseus_protocol::standing::SURFACES.join(", ")
+                )));
+            }
+            theseus_protocol::StandingScope::Persona(name)
+                if !self.cfg.personas.contains_key(name) =>
+            {
+                return Err(RpcFailure::invalid(anyhow!(
+                    "`{name}` is no persona: {}",
+                    match self.cfg.persona_names() {
+                        known if known.is_empty() => "no [personas.<name>] table is defined".into(),
+                        known => format!("the personas are {known}"),
+                    }
                 )));
             }
             theseus_protocol::StandingScope::Place(pl) if !pl.starts_with("discord:") => {

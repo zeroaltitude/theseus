@@ -102,6 +102,17 @@ pub struct PersonaInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub tally: Option<PersonaTally>,
+    /// The card was drafted by `persona import` and not yet read and kept by
+    /// the owner (`persona.card_confirm`, or an edit of it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub card_draft: bool,
+    /// Jev is offered this persona's card: it has one and it is no draft.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offered: bool,
+    /// The name its imported episodes carry, when that is not its key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub agent: Option<String>,
     /// The built-in default's text stands in for it: no file is readable.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_default: bool,

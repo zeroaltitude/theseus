@@ -232,6 +232,7 @@ impl TurnRunner {
             science: self.memory.science_for(arm),
             activation: None,
             threads: self.thread_scene(Some(t.tc.session_id), message, true),
+            persona: self.persona_scene(t.target.persona.as_deref()),
         }
     }
 
@@ -484,6 +485,7 @@ impl TurnRunner {
         let ids: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
         let handles = theseus_protocol::cite::handles_for(&ids);
         let threads = self.thread_scene(Some(t.tc.session_id), "", false);
+        let persona = self.persona_scene(t.target.persona.as_deref());
         for (item, handle) in m.admitted.iter().zip(&handles) {
             let probe = RecalledRef {
                 node_id: item.node_id.clone(),
@@ -514,6 +516,12 @@ impl TurnRunner {
                 header = format!(
                     "{} {header}",
                     render::thread_mark(&title, &source, item.position)
+                );
+            }
+            if let Some(p) = persona.as_ref().filter(|p| p.is_own(&item.session_id)) {
+                header = format!(
+                    "{} {header}",
+                    render::persona_mark(&p.name, &source, item.position)
                 );
             }
             items.push(RecalledRef {

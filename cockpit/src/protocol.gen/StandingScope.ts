@@ -3,6 +3,6 @@
 /**
  * Where a record holds: one session, one place (a transport target such as
  * `discord:channel:<id>`), one surface (`terminal`, `discord`, `voice`,
- * `cockpit`, `mcp`), or everywhere.
+ * `cockpit`, `mcp`), one persona, or everywhere.
  */
-export type StandingScope = { "kind": "session", "of": string } | { "kind": "place", "of": string } | { "kind": "surface", "of": string } | { "kind": "everywhere" };
+export type StandingScope = { "kind": "session", "of": string } | { "kind": "place", "of": string } | { "kind": "surface", "of": string } | { "kind": "persona", "of": string } | { "kind": "everywhere" };

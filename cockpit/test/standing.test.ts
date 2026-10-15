@@ -11,6 +11,7 @@ test('a scope is said in words, a surface’s as where it speaks', () => {
   assert.equal(scopeWords({ kind: 'session', of: 'ses_a' }), 'session ses_a')
   assert.equal(scopeWords({ kind: 'place', of: 'discord:dm:7' }), 'place discord:dm:7')
   assert.equal(scopeWords({ kind: 'surface', of: 'terminal' }), 'on terminal')
+  assert.equal(scopeWords({ kind: 'persona', of: 'wren' }), 'as wren')
 })
 
 test('the live records are grouped by kind in the model’s order, oldest first, and the ended ones are left out', () => {

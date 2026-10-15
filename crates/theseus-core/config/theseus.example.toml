@@ -996,6 +996,13 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
 
+# The owner's other agents come over as personas (theseus-a8n7): `theseus persona
+# import --from <workspace> --name <persona>` copies the files below byte for
+# byte into <state>/personas/<persona>/ and points [personas.<persona>] at them.
+# [persona]
+# import_files = ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "MEMORY.md", "memory"]   # a name ending .md is a file in the workspace's top folder; any other name is a folder of curated notes (carried, not compiled)
+# own_boost = 1.2                         # while a persona is engaged, its own agent's imported episodes rank this much higher at equal relevance in recall (1.0 off, at most 2.0)
+
 # ---------------------------------------------------------------- cockpit
 # Each reply's footer links to its turn in the cockpit (`<public_url>/session/
 # <session>/turn/<turn>`): the flame graph, each loop's request and thinking,

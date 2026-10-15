@@ -16,6 +16,7 @@ export function scopeWords(s: StandingScope): string {
     case 'session': return `session ${s.of}`
     case 'place': return `place ${s.of}`
     case 'surface': return `on ${s.of}`
+    case 'persona': return `as ${s.of}`
   }
 }
 

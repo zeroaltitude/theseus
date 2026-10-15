@@ -407,6 +407,7 @@ impl MemoryConfig {
             item_tokens: 400,
             include_external: self.include_external,
             floor: theseus_memory::Floor::default(),
+            persona: None,
         }
     }
 }

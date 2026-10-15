@@ -42,6 +42,7 @@ impl TurnRunner {
             session: t.tc.session_id,
             place: place.as_deref(),
             surface: t.standing.surface,
+            persona: t.target.persona.as_deref(),
         };
         let now = theseus_protocol::now_unix_ms();
         if let Some(block) = Block::of(&all, scope, t.tc.class, now) {

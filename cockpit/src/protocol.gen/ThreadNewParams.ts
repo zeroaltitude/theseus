@@ -10,4 +10,11 @@ sealed?: boolean,
  * The thread this one splits from: a split from a sealed thread
  * starts sealed.
  */
-split_from?: string, author?: string, discord?: DiscordOrigin, };
+split_from?: string, 
+/**
+ * The place the thread is born in (a bound place's target, such as
+ * `discord:channel:<id>`): the thread's persona is that place's, when
+ * the place names one the config has (theseus-a8n7). `thread.edit
+ * { persona }` changes it.
+ */
+place?: string, author?: string, discord?: DiscordOrigin, };

@@ -220,6 +220,33 @@ pub struct Params {
     /// The relevance floor and the subject bar (theseus-55hlu); the default
     /// is neither.
     pub floor: Floor,
+    /// The engaged persona's own memories rank higher (theseus-a8n7); none
+    /// when no persona is engaged.
+    pub persona: Option<PersonaBoost>,
+}
+
+/// While a persona is engaged, its own agent's imported episodes are worth
+/// `boost` times their score in the rank, and nothing else changes: a filter
+/// still sees the index's score, so the boost never admits a note. The core
+/// reads which agent each imported candidate's session came from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PersonaBoost {
+    /// The persona's agent, lower case.
+    pub agent: String,
+    /// `[persona] own_boost`: 1.0 to 2.0.
+    pub boost: f64,
+    /// The agent of each candidate session that has one, lower case.
+    pub of_session: BTreeMap<String, String>,
+}
+
+impl PersonaBoost {
+    /// What a candidate of `session`'s score is multiplied by.
+    pub fn factor(&self, session: &str) -> f64 {
+        match self.of_session.get(session) {
+            Some(a) if *a == self.agent => self.boost.clamp(1.0, 2.0),
+            _ => 1.0,
+        }
+    }
 }
 
 impl Default for Params {
@@ -230,6 +257,7 @@ impl Default for Params {
             item_tokens: 400,
             include_external: false,
             floor: Floor::default(),
+            persona: None,
         }
     }
 }
@@ -421,7 +449,9 @@ pub fn recall(
         kept.iter()
             .map(|c| Scored {
                 key: c.key(),
-                score: c.fused * distance(asker, c),
+                score: c.fused
+                    * distance(asker, c)
+                    * p.persona.as_ref().map_or(1.0, |b| b.factor(&c.session_id)),
             })
             .collect(),
         &asker.rank_ctx(&kept),
@@ -797,6 +827,7 @@ mod tests {
             item_tokens: 400,
             include_external: false,
             floor: Floor::default(),
+            persona: None,
         };
         let pack = run(&Place::Private, &[], cands, &p);
         let admitted: Vec<_> = pack
