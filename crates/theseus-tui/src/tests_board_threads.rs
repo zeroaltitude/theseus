@@ -5,8 +5,8 @@ use crossterm::event::KeyCode;
 use serde_json::{json, Value};
 use theseus_protocol::{WorkChanged, WorkWatchResult};
 
-use crate::tests::{harbour_world, script, Rig, T0};
 use crate::board_threads::{Kind, ThreadBoard};
+use crate::tests::{harbour_world, script, Rig, T0};
 
 fn view(
     id: &str,

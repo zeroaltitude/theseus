@@ -187,7 +187,9 @@ fn threads_block(app: &App, area: Rect, buf: &mut Buffer) -> u16 {
     }
     let room = (area.height / 2).max(2) as usize;
     let top = match app.mode {
-        Mode::BoardThreads if app.board_threads.cursor >= room => app.board_threads.cursor + 1 - room,
+        Mode::BoardThreads if app.board_threads.cursor >= room => {
+            app.board_threads.cursor + 1 - room
+        }
         _ => 0,
     };
     let shown = lines.len().min(room);

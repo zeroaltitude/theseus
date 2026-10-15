@@ -338,10 +338,7 @@ impl Core {
             method::EXECUTIONS_UNWATCH => reply(self.executions_unwatch(conn)),
             // A wait parks on the board's feed, never holding a worker.
             method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
-            // The index tender (roadmap row 51), asked on its socket, bounded.
-            method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
-            method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
-            method::INDEX_REBUILD => self.rpc_index_rebuild(conn).await,
+            m if super::index_rebuild::OWN.contains(&m) => self.rpc_index(m, params, conn).await,
             m @ (method::MEMORY_SEARCH | method::MEMORY_LOOKUP) => self.mem(m, params, conn).await,
             m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.memory_reads(m, params),
             method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),

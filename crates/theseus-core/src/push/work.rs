@@ -386,6 +386,7 @@ impl WorkBoard {
             views: vec![v.clone()],
             gone: Vec::new(),
             notices: Vec::new(),
+            threads: Vec::new(),
         })
     }
 

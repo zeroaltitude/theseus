@@ -64,6 +64,8 @@ async fn import_export(c: &Arc<Core>) {
     let p = ImportEpisodesParams {
         file: "export.jsonl".into(),
         lines: lines(&eps),
+        batch: None,
+        batches: None,
     };
     let got = call(c, method::IMPORT_EPISODES, serde_json::to_value(p).unwrap())
         .await
@@ -537,6 +539,8 @@ async fn a_vestige_note_imports_once() {
         let p = ImportEpisodesParams {
             file: "vestige.json".into(),
             lines: lines(&[v]),
+            batch: None,
+            batches: None,
         };
         let got = call(
             &c,

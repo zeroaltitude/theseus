@@ -47,6 +47,9 @@ fn view(id: &str, kind: WorkKind, state: WorkState, thread: Option<&str>) -> Wor
         report: None,
         woke: None,
         flagged: false,
+        dismissed: false,
+        retry_of: None,
+        forecast: None,
         thread: thread.map(str::to_string),
     }
 }

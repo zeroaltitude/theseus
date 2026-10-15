@@ -521,6 +521,7 @@ fn job_view(j: &Job) -> WorkView {
             since_ms: j.started_ms,
             turn: 0,
             loop_index: 0,
+            last_line: None,
         });
     } else {
         v.report = Some(WorkReport {

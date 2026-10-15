@@ -378,6 +378,8 @@ async fn vestige_run(conn: &mut Conn, json: bool, path: &Path) -> Result<()> {
             let p = ImportEpisodesParams {
                 file: f.display().to_string(),
                 lines: batch.to_vec(),
+                batch: None,
+                batches: None,
             };
             let v = conn
                 .request(method::IMPORT_EPISODES, serde_json::to_value(p)?)

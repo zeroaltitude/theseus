@@ -89,8 +89,8 @@ pub mod watches;
 pub mod why;
 mod window;
 pub mod work;
-mod work_threads;
 pub mod work_system;
+mod work_threads;
 mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -198,46 +198,37 @@ pub mod method {
         /// in other sessions over `derived_from`, each with theirs. A read, computed when asked.
         NODE_REACH = "node.reach",
         TOOL_LIST = "tool.list",
-        /// The tool families each kind of place loads or defers, with their use
-        /// and misses (theseus-7m7w.2, `defer::DeferListResult`).
+        /// The tool families each kind of place loads or defers, with their use and misses (theseus-7m7w.2, `defer::DeferListResult`).
         TOOL_DEFER = "tool.defer",
         SHUTDOWN = "shutdown",
-        /// The narrative (`narrative = true`): the recent tail, then every new
-        /// line as a `narrative.line` notification until `narrative.unwatch`.
+        /// The narrative (`narrative = true`): the recent tail, then every new line as a `narrative.line` notification until `narrative.unwatch`.
         NARRATIVE_WATCH = "narrative.watch",
         NARRATIVE_UNWATCH = "narrative.unwatch",
-        /// "Should have asked" (theseus-sgh): the tool asks first from now on.
-        /// Stored, never in the config; it can only make a tool stricter.
+        /// "Should have asked" (theseus-sgh): the tool asks first from now on. Stored, never in the config; it can only make a tool stricter.
         POLICY_TIGHTEN = "policy.tighten",
-        /// Undo a tightening: the tool goes back to what the config says. It
-        /// loosens, so it takes the same trusted answer as an approval.
+        /// Undo a tightening: the tool goes back to what the config says. It loosens, so it takes the same trusted answer as an approval.
         POLICY_UNTIGHTEN = "policy.untighten",
         /// Trust a session again (theseus-9bp): it no longer holds external text, so its calls that act go back to
         /// their postures. It loosens, so it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
-        /// Publish an item into a place's conversation (the place rule,
-        /// theseus-nbsh): the owner's act, from a private place.
+        /// Publish an item into a place's conversation (the place rule, theseus-nbsh): the owner's act, from a private place.
         PLACE_PUBLISH = "place.publish",
         /// The ontology (M4 §2.8, theseus-8kk.1): the kinds, the categories and their guidance, and memberships; then
         /// the operator's writes, judged as an approval is (the owner, from a private place).
         ONTOLOGY_LIST = "ontology.list",
         /// Each hands group, its cells by state, and its cost against its cap (step 40 part 2): the cockpit's grid.
         HANDS_LIST = "hands.list",
-        /// Each open execution's money and where its limit comes from, its
-        /// tasks under it, and the totals (step 42a, `BudgetListResult`). A read.
+        /// Each open execution's money and where its limit comes from, its tasks under it, and the totals (step 42a, `BudgetListResult`). A read.
         BUDGET_LIST = "budget.list",
-        /// Each tool's posture layer by layer in the gate's order, for a
-        /// session or every place (step 42a, `PolicyExplainParams`). A read.
+        /// Each tool's posture layer by layer in the gate's order, for a session or every place (step 42a, `PolicyExplainParams`). A read.
         POLICY_EXPLAIN = "policy.explain",
         ONTOLOGY_CATEGORY_ADD = "ontology.category.add",
         ONTOLOGY_GUIDANCE_SET = "ontology.guidance.set",
         ONTOLOGY_MEMBERSHIP_SET = "ontology.membership.set",
-        /// `categorize.v1`'s unanswered proposals (M5 28b), and the
-        /// operator's answers to one, judged as the ontology's writes are.
+        /// `categorize.v1`'s unanswered proposals (M5 28b), and the operator's answers to one, judged as the ontology's writes are.
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
-        /// The owner's standing orders, preferences and facts (theseus-a7vi,
-        /// `standing::StandingListParams`): a read, and the owner's two writes.
+        /// The owner's standing orders, preferences and facts (theseus-a7vi, `standing::StandingListParams`): a read, and the owner's two writes.
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move",
         STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
@@ -255,8 +246,7 @@ pub mod method {
         WAKE_LIST = "wake.list",
         /// Cancel a pending wake: nothing fires.
         WAKE_CANCEL = "wake.cancel",
-        /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a
-        /// reminder, snooze one, hold and resume a series, settle a fired one.
+        /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
         /// Routines (theseus-pvm5c, `routines.rs`): recurring work, every run a fresh task.
         ROUTINE_CREATE = "routine.create", ROUTINE_LIST = "routine.list", ROUTINE_RUNS = "routine.runs", ROUTINE_PAUSE = "routine.pause", ROUTINE_RESUME = "routine.resume", ROUTINE_RUN_NOW = "routine.run_now", ROUTINE_UPDATE = "routine.update", ROUTINE_DELETE = "routine.delete",
@@ -283,18 +273,14 @@ pub mod method {
         /// The index tender (roadmap row 51), as health's `index` block says it: the tender as the core supervises
         /// it, and its own status. A read; the core asks the tender, bounded.
         INDEX_STATUS = "index.status",
-        /// A search of the index, forwarded to the tender as it came
-        /// (`index::IndexQueryParams`): fused hits as of a position. A read.
+        /// A search of the index, forwarded to the tender as it came (`index::IndexQueryParams`): fused hits as of a position. A read.
         INDEX_QUERY = "index.query",
-        /// Drop the index and build it again from the WAL (theseus-jn17m): the
-        /// owner's act, forwarded to the tender. The daemon writes the start,
-        /// the progress and the end as `index.rebuild` rows, so the work board
-        /// shows it as the daemon's own work.
+        /// Drop the index and build it again from the WAL (theseus-jn17m): the owner's act, forwarded to the tender.
+        /// The daemon writes the start, the progress and the end as `index.rebuild` rows, so the work board shows it as the daemon's own work.
         INDEX_REBUILD = "index.rebuild",
-        /// Recall's pipeline over a query, as a turn in a session's place
-        /// would run it (M6 step 30a; `memory::MemorySearchParams`): what it
-        /// would admit, and why each other hit was dropped. A read; it
-        /// writes nothing.
+        /// Recall's pipeline over a query, as a turn in a session's place would run it (M6 step 30a;
+        /// `memory::MemorySearchParams`): what it would admit, and why each other hit was dropped. A read; it writes
+        /// nothing.
         MEMORY_SEARCH = "memory.search",
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.

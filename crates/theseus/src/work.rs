@@ -336,10 +336,6 @@ fn width() -> usize {
         .unwrap_or(100)
 }
 
-fn now_ms() -> u64 {
-    theseus_protocol::now_unix_ms()
-}
-
 /// The snapshot as `theseus work` prints it: a group for each live thread,
 /// its open tasks, questions and wakes under it (needs you first), then
 /// what is in no thread as the tree it always was; `flat`, or a board with no
@@ -375,7 +371,11 @@ pub fn board_lines(snap: &WorkWatchResult, flat: bool, now_ms: u64, width: usize
     let loose: Vec<WorkView> = g.loose.iter().map(|v| (*v).clone()).collect();
     if !loose.is_empty() {
         out.push("Other:".to_string());
-        out.extend(tree_lines(&loose, now_ms).into_iter().map(|l| format!("  {l}")));
+        out.extend(
+            tree_lines(&loose, now_ms)
+                .into_iter()
+                .map(|l| format!("  {l}")),
+        );
     }
     out
 }
@@ -406,7 +406,6 @@ fn push_tree(
     kids: &BTreeMap<&str, Vec<&WorkView>>,
     now: u64,
     out: &mut Vec<String>,
-    now: u64,
 ) {
     out.push(format!("{}{}", "  ".repeat(depth), view_line(v, now)));
     let mut below = kids.get(v.id.as_str()).cloned().unwrap_or_default();

@@ -126,7 +126,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         } else {
             forecasts(&mut conn, &board).await
         };
-        anyhow::Ok(Answer::Full(board, titles, forecasts))
+        anyhow::Ok(Answer::Full(Box::new(board), titles, forecasts))
     })
     .await;
     let (board, titles, forecasts) = match answer {
@@ -137,7 +137,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
             }
             return conn.close().await;
         }
-        Ok(Ok(Answer::Full(b, t, f))) => (b, t, f),
+        Ok(Ok(Answer::Full(b, t, f))) => (*b, t, f),
         Ok(Err(_)) | Err(_) if a.short => std::process::exit(1),
         Ok(Err(e)) => return Err(e),
         Err(_) => bail!("the daemon did not answer within {within:?}"),
@@ -165,7 +165,15 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
             .ok()
             .and_then(Result::ok)
             .unwrap_or_default();
-        for line in long_lines_with(&board, &sum, &titles, &jobs, &forecasts, (now, width()), &local_hm) {
+        for line in long_lines_with(
+            &board,
+            &sum,
+            &titles,
+            &jobs,
+            &forecasts,
+            (now, width()),
+            &local_hm,
+        ) {
             writeln!(out, "{line}")?;
         }
     }
@@ -215,7 +223,7 @@ async fn system_words(conn: &mut Conn) -> Option<String> {
 enum Answer {
     Short(StatusShortResult),
     Full(
-        Board,
+        Box<Board>,
         HashMap<String, String>,
         HashMap<String, theseus_protocol::forecast::WorkForecast>,
     ),
@@ -496,7 +504,15 @@ pub fn long_lines(
     at: (u64, usize),
     hm: &dyn Fn(u64) -> String,
 ) -> Vec<String> {
-    long_lines_with(board, sum, titles, &JobTimes::new(), &HashMap::new(), at, hm)
+    long_lines_with(
+        board,
+        sum,
+        titles,
+        &JobTimes::new(),
+        &HashMap::new(),
+        at,
+        hm,
+    )
 }
 
 /// When a session's oldest running job started, and its program's usual time.

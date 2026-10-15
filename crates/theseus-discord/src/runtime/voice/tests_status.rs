@@ -69,6 +69,7 @@ fn publish(core: &Core, views: Vec<WorkView>, gone: &[&str]) {
             .map(|id| (id.to_string(), "exe_root".to_string()))
             .collect(),
         notices: Vec::new(),
+        threads: Vec::new(),
     };
     core.bus.publish_work(&out, &core.tools.scrubber);
 }

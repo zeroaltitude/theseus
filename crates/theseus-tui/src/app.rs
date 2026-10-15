@@ -18,9 +18,9 @@ use theseus_protocol::{
 };
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
+use crate::board_threads::ThreadBoard;
 use crate::detail::Detail;
 use crate::follow::Follow;
-use crate::board_threads::ThreadBoard;
 use crate::notice::{Delivery, Notices};
 use crate::selfview::SelfView;
 use crate::standing::{self, Standing};
@@ -712,22 +712,7 @@ impl App {
         };
         match purpose {
             Purpose::Snapshot => return self.snapshot_read(v),
-            Purpose::Work => match serde_json::from_value::<WorkWatchResult>(v) {
-                Ok(snap) => {
-                    self.board.work.snapshot(snap.views.clone());
-                    // The daemon's own jobs (theseus-jn17m) ride the same watch.
-                    self.system = snap
-                        .views
-                        .iter()
-                        .filter(|w| w.kind == theseus_protocol::work::WorkKind::System)
-                        .map(|w| (w.id.clone(), w.clone()))
-                        .collect();
-                    self.board_threads.snapshot(snap);
-                }
-                // An answer this build can't read is no board: rows say
-                // their labels, as with a daemon that lacks the method.
-                Err(_) => self.board.work.live = false,
-            },
+            Purpose::Work => self.work_read(v),
             Purpose::Titles => {
                 if let Ok(list) = serde_json::from_value::<SessionListResult>(v) {
                     self.board.titles(list.sessions);
@@ -1026,6 +1011,27 @@ impl App {
             Mode::NewTask(home) => self.new_task_key(k, home),
             Mode::BoardThreads => self.board_threads_key(k),
             Mode::Normal => self.normal_key(k),
+        }
+    }
+
+    /// `work.watch`'s snapshot (theseus-k2vca): the rows' words, the daemon's
+    /// own jobs (theseus-jn17m) and the threads on the board (theseus-5i8i),
+    /// all from the one watch.
+    fn work_read(&mut self, v: Value) {
+        match serde_json::from_value::<WorkWatchResult>(v) {
+            Ok(snap) => {
+                self.board.work.snapshot(snap.views.clone());
+                self.system = snap
+                    .views
+                    .iter()
+                    .filter(|w| w.kind == theseus_protocol::work::WorkKind::System)
+                    .map(|w| (w.id.clone(), w.clone()))
+                    .collect();
+                self.board_threads.snapshot(snap);
+            }
+            // An answer this build can't read is no board: rows say
+            // their labels, as with a daemon that lacks the method.
+            Err(_) => self.board.work.live = false,
         }
     }
 

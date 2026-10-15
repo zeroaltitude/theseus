@@ -17,9 +17,10 @@ use std::time::{Duration, Instant};
 use anyhow::bail;
 use serde_json::Value;
 use theseus_protocol::index::{method as tender, IndexRebuildResult, IndexStatus};
+use theseus_protocol::method;
 
 use super::judge_runs::failure;
-use super::server::{Conn, RpcFailure};
+use super::server::{parse, reply, Conn, RpcFailure};
 use super::Core;
 use crate::fact::index::Rebuild;
 use crate::tender::TenderMiss;
@@ -36,7 +37,28 @@ const MISSES: u32 = 20;
 /// The longest the wait outlasts a rebuild: six hours.
 const GIVE_UP: Duration = Duration::from_secs(6 * 3600);
 
+/// The index tender's methods (roadmap row 51): one arm of the dispatch.
+pub(super) const OWN: [&str; 3] = [
+    method::INDEX_STATUS,
+    method::INDEX_QUERY,
+    method::INDEX_REBUILD,
+];
+
 impl Core {
+    /// The index tender's methods, asked on its socket, bounded.
+    pub(super) async fn rpc_index(
+        self: &Arc<Self>,
+        m: &str,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        match m {
+            method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
+            method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
+            _ => self.rpc_index_rebuild(conn).await,
+        }
+    }
+
     /// `index.rebuild`, from the dispatch.
     pub(super) async fn rpc_index_rebuild(
         self: &Arc<Self>,

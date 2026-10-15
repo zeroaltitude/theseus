@@ -182,7 +182,15 @@ fn a_row_whose_session_runs_a_job_says_its_time_against_the_usual() {
     );
     assert_eq!(
         long_lines(&b, &sum, &titles, (T0, 100), &hm),
-        long_lines_with(&b, &sum, &titles, &JobTimes::new(), &HashMap::new(), (T0, 100), &hm)
+        long_lines_with(
+            &b,
+            &sum,
+            &titles,
+            &JobTimes::new(),
+            &HashMap::new(),
+            (T0, 100),
+            &hm
+        )
     );
 }
 
