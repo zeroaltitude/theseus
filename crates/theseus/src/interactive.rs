@@ -623,6 +623,12 @@ impl Watch {
         } else {
             "approve? [y/N/t/note]".to_string()
         };
+        // Under the card, in a herdr pane: links that open the answer card, never answer.
+        if let Some(l) =
+            crate::herdr_keys::links_under(q, std::env::var("HERDR_ENV").ok().as_deref())
+        {
+            eprintln!("  {l}");
+        }
         // A whole line: an event that comes while it waits starts below it.
         eprintln!("  {prompt}");
     }

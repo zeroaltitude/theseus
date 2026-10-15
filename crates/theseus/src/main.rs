@@ -24,6 +24,9 @@ mod follow;
 mod fork;
 mod harness;
 mod herdr;
+mod herdr_answer;
+mod herdr_keys;
+mod herdr_setup;
 mod herdr_slots;
 mod herdr_sync;
 mod herdr_up;
@@ -1234,7 +1237,7 @@ fn main() {
     // `theseus tui` and `theseus chat` connect nothing: they become `theseus-tui` (10f).
     let result = match chat_cmd::exec_tui(&cli.cmd, &cli.socket, cli.spawn.is_some()) {
         Some(r) => r,
-        None => runtime.block_on(run(cli)),
+        None => runtime.block_on(run_or_own(cli)),
     };
     let code = match result {
         Ok(()) => 0,
@@ -1286,6 +1289,14 @@ async fn connect(cli: &Cli) -> Result<Conn> {
         (Some(bin), _) => Conn::spawn(bin)?,
         (None, _) => Conn::socket(&cli.socket).await?,
     })
+}
+
+/// `theseus herdr answer|plugin|setup|popup|link` connect nothing for themselves (theseus-pkaq).
+async fn run_or_own(cli: Cli) -> Result<()> {
+    match &cli.cmd {
+        Cmd::Herdr { cmd } if cmd.is_own() => herdr_keys::run_own(&cli.socket, cmd).await,
+        _ => run(cli).await,
+    }
 }
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]

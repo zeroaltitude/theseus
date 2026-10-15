@@ -1,0 +1,108 @@
+# The Theseus plugin for herdr (theseus-pkaq). Link it once, as yourself:
+#
+#     herdr plugin link <this directory>      (`theseus herdr plugin` prints the line)
+#
+# Everything here is a line of `sh` calling `theseus herdr ...`; the logic is in the `theseus`
+# binary, which must be on the PATH of the herdr server. Nothing stays resident: a popup starts on
+# a key and ends when it is done. See docs/herdr.md.
+
+id = "theseus"
+name = "Theseus"
+version = "0.1.0"
+description = "Answer Theseus's questions from a key, jump to the task that has waited longest, and rebuild its panes after herdr restarts."
+min_herdr_version = "0.9.0"
+
+# After herdr starts (and after a live handoff): give each session that needs you or works its
+# pane again. `up --boot` is the quick form where this build has it; `sync` is the one that always does.
+[[startup]]
+command = ["sh", "-c", "theseus herdr up --boot 2>/dev/null || theseus herdr sync 2>/dev/null || true"]
+
+# --- actions: the keys in `theseus herdr setup` run these ---------------------------------------
+
+[[actions]]
+id = "answer"
+title = "Theseus: answer"
+description = "The answer card for the focused task's question, else the one that has waited longest"
+command = ["sh", "-c", 'exec theseus herdr popup answer ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+
+[[actions]]
+id = "next"
+title = "Theseus: next"
+description = "Focus the task that has waited longest for you"
+command = ["sh", "-c", "exec theseus herdr next"]
+
+[[actions]]
+id = "tui"
+title = "Theseus: terminal UI"
+description = "Every session, what needs you, and its history, as a popup"
+command = ["sh", "-c", "exec theseus herdr popup tui"]
+
+[[actions]]
+id = "stop"
+title = "Theseus: stop"
+description = "Stop the focused task (cancel) or session (halt), after a y/N"
+command = ["sh", "-c", 'exec theseus herdr popup stop ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+
+[[actions]]
+id = "new"
+title = "Theseus: new task"
+description = "Start a task from a line of words, with no model turn"
+command = ["sh", "-c", "exec theseus herdr popup new"]
+
+[[actions]]
+id = "open-link"
+title = "Theseus: open a link"
+description = "What a click on a theseus:// link under a question opens (the card; never an answer)"
+command = ["sh", "-c", 'exec theseus herdr link "$HERDR_PLUGIN_CLICKED_URL" ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+
+# --- the popups the actions open (`theseus herdr popup NAME`) --------------------------------------
+
+[[panes]]
+id = "answer"
+title = "Theseus: answer"
+placement = "popup"
+width = 88
+height = "70%"
+command = ["sh", "-c", 'theseus herdr answer ${THESEUS_PANE:+--pane "$THESEUS_PANE"} ${THESEUS_CID:+"$THESEUS_CID"}; sleep 2']
+
+[[panes]]
+id = "tui"
+title = "Theseus"
+placement = "popup"
+width = "92%"
+height = "90%"
+command = ["sh", "-c", "exec theseus tui"]
+
+[[panes]]
+id = "stop"
+title = "Theseus: stop"
+placement = "popup"
+width = 72
+height = 8
+command = ["sh", "-c", 'theseus herdr stop ${THESEUS_PANE:+--pane "$THESEUS_PANE"}; sleep 2']
+
+[[panes]]
+id = "history"
+title = "Theseus: history"
+placement = "popup"
+width = "92%"
+height = "90%"
+command = ["sh", "-c", 'theseus history "$THESEUS_SESSION_ARG" | ${PAGER:-less -R}']
+
+[[panes]]
+id = "new"
+title = "Theseus: new task"
+placement = "popup"
+width = 88
+height = 8
+command = ["sh", "-c", 'printf "new task: "; IFS= read -r brief && [ -n "$brief" ] && theseus task start "$brief"; sleep 2']
+
+# --- links: a click on a theseus:// link under a question opens its card ---------------------------
+# The pattern is strict: the scheme, three paths, an id. `answer` opens the card, where the owner
+# answers with a key; no link approves anything.
+
+[[link_handlers]]
+id = "card"
+title = "Theseus link"
+pattern = '^theseus://(answer|history|open)/[A-Za-z0-9_-]{1,64}$'
+action = "open-link"

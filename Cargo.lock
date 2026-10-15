@@ -6497,6 +6497,7 @@ dependencies = [
  "tempfile",
  "theseus-protocol",
  "tokio",
+ "toml",
  "unicode-width 0.2.2",
 ]
 
