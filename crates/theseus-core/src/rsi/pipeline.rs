@@ -324,7 +324,7 @@ impl Core {
             return Ok(tick);
         };
         let place = self.tools.self_pr.place(&repo);
-        let Some(q) = self.pipeline_queues(&place, seams.grace)? else {
+        let Some(q) = theseus_store::blocking(|| self.pipeline_queues(&place, seams.grace))? else {
             return Ok(tick);
         };
         let mut w = Write {
@@ -574,7 +574,7 @@ impl Core {
             return Ok(());
         };
         let place = self.tools.self_pr.place(&repo);
-        let Some(q) = self.pipeline_queues(&place, seams.grace)? else {
+        let Some(q) = theseus_store::blocking(|| self.pipeline_queues(&place, seams.grace))? else {
             return Ok(());
         };
         let mut w = Write {
@@ -633,16 +633,20 @@ impl Core {
 /// Delete an item's trees (its worktree and its build tree: regenerable,
 /// never moved to a trash), with one `cleared` row when there was any.
 fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<()> {
-    let mut gone = Vec::new();
-    if let Some(t) = tree::find(place, &e.item) {
-        tree::close(place, &t)?;
-        gone.push(t.dir.display().to_string());
-    }
-    let target = place.targets().join(tree::slug(&e.item));
-    if target.exists() {
-        std::fs::remove_dir_all(&target)?;
-        gone.push(target.display().to_string());
-    }
+    // git and the disk, off the runtime's worker (theseus_store::blocking).
+    let gone = theseus_store::blocking(|| -> Result<Vec<String>> {
+        let mut gone = Vec::new();
+        if let Some(t) = tree::find(place, &e.item) {
+            tree::close(place, &t)?;
+            gone.push(t.dir.display().to_string());
+        }
+        let target = place.targets().join(tree::slug(&e.item));
+        if target.exists() {
+            std::fs::remove_dir_all(&target)?;
+            gone.push(target.display().to_string());
+        }
+        Ok(gone)
+    })?;
     if gone.is_empty() {
         return Ok(());
     }
