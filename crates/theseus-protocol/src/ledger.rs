@@ -133,6 +133,7 @@ ledger_kinds! {
     FactCorrected = "fact.corrected",
     FactRetracted = "fact.retracted",
     FileRead = "file.read",
+    FilesRestored = "files.restored",
     GlidePosted = "glide.posted",
     GlideRead = "glide.read",
     ImageNotShown = "image.not_shown",

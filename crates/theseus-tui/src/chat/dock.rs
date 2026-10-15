@@ -22,7 +22,13 @@ pub struct DockCtx {
 pub type DockRows = fn(&Chat, &DockCtx) -> Vec<Line>;
 
 /// Every provider, top row first.
-pub const ABOVE_INPUT: &[DockRows] = &[turn_rows, tool_rows, question_rows, notice_rows];
+pub const ABOVE_INPUT: &[DockRows] = &[
+    turn_rows,
+    tool_rows,
+    question_rows,
+    super::rewind::rows,
+    notice_rows,
+];
 
 /// One part of the status line. When the line is too wide the segments of
 /// the lowest `keep` go first.

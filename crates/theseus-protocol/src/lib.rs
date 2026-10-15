@@ -56,6 +56,7 @@ mod places;
 mod push;
 pub mod resident;
 pub mod retract;
+pub mod rewind;
 pub mod route;
 pub mod rsi;
 pub mod sandbox;
@@ -102,6 +103,10 @@ pub use ontology::*;
 pub use outbox::OutboxStatus;
 pub use places::*;
 pub use push::*;
+pub use rewind::{
+    FileChange, FilesChangesParams, FilesChangesResult, FilesRestoreParams, FilesRestoreResult,
+    RestoredFile, RewindPoint,
+};
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use standing::{
     StandingAddParams, StandingChanged, StandingInfo, StandingKind, StandingListParams,
@@ -181,6 +186,9 @@ pub mod method {
         /// A new conversation from any moment of another, by reference
         /// (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",
+        /// Rewind (theseus-23rk, `rewind`): a session's messages with the
+        /// files its edits changed since each, and the restore of them.
+        FILES_CHANGES = "files.changes", FILES_RESTORE = "files.restore",
         CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
         /// Where a node went (theseus-n4m, step 12a): the contexts of its own
         /// session that held it, then its copies in other sessions over

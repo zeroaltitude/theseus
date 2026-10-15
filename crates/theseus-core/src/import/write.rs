@@ -618,6 +618,10 @@ pub(super) fn erase_in(
             forget.push(n.id.clone());
             n_nodes += 1;
         }
+        // An erased session's pre-images go with it (theseus-23rk).
+        if let Err(e) = crate::rewind::forget(store, &sid) {
+            tracing::warn!(session = %sid, error = %e, "import.erase: its pre-images were not removed");
+        }
         imp.erased = Some(Erased {
             at_ms: now,
             by: by.to_string(),

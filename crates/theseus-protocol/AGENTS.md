@@ -109,6 +109,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   created or appended sessions), and the timer's minute and the missed-night grace.
 - `fork.rs` (theseus-2qzx): `session.fork`'s params and result, and the stored `ForkOrigin` (a session record's
   `forked_from`), `Inherits` (a compilation's inherited run) and `ReachFork` (`node.reach`'s `forks`).
+- `rewind.rs` (theseus-23rk): `files.changes` (a session's messages, each with the files its edits changed since:
+  `RewindPoint`, `FileChange`, `fork_at`) and `files.restore` (`FilesRestoreParams`, `RestoredFile`,
+  `FilesRestoreResult`; `since_node` is a node or `@<WAL position>`), and `NOT_RESTORED`, the words every surface says
+  of what a rewind never restores.
 - `task_start.rs` (theseus-7oq0w): `task.start`'s `TaskStartParams` (`brief`, `title`, `home`, `budget_usd`, `profile`, the start time as
   `start_at_ms`, `start_after_ms` or `start_when`, `quotes`, `report_to`), `TaskStartResult` and `ReportTo`. The method is the
   owner's, judged by `Act::Task`.

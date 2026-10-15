@@ -32,6 +32,9 @@ pub enum Action {
     EndOfInput,
     Tab,
     Escape,
+    /// Two Escapes that reached the terminal in one read, which crossterm
+    /// reports as Alt-Esc: the rewind's Esc Esc (theseus-23rk).
+    DoubleEscape,
     /// Ctrl-O: the folded paste, whole.
     ShowPaste,
 }
@@ -78,6 +81,7 @@ pub fn map(k: KeyEvent) -> Option<Action> {
         KeyCode::Home => Action::Home,
         KeyCode::End => Action::End,
         KeyCode::Tab => Action::Tab,
+        KeyCode::Esc if alt => Action::DoubleEscape,
         KeyCode::Esc => Action::Escape,
         _ => return None,
     })

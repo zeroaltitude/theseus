@@ -1,0 +1,9 @@
+$ theseus rewind ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664 --to @166900 --files-only
+--- requests
+files.restore {"dry_run":false,"session_id":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664","since_node":"@166900"}
+--- stdout
+restored       /work/tides.py
+Restored 1 file
+undo it with `theseus rewind --to @166900 --files-only`
+--- stderr
+--- exit 0

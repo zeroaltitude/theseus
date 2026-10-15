@@ -1605,6 +1605,7 @@ impl ToolRuntime {
         let deadline = Duration::from_millis(deadline_ms);
         let timed_out = || format!("timed out after {deadline_ms} ms");
         let mut aborted = false;
+        let mut pre_images = Vec::new();
         // An async tool's failure may say more (an MCP server's, M7 36b):
         // that its outcome is unknown, or that its text is outside text.
         let mut failed = Value::Null;
@@ -1661,18 +1662,28 @@ impl ToolRuntime {
             // not the wait for one. The call's time is its run's own, timed
             // on its core: its result may wait for the turn's task, busy with
             // the frames of the calls beside it.
+            // An edit tool's files are kept first (theseus-23rk).
+            let rewind = crate::rewind::Rewind::of(tc, &call.id);
             let run = self
                 .cpu
                 .spawn(move || {
+                    let held = rewind.hold(t.as_ref(), &input, &ctx);
                     let t0 = Instant::now();
-                    (t.run_with_media(&input, &ctx), t0.elapsed())
+                    let r = t.run_with_media(&input, &ctx);
+                    (r, t0.elapsed(), rewind.settle(held, t.name()))
                 })
                 .await;
             let started = theseus_protocol::now_unix_ms();
             let t0 = Instant::now();
             let (outcome, took) = match tokio::time::timeout(deadline, run).await {
-                Ok(Ok((Ok((out, img)), took))) => (Ok((out, img, None)), took),
-                Ok(Ok((Err(f), took))) => (Err(f.message), took),
+                Ok(Ok((Ok((out, img)), took, kept))) => {
+                    pre_images = kept;
+                    (Ok((out, img, None)), took)
+                }
+                Ok(Ok((Err(f), took, kept))) => {
+                    pre_images = kept;
+                    (Err(f.message), took)
+                }
                 Ok(Err(join)) => (Err(format!("the tool panicked: {join}")), t0.elapsed()),
                 Err(_) => (Err(timed_out()), t0.elapsed()),
             };
@@ -1757,7 +1768,7 @@ impl ToolRuntime {
             Some(_) => Accepted::LateAfterCancel {
                 correlation_id: correlation_id.into(),
             },
-            None => self.complete(tc, &c, &node)?,
+            None => self.complete(tc, &c, &node, crate::rewind::records(&pre_images)?)?,
         };
         // A call a cancel settled while it ran: its completion is recorded on
         // the action alone, and the kernel dropped the node that rode with it.
@@ -1890,10 +1901,19 @@ impl ToolRuntime {
     /// read since it was last trusted brings the session's hold in the same
     /// frame, under the session record's lock (theseus-9bp): no crash leaves
     /// the text in the context without the hold.
-    fn complete(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<Accepted> {
+    /// Complete a call, with records that ride in the same frame (an edit's
+    /// pre-images, theseus-23rk).
+    fn complete(
+        &self,
+        tc: &TurnCtx<'_>,
+        c: &Completion,
+        node: &Node,
+        extra: Vec<theseus_store::NewRecord>,
+    ) -> Result<Accepted> {
         let sid = tc.session_id;
         let (accepted, newly) =
-            crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |frame| {
+            crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |mut frame| {
+                frame.extend(extra);
                 tc.kernel.accept_completion_with(c, frame)
             })?;
         self.held(tc, newly);

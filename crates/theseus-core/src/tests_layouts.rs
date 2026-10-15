@@ -527,7 +527,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +579,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,7 +634,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -686,11 +686,75 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 33);
+    assert_eq!(moved["format"], 34);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
     let got = board.get("tide-gauges").unwrap();
     assert_eq!(got.state, ThreadState::Paused);
     assert_eq!(got.card, t.card);
+}
+
+/// A pre-image as format 34 wrote it (theseus-23rk, the record kind's first
+/// layout): a literal, so a later change to `PreImage` must still read it and
+/// write it back byte for byte.
+pub(crate) const PRE_IMAGE_AT_34: &str = r#"{"session_id":"ses_harbour","call_id":"toolu_edit1","tool":"fs.edit","path":"/work/tides.py","before":{"state":"kept","digest":"6b1e2f0c9a4d7e3b5c8f1a2d4e6b9c0f3a5d7e9b1c4f6a8d0e2b5c7f9a1d3e6b","bytes":812},"after":"9f2c1d7e0a5b3c8d6e4f1a2b7c9d0e3f5a8b6c4d2e1f0a9b8c7d6e5f4a3b2c1d","added":1,"removed":1,"at_ms":1790000000340}"#;
+
+#[test]
+fn a_format_34_pre_image_reads_and_writes_back_byte_for_byte() {
+    let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_34).unwrap();
+    assert_eq!(p.tool, "fs.edit");
+    assert!(matches!(
+        p.before,
+        crate::rewind::Before::Kept { bytes: 812, .. }
+    ));
+    assert_eq!(serde_json::to_string(&p).unwrap(), PRE_IMAGE_AT_34);
+    // The other states of a file before an edit round-trip too.
+    for before in [
+        crate::rewind::Before::Absent,
+        crate::rewind::Before::TooBig { bytes: 2_000_000 },
+        crate::rewind::Before::Unread {
+            why: "not a regular file".into(),
+        },
+    ] {
+        let q = crate::rewind::PreImage {
+            before,
+            after: None,
+            ..p.clone()
+        };
+        let again: crate::rewind::PreImage =
+            serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
+        assert_eq!(again, q);
+    }
+}
+
+/// A store of format 33, which holds a session and no pre-image: the build
+/// opens it, takes a pre-image, and moves the manifest to 34, which an older
+/// build then refuses. The record reads back through its scope.
+#[test]
+fn a_format_33_store_opens_and_takes_a_pre_image() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        store.put_session(&rec.session_id, &rec).unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    assert!(store
+        .scope_after("rewind:ses_harbour", 0)
+        .unwrap()
+        .is_empty());
+    let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_34).unwrap();
+    store.append(&[p.record(0).unwrap()]).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 34);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, p);
 }

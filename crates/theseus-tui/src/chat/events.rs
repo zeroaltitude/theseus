@@ -68,6 +68,9 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
+            Purpose::RewindPoints => self.rewind_points(v),
+            Purpose::RewindRestore(going) => self.rewind_restored(going, v),
+            Purpose::RewindFork(going) => self.rewind_forked(going, v),
         }
     }
 
@@ -103,6 +106,18 @@ impl Chat {
                     Sty::Red,
                     &format!("✗ the answer was refused: {}", e.message),
                 );
+                Vec::new()
+            }
+            Purpose::RewindPoints => {
+                self.rewind_failed("could not list your messages", &e.message);
+                Vec::new()
+            }
+            Purpose::RewindRestore(_) => {
+                self.rewind_failed("the files were not restored", &e.message);
+                Vec::new()
+            }
+            Purpose::RewindFork(_) => {
+                self.rewind_failed("the conversation was not rewound", &e.message);
                 Vec::new()
             }
         }
@@ -186,6 +201,12 @@ impl Chat {
             self.node_line(n);
         }
         self.gap();
+        if let Some(from) = self.rewound.take() {
+            self.say_words(
+                Sty::Cyan,
+                &format!("↩ rewound · the original is kept: theseus chat {from}"),
+            );
+        }
         if self.question.is_none() {
             if let Some(q) = h.pending_confirms.first() {
                 self.ask(q.clone());

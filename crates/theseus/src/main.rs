@@ -43,6 +43,7 @@ mod print;
 mod prompt;
 mod remind;
 mod retract;
+mod rewind_cmd;
 mod self_cmd;
 mod standing_cmd;
 mod status;
@@ -82,6 +83,7 @@ Quick start:
   theseus wakes                              pending wakes (wake.at): session, due time, and note
   theseus reach <node>                       where a node went: the contexts that held it, its copies, and the forks that took it
   theseus fork <node>                        a new conversation from that moment of another, by reference (both stay)
+  theseus rewind --to <node>                 put the files your agent's edits changed, and the conversation, back to before a message
   theseus cancel <id>                       stop a task and its jobs, or cancel a wake (its last six characters are enough)
   theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
@@ -239,6 +241,27 @@ enum Cmd {
         /// The session NODE is in, when NODE alone does not name it (default: NODE's own).
         #[arg(long, value_name = "SESSION")]
         session: Option<String>,
+    },
+    /// Rewind (files.restore, session.fork): put the files Theseus's own edit tools changed, and the
+    /// conversation, back to before one of your messages. The files first, each only where it still
+    /// holds what the last edit wrote (a file you changed since is listed, never touched; files a
+    /// program changed are never restored; one over 1 MiB is not kept), then a new conversation
+    /// forked at the node before the message, with the original left as it is. `--to @POSITION`
+    /// with `--files-only` undoes a restore. The chat does this on Esc Esc.
+    Rewind {
+        /// The conversation (default: the one the message is in).
+        #[arg(value_name = "SESSION")]
+        session: Option<String>,
+        /// The message to go back to before: its id, or its last 6 or more characters, as `theseus
+        /// history` prints it (msg·a1b2c3), or `@POSITION` to undo a restore.
+        #[arg(long, value_name = "NODE")]
+        to: String,
+        /// Put the files back; the conversation stays where it is.
+        #[arg(long, conflicts_with = "conversation_only")]
+        files_only: bool,
+        /// Fork the conversation at the node before the message; the files stay as they are.
+        #[arg(long)]
+        conversation_only: bool,
     },
     /// Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web
     /// UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any
@@ -1157,6 +1180,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
+        cmd @ Cmd::Rewind { .. } => rewind_cmd::cmd(c, json, cmd).await,
         Cmd::Places => cmd::places(c, json).await,
         Cmd::Retract { node, why } => retract::run(c, json, node, why).await,
         Cmd::Publish {

@@ -622,7 +622,10 @@ const BULK: usize = 4096;
 /// record), the place records `discord.session.thread:<slug>` of their
 /// virtual places, and the ledger kinds `thread.created`, `.edited`,
 /// `.paused`, `.resumed`, `.done` and `.reopened`.
-const MANIFEST_FORMAT: u32 = 33;
+/// 34 = pre-images (theseus-23rk): the `PRE_IMAGE` record kind, one for each
+/// file an edit tool changed, scoped `rewind:<session>`, and the ledger kinds
+/// `files.restored` and `session.rewound`.
+const MANIFEST_FORMAT: u32 = 34;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

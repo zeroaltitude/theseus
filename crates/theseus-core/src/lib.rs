@@ -79,6 +79,7 @@ pub mod recall;
 pub mod resident;
 pub mod restore;
 pub mod retract;
+pub mod rewind;
 pub mod routing;
 pub mod rpc;
 pub mod rsi;

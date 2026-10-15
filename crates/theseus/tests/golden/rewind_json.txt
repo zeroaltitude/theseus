@@ -1,0 +1,22 @@
+$ theseus --json rewind ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664 --to msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3 --conversation-only
+--- requests
+files.changes {"node":"msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3","session_id":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664"}
+session.fork {"at":"asm_0198d3a0b1c2d3e4f5a6b7c8d9a1b2b0","session":"ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664"}
+--- stdout
+{
+  "forked": {
+    "at_node": "asm_0198d3a0b1c2d3e4f5a6b7c8d9a1b2b0",
+    "at_position": 166100,
+    "bytes": 1433,
+    "compilation_id": "cmp_f1",
+    "ms": 3,
+    "not_restored": "files and what programs did after the fork point (they ran in the original)",
+    "session_id": "ses_0198d3a0b1c2d3e4f5a6b7c8d9e0f00d",
+    "source_session": "ses_0198d3a0b1c2d3e4f5a6b7c8d9e06664",
+    "title": "refactor the writer (fork)"
+  },
+  "node": "msg_0198d3a0b1c2d3e4f5a6b7c8d9a1b2c3",
+  "restored": null
+}
+--- stderr
+--- exit 0

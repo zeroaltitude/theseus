@@ -35,6 +35,10 @@ pub mod kinds {
     /// A task record (M7 39a, theseus-ext.6): the task graph, by `tsk_…` id;
     /// each version is a new record, the latest the task now.
     pub const TASK: RecordKind = 12;
+    /// A file's bytes as an edit tool found them (theseus-23rk, store format
+    /// 34): one record for each file an `fs.edit`, `fs.write` or `fs.patch`
+    /// changed, scoped `rewind:<session>`, its blob in the store's blobs.
+    pub const PRE_IMAGE: RecordKind = 13;
 
     pub fn name(k: RecordKind) -> &'static str {
         match k {
@@ -49,6 +53,7 @@ pub mod kinds {
             COMPILATION => "compilation",
             OUTBOX => "outbox",
             TASK => "task",
+            PRE_IMAGE => "pre_image",
             _ => "unknown",
         }
     }

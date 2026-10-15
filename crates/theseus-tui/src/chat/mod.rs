@@ -26,6 +26,7 @@ mod guard;
 mod keys;
 mod live;
 mod render_seam;
+mod rewind;
 mod run;
 mod screen;
 mod state;
@@ -33,6 +34,8 @@ mod style;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_rewind;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;

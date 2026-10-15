@@ -50,6 +50,7 @@ mod policy;
 mod proposal_groups;
 mod proposals;
 mod publish;
+mod rewind;
 mod route_correct;
 mod rsi;
 mod server;
@@ -85,6 +86,8 @@ mod tests_lists;
 mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;
+#[cfg(test)]
+mod tests_rewind;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]
