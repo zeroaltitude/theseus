@@ -21,6 +21,7 @@ pub mod calendar;
 pub mod discord;
 mod index;
 pub use index::IndexConfig;
+pub mod card;
 mod cockpit;
 pub mod earned;
 pub(crate) mod import;
@@ -203,6 +204,10 @@ pub struct Config {
     /// `[people]`: people proposed from text (theseus-wy7y), `config/people.rs`.
     #[serde(default, skip_serializing_if = "people::PeopleConfig::is_default")]
     pub people: people::PeopleConfig,
+    /// `[card]`: the owner card proposed from the imported history
+    /// (theseus-slvl.6), `config/card.rs`.
+    #[serde(default, skip_serializing_if = "card::CardConfig::is_default")]
+    pub card: card::CardConfig,
     /// `[import]`: the nightly OpenClaw sync (theseus-pjmj7), off until `[import.openclaw] state_dir` is set,
     /// in `config/import.rs`.
     #[serde(default, skip_serializing_if = "import::ImportConfig::is_default")]
@@ -1448,6 +1453,7 @@ impl Config {
         self.notify.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
+        self.card.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1867,6 +1873,8 @@ pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_card;
 #[cfg(test)]
 mod tests_fresh;
 #[cfg(test)]

@@ -62,6 +62,7 @@ pub const SPEND_KINDS: [&str; 14] = [
     "judge.proposal",
     "people.extracted",
     "thread.imported",
+    "card.proposed",
     "keep_warm",
     "initiative.spoke",
 ];

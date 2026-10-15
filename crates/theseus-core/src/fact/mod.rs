@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod arrangement;
 pub mod cancel;
+pub mod card;
 pub mod check;
 pub mod compaction;
 pub mod disk;
@@ -531,6 +532,8 @@ facts![
     initiative::PromiseUnkept<'static>,
     initiative::InitiativeSpoke<'static>,
     initiative::InitiativeRated<'static>,
+    card::CardProposed<'static>,
+    card::CardAnswered<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

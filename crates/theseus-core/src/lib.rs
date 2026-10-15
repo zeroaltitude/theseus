@@ -19,6 +19,7 @@ pub mod books;
 pub mod broker;
 pub mod bus;
 pub mod cancel;
+pub mod card;
 pub mod catalog;
 pub mod ceiling;
 pub mod census;

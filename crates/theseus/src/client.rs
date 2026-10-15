@@ -296,7 +296,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 72] = [
+pub const OPERATORS: [(&str, &str); 75] = [
     (method::VOICE_AUDITION, "theseus voice audition"),
     (method::INITIATIVE_RATE, "theseus notices rate"),
     (method::FILES_RESTORE, "theseus rewind"),
@@ -352,6 +352,9 @@ pub const OPERATORS: [(&str, &str); 72] = [
     (method::EXECUTION_DISMISS, "theseus dismiss"),
     (method::TASK_RETRY, "theseus retry"),
     (method::STANDING_ADD, "theseus standing add"),
+    (method::CARD_PROPOSE, "theseus card propose"),
+    (method::CARD_ANSWER, "theseus card keep|edit|decline"),
+    (method::CARD_DONE, "theseus card done"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),
@@ -499,6 +502,18 @@ mod tests {
             assert!(e.to_string().contains("theseus standing"), "{e}");
         }
         assert!(refuse_in_a_job(method::STANDING_LIST, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot run the card's job, answer its questions or
+    /// stop it (theseus-slvl.6): what the owner's card holds is the owner's
+    /// to accept. The list is a read, and goes.
+    #[test]
+    fn a_jobs_process_cannot_write_the_card() {
+        for m in [method::CARD_PROPOSE, method::CARD_ANSWER, method::CARD_DONE] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().contains("theseus card"), "{e}");
+        }
+        assert!(refuse_in_a_job(method::CARD_LIST, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     /// A job's process cannot make or change a thread (theseus-nhew): the

@@ -80,6 +80,8 @@ ledger_kinds! {
     BudgetReached = "budget.reached",
     BudgetReopened = "budget.reopened",
     BudgetReset = "budget.reset",
+    CardAnswered = "card.answered",
+    CardProposed = "card.proposed",
     CompletionDuplicate = "completion.duplicate",
     CompletionLateAfterCancel = "completion.late_after_cancel",
     CompletionQuarantined = "completion.quarantined",

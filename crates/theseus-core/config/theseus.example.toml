@@ -1156,6 +1156,23 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # day that no extraction read (the gate shut), under this
 #                                         # many dollars a local day; 0 turns it off; off with live
 
+# ---------------------------------------------------------------- card
+# The owner card, proposed from the imported history (theseus-slvl.6). A job
+# (`theseus card propose`, and nightly at [judge] learning_hour at most every
+# every_days until `theseus card done`) reads the archive's feedback and SOP
+# notes, USER-style files and decision_or_preference episodes, clusters the
+# near-duplicates, and asks a cheap model to state each cluster as one short
+# fact or preference about the owner, citing the episodes it rests on. Each is
+# a question the owner keeps, edits or drops (`theseus card`); nothing is added
+# by itself. A partner-confidential episode is never read; a statement that
+# repeats a live standing record, or one already answered, is not asked again.
+# [card]
+# profile = "haiku"                       # the profile that states the clusters
+# day_usd = 2.0                           # the job's spend a local day; 0 turns it off
+# max_open = 30                           # the most proposals waiting at once
+# ask_days = 14                           # an unanswered proposal becomes "Not this" after this long
+# every_days = 7                          # the nightly run at most this often; 0: only `theseus card propose`
+
 # ---------------------------------------------------------------- import
 # The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that
 # `scripts/user-service.sh sync-timer install` installs): OpenClaw's own session stores
