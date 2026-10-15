@@ -226,6 +226,15 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Resume { slug } => moved(conn, json, method::THREAD_RESUME, slug).await,
         ThreadCmd::Done { slug } => moved(conn, json, method::THREAD_DONE, slug).await,
         ThreadCmd::Reopen { slug } => moved(conn, json, method::THREAD_REOPEN, slug).await,
+        cmd @ (ThreadCmd::Merge { .. } | ThreadCmd::Unmerge { .. } | ThreadCmd::Split { .. }) => {
+            join(conn, json, cmd).await
+        }
+    }
+}
+
+/// `merge`, `unmerge` and `split` (theseus-vt9k).
+async fn join(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
+    match cmd {
         ThreadCmd::Merge { from, into } => {
             let p = ThreadMergeParams {
                 from,
@@ -273,6 +282,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
                 Ok(())
             })
         }
+        _ => unreachable!("run sends only the joins here"),
     }
 }
 
