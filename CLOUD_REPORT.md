@@ -48,3 +48,6 @@ Start a daemon on a fresh state dir with the owner's config and bindings (a DM a
 8. `/quiet for:30m` → "🔕 Quiet until …", the board header says so, new needs-you cards are created silent; `/quiet for:off` ends it. Restart the daemon during a quiet: it is still quiet.
 9. Right-click a message › Apps › **Make this a task**: the modal shows the message's text as the quote; set a budget and "Silently to the board" and submit. The task starts with `$N`, and `theseus task show` (or the cockpit) shows its session as holding outside text. `/task name:new` and the board's **➕ New task** open the same modal without a quote.
 10. A failed task (stop a model key to make one fail): the board row shows `[↻ Retry …abc123] [✓ Dismiss …abc123]`; Details has them too. Dismiss removes it from needs-you everywhere; Retry opens a linked task.
+
+## Test results (final tree, `CARGO_PROFILE_DEV_DEBUG=0`)
+`cargo nextest run -p theseus-protocol -p theseus-discord -p theseus`: 1071 passed, 1 skipped, 0 failed. `cargo nextest run -p theseus-core retry`: 20 passed. The rest of the workspace suite was not run (disk allowance).
