@@ -130,13 +130,13 @@ mod tests_thread_context;
 #[cfg(test)]
 mod tests_thread_import;
 #[cfg(test)]
+mod tests_thread_keep_warm;
+#[cfg(test)]
 mod tests_thread_recall;
 #[cfg(test)]
 mod tests_thread_route;
 #[cfg(test)]
 mod tests_thread_surface;
-#[cfg(test)]
-mod tests_thread_keep_warm;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]

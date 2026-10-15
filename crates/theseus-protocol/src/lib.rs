@@ -80,8 +80,8 @@ pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod tests_task_info;
-pub mod thread_route;
 pub mod thread_cache;
+pub mod thread_route;
 pub mod threads;
 pub mod threads_import;
 mod toolinfo;

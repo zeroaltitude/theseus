@@ -263,7 +263,7 @@ impl crate::rpc::Core {
 
     /// The sessions of the threads the board holds, each with whether it was
     /// there before today's window.
-    fn thread_sessions(&self) -> BTreeMap<String, bool> {
+    fn warm_thread_sessions(&self) -> BTreeMap<String, bool> {
         let Some(board) = self.runner.threads.held() else {
             return BTreeMap::new();
         };
@@ -312,7 +312,7 @@ impl crate::rpc::Core {
     }
 
     fn read_threads_cache(&self) -> ThreadsCache {
-        let sessions = self.thread_sessions();
+        let sessions = self.warm_thread_sessions();
         let stats = self.thread_cache_stats(&sessions);
         let day = crate::keep_warm::today(&self.kernel);
         let Some(board) = self.runner.threads.held() else {

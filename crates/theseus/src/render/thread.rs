@@ -159,6 +159,7 @@ pub(crate) mod tests {
             context_tokens: Some(41_200),
             today_usd: 0.0,
             cache_ttl_secs: Some(3600),
+            cache: None,
         }
     }
 

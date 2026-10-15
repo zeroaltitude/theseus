@@ -211,14 +211,7 @@ mod tests {
         }
         assert_eq!(cfg.threads.resume_keep_turns, 6);
         assert_eq!(cfg.threads.working_tokens, 60_000);
-        assert_eq!(cfg.threads.keep_warm_hours, 4.0);
-        let off = crate::Config::from_toml("[threads]\nkeep_warm_hours = 0\n").unwrap();
-        assert_eq!(off.threads.keep_warm_hours, 0.0);
-        for bad in [
-            "resume_keep_turns = 0",
-            "working_tokens = 10",
-            "keep_warm_hours = -1",
-        ] {
+        for bad in ["resume_keep_turns = 0", "working_tokens = 10"] {
             assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
@@ -230,6 +223,19 @@ mod tests {
             let note = format!("{secrets}\n[threads]\n{bad}\n");
             assert!(crate::Config::parse(&note).is_err(), "{bad}");
         }
+    }
+
+    /// `keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
+    /// negative window is refused (theseus-ytt8).
+    #[test]
+    fn the_keep_warm_window_is_four_hours_and_zero_is_none() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert_eq!(cfg.threads.keep_warm_hours, 4.0);
+        let off = crate::Config::from_toml("[threads]\nkeep_warm_hours = 0\n").unwrap();
+        assert_eq!(off.threads.keep_warm_hours, 0.0);
+        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        let bad = format!("{secrets}\n[threads]\nkeep_warm_hours = -1\n");
+        assert!(crate::Config::parse(&bad).is_err());
     }
 
     /// `discord_channel` is off by default, named in the template, takes a
