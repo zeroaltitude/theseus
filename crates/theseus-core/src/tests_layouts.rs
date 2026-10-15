@@ -112,6 +112,18 @@ pub(crate) const COMPILATION_BEFORE_PREFIX: &str = r#"{"id":"cmp_000000000000000
 /// layout the build before theseus-j7cje writes.
 pub(crate) const TASK_SESSION_BEFORE_NOTIFY: &str = r#"{"session_id":"ses_00000000000000000000000000000331","kind":"task","label":"task","created_at_unix_ms":1790000000331,"turns":1,"last_turn_id":"turn_00000000000000000000000000000333","usage":{"input_tokens":400,"output_tokens":60,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000331","compilation_id":"cmp_00000000000000000000000000000332","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000339,"cost_usd":0.004,"tool_calls":0,"title":"Sound the outer channel","task":{"parent_session":"ses_00000000000000000000000000000330","parent_execution":"exe_00000000000000000000000000000330","by":"act_00000000000000000000000000000330","arrangement":"arr_00000000000000000000000000000331"}}"#;
 
+/// A plan item as format 34 wrote it (theseus-pvm5c's build; the layout is
+/// unchanged since 19), before a task's long-term kind, date and review
+/// (`kind`, `due_at_ms`, `review`, format 45, theseus-n5ui2). It reads as an
+/// item with no date and no review, and writes back byte for byte. By hand, in
+/// the layout the build before theseus-n5ui2 (f8975aac) writes.
+pub(crate) const TASK_BEFORE_PROJECTS: &str = r#"{"id":"tsk_00000000000000000000000000000301","version":3,"title":"Chart the reef","objective":"chart the reef's north edge","acceptance":["every marker has a depth"],"state":"accepted","parent":"tsk_00000000000000000000000000000300","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator","by_model":true},"evidence":[],"claim":{"by":"exe_00000000000000000000000000000302","session":"ses_00000000000000000000000000000302","until_ms":1790000900000},"created_at_ms":1790000000301,"updated_at_ms":1790000000305}"#;
+
+/// A session as format 34 wrote it, before the project it serves (`project`,
+/// format 45, theseus-n5ui2). It reads with no project, and writes back byte
+/// for byte. By hand, in the layout the build before theseus-n5ui2 writes.
+pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_00000000000000000000000000000311","kind":"conversation","label":null,"created_at_unix_ms":1790000000311,"turns":2,"last_turn_id":"turn_00000000000000000000000000000313","usage":{"input_tokens":700,"output_tokens":90,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"execution_id":"exe_00000000000000000000000000000311","compilation_id":"cmp_00000000000000000000000000000312","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000319,"cost_usd":0.0066,"tool_calls":0,"title":"Plan the harbour survey","dir":"/work/harbour"}"#;
+
 const SAMPLES: &[Sample] = &[
     Sample {
         kind: kinds::COMPILATION,
@@ -129,6 +141,18 @@ const SAMPLES: &[Sample] = &[
         kind: kinds::SESSION,
         layout: "a task's session at format 33 (theseus-nhew's): before the owner's flag on it (43, theseus-j7cje)",
         bytes: TASK_SESSION_BEFORE_NOTIFY,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::TASK,
+        layout: "a plan item at format 34 (theseus-pvm5c's; unchanged since 19): before a task's kind, date and review (45, theseus-n5ui2)",
+        bytes: TASK_BEFORE_PROJECTS,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 34 (theseus-pvm5c's; unchanged since 32): before the project it serves (45, theseus-n5ui2)",
+        bytes: SESSION_BEFORE_PROJECT,
         kept: Kept::All,
     },
     Sample {
@@ -570,7 +594,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -581,7 +605,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 44. The
+/// with a row that counts and pins them, and the manifest moves to 45. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -622,7 +646,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -630,7 +654,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 44,
+/// both with no origin and no inherited run, and moves the manifest to 45,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -677,7 +701,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -706,7 +730,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 44,
+/// it, reads an empty board, takes a thread and moves the manifest to 45,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -729,7 +753,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -815,7 +839,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -855,7 +879,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 44,
+/// A store of format 33 opens, and its first write moves the manifest to 45,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -880,7 +904,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -927,7 +951,7 @@ fn a_format_33_standing_record_reads_and_a_surface_scope_writes_back() {
 }
 
 /// A store of format 33 that holds a standing record: the build opens it,
-/// reads the record, takes a surface-scoped one, and moves the manifest to 44,
+/// reads the record, takes a surface-scoped one, and moves the manifest to 45,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
@@ -954,7 +978,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -998,7 +1022,7 @@ fn a_format_40_pre_image_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 39, which holds a session and no pre-image: the build
-/// opens it, takes a pre-image, and moves the manifest to 44, which an older
+/// opens it, takes a pre-image, and moves the manifest to 45, which an older
 /// build then refuses. The record reads back through its scope.
 #[test]
 fn a_format_39_store_opens_and_takes_a_pre_image() {
@@ -1020,7 +1044,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1097,7 +1121,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let lib = crate::prefix::Library::default();
@@ -1149,7 +1173,7 @@ fn format_33_extension_and_hands_records_read_and_write_back_byte_for_byte() {
 }
 
 /// A store of format 33 opens, reads its extensions with no hands, takes an
-/// extension's hands book, and moves the manifest to 44, which an older
+/// extension's hands book, and moves the manifest to 45, which an older
 /// build then refuses.
 #[test]
 fn a_format_33_store_opens_with_no_hands_and_takes_them() {
@@ -1171,5 +1195,26 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
         .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 44);
+    assert_eq!(moved["format"], 45);
+}
+
+/// A task from before projects reads as a plain item, with no date and no
+/// review, and a project's three fields survive a round trip.
+#[test]
+fn a_format_34_task_reads_as_an_item_and_a_project_round_trips() {
+    use theseus_protocol::tasks::{TaskKind, TaskRecord};
+    let old: TaskRecord = serde_json::from_str(TASK_BEFORE_PROJECTS).unwrap();
+    assert_eq!(old.kind, TaskKind::Item);
+    assert_eq!((old.due_at_ms, old.review.as_deref()), (None, None));
+    assert_eq!(serde_json::to_string(&old).unwrap(), TASK_BEFORE_PROJECTS);
+    let mut project = old;
+    project.kind = TaskKind::Project;
+    project.review = Some("ses_00000000000000000000000000000321".into());
+    project.due_at_ms = Some(1_790_100_000_000);
+    let text = serde_json::to_string(&project).unwrap();
+    assert!(text.contains(r#""kind":"project""#) && text.contains(r#""due_at_ms":1790100000000"#));
+    assert_eq!(serde_json::from_str::<TaskRecord>(&text).unwrap(), project);
+    let s: SessionRecord = serde_json::from_str(SESSION_BEFORE_PROJECT).unwrap();
+    assert_eq!(s.project, None);
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_PROJECT);
 }

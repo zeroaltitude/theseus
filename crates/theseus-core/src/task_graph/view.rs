@@ -47,6 +47,7 @@ pub fn is_head(text: &str) -> bool {
     text.starts_with(HEAD)
         || text.starts_with(crate::commitments::HEAD)
         || text.starts_with(crate::standing::HERE)
+        || text.starts_with(crate::project::slice::HEAD)
 }
 
 /// The view's text and what it showed.

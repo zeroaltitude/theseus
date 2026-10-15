@@ -122,6 +122,34 @@ struct Input {
     start_at: Option<String>,
     #[serde(default)]
     start_after: Option<String>,
+    /// `project` or `milestone` (theseus-n5ui2): a plan item of a long-term
+    /// kind. A project takes `milestones` and a weekly `review`; a milestone
+    /// takes `parent` (its project) and `due`.
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    due: Option<String>,
+    #[serde(default)]
+    milestones: Vec<theseus_protocol::projects::MilestoneSpec>,
+    #[serde(default)]
+    review: Option<String>,
+}
+
+/// A plan item's long-term kind (theseus-n5ui2) and what only it takes.
+fn parse_kind(i: &Input) -> Result<theseus_protocol::tasks::TaskKind, String> {
+    use theseus_protocol::tasks::TaskKind;
+    let kind = match i.kind.as_deref() {
+        None => TaskKind::Item,
+        Some(k) => TaskKind::parse(k)
+            .ok_or_else(|| format!("kind is `item`, `project`, or `milestone`, not `{k}`"))?,
+    };
+    if kind != TaskKind::Project && (!i.milestones.is_empty() || i.review.is_some()) {
+        return Err("`milestones` and `review` belong to `kind: project`".into());
+    }
+    if kind == TaskKind::Item && i.due.is_some() {
+        return Err("`due` belongs to a milestone or a project (`kind`)".into());
+    }
+    Ok(kind)
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
@@ -139,8 +167,16 @@ fn input_of(input: &Value) -> Result<Input, String> {
             return Err("give a `brief` to start a task session, or a `title` to record a plan                         item"
                 .into());
         }
+        parse_kind(&i)?;
         return Ok(i);
     };
+    if i.kind.is_some() || i.due.is_some() || !i.milestones.is_empty() || i.review.is_some() {
+        return Err(
+            "`kind`, `due`, `milestones` and `review` shape a plan item: leave `brief` out to \
+             record a project or a milestone"
+                .into(),
+        );
+    }
     if brief.trim().is_empty() {
         return Err("the brief is empty: say what the task should do".into());
     }
@@ -285,6 +321,10 @@ impl Tool for TaskCreate {
                 "check_of": {"type": "string", "description": "Start a check of this task (its id, or the end of it): one this conversation started, which has reported."},
                 "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
                 "start_after": {"type": "string", "description": "Defer the task: it sleeps and starts this long from now, a duration such as 2h or 1d (1 second to 365 days). Its budget is carved now."},
+                "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (with `objective`, `milestones` [{title, due}], a weekly `review` schedule or `none`; the review waits for the owner's yes) or `milestone` (`parent` a project, `due` its date; the owner is reminded)."},
+                "due": {"type": "string", "description": "A milestone's or project's date: `2026-11-03`, `fri 09:00`, `in 3d`."},
+                "milestones": {"type": "array", "maxItems": 32, "items": {"type": "object", "properties": {"title": {"type": "string"}, "due": {"type": "string"}}, "required": ["title"]}},
+                "review": {"type": "string"},
                 "start_at": {"type": "string", "description": "Defer the task: it starts at this RFC 3339 time with its offset, such as 2026-10-16T09:00:00-07:00 (1 second to 365 days ahead)."}
             },
             "additionalProperties": false
@@ -308,8 +348,25 @@ impl Tool for TaskCreate {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
         let Some(brief) = &i.brief else {
+            let title = i.title.as_deref().unwrap_or_default().trim().to_string();
+            if parse_kind(&i)? == theseus_protocol::tasks::TaskKind::Project
+                && i.review.as_deref().map(str::trim) != Some("none")
+            {
+                // A review is a routine, which spends money on a schedule:
+                // the call waits for the owner's yes (`ASKS_REVIEW`).
+                return Ok(Plan {
+                    summary: crate::project::card(&title, i.milestones.len(), i.review.as_deref()),
+                    authority: Some(crate::project::ASKS_REVIEW.into()),
+                    ..Default::default()
+                });
+            }
+            let what = i
+                .kind
+                .as_deref()
+                .filter(|k| matches!(*k, "project" | "milestone"))
+                .unwrap_or("plan item");
             return Ok(Plan {
-                summary: format!("record a plan item: {}", i.title.unwrap_or_default().trim()),
+                summary: format!("record a {what}: {title}"),
                 ..Default::default()
             });
         };
@@ -401,7 +458,10 @@ pub fn create<'a>(
     tc: &TurnCtx<'a>,
     input: &Value,
     correlation_id: &str,
-    profiles: &std::collections::BTreeMap<String, TargetRef>,
+    (profiles, ext): (
+        &std::collections::BTreeMap<String, TargetRef>,
+        crate::project::Ext<'_>,
+    ),
     forecasts: &crate::forecast::Book,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
@@ -410,6 +470,11 @@ pub fn create<'a>(
         return crate::task_graph::tools::create_item(
             tc,
             &crate::task_graph::tools::Item {
+                kind: parse_kind(&i)?,
+                due: i.due.as_deref(),
+                milestones: &i.milestones,
+                review: i.review.as_deref(),
+                ext: Some(ext),
                 title: i.title.as_deref(),
                 objective: i.objective.as_deref(),
                 acceptance: &i.acceptance,

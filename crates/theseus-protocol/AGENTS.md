@@ -198,6 +198,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `notices::Rules::initiative` carries it into `policy()` (`Rules::shaped`: at `quiet` a finished root and a no-purpose or
   check-in wake inform instead of interrupting, a reminder and a met watch never; at `chatty` a promised check-in
   interrupts; `normal` is the table as written). The wire types of `initiative.rate` (a 👍 or 👎) and `initiative.week`.
+- `projects.rs` (theseus-n5ui2): projects on the wire: `ProjectInfo` and `ProjectProgress` (`bar`, `▰▰▰▱▱▱▱ 3/7`), the four `project.*`
+  methods' params and results, `ProjectSliceSummary` (`context.compiled`'s `project`), and `DEFAULT_REVIEW`. `TaskRecord` gained `kind`
+  (`TaskKind`), `due_at_ms` and `review` (store format 45, each left out of the bytes at its default). `notices.rs` reads a reminder
+  whose note begins `⚑` as a milestone's (`MILESTONE_MARK`, no clock icon), and `⚑ overdue` as `Why::Overdue`: an Interrupt with no sound.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

@@ -654,7 +654,9 @@ const BULK: usize = 4096;
 /// `standing.proposal:<id>` META records (an imported agent's feedback,
 /// proposed and never live), with the ledger kinds `persona.imported` and
 /// `standing.proposal_answered`.
-const MANIFEST_FORMAT: u32 = 44;
+/// 45 = projects (theseus-n5ui2): a TASK record's `kind` (`project` or
+/// `milestone`), `due_at_ms` and `review`, and a session's `project`.
+const MANIFEST_FORMAT: u32 = 45;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

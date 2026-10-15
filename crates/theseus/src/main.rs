@@ -53,6 +53,7 @@ mod policy_explain;
 mod postmortem;
 mod prefix_cmd;
 mod print;
+mod project;
 mod prompt;
 mod remind;
 mod retract;
@@ -733,6 +734,16 @@ enum Cmd {
     Prefix {
         #[command(subcommand)]
         cmd: prefix_cmd::PrefixCmd,
+    },
+    /// Projects (theseus-n5ui2; also `projects`): long-term work with a goal, dated milestones that
+    /// remind you, a weekly review, and a slice in every session attached to it. `project` lists
+    /// them (a bar of milestones done, the next one and its date, the review); `project show ID` (the tree with dates), `project new TITLE --milestone
+    /// TITLE@WHEN`, `project attach SESSION ID`, `project detach SESSION`. The writes are yours alone
+    /// (refused inside a job).
+    #[command(alias = "projects")]
+    Project {
+        #[command(subcommand)]
+        cmd: Option<project::ProjectCmd>,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -1441,6 +1452,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
+        Cmd::Project { cmd } => project::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

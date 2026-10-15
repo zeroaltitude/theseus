@@ -64,6 +64,43 @@ impl TaskState {
     }
 }
 
+/// What a task is in the long run (theseus-n5ui2, store format 35): an
+/// `item` (every task before it), a `project` (a goal with milestones and a
+/// weekly review), or a `milestone` (a dated step of a project).
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskKind {
+    #[default]
+    Item,
+    Project,
+    Milestone,
+}
+
+impl TaskKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskKind::Item => "item",
+            TaskKind::Project => "project",
+            TaskKind::Milestone => "milestone",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<TaskKind> {
+        match s.trim() {
+            "item" => Some(TaskKind::Item),
+            "project" => Some(TaskKind::Project),
+            "milestone" => Some(TaskKind::Milestone),
+            _ => None,
+        }
+    }
+
+    /// For `skip_serializing_if`: an item is what a record without a kind is.
+    pub fn is_item(&self) -> bool {
+        *self == TaskKind::Item
+    }
+}
+
 /// Who asked for a task: the session its creating call ran in, and that
 /// session's principal (the requester a layer-1 change waits for).
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -190,6 +227,17 @@ pub struct TaskRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub claim: Option<TaskClaim>,
+    /// `item` (absent), `project`, or `milestone` (store format 35).
+    #[serde(default, skip_serializing_if = "TaskKind::is_item")]
+    pub kind: TaskKind,
+    /// When it is due (a milestone's date; a project's end), unix ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub due_at_ms: Option<u64>,
+    /// A project's weekly review: the id of its routine (`ses_…`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub review: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }

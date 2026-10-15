@@ -627,6 +627,8 @@ window_days = 7                         # the window the approvals are counted i
 # "wake.cancel" = "notify"
 # recurring work (routines): setting one up always waits for your yes on a card, at every posture
 # "routine.create" = "approve"
+# long-term work (projects): attaching a conversation to a project
+# "project.attach" = "notify"
 # gliding (38b): a post into another bound place, and a read of one's recent
 # conversation. Both inherit enforcement; the place rule decides the rest:
 # into a private place a glide keeps its posture, and what a read brings from
@@ -1131,6 +1133,20 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # escalate_after_secs = 60                # no screen open: the DM pings after this long
 # escalate_with_screen_secs = 300         # a screen open: after this long
 # unprompted_pace_secs = 1800            # at most one unprompted DM post (a needs-you now; the digest and nudges later) in this long, what is due meanwhile going out together; 0: no rule
+
+# ---------------------------------------------------------------- projects
+# A project is long-term work on the task graph: a goal, dated milestones that
+# remind you (a notice in your Home on the day, and one overdue notice, no
+# sound, a day after), a weekly review (a routine made with the project, whose
+# run log is its history), and a slice of it in every conversation attached to
+# it (`theseus project attach`), which survives every compaction.
+# `theseus projects`, `theseus project show <id>`.
+# [projects]
+# review_schedule = "mon 08:00"           # the weekly review, in a routine's words, when none is named
+# review_run_usd = 0.75                   # the most one review run may spend
+# review_month_usd = 6                    # a review routine's month
+# overdue_after_minutes = 1440            # how long after its date an open milestone is overdue
+# max_milestones = 32                     # the most milestones one task_create makes
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's

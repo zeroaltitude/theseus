@@ -409,6 +409,9 @@ impl NewTask<'_> {
             evidence: vec![],
             proposal: None,
             claim: None,
+            kind: Default::default(),
+            due_at_ms: None,
+            review: None,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
         }

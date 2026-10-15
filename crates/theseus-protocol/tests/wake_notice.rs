@@ -48,3 +48,33 @@ fn a_late_reminder_says_so_and_a_check_in_only_informs_with_no_answers() {
     assert_eq!(notice.urgency, Urgency::Inform);
     assert!(notice.answers.is_empty());
 }
+
+/// A project's milestone reminder reads as a milestone's (theseus-n5ui2): no
+/// clock icon, an Interrupt with its four answers; the overdue one is an
+/// Interrupt once with no sound.
+#[test]
+fn a_milestones_reminder_is_its_own_line_and_the_overdue_one_has_no_sound() {
+    use theseus_protocol::notices::{deliver, Delivery, Viewer, Why};
+    let mut n: WakeNoticed = serde_json::from_str(NOTICED).unwrap();
+    n.purpose = "remind".into();
+    n.note = "⚑ due today: Harbour survey, milestone 2: Chart the channel".into();
+    let due = reminder_notice(&n, &hm);
+    assert_eq!(
+        due.line,
+        "⚑ due today: Harbour survey, milestone 2: Chart the channel"
+    );
+    assert_eq!((due.urgency, due.why), (Urgency::Interrupt, Why::Woke));
+    assert_eq!(due.answers.len(), 4);
+    let sounds = Viewer {
+        sound: true,
+        ..Default::default()
+    };
+    assert_eq!(deliver(&due, &sounds), Delivery::Ping { sound: true });
+    n.note = "⚑ overdue: Harbour survey, milestone 2: Chart the channel".into();
+    let late = reminder_notice(&n, &hm);
+    assert_eq!((late.urgency, late.why), (Urgency::Interrupt, Why::Overdue));
+    assert_eq!(deliver(&late, &sounds), Delivery::Ping { sound: false });
+    // A plain reminder keeps its clock.
+    n.note = "stretch".into();
+    assert_eq!(reminder_notice(&n, &hm).line, "⏰ stretch");
+}

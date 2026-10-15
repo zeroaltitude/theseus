@@ -36,6 +36,7 @@ pub(crate) mod people;
 pub mod persona;
 pub mod prefix;
 pub(crate) mod route;
+mod projects;
 mod routines;
 pub(crate) mod routing;
 pub mod rsi;
@@ -46,6 +47,7 @@ mod sessions;
 mod threads;
 mod wake_limits;
 pub use cockpit::CockpitConfig;
+pub use projects::ProjectsConfig;
 pub use routines::RoutinesConfig;
 mod watches;
 pub use initiative::InitiativeConfig;
@@ -185,6 +187,9 @@ pub struct Config {
     /// `[persona]`: the agent import and the recall boost (theseus-a8n7), `config/persona_settings.rs`.
     #[serde(default, skip_serializing_if = "PersonaSettings::is_default")]
     pub persona: PersonaSettings,
+    /// `[projects]`: long-term work (theseus-n5ui2), `config/projects.rs`.
+    #[serde(default, skip_serializing_if = "ProjectsConfig::is_default")]
+    pub projects: ProjectsConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
@@ -1457,6 +1462,7 @@ impl Config {
         self.route.validate()?;
         self.prefix.validate()?;
         self.notify.validate()?;
+        self.projects.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.card.validate()?;
@@ -1551,6 +1557,7 @@ impl Config {
                 .chain(crate::task_graph::tools::NAMES)
                 .chain(crate::wake::NAMES)
                 .chain(crate::routine_tool::NAMES)
+                .chain(crate::project_tool::NAMES)
                 .chain(crate::glide::NAMES)
                 .chain(crate::extend::NAMES)
                 .chain(crate::aws::NAMES)

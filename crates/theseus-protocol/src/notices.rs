@@ -61,6 +61,9 @@ pub enum Why {
     Woke,
     /// A task passed the 90th percentile of its forecast (rule 11).
     PastForecast,
+    /// A project's milestone is past its date and still open
+    /// (theseus-n5ui2): an Interrupt once, without sound.
+    Overdue,
 }
 
 /// One notice: what changed, for whom, and its one line.
@@ -206,7 +209,7 @@ pub fn deliver(n: &Notice, v: &Viewer) -> Delivery {
     }
     match n.urgency {
         Urgency::Interrupt => Delivery::Ping {
-            sound: v.sound && !v.quiet && n.why != Why::Finished,
+            sound: v.sound && !v.quiet && !matches!(n.why, Why::Finished | Why::Overdue),
         },
         _ => Delivery::Badge,
     }
@@ -576,6 +579,14 @@ fn icon_of(purpose: &str) -> &'static str {
     }
 }
 
+/// How a project's milestone reminder begins (theseus-n5ui2): `⚑ due today:
+/// Harbour survey, milestone 2`. The notice reads the flag as a milestone's,
+/// and draws it without the clock icon a plain reminder takes.
+pub const MILESTONE_MARK: &str = "⚑";
+/// What follows the flag when the date has passed: `⚑ overdue: …`. That
+/// notice is an Interrupt once, with no sound (`Why::Overdue`).
+pub const OVERDUE_MARK: &str = "⚑ overdue";
+
 /// The notice for a notice wake that fired (`wake.noticed`): the reminder's
 /// Interrupt with its four answers, from the one event every surface reads,
 /// so each says the same words and offers the same answers. A reminder that
@@ -595,16 +606,24 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
         String::new()
     };
     let remind = n.purpose == "remind";
+    let milestone = remind && title.starts_with(MILESTONE_MARK);
+    let why = if milestone && title.starts_with(OVERDUE_MARK) {
+        Why::Overdue
+    } else {
+        Why::Woke
+    };
     let routine = routine_urgency(&n.purpose).is_some();
-    // A routine's entry says its own line (`routine_line`), not a clock.
+    // A routine's entry says its own line (`routine_line`), not a clock; a milestone's has no clock either.
     let line = if routine {
         n.note.clone()
+    } else if milestone {
+        format!("{title}{late}")
     } else {
         format!("{} {title}{late}", icon_of(&n.purpose))
     };
     Notice {
         urgency: wake_urgency(&n.purpose),
-        why: Why::Woke,
+        why,
         work: WorkRef {
             id: n.wake_id.clone(),
             kind: WorkKind::Wake,

@@ -68,6 +68,10 @@ struct Patch {
     objective: Option<String>,
     #[serde(default)]
     acceptance: Option<Vec<String>>,
+    /// A milestone's or project's date, in `wake.at`'s words; `none` clears
+    /// it (theseus-n5ui2).
+    #[serde(default)]
+    due: Option<String>,
 }
 
 impl Patch {
@@ -85,6 +89,7 @@ impl Patch {
         self.title.is_none()
             && self.deps.is_none()
             && self.owner.is_none()
+            && self.due.is_none()
             && self.layer1().is_none()
     }
 }
@@ -319,7 +324,8 @@ pub fn authority_for(
         || name == crate::watch_tool::WATCH
         || name == crate::ask::OWNER_ASK;
     // Only a task edit's authority is conditional; another tool that names one
-    // (`thread.split`) always waits for the owner.
+    // (`thread.split`, and task.create's plan naming a project's review
+    // routine, theseus-n5ui2) always waits for the owner.
     if plan.authority.is_some() && !own && is_edit(name) && !waits(store, name, input) {
         plan.authority = None;
     }
@@ -363,6 +369,7 @@ impl Tool for TaskUpdate {
                         "title": {"type": "string"},
                         "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on, replacing the list."},
                         "owner": {"type": "string", "description": "`agent`, or a person."},
+                        "due": {"type": "string", "description": "A milestone's or project's date (`2026-11-03`, `fri 09:00`, `in 3d`), or `none`. A milestone's date sets its reminder."},
                         "objective": {"type": "string", "description": "On the operator's task, a proposal that waits for the operator."},
                         "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."}
                     },
@@ -394,6 +401,7 @@ impl Tool for TaskUpdate {
             ("title", i.patch.title.is_some()),
             ("deps", i.patch.deps.is_some()),
             ("owner", i.patch.owner.is_some()),
+            ("due", i.patch.due.is_some()),
             ("objective", i.patch.objective.is_some()),
             ("acceptance", i.patch.acceptance.is_some()),
         ] {
@@ -705,6 +713,19 @@ fn update<'a>(
         rec.owner = o.trim().to_string();
         fields.push("owner");
     }
+    if let Some(d) = &i.patch.due {
+        if rec.kind == theseus_protocol::tasks::TaskKind::Item {
+            return Err(format!(
+                "task {} is a plain item: `due` belongs to a milestone or a project",
+                rec.id
+            ));
+        }
+        rec.due_at_ms = match d.trim() {
+            "none" | "" => None,
+            when => Some(crate::project::create::due_of(tc.kernel, when, "due")?),
+        };
+        fields.push("due");
+    }
     if let Some(o) = i.patch.objective {
         rec.objective = o;
         fields.push("objective");
@@ -896,6 +917,16 @@ fn close<'a>(
 /// pieces are the record's.
 #[derive(Debug, Default)]
 pub struct Item<'i> {
+    /// `project` or `milestone` (theseus-n5ui2); an item by default.
+    pub kind: theseus_protocol::tasks::TaskKind,
+    /// A milestone's or project's date, in `wake.at`'s words.
+    pub due: Option<&'i str>,
+    /// A project's milestones, made in the same frame.
+    pub milestones: &'i [theseus_protocol::projects::MilestoneSpec],
+    /// A project's review: a schedule, or `none` for no review.
+    pub review: Option<&'i str>,
+    /// What a project's review routine is made with.
+    pub ext: Option<crate::project::Ext<'i>>,
     pub title: Option<&'i str>,
     pub objective: Option<&'i str>,
     pub acceptance: &'i [String],
@@ -992,6 +1023,7 @@ pub fn create_item<'a>(
         None => vec![],
     };
     let (objective, acceptance) = from_pieces(&pieces, item.objective, item.acceptance, title);
+    let long = crate::project::create::Long::read(tc, item, &all, parent.as_deref())?;
     let rec = NewTask {
         id,
         title,
@@ -1008,15 +1040,19 @@ pub fn create_item<'a>(
         state: TaskState::Accepted,
     }
     .build(theseus_protocol::now_unix_ms());
+    let (rec, more, said) = long.apply(tc, rec, item)?;
     let mut done = Done::default();
     done.row(
         tc,
         "created",
         change(tc, &rec, None, json!({"pieces": pieces.len()})),
     )?;
+    for m in &more {
+        done.row(tc, "created", change(tc, m, None, json!({"pieces": 0})))?;
+    }
     done.text = format!(
         "Recorded task {} as a plan item (no session works on it; split it, close it with its \
-         evidence, or start a task session for it with `brief`): {}",
+         evidence, or start a task session for it with `brief`): {}{said}",
         rec.id,
         super::line(&rec)
     );

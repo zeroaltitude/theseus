@@ -118,6 +118,12 @@ pub struct SessionRecord {
     /// 30). Boxed, as `routed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<Box<theseus_protocol::ForkOrigin>>,
+    /// The project this conversation serves (theseus-n5ui2, `project.attach`):
+    /// a `tsk_…` whose slice every request carries. Set by the owner's verb or
+    /// the model's `project.attach`, never by a turn's write-back. Absent in
+    /// records written before it (store format 35).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -335,6 +341,7 @@ impl SessionRecord {
             title_was: Vec::new(),
             dir: None,
             forked_from: None,
+            project: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it

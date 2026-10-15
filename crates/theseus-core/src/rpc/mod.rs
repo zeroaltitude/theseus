@@ -58,6 +58,7 @@ mod persona_import;
 mod persona_view;
 mod policy;
 mod prefix;
+mod projects;
 mod proposal_groups;
 mod proposals;
 mod publish;

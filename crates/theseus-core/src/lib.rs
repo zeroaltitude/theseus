@@ -88,6 +88,8 @@ pub mod place_warnings;
 pub mod places;
 pub mod policy;
 pub mod prefix;
+pub mod project;
+pub mod project_tool;
 pub mod provider;
 pub mod push;
 pub mod reach;
@@ -348,6 +350,8 @@ mod tests_persona_recall;
 mod tests_places;
 #[cfg(test)]
 mod tests_progress;
+#[cfg(test)]
+mod tests_projects;
 #[cfg(test)]
 mod tests_prove;
 #[cfg(test)]
