@@ -37,6 +37,8 @@ pub enum Action {
     DoubleEscape,
     /// Ctrl-O: the folded paste, whole.
     ShowPaste,
+    /// Ctrl-T: the tasks, as a tree.
+    Tasks,
     /// Ctrl-Enter (where the terminal reports it): stop the turn and send
     /// the queued message now.
     SendNow,
@@ -57,9 +59,12 @@ pub enum Ask {
     /// the question's grant offer. A question that offers the other, or none,
     /// ignores the key.
     Grant,
+    /// `1`..`6` (the index is 0..5): the nth choice of a task's `ask`
+    /// question (theseus-mnd9g). A question without choices ignores the key.
+    Choice(u8),
 }
 
-/// The question's keys, one table: a later row (modes, cli-tasks) adds a row.
+/// The question's keys, one table: a later row (modes) adds a row.
 pub const ASK_KEYS: &[(char, Ask)] = &[
     ('y', Ask::Yes),
     ('n', Ask::No),
@@ -67,6 +72,12 @@ pub const ASK_KEYS: &[(char, Ask)] = &[
     ('t', Ask::Trust),
     ('a', Ask::Grant),
     ('e', Ask::Grant),
+    ('1', Ask::Choice(0)),
+    ('2', Ask::Choice(1)),
+    ('3', Ask::Choice(2)),
+    ('4', Ask::Choice(3)),
+    ('5', Ask::Choice(4)),
+    ('6', Ask::Choice(5)),
 ];
 
 /// The answer a character is, if it is one.
@@ -103,6 +114,7 @@ pub fn map(k: KeyEvent) -> Option<Action> {
             'k' => Action::KillToEnd,
             'w' => Action::KillWord,
             'o' => Action::ShowPaste,
+            't' => Action::Tasks,
             'h' => Action::Backspace,
             _ => return None,
         },

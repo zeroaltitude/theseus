@@ -23,7 +23,7 @@ impl Chat {
             return Vec::new();
         }
         if self.live.turn.is_some() {
-            return self.stop_turn();
+            return self.stop_turn(false);
         }
         if let Some(effects) = self.rewind_escape() {
             return effects;
@@ -35,16 +35,36 @@ impl Chat {
 
     /// The stop, sent now: the turn that runs ends at its next step, the
     /// calls in flight are told to stop, and the daemon says how each ended.
-    pub(super) fn stop_turn(&mut self) -> Vec<Effect> {
+    pub(super) fn stop_turn(&mut self, tasks: bool) -> Vec<Effect> {
         let Some(execution) = self.execution.clone() else {
             self.flash("nothing to stop yet · the conversation has no execution");
             return Vec::new();
         };
-        vec![call(
-            method::EXECUTION_STOP,
-            json!({ "execution_id": execution, "author": AUTHOR, "keep_jobs": true }),
-            Purpose::Stop,
-        )]
+        let mut params = json!({ "execution_id": execution, "author": AUTHOR, "keep_jobs": true });
+        if tasks {
+            params["tasks"] = json!(true);
+        }
+        vec![call(method::EXECUTION_STOP, params, Purpose::Stop)]
+    }
+
+    /// `/stop`: Esc's stop, once more. With `--tasks` (or `all`) it also
+    /// cancels the conversation's tasks, an owner's act that a job's shell
+    /// may not do (`theseus stop --tasks`).
+    pub(super) fn stop_cmd(&mut self, args: &str) -> Vec<Effect> {
+        let tasks = matches!(args.trim(), "--tasks" | "all");
+        if !tasks && !args.trim().is_empty() {
+            self.flash("/stop · /stop --tasks also cancels its tasks");
+            return Vec::new();
+        }
+        if tasks {
+            if let Err(e) =
+                theseus_client::client::refuse_stop_all_in_a_job(self.job_session.as_deref())
+            {
+                self.say_words(Sty::Red, &format!("✗ {e}"));
+                return Vec::new();
+            }
+        }
+        self.stop_turn(tasks)
     }
 
     /// The stop's answer.

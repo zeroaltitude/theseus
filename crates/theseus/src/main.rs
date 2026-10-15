@@ -65,8 +65,10 @@ mod standing_cmd;
 mod status;
 mod status_notify;
 mod status_progress;
+mod task_lines;
 mod task_start;
 mod tasks_forecast;
+mod tasks_tree;
 mod thread;
 mod thread_import;
 mod vestige;
@@ -404,6 +406,10 @@ enum Cmd {
         /// Pick a conversation to continue, searched as you type (`theseus -r`).
         #[arg(short = 'r', long, conflicts_with = "session")]
         resume: bool,
+        /// Line mode, as `watch --interactive` with the tasks' events as lines: no footer and no
+        /// one-key answers. A pipe, or `TERM=dumb`, is line mode too.
+        #[arg(long)]
+        plain: bool,
     },
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
@@ -453,12 +459,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<ExecutionsCmd>,
     },
-    /// Tasks: the background sessions conversations started with task.create, the newest
-    /// first, with state, spend of their carved limit, and what each waits on.
+    /// Tasks (work.watch), one line each under its conversation: a mark, its short id, its title,
+    /// how long it has run and what it is doing; under one that asks, the command that answers it;
+    /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
+    /// reports or fails. `--graph` is the task graph and each task's state and spend as before;
+    /// `--json` the same list as data.
     Tasks {
-        /// Only the tasks this session started.
-        #[arg(long, short)]
-        session: Option<String>,
+        #[command(flatten)]
+        args: tasks_tree::TasksArgs,
         #[command(subcommand)]
         cmd: Option<tasks_forecast::TasksCmd>,
     },
@@ -520,9 +528,7 @@ enum Cmd {
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
     Status(status::StatusArgs),
-    /// The work board as a tree (work.watch): each conversation that needs you or works with its
-    /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
-    /// for. `--watch` keeps it current from the push: a line for each change and each notice.
+    /// The work board, kept current: `tasks --watch`.
     Work(work::WorkArgs),
     /// A running job's last lines, once: its size and the last 20 lines (work.peek), scrubbed.
     /// JOB is its id (`act_…`), or a unique end of it as `theseus work` prints it.
@@ -1360,6 +1366,8 @@ async fn run_or_own(cli: Cli) -> Result<()> {
         Cmd::Herdr {
             cmd: HerdrCmd::Up(a),
         } => herdr_up::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await,
+        // Line mode: the terminal's chat was not wanted (`chat_cmd::exec_tui`).
+        Cmd::Chat { .. } => chat_cmd::line_mode(cli).await,
         _ => run(cli).await,
     }
 }
@@ -1419,7 +1427,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
-        Cmd::Tasks { session, cmd } => tasks_forecast::dispatch(c, json, session, cmd).await,
+        Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,

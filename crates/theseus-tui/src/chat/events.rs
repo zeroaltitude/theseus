@@ -93,6 +93,20 @@ impl Chat {
                 }
                 Vec::new()
             }
+            Purpose::WorkWatch => {
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
+                    self.work_snapshot(r);
+                }
+                Vec::new()
+            }
+            Purpose::TaskAnswer { who, option } => {
+                self.task_answered(&who, &option);
+                Vec::new()
+            }
+            Purpose::Cancel(id) => {
+                self.say_plain(Sty::Dim, &format!("  cancelled {id}"));
+                Vec::new()
+            }
             Purpose::Context => {
                 self.say_context(v);
                 Vec::new()
@@ -153,12 +167,18 @@ impl Chat {
                 self.say_words(Sty::Red, &format!("✗ could not stop: {}", e.message));
                 Vec::new()
             }
-            Purpose::Answer => {
+            Purpose::Answer | Purpose::TaskAnswer { .. } => {
                 self.answer_refused();
                 self.say_words(
                     Sty::Red,
                     &format!("✗ the answer was refused: {}", e.message),
                 );
+                Vec::new()
+            }
+            // A daemon that predates the board has no footer to draw.
+            Purpose::WorkWatch => Vec::new(),
+            Purpose::Cancel(_) => {
+                self.say_words(Sty::Red, &format!("✗ refused: {}", e.message));
                 Vec::new()
             }
             Purpose::Context | Purpose::Cost => {
@@ -190,11 +210,14 @@ impl Chat {
     /// The session is open: watch it, and send what was typed before.
     pub(super) fn opened(&mut self, sid: &str) -> Vec<Effect> {
         self.session = Some(sid.to_string());
-        let mut out = vec![call(
-            method::SESSION_WATCH,
-            json!({ "session_id": sid }),
-            Purpose::Watch,
-        )];
+        let mut out = vec![
+            call(
+                method::SESSION_WATCH,
+                json!({ "session_id": sid }),
+                Purpose::Watch,
+            ),
+            Self::watch_work(sid),
+        ];
         for text in std::mem::take(&mut self.unsent) {
             out.push(self.submit_call(sid, text));
         }
@@ -339,6 +362,7 @@ impl Chat {
             Ok(Some(e)) => e,
             Ok(None) | Err(_) => return Vec::new(),
         };
+        let mut effects = Vec::new();
         match event {
             Event::TurnStarted(t) if self.ours(&t.session_id) => {
                 if self.mine.len() > KEPT {
@@ -382,7 +406,7 @@ impl Chat {
                     .is_some_and(|q| q.correlation_id == r.correlation_id)
                 {
                     self.question = None;
-                    self.ask_reset();
+                    self.ask_sync();
                     let words = match r.option.as_deref() {
                         Some(o) if theseus_protocol::answer::approves(o) => "approved",
                         Some(_) => "declined",
@@ -395,12 +419,9 @@ impl Chat {
                     }
                 }
             }
-            Event::TaskChanged(t) if self.ours(&t.session_id) => {
-                use theseus_protocol::tasks::TaskState::{Abandoned, Done, Failed, Proposed};
-                let open = !matches!(t.task.state, Done | Failed | Abandoned | Proposed);
-                self.task_open.insert(t.task.id, open);
-                self.tasks = self.task_open.values().filter(|o| **o).count() as u32;
-            }
+            Event::TaskChanged(t) if self.ours(&t.session_id) => self.task_changed(&t),
+            Event::WorkChanged(c) => self.work_changed(c),
+            Event::WorkNotice(n) => effects = self.work_notice(&n),
             Event::TurnFailed(f) if self.ours(&f.session_id) => self.turn_failed(&f),
             Event::TurnEnded(r) if self.ours(&r.session_id) => self.turn_ended(&r),
             Event::EventsLost(_) => self.say_plain(
@@ -409,7 +430,7 @@ impl Chat {
             ),
             _ => {}
         }
-        Vec::new()
+        effects
     }
 
     fn phase(&mut self, phase: Phase) {
@@ -523,8 +544,9 @@ impl Chat {
         if let Some(t) = self.live.turn.as_mut() {
             t.phase = Phase::Waiting;
         }
-        self.ask_reset();
+        self.ask.focus = None;
         self.question = Some(c);
+        self.ask_sync();
     }
 
     fn turn_failed(&mut self, f: &TurnFailed) {

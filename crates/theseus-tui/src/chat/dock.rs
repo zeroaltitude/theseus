@@ -25,6 +25,7 @@ pub type DockRows = fn(&Chat, &DockCtx) -> Vec<Line>;
 pub const ABOVE_INPUT: &[DockRows] = &[
     turn_rows,
     tool_rows,
+    super::footer::footer_rows,
     super::ask::rows,
     super::queue::rows,
     super::rewind::rows,

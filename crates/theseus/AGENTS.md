@@ -25,7 +25,26 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   Since theseus-5i8i it groups the board by thread (`board_lines`: a header per live thread, needs you first, then its open
   tasks, questions and wakes; then what is in no thread as the tree it was; `--flat`, or a board with no thread, prints
   today's tree), and `--watch` prints a line for each thread group that changes.
-- `src/chat_cmd.rs` (theseus-cyha, theseus-6yka): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION | -c | -r]` exec `theseus-tui chat [SESSION] [-c | -r]` as `tui` execs the board; `theseus -c` and `theseus -r` (the whole command line, on a terminal) are the same as `chat -c` and `chat -r`: continue this directory's last conversation, or pick one. A pipe, a script or any other argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
+- `src/chat_cmd.rs` (theseus-cyha, theseus-6yka): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION | -c | -r]` exec `theseus-tui chat [SESSION] [-c | -r]` as `tui` execs the board (`theseus chat` on a pipe, with `--plain`, or under `TERM=dumb` is line mode instead, theseus-mnd9g); `theseus -c` and `theseus -r` (the whole command line, on a terminal) are the same as `chat -c` and `chat -r`: continue this directory's last conversation, or pick one. A pipe, a script or any other argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
+- `src/tasks_tree.rs` (theseus-mnd9g): `theseus tasks`. One `work.watch {limit: 20}` read draws the tree
+  (`render/task_tree.rs`): a conversation, then one line for each task under it (mark `● ◐ ✗ ✓`, the short id of its
+  session, title, how long it has run, and what it does: `asks: …`, `job 2:14 › last line`, `model 0:31`, the plan's
+  `3/5 · said`, the report's first line), the exact command that answers a task that asks beneath it, `theseus retry ID ·
+  theseus dismiss ID` beneath a failed one, and a footer of counts. A column that does not fit gives way title first (to 12
+  columns), then the activity. `--graph` and `--json` are the task list (`task.list`) as before; `--session S` roots the
+  watch at S; `--watch` keeps the connection, tells the daemon a person is looking (`interactive: true`; a plain `tasks`
+  says false) and prints a line for each task event (`task_tree::events`: started, asks, reported, failed, cancelled,
+  with the commands under an ask or a failure) and each notice not already told by one. `theseus tasks forecast` is
+  `tasks_forecast.rs`. `theseus work` stays the board (`work.rs`: threads, the job ids `peek` and `attach` take); the
+  words of `tasks` are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. Tests inside it and
+  `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in `tests/golden_tree/`, `THESEUS_GOLDEN=write`),
+  `tests/tasks_cli.rs` (the binary against a scripted daemon).
+- `src/task_lines.rs` (theseus-mnd9g): the line mode's task lines. `theseus chat --plain`, a pipe in or out, or `TERM=dumb` runs
+  `watch --interactive` (`chat_cmd::line_mode`: a new conversation in this directory when no SESSION is named), which also
+  watches the conversation's tree (`work.watch {roots: [sid], interactive: true}`) and prints the task events to stderr
+  in the same words as the chat's screen: `◐ started: Paint log (2a329e)`, a question with the commands under it,
+  `✓ … reported: …`, `✗ … failed: …` with the retry and dismiss commands. A question is told once; a task's question is
+  answered with `theseus answer` (line mode has no one-key answers). Tests inside it and `tests/chat_plain.rs` (the binary).
 - `src/notify/` (theseus-f0bi9): how a ping reaches the owner, for every terminal client. `notices.rs` is the TUI's
   former notice queue (the policy's notices, a second of debounce, the burst fold); `mod.rs` has `Delivery`
   (`auto|toast|bell|osc9|osc777|off`), `Env` (WSL from `WSL_DISTRO_NAME` or `osrelease`, injectable) and `Notifier`;

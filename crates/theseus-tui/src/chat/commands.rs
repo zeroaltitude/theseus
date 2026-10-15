@@ -46,6 +46,24 @@ pub const COMMANDS: &[Command] = &[
         help: "leave; the conversation goes on",
         run: quit,
     },
+    Command {
+        name: "tasks",
+        help: "this conversation's tasks, as a tree (ctrl+t)",
+        run: |chat, _| {
+            chat.show_tasks();
+            Vec::new()
+        },
+    },
+    Command {
+        name: "cancel",
+        help: "/cancel ID: cancel a task (its short id, four characters or more)",
+        run: |chat, args| chat.cancel_task(args),
+    },
+    Command {
+        name: "stop",
+        help: "stop the turn (as esc does); /stop --tasks cancels its tasks too",
+        run: |chat, args| chat.stop_cmd(args),
+    },
     // Debug builds only: the test that proves the terminal comes back after a
     // panic needs one to happen.
     #[cfg(debug_assertions)]
@@ -76,7 +94,7 @@ pub fn help_lines() -> Vec<String> {
         "enter sends · ctrl+j (or \\ then enter) adds a line · ↑/↓ your earlier messages"
             .to_string(),
         "ctrl+o shows a folded paste · ctrl+c clears the line, twice leaves".to_string(),
-        "y / n answer a question with the line empty".to_string(),
+        "y / n answer a question with the line empty · v shows the call · tab the next · esc writes instead".to_string(),
     ];
     let wide = COMMANDS.iter().map(|c| c.name.len()).max().unwrap_or(0);
     for c in COMMANDS {

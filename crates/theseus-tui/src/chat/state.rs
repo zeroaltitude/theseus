@@ -83,6 +83,15 @@ pub enum Purpose {
     RewindPoints,
     RewindRestore(super::rewind::Rewinding),
     RewindFork(super::rewind::Rewinding),
+    /// The conversation's work board (theseus-mnd9g).
+    WorkWatch,
+    /// A task's question answered: who asked, and with what.
+    TaskAnswer {
+        who: String,
+        option: String,
+    },
+    /// `/cancel`: the id as typed.
+    Cancel(String),
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +106,8 @@ pub enum Effect {
     Call(Call),
     /// Write this directory's history file.
     SaveHistory(Vec<String>),
+    /// A ping for an Interrupt: the terminal's bell.
+    Bell,
     Quit,
 }
 
@@ -149,6 +160,12 @@ pub struct Chat {
     /// since the chat began (cli-tasks brings the board's own count).
     pub tasks: u32,
     pub(super) task_open: std::collections::HashMap<String, bool>,
+    /// The work board of this conversation: its tasks, the footer, the
+    /// questions the keys answer.
+    pub(super) board: super::tasks::Board,
+    /// The `THESEUS_SESSION` of the job this chat runs inside, if it does:
+    /// the operator's answers are refused there.
+    pub job_session: Option<String>,
     pub(super) mine: HashSet<String>,
     pub(super) ended: HashSet<String>,
     pub(super) answered_text: HashSet<String>,
@@ -209,6 +226,8 @@ impl Chat {
             offline: false,
             tasks: 0,
             task_open: Default::default(),
+            board: Default::default(),
+            job_session: None,
             mine: HashSet::new(),
             ended: HashSet::new(),
             answered_text: HashSet::new(),
@@ -274,11 +293,14 @@ impl Chat {
             if was_offline {
                 self.flash("reconnected");
             }
-            return vec![call(
-                method::SESSION_WATCH,
-                json!({ "session_id": sid }),
-                Purpose::Watch,
-            )];
+            return vec![
+                call(
+                    method::SESSION_WATCH,
+                    json!({ "session_id": sid }),
+                    Purpose::Watch,
+                ),
+                Self::watch_work(&sid),
+            ];
         }
         self.started_ms = now_ms;
         let mut out = vec![call(method::HEALTH, Value::Null, Purpose::Health)];
@@ -326,6 +348,9 @@ impl Chat {
         if let Some((_, until)) = &self.notice {
             at.push(*until);
         }
+        // The footer's clocks turn over on the minute, a question's
+        // countdown each second: nothing else wakes the chat for the board.
+        at.extend(self.board.repaint_at);
         at.into_iter().min()
     }
 
@@ -343,7 +368,8 @@ impl Chat {
         {
             self.notice = None;
         }
-        self.live.active() || self.notice.is_some()
+        let board = self.board_tick();
+        self.live.active() || self.notice.is_some() || board
     }
 
     pub(super) fn print_banner(&mut self) {
@@ -513,6 +539,7 @@ impl Chat {
                     self.flash("nothing pasted here");
                 }
             }
+            Action::Tasks => self.show_tasks(),
             Action::Interrupt => return self.interrupt(),
             Action::EndOfInput => {
                 if self.editor.is_empty() {

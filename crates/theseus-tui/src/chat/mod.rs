@@ -24,6 +24,7 @@ mod dock;
 mod editor;
 mod env;
 mod events;
+mod footer;
 mod guard;
 mod keys;
 mod live;
@@ -37,6 +38,7 @@ mod screen;
 mod state;
 mod stop;
 mod style;
+mod tasks;
 mod usage;
 
 #[cfg(test)]
@@ -47,6 +49,8 @@ mod tests_ask;
 mod tests_reopen;
 #[cfg(test)]
 mod tests_rewind;
+#[cfg(test)]
+mod tests_tasks;
 #[cfg(test)]
 mod tests_usage;
 
@@ -108,6 +112,7 @@ pub async fn run(args: Args) -> Result<()> {
     let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut chat = Chat::new(cfg, crate::now_ms());
     chat.resized(w, h);
+    chat.job_session = theseus_client::client::job_session();
 
     // The terminal's events, read on a thread of their own: a blocking read
     // wakes nothing while the person types nothing.

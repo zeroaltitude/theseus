@@ -269,6 +269,7 @@ impl Runner {
         for e in effects {
             match e {
                 Effect::Quit => self.quit = true,
+                Effect::Bell => self.write(b"\x07"),
                 Effect::SaveHistory(messages) => self.save_history(messages),
                 Effect::Call(call) => {
                     let Some(conn) = self.conn.as_mut() else {
