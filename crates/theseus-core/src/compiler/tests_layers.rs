@@ -124,3 +124,79 @@ fn each_layer_has_a_digest_that_follows_its_text() {
     assert_ne!(da[2], db[2]);
     assert_ne!(da[3], db[3]);
 }
+
+/// The prefix library's plan (theseus-rr15): the third layer is the
+/// header's bytes, the delta heads the session's block, after the cached
+/// prefix, and the manifest names the header. An append replays the same
+/// bytes; a third layer that changed under it recompiles, unplanned.
+#[test]
+fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
+    let header = big('c', 3_000);
+    let topic = "## Guidance: tides\nQuote every level in metres.".to_string();
+    let mut s = layered();
+    s.context_text = format!("{header}\n\n{topic}");
+    let used = crate::prefix::PrefixUse {
+        header: sha(&header),
+        fresh: sha(&s.context_text),
+    };
+    s.prefix = Some(std::sync::Arc::new(crate::prefix::Plan {
+        used: used.clone(),
+        header: header.as_str().into(),
+        delta: topic.as_str().into(),
+    }));
+    let c = compiled(&s);
+    let texts: Vec<&str> = c
+        .request
+        .system
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
+    let session = format!("{topic}\n\nDirectory: /work/tide-gauges");
+    assert_eq!(
+        texts,
+        [
+            s.system_text.as_str(),
+            s.persona_text.as_str(),
+            header.as_str(),
+            session.as_str()
+        ]
+    );
+    assert_eq!(marks(&c), [true, true, true, false]);
+    assert_eq!(c.compilation.manifest.prefix.as_ref(), Some(&used));
+    // An append on the same plan: the same system, byte for byte.
+    let nodes = [
+        (1u64, Node::user("s", None, "cli", "hello").into()),
+        (2u64, Node::user("s", None, "cli", "again").into()),
+    ];
+    let append = |spec: &RequestSpec| {
+        compile(CompileInput {
+            session_id: "s",
+            current: Some(&c.compilation),
+            nodes: &nodes,
+            last_position: 2,
+            spec,
+            catalog: &Catalog::builtin(),
+            force: None,
+            window_override: None,
+            blobs: None,
+            hidden: &[],
+            strip: None,
+            overflowed: None,
+            sources: &Default::default(),
+            signals: None,
+            assembled: None,
+            situation: &situation::Situation::ConversationStart,
+        })
+    };
+    let next = append(&s);
+    assert!(!next.new_compilation, "{:?}", next.trigger);
+    assert_eq!(next.request.system, c.request.system);
+    // The project's file changed: the plan stands for another layer, so the
+    // compile renders the fresh one and recompiles, with no header named.
+    let mut edited = s;
+    edited.context_text = format!("{header} and a line\n\n{topic}");
+    let moved = append(&edited);
+    assert_eq!(moved.trigger.as_deref(), Some("system_changed"));
+    assert_eq!(moved.compilation.manifest.prefix, None);
+    assert_eq!(moved.request.system[2]["text"], edited.context_text);
+}

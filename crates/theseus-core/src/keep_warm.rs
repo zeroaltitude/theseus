@@ -374,6 +374,11 @@ impl TurnRunner {
         // The tools as the turn sends them (theseus-7m7w.2): an append keeps
         // the loaded set its compilation recorded, so the read is its prefix.
         spec.defer = self.deferral(sid, false, &spec);
+        // The standing block, as the turn puts it (theseus-rr15: it was left
+        // out, so a session with a record recompiled here and was never read).
+        if let Some(b) = self.standing_block(sid, place.class) {
+            b.apply(&mut spec);
+        }
         let built = (|| -> anyhow::Result<_> {
             let nodes = self.store.transcript(sid)?;
             // The stubs in force: a read is warm, so it never decides.
@@ -389,12 +394,14 @@ impl TurnRunner {
                 .memory
                 .read_sources(&self.store, recalls.map(|(_, n)| &**n));
             let situation = crate::compiler::situation::given(false, false, false);
+            // The prefix library's header, replayed as the next append has it.
+            let replayed = self.prefix_replayed(&spec, current.as_ref());
             let input = crate::compiler::CompileInput {
                 session_id: sid,
                 current: current.as_ref(),
                 nodes: &nodes,
                 last_position: self.store.last_position(),
-                spec: &spec,
+                spec: replayed.as_ref().unwrap_or(&spec),
                 catalog: &self.catalog,
                 force: None,
                 window_override: self.working_window(&spec),

@@ -28,27 +28,51 @@ impl TurnRunner {
     /// cannot be read is warned of and the turn goes without (the check has
     /// nothing to hold it to).
     pub(super) fn stand(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
-        (t.standing.block, t.standing.here) = (None, None);
+        (t.standing.block, t.standing.here) =
+            self.standing_blocks(t.tc.session_id, t.tc.class, t.standing.surface);
+        if let Some(block) = &t.standing.block {
+            block.apply(spec);
+        }
+    }
+
+    /// The block of `session_id`'s scope in a place of `class`, from memory:
+    /// what its next turn's system carries (the keep-warm read builds that
+    /// spec too, theseus-rr15). A surface's records are never in it.
+    pub(crate) fn standing_block(
+        &self,
+        session_id: &str,
+        class: crate::places::PlaceClass,
+    ) -> Option<Block> {
+        self.standing_blocks(session_id, class, None).0
+    }
+
+    /// The system's block and the tail's (the records of `surface`) of
+    /// `session_id`'s scope in a place of `class`, from memory.
+    fn standing_blocks(
+        &self,
+        session_id: &str,
+        class: crate::places::PlaceClass,
+        surface: Option<&'static str>,
+    ) -> (Option<Block>, Option<Block>) {
         let all = match self.standing.all(&self.store) {
             Ok(a) => a,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"),
                     "the standing records cannot be read: this turn goes without them");
-                return;
+                return (None, None);
             }
         };
-        let place = self.target_of(t.tc.session_id);
+        let place = self.target_of(session_id);
         let scope = Scope {
-            session: t.tc.session_id,
+            session: session_id,
             place: place.as_deref(),
-            surface: t.standing.surface,
+            surface,
         };
         let now = theseus_protocol::now_unix_ms();
-        if let Some(block) = Block::of(&all, scope, t.tc.class, now) {
-            block.apply(spec);
-            t.standing.block = Some(block);
-        }
-        t.standing.here = Block::here(&all, scope, t.tc.class, now);
+        (
+            Block::of(&all, scope, class, now),
+            Block::here(&all, scope, class, now),
+        )
     }
 
     /// A compilation this compile made lists the records its system carried.

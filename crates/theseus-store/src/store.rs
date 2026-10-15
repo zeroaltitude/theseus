@@ -641,7 +641,11 @@ const BULK: usize = 4096;
 /// 40 = pre-images (theseus-23rk): the `PRE_IMAGE` record kind, one for each
 /// file an edit tool changed, scoped `rewind:<session>`, and the ledger kinds
 /// `files.restored` and `session.rewound`.
-const MANIFEST_FORMAT: u32 = 40;
+/// 41 = the prefix library (theseus-rr15): a compilation manifest's `prefix`
+/// (the header its third layer is), the META keys `prefix:<digest>` (a
+/// header), `prefix.hits.<digest>` and `prefix.retired.<digest>`, and the
+/// ledger kind `prefix.picked`.
+const MANIFEST_FORMAT: u32 = 41;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

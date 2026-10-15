@@ -79,6 +79,7 @@ pub mod persona;
 pub mod place_warnings;
 pub mod places;
 pub mod policy;
+pub mod prefix;
 pub mod provider;
 pub mod push;
 pub mod reach;
@@ -400,6 +401,8 @@ mod tests_route_wait;
 mod tests_routine_trust;
 #[cfg(test)]
 mod tests_routines;
+#[cfg(test)]
+mod tests_route_warm;
 #[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]

@@ -6,10 +6,12 @@
 //!   `protocol::StandingRecord`. Append-only: a revoke, or the edit of one, is
 //!   a new record whose `ends` names the one it ends. The set is read from the
 //!   store once and kept in memory (`Board`), so a compile reads memory.
-//! - **The block** (`Block::of`) is the last thing in the system's first
-//!   layer, the header's (theseus-h4a7): no block of its own, so it takes no
-//!   cache breakpoint (the layout uses 3 of the provider's 4). The header
-//!   block, which every session shares, never carries it. It sits in the
+//! - **The block** (`Block::of`): the records for everywhere are the last
+//!   thing in the system's first layer, the header's (theseus-h4a7): no block
+//!   of its own, so it takes no cache breakpoint (the layout uses 3 of the
+//!   provider's 4). A session's and a place's records head the session's own
+//!   block (theseus-rr15), so the first layer stays the same bytes for every
+//!   session of a place class. It sits in the
 //!   system, outside the ring, so no compaction drops it. A change of the
 //!   records changes the system digest, so the next compile is a
 //!   `system_changed` recompile and the prefix is otherwise byte-stable.
@@ -143,7 +145,10 @@ pub struct StandingUsed {
 /// the manifest and the check read of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
+    /// The header layer's part: the records for everywhere; maybe empty.
     pub text: String,
+    /// The session's own part: this session's and this place's records.
+    pub local: String,
     pub used: Vec<StandingUsed>,
     /// The line a shared place's block carries for the private ones it
     /// withholds; the check wants it when any were.
@@ -154,6 +159,7 @@ const HEAD: &str = "Standing: what the owner has told you to hold to, in force i
 /// The head of the tail block a surface's records make: the harness's, so a
 /// stand-in model that reads the last user text skips it (`view::is_head`).
 pub const HERE: &str = "Standing here:";
+const LOCAL_HEAD: &str = "Standing for this conversation and this place: what the owner has told you to hold to here, in force in every turn here until they revoke it. An order is to be followed; a preference is to be honoured where it can be; a fact is what the owner has told you about themself. Each line names its record.";
 pub const WITHHELD: &str =
     "The owner's preferences and facts are private to them and are not shown in this place.";
 
@@ -161,6 +167,9 @@ impl Block {
     /// The block for `scope` in a place of `class`; none while no record is
     /// live there. A shared place's lists the orders alone, with their text.
     /// The records scoped to a surface are not in it (`Block::here`).
+    /// The records for everywhere are the header layer's (`text`); a
+    /// session's and a place's are the session's own (`local`, theseus-rr15):
+    /// in the header they would make two sessions' first layers differ.
     pub fn of(
         all: &[StandingRecord],
         scope: Scope<'_>,
@@ -197,37 +206,31 @@ impl Block {
             return None;
         }
         let shared = class == PlaceClass::Shared;
-        let mut text = String::from(if here { HERE } else { HEAD });
+        // The tail's block is one; the header's records for everywhere are the
+        // header layer's, a session's and a place's the session's own
+        // (`local`, theseus-rr15): in the header they would make two sessions'
+        // first layers differ.
+        let (everywhere, own): (Vec<&StandingRecord>, Vec<&StandingRecord>) = match here {
+            true => (held, vec![]),
+            false => held
+                .into_iter()
+                .partition(|r| r.scope == StandingScope::Everywhere),
+        };
         let mut used = Vec::new();
         let mut withheld = false;
-        for (kind, title) in [
-            (StandingKind::Order, "Orders"),
-            (StandingKind::Preference, "Preferences"),
-            (StandingKind::Fact, "Facts about the owner"),
-        ] {
-            let of_kind: Vec<&&StandingRecord> = held.iter().filter(|r| r.kind == kind).collect();
-            if of_kind.is_empty() {
-                continue;
+        let mut part = |records: &[&StandingRecord], head: &str| {
+            if records.is_empty() {
+                return String::new();
             }
-            let hidden = shared && kind != StandingKind::Order;
-            used.extend(of_kind.iter().map(|r| StandingUsed {
-                id: r.id.clone(),
-                shown: !hidden,
-            }));
-            if hidden {
-                withheld = true;
-                continue;
-            }
-            text.push_str(&format!("\n{title}:"));
-            for r in of_kind {
-                text.push_str(&format!("\n- {}: {}", r.id, one_line(&r.text)));
-            }
-        }
-        if withheld {
-            text.push_str(&format!("\n{WITHHELD}"));
-        }
+            let (text, w) = render(records, head, shared, &mut used);
+            withheld |= w;
+            text
+        };
+        let text = part(&everywhere, if here { HERE } else { HEAD });
+        let local = part(&own, LOCAL_HEAD);
         Some(Block {
             text,
+            local,
             used,
             withheld,
         })
@@ -249,19 +252,62 @@ impl Block {
         compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
     }
 
-    /// Put the block in the spec's header layer, after the header's own text
-    /// (the first layer of `compiler::layers`: a place class's sessions share
-    /// it).
+    /// Put the block in the spec: the records for everywhere in its header
+    /// layer, after the header's own text (the first layer of
+    /// `compiler::layers`: a place class's sessions share it), and a
+    /// session's and a place's at the head of the session's block.
     pub fn apply(&self, spec: &mut RequestSpec) {
         #[cfg(test)]
         if DROP_THE_BLOCK.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        spec.system_text = match spec.system_text.is_empty() {
-            true => self.text.clone(),
-            false => format!("{}\n\n{}", spec.system_text, self.text),
+        let join = |a: &str, b: &str| match (a.is_empty(), b.is_empty()) {
+            (true, _) => b.to_string(),
+            (_, true) => a.to_string(),
+            _ => format!("{a}\n\n{b}"),
         };
+        spec.system_text = join(&spec.system_text, &self.text);
+        spec.session_text = join(&self.local, &spec.session_text);
     }
+}
+
+/// The lines of `records` under `head`, each kind under its title; a shared
+/// place's preferences and facts are one line saying they are withheld.
+fn render(
+    records: &[&StandingRecord],
+    head: &str,
+    shared: bool,
+    used: &mut Vec<StandingUsed>,
+) -> (String, bool) {
+    let mut text = String::from(head);
+    let mut withheld = false;
+    for (kind, title) in [
+        (StandingKind::Order, "Orders"),
+        (StandingKind::Preference, "Preferences"),
+        (StandingKind::Fact, "Facts about the owner"),
+    ] {
+        let of_kind: Vec<&&StandingRecord> = records.iter().filter(|r| r.kind == kind).collect();
+        if of_kind.is_empty() {
+            continue;
+        }
+        let hidden = shared && kind != StandingKind::Order;
+        used.extend(of_kind.iter().map(|r| StandingUsed {
+            id: r.id.clone(),
+            shown: !hidden,
+        }));
+        if hidden {
+            withheld = true;
+            continue;
+        }
+        text.push_str(&format!("\n{title}:"));
+        for r in of_kind {
+            text.push_str(&format!("\n- {}: {}", r.id, one_line(&r.text)));
+        }
+    }
+    if withheld {
+        text.push_str(&format!("\n{WITHHELD}"));
+    }
+    (text, withheld)
 }
 
 /// A text on one line: a record is a line of the block, so a newline in its
@@ -529,11 +575,15 @@ mod tests {
             "{}",
             b.text
         );
+        // A place's record is the session's own block, never the header's
+        // (theseus-rr15).
         assert!(
-            b.text
-                .contains("\nPreferences:\n- std_p: short answers please"),
-            "{}",
-            b.text
+            b.local
+                .contains("\nPreferences:\n- std_p: short answers please")
+                && !b.text.contains("std_p"),
+            "{} / {}",
+            b.text,
+            b.local
         );
         assert!(
             b.text
@@ -548,14 +598,16 @@ mod tests {
         assert!(b.text.contains("- std_a: never push to main"), "{}", b.text);
         assert!(b.text.ends_with(WITHHELD), "{}", b.text);
         for hidden in ["short", "garden", "std_p", "std_f"] {
-            assert!(!b.text.contains(hidden), "{hidden} leaked: {}", b.text);
+            let all = format!("{}\n{}", b.text, b.local);
+            assert!(!all.contains(hidden), "{hidden} leaked: {all}");
         }
         assert_eq!(
             b.used
                 .iter()
                 .map(|u| (u.id.as_str(), u.shown))
                 .collect::<Vec<_>>(),
-            [("std_a", true), ("std_p", false), ("std_f", false)]
+            // The header's records first, then the session's own (theseus-rr15).
+            [("std_a", true), ("std_f", false), ("std_p", false)]
         );
         assert!(Block::of(
             &all,

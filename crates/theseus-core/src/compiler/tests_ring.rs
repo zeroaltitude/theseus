@@ -8,7 +8,7 @@ use theseus_protocol::Usage;
 use super::*;
 use crate::node::{Body, ResultStatus};
 
-pub(super) fn spec() -> RequestSpec {
+pub(crate) fn spec() -> RequestSpec {
     RequestSpec {
         profile: "p".into(),
         provider: "anthropic".into(),
@@ -38,6 +38,8 @@ pub(super) fn spec() -> RequestSpec {
         walk: None,
         memberships: vec![],
         guidance: vec![],
+        prefix: None,
+        prefix_used: None,
     }
 }
 

@@ -67,6 +67,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::FORECAST_CALIBRATION
         || name == method::TURN_INSPECT
         || name == method::PERSONA_LIST
+        || name == method::PREFIX_REPORT
 }
 
 impl Core {
@@ -143,6 +144,9 @@ impl Core {
         }
         if name == method::PERSONA_LIST {
             return super::server::route(params, |p| self.persona_list(p));
+        }
+        if name == method::PREFIX_REPORT {
+            return super::server::reply(self.prefix_report(parse(params)?, conn.surface).await?);
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

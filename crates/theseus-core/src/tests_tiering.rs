@@ -328,6 +328,8 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         walk: None,
         memberships: vec![],
         guidance: vec![],
+        prefix: None,
+        prefix_used: None,
     };
     let sources = core.runner.memory.read_sources(
         &core.store,

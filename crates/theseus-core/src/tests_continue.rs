@@ -60,6 +60,8 @@ fn spec() -> RequestSpec {
         walk: None,
         memberships: vec![],
         guidance: vec![],
+        prefix: None,
+        prefix_used: None,
     }
 }
 

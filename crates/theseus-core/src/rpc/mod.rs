@@ -53,6 +53,7 @@ mod people;
 mod persona;
 mod persona_view;
 mod policy;
+mod prefix;
 mod proposal_groups;
 mod proposals;
 mod publish;
@@ -109,6 +110,8 @@ mod tests_ordered;
 mod tests_peek;
 #[cfg(test)]
 mod tests_rewind;
+#[cfg(test)]
+mod tests_prefix;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]
@@ -803,6 +806,7 @@ impl Core {
             standing: Default::default(),
             persona: Default::default(),
             threads: Default::default(),
+            prefix: Default::default(),
             cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),

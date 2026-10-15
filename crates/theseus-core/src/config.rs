@@ -33,6 +33,7 @@ pub(crate) mod people;
 pub mod persona;
 pub(crate) mod route;
 mod routines;
+pub mod prefix;
 pub(crate) mod routing;
 pub mod rsi;
 pub use persona::{Initiative, PersonaConfig, PersonaView};
@@ -43,6 +44,7 @@ pub use cockpit::CockpitConfig;
 pub use routines::RoutinesConfig;
 mod watches;
 pub use route::RouteConfig;
+pub use prefix::PrefixConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
 pub use watches::WatchesConfig;
@@ -181,6 +183,9 @@ pub struct Config {
     /// `[cockpit]`: the link a reply's footer carries (theseus-x9swu), `config/cockpit.rs`.
     #[serde(default, skip_serializing_if = "CockpitConfig::is_default")]
     pub cockpit: CockpitConfig,
+    /// `[prefix]`: the prefix library (theseus-rr15), `config/prefix.rs`.
+    #[serde(default, skip_serializing_if = "PrefixConfig::is_default")]
+    pub prefix: PrefixConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1414,6 +1419,7 @@ impl Config {
         self.watches.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;
         self.route.validate()?;
+        self.prefix.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

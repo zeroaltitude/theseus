@@ -63,6 +63,7 @@ pub mod own_bench;
 pub mod people;
 pub mod persona;
 pub mod place;
+pub mod prefix;
 pub mod recall;
 pub mod retract;
 pub mod retry;
@@ -522,6 +523,7 @@ facts![
     rsi_pipeline::Queued,
     rsi_pipeline::Cleared,
     rsi_pipeline::Ended,
+    prefix::PrefixPicked<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

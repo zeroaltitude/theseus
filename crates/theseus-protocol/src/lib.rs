@@ -61,6 +61,7 @@ pub mod own_bench;
 pub mod packs;
 pub mod persona;
 mod places;
+pub mod prefix;
 mod push;
 pub mod resident;
 pub mod retract;
@@ -247,7 +248,7 @@ pub mod method {
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
         /// The owner's standing orders, preferences and facts (theseus-a7vi, `standing::StandingListParams`): a read, and the owner's two writes.
-        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split",
+        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", PREFIX_REPORT = "prefix.report",
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list",
         STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",

@@ -100,11 +100,23 @@ pub(crate) const COMPILATION_BEFORE_FORK: &str = r#"{"id":"cmp_00000000000000000
 /// the build before theseus-7m7w.2 writes.
 pub(crate) const COMPILATION_BEFORE_LOADED: &str = r#"{"id":"cmp_00000000000000000000000000000332","schema":1,"session_id":"ses_00000000000000000000000000000331","created_at_ms":1790000000332,"trigger":"new_session","strategy":"transcript","as_of":83,"includes":["msg_00000000000000000000000000000331"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read","proc_run"],"catalog_version":"2026-10-13","context_window":1000000,"strip_thinking":false},"situation":{"kind":"conversation_start"}}"#;
 
+/// A compilation as format 33 wrote it, a thread's (theseus-h4a7's layers in
+/// its cache layout), before the prefix library named a header in its
+/// manifest (`prefix`, format 41, theseus-rr15): it reads with none, and its
+/// session's next compile point picks one.
+pub(crate) const COMPILATION_BEFORE_PREFIX: &str = r#"{"id":"cmp_00000000000000000000000000000341","schema":1,"session_id":"ses_00000000000000000000000000000341","created_at_ms":1790000000341,"trigger":"cold_resume","strategy":"ring","as_of":91,"includes":["msg_00000000000000000000000000000342"],"derived_from":"cmp_00000000000000000000000000000340","manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read","thread_note"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":true,"cache":{"caches":true,"min_tokens":1024,"blocks":[{"block":"header","prefix_bytes":21000,"marked":true},{"block":"persona","prefix_bytes":24000,"marked":true},{"block":"project","prefix_bytes":31000,"marked":true},{"block":"session","prefix_bytes":31060,"marked":false}]}},"situation":{"kind":"recompile","trigger":"cold_resume"}}"#;
+
 const SAMPLES: &[Sample] = &[
     Sample {
         kind: kinds::COMPILATION,
         layout: "a compilation at format 32 (theseus-2qzx's): before its manifest's loaded tool families (36, theseus-7m7w.2)",
         bytes: COMPILATION_BEFORE_LOADED,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::COMPILATION,
+        layout: "a compilation at format 33 (theseus-nhew's; unchanged since 32): before the prefix library's header in its manifest (41, theseus-rr15)",
+        bytes: COMPILATION_BEFORE_PREFIX,
         kept: Kept::All,
     },
     Sample {
@@ -546,7 +558,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -557,7 +569,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 40. The
+/// with a row that counts and pins them, and the manifest moves to 41. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -598,7 +610,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -606,7 +618,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 40,
+/// both with no origin and no inherited run, and moves the manifest to 41,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -653,7 +665,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -682,7 +694,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 40,
+/// it, reads an empty board, takes a thread and moves the manifest to 41,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -705,7 +717,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -791,7 +803,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -831,7 +843,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 40,
+/// A store of format 33 opens, and its first write moves the manifest to 41,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -856,7 +868,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -903,7 +915,7 @@ fn a_format_33_standing_record_reads_and_a_surface_scope_writes_back() {
 }
 
 /// A store of format 33 that holds a standing record: the build opens it,
-/// reads the record, takes a surface-scoped one, and moves the manifest to 40,
+/// reads the record, takes a surface-scoped one, and moves the manifest to 41,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
@@ -930,7 +942,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -974,7 +986,7 @@ fn a_format_40_pre_image_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 39, which holds a session and no pre-image: the build
-/// opens it, takes a pre-image, and moves the manifest to 40, which an older
+/// opens it, takes a pre-image, and moves the manifest to 41, which an older
 /// build then refuses. The record reads back through its scope.
 #[test]
 fn a_format_39_store_opens_and_takes_a_pre_image() {
@@ -996,10 +1008,94 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 40);
+    assert_eq!(moved["format"], 41);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, p);
+}
+
+/// A prefix header as format 34 writes it (theseus-rr15, the first layout):
+/// a literal, so a later change to `prefix::Header` must still read it and
+/// write it back byte for byte.
+pub(crate) const PREFIX_HEADER_AT_34: &str = r##"{"digest":"a3f1","layer":"project","class":"private","lower":"9c0e","sections":[{"name":"files","digest":"5d2b","bytes":24},{"name":"# Guidance (topic tides)","digest":"77e0","bytes":52}],"text":"The harbour log. wave wave\n\n# Guidance (topic tides)\n\nQuote every level in metres.","sketch":[12,-3,0,127],"created_at_ms":1790000000342}"##;
+
+#[test]
+fn a_format_33_compilation_reads_with_no_header_and_a_header_writes_back_byte_for_byte() {
+    let c: Compilation = serde_json::from_str(COMPILATION_BEFORE_PREFIX).unwrap();
+    assert!(c.manifest.prefix.is_none());
+    assert_eq!(
+        serde_json::to_string(&c).unwrap(),
+        COMPILATION_BEFORE_PREFIX
+    );
+    let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_34).unwrap();
+    assert_eq!((h.layer.as_str(), h.class.as_str()), ("project", "private"));
+    assert_eq!(h.sections.len(), 2);
+    assert_eq!(serde_json::to_string(&h).unwrap(), PREFIX_HEADER_AT_34);
+    let mut with = c;
+    with.manifest.prefix = Some(crate::prefix::PrefixUse {
+        header: "a3f1".into(),
+        fresh: "b7c2".into(),
+    });
+    let back: Compilation = serde_json::from_str(&serde_json::to_string(&with).unwrap()).unwrap();
+    assert_eq!(back, with);
+}
+
+/// A store of format 33, which holds a session and no header: the build
+/// opens it, loads an empty library, takes a header in a frame and moves the
+/// manifest to 34, which an older build then refuses; a reopened store holds
+/// the header and its hit log.
+#[test]
+fn a_format_33_store_opens_with_no_headers_and_takes_one() {
+    use theseus_store::NewRecord;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        store.put_session(&rec.session_id, &rec).unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
+
+    let store = crate::store::Store::open(&path).unwrap();
+    let lib = crate::prefix::Library::default();
+    lib.loaded(&store).unwrap();
+    assert_eq!(lib.stats(0).headers, 0);
+    let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_34).unwrap();
+    let hits = crate::prefix::Hits {
+        reuses: 2,
+        last_read_ms: 1_790_000_000_400,
+    };
+    store
+        .append(&[
+            NewRecord::json(
+                kinds::META,
+                Some(&format!("{}{}", crate::prefix::HEADER, h.digest)),
+                &h,
+            )
+            .unwrap(),
+            NewRecord::json(
+                kinds::META,
+                Some(&format!("{}{}", crate::prefix::HITS, h.digest)),
+                &hits,
+            )
+            .unwrap(),
+        ])
+        .unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 41);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    let lib = crate::prefix::Library::default();
+    lib.loaded(&again).unwrap();
+    assert_eq!(lib.stats(0).headers, 1);
+    let plan = lib
+        .replay(&crate::prefix::PrefixUse {
+            header: h.digest.clone(),
+            fresh: h.digest.clone(),
+        })
+        .unwrap();
+    assert_eq!(&*plan.header, h.text.as_str());
 }

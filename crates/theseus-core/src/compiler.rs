@@ -29,6 +29,7 @@ use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
+use crate::prefix;
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
 use theseus_protocol::memory::{BudgetDrop, BudgetReport};
 
@@ -53,7 +54,7 @@ mod tests_kept;
 #[cfg(test)]
 mod tests_layers;
 #[cfg(test)]
-mod tests_ring;
+pub(crate) mod tests_ring;
 #[cfg(test)]
 mod tests_ring_sums;
 pub use clearing::Pass;
@@ -120,6 +121,9 @@ pub struct Manifest {
     /// deferral, or with it off. An append takes these again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loaded: Option<Vec<String>>,
+    /// The prefix library's header the third layer is (theseus-rr15, format 34).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<crate::prefix::PrefixUse>,
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
     // `audience`, `readers`, `integrity`, and `withheld`: they read, and are
     // left unread (COMPILATION schema 5, theseus-nbsh).
@@ -232,6 +236,9 @@ pub struct RequestSpec {
     /// What the walk used, once `compile` has rendered it: the manifest's.
     pub memberships: Vec<theseus_ontology::MembershipUsed>,
     pub guidance: Vec<theseus_ontology::GuidanceUsed>,
+    /// The prefix library's plan for the third layer (`prefix::applied`), and what it applied.
+    pub prefix: Option<Arc<crate::prefix::Plan>>,
+    pub prefix_used: Option<crate::prefix::PrefixUse>,
 }
 
 #[derive(Clone, Copy)]
@@ -511,6 +518,8 @@ pub struct Compiled {
     /// The thread card this request renders, when it has one: a new
     /// compilation's is stored with it (`thread.card.<compilation id>`).
     pub card: Option<String>,
+    /// The prefix library's pick this compile took, for its frame (theseus-rr15).
+    pub prefix: Option<Arc<crate::prefix::Picked>>,
 }
 
 /// A rendered request.
@@ -569,6 +578,7 @@ pub fn manifest_for(
         guidance: spec.guidance.clone(),
         standing: vec![],
         loaded: crate::tools_defer::loaded_of(spec),
+        prefix: spec.prefix_used.clone(),
     }
 }
 
@@ -602,6 +612,12 @@ fn compile_with(
     recompiled: &RequestSpec,
 ) -> Compiled {
     let mut ph = phases::Phases::new("compile");
+    // The prefix library's header in the third layer (theseus-rr15).
+    let (a, r) = (
+        prefix::applied(appended),
+        (!std::ptr::eq(appended, recompiled)).then(|| prefix::applied(recompiled)),
+    );
+    let (appended, recompiled) = (&*a, r.as_deref().unwrap_or(&*a));
     let spec = appended;
     let entry = input.catalog.get(&spec.model);
     let window = input.window_override.or(entry.map(|e| e.context_window));
@@ -866,6 +882,7 @@ fn compile_with(
         situation,
         cleared,
         card: spec.card.as_ref().map(|c| c.shown.clone()),
+        prefix: None,
     }
 }
 

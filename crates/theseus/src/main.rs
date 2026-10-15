@@ -48,6 +48,7 @@ mod pages;
 mod persona_cmd;
 mod policy_explain;
 mod postmortem;
+mod prefix_cmd;
 mod print;
 mod prompt;
 mod remind;
@@ -695,6 +696,12 @@ enum Cmd {
     /// Your own benchmark (theseus-pw1q.12): `route report [--week]`, and `turn replay`.
     #[command(flatten)]
     OwnBench(own_bench::OwnBench),
+    /// The prefix library (theseus-rr15): `prefix report`, its picks, the cache writes they saved,
+    /// and the false fits.
+    Prefix {
+        #[command(subcommand)]
+        cmd: prefix_cmd::PrefixCmd,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -1387,6 +1394,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
+        Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };
