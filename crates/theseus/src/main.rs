@@ -22,6 +22,9 @@ mod follow;
 mod fork;
 mod harness;
 mod herdr;
+mod herdr_answer;
+mod herdr_keys;
+mod herdr_setup;
 mod herdr_slots;
 mod herdr_sync;
 mod import;
@@ -1072,7 +1075,7 @@ fn main() {
         .enable_all()
         .build()
         .expect("the CLI's runtime starts");
-    let code = match runtime.block_on(run(cli)) {
+    let code = match runtime.block_on(run_or_own(cli)) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("theseus: {e:#}");
@@ -1086,6 +1089,14 @@ fn main() {
 async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) -> Result<()> {
     let ms = timeout.map(cmd::parse_duration_ms).transpose()?;
     status::wait_any(c, json, until, ms).await
+}
+
+/// `theseus herdr answer|plugin|setup|popup|link` connect nothing for themselves (theseus-pkaq).
+async fn run_or_own(cli: Cli) -> Result<()> {
+    match &cli.cmd {
+        Cmd::Herdr { cmd } if cmd.is_own() => herdr_keys::run_own(&cli.socket, cmd).await,
+        _ => run(cli).await,
+    }
 }
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]

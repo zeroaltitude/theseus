@@ -152,6 +152,20 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   A watch on a session that already failed prints why, then waits. When the work board's views drop in, only `from_execution`'s
   call changes. Tests: `tests/herdr.rs` (a fake herdr and a scripted daemon, `Restarting` for a restart),
   `tests/herdr_sync.rs`.
+- `src/herdr_answer.rs`, `src/herdr_keys.rs`, `src/herdr_setup.rs` and `contrib/herdr/theseus/` (theseus-pkaq): the herdr plugin and what
+  its keys run. `theseus herdr answer [--pane P | --oldest | CID]` is a line-mode card for a popup: `pick` chooses the question (the
+  one named, else the focused pane's `$confirm` token, else the oldest), `keys` takes the keys from the question's own `options`
+  (`y`, `t`, `n`, `1`..`6`; words decline with a note), `card` words it, and an answer is one `work.answer` with author `herdr`;
+  a `confirm.resolved` for the shown question says it was answered elsewhere. `herdr next` focuses the oldest question's pane
+  (`agent.focus`), `herdr stop --pane P` asks y/N then runs `cancel` (a task) or `stop` (a conversation), `herdr popup NAME`
+  opens one of the plugin's popup panes by `plugin.pane.open` (ids only in its environment), `herdr link URL` is the link
+  handler (`parse_link` reads `theseus://answer|history|open/<id>` strictly; a click opens the card, never answers),
+  `herdr plugin` prints the plugin's path and the one `herdr plugin link` command, and `herdr setup [--config FILE]` prints the
+  config snippet and lists what a config lacks, read only. `links_under` prints the OSC 8 links under a question in
+  `interactive.rs`, only when `HERDR_ENV=1`. The commands that need no daemon connection first (`answer`, `plugin`, `setup`,
+  `popup`, `link`) run before `main`'s connect (`HerdrCmd::is_own`). The manifest, the snippet, the link pattern and the reporter's
+  tokens are tied by one test (`herdr_setup_tests.rs`). The operator's guide is `docs/herdr.md`. Tests: the three `*_tests.rs`
+  files and `tests/herdr_answer.rs` (a scripted daemon and a fake herdr).
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.

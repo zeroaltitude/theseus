@@ -59,6 +59,84 @@ pub enum HerdrCmd {
         #[arg(long, value_name = "PATH")]
         herdr_socket: Option<PathBuf>,
     },
+    /// The answer card, for a herdr popup: the question the focused pane (`--pane`) holds, else the
+    /// one that has waited longest, with the keys its options give (y approve, t approve and trust,
+    /// n decline, other words decline with a note, 1..6 an ask question's choices).
+    Answer {
+        /// The focused pane: its `confirm` token names the question.
+        #[arg(long, value_name = "PANE")]
+        pane: Option<String>,
+        /// Open on the question that has waited longest.
+        #[arg(long)]
+        oldest: bool,
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+        /// A question: its id, or at least its last four characters.
+        cid: Option<String>,
+    },
+    /// Focus the pane of the task that has waited longest for you.
+    Next {
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+    },
+    /// Stop what a pane shows (asks y/N): a task is cancelled, a conversation's work is halted.
+    Stop {
+        #[arg(long, value_name = "PANE")]
+        pane: String,
+        /// Do not ask.
+        #[arg(long)]
+        yes: bool,
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+    },
+    /// Where the herdr plugin is, and the one command that links it.
+    Plugin,
+    /// Print the herdr config Theseus is built for; with `--config FILE`, list what FILE lacks.
+    /// Reads only: no config is written.
+    Setup {
+        #[arg(long, value_name = "FILE")]
+        config: Option<PathBuf>,
+    },
+    /// Open one of the plugin's popups (answer, tui, stop, history, new). The plugin's actions run it.
+    Popup {
+        name: String,
+        #[arg(long, value_name = "PANE")]
+        pane: Option<String>,
+        #[arg(long, value_name = "CID")]
+        cid: Option<String>,
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+    },
+    /// What a click on a `theseus://` link opens: the answer card, a history, or a session's pane.
+    Link {
+        url: String,
+        #[arg(long, value_name = "PANE")]
+        pane: Option<String>,
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+    },
+}
+
+impl HerdrCmd {
+    /// A command that needs no connection to the daemon made for it first (the card connects for
+    /// itself within 1.5 s; the others talk to herdr alone).
+    pub fn is_own(&self) -> bool {
+        matches!(
+            self,
+            Self::Answer { .. }
+                | Self::Plugin
+                | Self::Setup { .. }
+                | Self::Popup { .. }
+                | Self::Link { .. }
+        )
+    }
 }
 
 /// What runs in a pane, by herdr's view of its foreground job
@@ -192,7 +270,7 @@ pub fn split_target(layout: &Value) -> Option<(String, &'static str)> {
 /// herdr's default API socket, as herdr resolves it: `$HERDR_SOCKET_PATH`,
 /// then `$HERDR_SESSION`'s, then its own, under `$XDG_CONFIG_HOME` or
 /// `~/.config`.
-fn default_socket() -> Result<PathBuf> {
+pub(crate) fn default_socket() -> Result<PathBuf> {
     let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
     if let Some(p) = var("HERDR_SOCKET_PATH") {
         return Ok(p.into());
@@ -282,11 +360,22 @@ pub async fn run(
     cmd: HerdrCmd,
     theseus_socket: Option<&str>,
 ) -> Result<()> {
-    let HerdrCmd::Sync {
-        pin,
-        close_finished,
-        herdr_socket,
-    } = cmd;
+    let (pin, close_finished, herdr_socket) = match cmd {
+        HerdrCmd::Sync {
+            pin,
+            close_finished,
+            herdr_socket,
+        } => (pin, close_finished, herdr_socket),
+        HerdrCmd::Next { herdr_socket } => {
+            return crate::herdr_keys::next(conn, herdr_socket).await;
+        }
+        HerdrCmd::Stop {
+            pane,
+            yes,
+            herdr_socket,
+        } => return crate::herdr_keys::stop(conn, json, &pane, herdr_socket, yes).await,
+        own => unreachable!("{own:?} runs before the connection"),
+    };
     let Some(theseus_socket) = theseus_socket else {
         bail!(
             "`theseus herdr sync` needs a running theseusd, not --spawn: \
