@@ -444,13 +444,12 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
     Plan {
         resources: vec![Resource { path: at, access }],
         summary: format!("a call of {}", tool.name()),
-        authority: if tool.name() == crate::routine_tool::CREATE {
-            Some(crate::routine_tool::ASKS.to_string())
-        } else if tool.name() == crate::thread_split::SPLIT {
-            // The owner's tap, at every posture (theseus-vt9k).
-            Some("a new thread opens with turns of this one".to_string())
-        } else {
-            None
+        authority: match tool.name() {
+            n if n == crate::routine_tool::CREATE => Some(crate::routine_tool::ASKS.to_string()),
+            // A question for the owner asks at every posture, as a layer-1
+            // change does (theseus-j7cje).
+            n if n == crate::ask::OWNER_ASK => Some("the owner's decision".to_string()),
+            _ => None,
         },
         ..Default::default()
     }

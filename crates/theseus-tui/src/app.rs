@@ -782,7 +782,9 @@ impl App {
             Purpose::Answer { correlation_id, .. } => {
                 self.refused.remove(&correlation_id);
                 if let Ok(r) = serde_json::from_value::<WorkAnswerResult>(v) {
-                    self.flash = Some(if approves(&r.option) {
+                    self.flash = Some(if r.option.starts_with("choice:") {
+                        (Tag::Ok, format!("✓ answered {correlation_id}"))
+                    } else if approves(&r.option) {
                         (Tag::Ok, format!("✓ approved {correlation_id}"))
                     } else {
                         (Tag::Warn, format!("✗ declined {correlation_id}"))
@@ -1182,6 +1184,7 @@ impl App {
             }
             KeyCode::Tab => return self.jump(true),
             KeyCode::BackTab => return self.jump(false),
+            KeyCode::Char(c @ '1'..='6') => return self.choice_key(c),
             KeyCode::Char('y') => return self.answer_key(true, false),
             KeyCode::Char('t') => return self.answer_key(true, true),
             KeyCode::Char('n') => return self.answer_key(false, false),
@@ -1294,6 +1297,13 @@ impl App {
             return Vec::new();
         };
         let (id, trusts) = (q.correlation_id().to_string(), q.trusts());
+        if q.is_ask() {
+            self.flash = Some((
+                Tag::Dim,
+                "this question has options: press their number (1 to 6)".to_string(),
+            ));
+            return Vec::new();
+        }
         if !q.may_answer() {
             self.flash = Some((
                 Tag::Bad,
@@ -1342,6 +1352,45 @@ impl App {
             return Vec::new();
         }
         vec![answer(&id, theseus_protocol::grants::APPROVE_GRANT, None)]
+    }
+
+    /// `1` to `6` on a question with options (`owner_ask`, theseus-j7cje):
+    /// that option, as `work.answer`.
+    fn choice_key(&mut self, key: char) -> Vec<Effect> {
+        if self.on_screen().is_none() {
+            return Vec::new();
+        }
+        let Some((q, _)) = self.card() else {
+            self.flash = Some((Tag::Dim, "no question waits here".to_string()));
+            return Vec::new();
+        };
+        if !q.is_ask() {
+            self.flash = Some((
+                Tag::Dim,
+                "this question has no numbered options".to_string(),
+            ));
+            return Vec::new();
+        }
+        if !q.may_answer() {
+            self.flash = Some((
+                Tag::Bad,
+                "refused: not from here; answer from the CLI (`theseus answer`), the web UI, or a private place"
+                    .to_string(),
+            ));
+            return Vec::new();
+        }
+        let n = key.to_digit(10).unwrap_or(0) as usize;
+        let (id, option) = (
+            q.correlation_id().to_string(),
+            q.choice(n).map(str::to_string),
+        );
+        match option {
+            Some(option) => vec![answer(&id, &option, None)],
+            None => {
+                self.flash = Some((Tag::Dim, format!("this question has no option {n}")));
+                Vec::new()
+            }
+        }
     }
 
     /// The decline's note: `enter` sends the decline, with the note if one

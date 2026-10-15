@@ -313,8 +313,11 @@ pub fn authority_for(
     // A routine's creation always waits (theseus-pvm5c), and a command watch
     // asks the owner once at its creation (theseus-f2r2b): neither is a task
     // call, so this is not the place that clears their question; layer 1 only
-    // guards the owner's tasks.
-    let own = name == crate::routine_tool::CREATE || name == crate::watch_tool::WATCH;
+    // guards the owner's tasks. A question for the owner (`owner_ask`, theseus-j7cje)
+    // always waits for the owner too.
+    let own = name == crate::routine_tool::CREATE
+        || name == crate::watch_tool::WATCH
+        || name == crate::ask::OWNER_ASK;
     // Only a task edit's authority is conditional; another tool that names one
     // (`thread.split`) always waits for the owner.
     if plan.authority.is_some() && !own && is_edit(name) && !waits(store, name, input) {

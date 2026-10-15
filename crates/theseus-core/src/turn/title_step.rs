@@ -136,6 +136,7 @@ mod tests {
             target: None,
             arrangement: None,
             check: None,
+            notify_done: false,
         });
         s.title = Some("tide".into());
         retitle(&mut s, "Chart the soundings of the outer harbour".into(), 3);

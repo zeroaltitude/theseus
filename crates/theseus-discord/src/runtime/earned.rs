@@ -103,6 +103,8 @@ impl Shared {
             self.seal_press(i, press, who, discord).await;
         } else if let Some(press) = super::thread_ask::parse(custom_id) {
             self.thread_ask_press(i, press, who, discord).await;
+        } else if let Some(press) = super::ask::parse(custom_id) {
+            self.ask_press(i, press, who, discord).await;
         } else {
             return false;
         }

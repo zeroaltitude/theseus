@@ -1075,6 +1075,17 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # confirm = 0.6                           # a reuse below act is watched for a false fit; below confirm, mint or the coarser header
 # candidates = 16                         # the nearest headers by sketch a pick scores
 
+# ---------------------------------------------------------------- notify
+# A question for the owner (an approval, a budget's, an `owner_ask`) shows at
+# once, silently, on every Theseus screen and on the owner's DM board. If it is
+# still open after escalate_after_secs and no Theseus screen is open, or after
+# escalate_with_screen_secs and one is, the core posts one "needs you" to the
+# owner's DM, which pings; answering the question anywhere settles it.
+# [notify]
+# escalate_after_secs = 60                # no screen open: the DM pings after this long
+# escalate_with_screen_secs = 300         # a screen open: after this long
+# unprompted_pace_secs = 1800            # at most one unprompted DM post (a needs-you now; the digest and nudges later) in this long, what is due meanwhile going out together; 0: no rule
+
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
 # human-facing text and returns candidate people through a tool schema; Jev

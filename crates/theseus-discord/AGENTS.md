@@ -87,6 +87,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the presser (the core judges it: the owner, from a private place) and the card becomes the answer (an update-message
   callback). The card is best effort: with none, the message runs at home when `[threads] ask_wait_secs` ends. `/move
   thread:` is `thread.move` for the last message the core placed in this place. Tests: `tests_gateway/thread_ask.rs`.
+- **A question with options** (theseus-j7cje; `render/ask.rs`, `runtime/ask.rs`, `courier/ask.rs`): the card of an `owner_ask` question
+  draws its options numbered with one button each (`Buttons::Ask`, `ask:<n>:<question id>`, five to a row), and a press is
+  `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI. The core's
+  `needs_you` post (an open question past `[notify]`'s line) goes to the owner's DM alone, always pings (`Event::NeedsYou` is in no
+  category), has the same buttons for an ask, and is edited by the question's settle. Tests: `tests_gateway/ask.rs`.
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

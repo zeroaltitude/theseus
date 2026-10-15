@@ -11,6 +11,8 @@
 //! policy (`crate::notices`) now. Code says `work`; every surface says
 //! "tasks".
 
+pub mod ask;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

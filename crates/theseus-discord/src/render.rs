@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
+mod ask;
 mod board;
 pub(crate) mod cite;
 mod deferred;
@@ -29,6 +30,7 @@ mod preview;
 pub(crate) mod process;
 mod reply;
 mod wakes;
+pub use ask::needs_you;
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, thread_tag, wake_header};
 pub use wakes::wakes;
@@ -45,6 +47,8 @@ pub enum Buttons {
     Keep,
     /// Approve and Decline for this correlation id.
     Confirm(String),
+    /// One button per option of an `owner_ask` question (theseus-j7cje).
+    Ask(String, Vec<String>),
     /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
     ConfirmTrust(String),
     /// Approve, the question's grant, and Decline (theseus-drjs).
@@ -810,6 +814,9 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     if let Some(c) = &req.change {
         return board::change_card(req, c, &task, route, elsewhere);
     }
+    if req.tool == theseus_protocol::work::ask::OWNER_ASK {
+        return ask::card(req, &task, route, elsewhere);
+    }
     let line = format!("{task}`{}` {}", req.tool, summarize(&req.tool, &req.input));
     let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
     if !req.reason.is_empty() {
@@ -882,6 +889,7 @@ pub fn settled(closed: &Closed, line: &str, budget: bool) -> String {
         // An approval that trusted the session again says so (theseus-9bp).
         "approved" if !note.is_empty() => format!("✅ **Approved** by {by}, {note} · {line}"),
         "approved" => format!("✅ **Approved** by {by} · {line}"),
+        "answered" | "asked_expired" => ask::settled(closed, line),
         "withdrawn" => format!("↩️ **Withdrawn**: {note} · {line}"),
         "ended" => format!("⏹️ **Closed**: the session's work ended · {line}"),
         // `/stop` (W1): the question closed, and the conversation goes on.

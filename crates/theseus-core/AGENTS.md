@@ -649,12 +649,34 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   ones. A call, a budget question, a change and an extension's ack go to `confirm_action_with`, so the place rule is
   `judge_act`'s exactly as `action.confirm`'s (a refusal is ledgered `approval.refused` and the question keeps waiting);
   a reminder's Done and snoozes go to the wake owner's verbs, refused only on a surface that is never an approval
-  surface. `QuestionKind::Ask` has no handler yet (`route`: "not answerable yet"; `owner-ask` replaces the arm). Every
+  surface. `QuestionKind::Ask` is `owner_ask`'s (below): its option is a number from 1, `choice:<i>` or `other` (`answer_ask`). Every
   answer, by any verb, is one `confirm.resolved` carrying its `option` (`CallAnswered.option`, `BudgetAnswered.option`)
   and the push's change. A `ConfirmRequest` is built through `rpc::offer`, which words its `options`; `confirm.list`
   adds `may_answer` for the asking connection (`Core::may_answer`: the place rule asked without making an act; a push
   says nothing, since every connection hears it alike). Tests: `tests_m3/answer.rs`, and one each in
   `tests_task_graph.rs`, `extend/tests.rs` and `tests_reminders.rs`.
+- **`owner_ask`** (theseus-j7cje; `ask.rs`, `needs_you.rs`, `rpc/answer.rs`'s `answer_ask`, `rpc/confirms.rs`; the pure parts are
+  `theseus_protocol::work::ask`): the model asks the owner a question with 2 to 6 options (`question` up to 500
+  characters, `label` up to 60, `default` an option's number from 1, `expires_in` minutes, 30 by default and 1,440 at
+  most). The tool plans with `Plan::authority`, so the gate waits at every posture (`authority_for` leaves it alone); it
+  is a harness tool in private places only (`places::public_tool` does not list it), so the execution parks as on an
+  approval and the question is a `QuestionKind::Ask` with `choices`. An answer is `work.answer` with the option: it binds
+  the confirm in one frame with the answer's row and a META record, `ask.answer.<correlation id>`
+  (`AskAnswer`; no store format), and the continuation "runs" the call, which only reads that record back as its result
+  (`The owner chose 2, "Ship it behind the flag"; note: …`; `other` takes a note; a plain `action.confirm` yes is refused,
+  since it chooses nothing). Its life is `ask::expiry_of` (plan time plus its own life), read by the same driver tick that
+  expires approvals (`expire_questions`, `question_due`); at expiry `expire_ask` writes the same record with `expired`, and
+  the result says the default applied or that no one answered. The brief of a task says when to ask (`task::brief_text`).
+  **The always-on channel** (`needs_you.rs`, `[notify]` in `config/notify.rs`): the driver's tick reads the open questions from the
+  kernel (not the push, which is seeded by the first watcher), and one still open after `escalate_after_secs` (60) with no
+  screen open (`Bus::interactive_watchers`), or `escalate_with_screen_secs` (300) with one, gets one `needs_you` outbox post to
+  the owner's DM (the courier pings it and gives an ask its option buttons). The outbox indexes it as the question's card
+  (`Outbox::pinged`), so the answer's `card_closed` writes the settle that edits it; a question that has a card in a Discord place
+  (`Outbox::has_card`) gets no second post; with no DM bound nothing is written. Half-way to a question's expiry the work board
+  reminds (the policy's rule 2): `WorkBoard::remind`, from `Push::remind_questions` on the same tick, reading nothing until
+  `remind_at`. `task.create { notify_done }` is stored on `TaskOf` (store format 34) and flags the task's work view, so the
+  policy's report row interrupts. Tests: `tests_m3/ask.rs`, `tests_ask.rs` (a task asks, the CLI answers, it resumes), the
+  Discord crate's `tests_gateway/ask.rs`, `notices::tests` for the flag.
 - **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
   `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
   stored as a state: the record keeps only `retired` (superseded or by hand; empty is derived past `[sessions]
@@ -2069,6 +2091,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   for a guarded scope whatever it names, and a private scope has it on the whole board or by naming `system` in `roots`
   (the TUI and `theseus status` ask for it alone). Tests: `push/work/tests_system.rs`, `import/tests_system.rs` (frames
   per import unchanged), `tests_push/work.rs` (over `work.changed`). Tests: `tests_work.rs` (the scenario and its golden,
+  counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. The question's reminder (rule 2 of the policy) is
+  made on the driver's tick (`WorkBoard::remind`, theseus-j7cje); there is no timer. Tests: `tests_work.rs` (the scenario and its golden,
   `tests/golden/work_board.txt`), `tests_push/work.rs`, `push/work/tests.rs`, `push/tests/work.rs` (the seed equals the
   replay).
 - **A task's forecast** (theseus-zz752; `forecast.rs`, `forecast/`, `push/work/forecast.rs`, `rpc/forecast.rs`): what

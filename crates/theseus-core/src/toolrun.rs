@@ -1357,7 +1357,7 @@ impl ToolRuntime {
             reason: g.decision.reason,
             by: self.policy.confirmer.clone(),
             requested_at_ms: a.planned_at_ms,
-            expires_at_ms: a.planned_at_ms + tc.confirm_ttl_ms,
+            expires_at_ms: crate::ask::expiry_of(&a, tc.confirm_ttl_ms),
             floor: g.decision.floor,
             budget: None,
             task: tc.task.map(|_| theseus_protocol::TaskRef {
@@ -1374,7 +1374,7 @@ impl ToolRuntime {
         // It expires at its plan's time and the TTL, as `confirm.list` says
         // (theseus-830): the driver reads the questions by then.
         self.question_due.fetch_min(
-            a.planned_at_ms + tc.confirm_ttl_ms,
+            crate::ask::expiry_of(&a, tc.confirm_ttl_ms),
             std::sync::atomic::Ordering::SeqCst,
         );
         Ok(CallOutcome::AwaitingConfirm {
@@ -1536,6 +1536,8 @@ impl ToolRuntime {
                     done
                 })
             }
+            // The owner's answer to a question, read back (theseus-j7cje).
+            crate::ask::OWNER_ASK => crate::ask::result(tc, &call.input, correlation_id),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
@@ -2211,6 +2213,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::watch_tool::WatchTool));
         r.register(Arc::new(crate::thread_context::ThreadNote));
         r.register(Arc::new(crate::thread_split::ThreadSplitTool));
+        r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

@@ -21,6 +21,7 @@
 //! waits until the place has shown its call (`LaneMsg::Asked`), at most
 //! `CARD_WAIT`; what the place showed before that goes first.
 
+mod ask;
 mod board;
 mod held;
 mod persona;
@@ -809,6 +810,8 @@ impl Lane {
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
             | "self_narrow_red" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
+            // An open question pinged the owner's DM (theseus-j7cje).
+            "needs_you" => self.needs_you_post(&body).await,
             // A reminder fired (theseus-8ux6x): its note as it is, in the
             // place the core chose, with Done and Snooze.
             "reminder" => self.reminder_post(&body, corr).await,
@@ -940,16 +943,7 @@ impl Lane {
         let note_key = format!("approval:{q}");
         // A call that waits because its session read external text gets the
         // third button, which trusts the session again (theseus-9bp).
-        let mut buttons = if req.change.is_some() {
-            Buttons::Accept(q.clone())
-        } else if req.external_text.is_some() {
-            Buttons::ConfirmTrust(q.clone())
-        } else if let Some(o) = &req.grant_offer {
-            // "Approve + this command for the conversation" (theseus-drjs).
-            Buttons::ConfirmGrant(q.clone(), o.clone())
-        } else {
-            Buttons::Confirm(q.clone())
-        };
+        let mut buttons = ask::card_buttons(&req, &q);
         let closed = Closed::of(&question).map(|c| self.waiting_settle(&q).unwrap_or(c));
         if let Some(c) = &closed {
             // Written as its settle would leave it: no buttons, no mention.
@@ -1482,6 +1476,7 @@ impl Lane {
         }
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
+            Buttons::Ask(corr, choices) => crate::runtime::ask_buttons(corr, choices),
             Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
@@ -1543,6 +1538,7 @@ impl Lane {
         let none = AllowedMentions::default();
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
+            Buttons::Ask(corr, choices) => Some(crate::runtime::ask_buttons(corr, choices)),
             Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),

@@ -141,6 +141,9 @@ struct ExecIn {
     read: Option<(String, f32)>,
     /// Its row joined the table of finished tasks.
     recorded: bool,
+    /// The owner asked to hear when this task is done (`task.create
+    /// { notify_done }`, theseus-j7cje).
+    flagged: bool,
 }
 
 /// An action the board shows: a question, or a job.
@@ -250,6 +253,9 @@ pub(super) struct WorkBoard {
     fired_series: HashSet<String>,
     /// The ids of the views that belong to the future (`horizon::is_future`).
     futures: HashSet<String>,
+    /// The earliest a question's reminder may be due; 0 until a first look
+    /// (`remind`, theseus-j7cje).
+    remind_at: u64,
 }
 
 /// Entities marked for building again.
@@ -1004,6 +1010,10 @@ impl WorkBoard {
                 ran_from_ms: ran_from,
                 read: None,
                 recorded: false,
+                flagged: rec
+                    .as_ref()
+                    .and_then(|r| r.task.as_ref())
+                    .is_some_and(|t| t.notify_done),
             },
         );
         self.ensure_forecast(core, &e.id);

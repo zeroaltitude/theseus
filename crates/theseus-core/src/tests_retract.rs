@@ -138,6 +138,7 @@ fn task_that_recalled(core: &Core, title: &str, of: &str, yes: bool) -> String {
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     core.store.put_session(&rec.session_id, &rec).unwrap();
     let rn = Node::recall(&rec.session_id, "turn_t", "rcl_task", "baseline", vec![]);

@@ -399,6 +399,40 @@ fn row_7_an_expired_question_informs() {
     assert_eq!(n.unwrap().retracts.as_deref(), Some("cor_1"));
 }
 
+/// Row 8, "tell me when done" (theseus-j7cje): a task the owner flagged
+/// interrupts with its report, whether the report has words or not; the
+/// same task unflagged informs.
+#[test]
+fn row_8_a_flagged_tasks_report_interrupts() {
+    let flag = |mut v: WorkView| {
+        v.flagged = true;
+        v
+    };
+    let running = flag(task("Alpha check", WorkState::Running, AT - 1_000));
+    let mut done = flag(task("Alpha check", WorkState::Done, AT));
+    done.report = Some(WorkReport {
+        outcome: "done".into(),
+        first_line: Some("the soundings agree".into()),
+        reason: None,
+    });
+    assert_eq!(
+        said(&run(Some(&running), &done)),
+        (
+            Urgency::Interrupt,
+            Why::Reported,
+            "📋 Alpha check reported: the soundings agree"
+        )
+    );
+    let plain = flag(task("Alpha check", WorkState::Done, AT));
+    assert_eq!(
+        said(&run(Some(&running), &plain)),
+        (Urgency::Interrupt, Why::Reported, "📋 Alpha check reported")
+    );
+    let unflagged = task("Alpha check", WorkState::Done, AT);
+    let working = task("Alpha check", WorkState::Running, AT - 1_000);
+    assert_eq!(said(&run(Some(&working), &unflagged)).0, Urgency::Inform);
+}
+
 /// Row 8: a task reports, a job ends, a short turn ends: Inform.
 #[test]
 fn row_8_a_report_a_jobs_end_and_a_short_turn_inform() {

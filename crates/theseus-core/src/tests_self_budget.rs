@@ -55,6 +55,7 @@ pub(crate) fn make_task(
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     core.store.put_session(sid, &rec).unwrap();
     let task = graph::NewTask {

@@ -9,6 +9,7 @@
 pub mod advancer;
 pub mod approval;
 pub mod arrangement;
+pub mod ask;
 pub mod attach;
 pub mod aws;
 pub mod bench;
@@ -65,6 +66,7 @@ pub mod memory_lookup;
 pub mod memory_pass;
 pub mod narrative;
 pub mod native;
+pub mod needs_you;
 pub mod node;
 pub mod node_cache;
 pub mod one_shot;
@@ -73,6 +75,7 @@ pub mod outbound;
 pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
+pub mod pacer;
 pub mod parked;
 pub mod peer;
 pub mod persona;
@@ -193,6 +196,8 @@ mod tests_actor;
 mod tests_approvals;
 #[cfg(test)]
 mod tests_arrangement;
+#[cfg(test)]
+mod tests_ask;
 #[cfg(test)]
 mod tests_audit;
 #[cfg(test)]

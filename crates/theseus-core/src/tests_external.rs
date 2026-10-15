@@ -488,6 +488,7 @@ async fn an_approval_with_trust_runs_the_call_and_trusts_the_session() {
     let e = r
         .core
         .confirm_action_with(&corr, false, None, "test", true, &[])
+        .confirm_action_with(&corr, false, None, "test", true, None)
         .unwrap_err();
     assert!(e.to_string().contains("trust goes with an approval"), "{e}");
     // The answer is one frame (theseus-jj9f): the bind, the trust (its row
@@ -506,6 +507,7 @@ async fn an_approval_with_trust_runs_the_call_and_trusts_the_session() {
     let ok = r
         .core
         .confirm_action_with(&corr, true, None, "test", true, &[])
+        .confirm_action_with(&corr, true, None, "test", true, None)
         .unwrap();
     assert_eq!(r.core.store.stats().unwrap().frames_appended - before, 1);
     assert_eq!(

@@ -28,6 +28,7 @@ mod limits;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
+mod notify;
 mod outputs;
 pub(crate) mod people;
 pub mod persona;
@@ -43,6 +44,7 @@ mod wake_limits;
 pub use cockpit::CockpitConfig;
 pub use routines::RoutinesConfig;
 mod watches;
+pub use notify::NotifyConfig;
 pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
@@ -186,6 +188,9 @@ pub struct Config {
     /// `[prefix]`: the prefix library (theseus-rr15), `config/prefix.rs`.
     #[serde(default, skip_serializing_if = "PrefixConfig::is_default")]
     pub prefix: PrefixConfig,
+    /// `[notify]`: when an open question pings the owner's DM (theseus-j7cje), `config/notify.rs`.
+    #[serde(default, skip_serializing_if = "NotifyConfig::is_default")]
+    pub notify: NotifyConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1420,6 +1425,7 @@ impl Config {
         discord::ThreadBind::validate_all(&self.discord.thread)?;
         self.route.validate()?;
         self.prefix.validate()?;
+        self.notify.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;

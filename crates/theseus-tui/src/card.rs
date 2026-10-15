@@ -38,6 +38,8 @@ pub fn lines(
                 "  [y] reset and continue  [n] keep waiting".to_string(),
             ));
         }
+        // A question with options (`owner_ask`, theseus-j7cje).
+        Question::Whole(c) if q.is_ask() => ask_lines(c, now_ms, refused, &mut out),
         Question::Whole(c) => {
             out.push((
                 Tag::Ask,
@@ -182,6 +184,39 @@ pub fn failure_lines(
         },
     ));
     out
+}
+
+/// The card of a question with options: the question, each option numbered
+/// (the keys 1 to 6), what happens if no one answers, and who asks.
+fn ask_lines(
+    c: &theseus_protocol::ConfirmRequest,
+    now_ms: u64,
+    refused: Option<&str>,
+    out: &mut Vec<(Tag, String)>,
+) {
+    let ask = theseus_protocol::work::ask::AskInput::parse(&c.input).ok();
+    out.push((
+        Tag::Ask,
+        format!(
+            "? {}",
+            ask.as_ref().map_or("a question", |a| a.question.as_str())
+        ),
+    ));
+    out.extend(when(false, c.expires_at_ms, now_ms));
+    for (i, o) in ask.iter().flat_map(|a| a.options.iter()).enumerate() {
+        let detail = o.detail.as_deref().map(|d| format!(" — {d}"));
+        out.push((
+            Tag::Plain,
+            format!("  [{}] {}{}", i + 1, o.label, detail.unwrap_or_default()),
+        ));
+    }
+    if let Some(a) = &ask {
+        out.push((Tag::Dim, format!("  if no one answers: {}", a.on_expiry())));
+    }
+    if let Some(t) = &c.task {
+        out.push((Tag::Dim, format!("  asked by task {}", t.short)));
+    }
+    push_refusal(out, refused);
 }
 
 fn push_refusal(out: &mut Vec<(Tag, String)>, refused: Option<&str>) {

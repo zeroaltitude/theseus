@@ -1471,6 +1471,7 @@ fn task_of(core: &Core, parent: &str) -> String {
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     core.store.put_session(&task.session_id, &task).unwrap();
     let sid = task.session_id;

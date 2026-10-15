@@ -1498,6 +1498,7 @@ impl Core {
                 who,
                 p.trust,
                 &[],
+                None,
             ),
         }
         .map_err(|e| match e.downcast::<Refusal>() {
