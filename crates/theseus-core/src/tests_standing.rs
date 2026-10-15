@@ -62,6 +62,10 @@ struct Rig {
 }
 
 fn rig() -> Rig {
+    rig_with(|_| {})
+}
+
+fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -71,6 +75,7 @@ fn rig() -> Rig {
     cfg.tools.projects_dir = Some(path(&root));
     cfg.tools.roots = vec![];
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
+    tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model::default());
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
@@ -667,3 +672,31 @@ async fn a_place_scope_names_a_bound_places_target() {
 }
 
 mod surface;
+
+/// A record scoped to a persona rides the turns that speak as it and no
+/// other (theseus-a8n7): the turn's persona reaches the standing block.
+#[tokio::test]
+async fn a_persona_scoped_record_rides_the_turns_that_speak_as_it() {
+    const METRES: &str = "Give tide heights in metres.";
+    let speaks = |as_wren: bool| {
+        move |c: &mut Config| {
+            for p in ["wren", "finch"] {
+                c.personas
+                    .insert(p.into(), crate::config::PersonaConfig::default());
+            }
+            c.context.default_persona = Some(if as_wren { "wren" } else { "finch" }.into());
+        }
+    };
+    for as_wren in [true, false] {
+        let r = rig_with(speaks(as_wren));
+        r.add(
+            StandingKind::Order,
+            StandingScope::Persona("wren".into()),
+            METRES,
+        );
+        let sid = session(&r.core, None);
+        turn(&r.core, &sid, "how high is the tide").await;
+        let req = format!("{:?}", r.last_request());
+        assert_eq!(req.contains(METRES), as_wren, "as wren: {as_wren}");
+    }
+}

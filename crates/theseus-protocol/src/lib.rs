@@ -307,9 +307,7 @@ pub mod method {
         /// Drop the index and build it again from the WAL (theseus-jn17m): the owner's act, forwarded to the tender.
         /// The daemon writes the start, the progress and the end as `index.rebuild` rows, so the work board shows it as the daemon's own work.
         INDEX_REBUILD = "index.rebuild",
-        /// Recall's pipeline over a query, as a turn in a session's place would run it (M6 step 30a;
-        /// `memory::MemorySearchParams`): what it would admit, and why each other hit was dropped. A read; it writes
-        /// nothing.
+        /// Recall's pipeline over a query, as a turn in a session's place would run it (M6 step 30a; `memory::MemorySearchParams`): what it would admit, and why each other hit was dropped. A read; it writes nothing.
         MEMORY_SEARCH = "memory.search",
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.
@@ -324,10 +322,7 @@ pub mod method {
         MEMORY_CONSOLIDATE = "memory.consolidate",
         /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
         MEMORY_LOOKUP = "memory.lookup",
-        /// Mark a node wrong and find where it went (`retract::FactRetractParams`;
-        /// theseus-2ced): the `wrong` label, a correction note for each live session
-        /// that used it, its syntheses stale, one card for the tasks to re-run.
-        /// Acting: the owner, from a private place.
+        /// Mark a node wrong and find where it went (`retract::FactRetractParams`; theseus-2ced): the `wrong` label, a correction note for each live session that used it, its syntheses stale, one card for the tasks to re-run. Acting: the owner, from a private place.
         FACT_RETRACT = "fact.retract",
         /// Your own benchmark (theseus-pw1q.12; `own_bench`): a past turn's first request replayed on another profile (the owner's run), and the report of what the owner's turns need (a read).
         TURN_REPLAY = "turn.replay", ROUTE_REPORT = "route.report",

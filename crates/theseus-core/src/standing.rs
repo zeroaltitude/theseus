@@ -150,7 +150,7 @@ pub struct StandingUsed {
 pub struct Block {
     /// The header layer's part: the records for everywhere; maybe empty.
     pub text: String,
-    /// The session's own part: this session's and this place's records.
+    /// The session's own part: this session's, this place's and this persona's records.
     pub local: String,
     pub used: Vec<StandingUsed>,
     /// The line a shared place's block carries for the private ones it
@@ -650,7 +650,11 @@ mod tests {
         assert!(!at(None).holds(&r));
         let all = vec![r];
         let b = Block::of(&all, at(Some("wren")), PlaceClass::Private, 100).unwrap();
-        assert!(b.text.contains("give tide heights in metres"), "{}", b.text);
+        assert!(
+            b.local.contains("give tide heights in metres"),
+            "{}",
+            b.local
+        );
         assert!(Block::of(&all, at(None), PlaceClass::Private, 100).is_none());
     }
 }

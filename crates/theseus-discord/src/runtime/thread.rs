@@ -171,6 +171,14 @@ fn parsed(options: &[CommandDataOption]) -> Option<(&str, Vec<(&str, String)>)> 
     Some((sub.name.as_str(), args))
 }
 
+/// The place a command was typed in, as the bindings file names it.
+fn typed_in(d: &DiscordOrigin) -> String {
+    match d.guild_id {
+        Some(_) => format!("discord:channel:{}", d.channel_id),
+        None => format!("discord:dm:{}", d.user_id),
+    }
+}
+
 impl Shared {
     /// An interaction, from the gateway: `/thread bind` typed in a Discord
     /// thread that is not a place yet, under one that is (or under `[threads]
@@ -235,10 +243,7 @@ impl Shared {
             Some(("new", args)) => {
                 let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
                 // Born in this place, the thread takes its persona (theseus-a8n7).
-                let place = discord.as_ref().map(|d| match d.guild_id {
-                    Some(_) => format!("discord:channel:{}", d.channel_id),
-                    None => format!("discord:dm:{}", d.user_id),
-                });
+                let place = discord.as_ref().map(typed_in);
                 let p = ThreadNewParams {
                     slug: get("slug").unwrap_or_default(),
                     title: get("title"),

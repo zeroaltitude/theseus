@@ -28,8 +28,12 @@ impl TurnRunner {
     /// cannot be read is warned of and the turn goes without (the check has
     /// nothing to hold it to).
     pub(super) fn stand(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
-        (t.standing.block, t.standing.here) =
-            self.standing_blocks(t.tc.session_id, t.tc.class, t.standing.surface, t.target.persona.as_deref());
+        (t.standing.block, t.standing.here) = self.standing_blocks(
+            t.tc.session_id,
+            t.tc.class,
+            t.standing.surface,
+            t.target.persona.as_deref(),
+        );
         if let Some(block) = &t.standing.block {
             block.apply(spec);
         }
@@ -50,7 +54,8 @@ impl TurnRunner {
             .ok()
             .flatten()
             .and_then(|s| self.persona_of(&s));
-        self.standing_blocks(session_id, class, None, persona.as_deref()).0
+        self.standing_blocks(session_id, class, None, persona.as_deref())
+            .0
     }
 
     /// The system's block and the tail's (the records of `surface`) of

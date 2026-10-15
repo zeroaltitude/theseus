@@ -98,6 +98,7 @@ impl Core {
                 session: "",
                 place: None,
                 surface: None,
+                persona: persona.key.as_deref(),
             };
             let now = theseus_protocol::now_unix_ms();
             if let Some(b) = Block::of(&all, scope, PlaceClass::Private, now) {
