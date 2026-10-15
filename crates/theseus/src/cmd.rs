@@ -1427,6 +1427,7 @@ pub async fn stop(conn: &mut Conn, json: bool, session: String, all: bool) -> Re
                 execution_id,
                 author: None,
                 tasks: all,
+                keep_jobs: false,
                 discord: None,
             },
         )

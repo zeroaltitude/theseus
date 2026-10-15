@@ -4,9 +4,10 @@
 //! watches one session), whoever sent the turn.
 
 use serde_json::{json, Value};
+use theseus_client::render::diffview;
 use theseus_protocol::{
-    method, ConfirmRequest, Event, NodeInfo, RpcError, SessionHistoryResult, SessionInfo,
-    ToolEnded, TurnFailed, TurnSubmitResult,
+    method, ConfirmRequest, Event, ExecutionStopResult, NodeInfo, RpcError, SessionHistoryResult,
+    SessionInfo, ToolEnded, TurnFailed, TurnSubmitResult,
 };
 
 use super::banner::model_words;
@@ -23,6 +24,12 @@ impl Chat {
 
     /// An answer to one of the chat's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
+        let mut effects = self.answered_one(purpose, result);
+        effects.extend(self.release_queue());
+        effects
+    }
+
+    fn answered_one(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
         let v = match result {
             Ok(v) => v,
             Err(e) => return self.failed(purpose, &e),
@@ -38,7 +45,10 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Open => match serde_json::from_value::<SessionInfo>(v) {
-                Ok(info) => self.opened(&info.session_id),
+                Ok(info) => {
+                    self.execution = info.execution_id.clone();
+                    self.opened(&info.session_id)
+                }
                 Err(e) => self.fatal(&format!(
                     "the daemon opened a session this build cannot read: {e}"
                 )),
@@ -62,8 +72,15 @@ impl Chat {
             Purpose::Submit => {
                 // The turn's end came as an event; the result is the same
                 // end, taken once.
+                self.released = false;
                 if let Ok(r) = serde_json::from_value::<TurnSubmitResult>(v) {
                     self.turn_ended(&r);
+                }
+                Vec::new()
+            }
+            Purpose::Stop => {
+                if let Ok(r) = serde_json::from_value::<ExecutionStopResult>(v) {
+                    self.stopped(&r);
                 }
                 Vec::new()
             }
@@ -95,10 +112,16 @@ impl Chat {
             }
             Purpose::Submit => {
                 self.live.turn = None;
+                self.released = false;
                 self.say_words(Sty::Red, &format!("✗ not sent: {}", e.message));
                 Vec::new()
             }
+            Purpose::Stop => {
+                self.say_words(Sty::Red, &format!("✗ could not stop: {}", e.message));
+                Vec::new()
+            }
             Purpose::Answer => {
+                self.answer_refused();
                 self.say_words(
                     Sty::Red,
                     &format!("✗ the answer was refused: {}", e.message),
@@ -146,6 +169,7 @@ impl Chat {
                 self.profile = info.profile.clone();
                 self.model = self.model.take().or(info.model.clone());
                 self.cost = info.cost_usd;
+                self.execution = info.execution_id.clone();
                 let sid = info.session_id;
                 self.banner.last = Some(None);
                 let mut out = self.opened(&sid);
@@ -250,6 +274,12 @@ impl Chat {
 
     /// A notification from the daemon.
     pub fn notified(&mut self, method_name: &str, params: &Value) -> Vec<Effect> {
+        let mut effects = self.notified_one(method_name, params);
+        effects.extend(self.release_queue());
+        effects
+    }
+
+    fn notified_one(&mut self, method_name: &str, params: &Value) -> Vec<Effect> {
         let event = match Event::from_notification(method_name, params) {
             Ok(Some(e)) => e,
             Ok(None) | Err(_) => return Vec::new(),
@@ -260,6 +290,10 @@ impl Chat {
                     self.mine.clear();
                 }
                 self.mine.insert(t.turn_id.clone());
+                self.released = false;
+                if t.execution_id.is_some() {
+                    self.execution = t.execution_id.clone();
+                }
                 self.live.turn = Some(TurnLive {
                     id: t.turn_id,
                     since_ms: self.now_ms,
@@ -293,6 +327,7 @@ impl Chat {
                     .is_some_and(|q| q.correlation_id == r.correlation_id)
                 {
                     self.question = None;
+                    self.ask_reset();
                     let words = match r.option.as_deref() {
                         Some(o) if theseus_protocol::answer::approves(o) => "approved",
                         Some(_) => "declined",
@@ -380,18 +415,31 @@ impl Chat {
             .or_else(|| since.map(|s| self.now_ms.saturating_sub(s)))
             .unwrap_or(0);
         let (mark, sty, words) = outcome(t, ms);
-        let left = self.tool_words(&tool, &input);
+        let mut left = self.tool_words(&tool, &input);
+        if let Some(d) = &t.diff {
+            left.push_str(&format!("  +{} −{}", d.added, d.removed));
+        }
         let line = self.tool_row(&left, mark, sty, &words);
         self.say(&line);
-        if t.status != "ok" && t.status != "background" {
-            if let Some(first) = t.preview.lines().find(|l| !l.trim().is_empty()) {
-                let row: String = first
-                    .trim()
-                    .chars()
-                    .take(usize::from(self.width).saturating_sub(6))
-                    .collect();
-                self.say_plain(Sty::Dim, &format!("  └ {row}"));
-            }
+        self.result_rows(t);
+    }
+
+    /// What the call left, under its line: an edit's diff, or the first lines
+    /// of a command's result behind `⎿` (a failure's last lines).
+    fn result_rows(&mut self, t: &ToolEnded) {
+        if matches!(
+            t.status.as_str(),
+            "background" | "declined" | "denied" | "cancelled"
+        ) {
+            return;
+        }
+        let mut rows = diffview::ended_lines(t);
+        if t.diff.is_some() {
+            // The header said the file and the counts.
+            rows.remove(0);
+        }
+        for l in super::diff::lines(&rows, 4, usize::from(self.width)) {
+            self.say(&l);
         }
     }
 
@@ -420,6 +468,7 @@ impl Chat {
         if let Some(t) = self.live.turn.as_mut() {
             t.phase = Phase::Waiting;
         }
+        self.ask_reset();
         self.question = Some(c);
     }
 

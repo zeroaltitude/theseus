@@ -16,8 +16,10 @@
 //! - `screen.rs`: the bytes. `run.rs`: the loop. `guard.rs`: the terminal's
 //!   modes, put back on every way out.
 
+mod ask;
 mod banner;
 mod commands;
+mod diff;
 mod dock;
 mod editor;
 mod env;
@@ -25,14 +27,18 @@ mod events;
 mod guard;
 mod keys;
 mod live;
+mod queue;
 mod render_seam;
 mod run;
 mod screen;
 mod state;
+mod stop;
 mod style;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ask;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;

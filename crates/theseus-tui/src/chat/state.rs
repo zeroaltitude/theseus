@@ -19,7 +19,7 @@ use super::render_seam::reply_lines;
 use super::style::{one, render, span, wrap_words, Line, Sty};
 
 /// What the chat's requests carry as their author.
-pub const AUTHOR: &str = "the chat";
+pub const AUTHOR: &str = "theseus chat";
 
 /// What the chat is told when it starts.
 #[derive(Debug, Clone)]
@@ -50,6 +50,8 @@ pub enum Purpose {
     Submit,
     Answer,
     Typing,
+    /// `execution.stop`: Esc.
+    Stop,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +99,14 @@ pub struct Chat {
     pub mode: String,
     pub live: Live,
     pub question: Option<ConfirmRequest>,
+    /// Where the person is in answering it (`ask.rs`).
+    pub(super) ask: super::ask::AskState,
+    /// The session's execution, which Esc stops.
+    pub(super) execution: Option<String>,
+    /// Messages typed while a turn ran, held for its end (`queue.rs`).
+    pub queued: Vec<super::editor::Taken>,
+    /// A queued message was sent and its turn has not begun.
+    pub(super) released: bool,
     pub offline: bool,
     /// Tasks this session started that are open, from the task changes seen
     /// since the chat began (cli-tasks brings the board's own count).
@@ -142,6 +152,10 @@ impl Chat {
             mode: "default".to_string(),
             live: Live::default(),
             question: None,
+            ask: Default::default(),
+            execution: None,
+            queued: Vec::new(),
+            released: false,
             offline: false,
             tasks: 0,
             task_open: Default::default(),
@@ -387,6 +401,9 @@ impl Chat {
             Action::KillToEnd => self.editor.kill_to_end(),
             Action::KillWord => self.editor.kill_word(),
             Action::Up => {
+                if self.editor.is_empty() && self.unqueue() {
+                    return Vec::new();
+                }
                 if !self.suggestions().is_empty() {
                     self.menu = self.menu.saturating_sub(1);
                 } else if !self.editor.up(w) {
@@ -402,15 +419,16 @@ impl Chat {
                 }
             }
             Action::Tab => {
+                if self.focus_question() {
+                    return Vec::new();
+                }
                 if let Some(name) = self.completing() {
                     self.editor.clear();
                     self.editor.insert_str(&format!("/{name} "));
                 }
             }
-            Action::Escape => {
-                self.menu = 0;
-                self.notice = None;
-            }
+            Action::Escape => return self.escape(),
+            Action::SendNow => return self.send_now(),
             Action::ShowPaste => {
                 if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
                     self.say_plain(Sty::Dim, "pasted text:");
@@ -506,6 +524,9 @@ impl Chat {
 
     /// Enter: a command runs, a message goes as one `turn.submit`.
     pub fn submit(&mut self) -> Vec<Effect> {
+        if self.ask.note {
+            return self.send_note();
+        }
         let taken = self.editor.take();
         let (text, trimmed) = (taken.text.clone(), taken.text.trim());
         if trimmed.is_empty() {
@@ -524,8 +545,12 @@ impl Chat {
                 return Vec::new();
             }
         }
-        self.echo(&taken.shown);
         let mut effects = vec![Effect::SaveHistory(self.editor.history().to_vec())];
+        if self.must_queue() {
+            self.enqueue(taken);
+            return effects;
+        }
+        self.echo(&taken.shown);
         match self.session.clone() {
             Some(sid) => effects.push(self.submit_call(&sid, text)),
             None => self.unsent.push(text),
@@ -534,7 +559,7 @@ impl Chat {
     }
 
     /// The message in the transcript: `›` and its lines.
-    fn echo(&mut self, text: &str) {
+    pub(super) fn echo(&mut self, text: &str) {
         self.gap();
         let mut first = true;
         for raw in text.trim_end().lines() {
@@ -580,35 +605,5 @@ impl Chat {
             json!({ "session_id": sid, "author": AUTHOR }),
             Purpose::Typing,
         )]
-    }
-
-    // ---------------------------------------------------------- questions
-
-    /// `y`, `n`, `t` on a question, with the line empty. None: not a key
-    /// for it.
-    fn question_key(&mut self, c: char) -> Option<Vec<Effect>> {
-        let q = self.question.as_ref()?;
-        let id = q.correlation_id.clone();
-        let option = match c {
-            'y' | 'Y' => q
-                .yes_option()
-                .map_or(
-                    if q.budget.is_some() {
-                        "reset"
-                    } else {
-                        "approve"
-                    },
-                    |o| o.id.as_str(),
-                )
-                .to_string(),
-            'n' | 'N' => "decline".to_string(),
-            't' | 'T' if q.external_text.is_some() => "approve_trust".to_string(),
-            _ => return None,
-        };
-        Some(vec![call(
-            method::WORK_ANSWER,
-            json!({ "question_id": id, "option": option, "author": AUTHOR }),
-            Purpose::Answer,
-        )])
     }
 }

@@ -74,6 +74,7 @@ pub(super) fn stop_params(
         execution_id,
         author: Some(by.to_string()),
         tasks,
+        keep_jobs: false,
         discord,
     }
 }

@@ -14,6 +14,9 @@ pub enum Sty {
     Green,
     Red,
     Yellow,
+    /// The changed words of an added line, and of a removed one.
+    AddMark,
+    DelMark,
 }
 
 impl Sty {
@@ -26,6 +29,8 @@ impl Sty {
             Sty::Green => "32",
             Sty::Red => "31",
             Sty::Yellow => "33",
+            Sty::AddMark => "1;97;42",
+            Sty::DelMark => "1;97;41",
         }
     }
 }

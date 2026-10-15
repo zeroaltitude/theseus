@@ -1664,7 +1664,8 @@ impl Core {
         let stopped = if p.tasks {
             self.stop_execution_all(&p.execution_id, &by).await
         } else {
-            self.stop_execution(&p.execution_id, &by).await
+            self.stop_execution_with(&p.execution_id, &by, p.keep_jobs)
+                .await
         };
         match stopped {
             Ok(r) => Ok(r),

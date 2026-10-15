@@ -5,10 +5,12 @@ the way a person new to it would, through the clients it ships.
 How each step reaches Theseus (the rules the baseline was measured by):
 - S1 types the bare `theseus`, which opens the chat (theseus-cyha); S2 is asked
   in it, S6 runs its job in it and S8 pastes into it (`theseus chat SESSION`).
-  The other steps use the terminal UI, `theseus tui`, until chat-ask moves
-  them: enter opens the session, `i` the input line, `y` answers a question.
-- S7's interrupt is Ctrl-C, the key a person presses in a terminal; the stop
-  that B3 verifies is the TUI's own (`s`, then `s`).
+  S3 and S4 open the chat with the bare `theseus` again and answer in it: `y`
+  on the dock's question (theseus-wy6v.1). The other steps use the terminal UI,
+  `theseus tui`: enter opens the session, `i` the input line, `y` answers a
+  question.
+- S7 runs in the chat, and its interrupt is Esc, which stops the turn
+  (theseus-wy6v.1); the stop that B3 verifies is the TUI's own (`s`, then `s`).
 - An arm with no key or command for a step (S5's mode, S9's undo, S11's
   reopen and picker, S12's plan mode) records none, and its checks say so.
 
@@ -277,14 +279,16 @@ class Theseus:
         ctx.tmux.wait(lambda t: self.shell_back(t), 10)
 
     def s3(self, ctx):
+        """S3 opens the chat as a person would, the bare `theseus`, and runs in
+        it: the dock asks (theseus-wy6v.1), `y` answers, no id is typed."""
         ctx.tmux.keys("C-l")
-        ms = self.open_tui(ctx)
-        ctx.rec("S3", open_cmd="theseus tui", ready_ms=ms)
+        ms = self.open_bare_chat(ctx)
+        ctx.rec("S3", open_cmd="theseus", ready_ms=ms)
         ctx.sample_client()
         import shutil
 
         shutil.rmtree(ctx.project / "__pycache__", ignore_errors=True)
-        self.say(ctx, steps.PROMPTS["S3"])
+        self.chat_say(ctx, steps.PROMPTS["S3"])
         self.card(ctx)
         ctx.capture("S3.ask")
         ctx.tmux.keys("y")
@@ -294,12 +298,16 @@ class Theseus:
         ctx.rec("S3", approve_keys=["y"], ran=ran, ids_typed=0)
 
     def s4(self, ctx):
-        self.say(ctx, steps.PROMPTS["S4"])
+        """S4 goes on in the chat S3 opened: the question shows the edit's
+        diff, `y` approves, and the diff stays in the transcript. The board is
+        opened again after it, for S5."""
+        self.chat_say(ctx, steps.PROMPTS["S4"])
         self.card(ctx)
         ctx.capture("S4.ask")
         ctx.tmux.keys("y")
         self.settle(ctx)
         ctx.capture("S4.after")
+        self.back_to_board(ctx)
 
     def s5(self, ctx):
         self.say(ctx, steps.PROMPTS["S5"])
@@ -338,6 +346,18 @@ class Theseus:
         ctx.rec("S6", went_on=self.went_on_after(t_end))
         self.back_to_board(ctx)
 
+    def open_bare_chat(self, ctx):
+        """The bare `theseus` from the shell's prompt: the chat, ready when its
+        prompt is on the screen. Returns the milliseconds it took."""
+        t0 = time.monotonic()
+        ctx.tmux.type("theseus")
+        ctx.tmux.keys("Enter")
+        ready = ctx.tmux.wait(lambda t: "› " in t and ctx.tmux.foreground() == "theseus-tui", 20, every=0.01)
+        ms = round((time.monotonic() - t0) * 1000) if ready else None
+        ctx.tmux.wait(lambda t: "? help" in t, 10)
+        time.sleep(0.5)
+        return ms
+
     def open_chat(self, ctx):
         """Leave the board and open the chat on this conversation."""
         sid = self.session_id()
@@ -373,22 +393,25 @@ class Theseus:
         return False
 
     def s7(self, ctx):
-        self.say(ctx, steps.PROMPTS["S7.start"])
+        """S7 runs in the chat: Esc stops the long turn and the chat asks what
+        to do instead (theseus-wy6v.1). The survey started before it must
+        run on. The stop B3 verifies is then the TUI's own, on the session."""
+        self.open_chat(ctx)
+        self.chat_say(ctx, steps.PROMPTS["S7.start"])
         self.card(ctx)
         ctx.tmux.keys("y")
         wait_until(ctx.survey_pids, 30)
         self.settle(ctx, 30)
-        self.say(ctx, steps.PROMPTS["S7.long"])
+        self.chat_say(ctx, steps.PROMPTS["S7.long"])
         time.sleep(2.0)
         ctx.capture("S7.busy")
-        ctx.tmux.keys("C-c")
+        ctx.tmux.keys("Escape")
         time.sleep(1.5)
         ctx.capture("S7.after")
-        ctx.rec("S7", interrupt_keys=["C-c"], foreground_after=ctx.tmux.foreground(),
+        ctx.rec("S7", interrupt_keys=["Escape"], foreground_after=ctx.tmux.foreground(),
                 earlier_alive=bool(ctx.survey_pids()))
         # The stop B3 verifies: the TUI's own, on the session.
-        ctx.tmux.keys("C-l")
-        self.open_tui(ctx)
+        self.back_to_board(ctx)
         ctx.tmux.keys("s")
         time.sleep(0.3)
         ctx.tmux.keys("s")

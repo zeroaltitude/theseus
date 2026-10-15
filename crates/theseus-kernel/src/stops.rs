@@ -48,6 +48,17 @@ impl Kernel {
     /// `execution.stopped` row, and keep the execution open. `None` when it
     /// has ended: nothing is written. A task is refused (`StopTask`).
     pub fn stop_execution(&self, execution_id: &str, by: &str) -> Result<Option<Stop>> {
+        self.stop_execution_keeping(execution_id, by, &[])
+    }
+
+    /// `stop_execution`, leaving the dispatched calls named in `keep` running:
+    /// the jobs that went on in the background (theseus-wy6v.1).
+    pub fn stop_execution_keeping(
+        &self,
+        execution_id: &str,
+        by: &str,
+        keep: &[String],
+    ) -> Result<Option<Stop>> {
         let _w = self.lock_family(execution_id)?;
         let mut e = self
             .execution(execution_id)?
@@ -69,6 +80,7 @@ impl Kernel {
                 if a.state == ActionState::Dispatched
                     && a.cancel.is_none()
                     && a.tool != PROVIDER_TOOL
+                    && !keep.contains(c)
                 {
                     a.cancel = Some(CancelState::Requested);
                     // What the next turn reads as its result says who.
