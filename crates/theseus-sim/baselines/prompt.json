@@ -1,9 +1,11 @@
 {
   "model": "claude-sonnet-5-5",
   "places": {
-    "cli": 16006,
-    "dm": 16006,
-    "harness": 15997,
-    "task": 16006
+    "channel": 6998,
+    "cli": 7345,
+    "dm": 14586,
+    "harness": 7335,
+    "headless": 7862,
+    "task": 6601
   }
 }
