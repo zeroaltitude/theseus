@@ -108,6 +108,10 @@ pub struct LabelCounts {
     pub operator: u32,
     pub system: u32,
     pub audit: u32,
+    /// Labels a whole-turn replay made (theseus-pw1q.20): machine-sourced,
+    /// train split only.
+    #[serde(default)]
+    pub replay: u32,
     pub system_written: u32,
 }
 

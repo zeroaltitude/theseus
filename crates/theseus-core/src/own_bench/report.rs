@@ -50,6 +50,47 @@ pub struct Judged {
     pub judge_usd: f64,
 }
 
+/// A whole-turn `turn.replayed` row, as the report reads it
+/// (theseus-pw1q.20).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Whole {
+    pub from_model: String,
+    pub from_effort: String,
+    pub to_profile: String,
+    pub same_or_better: Option<f64>,
+    /// The last test run was the same on both sides; none when neither ran
+    /// one.
+    pub tests_same: Option<bool>,
+}
+
+/// The whole-turn columns of `cells`: a cell the sampler never saw is made.
+pub fn add_wholes(cells: &mut Vec<RouteCell>, wholes: &[Whole]) {
+    for w in wholes {
+        let at = cells
+            .iter()
+            .position(|c| c.model == w.from_model && c.effort == w.from_effort);
+        let c = match at {
+            Some(i) => &mut cells[i],
+            None => {
+                cells.push(RouteCell {
+                    model: w.from_model.clone(),
+                    effort: w.from_effort.clone(),
+                    ..RouteCell::default()
+                });
+                cells.last_mut().expect("just pushed")
+            }
+        };
+        if c.rung_down.is_none() {
+            c.rung_down = Some(w.to_profile.clone());
+        }
+        if let Some(p) = w.same_or_better {
+            c.whole_replayed += 1;
+            c.whole_matched += u64::from(p >= BAR);
+            c.tests_same += u64::from(w.tests_same == Some(true));
+        }
+    }
+}
+
 /// The lower bound of a rate of `k` in `n`, one-sided at z = 1.2816.
 pub fn wilson_floor(k: u64, n: u64) -> f64 {
     if n == 0 {
@@ -170,7 +211,29 @@ impl Core {
                 }
             })
             .collect();
-        let cells = cells(&lines, &judged);
+        let mut cells = cells(&lines, &judged);
+        let wholes: Vec<Whole> = self
+            .rows_since(LedgerKind::TurnReplayed, since)?
+            .into_iter()
+            .filter(|r| r.data["scope"] == super::whole::WHOLE_TURN)
+            .map(|r| {
+                let d = &r.data;
+                let s = |k: &str| d[k].as_str().unwrap_or_default().to_string();
+                Whole {
+                    from_model: s("from_model"),
+                    from_effort: s("from_effort"),
+                    to_profile: s("profile"),
+                    same_or_better: d["same_or_better"].as_f64(),
+                    tests_same: d["whole"]["same"]["tests"].as_bool(),
+                }
+            })
+            .collect();
+        add_wholes(&mut cells, &wholes);
+        let labels_fed = self
+            .rows_since(LedgerKind::JudgeLabel, since)?
+            .iter()
+            .filter(|r| r.data["source"] == crate::learning::REPLAY_SOURCE)
+            .count() as u64;
         let cap = self.cfg.route.replay_day_usd;
         Ok(RouteReportResult {
             window_days: days,
@@ -179,6 +242,7 @@ impl Core {
             total_spend_usd: cells.iter().map(|c| c.spend_usd).sum::<f64>() + 0.0,
             total_movable_usd: cells.iter().map(|c| c.movable_usd).sum::<f64>() + 0.0,
             cells,
+            labels_fed,
             replay_today_usd: self.replay_spent_today(now_ms)?,
             replay_day_usd: cap,
             sampler: (cap <= 0.0).then(|| "[route] replay_day_usd = 0: the sampler is off".into()),
@@ -257,5 +321,42 @@ mod tests {
         assert!(wilson_floor(30, 30) > wilson_floor(3, 3));
         assert!(wilson_floor(9, 10) < 0.9);
         assert_eq!(wilson_floor(0, 0), 0.0);
+    }
+
+    /// The whole-turn columns count judged replays at the bar and the ones
+    /// whose tests ran the same, in the cell of the model they replayed; an
+    /// unjudged one counts nowhere, and a cell the sampler never saw is made.
+    #[test]
+    fn the_whole_turn_columns_count_judged_replays_and_their_tests() {
+        let whole = |p: Option<f64>, tests: Option<bool>| Whole {
+            from_model: "sonnet".into(),
+            from_effort: "high".into(),
+            to_profile: "haiku".into(),
+            same_or_better: p,
+            tests_same: tests,
+        };
+        let mut got = cells(&[turn("sonnet", "high", 1.0, false)], &[]);
+        add_wholes(
+            &mut got,
+            &[
+                whole(Some(0.95), Some(true)),
+                whole(Some(0.5), Some(true)),
+                whole(Some(0.9), None),
+                whole(None, Some(true)),
+                Whole {
+                    from_model: "fable".into(),
+                    ..whole(Some(0.99), Some(false))
+                },
+            ],
+        );
+        let s = got.iter().find(|c| c.model == "sonnet").unwrap();
+        assert_eq!((s.whole_replayed, s.whole_matched, s.tests_same), (3, 2, 2));
+        assert_eq!(s.rung_down.as_deref(), Some("haiku"));
+        assert_eq!(s.replayed, 0, "the first-loop columns are the sampler's");
+        let f = got.iter().find(|c| c.model == "fable").unwrap();
+        assert_eq!(
+            (f.turns, f.whole_replayed, f.whole_matched, f.tests_same),
+            (0, 1, 1, 0)
+        );
     }
 }

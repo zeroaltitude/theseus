@@ -568,20 +568,27 @@ impl Core {
             .into_iter()
             .filter(|s| s.judgment.outcome == Outcome::Answered)
             .collect();
-        let labeled: Vec<&Seen> = seen
-            .iter()
-            .filter(|s| {
-                let ls = scope
-                    .labels
-                    .get(&s.judgment.id)
-                    .map_or(&[][..], Vec::as_slice);
-                s.judgment
-                    .answers
-                    .iter()
-                    .filter(|a| a.about.is_none())
-                    .any(|a| resolve(ls, &a.def, a).is_some_and(|(_, t)| graded(a, &t).is_some()))
-            })
-            .collect();
+        // Labeled by a label of any source for the train split; by the
+        // owner's and the system's alone for the holdout: a machine label (a
+        // whole-turn replay's, theseus-pw1q.20) never grades it.
+        let graded_by = |s: &Seen, machine: bool| {
+            let ls = scope
+                .labels
+                .get(&s.judgment.id)
+                .map_or(&[][..], Vec::as_slice);
+            let ls: Vec<LabelRow> = ls
+                .iter()
+                .filter(|l| machine || l.source != super::REPLAY_SOURCE)
+                .cloned()
+                .collect();
+            s.judgment
+                .answers
+                .iter()
+                .filter(|a| a.about.is_none())
+                .any(|a| resolve(&ls, &a.def, a).is_some_and(|(_, t)| graded(a, &t).is_some()))
+        };
+        let labeled: Vec<&Seen> = seen.iter().filter(|s| graded_by(s, true)).collect();
+        let owned: Vec<&Seen> = seen.iter().filter(|s| graded_by(s, false)).collect();
         let window = Window::latest(super::local_midnight(now), self.cfg.judge.holdout_days);
         let rule = match split_at {
             Some(t) => SplitRule::Time {
@@ -589,7 +596,7 @@ impl Core {
                 end_ms: now.saturating_add(1),
             },
             None => SplitRule::nightly(
-                labeled.iter().filter(|s| window.contains(s.at_ms)).count(),
+                owned.iter().filter(|s| window.contains(s.at_ms)).count(),
                 window,
             ),
         };
@@ -600,11 +607,16 @@ impl Core {
             .copied()
             .filter(|s| side(s) == Side::Train)
             .collect();
-        let holdout: Vec<&Seen> = labeled
+        let holdout: Vec<&Seen> = owned
             .iter()
             .copied()
             .filter(|s| side(s) == Side::Holdout)
             .collect();
+        for s in &holdout {
+            if let Some(ls) = scope.labels.get_mut(&s.judgment.id) {
+                ls.retain(|l| l.source != super::REPLAY_SOURCE);
+            }
+        }
         prop.train = train.len() as u32;
         prop.holdout = holdout.len() as u32;
         // The errors: the owner's labels saying a train answer was wrong,

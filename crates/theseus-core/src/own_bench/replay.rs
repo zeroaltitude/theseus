@@ -5,6 +5,10 @@
 //! no session, no execution. The owner's run (`judge_act(Act::JudgeRun)`):
 //! it spends money and sends a session's text to a profile.
 //!
+//! `scope: "whole_turn"` runs the turn's tools too, on a scratch copy of its
+//! directory (`whole/`); the first request, its price and its judgment are
+//! the same.
+//!
 //! A replay never leaves what a turn's place allows: a shared place's turn is
 //! refused, and so is one that would send a sealed thread's, a veiled
 //! recall's or an attachment's bytes to a provider other than the original's
@@ -78,6 +82,26 @@ fn reply_of(s: &Said) -> ReplayReply {
         input_tokens: s.input_tokens,
         output_tokens: s.output_tokens,
         cost_usd: s.cost_usd,
+    }
+}
+
+/// A model's answer as the replay's reply: its text, the calls it asked for
+/// by name, its tokens, and what the call cost in micros.
+pub(super) fn said_of_response(resp: &crate::provider::ModelResponse, cost: u64) -> Said {
+    Said {
+        model: resp.model.clone(),
+        text: resp.text.clone(),
+        tool_calls: resp
+            .content
+            .iter()
+            .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+            .filter_map(|b| b.get("name").and_then(Value::as_str).map(str::to_string))
+            .collect(),
+        input_tokens: resp.usage.input_tokens
+            + resp.usage.cache_read_input_tokens
+            + resp.usage.cache_creation_input_tokens,
+        output_tokens: resp.usage.output_tokens,
+        cost_usd: theseus_kernel::micros_to_usd(cost),
     }
 }
 
@@ -180,9 +204,13 @@ impl Core {
     ) -> anyhow::Result<Replayed> {
         let t0 = Instant::now();
         let scope = p.scope.as_deref().unwrap_or(FIRST_LOOP);
-        if scope != FIRST_LOOP {
-            bail!("the scope {scope:?} is not one: only {FIRST_LOOP:?} replays");
+        if scope != FIRST_LOOP && scope != super::whole::WHOLE_TURN {
+            bail!(
+                "the scope {scope:?} is not one: {FIRST_LOOP:?} or {:?} replays",
+                super::whole::WHOLE_TURN
+            );
         }
+        let whole = scope == super::whole::WHOLE_TURN;
         if self.runner.class_of(&p.session) == PlaceClass::Shared {
             bail!("a shared place's turn is never replayed");
         }
@@ -214,9 +242,24 @@ impl Core {
             .cloned()
             .with_context(|| format!("the provider {:?} is not configured", target.provider))?;
         let request = self.replay_request(p, &original, &target, effort);
-        let (replay, cost) = self
-            .call_replay(provider.as_ref(), &request, &target, left, spent)
-            .await?;
+        let (replay, cost, whole_done, original_said) = if whole {
+            let done = self
+                .replay_whole(
+                    p,
+                    &original,
+                    (provider.as_ref(), &request),
+                    &target,
+                    left,
+                    spent,
+                )
+                .await?;
+            (done.replay, done.micros, Some(done.whole), done.original)
+        } else {
+            let (replay, cost) = self
+                .call_replay(provider.as_ref(), &request, &target, left, spent)
+                .await?;
+            (replay, cost, None, original.said.clone())
+        };
         let mut result = TurnReplayResult {
             session: p.session.clone(),
             turn: p.turn.clone(),
@@ -224,31 +267,36 @@ impl Core {
             effort: effort.map(super::effort_word),
             scope: scope.to_string(),
             request_digest: original.digest.clone(),
-            original: reply_of(&original.said),
+            original: reply_of(&original_said),
             replay: reply_of(&replay),
             verdict: None,
             unjudged: None,
             cost_usd: replay.cost_usd,
             elapsed_ms: 0,
+            whole: whole_done,
         };
         if p.compare.unwrap_or(true) {
-            self.compare_replay(p, &original, &replay, &mut result)
+            self.compare_replay(p, (&original.ask, &original_said), &replay, &mut result)
                 .await;
         }
+        if result.whole.is_some() {
+            self.label_whole(p, &target.profile, &mut result);
+        }
         result.elapsed_ms = t0.elapsed().as_millis() as u64;
-        self.rec(Some(&p.session))
-            .in_turn(Some(&p.turn))
-            .record(&TurnReplayed {
-                by,
-                result: &result,
-                from_model: &original.compilation.manifest.model,
-            });
         let from_effort = original
             .spec
             .turn_effort
             .or(original.spec.effort)
             .map(super::effort_word)
             .unwrap_or_default();
+        self.rec(Some(&p.session))
+            .in_turn(Some(&p.turn))
+            .record(&TurnReplayed {
+                by,
+                result: &result,
+                from_model: &original.compilation.manifest.model,
+                from_effort: &from_effort,
+            });
         Ok(Replayed {
             result,
             from_effort,
@@ -267,6 +315,21 @@ impl Core {
         left: Option<u64>,
         spent: &mut u64,
     ) -> anyhow::Result<(Said, u64)> {
+        let (resp, cost) = self
+            .call_model(provider, request, target, left, spent)
+            .await?;
+        Ok((said_of_response(&resp, cost), cost))
+    }
+
+    /// The replay's one model call, as the model answered it.
+    pub(super) async fn call_model(
+        &self,
+        provider: &dyn crate::provider::Provider,
+        request: &crate::provider::ProviderRequest,
+        target: &crate::turn::Target,
+        left: Option<u64>,
+        spent: &mut u64,
+    ) -> anyhow::Result<(crate::provider::ModelResponse, u64)> {
         let need = self
             .audit_reserve(request)
             .context("the model has no price in the catalog: a replay needs one to reserve")?;
@@ -285,27 +348,12 @@ impl Core {
         hold.settle(cost);
         *spent = cost;
         let resp = answered.with_context(|| format!("{} did not answer", target.profile))?;
-        let replay = Said {
-            model: resp.model.clone(),
-            text: resp.text.clone(),
-            tool_calls: resp
-                .content
-                .iter()
-                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
-                .filter_map(|b| b.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect(),
-            input_tokens: resp.usage.input_tokens
-                + resp.usage.cache_read_input_tokens
-                + resp.usage.cache_creation_input_tokens,
-            output_tokens: resp.usage.output_tokens,
-            cost_usd: theseus_kernel::micros_to_usd(cost),
-        };
-        Ok((replay, cost))
+        Ok((resp, cost))
     }
 
     /// The same request for the other model: the original's system, tools
     /// and messages, that model's thinking and effort.
-    fn replay_request(
+    pub(super) fn replay_request(
         &self,
         p: &TurnReplayParams,
         original: &Original,
@@ -352,15 +400,15 @@ impl Core {
     async fn compare_replay(
         &self,
         p: &TurnReplayParams,
-        original: &Original,
+        (ask, original): (&str, &Said),
         replay: &Said,
         result: &mut TurnReplayResult,
     ) {
         let input = CompareInput {
-            request: original.ask.clone(),
+            request: ask.to_string(),
             a: CompareReply {
-                text: original.said.text.clone(),
-                calls: original.said.tool_calls.clone(),
+                text: original.text.clone(),
+                calls: original.tool_calls.clone(),
             },
             b: CompareReply {
                 text: replay.text.clone(),

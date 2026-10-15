@@ -52,6 +52,31 @@ pub const HOLDOUT_DAYS: u64 = 14;
 /// A system label's weight; an operator's is 1.0 (design §2.9).
 pub const SYSTEM_WEIGHT: f64 = 0.5;
 
+/// The source of a label a whole-turn replay made (own-benchmark part (c),
+/// theseus-pw1q.20), and its weight: below a system label's, far below the
+/// owner's. A machine label feeds the train split and never the holdout.
+pub const REPLAY_SOURCE: &str = "replay";
+pub const REPLAY_WEIGHT: f64 = 0.4;
+
+/// The labels of the judgments `ids` names, without the machine-sourced
+/// ones: the holdout is graded by the owner's labels and the system's alone.
+pub fn without_machine<'a>(
+    labels: &HashMap<String, Vec<LabelRow>>,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> HashMap<String, Vec<LabelRow>> {
+    ids.into_iter()
+        .filter_map(|id| {
+            let ls: Vec<LabelRow> = labels
+                .get(id)?
+                .iter()
+                .filter(|l| l.source != REPLAY_SOURCE)
+                .cloned()
+                .collect();
+            Some((id.to_string(), ls))
+        })
+        .collect()
+}
+
 /// One `judge.call` row, read back.
 #[derive(Debug, Clone)]
 pub struct Seen {

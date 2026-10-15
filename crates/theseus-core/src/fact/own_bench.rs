@@ -17,6 +17,8 @@ pub struct TurnReplayed<'a> {
     pub result: &'a TurnReplayResult,
     /// The model the original ran on and its first loop's cost.
     pub from_model: &'a str,
+    /// The effort it ran at; empty: the profile's own.
+    pub from_effort: &'a str,
 }
 
 impl Fact for TurnReplayed<'_> {
@@ -40,6 +42,16 @@ impl Fact for TurnReplayed<'_> {
             "elapsed_ms": r.elapsed_ms,
             "tool_calls": r.replay.tool_calls.len(),
             "verdict": r.verdict.as_ref().map(|v| v.verdict.as_str()),
+            "same_or_better": r.verdict.as_ref().map(|v| v.same_or_better),
+            "from_effort": self.from_effort,
+            "whole": r.whole.as_ref().map(|w| json!({
+                "loops": w.loops, "capped": w.capped,
+                "calls": w.calls.iter().map(|c| json!({"tool": c.tool, "how": c.how, "exit": c.exit})).collect::<Vec<_>>(),
+                "stubs": w.calls.iter().filter(|c| c.how == "stub").map(|c| c.tool.as_str()).collect::<Vec<_>>(),
+                "changed": w.changed, "original_changed": w.original_changed,
+                "same": {"tests": w.same.tests, "files": w.same.files, "exits": w.same.exits},
+                "caveats": w.caveats, "label": w.label,
+            })),
         })
     }
 
@@ -48,8 +60,13 @@ impl Fact for TurnReplayed<'_> {
         say.line(
             Model,
             format!(
-                "Replayed turn {}'s first request on {} ({}): {} out, {}.",
+                "Replayed turn {}'s {} on {} ({}): {} out, {}.",
                 narrative::short(&r.turn),
+                if r.whole.is_some() {
+                    "whole turn"
+                } else {
+                    "first request"
+                },
                 r.profile,
                 r.replay.model,
                 narrative::count(r.replay.output_tokens, "token", "tokens"),

@@ -162,8 +162,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/own_bench.rs` and `src/render/own_bench.rs` (own-benchmark, theseus-pw1q.12): `theseus route report [--week]` (per
   (model, effort) cell: turns and spend, the replays one rung down and what `compare.v1` made of them, what you checked,
   the dollars movable at the stated confidence, and the replays' cost against `[route] replay_day_usd`) and `theseus
-  turn replay SESSION TURN -P PROFILE [--effort E] [--no-compare]`, a past turn's first request rebuilt byte for byte
-  and sent to another profile. The replay is in `client::OPERATORS` (it spends money). The words are pure functions
+  turn replay SESSION TURN -P PROFILE [--effort E] [--no-compare] [--whole]`, a past turn's first request rebuilt byte for byte
+  and sent to another profile (`--whole`: the whole turn, tools and all, on a scratch copy of its directory; the lines add the
+  calls with what ran, what was stubbed and what was refused, the paths changed, the test runs, the caveats and the routing label;
+  the report adds each cell's whole-turn columns and the machine labels fed). The replay is in `client::OPERATORS` (it spends money). The words are pure functions
   (`report_lines`, `replay_lines`, tested in the file).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`. On a terminal (`render::style::styled_stdout`: stdout a tty,

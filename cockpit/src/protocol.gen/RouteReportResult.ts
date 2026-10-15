@@ -15,6 +15,11 @@ confidence: number, cells: Array<RouteCell>, total_spend_usd: number, total_mova
  */
 replay_today_usd: number, replay_day_usd: number, 
 /**
+ * Machine labels the whole-turn replays fed to routing's learning loop
+ * (train split only), in the window.
+ */
+labels_fed: number, 
+/**
  * Why the sampler is off or stopped, when it is.
  */
 sampler?: string, };

@@ -1642,6 +1642,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
   `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
   `report::tests`, `rung::tests`.
+  - **Whole turns** (part (c), theseus-pw1q.20; no store format change: a ledger row's fields and a label's source;
+    `own_bench/whole/`): `turn.replay { scope: "whole_turn" }` runs the turn's tools too, on a scratch copy of its
+    directory, and judges what it did. `scratch.rs` copies the session's directory (`cwd_for(session.dir)`) into
+    an owner-only directory under the temp dir, without `target/`, `node_modules/` or `.theseus-files/` (named in the
+    row's caveats), refusing past `[route] whole_tree_mb` or 200,000 entries, and removes it when its guard drops.
+    `undo.rs` puts back the directory *as it was at the turn's start* by taking back, newest first, every recorded write
+    from the turn on: `fs.edit` by its input's `old_string`/`new_string` (the new text must still be there exactly once),
+    `fs.write` by `created` or by the whole diff its result carries; a write with no whole diff, an `fs.patch`, or any
+    other writing tool refuses the replay with `NotRebuildable { part: "directory" }` naming the file (a program's
+    changes are unrecorded: counted in the caveats, not refused). `hands.rs` answers each call: `fs.read|glob|grep|list|
+    write|edit|patch`, `git.diff|log` and `text.diff` run in process on the copy (roots and cwd set to it, a plan naming a
+    path outside it refused; the model's directory paths mapped into the copy and the copy's back out of results);
+    `proc.run` runs in L1 over the copy as the only workspace (`theseus_kernel::probe_run::run_in`: a view from an empty
+    root, writes discarded with L1's scratch, egress `[sandbox] egress`, environment `PATH` and `HOME`; a root daemon's
+    L1 refusal fails the call, never L0); every other tool returns a stub: the original turn's own recorded result for
+    that tool, else a sentence. `runloop.rs` is the loop (`Core::replay_whole`) under `[route] whole_loops|whole_seconds|
+    whole_usd`, each call reserved first as a first-loop replay's is (`call_model`, shared with `call_replay`), the cap
+    named in the row. `compare.rs` is the deterministic half (the last test run's pass/fail by the argv's words, the
+    set of paths changed, the set of exit codes) beside `compare.v1` on the final replies. `label.rs`: a judged match at
+    `[route] whole_label_bar` (0.9) with no cap, the same last test result and the same paths becomes a `judge.label` row
+    on the turn's route judgment (question `mode`, the class whose profile list leads with the rung, source `replay`,
+    weight `learning::REPLAY_WEIGHT` 0.4, keyed once per judgment and turn). The learning loop drops `replay` labels from
+    every holdout (`learning::without_machine` in the report, `propose::gather`'s owner-labeled holdout), counts them
+    apart (`LabelCounts.replay`) and uses them on the train side only; the route pack stays in `LEFT_ALONE` and a
+    version trained on them still has to beat its baseline on the owner's labels. `route.report` has the columns
+    (`whole_replayed`, `whole_matched`, `tests_same`) and `labels_fed`. Only the owner's `turn.replay` runs it; the
+    sampler still replays first requests. Tests: `own_bench/whole/tests.rs`, `compare::tests`, `report::tests`,
+    `tests_learning.rs`'s holdout and `tests_learn_loop.rs`'s train-only tests; a test sets `runloop::TEST_PROGRAMS`
+    (a stand-in for L1, which refuses a root test runner) under a lock.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):

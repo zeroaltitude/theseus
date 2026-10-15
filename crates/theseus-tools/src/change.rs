@@ -40,6 +40,14 @@ pub fn file_diff(name: &str, before: Option<&str>, after: &str) -> String {
     }
 }
 
+/// The text a recorded unified diff was made from, given the text it made
+/// (`current`): the diff applied backwards. It fails when the context does
+/// not match, so a file changed since is refused, never guessed.
+pub fn unapply(unified: &str, current: &str) -> Result<String, String> {
+    let patch = diffy::Patch::from_str(unified).map_err(|e| e.to_string())?;
+    diffy::apply(current, &patch.reverse()).map_err(|e| e.to_string())
+}
+
 /// `unified` as the wire's `ToolDiff`: counted whole, then capped.
 pub fn tool_diff(path: String, unified: &str) -> ToolDiff {
     let (added, removed) = stat(unified);

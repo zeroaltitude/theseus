@@ -390,6 +390,9 @@ fn holdout(
         .collect();
     let split = learn::holdout_split(&items, window);
     let inside: Vec<&Seen> = split.holdout.iter().map(|l| answered[l.item]).collect();
+    // A machine label (a whole-turn replay's) never grades the holdout.
+    let owned = super::without_machine(labels, inside.iter().map(|s| s.judgment.id.as_str()));
+    let labels = &owned;
     let mut label_ids: BTreeSet<String> = BTreeSet::new();
     let mut per_question: BTreeMap<String, usize> = BTreeMap::new();
     let mut per_class: BTreeMap<String, usize> = BTreeMap::new();

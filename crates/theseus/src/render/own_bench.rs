@@ -39,6 +39,12 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
         if c.checked > 0 {
             line += &format!(", you checked {}", c.checked);
         }
+        if c.whole_replayed > 0 {
+            line += &format!(
+                "; whole turns: {} replayed, {} matched, {} with the same tests",
+                c.whole_replayed, c.whole_matched, c.tests_same
+            );
+        }
         match (&c.rung_down, c.replayed) {
             (Some(to), n) if n > 0 => {
                 line += &format!(
@@ -67,6 +73,12 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
         usd(r.total_movable_usd),
         usd(r.total_spend_usd)
     ));
+    if r.labels_fed > 0 {
+        out.push(format!(
+            "Machine labels fed to routing's learning from whole-turn replays: {} (train split only).",
+            r.labels_fed
+        ));
+    }
     out.push(match &r.sampler {
         Some(why) => format!("Replays today: {} ({why}).", usd(r.replay_today_usd)),
         None => format!(
@@ -120,6 +132,67 @@ pub fn replay_lines(r: &TurnReplayResult) -> Vec<String> {
         (None, Some(why)) => format!("  not judged: {why}."),
         (None, None) => "  not judged (--no-compare).".into(),
     });
+    if let Some(w) = &r.whole {
+        out.extend(whole_lines(w));
+    }
+    out
+}
+
+/// What a whole-turn replay did beyond its reply.
+fn whole_lines(w: &theseus_protocol::own_bench::WholeReplay) -> Vec<String> {
+    let mut out = Vec::new();
+    out.push(format!(
+        "  whole turn: {} model calls{}; {}",
+        w.loops,
+        w.capped
+            .as_deref()
+            .map(|c| format!(" (stopped at its {c} cap)"))
+            .unwrap_or_default(),
+        if w.calls.is_empty() {
+            "no tool calls".to_string()
+        } else {
+            w.calls
+                .iter()
+                .map(|c| match c.exit {
+                    Some(e) => format!("{} {} (exit {e})", c.tool, c.how),
+                    None => format!("{} {}", c.tool, c.how),
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    ));
+    let paths = |p: &[String]| {
+        if p.is_empty() {
+            "none".to_string()
+        } else {
+            p.join(", ")
+        }
+    };
+    let word = |b: bool| if b { "same" } else { "differ" };
+    out.push(format!(
+        "  paths changed: {} (original: {}); tests {}; paths {}; exit codes {}.",
+        paths(&w.changed),
+        paths(&w.original_changed),
+        w.same.tests.map_or("not run on either side", word),
+        word(w.same.files),
+        word(w.same.exits),
+    ));
+    for (name, runs) in [("original", &w.original_tests), ("replay", &w.tests)] {
+        for t in runs {
+            out.push(format!(
+                "  {name} test run: {} -> {}",
+                t.argv.join(" "),
+                t.exit
+                    .map_or("no exit".to_string(), |e| format!("exit {e}"))
+            ));
+        }
+    }
+    for c in &w.caveats {
+        out.push(format!("  caveat: {c}"));
+    }
+    if let Some(l) = &w.label {
+        out.push(format!("  routing label: {l}"));
+    }
     out
 }
 
@@ -137,6 +210,9 @@ mod tests {
             rung_down: Some("haiku".into()),
             replayed: 9,
             matched: 8,
+            whole_replayed: 0,
+            whole_matched: 0,
+            tests_same: 0,
             checked: 3,
             cost_ratio: Some(0.2),
             match_floor: Some(0.63),
@@ -163,6 +239,7 @@ mod tests {
             ],
             total_spend_usd: 16.5,
             total_movable_usd: 6.3,
+            labels_fed: 0,
             replay_today_usd: 0.31,
             replay_day_usd: 1.0,
             sampler: None,
@@ -177,5 +254,89 @@ mod tests {
                 "Replays today: $0.31 of $1.00 ([route] replay_day_usd).",
             ]
         );
+    }
+
+    /// A whole-turn cell says its columns and the label count, and a whole
+    /// replay says what ran, what was stubbed, the facts and the label.
+    #[test]
+    fn the_whole_turn_columns_and_a_whole_replay_are_worded() {
+        use theseus_protocol::own_bench::{
+            TestRun, TurnReplayResult, WholeCall, WholeReplay, WholeSame,
+        };
+        let r = RouteReportResult {
+            window_days: 1,
+            bar: 0.8,
+            confidence: 0.9,
+            cells: vec![RouteCell {
+                whole_replayed: 4,
+                whole_matched: 3,
+                tests_same: 2,
+                ..cell()
+            }],
+            total_spend_usd: 12.5,
+            total_movable_usd: 6.3,
+            labels_fed: 2,
+            replay_today_usd: 0.31,
+            replay_day_usd: 1.0,
+            sampler: None,
+        };
+        let lines = report_lines(&r);
+        assert!(lines[1].contains("; whole turns: 4 replayed, 3 matched, 2 with the same tests"));
+        assert!(lines.contains(
+            &"Machine labels fed to routing's learning from whole-turn replays: 2 (train split only)."
+                .to_string()
+        ));
+        let w = WholeReplay {
+            loops: 3,
+            capped: Some("loops".into()),
+            calls: vec![
+                WholeCall {
+                    tool: "fs_edit".into(),
+                    how: "ran".into(),
+                    exit: None,
+                },
+                WholeCall {
+                    tool: "proc_run".into(),
+                    how: "ran".into(),
+                    exit: Some(0),
+                },
+                WholeCall {
+                    tool: "wake_at".into(),
+                    how: "stub".into(),
+                    exit: None,
+                },
+            ],
+            changed: vec!["a.rs".into()],
+            original_changed: vec!["a.rs".into()],
+            tests: vec![TestRun {
+                argv: vec!["cargo".into(), "test".into()],
+                exit: Some(0),
+            }],
+            original_tests: vec![TestRun {
+                argv: vec!["cargo".into(), "test".into()],
+                exit: Some(101),
+            }],
+            same: WholeSame {
+                tests: Some(false),
+                files: true,
+                exits: false,
+            },
+            caveats: vec!["2 programs ran".into()],
+            label: Some("none: the replay ended at its loops cap".into()),
+            ..WholeReplay::default()
+        };
+        let got = whole_lines(&w);
+        assert_eq!(
+            got,
+            [
+                "  whole turn: 3 model calls (stopped at its loops cap); fs_edit ran, proc_run ran (exit 0), wake_at stub",
+                "  paths changed: a.rs (original: a.rs); tests differ; paths same; exit codes differ.",
+                "  original test run: cargo test -> exit 101",
+                "  replay test run: cargo test -> exit 0",
+                "  caveat: 2 programs ran",
+                "  routing label: none: the replay ended at its loops cap",
+            ]
+        );
+        let _ = TurnReplayResult::default();
     }
 }
