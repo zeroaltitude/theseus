@@ -325,6 +325,9 @@ async fn a_shared_place_sees_only_its_roots_scrubbed() {
             "it may answer nothing"
         );
     }
+    // Naming only a private conversation, a surface that reads no private
+    // text is cut to nothing.
+    told_nothing_naming_a_private_one(&r.core, &private, whole.from).await;
     // The in-process Discord binding is told of its private DM too, and of
     // nothing it did not name.
     let dm = r
@@ -340,4 +343,24 @@ async fn a_shared_place_sees_only_its_roots_scrubbed() {
         .await
         .unwrap();
     assert_eq!(dm.lines.len(), 1);
+}
+
+/// What a surface that reads no private text may name is empty when it names
+/// only a private conversation, so the place rule (`WorkScope::sees`) is what
+/// cuts it to nothing, from either position.
+async fn told_nothing_naming_a_private_one(core: &Arc<Core>, private: &str, from: u64) {
+    for since in [0, from] {
+        let none = core
+            .work_digest_for(
+                WorkDigestParams {
+                    since: Some(since),
+                    roots: Some(vec![private.to_string()]),
+                    ..Default::default()
+                },
+                Surface::Unnamed,
+            )
+            .await
+            .unwrap();
+        assert!(none.lines.is_empty(), "{:?}", none.lines);
+    }
 }

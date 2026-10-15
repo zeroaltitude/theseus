@@ -224,6 +224,16 @@ async fn a_digit_answers_an_ask_question_with_its_choice() {
     let a = &r.daemon.asked("work.answer")[0];
     assert_eq!(a["option"], json!("choice:1"));
     assert_eq!(a["author"], json!("theseus chat"));
+    // And `1` is the first choice (every digit up to six is a row of `ASK_KEYS`).
+    let mut r1 = ready(100, 30, &[conversation()]).await;
+    push(&r1, 10, vec![asking(10, true)]);
+    r1.shows("[1] red").await;
+    r1.press(KeyCode::Char('1')).await;
+    r1.asked("work.answer", 1).await;
+    assert_eq!(
+        r1.daemon.asked("work.answer")[0]["option"],
+        json!("choice:0")
+    );
     // `y` is no answer to a question with choices.
     let mut r2 = ready(100, 30, &[conversation()]).await;
     push(&r2, 10, vec![asking(10, true)]);
