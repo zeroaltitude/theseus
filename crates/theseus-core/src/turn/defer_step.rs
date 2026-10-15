@@ -30,12 +30,13 @@ impl TurnRunner {
     /// loads now, and how the model reaches the rest. Nothing when
     /// `[tools.defer]` is off.
     pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
-        spec.defer = self.deferral(t.tc.session_id, t.tc.task.is_some(), spec);
+        let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
+        spec.defer = self.deferral_in(t.tc.session_id, kind, spec, &t.route.ask);
     }
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
-        self.deferral_in(sid, self.place_kind(sid, task), spec)
+        self.deferral_in(sid, self.place_kind(sid, task), spec, "")
     }
 
     /// The same for a census: a fresh session's first request on a kind of place the daemon has no
@@ -48,12 +49,21 @@ impl TurnRunner {
         spec: &RequestSpec,
     ) -> Option<Deferral> {
         match fresh.and_then(PlaceKind::parse) {
-            Some(kind) => self.deferral_in(sid, kind, spec),
+            Some(kind) => self.deferral_in(sid, kind, spec, ""),
             None => self.deferral(sid, task, spec),
         }
     }
 
-    fn deferral_in(&self, sid: &str, kind: PlaceKind, spec: &RequestSpec) -> Option<Deferral> {
+    /// The fresh choice in a kind of place for a turn whose message said
+    /// `ask`: where the model has no tool search, the families the message
+    /// names load too (`tools_defer::want`, theseus-jpjcd).
+    fn deferral_in(
+        &self,
+        sid: &str,
+        kind: PlaceKind,
+        spec: &RequestSpec,
+        ask: &str,
+    ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
         if !cfg.enabled {
             return None;
@@ -63,17 +73,20 @@ impl TurnRunner {
             _ => Mechanism::Find,
         };
         let known = tools_defer::families_of(&spec.tools);
-        let sel = self.tools.defer.select(
-            sid,
-            kind,
-            cfg,
-            self.kernel.now_ms(),
-            &known,
-            &BTreeSet::new(),
-        );
+        let now = self.kernel.now_ms();
+        let board = &self.tools.defer;
+        let mut loaded = board
+            .select(sid, kind, cfg, now, &known, &BTreeSet::new())
+            .loaded();
+        if mechanism == Mechanism::Find {
+            let extra = tools_defer::want::extra(ask, kind, &spec.tools, &loaded);
+            if !extra.is_empty() {
+                loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
+            }
+        }
         Some(Deferral {
             mechanism,
-            loaded: sel.loaded(),
+            loaded,
             resolved: false,
         })
     }

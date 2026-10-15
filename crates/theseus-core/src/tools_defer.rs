@@ -22,7 +22,8 @@
 //! turn's row (`tools.used`) feeds the next selection.
 //!
 //! The module's parts: `family` (the families and place kinds), `select`
-//! (the pure choice), `board` (the counts and the conversations' notes, in
+//! (the pure choice), `want` (the families a message names, for a model
+//! without tool search), `board` (the counts and the conversations' notes, in
 //! memory), `find` (the fallback tool and the words), `scan` (a response's
 //! searches), and `warm` (the ledger read after serving).
 
@@ -39,6 +40,7 @@ pub mod find;
 pub mod list;
 pub mod scan;
 pub mod select;
+pub mod want;
 pub mod warm;
 
 pub use board::{Board, HiddenTool};

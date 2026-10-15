@@ -158,6 +158,17 @@ impl PlaceKind {
         }
     }
 
+    /// The most tokens of tool definitions a request in this kind of place
+    /// may carry when a message's words load more families for a model
+    /// without tool search (theseus-jpjcd): the owner's budgets, 8,000 for a
+    /// terminal, a task or a headless run and 15,000 for a person's messages.
+    pub fn tools_budget_tokens(self) -> u64 {
+        match self {
+            PlaceKind::Dm | PlaceKind::Channel => 15_000,
+            PlaceKind::Cli | PlaceKind::Task | PlaceKind::Headless => 8_000,
+        }
+    }
+
     /// The families this kind of place loads before the ledger says
     /// anything, beyond `[tools.defer] always_loaded` (committed: the
     /// role's needs, never a harness's or a benchmark's). `aws`, the

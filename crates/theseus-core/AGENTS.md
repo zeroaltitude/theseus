@@ -1800,6 +1800,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   into its block like a call's (`provider.rs`). The metric is `theseus.tools.events` by event (used, searched, missed,
   unused), place and family. `theseus tools` (over `tool.defer`), health's `tools:` line and the cockpit's
   Actions panel show it all. Per-message additions are the `extra` argument of `Board::select` (Jev's branches, later).
+  **A model without tool search** (theseus-jpjcd) does not get `tools_find` alone: a small model never called it, so
+  `tools_defer::want` loads, with the fresh choice, the hidden families the turn's message names (a tool's whole wire
+  name, `aws_whoami`, or a family's name unless it is an everyday word), best first, while the request's tool tokens stay
+  within the place kind's budget (`PlaceKind::tools_budget_tokens`: 8,000 for cli, task and headless, 15,000 for dm and
+  channel). The text is `RouteState.ask`, set at the inbound point; a model with tool search never reads it. It takes
+  effect where a compile takes the fresh set (a first compile, a detour, a boundary): an append keeps its recorded set.
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
 - **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
   `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]

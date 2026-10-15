@@ -31,6 +31,13 @@ impl TurnRunner {
         let Body::UserMessage { text, attachments } = &node.body else {
             return;
         };
+        // What the turn's tools are chosen by, with the judge off too.
+        if !steered {
+            t.route.ask = text
+                .chars()
+                .take(crate::tools_defer::want::ASK_CHARS)
+                .collect();
+        }
         // A message the router placed (theseus-rha2): its point was begun
         // before the choice, and the row of its choice rides this turn's frame.
         let begun = self
