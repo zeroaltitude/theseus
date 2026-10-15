@@ -101,23 +101,30 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 
 /// Each result: its tool, status, content, whether it was cut, and the file
 /// it names.
+/// The session's results in the order of their calls' ids: reads of one
+/// response run together (theseus-d1hi), so the store holds them in the
+/// order they finished, which a loaded machine changes.
 fn results(core: &Core, sid: &str) -> Vec<(String, ResultStatus, String, bool, Option<String>)> {
-    core.store
+    let mut all: Vec<_> = core
+        .store
         .session_nodes(sid)
         .unwrap()
         .into_iter()
         .filter_map(|(_, n)| match n.body {
             Body::ToolResult {
+                tool_use_id,
                 tool,
                 status,
                 content,
                 truncated,
                 full_ref,
                 ..
-            } => Some((tool, status, content, truncated, full_ref)),
+            } => Some((tool_use_id, (tool, status, content, truncated, full_ref))),
             _ => None,
         })
-        .collect()
+        .collect();
+    all.sort_by(|a, b| a.0.cmp(&b.0));
+    all.into_iter().map(|(_, r)| r).collect()
 }
 
 /// A command that prints 4,000 numbered lines with a failure in the
