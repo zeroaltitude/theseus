@@ -1332,6 +1332,15 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     }
 }
 
+/// `theseus routine` and `theseus project`: recurring work and long-term work.
+async fn plans_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Project { cmd } => project::run(c, json, cmd.unwrap_or_default()).await,
+        _ => unreachable!("only routine and project come here"),
+    }
+}
+
 /// `theseus ledger`: a check of the chain, or the rows.
 async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     match l {
@@ -1450,9 +1459,8 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
+        cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
         Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
-        Cmd::Project { cmd } => project::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

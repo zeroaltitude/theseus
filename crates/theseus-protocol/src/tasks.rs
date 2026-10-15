@@ -64,7 +64,7 @@ impl TaskState {
     }
 }
 
-/// What a task is in the long run (theseus-n5ui2, store format 35): an
+/// What a task is in the long run (theseus-n5ui2, store format 45): an
 /// `item` (every task before it), a `project` (a goal with milestones and a
 /// weekly review), or a `milestone` (a dated step of a project).
 #[cfg_attr(test, derive(ts_rs::TS))]

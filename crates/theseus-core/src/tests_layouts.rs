@@ -112,14 +112,14 @@ pub(crate) const COMPILATION_BEFORE_PREFIX: &str = r#"{"id":"cmp_000000000000000
 /// layout the build before theseus-j7cje writes.
 pub(crate) const TASK_SESSION_BEFORE_NOTIFY: &str = r#"{"session_id":"ses_00000000000000000000000000000331","kind":"task","label":"task","created_at_unix_ms":1790000000331,"turns":1,"last_turn_id":"turn_00000000000000000000000000000333","usage":{"input_tokens":400,"output_tokens":60,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000331","compilation_id":"cmp_00000000000000000000000000000332","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000339,"cost_usd":0.004,"tool_calls":0,"title":"Sound the outer channel","task":{"parent_session":"ses_00000000000000000000000000000330","parent_execution":"exe_00000000000000000000000000000330","by":"act_00000000000000000000000000000330","arrangement":"arr_00000000000000000000000000000331"}}"#;
 
-/// A plan item as format 34 wrote it (theseus-pvm5c's build; the layout is
+/// A plan item as format 44 wrote it (theseus-a8n7's build; the layout is
 /// unchanged since 19), before a task's long-term kind, date and review
 /// (`kind`, `due_at_ms`, `review`, format 45, theseus-n5ui2). It reads as an
 /// item with no date and no review, and writes back byte for byte. By hand, in
-/// the layout the build before theseus-n5ui2 (f8975aac) writes.
+/// the layout the build before theseus-n5ui2 (persona-threads') writes.
 pub(crate) const TASK_BEFORE_PROJECTS: &str = r#"{"id":"tsk_00000000000000000000000000000301","version":3,"title":"Chart the reef","objective":"chart the reef's north edge","acceptance":["every marker has a depth"],"state":"accepted","parent":"tsk_00000000000000000000000000000300","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator","by_model":true},"evidence":[],"claim":{"by":"exe_00000000000000000000000000000302","session":"ses_00000000000000000000000000000302","until_ms":1790000900000},"created_at_ms":1790000000301,"updated_at_ms":1790000000305}"#;
 
-/// A session as format 34 wrote it, before the project it serves (`project`,
+/// A session as format 44 wrote it, before the project it serves (`project`,
 /// format 45, theseus-n5ui2). It reads with no project, and writes back byte
 /// for byte. By hand, in the layout the build before theseus-n5ui2 writes.
 pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_00000000000000000000000000000311","kind":"conversation","label":null,"created_at_unix_ms":1790000000311,"turns":2,"last_turn_id":"turn_00000000000000000000000000000313","usage":{"input_tokens":700,"output_tokens":90,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"execution_id":"exe_00000000000000000000000000000311","compilation_id":"cmp_00000000000000000000000000000312","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000319,"cost_usd":0.0066,"tool_calls":0,"title":"Plan the harbour survey","dir":"/work/harbour"}"#;
@@ -145,13 +145,13 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::TASK,
-        layout: "a plan item at format 34 (theseus-pvm5c's; unchanged since 19): before a task's kind, date and review (45, theseus-n5ui2)",
+        layout: "a plan item at format 44 (theseus-a8n7's; unchanged since 19): before a task's kind, date and review (45, theseus-n5ui2)",
         bytes: TASK_BEFORE_PROJECTS,
         kept: Kept::All,
     },
     Sample {
         kind: kinds::SESSION,
-        layout: "a session at format 34 (theseus-pvm5c's; unchanged since 32): before the project it serves (45, theseus-n5ui2)",
+        layout: "a session at format 44 (theseus-a8n7's; unchanged since 32): before the project it serves (45, theseus-n5ui2)",
         bytes: SESSION_BEFORE_PROJECT,
         kept: Kept::All,
     },
@@ -1201,7 +1201,7 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
 /// A task from before projects reads as a plain item, with no date and no
 /// review, and a project's three fields survive a round trip.
 #[test]
-fn a_format_34_task_reads_as_an_item_and_a_project_round_trips() {
+fn a_format_44_task_reads_as_an_item_and_a_project_round_trips() {
     use theseus_protocol::tasks::{TaskKind, TaskRecord};
     let old: TaskRecord = serde_json::from_str(TASK_BEFORE_PROJECTS).unwrap();
     assert_eq!(old.kind, TaskKind::Item);

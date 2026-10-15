@@ -648,8 +648,8 @@ async fn the_newest_exchange_past_the_window_fails_with_context_overage() {
     assert_eq!(te.class, OVERAGE_CLASS);
     let message = format!("{:#}", te.source);
     for part in [
-        "the newest exchange alone does not fit claude-sonnet-5-5's window of 48,400",
-        "upper bound) against the 42,304 the window leaves",
+        "the newest exchange alone does not fit claude-sonnet-5-5's window of 48,000",
+        "upper bound) against the 41,904 the window leaves",
         "Nothing was sent.",
     ] {
         assert!(message.contains(part), "{part:?} in {message}");

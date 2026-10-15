@@ -1794,7 +1794,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   takes `run_now|pause|details` (+ `add_to_grant` after a block) (`answer_routine`). **Try it now**: `routine.try` runs
   occurrence 0 (`plan_trial`: run 0 in the log, not counted in `runs`). Tests: `tests_routine_trust.rs`, `routine/grant/tests.rs`,
   protocol `tests_notices.rs`. Not built: the creation card's `[Try it now]` button (the verb and the CLI exist).
-- **Projects** (theseus-n5ui2; horizon HZ10; store format 35): long-term work on the task graph, no second list. A project is a
+- **Projects** (theseus-n5ui2; horizon HZ10; store format 45): long-term work on the task graph, no second list. A project is a
   TASK record of `kind: project` (`TaskRecord.kind`, `due_at_ms`, `review`; an item is what a record without a kind is),
   its milestones `kind: milestone` with a date, its steps the plan items under it. `project/` holds the parts: `progress.rs`
   (steps and milestones done of total, the next due, the overdue, from the subtree), `slice.rs` (an attached conversation's

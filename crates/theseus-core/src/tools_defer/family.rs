@@ -50,6 +50,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "AWS: the account's calls, stacks, hands, costs and buckets",
     ),
     ("ask", "ask the owner a question with options, and wait for the answer"),
+    ("projects", "long-term projects: attach this conversation to one"),
     ("extensions", "propose a new extension of your own tools"),
     ("self", "propose and inspect changes to Theseus itself"),
 ];
@@ -76,6 +77,7 @@ pub fn of_wire(wire: &str) -> String {
             "job" => "commands",
             "web" | "http" => "web",
             "task" | "wake" | "thread" | "routine" | "watch" => "tasks",
+            "project" => "projects",
             "term" => "terminals",
             "lsp" => "code",
             "channel" => "channels",
@@ -220,6 +222,7 @@ mod tests {
             ("wake_at", "tasks"),
             ("routine_create", "tasks"),
             ("watch", "tasks"),
+            ("project_attach", "projects"),
             ("thread_read", "tasks"),
             ("term_open", "terminals"),
             ("lsp_definition", "code"),

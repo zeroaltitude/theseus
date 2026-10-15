@@ -37,13 +37,17 @@ impl TurnRunner {
     }
 
     /// The request's last block, in its order: the task view, the wakes and
-    /// routines, then the surface's standing records.
+    /// routines, the surface's standing records, the persona line, then the
+    /// project's slice.
     fn tail_blocks(
         &self,
         t: &mut Turn<'_>,
         session: &SessionRecord,
         compiled: &mut Compiled,
-    ) -> Option<theseus_protocol::tasks::TaskViewSummary> {
+    ) -> (
+        Option<theseus_protocol::tasks::TaskViewSummary>,
+        Option<theseus_protocol::projects::ProjectSliceSummary>,
+    ) {
         // A check sees the task it checks by title and state (theseus-w8ys).
         let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled);
         // The wakes this conversation has pending, in the same last block
@@ -64,7 +68,9 @@ impl TurnRunner {
         Self::standing_here(t, compiled);
         // Who answers this turn, one tail line (theseus-c1uz).
         Self::persona_line(t, compiled);
-        tasks
+        // The project this conversation serves, last of all (theseus-n5ui2).
+        let project = crate::project::slice::attach(&self.store, &self.kernel, session, compiled);
+        (tasks, project)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -155,7 +161,7 @@ impl TurnRunner {
         }
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
-        let tasks = self.tail_blocks(t, session, &mut compiled);
+        let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

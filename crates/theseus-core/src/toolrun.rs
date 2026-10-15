@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{
@@ -58,6 +58,7 @@ mod operands;
 pub(crate) mod order;
 mod parallel;
 mod peek;
+mod proposal;
 mod resume;
 mod self_pr;
 pub(crate) mod session_dir;
@@ -68,6 +69,7 @@ pub(crate) use batch::Turned;
 pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
 pub use peek::{last_line, newest, peek, Newest, Peek};
+pub use proposal::confirm_proposal;
 pub use waits::{JobDone, JobWaits, Waiting};
 
 /// Starts a job. The real one spawns `theseusd job-wrapper` detached, whose
@@ -1514,15 +1516,8 @@ impl ToolRuntime {
                 tc,
                 &call.input,
                 correlation_id,
-                &self.profiles,
-                &self.forecasts,
-            )
-            .map(|c| edit.take(c)),
-            crate::task::CREATE => crate::task::create(
-                tc,
-                &call.input,
-                correlation_id,
                 (&self.profiles, (&self.routines, &self.projects)),
+                &self.forecasts,
             )
             .map(|c| edit.take(c)),
             crate::project_tool::ATTACH => crate::project_tool::attach(tc, &call.input),
@@ -2386,39 +2381,6 @@ pub fn build_runtime(
             })
             .collect(),
     })
-}
-
-/// The proposal a confirm binds and `authorize` re-checks: the action's own,
-/// or, for an action planned before actions kept it (theseus-0g4), the one on
-/// its tool-call node's gate record. `node` saves the transcript scan when the
-/// caller has the node.
-pub fn confirm_proposal(store: &Store, a: &Action, node: Option<&Node>) -> Result<Proposal> {
-    if let Some(p) = &a.proposal {
-        return Ok(p.clone());
-    }
-    let found;
-    let node = match node {
-        Some(n) => n,
-        None => {
-            found = store
-                .session_nodes(&a.session_id)?
-                .into_iter()
-                .map(|(_, n)| n)
-                .find(|n| {
-                    matches!(&n.body, Body::ToolCall { correlation_id: Some(c), .. }
-                        if *c == a.correlation_id)
-                });
-            found
-                .as_ref()
-                .ok_or_else(|| anyhow!("no tool call node for {}", a.correlation_id))?
-        }
-    };
-    let Body::ToolCall { gate, .. } = &node.body else {
-        return Err(anyhow!("no tool call node for {}", a.correlation_id));
-    };
-    gate.as_ref()
-        .map(|g| g.proposal.clone())
-        .ok_or_else(|| anyhow!("no gate record for {}", a.correlation_id))
 }
 
 fn map_retry(r: Retry) -> RetryClass {
