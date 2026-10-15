@@ -8,8 +8,8 @@ use clap::Subcommand;
 use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::standing::{
-    StandingAddParams, StandingAnswerParams, StandingAnswerResult, StandingChanged, StandingKind, StandingListParams, StandingListResult,
-    StandingRevokeParams, StandingScope, SURFACES,
+    StandingAddParams, StandingAnswerParams, StandingAnswerResult, StandingChanged, StandingKind,
+    StandingListParams, StandingListResult, StandingRevokeParams, StandingScope, SURFACES,
 };
 use theseus_protocol::{
     StandingProposal, StandingProposalAnswer, StandingProposalAnswered, StandingProposalsParams,
@@ -190,7 +190,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: StandingCmd) -> Result<()> {
                 .request(method::STANDING_ANSWER, serde_json::to_value(&p)?)
                 .await?;
             output(json, v, |r: StandingAnswerResult| {
-                println!("{}", answered_line(&r));
+                println!("{}", ask_answered_line(&r));
                 Ok(())
             })
         }
@@ -291,7 +291,7 @@ pub fn added_line(r: &StandingChanged) -> String {
 }
 
 /// What an answer says.
-pub fn answered_line(r: &StandingAnswerResult) -> String {
+pub fn ask_answered_line(r: &StandingAnswerResult) -> String {
     match &r.record {
         Some(rec) => format!(
             "Kept {} {} for {}: every prompt of that scope carries it from its next turn.",

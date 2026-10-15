@@ -281,6 +281,8 @@ fn scope_words(scope: &StandingScope) -> &'static str {
         StandingScope::Everywhere => "everywhere",
         StandingScope::Place(_) => "in this place",
         StandingScope::Session(_) => "in this session",
+        StandingScope::Surface(_) => "on this surface",
+        StandingScope::Persona(_) => "for this persona",
     }
 }
 

@@ -89,9 +89,13 @@ impl Core {
         };
         let now = theseus_protocol::now_unix_ms();
         let all = self.runner.standing.all(&self.store)?;
+        // A surface's or a persona's record is not compared: the message's
+        // surface and persona are not passed here yet (a later row can).
         let scope = Scope {
             session: &m.session,
             place: place.as_deref(),
+            surface: None,
+            persona: None,
         };
         let live = standing::live(&all, Some(scope), now);
         let mut held = self.runner.standing.capture.lock(&self.store)?;

@@ -51,10 +51,11 @@ impl Core {
         )
         .map_err(super::standing::failure)?;
         let (who_s, via) = (who.who(), who.via());
-        theseus_store::blocking(|| self.answer_ask(p, &who_s, &via)).map_err(RpcFailure::invalid)
+        theseus_store::blocking(|| self.answer_standing_ask(p, &who_s, &via))
+            .map_err(RpcFailure::invalid)
     }
 
-    fn answer_ask(
+    fn answer_standing_ask(
         &self,
         p: &StandingAnswerParams,
         who: &str,

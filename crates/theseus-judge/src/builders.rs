@@ -1145,7 +1145,14 @@ mod tests {
         let cp = crate::pack::by_name("classify.v1").unwrap();
         let (_, c2) = prepared("classify.v2");
         assert_eq!(c.state.json, c2.state.json, "classify.v2");
-        for route in ["route.v1", "route.v2", "route.v3", "route.v4", "route.v5", "directive.v1"] {
+        for route in [
+            "route.v1",
+            "route.v2",
+            "route.v3",
+            "route.v4",
+            "route.v5",
+            "directive.v1",
+        ] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");
             assert_eq!(

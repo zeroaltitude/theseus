@@ -11,9 +11,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
 use theseus_protocol::{
-    error_code, method, StandingAddParams, StandingAnswerParams, StandingChanged, StandingInfo, StandingKind,
-    StandingListParams, StandingListResult, StandingProposalAnswer, StandingProposalsParams,
-    StandingRecord, StandingRevokeParams,
+    error_code, method, StandingAddParams, StandingAnswerParams, StandingChanged, StandingInfo,
+    StandingKind, StandingListParams, StandingListResult, StandingProposalAnswer,
+    StandingProposalsParams, StandingRecord, StandingRevokeParams,
 };
 
 use super::confirms::Act;
