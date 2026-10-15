@@ -4,4 +4,12 @@ import type { DiscordOrigin } from "./DiscordOrigin";
 /**
  * `routine.update`: change what is given.
  */
-export type RoutineUpdateParams = { id: string, title?: string, schedule?: string, brief?: string, budget_usd?: number, month_usd?: number, deliver_to?: string, catch_up?: string, speak?: string, author?: string, discord?: DiscordOrigin | null, };
+export type RoutineUpdateParams = { id: string, title?: string, schedule?: string, brief?: string, budget_usd?: number, month_usd?: number, deliver_to?: string, catch_up?: string, speak?: string, 
+/**
+ * The grant, replaced whole.
+ */
+grant?: Array<string>, 
+/**
+ * Entries added to the grant ("Add to grant" on a blocked run).
+ */
+add_grant?: Array<string>, author?: string, discord?: DiscordOrigin | null, };

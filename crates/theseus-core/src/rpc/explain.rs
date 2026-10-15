@@ -238,6 +238,7 @@ impl Core {
             glide: None,
             session: None,
             ctx: &rt.ctx,
+            routine: None,
         };
         let mut seen: Vec<(Layer, Decision)> = Vec::new();
         let (d, _) = rt.order(&at, tool, &plan, &serde_json::Value::Null, &mut |l, d| {
@@ -320,7 +321,12 @@ impl Core {
                     Some("[lsp.servers.<name>] start_on_edit, and proc.run's posture".into()),
                 )]
             }
-            Layer::Lsp | Layer::SharedFetch | Layer::Glide | Layer::Earned | Layer::Scoped => {
+            Layer::Lsp
+            | Layer::SharedFetch
+            | Layer::Glide
+            | Layer::Earned
+            | Layer::Scoped
+            | Layer::Routine => {
                 return None
             }
             Layer::Floor => vec![row(

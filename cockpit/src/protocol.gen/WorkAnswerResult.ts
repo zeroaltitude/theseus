@@ -11,4 +11,9 @@ question_id: string, option: string,
  * budget question held. Absent when nothing resumes (a decline, an
  * extension's ack, a reminder).
  */
-resumes?: WorkRef, };
+resumes?: WorkRef, 
+/**
+ * Words the answer gives back: a routine's `details` (its latest runs
+ * and why the last one failed or was blocked).
+ */
+detail?: string, };

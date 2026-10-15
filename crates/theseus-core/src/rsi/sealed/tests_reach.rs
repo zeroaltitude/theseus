@@ -79,6 +79,7 @@ fn judge(core: &Core, tool: &dyn Tool, input: &Value) -> Result<String, String> 
         glide: None,
         session: None,
         ctx: &rt.ctx,
+        routine: None,
     };
     match rt.judge(&at, tool, &plan, input, &mut |_, _| {}) {
         Ok((d, _)) => Ok(d.posture.as_str().into()),

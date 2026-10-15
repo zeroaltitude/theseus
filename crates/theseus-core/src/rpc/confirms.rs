@@ -81,7 +81,8 @@ impl Core {
             reason: decision.reason,
             by: OPERATOR.into(),
             requested_at_ms: a.planned_at_ms,
-            expires_at_ms: a.planned_at_ms + self.kernel.config().confirm_ttl_ms,
+            expires_at_ms: a.planned_at_ms
+                + self.ask_ttl_ms(&session.session_id, session.task.is_some()),
             floor: decision.floor,
             budget: None,
             task: crate::task::task_ref(session),
@@ -497,7 +498,6 @@ impl Core {
     /// reads them again. Returns how many expired.
     pub fn expire_questions(&self, now: u64) -> usize {
         use std::sync::atomic::Ordering::SeqCst;
-        let ttl = self.kernel.config().confirm_ttl_ms;
         // Raised first: a question asked while these are read lowers it
         // again, so none is missed.
         self.tools.question_due.store(u64::MAX, SeqCst);
@@ -513,9 +513,17 @@ impl Core {
         let mut expired = 0;
         // A budget question holds until it is answered.
         for a in pending.iter().filter(|a| a.tool != BUDGET_TOOL) {
+            // A routine's run waits its run deadline, not the confirm lifetime
+            // (theseus-52tut).
+            let ttl = self.ask_ttl_ms(&a.session_id, self.is_task_session(&a.session_id));
             let due = a.planned_at_ms + ttl;
             if due > now {
                 next = next.min(due);
+                continue;
+            }
+            // Past a routine run's deadline the run ends blocked instead,
+            // naming the tool: the tick cancels it (`routines_tick`).
+            if self.queue_if_routine(a) {
                 continue;
             }
             match self.expire_question(a, ttl) {

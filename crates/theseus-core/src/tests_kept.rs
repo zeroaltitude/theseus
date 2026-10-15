@@ -272,6 +272,7 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
         glide: None,
         session: Some(sid),
         ctx: &core.tools.ctx,
+        routine: None,
     };
     let (d, _) = core
         .tools

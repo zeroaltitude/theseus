@@ -1018,10 +1018,15 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # empty. Each run carves its budget from the routine's month, which resets on
 # the 1st of the local month; a spent month skips its runs and says so once.
 # `theseus routine add "weekdays 08:00" "Summarize ..." --budget 0.50 --to dm`.
+# A routine's runs use the tools in its grant (`--grant gog.gmail.search,web.fetch`)
+# without asking, even after reading outside text; any other call asks, and a
+# question nobody answers by the run's deadline ends the run blocked, naming the
+# tool, in one notice. `theseus routine try <id>` runs it once while you watch.
 # [routines]
 # default_run_usd = 0.50                  # the most one run may spend, when a routine names none
 # default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
 # max_routines = 50                       # live routines at once
+# run_deadline_secs = 900                 # how long a run's question outside its grant waits before the run ends blocked
 
 # ---------------------------------------------------------------- watches
 # Waiting on the world with no model (theseus-f2r2b): `theseus watches add "PR 123

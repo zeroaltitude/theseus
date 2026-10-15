@@ -36,6 +36,9 @@ pub(crate) struct At<'a> {
     /// What the call's plan was made with: its session's directory
     /// (theseus-aab7), which a batch's steps are planned in too.
     pub ctx: &'a theseus_tools::ToolCtx,
+    /// The grant of the routine whose run this call is in (theseus-52tut):
+    /// none for any other session.
+    pub routine: Option<&'a std::sync::Arc<crate::routine::grant::Grant>>,
 }
 
 /// A layer of the order after the place's refusal, as `order` hands each
@@ -60,6 +63,8 @@ pub(crate) enum Layer {
     Floor,
     /// A glide's place rule, and a post's destination's floor (38b).
     Glide,
+    /// A routine's grant (theseus-52tut): its named tools run unasked.
+    Routine,
     /// T1's hold after external text (theseus-9bp).
     Hold,
     /// An MCP client's floor (step 41b).
@@ -150,12 +155,17 @@ impl ToolRuntime {
             None => decision,
         };
         seen(Layer::Glide, &decision);
+        // A routine's run: the tools its grant names run without asking, the
+        // hold included (theseus-52tut).
+        let (decision, granted) =
+            crate::routine::grant::gate(self, at, tool, plan, input, bound.l1(), decision);
+        seen(Layer::Routine, &decision);
         // After the whole order (theseus-9bp): a call that acts in a
         // session that read external text waits. A read and a one-shot
         // `wake.at` keep their postures (T1b), and cost no record read; a
         // repeating wake is persistence, and is held (37a).
         let class = plan.class.unwrap_or(tool.class());
-        let held = if crate::external::exempt(class, tool.name(), input) {
+        let held = if granted || crate::external::exempt(class, tool.name(), input) {
             Ok(None)
         } else {
             (at.held)()

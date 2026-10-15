@@ -27,13 +27,14 @@ use crate::routine::{self, Env, NewRoutine};
 use crate::wake_when::parse_when;
 
 /// The routines' methods, routed by `rpc_prefixed`.
-pub(super) const OWN: [&str; 8] = [
+pub(super) const OWN: [&str; 9] = [
     method::ROUTINE_CREATE,
     method::ROUTINE_LIST,
     method::ROUTINE_RUNS,
     method::ROUTINE_PAUSE,
     method::ROUTINE_RESUME,
     method::ROUTINE_RUN_NOW,
+    method::ROUTINE_TRY,
     method::ROUTINE_UPDATE,
     method::ROUTINE_DELETE,
 ];
@@ -87,6 +88,10 @@ impl Core {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.routine_run_now(&p, who)
             }),
+            method::ROUTINE_TRY => route(params, |p: RoutineNameParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.routine_try(&p, who)
+            }),
             method::ROUTINE_UPDATE => route(params, |p: RoutineUpdateParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.routine_update(&p, who)
@@ -110,7 +115,7 @@ impl Core {
     }
 
     /// Where a routine's reports go: its owner's DM, nowhere, or a place.
-    fn routine_target(&self, spec: &RoutineSpec) -> Option<String> {
+    pub(crate) fn routine_target(&self, spec: &RoutineSpec) -> Option<String> {
         match spec.deliver_to.as_str() {
             "none" => None,
             "dm" => self
@@ -173,6 +178,7 @@ impl Core {
             deliver_to: p.deliver_to.clone(),
             catch_up: p.catch_up.clone(),
             speak: p.speak.clone(),
+            grant: self.checked_grant(&p.grant)?,
         };
         let by = who.label;
         let book = &self.runner.tools.routines;
@@ -295,6 +301,64 @@ impl Core {
         self.routine_edited(&after, task)
     }
 
+    /// `routine.try`: "Try it now" (theseus-52tut), occurrence 0 at once, run 0
+    /// in the log, the series untouched. Any question it asks goes where a
+    /// run's does, and the owner who ran it is watching.
+    pub fn routine_try(
+        &self,
+        p: &RoutineNameParams,
+        who: impl Into<Answerer>,
+    ) -> Result<RoutineEditResult, RpcFailure> {
+        let who = who.into();
+        let spec = self.named(&p.id)?;
+        self.judge_routine(
+            &who,
+            method::ROUTINE_TRY,
+            &format!("the trial of routine {}", routine::short(&spec.session_id)),
+        )?;
+        let target = self.routine_target(&spec);
+        let env = self.routine_env(target.clone());
+        let mut updated = None;
+        let fired = self
+            .kernel
+            .run_routine_now(&spec.execution_id, &spec.wake_id, |_, due| {
+                let (plan, next) = routine::plan_trial(&env, &spec, due)?;
+                updated = Some(next);
+                Ok(plan)
+            })
+            .map_err(RpcFailure::invalid)?;
+        let task = fired.task.as_ref().map(|t| t.session_id.clone());
+        let after = updated.unwrap_or_else(|| (*spec).clone());
+        self.routine_opened(&fired.task, &target, &after);
+        self.routine_edited(&after, task)
+    }
+
+    /// The routine's grant once `p` has changed it, and whether it did: the
+    /// whole `grant` replaces, `add_grant` joins; all checked.
+    fn grant_after(
+        &self,
+        spec: &RoutineSpec,
+        p: &RoutineUpdateParams,
+    ) -> Result<(Vec<String>, bool), RpcFailure> {
+        let have = self
+            .kernel
+            .execution(&spec.execution_id)?
+            .as_ref()
+            .and_then(routine::written_grant)
+            .unwrap_or_default();
+        let wanted = routine::grant::joined(p.grant.as_ref().unwrap_or(&have), &p.add_grant);
+        if wanted == have {
+            return Ok((have, false));
+        }
+        Ok((self.checked_grant(&wanted)?, true))
+    }
+
+    /// A grant as written, checked against the tools this daemon has.
+    fn checked_grant(&self, written: &[String]) -> Result<Vec<String>, RpcFailure> {
+        let rt = &self.runner.tools;
+        routine::grant::check(written, &|t| rt.registry.get(t).is_some()).map_err(invalid)
+    }
+
     /// After a run's frame: the outbox learns where its report goes, and the
     /// book keeps the new record.
     fn routine_opened(
@@ -305,6 +369,16 @@ impl Core {
     ) {
         if let (Some(t), Some(to)) = (task, target) {
             self.outbox.task_bound(&t.session_id, to);
+        }
+        if let Some(t) = task {
+            // Its end is told once it comes (`routines_tick`).
+            self.runner
+                .tools
+                .routines
+                .open
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(t.id.clone(), spec.session_id.clone());
         }
         self.runner.tools.routines.set(spec);
     }
@@ -382,11 +456,12 @@ impl Core {
                 .map_or(parsed.repeat.every.nominal_ms(), |n| n - parsed.first_ms);
             change.schedule = Some((parsed.first_ms, parsed.repeat));
         }
-        if p.brief.is_some() || p.budget_usd.is_some() {
+        let (grant, grant_changed) = self.grant_after(&spec, p)?;
+        if p.brief.is_some() || p.budget_usd.is_some() || grant_changed {
             change.task = Some(TaskRun {
                 brief: next.brief.clone(),
                 limit_micros: next.run_micros,
-                tools: vec![],
+                tools: grant,
             });
         }
         let row =
@@ -487,6 +562,7 @@ impl Core {
             updated.push(next);
             Ok(plan)
         })?;
+        self.routine_skips_told(&spec, &fired);
         for (f, next) in fired.iter().zip(updated) {
             self.routine_opened(&f.task, &target, &next);
             if let Some(a) = &f.post {

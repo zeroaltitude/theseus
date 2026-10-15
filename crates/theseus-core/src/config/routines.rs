@@ -7,6 +7,8 @@
 //! - `default_month_usd`: a routine's month, reset on the 1st of the local
 //!   month, when it names none (10).
 //! - `max_routines`: the most live routines the daemon holds (50).
+//! - `run_deadline_secs`: how long a question a routine's run asks outside its
+//!   grant may wait (900); past it the run ends blocked, naming the tool.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,12 @@ pub struct RoutinesConfig {
     pub default_month_usd: f64,
     #[serde(default = "default_max_routines")]
     pub max_routines: usize,
+    #[serde(default = "default_run_deadline_secs")]
+    pub run_deadline_secs: u64,
+}
+
+fn default_run_deadline_secs() -> u64 {
+    900
 }
 
 fn default_run_usd() -> f64 {
@@ -38,6 +46,7 @@ impl Default for RoutinesConfig {
             default_run_usd: default_run_usd(),
             default_month_usd: default_month_usd(),
             max_routines: default_max_routines(),
+            run_deadline_secs: default_run_deadline_secs(),
         }
     }
 }
@@ -63,6 +72,9 @@ impl RoutinesConfig {
         }
         if self.max_routines == 0 {
             bail!("routines.max_routines is 0");
+        }
+        if self.run_deadline_secs == 0 {
+            bail!("routines.run_deadline_secs is 0: a question outside the grant could never wait");
         }
         Ok(())
     }

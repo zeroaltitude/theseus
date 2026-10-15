@@ -49,6 +49,11 @@ pub enum RoutineCmd {
         /// `always` (default), or `when-notable`: a report ending in NOTHING NEW only logs.
         #[arg(long)]
         speak: Option<String>,
+        /// The tools its runs use without asking, even after reading outside text, comma-separated
+        /// (`gog.gmail.search,web.fetch`; a post names its place: `"channel.post #digest"`). Any
+        /// other call asks, and a run nobody answers by its deadline ends blocked, naming it.
+        #[arg(long, value_delimiter = ',')]
+        grant: Vec<String>,
     },
     /// A routine's runs, newest first: state, start, duration, cost, and the report's first line.
     Runs {
@@ -66,6 +71,9 @@ pub enum RoutineCmd {
     Resume { id: String },
     /// Run it once now, whether paused or not; the schedule is untouched.
     Run { id: String },
+    /// Try it now: occurrence 0 at once, recorded as run 0, while you watch. A call outside the
+    /// grant asks you here and now, so a grant that is too short shows today and not at 08:00.
+    Try { id: String },
     /// Change what is given: schedule, brief, budget, month, destination, catch-up, speak, title.
     Update {
         id: String,
@@ -85,6 +93,12 @@ pub enum RoutineCmd {
         catch_up: Option<String>,
         #[arg(long)]
         speak: Option<String>,
+        /// Replace the grant (comma-separated tools).
+        #[arg(long, value_delimiter = ',')]
+        grant: Option<Vec<String>>,
+        /// Add tools to the grant (comma-separated).
+        #[arg(long, value_delimiter = ',')]
+        add_grant: Vec<String>,
     },
     /// Delete a routine: its schedule and any run going end.
     Rm { id: String },
@@ -182,6 +196,21 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
                 Ok(())
             })
         }
+        RoutineCmd::Try { id } => {
+            let v = conn.request(method::ROUTINE_TRY, named(id)).await?;
+            output(json, v, |r: RoutineEditResult| {
+                let task = r
+                    .task
+                    .as_deref()
+                    .map_or("-", |t| &t[t.len().saturating_sub(6)..]);
+                println!(
+                    "routine {} tries now as run 0, task {task}; a call outside its grant asks \
+                     here (`theseus confirm`, `theseus tasks`); the series is as it was",
+                    r.routine.short
+                );
+                Ok(())
+            })
+        }
         RoutineCmd::Rm { id } => {
             let v = conn.request(method::ROUTINE_DELETE, named(id)).await?;
             output(json, v, |r: RoutineEditResult| {
@@ -214,6 +243,7 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
             to,
             catch_up,
             speak,
+            grant,
         } => {
             let brief = brief.join(" ");
             let p = RoutineCreateParams {
@@ -225,6 +255,7 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
                 deliver_to: to,
                 catch_up,
                 speak: speak.map(|s| s.replace('-', "_")),
+                grant,
                 ..Default::default()
             };
             let v = conn.request(method::ROUTINE_CREATE, p).await?;
@@ -254,6 +285,8 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
             to,
             catch_up,
             speak,
+            grant,
+            add_grant,
         } => {
             let p = RoutineUpdateParams {
                 id,
@@ -265,6 +298,8 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
                 deliver_to: to,
                 catch_up,
                 speak: speak.map(|s| s.replace('-', "_")),
+                grant,
+                add_grant,
                 ..Default::default()
             };
             let v = conn.request(method::ROUTINE_UPDATE, p).await?;
@@ -293,12 +328,21 @@ pub fn list_lines(routines: &[RoutineInfo]) -> Vec<String> {
                 format!("next {}", i.next.as_deref().unwrap_or("-"))
             };
             let going = if i.running { " · running" } else { "" };
+            let streak = match i.streak {
+                0 => String::new(),
+                1 => " · ✗ the last run failed or was blocked".to_string(),
+                n => format!(" · ✗ {n} runs in a row failed or were blocked"),
+            };
+            let grant = match i.grant.is_empty() {
+                true => String::new(),
+                false => format!(" · grant: {}", i.grant.join(", ")),
+            };
             let last = match &i.last {
                 Some(r) => format!(" · last: {} {}", r.state, r.report.as_deref().unwrap_or("")),
                 None => String::new(),
             };
             format!(
-                "{} {} {}  {state}{going} · {}/run · {} of {} this month · {} · {} run{}{}",
+                "{} {} {}  {state}{going} · {}/run · {} of {} this month · {} · {} run{}{streak}{grant}{}",
                 i.short,
                 i.series,
                 i.title,
@@ -343,6 +387,24 @@ fn duration(ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_list_shows_the_grant_and_the_streak() {
+        let mut i = info();
+        i.grant = vec!["gog.gmail.search".into(), "channel.post #digest".into()];
+        i.streak = 2;
+        let l = &list_lines(&[i])[0];
+        assert!(l.contains("2 runs in a row failed or were blocked"), "{l}");
+        assert!(
+            l.contains("grant: gog.gmail.search, channel.post #digest"),
+            "{l}"
+        );
+        let plain = &list_lines(&[info()])[0];
+        assert!(
+            !plain.contains("grant") && !plain.contains("in a row"),
+            "{plain}"
+        );
+    }
+
     use super::*;
 
     fn info() -> RoutineInfo {
@@ -363,6 +425,8 @@ mod tests {
             catch_up: "auto".into(),
             speak: "always".into(),
             runs: 3,
+            grant: vec![],
+            streak: 0,
             running: false,
             last: Some(RunRow {
                 task: "ses_x".into(),
@@ -374,6 +438,7 @@ mod tests {
                 duration_ms: 41_000,
                 cost_usd: 0.07,
                 report: Some("digest ready".into()),
+                blocked: None,
             }),
         }
     }

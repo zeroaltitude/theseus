@@ -341,6 +341,7 @@ fn ordered(
         glide: None,
         session: Some(sid),
         ctx: &rt.ctx,
+        routine: None,
     };
     rt.order(&at, &*tool, &plan, &input, &mut |_, _| {}).0
 }

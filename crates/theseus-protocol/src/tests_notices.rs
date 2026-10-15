@@ -731,3 +731,104 @@ fn row_4_by_purpose_a_reminder_interrupts_and_the_rest_inform() {
     });
     assert_eq!(said(&run(Some(&sleeping), &t)).0, Urgency::Interrupt);
 }
+
+/// The ping rule for a routine's runs (theseus-52tut; H-4 to H-7): a run that
+/// fails or is blocked interrupts, and the rest inform; once per routine per
+/// local day; the line carries the streak from the second run in a row.
+#[test]
+fn a_routines_runs_ping_by_the_entry_they_come_to() {
+    for p in ["routine_failed", "routine_blocked"] {
+        assert_eq!(wake_urgency(p), Urgency::Interrupt, "{p}");
+    }
+    for p in [
+        "routine_reported",
+        "routine_skipped",
+        "routine_missed",
+        "routine",
+    ] {
+        assert_eq!(wake_urgency(p), Urgency::Inform, "{p}");
+    }
+    assert!(ROUTINE_PURPOSES
+        .iter()
+        .all(|p| routine_urgency(p).is_some()));
+    assert_eq!(routine_urgency("remind"), None);
+
+    // Once a local day: the first ever, a new day, never twice in one.
+    assert!(routine_pings(None, "2026-10-14"));
+    assert!(!routine_pings(Some("2026-10-14"), "2026-10-14"));
+    assert!(routine_pings(Some("2026-10-14"), "2026-10-15"));
+
+    assert_eq!(
+        routine_line("Morning digest", false, 1, "Gmail needs a login"),
+        "✗ Morning digest failed: Gmail needs a login"
+    );
+    assert_eq!(
+        routine_line("Morning digest", false, 2, "Gmail needs a login"),
+        "✗ Morning digest failed (2 in a row): Gmail needs a login"
+    );
+    assert_eq!(
+        routine_line(
+            "Morning digest",
+            true,
+            1,
+            "gog.gmail.search needs approval (not in its grant)"
+        ),
+        "✗ Morning digest blocked: gog.gmail.search needs approval (not in its grant)"
+    );
+}
+
+/// A failed routine's answers are Run now, Pause, Details; a blocked one's
+/// begin with Add to grant.
+#[test]
+fn a_failed_or_blocked_routine_offers_its_answers() {
+    let ids = |blocked| {
+        routine_answers(blocked)
+            .into_iter()
+            .map(|a| a.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(false), ["run_now", "pause", "details"]);
+    assert_eq!(ids(true), ["add_to_grant", "run_now", "pause", "details"]);
+}
+
+/// The routine's entry becomes the Interrupt every surface draws, with its
+/// own line and its answers (not a reminder's clock and four buttons).
+#[test]
+fn a_routines_notice_is_its_line_and_its_answers() {
+    let n = WakeNoticed {
+        wake_id: "wak_x".into(),
+        short: "x".into(),
+        session_id: "ses_r".into(),
+        execution_id: "exe_r".into(),
+        purpose: "routine_blocked".into(),
+        note: "✗ Morning digest blocked: gog.gmail.search needs approval (not in its grant)".into(),
+        due_at_ms: AT,
+        late_ms: 0,
+        while_down: false,
+        every: None,
+        occurrence: None,
+        posted_to: None,
+        home: false,
+        answers: routine_answers(true),
+    };
+    let notice = reminder_notice(&n, &|ms| utc_hm(ms));
+    assert_eq!(notice.urgency, Urgency::Interrupt);
+    assert_eq!(notice.line, n.note);
+    assert_eq!(
+        notice
+            .answers
+            .iter()
+            .map(|a| a.id.as_str())
+            .collect::<Vec<_>>(),
+        ["add_to_grant", "run_now", "pause", "details"]
+    );
+    let inform = reminder_notice(
+        &WakeNoticed {
+            purpose: "routine_skipped".into(),
+            answers: vec![],
+            ..n
+        },
+        &|ms| utc_hm(ms),
+    );
+    assert_eq!(inform.urgency, Urgency::Inform);
+}

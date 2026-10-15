@@ -438,6 +438,7 @@ export type * from './RouteCorrectionsResult';
 export type * from './RouteHow';
 export type * from './RouteReportParams';
 export type * from './RouteReportResult';
+export type * from './RoutineBlocked';
 export type * from './RoutineCreateParams';
 export type * from './RoutineEditResult';
 export type * from './RoutineInfo';
