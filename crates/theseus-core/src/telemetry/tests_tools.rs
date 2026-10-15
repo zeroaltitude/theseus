@@ -74,6 +74,7 @@ async fn a_miss_and_the_loaded_families_nothing_used_are_counted_by_place_and_fa
     core.runner
         .run(TurnRequest {
             prompt: None,
+            answer_at: None,
             session: rec,
             input: Some("open a terminal".into()),
             target,

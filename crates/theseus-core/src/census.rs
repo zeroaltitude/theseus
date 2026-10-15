@@ -113,6 +113,14 @@ impl TurnRunner {
         let paths = self.cfg.context_paths(target.persona.as_deref());
         let mut spec = self.spec_of(&target, kind, view, self.context_files.peek(&paths));
         spec.session_text = self.session_block(rec.and_then(|r| r.dir.as_deref()), view);
+        // The thread's card and tools, as a turn takes them (theseus-h4a7).
+        self.thread_spec(
+            &mut spec,
+            &sid,
+            rec.and_then(|r| r.compilation_id.as_deref()),
+        );
+        // The families it loads and defers, as a turn chooses them (theseus-7m7w.2).
+        spec.defer = self.deferral(&sid, kind == SessionKind::Task, &spec);
         let built = self.built_parts(
             &sid,
             &target,
@@ -166,6 +174,7 @@ impl TurnRunner {
             signals: None,
             assembled: None,
             situation: &situation,
+            kept: None,
         });
         let how = match (rec.is_some(), compiled.new_compilation) {
             (false, _) => "fresh",
@@ -495,8 +504,19 @@ pub fn census_parts(
     }
     let system_tokens = system.iter().map(|b| b.tokens).sum();
     let mut tools = Vec::new();
+    // A deferred tool's definition is sent, and the estimate counts one
+    // constant for all of them and the search tool its own
+    // (`tools_defer::tools_bytes`): the first deferred line carries it.
+    let mut constant = Some(crate::tools_defer::DEFERRED_BYTES);
     for t in &request.tools {
-        let (rest, desc, schema) = tool_bytes(t);
+        let deferred = t.get("defer_loading") == Some(&Value::Bool(true));
+        let (rest, desc, schema) = if deferred {
+            (constant.take().unwrap_or(0), 0, 0)
+        } else if t["name"] == crate::tools_defer::SEARCH_TOOL {
+            (crate::tools_defer::SEARCH_BYTES, 0, 0)
+        } else {
+            tool_bytes(t)
+        };
         let cut = json.cut(&[rest, desc, schema]);
         tools.push(CensusTool {
             name: t["name"].as_str().unwrap_or_default().to_string(),
@@ -506,6 +526,7 @@ pub fn census_parts(
             description_tokens: cut[1],
             schema_tokens: cut[2],
             tokens: cut.iter().sum(),
+            deferred,
             ..CensusTool::default()
         });
     }
@@ -535,6 +556,13 @@ async fn exact_counts(
     provider: &dyn crate::provider::Provider,
     request: &ProviderRequest,
 ) -> Result<CensusExact> {
+    // The counter refuses a server tool (the tool search's, theseus-7m7w.2):
+    // the request is counted without it, so its own tokens are not in these.
+    let mut request = request.clone();
+    request
+        .tools
+        .retain(|t| t.get("type").is_none_or(|ty| ty == "custom"));
+    let request = &request;
     let one = |system: bool, tools: bool| {
         let mut r = request.clone();
         r.messages = vec![serde_json::json!({

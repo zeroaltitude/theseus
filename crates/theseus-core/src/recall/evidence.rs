@@ -100,14 +100,25 @@ mod tests {
     /// is cut to one line; and nothing but the node and its session is read.
     #[test]
     fn an_evidence_line_names_the_subject_and_the_session() {
-        let said = Node::user("ses_ab12cd34ef", None, "cli", "the staging password is hunter2");
-        let s = session("ses_ab12cd34ef", Some("Staging database\nsetup for the tide service"));
+        let said = Node::user(
+            "ses_ab12cd34ef",
+            None,
+            "cli",
+            "the staging password is hunter2",
+        );
+        let s = session(
+            "ses_ab12cd34ef",
+            Some("Staging database\nsetup for the tide service"),
+        );
         assert_eq!(
             evidence(&said, Some(&s)).as_deref(),
             Some("session cd34ef \"Staging database setup for the tide service\"")
         );
         let untitled = session("ses_ab12cd34ef", None);
-        assert_eq!(evidence(&said, Some(&untitled)).as_deref(), Some("session cd34ef"));
+        assert_eq!(
+            evidence(&said, Some(&untitled)).as_deref(),
+            Some("session cd34ef")
+        );
         assert_eq!(evidence(&said, None).as_deref(), Some("session cd34ef"));
         let long = session("ses_ab12cd34ef", Some(&"harbour ".repeat(20)));
         let line = evidence(&said, Some(&long)).unwrap();

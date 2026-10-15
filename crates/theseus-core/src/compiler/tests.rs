@@ -11,6 +11,9 @@ fn spec(model: &str, system: &str) -> RequestSpec {
         system_text: system.into(),
         context_text: String::new(),
         session_text: String::new(),
+        persona_text: String::new(),
+        card: None,
+        cold: None,
         context_files: vec![],
         persona: None,
         tools: vec![
@@ -26,6 +29,7 @@ fn spec(model: &str, system: &str) -> RequestSpec {
         cache_ttl: CacheTtl::FiveMinutes,
         conversation_ttl: CacheTtl::FiveMinutes,
         walk: None,
+        defer: None,
         memberships: vec![],
         guidance: vec![],
     }
@@ -473,7 +477,7 @@ fn the_system_is_two_blocks_each_with_a_breakpoint() {
     assert_eq!(sys[1]["text"], sp.context_text);
     let five = json!({"type": "ephemeral"});
     assert_eq!(marks(&c), [five.clone(), five.clone(), five]);
-    assert_eq!(c.cache.breakpoints(), ["header", "context", "conversation"]);
+    assert_eq!(c.cache.breakpoints(), ["header", "project", "conversation"]);
     let m = c.compilation.manifest.cache.clone().unwrap();
     assert_eq!(m, c.cache);
     assert!(m.caches && m.blocks.iter().all(|b| b.marked));
@@ -555,9 +559,9 @@ fn a_prefix_under_the_models_minimum_gets_no_breakpoint() {
     assert_eq!((header.block.as_str(), header.marked), ("header", false));
     assert!((4_000..8_192).contains(&header.prefix_bytes), "{header:?}");
     let context = &m.blocks[1];
-    assert_eq!((context.block.as_str(), context.marked), ("context", true));
+    assert_eq!((context.block.as_str(), context.marked), ("project", true));
     assert!(context.prefix_bytes >= 24_000, "{context:?}");
-    assert_eq!(c.cache.breakpoints(), ["context", "conversation"]);
+    assert_eq!(c.cache.breakpoints(), ["project", "conversation"]);
     let stored = serde_json::to_value(&c.compilation.manifest).unwrap();
     assert_eq!(stored["cache"]["blocks"][0]["marked"], false, "{stored}");
 

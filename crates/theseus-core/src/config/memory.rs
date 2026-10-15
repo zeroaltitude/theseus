@@ -548,12 +548,21 @@ mod tests {
     fn the_floor_and_the_subject_bar_are_shares_of_the_best_score() {
         let m = crate::Config::example().memory;
         assert_eq!(m.recall_floor, default_recall_floor());
-        assert_eq!(m.recall_subject_bar, 0.0, "the bar is off unless measured to help");
+        assert_eq!(
+            m.recall_subject_bar, 0.0,
+            "the bar is off unless measured to help"
+        );
         let cfg = parse("[memory]\nrecall_floor = 0.25\nrecall_subject_bar = 0.6\n").unwrap();
-        assert_eq!((cfg.memory.recall_floor, cfg.memory.recall_subject_bar), (0.25, 0.6));
+        assert_eq!(
+            (cfg.memory.recall_floor, cfg.memory.recall_subject_bar),
+            (0.25, 0.6)
+        );
         cfg.validate().unwrap();
         for key in ["recall_floor", "recall_subject_bar"] {
-            assert!(crate::Config::EXAMPLE_TOML.contains(&format!("# {key} = ")), "{key}");
+            assert!(
+                crate::Config::EXAMPLE_TOML.contains(&format!("# {key} = ")),
+                "{key}"
+            );
         }
     }
 

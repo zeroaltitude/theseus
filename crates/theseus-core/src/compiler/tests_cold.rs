@@ -62,6 +62,7 @@ fn run(
         signals: None,
         assembled: None,
         situation: &situation::Situation::Continuation,
+        kept: None,
     })
 }
 

@@ -128,9 +128,13 @@ fn tool_lines(r: &ContextCensusResult) -> Vec<String> {
             (false, Some(at)) => format!("{:>6} calls, last {}", thousands(t.calls), fmt_date(at)),
             (false, None) => "     0 calls".to_string(),
         };
+        let name = match t.deferred {
+            true => format!("{} (deferred)", t.name),
+            false => t.name.clone(),
+        };
         out.push(format!(
             "  {:<26} {:>8}  description {:>6} · schema {:>6}  {used}",
-            t.name,
+            name,
             thousands(t.tokens),
             thousands(t.description_tokens),
             thousands(t.schema_tokens),

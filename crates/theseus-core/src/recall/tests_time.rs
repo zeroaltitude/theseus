@@ -147,6 +147,8 @@ fn cand(id: &str, rank: usize, time_ms: u64, text: &str) -> Candidate {
         index_rank: rank,
         place: Place::Private,
         time_ms,
+        entities: Vec::new(),
+        matched: Vec::new(),
     }
 }
 

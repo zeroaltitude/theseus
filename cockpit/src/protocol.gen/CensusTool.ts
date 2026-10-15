@@ -23,4 +23,10 @@ calls: number,
 /**
  * The last of them, unix ms.
  */
-last_call_ms?: number, };
+last_call_ms?: number, 
+/**
+ * Sent with `defer_loading` (theseus-7m7w.2): its definition is in the
+ * request, and the estimate counts one constant for every deferred tool,
+ * on the first one's line.
+ */
+deferred?: boolean, };

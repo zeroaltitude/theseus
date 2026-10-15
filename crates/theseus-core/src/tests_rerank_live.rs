@@ -310,7 +310,7 @@ fn normalized(reqs: &[String], ids: &[&str]) -> Vec<String> {
             for (i, id) in ids.iter().enumerate() {
                 r = r.replace(id, &format!("<session {i}>"));
             }
-            unpositioned(&undated(&r))
+            unpositioned(&undated(&unsessioned(&r)))
         })
         .collect()
 }
@@ -331,7 +331,28 @@ fn unpositioned(s: &str) -> String {
     out
 }
 
-/// `2026-10-04 18:14 UTC` as `<date>`.
+/// `, session 3af5d7` (a recalled note's evidence line names its session by
+/// its id's end, theseus-55hlu) as `, session <sid>`: another rig's id.
+fn unsessioned(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find(", session ") {
+        let (head, tail) = rest.split_at(i + ", session ".len());
+        out.push_str(head);
+        let n = tail.chars().take_while(char::is_ascii_alphanumeric).count();
+        if n == 6 {
+            out.push_str("<sid>");
+            rest = &tail[n..];
+        } else {
+            rest = tail;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `2026-10-04 18:14 UTC` as `<date>`, in any zone (`MST`: recall-time's
+/// stamp is the daemon's zone, theseus-q1tbn).
 fn undated(s: &str) -> String {
     let date = |d: &[u8]| {
         d.len() == 16
@@ -342,18 +363,23 @@ fn undated(s: &str) -> String {
                 _ => b.is_ascii_digit(),
             })
     };
-    let (mut out, mut rest) = (String::new(), s);
-    while let Some(i) = rest.find(" UTC") {
-        let at = i.saturating_sub(16);
-        if i >= 16 && date(&rest.as_bytes()[at..i]) {
-            out.push_str(&rest[..at]);
+    let (mut out, mut i) = (String::new(), 0);
+    let b = s.as_bytes();
+    while i < b.len() {
+        if b.len() >= i + 16 && date(&b[i..i + 16]) && s.is_char_boundary(i) {
             out.push_str("<date>");
-        } else {
-            out.push_str(&rest[..i + 4]);
+            let zone = s[i + 16..].strip_prefix(' ').map_or(0, |z| {
+                z.chars()
+                    .take_while(|c| c.is_ascii_uppercase() || "+-:0123456789".contains(*c))
+                    .count()
+            });
+            i += 16 + if zone > 0 { 1 + zone } else { 0 };
+            continue;
         }
-        rest = &rest[i + 4..];
+        let c = s[i..].chars().next().unwrap();
+        out.push(c);
+        i += c.len_utf8();
     }
-    out.push_str(rest);
     out
 }
 

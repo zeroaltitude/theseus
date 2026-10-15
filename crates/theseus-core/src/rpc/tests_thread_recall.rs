@@ -84,6 +84,7 @@ fn scored(c: &Arc<Core>, picks: Vec<(String, usize, f64)>) -> Ask {
                     time_ms: 0,
                     external: false,
                     entities_matched: vec![],
+                    entities: vec![],
                     sources: [(
                         "bm25".to_string(),
                         IndexSourceRank {

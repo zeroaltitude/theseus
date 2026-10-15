@@ -24,6 +24,9 @@ fn cand(node: &str, session: &str, fused: f64) -> Candidate {
         fused,
         index_rank: 1,
         place: Place::Private,
+        time_ms: 0,
+        entities: Vec::new(),
+        matched: Vec::new(),
     }
 }
 

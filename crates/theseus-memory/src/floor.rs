@@ -93,7 +93,10 @@ mod tests {
         let s = |v: &[&str]| v.iter().map(|e| e.to_string()).collect::<Vec<_>>();
         assert!(f.other_subject(&s(&["host:db-stage.example"])));
         assert!(!f.other_subject(&s(&["host:db-prod.example", "host:db-stage.example"])));
-        assert!(!f.other_subject(&s(&["file:notes.md"])), "another kind is not another subject");
+        assert!(
+            !f.other_subject(&s(&["file:notes.md"])),
+            "another kind is not another subject"
+        );
         assert!(!f.other_subject(&[]));
         assert!(!Floor::new(0.3, 0.0, 0.05, vec!["host:a".into()]).other_subject(&s(&["host:b"])));
     }

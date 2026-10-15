@@ -34,7 +34,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
     ),
     (
         "tasks",
-        "tasks and sub-sessions, wakes and reminders, and the task graph",
+        "tasks and sub-sessions, wakes and reminders, routines and watches, threads, and the task graph",
     ),
     (
         "terminals",
@@ -74,7 +74,7 @@ pub fn of_wire(wire: &str) -> String {
             "fs" | "git" | "text" => "files",
             "job" => "commands",
             "web" | "http" => "web",
-            "task" | "wake" | "thread" => "tasks",
+            "task" | "wake" | "thread" | "routine" | "watch" => "tasks",
             "term" => "terminals",
             "lsp" => "code",
             "channel" => "channels",
@@ -199,6 +199,9 @@ mod tests {
             ("memory_lookup", "memory"),
             ("task_create", "tasks"),
             ("wake_at", "tasks"),
+            ("routine_create", "tasks"),
+            ("watch", "tasks"),
+            ("thread_read", "tasks"),
             ("term_open", "terminals"),
             ("lsp_definition", "code"),
             ("channel_post", "channels"),

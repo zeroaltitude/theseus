@@ -15,4 +15,10 @@ k?: number,
  * `baseline`, `bm25`, `+retention`, `+activation`, `+synthesis`); default
  * `baseline`.
  */
-arm?: string, };
+arm?: string, 
+/**
+ * Only nodes written before this WAL position are candidates, as a
+ * turn's recall at that position would see (theseus-55hlu: a bench's
+ * probes asked as they were, not after the later ones).
+ */
+as_of?: number, };

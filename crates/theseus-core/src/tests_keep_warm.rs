@@ -433,3 +433,47 @@ async fn health_lists_each_profiles_ttl_and_the_reads() {
     assert!(h.usd_today > 0.0);
     assert_eq!(h.keep_warm_minutes, 55.0);
 }
+
+/// With deferred tools (theseus-7m7w.2), the read sends the tools the
+/// session's requests send, deferred as they are, so its prefix is still the
+/// next turn's: a read that sent the whole catalog would write a cache no
+/// turn reads.
+#[tokio::test]
+async fn the_reads_prefix_holds_with_tools_deferred() {
+    let dir = tempfile::tempdir().unwrap();
+    let fake = Arc::new(FakeProvider::default());
+    let mut c = one_hour(24);
+    c.server.state_dir = dir.path().to_string_lossy().into_owned();
+    c.tools.roots = vec![];
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(c, fake.clone(), store);
+    parts.cfg.tools.defer.enabled = true;
+    let core = Core::build(parts).unwrap();
+    let sid = session(&core, SessionKind::Conversation, None);
+    turn(&core, &sid, "first, a question").await;
+    turn(&core, &sid, "then another").await;
+    let live = core.live_profile().0;
+    assert!(matches!(
+        core.runner.keep_warm_once(&sid, &live).await,
+        Outcome::Read { .. }
+    ));
+    turn(&core, &sid, "and the next message").await;
+    let all = fake.requests();
+    let read = reads(&fake).pop().unwrap();
+    let next = all.last().unwrap();
+    assert!(
+        next.tools
+            .iter()
+            .any(|t| t.get("defer_loading") == Some(&Value::Bool(true))),
+        "the session's requests defer some tools"
+    );
+    let bytes = |v: &[Value]| serde_json::to_string(v).unwrap();
+    assert_eq!(bytes(&read.tools), bytes(&next.tools), "the tools");
+    assert_eq!(bytes(&read.system), bytes(&next.system), "the system");
+    let n = read.messages.len() - 1;
+    assert_eq!(
+        bytes(&read.messages[..n]),
+        bytes(&next.messages[..n]),
+        "the messages before the new one"
+    );
+}

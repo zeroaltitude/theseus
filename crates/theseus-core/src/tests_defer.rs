@@ -92,6 +92,7 @@ async fn turn_as(
     core.runner
         .run(TurnRequest {
             prompt: None,
+            answer_at: None,
             session: rec,
             input: Some(input.into()),
             target,

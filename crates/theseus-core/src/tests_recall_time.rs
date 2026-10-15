@@ -58,6 +58,7 @@ fn newest_first(core: &Arc<Core>, sessions: Vec<String>, asked: Arc<Mutex<Vec<St
                 tool: None,
                 external: false,
                 entities_matched: vec![],
+                entities: vec![],
                 sources: [(
                     "bm25".to_string(),
                     IndexSourceRank {

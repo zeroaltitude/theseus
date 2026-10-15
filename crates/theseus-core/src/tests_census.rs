@@ -72,6 +72,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
     core.runner
         .run(TurnRequest {
             prompt: None,
+            answer_at: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -306,4 +307,43 @@ async fn exact_asks_the_provider_to_count() {
         .await
         .unwrap();
     assert!(plain.exact.is_none() && plain.exact_error.is_none());
+}
+
+/// With deferred tools (theseus-7m7w.2), the census counts the request a turn
+/// sends: the same tools, deferred as the turn defers them, each deferred
+/// line marked, and the parts still the compile's total (the deferred tools'
+/// constant on the first one's line, the search tool at its own).
+#[tokio::test]
+async fn with_tools_deferred_the_census_is_the_request_a_turn_sends() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::example();
+    cfg.tools.roots = vec![];
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("Aye.")]));
+    let mut parts = crate::rpc::Parts::for_tests(cfg, fake.clone(), store);
+    parts.cfg.tools.defer.enabled = true;
+    let core = Core::build(parts).unwrap();
+    let (c, ahead) = census(&core, None, Some("cli"));
+    assert!(c.tools.iter().any(|t| t.deferred), "{:?}", c.tools);
+    assert_eq!(
+        c.tools.iter().filter(|t| t.deferred).count(),
+        ahead
+            .tools
+            .iter()
+            .filter(|t| t.get("defer_loading") == Some(&Value::Bool(true)))
+            .count()
+    );
+    assert_eq!(c.parts_sum(), c.total_tokens);
+    assert_eq!(
+        c.total_tokens,
+        ahead.estimate_tokens(),
+        "the request's estimate"
+    );
+    let tools: u64 = c.tools.iter().map(|t| t.tokens).sum();
+    assert_eq!(tools, c.tools_tokens);
+    turn(&core, None, "Where is the harbour?").await;
+    let sent = fake.requests().remove(0);
+    assert_eq!(sent.tools, ahead.tools, "the tools, deferred as sent");
+    assert_eq!(sent.system, ahead.system, "the system blocks");
 }

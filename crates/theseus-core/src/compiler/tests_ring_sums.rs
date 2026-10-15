@@ -20,6 +20,9 @@ fn spec() -> RequestSpec {
         system_text: "S".into(),
         context_text: String::new(),
         session_text: String::new(),
+        persona_text: String::new(),
+        card: None,
+        cold: None,
         context_files: vec![],
         persona: None,
         tools: vec![
@@ -35,6 +38,7 @@ fn spec() -> RequestSpec {
         cache_ttl: CacheTtl::FiveMinutes,
         conversation_ttl: CacheTtl::FiveMinutes,
         walk: None,
+        defer: None,
         memberships: vec![],
         guidance: vec![],
     }

@@ -1347,51 +1347,62 @@ pub struct TurnArgs {
     judge: bool,
 }
 
+/// `bench turn --session-nodes`: each size's long session, a fresh daemon each
+/// (theseus-0l3g).
+fn turn_long(a: TurnArgs, sizes: Vec<u64>) -> Result<()> {
+    let theseusd = theseusd_or_beside(a.theseusd)?;
+    let out = Output {
+        json: a.json.as_deref(),
+        record: a.record.as_deref(),
+        label: a.label.as_deref(),
+    };
+    for nodes in sizes {
+        let report = long::run_long(&long::LongOpts {
+            theseusd: theseusd.clone(),
+            runs: a.runs.max(1),
+            nodes,
+            result_bytes: a.result_bytes,
+            dir: a.dir.clone(),
+        })?;
+        long::print_long(&report);
+        emit("turn", &out, &report, &report.columns(), &[], true)?;
+        let first = report.wall_each.first().copied().unwrap_or(0.0);
+        if let Some(max) = a.first_turn_ms.filter(|max| first > *max) {
+            println!("  the first turn took {first:.0} ms, over {max:.0}");
+            std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
+/// `bench turn --soak-turns`: one session grown turn by turn (theseus-0l3g).
+fn turn_soak(a: TurnArgs) -> Result<()> {
+    let report = soak::run_soak(&soak::SoakOpts {
+        theseusd: theseusd_or_beside(a.theseusd)?,
+        turns: a.soak_turns,
+        dir: a.dir,
+    })?;
+    soak::print_soak(&report);
+    let out = Output {
+        json: a.json.as_deref(),
+        record: a.record.as_deref(),
+        label: a.label.as_deref(),
+    };
+    // No history column: the soak is measured by hand, not by the gate.
+    emit("turn", &out, &report, &[], &[], report.ok())?;
+    if a.check && !report.ok() {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
 pub fn turn_cmd(a: TurnArgs) -> Result<()> {
     let sizes: Vec<u64> = a.session_nodes.iter().copied().filter(|n| *n > 0).collect();
     if !sizes.is_empty() {
-        let theseusd = theseusd_or_beside(a.theseusd)?;
-        let out = Output {
-            json: a.json.as_deref(),
-            record: a.record.as_deref(),
-            label: a.label.as_deref(),
-        };
-        for nodes in sizes {
-            let report = long::run_long(&long::LongOpts {
-                theseusd: theseusd.clone(),
-                runs: a.runs.max(1),
-                nodes,
-                result_bytes: a.result_bytes,
-                dir: a.dir.clone(),
-            })?;
-            long::print_long(&report);
-            emit("turn", &out, &report, &report.columns(), &[], true)?;
-            let first = report.wall_each.first().copied().unwrap_or(0.0);
-            if let Some(max) = a.first_turn_ms.filter(|max| first > *max) {
-                println!("  the first turn took {first:.0} ms, over {max:.0}");
-                std::process::exit(1);
-            }
-        }
-        return Ok(());
+        return turn_long(a, sizes);
     }
     if a.soak_turns > 0 {
-        let report = soak::run_soak(&soak::SoakOpts {
-            theseusd: theseusd_or_beside(a.theseusd)?,
-            turns: a.soak_turns,
-            dir: a.dir,
-        })?;
-        soak::print_soak(&report);
-        let out = Output {
-            json: a.json.as_deref(),
-            record: a.record.as_deref(),
-            label: a.label.as_deref(),
-        };
-        // No history column: the soak is measured by hand, not by the gate.
-        emit("turn", &out, &report, &[], &[], report.ok())?;
-        if a.check && !report.ok() {
-            std::process::exit(1);
-        }
-        return Ok(());
+        return turn_soak(a);
     }
     if a.judge {
         let report = judge::run_judge(&judge::JudgeOpts {

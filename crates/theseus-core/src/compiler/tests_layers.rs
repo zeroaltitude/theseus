@@ -47,6 +47,7 @@ fn compiled(spec: &RequestSpec) -> Compiled {
         signals: None,
         assembled: None,
         situation: &situation::Situation::ConversationStart,
+        kept: None,
     })
 }
 

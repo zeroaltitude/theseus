@@ -102,7 +102,6 @@ async fn search(core: &Core, q: &str) -> RecallManifest {
     .unwrap()
 }
 
-
 /// A question whose every hit is faint gets no pack: the floor admits no
 /// candidate for being the best, a live turn writes no `Recall` node and
 /// its request carries no note. The same hit with the floor off is recalled.
@@ -124,9 +123,14 @@ async fn a_below_floor_query_admits_nothing_and_the_turn_gets_no_note() {
             .filter(|(_, n)| matches!(n.body, Body::Recall { .. }))
             .count();
         assert_eq!(notes, want as usize, "floor {floor}");
-        let sent = serde_json::to_string(&r.model.requests.lock().unwrap().last().unwrap().messages)
-            .unwrap();
-        assert_eq!(sent.contains("[Recalled by the harness"), want == 1, "{sent}");
+        let sent =
+            serde_json::to_string(&r.model.requests.lock().unwrap().last().unwrap().messages)
+                .unwrap();
+        assert_eq!(
+            sent.contains("[Recalled by the harness"),
+            want == 1,
+            "{sent}"
+        );
         if want == 0 {
             let m = search(c, "Which port is the alder relay on?").await;
             assert!(m.admitted.is_empty());
@@ -178,7 +182,8 @@ async fn a_same_kind_distractor_is_demoted_under_the_subject_bar() {
             ],
         );
         let mut prod = spec(c, &a, 0, 0.9);
-        (prod.entities, prod.matched) = (vec!["host:db-prod.example"], vec!["host:db-prod.example"]);
+        (prod.entities, prod.matched) =
+            (vec!["host:db-prod.example"], vec!["host:db-prod.example"]);
         let mut stage = spec(c, &a, 1, 0.6);
         stage.entities = vec!["host:db-stage.example"];
         c.runner.memory.set_ask(ask(vec![prod, stage]));
@@ -190,11 +195,20 @@ async fn a_same_kind_distractor_is_demoted_under_the_subject_bar() {
             .collect();
         let names: Vec<&str> = want
             .iter()
-            .map(|w| *texts.iter().find(|t| t.contains(w) || (*w == "prod" && t.contains("production"))).unwrap_or(&"?"))
+            .map(|w| {
+                *texts
+                    .iter()
+                    .find(|t| t.contains(w) || (*w == "prod" && t.contains("production")))
+                    .unwrap_or(&"?")
+            })
             .collect();
         assert_eq!(texts.len(), want.len(), "bar {bar}: {texts:?}");
         assert!(!names.contains(&"?"), "bar {bar}: {texts:?}");
-        assert_eq!(dropped_for(&m, "subject").len(), 2 - want.len(), "bar {bar}");
+        assert_eq!(
+            dropped_for(&m, "subject").len(),
+            2 - want.len(),
+            "bar {bar}"
+        );
     }
 }
 
@@ -231,11 +245,8 @@ async fn a_recalled_notes_header_names_its_session_and_stays_frozen() {
         "{}",
         items[0].header
     );
-    let sources = crate::recall::render::read_sources(
-        &c.store,
-        std::iter::once(&note),
-        &Default::default(),
-    );
+    let sources =
+        crate::recall::render::read_sources(&c.store, std::iter::once(&note), &Default::default());
     let once = crate::recall::render::render(items, &sources);
     assert_eq!(once, crate::recall::render::render(items, &sources));
     assert!(once.contains("a note about another subject is not an answer"));

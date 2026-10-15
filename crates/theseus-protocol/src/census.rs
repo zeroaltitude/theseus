@@ -84,6 +84,11 @@ pub struct CensusTool {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional, type = "number"))]
     pub last_call_ms: Option<u64>,
+    /// Sent with `defer_loading` (theseus-7m7w.2): its definition is in the
+    /// request, and the estimate counts one constant for every deferred tool,
+    /// on the first one's line.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deferred: bool,
 }
 
 /// The provider's own counts of the same request, by `count_tokens`.

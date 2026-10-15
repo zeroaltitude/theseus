@@ -131,11 +131,32 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
         .unwrap();
 }
 
+/// `, session 3af5d7` (a recalled note's evidence line names its session by
+/// its id's end, theseus-55hlu) as `, session <sid>`: another rig's id.
+fn unsessioned(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find(", session ") {
+        let (head, tail) = rest.split_at(i + ", session ".len());
+        out.push_str(head);
+        let n = tail.chars().take_while(char::is_ascii_alphanumeric).count();
+        if n == 6 {
+            out.push_str("<sid>");
+            rest = &tail[n..];
+        } else {
+            rest = tail;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Ids (`ses_` and 32 hex digits) as the order they first appear in, and
 /// clock times as `<time>`: two cores' runs of one script then compare.
 fn normalized(s: &str) -> String {
     // A handle is its node's id's end (theseus-ejdk): another run's.
     let s = &theseus_protocol::cite::rewrite(s, |_| Some("[m:H]".into()));
+    let s = &unsessioned(s);
     let b = s.as_bytes();
     let (mut out, mut seen) = (String::new(), Vec::<String>::new());
     let mut i = 0;
