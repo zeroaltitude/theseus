@@ -70,8 +70,13 @@ new lines, the dock again, in synchronized-output mode 2026).
 - It does one `session.open` ({dir}) and one `session.watch` at start (and `session.list {n: 100}` for the banner's last
   conversation here); `theseus chat SID` reads `session.list` to find the session, then `session.history` once.
   A message typed before the session opens is held and sent once it does. `session.typing` goes once per idle spell.
-- A question shows in the dock; `y`/`n`/`t` answer it (`work.answer`) while the line is empty, so a `y` typed into a
-  message is text. chat-ask replaces this.
+- chat-ask (theseus-wy6v.1): `chat/ask.rs` shows a question in the input's place (the call in words, the hunk through
+  `chat/diff.rs`, who asks, the expiry, the keys of `keys::ASK_KEYS`, one table: y n v t a e) and answers with
+  `action.confirm`, author `theseus chat`; the keys work only with the line empty and the focus on the question (Esc
+  goes back to typing, Tab back to it). `chat/stop.rs`: Esc during a turn sends `execution.stop` with `keep_jobs`
+  (jobs that went to the background run on) and the transcript says what was verified. `chat/queue.rs`: a message
+  typed while a turn runs waits in the dock, ↑ pulls it back, Ctrl-Enter stops and sends; it goes when the turn ends
+  (steer-queued will deliver it into the turn: only `release_queue` changes). Tests: `chat/tests_ask.rs`.
 
 Tests: `chat/tests.rs` (a scripted daemon through `Conn::over`, its bytes read back as a screen by `vt100`, a dev-dependency
 only; the paused clock and the chat's wall clock move together; goldens `tests/golden/chat_80.txt`, `chat_120.txt`,
