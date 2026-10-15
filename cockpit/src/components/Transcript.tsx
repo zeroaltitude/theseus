@@ -1,7 +1,7 @@
 // A session's content graph as a readable transcript: turns as sections, model replies as markdown with their
 // thinking, and each tool call as one card holding its input, the gate's decision, and its result.
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Bot, Brain, ChevronRight, CircleCheck, CornerDownRight, KeyRound, OctagonX, ScanSearch, Shield, ShieldCheck, Undo2, User, Wrench, X } from 'lucide-react'
@@ -77,6 +77,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
   /** What was sent from here that the session has not written yet (`lib/drafts.ts`). */
   drafts?: Draft[]
 }) {
+  const { id: sessionId } = useParams()
   const { groups, late, callOf } = useMemo(() => {
     const g: { turn_id: string | null; items: Item[] }[] = []
     for (const it of items(nodes)) {
@@ -107,6 +108,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
           <section key={`${g.turn_id}-${gi}`} className="relative" data-turn={g.turn_id ?? undefined}>
             <div className="sticky top-0 z-10 -mx-4 mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap border-y border-line bg-hull px-4 py-1 shadow-[0_6px_12px_-8px_rgba(0,0,0,0.8)]">
               <span className="panel-title">turn {gi + 1}</span>
+              {g.turn_id && sessionId && <Link to={`/session/${sessionId}/turn/${g.turn_id}`} className="rounded px-1.5 py-0.5 text-[11px] text-live ring-1 ring-inset ring-live/30 hover:bg-live/10">Inspect</Link>}
               {t && <>
                 <span className="num text-[11px] text-ink-faint">{stamp(t.start)}</span>
                 <span className="num text-[11px] text-live">{ms(t.elapsed_ms)}</span>

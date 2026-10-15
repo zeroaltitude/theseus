@@ -59,6 +59,8 @@ const router = createBrowserRouter(
             { path: 'bridge', element: wrap(<Bridge />) },
             { path: 'fleet', element: wrap(<Fleet />) },
             { path: 'session/:id', element: wrap(<SessionDeck />) },
+            // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
+            { path: 'session/:id/turn/:turn', lazy: async () => ({ Component: (await import('./views/TurnInspect')).default }) },
             { path: 'actions', element: wrap(<Actions />) },
             { path: 'ledger', element: wrap(<Ledger />) },
             { path: 'economics', element: wrap(<Economics />) },
