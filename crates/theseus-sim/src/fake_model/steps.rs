@@ -79,14 +79,29 @@ pub fn marker(text: &str) -> &str {
     &rest[..end]
 }
 
+/// The quoted id after `item: "` in `text`, a self backlog item's (its
+/// objective names it so; theseus-pw1q.16's live check); empty when none.
+pub fn item(text: &str) -> &str {
+    let Some(i) = text.find("item: \"") else {
+        return "";
+    };
+    let rest = &text[i + "item: \"".len()..];
+    &rest[..rest.find('"').unwrap_or(0)]
+}
+
 /// `{marker}` in every string of `v` made the run's marker.
 pub fn fill(v: &Value, marker: &str) -> Value {
+    fill_word(v, "{marker}", marker)
+}
+
+/// `from` in every string of `v` made `to`.
+pub fn fill_word(v: &Value, from: &str, to: &str) -> Value {
     match v {
-        Value::String(s) => Value::String(s.replace("{marker}", marker)),
-        Value::Array(a) => Value::Array(a.iter().map(|x| fill(x, marker)).collect()),
+        Value::String(s) => Value::String(s.replace(from, to)),
+        Value::Array(a) => Value::Array(a.iter().map(|x| fill_word(x, from, to)).collect()),
         Value::Object(o) => Value::Object(
             o.iter()
-                .map(|(k, x)| (k.clone(), fill(x, marker)))
+                .map(|(k, x)| (k.clone(), fill_word(x, from, to)))
                 .collect(),
         ),
         other => other.clone(),
@@ -164,5 +179,15 @@ mod tests {
         assert_eq!(f["text"], "ok-M1");
         assert_eq!(f["input"]["command"], "echo M1");
         assert_eq!(f["input"]["n"], 3);
+    }
+
+    #[test]
+    fn the_item_is_the_quoted_id_after_item() {
+        let text =
+            "Fix it, and call self.propose_change { item: \"tsk_01ab\", issue: <the issue> }.";
+        assert_eq!(item(text), "tsk_01ab");
+        assert_eq!(item("no item here"), "");
+        let v = fill_word(&json!({"item": "{item}"}), "{item}", item(text));
+        assert_eq!(v["item"], "tsk_01ab");
     }
 }

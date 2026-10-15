@@ -109,7 +109,8 @@ enum Script {
 /// user text, and step k of the turn (k tool results since that text) answers
 /// `steps[k]` (past the end, the last): a whole turn's calls and its answer,
 /// for any harness. `{marker}` in a step's strings is the word after
-/// `marker=` in the opening text. `ttfb_ms`, `chunks` and `chunk_ms` pace
+/// `marker=` in the opening text, and `{item}` the quoted id after `item: "`
+/// (a self backlog item's objective names its id so). `ttfb_ms`, `chunks` and `chunk_ms` pace
 /// the rule's answers, over the stand-in's own pace.
 ///
 /// The call that answers its calls gets `then` (`Done.` without one), so a scripted turn can read a
@@ -348,6 +349,7 @@ fn answer_events(
                     &serde_json::to_value(StepOut::of(s)).unwrap_or_default(),
                     steps::marker(&opening),
                 );
+                let s = steps::fill_word(&s, "{item}", steps::item(&opening));
                 return step_turn(&s);
             }
             if result {
