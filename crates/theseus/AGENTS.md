@@ -15,10 +15,24 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
-- `src/work.rs` (theseus-hkx30): `theseus work`, the work board as a tree (`work.watch`), and `--watch`, a line for each
-  `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
-  the real tree on the same wire. Tests inside it.
-- `src/chat_cmd.rs` (theseus-cyha): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION]` exec `theseus-tui chat [SESSION]` as `tui` execs the board; a pipe, a script or any argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
+- `src/work.rs` (theseus-hkx30, theseus-mnd9g): `theseus tasks` and `theseus work`. One `work.watch {limit: 20}` read draws the
+  tree (`render/task_tree.rs`): a conversation, then one line for each task under it (mark `● ◐ ✗ ✓`, the short id of its
+  session, title, how long it has run, and what it does: `asks: …`, `job 2:14 · leg 5: …`, `model 0:31`, the report's first
+  line), the exact command that answers a task that asks beneath it, and a footer of counts. A column that does not fit gives
+  way title first (to 12 columns), then the activity. `--graph` and `--json` are the task list (`task.list`) as before;
+  `--session S` roots the watch at S; `--watch` keeps the connection, tells the daemon a person is looking
+  (`interactive: true`; a plain `tasks` says false) and prints a line for each task event (`task_tree::events`: started,
+  asks, reported, failed, cancelled) and each notice not already told by one; `theseus work` is `tasks --watch`. The
+  words are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. No `tasks retry` or `dismiss` verb
+  exists, so a failed row names none. Tests inside it and `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in
+  `tests/golden_tree/`, `THESEUS_GOLDEN=write`), `tests/tasks_cli.rs` (the binary against a scripted daemon).
+- `src/task_lines.rs` (theseus-mnd9g): the line mode's task lines. `theseus chat --plain`, a pipe in or out, or `TERM=dumb` runs
+  `watch --interactive` (`chat_cmd::line_mode`: a new conversation in this directory when no SESSION is named), which also
+  watches the conversation's tree (`work.watch {roots: [sid], interactive: true}`) and prints the task events to stderr
+  in the same words as the chat's screen: `◐ started: Paint log (2a329e)`, a question with the commands under it,
+  `✓ … reported: …`, `✗ … failed: …`. A question is told once; a task's question is answered with `theseus answer`
+  (line mode has no one-key answers). Tests inside it and `tests/chat_plain.rs` (the binary).
+- `src/chat_cmd.rs` (theseus-cyha): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION]` exec `theseus-tui chat [SESSION]` as `tui` execs the board; a pipe, a script or any argument keeps clap's usage text and exit 2. `theseus chat` (not bare) on a pipe, with `--plain`, or under `TERM=dumb` is line mode instead of the exec (theseus-mnd9g). Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
 - `src/notify/` (theseus-f0bi9): how a ping reaches the owner, for every terminal client. `notices.rs` is the TUI's
   former notice queue (the policy's notices, a second of debounce, the burst fold); `mod.rs` has `Delivery`
   (`auto|toast|bell|osc9|osc777|off`), `Env` (WSL from `WSL_DISTRO_NAME` or `osrelease`, injectable) and `Notifier`;

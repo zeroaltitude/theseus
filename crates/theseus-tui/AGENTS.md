@@ -70,8 +70,21 @@ new lines, the dock again, in synchronized-output mode 2026).
 - It does one `session.open` ({dir}) and one `session.watch` at start (and `session.list {n: 100}` for the banner's last
   conversation here); `theseus chat SID` reads `session.list` to find the session, then `session.history` once.
   A message typed before the session opens is held and sent once it does. `session.typing` goes once per idle spell.
-- A question shows in the dock; `y`/`n`/`t` answer it (`work.answer`) while the line is empty, so a `y` typed into a
-  message is text. chat-ask replaces this.
+- **Tasks** (theseus-mnd9g; `chat/tasks.rs`, `chat/footer.rs`): one `work.watch {roots: [session], interactive: true}` at
+  open and at each reconnect (the TUI's board makes one with no root, `Purpose::Screen`, for the same count). The chat keeps
+  the conversation's views by the position rule; a task that starts, asks, reports or fails prints one titled line in the
+  words of the CLI's `render::task_tree::event_line`, and a snapshot prints none for what already runs. The **footer** is a dock
+  provider above the question: a summary line, then a row for each task that works or asks (5 at most, then `+N more ·
+  ctrl-t`), with minute clocks (`task_tree::footer`, `coarse`), so it changes only on a push or the minute a clock turns over
+  (`Board::repaint_at` is the chat's one deadline for it; a question's countdown ticks each second while it shows). A
+  question that waits (this conversation's own, or a task's) takes one key while the line is empty and `esc` has not been
+  pressed: `y` approves, `n` declines with an optional note (the line is the note; enter sends it, esc sends none), `t`
+  approves and trusts, `1`..`6` an `ask`'s choices, `v` shows the call, `tab` the next question; `esc` is writing (every key
+  is text until a message is sent, the question stays in the dock), so a message that starts with "y" never meets a key
+  answer. Answers are `work.answer` with author `theseus chat` (`tasks::ANSWER_AUTHOR`), refused inside a job
+  (`client::refuse_in_a_job`; `Chat::job_session`). `/tasks` and ctrl-t draw the tree in place, `/cancel ID` is `task.cancel`,
+  `/stop [all]` is `execution.stop` (`all` refused in a job). An Interrupt notice (`work.notice` through `notices::deliver`)
+  rings the bell once (`Effect::Bell`); the words of the rest are the notice's own. Tests: `chat/tests_tasks.rs`.
 
 Tests: `chat/tests.rs` (a scripted daemon through `Conn::over`, its bytes read back as a screen by `vt100`, a dev-dependency
 only; the paused clock and the chat's wall clock move together; goldens `tests/golden/chat_80.txt`, `chat_120.txt`,

@@ -34,6 +34,8 @@ pub enum Action {
     Escape,
     /// Ctrl-O: the folded paste, whole.
     ShowPaste,
+    /// Ctrl-T: the tasks, as a tree.
+    Tasks,
 }
 
 pub fn map(k: KeyEvent) -> Option<Action> {
@@ -60,6 +62,7 @@ pub fn map(k: KeyEvent) -> Option<Action> {
             'k' => Action::KillToEnd,
             'w' => Action::KillWord,
             'o' => Action::ShowPaste,
+            't' => Action::Tasks,
             'h' => Action::Backspace,
             _ => return None,
         },

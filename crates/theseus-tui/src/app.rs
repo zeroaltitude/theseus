@@ -71,6 +71,10 @@ pub enum Purpose {
     NewTask,
     /// `action.confirm`: an answer to a question.
     Answer { correlation_id: String },
+    /// `work.watch` for no root at all, as a screen a person is looking at
+    /// (theseus-mnd9g): the daemon counts it, so an always-on channel knows
+    /// someone is here. Nothing is sent to it.
+    Screen,
 }
 
 /// What the loop does for the app.
@@ -406,6 +410,7 @@ impl App {
         let mut out = vec![
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
+            screen(),
         ];
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
@@ -630,7 +635,7 @@ impl App {
                 self.sync_warn = sync_warning(v);
             }
             Purpose::NewTask => self.task_started(v),
-            Purpose::Watch | Purpose::Typing => {}
+            Purpose::Watch | Purpose::Typing | Purpose::Screen => {}
         }
         Vec::new()
     }
@@ -638,7 +643,7 @@ impl App {
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(purpose, Purpose::Typing | Purpose::Health | Purpose::Screen) {
             return;
         }
         // An answer that did not count (theseus-sgh): its card says why, and
@@ -672,6 +677,7 @@ impl App {
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
+            Purpose::Screen => method::WORK_WATCH,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -1253,6 +1259,16 @@ fn sync_warning(v: Value) -> Option<String> {
     }
     let h: Sync = serde_json::from_value(v).unwrap_or_default();
     h.imported.and_then(|i| i.sync).and_then(|s| s.warn)
+}
+
+/// `work.watch` naming no root: this connection is a screen a person looks at
+/// (`interactive`), and hears none of the board's pushes.
+fn screen() -> Effect {
+    call(
+        method::WORK_WATCH,
+        json!({ "roots": [], "limit": 0, "interactive": true }),
+        Purpose::Screen,
+    )
 }
 
 /// `executions.watch`: the board's snapshot, then its events.

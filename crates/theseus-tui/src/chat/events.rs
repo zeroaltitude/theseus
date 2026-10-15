@@ -67,6 +67,24 @@ impl Chat {
                 }
                 Vec::new()
             }
+            Purpose::WorkWatch => {
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
+                    self.work_snapshot(r);
+                }
+                Vec::new()
+            }
+            Purpose::TaskAnswer { who, option } => {
+                self.task_answered(&who, &option);
+                Vec::new()
+            }
+            Purpose::Cancel(id) => {
+                self.say_plain(Sty::Dim, &format!("  cancelled {id}"));
+                Vec::new()
+            }
+            Purpose::Stop => {
+                self.say_plain(Sty::Dim, "  stop sent");
+                Vec::new()
+            }
             Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
         }
     }
@@ -98,11 +116,17 @@ impl Chat {
                 self.say_words(Sty::Red, &format!("✗ not sent: {}", e.message));
                 Vec::new()
             }
-            Purpose::Answer => {
+            Purpose::Answer | Purpose::TaskAnswer { .. } => {
                 self.say_words(
                     Sty::Red,
                     &format!("✗ the answer was refused: {}", e.message),
                 );
+                Vec::new()
+            }
+            // A daemon that predates the board has no footer to draw.
+            Purpose::WorkWatch => Vec::new(),
+            Purpose::Cancel(_) | Purpose::Stop => {
+                self.say_words(Sty::Red, &format!("✗ refused: {}", e.message));
                 Vec::new()
             }
         }
@@ -118,11 +142,14 @@ impl Chat {
     /// The session is open: watch it, and send what was typed before.
     fn opened(&mut self, sid: &str) -> Vec<Effect> {
         self.session = Some(sid.to_string());
-        let mut out = vec![call(
-            method::SESSION_WATCH,
-            json!({ "session_id": sid }),
-            Purpose::Watch,
-        )];
+        let mut out = vec![
+            call(
+                method::SESSION_WATCH,
+                json!({ "session_id": sid }),
+                Purpose::Watch,
+            ),
+            self.watch_work(sid),
+        ];
         for text in std::mem::take(&mut self.unsent) {
             out.push(self.submit_call(sid, text));
         }
@@ -254,6 +281,7 @@ impl Chat {
             Ok(Some(e)) => e,
             Ok(None) | Err(_) => return Vec::new(),
         };
+        let mut effects = Vec::new();
         match event {
             Event::TurnStarted(t) if self.ours(&t.session_id) => {
                 if self.mine.len() > KEPT {
@@ -311,6 +339,8 @@ impl Chat {
                 self.task_open.insert(t.task.id, open);
                 self.tasks = self.task_open.values().filter(|o| **o).count() as u32;
             }
+            Event::WorkChanged(c) => self.work_changed(c),
+            Event::WorkNotice(n) => effects = self.work_notice(&n),
             Event::TurnFailed(f) if self.ours(&f.session_id) => self.turn_failed(&f),
             Event::TurnEnded(r) if self.ours(&r.session_id) => self.turn_ended(&r),
             Event::EventsLost(_) => self.say_plain(
@@ -319,7 +349,7 @@ impl Chat {
             ),
             _ => {}
         }
-        Vec::new()
+        effects
     }
 
     fn phase(&mut self, phase: Phase) {

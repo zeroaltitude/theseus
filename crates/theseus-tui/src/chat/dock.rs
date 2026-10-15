@@ -10,7 +10,7 @@
 use super::editor::PREFIX;
 use super::live::{elapsed, spinner};
 use super::state::Chat;
-use super::style::{one, span, wrap_words, Line, Sty};
+use super::style::{one, span, Line, Sty};
 
 /// What a provider of dock rows is given besides the chat.
 pub struct DockCtx {
@@ -22,7 +22,13 @@ pub struct DockCtx {
 pub type DockRows = fn(&Chat, &DockCtx) -> Vec<Line>;
 
 /// Every provider, top row first.
-pub const ABOVE_INPUT: &[DockRows] = &[turn_rows, tool_rows, question_rows, notice_rows];
+pub const ABOVE_INPUT: &[DockRows] = &[
+    turn_rows,
+    tool_rows,
+    super::footer::footer_rows,
+    super::footer::question_rows,
+    notice_rows,
+];
 
 /// One part of the status line. When the line is too wide the segments of
 /// the lowest `keep` go first.
@@ -135,44 +141,6 @@ fn tool_rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
             out.push(one(Sty::Dim, format!("  └ {row}")));
         }
     }
-    out
-}
-
-fn question_rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
-    let Some(q) = &chat.question else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    let title = if q.budget.is_some() {
-        "the spend limit is reached".to_string()
-    } else {
-        format!("{}?", chat.tool_words(&q.tool, &q.input))
-    };
-    for (i, row) in wrap_words(&title, ctx.width.saturating_sub(2), 2)
-        .into_iter()
-        .enumerate()
-    {
-        out.push(vec![
-            span(Sty::Yellow, if i == 0 { "? " } else { "  " }),
-            span(Sty::Bold, row.trim_start().to_string()),
-        ]);
-    }
-    for row in wrap_words(
-        &format!("why: {}", q.reason),
-        ctx.width.saturating_sub(2),
-        2,
-    ) {
-        out.push(one(Sty::Dim, format!("  {}", row.trim_start())));
-    }
-    let yes = q
-        .yes_option()
-        .map_or("approve", |o| o.label.as_str())
-        .to_lowercase();
-    let mut keys = format!("  [y] {yes} · [n] decline");
-    if q.external_text.is_some() {
-        keys.push_str(" · [t] approve and trust");
-    }
-    out.push(one(Sty::Yellow, keys));
     out
 }
 

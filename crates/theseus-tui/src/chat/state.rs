@@ -50,6 +50,17 @@ pub enum Purpose {
     Submit,
     Answer,
     Typing,
+    /// The conversation's work board (theseus-mnd9g).
+    WorkWatch,
+    /// A task's question answered: who asked, and with what.
+    TaskAnswer {
+        who: String,
+        option: String,
+    },
+    /// `/cancel`: the id as typed.
+    Cancel(String),
+    /// `/stop`.
+    Stop,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +75,8 @@ pub enum Effect {
     Call(Call),
     /// Write this directory's history file.
     SaveHistory(Vec<String>),
+    /// A ping for an Interrupt: the terminal's bell.
+    Bell,
     Quit,
 }
 
@@ -102,6 +115,12 @@ pub struct Chat {
     /// since the chat began (cli-tasks brings the board's own count).
     pub tasks: u32,
     pub(super) task_open: std::collections::HashMap<String, bool>,
+    /// The work board of this conversation: its tasks, the footer, the
+    /// questions the keys answer.
+    pub(super) board: super::tasks::Board,
+    /// The `THESEUS_SESSION` of the job this chat runs inside, if it does:
+    /// the operator's answers are refused there.
+    pub job_session: Option<String>,
     pub(super) mine: HashSet<String>,
     pub(super) ended: HashSet<String>,
     pub(super) answered_text: HashSet<String>,
@@ -145,6 +164,8 @@ impl Chat {
             offline: false,
             tasks: 0,
             task_open: Default::default(),
+            board: Default::default(),
+            job_session: None,
             mine: HashSet::new(),
             ended: HashSet::new(),
             answered_text: HashSet::new(),
@@ -205,11 +226,14 @@ impl Chat {
             if was_offline {
                 self.flash("reconnected");
             }
-            return vec![call(
-                method::SESSION_WATCH,
-                json!({ "session_id": sid }),
-                Purpose::Watch,
-            )];
+            return vec![
+                call(
+                    method::SESSION_WATCH,
+                    json!({ "session_id": sid }),
+                    Purpose::Watch,
+                ),
+                self.watch_work(&sid),
+            ];
         }
         self.started_ms = now_ms;
         let mut out = vec![call(method::HEALTH, Value::Null, Purpose::Health)];
@@ -256,6 +280,9 @@ impl Chat {
         if let Some((_, until)) = &self.notice {
             at.push(*until);
         }
+        // The footer's clocks turn over on the minute, a question's
+        // countdown each second: nothing else wakes the chat for the board.
+        at.extend(self.board.repaint_at);
         at.into_iter().min()
     }
 
@@ -273,7 +300,8 @@ impl Chat {
         {
             self.notice = None;
         }
-        self.live.active() || self.notice.is_some()
+        let board = self.board_tick();
+        self.live.active() || self.notice.is_some() || board
     }
 
     pub(super) fn print_banner(&mut self) {
@@ -337,12 +365,36 @@ impl Chat {
         if !matches!(action, Action::Interrupt) {
             self.quit_armed = false;
         }
+        // Declining with a note: the line is the note.
+        if self.board.note.is_some() {
+            match action {
+                Action::Submit => return self.send_note(true),
+                Action::Escape => return self.send_note(false),
+                Action::Interrupt => {
+                    self.board.note = None;
+                    self.editor.clear();
+                    return Vec::new();
+                }
+                _ => return self.act(action),
+            }
+        }
         // A question waits and the line is empty: one key answers it.
         if self.editor.is_empty() {
-            if let Action::Insert(c) = action {
-                if let Some(effects) = self.question_key(c) {
-                    return effects;
+            match action {
+                Action::Insert(c) => {
+                    if let Some(effects) = self.question_key(c) {
+                        return effects;
+                    }
                 }
+                Action::Tab if self.completing().is_none() && self.next_question() => {
+                    return Vec::new();
+                }
+                Action::Escape if !self.pending().is_empty() => {
+                    self.board.writing = !self.board.writing;
+                    self.notice = None;
+                    return Vec::new();
+                }
+                _ => {}
             }
         }
         self.act(action)
@@ -422,6 +474,7 @@ impl Chat {
                     self.flash("nothing pasted here");
                 }
             }
+            Action::Tasks => self.show_tasks(),
             Action::Interrupt => return self.interrupt(),
             Action::EndOfInput => {
                 if self.editor.is_empty() {
@@ -525,6 +578,7 @@ impl Chat {
             }
         }
         self.echo(&taken.shown);
+        self.board.writing = false;
         let mut effects = vec![Effect::SaveHistory(self.editor.history().to_vec())];
         match self.session.clone() {
             Some(sid) => effects.push(self.submit_call(&sid, text)),
@@ -580,35 +634,5 @@ impl Chat {
             json!({ "session_id": sid, "author": AUTHOR }),
             Purpose::Typing,
         )]
-    }
-
-    // ---------------------------------------------------------- questions
-
-    /// `y`, `n`, `t` on a question, with the line empty. None: not a key
-    /// for it.
-    fn question_key(&mut self, c: char) -> Option<Vec<Effect>> {
-        let q = self.question.as_ref()?;
-        let id = q.correlation_id.clone();
-        let option = match c {
-            'y' | 'Y' => q
-                .yes_option()
-                .map_or(
-                    if q.budget.is_some() {
-                        "reset"
-                    } else {
-                        "approve"
-                    },
-                    |o| o.id.as_str(),
-                )
-                .to_string(),
-            'n' | 'N' => "decline".to_string(),
-            't' | 'T' if q.external_text.is_some() => "approve_trust".to_string(),
-            _ => return None,
-        };
-        Some(vec![call(
-            method::WORK_ANSWER,
-            json!({ "question_id": id, "option": option, "author": AUTHOR }),
-            Purpose::Answer,
-        )])
     }
 }

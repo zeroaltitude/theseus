@@ -136,6 +136,25 @@ async fn read_session(
     Ok((first, info))
 }
 
+/// The conversation's tasks, as a screen a person looks at (`interactive`):
+/// one `work.watch` of its tree. A daemon without the method, or one that
+/// refuses, leaves the watch as it was.
+async fn watch_work(
+    conn: &mut Conn,
+    sid: &str,
+    early: &mut Vec<Notification>,
+) -> Option<theseus_protocol::WorkWatchResult> {
+    let v = call(
+        conn,
+        method::WORK_WATCH,
+        json!({ "roots": [sid], "limit": 0, "interactive": true }),
+        early,
+    )
+    .await
+    .ok()?;
+    serde_json::from_value(v).ok()
+}
+
 /// `theseus watch [SESSION] [--interactive] [--no-herdr]`. A watch in a herdr
 /// pane, or an interactive one, over a daemon's socket keeps its place
 /// through the daemon's restart (theseus-qb1es).
@@ -176,6 +195,11 @@ pub async fn watch(
         .ok_or_else(|| anyhow!("there are no sessions yet"))?,
     };
     let (first, info) = read_session(conn, &sid, &mut early).await?;
+    let board = if interactive {
+        watch_work(conn, &sid, &mut early).await
+    } else {
+        None
+    };
     // An unknown session is refused, never watched (theseus-0n1v).
     let Some(info) = info else {
         anyhow::bail!("no session is named `{sid}`");
@@ -205,6 +229,7 @@ pub async fn watch(
         title_asked_at: 0,
         profile_read_at: turns,
         typist: Default::default(),
+        tasks: Default::default(),
     };
     if let Some(r) = &mut w.reporter {
         r.set_facts(facts.0, facts.1, parent);
@@ -219,6 +244,11 @@ pub async fn watch(
     // A session that already failed says why, then the watch waits on it.
     w.say_failed(first.execution.as_ref());
     w.apply_read(first);
+    if let Some(b) = &board {
+        for l in w.tasks.snapshot(b) {
+            eprintln!("{l}");
+        }
+    }
     for n in early {
         w.on_note(conn, n).await?;
     }
@@ -372,6 +402,8 @@ struct Watch {
     profile_read_at: u64,
     /// Whether the daemon has been told someone types (theseus-tnky).
     typist: theseus_protocol::warm::Typist,
+    /// The conversation's tasks, told as lines (theseus-mnd9g).
+    tasks: crate::task_lines::TaskLines,
 }
 
 impl Watch {
@@ -403,7 +435,7 @@ impl Watch {
         self.pending.clear();
         self.asked = None;
         let mut wait = RECONNECT_FIRST;
-        let (mut fresh, first, info, mut early) = loop {
+        let (mut fresh, first, info, mut early, board) = loop {
             tokio::time::sleep(wait).await;
             wait = (wait * 2).min(RECONNECT_MAX);
             let Ok(mut c) =
@@ -414,7 +446,12 @@ impl Watch {
             let mut early = Vec::new();
             // A daemon that dies again mid-read is tried again.
             if let Ok((first, info)) = read_session(&mut c, &self.sid, &mut early).await {
-                break (c, first, info, early);
+                let board = if self.interactive {
+                    watch_work(&mut c, &self.sid, &mut early).await
+                } else {
+                    None
+                };
+                break (c, first, info, early, board);
             }
         };
         std::mem::swap(conn, &mut fresh);
@@ -433,6 +470,11 @@ impl Watch {
             }
         }
         self.apply_read(first);
+        if let Some(b) = &board {
+            for l in self.tasks.snapshot(b) {
+                eprintln!("{l}");
+            }
+        }
         for n in early.drain(..) {
             self.on_note(conn, n).await?;
         }
@@ -529,6 +571,15 @@ impl Watch {
                     self.asked = None;
                 }
                 self.ask();
+            }
+            Some(Event::WorkChanged(c)) => {
+                let lines = self.tasks.changed(&c);
+                if !lines.is_empty() {
+                    self.printer.settle();
+                }
+                for l in lines {
+                    eprintln!("{l}");
+                }
             }
             Some(Event::EventsLost(_)) => {
                 let id = conn.send(method::SESSION_WAIT, reread(&self.sid)).await?;
