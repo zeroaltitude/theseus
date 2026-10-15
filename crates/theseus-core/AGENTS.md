@@ -1594,7 +1594,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`ran under the routine's grant: <entry>`) and T1's hold does not apply; the floor, a layer-1 change, the approve lists, a granted
   secret, a place's ceiling, a tightened tool and an L1 call's own asks still hold. **Bounded asks**: a routine run's question waits
   `[routines] run_deadline_secs` (900) (`ask_ttl_ms`: its card, `confirm.list`, the expiry scan); past it `expire_questions` queues it
-  (`Book.blocked`) and the harness's tick (`Core::fire_notices_and_routines` -> `routines_tick`) writes META `routine.blocked:<task>`
+  (`Book.blocked`) and the harness's tick (`Core::due_and_routines`: `due_without_turns`, then `routines_tick`) writes META `routine.blocked:<task>`
   `{tool, reason}` and cancels the run, so it ends `blocked` (`RunRow.state`, `blocked`) and never expires silently. **The ping rule**
   (`notices.rs`'s `ROUTINE_PURPOSES`, `routine_pings`, `routine_line`, `routine_answers`): a failed or blocked run is one Interrupt a
   routine a local day with the streak, posted to the routine's target as a `reminder`-shaped post and sent to every surface as the

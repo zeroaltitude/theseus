@@ -123,6 +123,15 @@ fn digest(port: u16, note: String) -> Script {
 }
 
 async fn rig_with(script: impl FnOnce(u16, String) -> Script, deadline_secs: u64) -> Rig {
+    rig_cfg(script, deadline_secs, |_| {}).await
+}
+
+/// The rig, its config changed by `tweak` once its paths are set.
+async fn rig_cfg(
+    script: impl FnOnce(u16, String) -> Script,
+    deadline_secs: u64,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let server = serve().await;
     let port = server.port;
     let dir = tempfile::tempdir().unwrap();
@@ -141,6 +150,7 @@ async fn rig_with(script: impl FnOnce(u16, String) -> Script, deadline_secs: u64
     cfg.policy.enforcement = crate::policy::Posture::Notify;
     cfg.kernel.min_repeat_minutes = 1;
     cfg.routines.run_deadline_secs = deadline_secs;
+    tweak(&mut cfg);
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         script: script(port, note),
@@ -376,6 +386,8 @@ async fn without_a_grant_the_same_call_asks_and_so_does_any_other_session() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
+            surface: None,
         })
         .await
         .unwrap();
@@ -677,4 +689,36 @@ async fn the_creation_card_shows_the_grant() {
         .plan(&input(json!(["proc.run"])), &r.core.tools.ctx)
         .unwrap_err();
     assert!(e.contains("proc.run"), "{e}");
+}
+
+/// A grant never loosens the owner's approve list: a routine granted
+/// `fs.write` still asks before it writes a path the list names (a review's
+/// planted revert: the grant's posture-only check removed, the row's tests
+/// passed).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_never_loosens_the_approve_list() {
+    let r = rig_cfg(digest, 900, |c| {
+        c.tools.approve_paths = vec![c.tools.projects_dir.clone().unwrap()];
+    })
+    .await;
+    let made = make(&r.core, json!({"grant": ["fs.write", "fs.edit"]}))
+        .await
+        .unwrap();
+    let id = made["id"].as_str().unwrap().to_string();
+    let tried = rpc(&r.core, "routine.try", json!({"id": id}))
+        .await
+        .unwrap();
+    let task = tried["task"].as_str().unwrap().to_string();
+    until("the write to ask", 30, || {
+        !r.core.pending_confirms(&task).unwrap().is_empty()
+    })
+    .await;
+    let asked = r.core.pending_confirms(&task).unwrap();
+    assert_eq!(asked[0].tool, "fs.write", "{asked:?}");
+    assert!(!std::path::Path::new(&r.note()).exists(), "nothing written");
+    let notified = serde_json::to_string(&rows(&r.core, "tool.notified")).unwrap();
+    assert!(
+        !notified.contains("ran under the routine's grant"),
+        "{notified}"
+    );
 }

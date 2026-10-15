@@ -61,10 +61,11 @@ impl Core {
         true
     }
 
-    /// The harness's tick: the reminders due, then the routines' runs that
-    /// ended or went unanswered. One call so the driver's loop stays short.
-    pub(crate) async fn fire_notices_and_routines(&self) {
-        self.fire_notices();
+    /// The harness's tick: main's due scan (the reminders, then the watches),
+    /// then the routines' runs that ended or went unanswered. One call so the
+    /// driver's loop stays short.
+    pub(crate) async fn due_and_routines(self: &Arc<Self>) {
+        self.due_without_turns();
         self.routines_tick().await;
     }
 
