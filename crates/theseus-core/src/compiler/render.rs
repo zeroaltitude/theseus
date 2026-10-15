@@ -306,7 +306,7 @@ fn user_blocks(
     if !text.is_empty() || attachments.is_empty() {
         blocks.push(json!({"type": "text", "text": text}));
     }
-    blocks
+    crate::surface::lead(n, blocks)
 }
 
 /// The answers cut at the window (theseus-9p88), or refused (theseus-7gir.18),

@@ -145,6 +145,8 @@ impl Rig {
             opened_from: None,
             thread: None,
             via: via.map(str::to_string),
+            speaking: None,
+            in_reply_to: None,
         };
         let (_, line) = call(
             1,

@@ -274,7 +274,7 @@ fn history_draws_a_reply_on_a_terminal_and_prints_the_text_on_a_pipe() {
     assert!(tty.contains("    A \x1b[1msmall library\x1b[0m"), "{tty:?}");
     let plain = strip(&tty);
     assert!(
-        plain.contains("glm-x:\n    Port Wenlow tides\n"),
+        plain.contains("Theseus (glm-x):\n    Port Wenlow tides\n"),
         "{plain:?}"
     );
     assert!(plain.contains("↳ end_turn · in 3 out 2"), "{plain:?}");
@@ -288,7 +288,7 @@ fn history_draws_a_reply_on_a_terminal_and_prints_the_text_on_a_pipe() {
     );
     assert!(!piped.contains('\x1b'));
     assert!(
-        piped.contains("glm-x: # Port Wenlow tides ⏎  ⏎ A **small library**"),
+        piped.contains("Theseus (glm-x): # Port Wenlow tides ⏎  ⏎ A **small library**"),
         "{piped:?}"
     );
 }
