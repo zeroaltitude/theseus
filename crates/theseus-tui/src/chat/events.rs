@@ -67,6 +67,14 @@ impl Chat {
                 }
                 Vec::new()
             }
+            Purpose::Context => {
+                self.say_context(v);
+                Vec::new()
+            }
+            Purpose::Cost => {
+                self.say_cost(v);
+                Vec::new()
+            }
             Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
         }
     }
@@ -103,6 +111,10 @@ impl Chat {
                     Sty::Red,
                     &format!("✗ the answer was refused: {}", e.message),
                 );
+                Vec::new()
+            }
+            Purpose::Context | Purpose::Cost => {
+                self.say_words(Sty::Yellow, &format!("could not read it: {}", e.message));
                 Vec::new()
             }
         }
@@ -476,6 +488,7 @@ impl Chat {
         if !self.answered_text.remove(&r.turn_id) && !r.output.trim().is_empty() {
             self.say_reply(&r.output);
         }
+        self.note_usage(r);
         if let Some(c) = r
             .session_cost_usd
             .or(r.cost_usd.filter(|_| self.cost == 0.0))

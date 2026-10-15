@@ -50,6 +50,10 @@ pub enum Purpose {
     Submit,
     Answer,
     Typing,
+    /// `/context`: the session's last compile, by part.
+    Context,
+    /// `/cost`: the day, from health.
+    Cost,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +98,10 @@ pub struct Chat {
     /// The model in the status line and the turn lines.
     pub model: Option<String>,
     pub cost: f64,
+    /// The last request's tokens and the window it compiled against.
+    pub fill: Option<(u64, u64)>,
+    /// What each turn this chat saw end cost.
+    pub(super) turn_costs: Vec<Option<f64>>,
     pub mode: String,
     pub live: Live,
     pub question: Option<ConfirmRequest>,
@@ -139,6 +147,8 @@ impl Chat {
             profile: None,
             model: None,
             cost: 0.0,
+            fill: None,
+            turn_costs: Vec::new(),
             mode: "default".to_string(),
             live: Live::default(),
             question: None,

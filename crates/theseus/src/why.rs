@@ -66,6 +66,34 @@ pub async fn why(
     Ok(())
 }
 
+/// `theseus context [SESSION]`: the short form (theseus-wy6v.2), one
+/// `context.explain` for the session's last turn, in the words of
+/// `theseus_protocol::fill`.
+pub async fn context(conn: &mut Conn, json: bool, session: Option<String>) -> Result<()> {
+    let session_id = match session {
+        Some(s) => resolve::session(conn, &s).await?,
+        None => latest_session(conn).await?,
+    };
+    let v = conn
+        .request(
+            method::CONTEXT_EXPLAIN,
+            ContextExplainParams {
+                session_id,
+                turn_id: None,
+            },
+        )
+        .await?;
+    if json {
+        println!("{}", serde_json::to_string(&v)?);
+        return Ok(());
+    }
+    let x: ContextExplainResult = serde_json::from_value(v)?;
+    for l in theseus_protocol::fill::context_short(&x) {
+        println!("{l}");
+    }
+    Ok(())
+}
+
 /// The reads: the turn named (a whole id, or a unique start or end of one of
 /// at least four characters), else the session's last.
 pub async fn ask(conn: &mut Conn, session_id: &str, turn: Option<&str>) -> Result<Asked> {

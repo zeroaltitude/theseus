@@ -30,9 +30,12 @@ mod run;
 mod screen;
 mod state;
 mod style;
+mod usage;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_usage;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;

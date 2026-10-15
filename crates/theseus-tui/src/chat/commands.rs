@@ -22,6 +22,16 @@ pub const COMMANDS: &[Command] = &[
         run: help,
     },
     Command {
+        name: "context",
+        help: "how full the context is, by part",
+        run: super::usage::context,
+    },
+    Command {
+        name: "cost",
+        help: "what this conversation has cost, turn by turn",
+        run: super::usage::cost,
+    },
+    Command {
         name: "quit",
         help: "leave; the conversation goes on",
         run: quit,

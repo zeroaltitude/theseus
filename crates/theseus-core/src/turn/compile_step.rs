@@ -65,6 +65,7 @@ impl TurnRunner {
         // with nothing left to drop, the turn fails before any call.
         let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
         Self::recall_compiled(t, &mut compiled);
+        t.fill = super::fill_step::Fill::of(&compiled, self.fill_window(spec));
         // A clearing pass (theseus-3ki0): one row a pass.
         if let Some(pass) = compiled.cleared {
             t.record(&fact::compaction::Cleared {

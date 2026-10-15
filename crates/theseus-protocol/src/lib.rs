@@ -28,6 +28,7 @@ mod exec_list;
 mod explain;
 pub mod extend;
 pub mod features;
+pub mod fill;
 pub mod fork;
 mod gate;
 pub mod grants;
@@ -2135,6 +2136,15 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_cost_usd: Option<f64>,
+    /// The last loop's request, in tokens as the compiler estimated it, and the
+    /// window it compiled against (theseus-wy6v.2): how full the context is.
+    /// Absent from a daemon before it, and from a turn that made no request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub context_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub context_window: Option<u64>,
     #[serde(default)]
     pub tool_calls: u32,
     /// Set when the turn parked waiting for the operator to confirm this action.

@@ -39,7 +39,13 @@ cost_usd: number | null,
 /**
  * What the session has cost in all, this turn included (theseus-c0bb).
  */
-session_cost_usd?: number, tool_calls: number, 
+session_cost_usd?: number, 
+/**
+ * The last loop's request, in tokens as the compiler estimated it, and the
+ * window it compiled against (theseus-wy6v.2): how full the context is.
+ * Absent from a daemon before it, and from a turn that made no request.
+ */
+context_tokens?: number, context_window?: number, tool_calls: number, 
 /**
  * Set when the turn parked waiting for the operator to confirm this action.
  */

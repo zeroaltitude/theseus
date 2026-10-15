@@ -54,6 +54,15 @@ pub fn status_segments(chat: &Chat) -> Vec<Segment> {
         text: cost_words(chat.cost),
         keep: 5,
     });
+    if let Some(words) = chat
+        .fill
+        .and_then(|(t, w)| theseus_protocol::fill::status_words(Some(t), Some(w)))
+    {
+        out.push(Segment {
+            text: words,
+            keep: 4,
+        });
+    }
     if chat.tasks > 0 {
         out.push(Segment {
             text: format!(
