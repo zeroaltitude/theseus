@@ -333,72 +333,16 @@ impl Core {
     /// Open the new thread with the turns quoted. The note for the source:
     /// written to its tail (a person's call) or returned (the tool's result).
     fn split_thread(&self, ask: &SplitAsk<'_>) -> Result<(ThreadSplitResult, String), RpcFailure> {
-        self.threads_on()?;
-        let slug = ask.slug.trim();
-        if !slug_ok(slug) {
-            return Err(RpcFailure::invalid(anyhow!(
-                "{slug:?} is not a slug: lower-case letters, digits and hyphens, at most 40, \
-                 starting with a letter or digit"
-            )));
-        }
-        let title = match ask.title {
-            Some(t) => line(t, "title")?,
-            None => slug.to_string(),
-        };
-        let goal = line(ask.goal.unwrap_or(""), "goal")?;
-        let board = self.threads();
-        let a = board.get(ask.from).ok_or_else(|| {
-            RpcFailure::new(error_code::NOT_FOUND, no_thread(ask.from).to_string())
-        })?;
-        if let Some(m) = &a.merged_into {
-            return Err(RpcFailure::invalid(anyhow!(
-                "the thread {} was merged into {m}: split from that one",
-                a.slug
-            )));
-        }
-        let source = a.session_id.clone().ok_or_else(|| {
-            RpcFailure::invalid(anyhow!(
-                "the thread {} has no turns yet: nothing to split",
-                a.slug
-            ))
-        })?;
-        let nodes = self
-            .store
-            .transcript(&source)
-            .map_err(|e| RpcFailure::invalid(anyhow!("{e:#}")))?;
-        let chosen =
-            thread_split::choose(&nodes, &ask.pick).map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
+        let Planned {
+            new,
+            chosen,
+            source,
+            title,
+        } = self.plan_split(ask)?;
+        let slug = new.slug.clone();
+        let slug = slug.as_str();
         let quoted = chosen.pieces.len() as u32;
-        let now = theseus_protocol::now_unix_ms();
         let max_live = self.cfg.threads.max_live as usize;
-        let new = ThreadInfo {
-            slug: slug.to_string(),
-            title: title.clone(),
-            goal,
-            topics: a.topics.clone(),
-            working_set: chosen.working_set.clone(),
-            card: vec![format!(
-                "split from «{}», {}: {} quoted at the head of this thread.",
-                a.slug,
-                day(now),
-                crate::narrative::count(quoted as u64, "message", "messages")
-            )],
-            persona: a.persona.clone(),
-            state: ThreadState::Active,
-            sealed: a.sealed.clone(),
-            seal_pending: a.seal_pending.clone(),
-            surfaces: vec![],
-            parent: None,
-            merged_into: None,
-            split_from: Some(a.slug.clone()),
-            session_id: None,
-            last_active_ms: now,
-            created_at_ms: now,
-        };
-        // Cheap refusals before anything is opened; the write checks again
-        // under the board's lock.
-        refuse_taken(&board, slug, max_live)?;
-
         // The session, holding what its source holds, with its brief and the
         // quoted turns in place before any message can reach it.
         let rec = self
@@ -487,6 +431,82 @@ impl Core {
             },
             text,
         ))
+    }
+
+    /// What a split will make, read and refused before anything is opened:
+    /// the new thread's record, the turns it quotes, the source's session.
+    fn plan_split(&self, ask: &SplitAsk<'_>) -> Result<Planned, RpcFailure> {
+        self.threads_on()?;
+        let slug = ask.slug.trim();
+        if !slug_ok(slug) {
+            return Err(RpcFailure::invalid(anyhow!(
+                "{slug:?} is not a slug: lower-case letters, digits and hyphens, at most 40, \
+                 starting with a letter or digit"
+            )));
+        }
+        let title = match ask.title {
+            Some(t) => line(t, "title")?,
+            None => slug.to_string(),
+        };
+        let goal = line(ask.goal.unwrap_or(""), "goal")?;
+        let board = self.threads();
+        let a = board.get(ask.from).ok_or_else(|| {
+            RpcFailure::new(error_code::NOT_FOUND, no_thread(ask.from).to_string())
+        })?;
+        if let Some(m) = &a.merged_into {
+            return Err(RpcFailure::invalid(anyhow!(
+                "the thread {} was merged into {m}: split from that one",
+                a.slug
+            )));
+        }
+        let source = a.session_id.clone().ok_or_else(|| {
+            RpcFailure::invalid(anyhow!(
+                "the thread {} has no turns yet: nothing to split",
+                a.slug
+            ))
+        })?;
+        let nodes = self
+            .store
+            .transcript(&source)
+            .map_err(|e| RpcFailure::invalid(anyhow!("{e:#}")))?;
+        let chosen =
+            thread_split::choose(&nodes, &ask.pick).map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
+        let quoted = chosen.pieces.len() as u32;
+        let now = theseus_protocol::now_unix_ms();
+        let max_live = self.cfg.threads.max_live as usize;
+        let new = ThreadInfo {
+            slug: slug.to_string(),
+            title: title.clone(),
+            goal,
+            topics: a.topics.clone(),
+            working_set: chosen.working_set.clone(),
+            card: vec![format!(
+                "split from «{}», {}: {} quoted at the head of this thread.",
+                a.slug,
+                day(now),
+                crate::narrative::count(quoted as u64, "message", "messages")
+            )],
+            persona: a.persona.clone(),
+            state: ThreadState::Active,
+            sealed: a.sealed.clone(),
+            seal_pending: a.seal_pending.clone(),
+            surfaces: vec![],
+            parent: None,
+            merged_into: None,
+            split_from: Some(a.slug.clone()),
+            session_id: None,
+            last_active_ms: now,
+            created_at_ms: now,
+        };
+        // Cheap refusals before anything is opened; the write checks again
+        // under the board's lock.
+        refuse_taken(&board, slug, max_live)?;
+        Ok(Planned {
+            new,
+            chosen,
+            source,
+            title,
+        })
     }
 
     /// The new session's first nodes: the brief, the arrangement of quoted
@@ -621,6 +641,14 @@ impl Core {
         )
         .map_err(failure)
     }
+}
+
+/// A split read and checked.
+struct Planned {
+    new: ThreadInfo,
+    chosen: thread_split::Chosen,
+    source: String,
+    title: String,
 }
 
 /// How a split names its source and where the source's note goes.

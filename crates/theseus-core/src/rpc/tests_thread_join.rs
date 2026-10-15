@@ -486,7 +486,6 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
         turn(c, &a, q).await;
     }
     let before = c.store.transcript(&a).unwrap();
-    let requests_before = r.model.requests.lock().unwrap().len();
     let last_before = r.model.requests.lock().unwrap().last().unwrap().clone();
 
     let (first, last) = (
@@ -564,12 +563,25 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     let note = crate::arrangement::text_of(&after.last().unwrap().1).unwrap();
     assert!(note.starts_with("Split to «disk»"), "{note}");
 
+    both_go_on(&r, &sid, &a, &want, &last_before).await;
+}
+
+/// C answers from the quoted turns, and A goes on with its bytes.
+async fn both_go_on(
+    r: &Rig,
+    sid: &str,
+    a: &str,
+    want: &[(String, String)],
+    last_before: &crate::provider::ProviderRequest,
+) {
+    let c = &r.core;
+    let requests_before = 0usize;
     // C answers from the quoted turns: its first request holds them, and
     // none of the tide talk.
-    turn(c, &sid, "What was the biggest file?").await;
+    turn(c, sid, "What was the biggest file?").await;
     let req = r.model.requests.lock().unwrap().last().unwrap().clone();
     let seen = serde_json::to_string(&req.messages).unwrap();
-    for (_, t) in &want {
+    for (_, t) in want {
         assert!(
             seen.contains(&t.replace('"', "\\\"")),
             "{t} is in C's first request"
@@ -582,7 +594,7 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     assert!(seen.contains("split out of the thread harbour"), "{seen}");
     // And A goes on: its request is the earlier one's bytes, the reply, the
     // note, and the new message.
-    turn(c, &a, "Back to the tides, please.").await;
+    turn(c, a, "Back to the tides, please.").await;
     let reqs = r.model.requests.lock().unwrap().clone();
     assert!(reqs.len() > requests_before);
     let next = reqs.last().unwrap();

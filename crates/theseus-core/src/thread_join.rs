@@ -224,11 +224,15 @@ mod tests {
 
     #[test]
     fn working_sets_join_without_repeats_and_topics_stop_at_three() {
-        let mut a = WorkingSet::default();
-        a.files = vec!["x.rs".into(), "y.rs".into()];
-        let mut b = WorkingSet::default();
-        b.files = vec!["y.rs".into(), "z.rs".into()];
-        b.hosts = vec!["h1".into()];
+        let a = WorkingSet {
+            files: vec!["x.rs".into(), "y.rs".into()],
+            ..Default::default()
+        };
+        let b = WorkingSet {
+            files: vec!["y.rs".into(), "z.rs".into()],
+            hosts: vec!["h1".into()],
+            ..Default::default()
+        };
         let u = union_set(&a, &b);
         assert_eq!(u.files, ["x.rs", "y.rs", "z.rs"]);
         assert_eq!(u.hosts, ["h1"]);
