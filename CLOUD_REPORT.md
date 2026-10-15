@@ -53,8 +53,7 @@ signature (state, last run, counts, month spend) changes. No `useRpc`, no `refet
 
 ## How I proved it
 
-- `npm test` in `cockpit/`: **427 pass, 0 fail** (it was 426 before the paging test; 11 new tests in `test/agenda.test.ts`,
-  which the earlier 415 do not include). `npm run lint`: exit 0 (the warnings are the tree's; none in the new files).
+- `npm test` in `cockpit/`: **427 pass, 0 fail** (415 before this branch; 12 new tests in `test/agenda.test.ts`). `npm run lint`: exit 0 (the warnings are the tree's; none in the new files).
   `npx tsc -b` and `npm run build`: clean.
 - Tests (all in `test/agenda.test.ts`; node's runner has no DOM, so "component tests" are tests of the pure layout and
   of the source files, as the cockpit's other tests are): the window (7 days, today marked, hours per day); a **DST week**
