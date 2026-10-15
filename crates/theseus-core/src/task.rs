@@ -356,11 +356,18 @@ pub(crate) fn brief_text(task_session: &str, parent_session: &str, brief: &str) 
         "[Task {}: a background task started by session {}. Work on the brief below on your \
          own. Nobody reads this session while you work, and nobody answers questions asked in \
          it: decide, and say what you decided. Your last message is your report to the \
-         conversation that started you, so end with what you did and what you found. You \
-         cannot start tasks of your own.]\n\n{brief}",
+         conversation that started you, so end with what you did and what you found. \
+         {plan} \
+         You cannot start tasks of your own.]\n\n{brief}",
         short(task_session),
-        narrative::short(parent_session)
+        narrative::short(parent_session),
+        plan = crate::task_graph::PLAN_GUIDE.replace("{id}", &short(task_session)),
     )
+}
+
+#[cfg(test)]
+pub(crate) fn brief_text_for_tests(task: &str, parent: &str, brief: &str) -> String {
+    brief_text(task, parent, brief)
 }
 
 /// The parent's reply that holds the call `correlation_id` (12a): its call

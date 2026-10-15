@@ -28,6 +28,7 @@ mod herdr_sync;
 mod import;
 mod import_sync;
 mod interactive;
+mod jobout;
 mod judge_correct;
 mod judge_prove;
 mod judge_runs;
@@ -43,11 +44,13 @@ mod print;
 mod prompt;
 mod remind;
 mod retract;
+mod retry;
 mod routine;
 mod self_cmd;
 mod standing_cmd;
 mod status;
 mod status_notify;
+mod status_progress;
 mod task_start;
 mod thread;
 mod thread_import;
@@ -444,6 +447,13 @@ enum Cmd {
     /// tasks, plan steps, jobs, questions and wakes beneath it, and what each is doing or waits
     /// for. `--watch` keeps it current from the push: a line for each change and each notice.
     Work(work::WorkArgs),
+    /// A running job's last lines, once: its size and the last 20 lines (work.peek), scrubbed.
+    /// JOB is its id (`act_…`), or a unique end of it as `theseus work` prints it.
+    Peek(jobout::PeekArgs),
+    /// Follow a running job's output live (action.output): its last lines, then each line as it is
+    /// printed, until the job ends. Ctrl-C detaches and the job goes on; a stream that fell behind
+    /// says so and reads the job again.
+    Attach(jobout::AttachArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -473,6 +483,15 @@ enum Cmd {
         #[arg(long, value_name = "DURATION")]
         timeout: Option<String>,
     },
+    /// Dismiss a failed task: it stops needing you on every surface, and its record stays. ID is
+    /// the task's id, or at least its last four characters.
+    Dismiss {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Try a failed task again: a new task opens from the same brief and pieces under the same
+    /// parent, with no more budget than the failed one had, and the failed one is dismissed.
+    Retry(retry::RetryArgs),
     /// Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and
     /// what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks
     /// and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its
@@ -1139,6 +1158,21 @@ fn main() {
     std::process::exit(code);
 }
 
+/// `theseus wait`: a session's wait, or with none named, the first of any.
+async fn wait_session_or_any(
+    c: &mut Conn,
+    json: bool,
+    session: Option<String>,
+    until: String,
+    after: Option<u64>,
+    timeout: Option<String>,
+) -> Result<()> {
+    match session {
+        Some(session) => cmd::wait(c, json, session, until, after, timeout).await,
+        None => wait_any(c, json, &until, timeout.as_deref()).await,
+    }
+}
+
 /// `theseus wait --any`, its timeout read as a duration.
 async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) -> Result<()> {
     let ms = timeout.map(cmd::parse_duration_ms).transpose()?;
@@ -1211,18 +1245,17 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Answer(a) => answer::answer(c, json, a).await,
         Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
         Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
-        Cmd::Resume { wake } => remind::resume(c, json, wake).await,
-        Cmd::Done { wake } => remind::done(c, json, wake).await,
+        cmd @ (Cmd::Resume { .. } | Cmd::Done { .. }) => remind::settle(c, json, cmd).await,
         Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
+        cmd @ (Cmd::Dismiss { .. } | Cmd::Retry(_)) => retry::run(c, json, cmd).await,
         Cmd::Wait {
-            session: Some(session),
+            session,
             until,
             after,
             timeout,
             ..
-        } => cmd::wait(c, json, session, until, after, timeout).await,
-        Cmd::Wait { until, timeout, .. } => wait_any(c, json, &until, timeout.as_deref()).await,
-        Cmd::Work(a) => work::run(c, json, a).await,
+        } => wait_session_or_any(c, json, session, until, after, timeout).await,
+        cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
             unreachable!("returned above, or exec'd by main")
         }

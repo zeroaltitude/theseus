@@ -37,6 +37,19 @@ pub use theseus_protocol::tasks::{
 
 use crate::store::Store;
 
+/// What the model is told about laying out its work (theseus-xlias, the owner's
+/// D4: no `progress` tool). The task brief's sentence names the task's own id
+/// (`{id}`); the system note's says it without one (`PLAN_NOTE`). The work
+/// board counts the closed items of the plan (`push/work`).
+pub const PLAN_GUIDE: &str = "For work of more than two steps, list them first as plan items \
+    (`task_create` with a `title` and `parent` {id}, and no `brief`) and close each with \
+    `task_close` as you finish it.";
+
+/// The system note's line: the same, for any session.
+pub const PLAN_NOTE: &str = "For work of more than two steps, list them first as plan items \
+    (`task_create` with a `title`, no `brief`, and `parent` your own task id if you are a \
+    task) and close each with `task_close` as you finish it.";
+
 /// Every task id begins so.
 pub const ID_PREFIX: &str = "tsk_";
 /// The owner of a task nobody else took: the agent.

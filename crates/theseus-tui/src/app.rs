@@ -19,6 +19,7 @@ use theseus_protocol::{
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
+use crate::follow::Follow;
 use crate::notice::{Delivery, Notices};
 use crate::threads::Picker;
 use theseus_client::seen::Seen;
@@ -56,7 +57,10 @@ pub enum Purpose {
     /// `session.history`: the focused session's pane.
     History(String),
     /// `session.history`'s newest nodes, for one an other surface wrote.
-    Node { session: String, node: String },
+    Node {
+        session: String,
+        node: String,
+    },
     /// `session.watch` and `session.unwatch`.
     Watch,
     /// `turn.submit` from the input line.
@@ -73,13 +77,32 @@ pub enum Purpose {
     /// `task.start`, from `N` (theseus-7oq0w).
     NewTask,
     /// `action.confirm`: an answer to a question.
-    Answer { correlation_id: String },
+    Answer {
+        correlation_id: String,
+    },
     /// `thread.list`: the picker's and the status line's threads (theseus-j0yh).
     Threads,
     /// `thread.pause`, `.resume` or `.done` from the picker.
     ThreadAct(String),
     /// `turn.submit` that opens a thread's session (its slug).
     SubmitThread(String),
+    /// `execution.dismiss`: a failure the owner is done with (theseus-7zgsm).
+    Dismiss {
+        session: String,
+        execution: String,
+    },
+    /// `task.retry`: a failed task tried again.
+    Retry {
+        session: String,
+        execution: String,
+    },
+    /// The follow pane (theseus-e1hu4): `action.list` finds the session's
+    /// running job, `work.peek` reads it, `action.output` follows it, and
+    /// `action.unfollow` lets it go.
+    FollowFind,
+    FollowPeek,
+    FollowStart,
+    Unfollow,
 }
 
 /// What the loop does for the app.
@@ -220,6 +243,8 @@ pub struct App {
     pub thread_file: Option<(PathBuf, String)>,
     /// The remembered thread's pane has been opened (once, at the first list).
     pub(crate) threads_focused: bool,
+    /// The follow pane: a running job's output, over the detail area.
+    pub follow: Option<Follow>,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -262,6 +287,7 @@ impl App {
             picker: None,
             thread_file: None,
             threads_focused: false,
+            follow: None,
         }
     }
 
@@ -330,6 +356,20 @@ impl App {
         let questions = self.board.questions(self.shown()?);
         let behind = questions.len().saturating_sub(1);
         questions.into_iter().next().map(|q| (q, behind))
+    }
+
+    /// The failure on screen (theseus-7zgsm): the shown session, when it
+    /// failed and asks nothing else of the owner, and the owner has not
+    /// dismissed it.
+    pub fn failure(&self) -> Option<&ExecutionView> {
+        let v = self.board.view(self.shown()?)?;
+        theseus_protocol::needs_dismissal(v).then_some(v)
+    }
+
+    /// The failure under the cursor: what `r` retries and `d` dismisses.
+    fn selected_failure(&self) -> Option<&ExecutionView> {
+        let v = self.board.view(self.selected.as_deref()?)?;
+        theseus_protocol::needs_dismissal(v).then_some(v)
     }
 
     /// When the app needs the loop next, if ever (design §2.9, quiet): a
@@ -448,6 +488,7 @@ impl App {
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
         }
+        out.extend(self.follow_reconnected());
         out
     }
 
@@ -505,7 +546,13 @@ impl App {
                 self.refused.remove(&r.correlation_id);
                 self.board.confirm_resolved(&r);
             }
-            Event::EventsLost(lost) => out.extend(self.lost(&lost)),
+            Event::ActionOutputChunk(_) | Event::ActionOutputEnd(_) => {
+                out.extend(self.follow_event(&event))
+            }
+            Event::EventsLost(lost) => {
+                out.extend(self.follow_lost(&lost));
+                out.extend(self.lost(&lost))
+            }
             Event::WakeNoticed(n) => out.extend(self.noticed(&n)),
             _ => {}
         }
@@ -583,6 +630,28 @@ impl App {
         out
     }
 
+    /// `executions.watch`'s snapshot (out of `answered`, within clippy's 100
+    /// lines with tui-rows' and retry-dismiss's arms).
+    fn snapshot_read(&mut self, v: Value) -> Vec<Effect> {
+        match serde_json::from_value::<ExecutionsWatchResult>(v) {
+            Ok(snap) => {
+                // A snapshot's views go into the seen state, without
+                // notices: a notice is for a transition seen as it
+                // happens. The first board of a first start counts as
+                // seen (`Seen`).
+                for v in self.board.snapshot(snap) {
+                    self.took(&v, None);
+                }
+                self.seen.first_board_read();
+                self.follow_up()
+            }
+            Err(e) => {
+                self.flash = Some((Tag::Bad, format!("the board did not decode: {e}")));
+                Vec::new()
+            }
+        }
+    }
+
     /// An answer to one of the TUI's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
         let v = match result {
@@ -593,20 +662,7 @@ impl App {
             }
         };
         match purpose {
-            Purpose::Snapshot => match serde_json::from_value::<ExecutionsWatchResult>(v) {
-                Ok(snap) => {
-                    // A snapshot's views go into the seen state, without
-                    // notices: a notice is for a transition seen as it
-                    // happens. The first board of a first start counts as
-                    // seen (`Seen`).
-                    for v in self.board.snapshot(snap) {
-                        self.took(&v, None);
-                    }
-                    self.seen.first_board_read();
-                    return self.follow_up();
-                }
-                Err(e) => self.flash = Some((Tag::Bad, format!("the board did not decode: {e}"))),
-            },
+            Purpose::Snapshot => return self.snapshot_read(v),
             Purpose::Work => match serde_json::from_value::<WorkWatchResult>(v) {
                 Ok(snap) => self.board.work.snapshot(snap.views),
                 // An answer this build can't read is no board: rows say
@@ -669,6 +725,7 @@ impl App {
                     self.flash = Some((Tag::Warn, line));
                 }
             }
+            Purpose::Dismiss { .. } | Purpose::Retry { .. } => self.failure_answered(purpose, v),
             Purpose::Answer { correlation_id, .. } => {
                 self.refused.remove(&correlation_id);
                 if let Ok(r) = serde_json::from_value::<WorkAnswerResult>(v) {
@@ -694,15 +751,44 @@ impl App {
             Purpose::ThreadAct(_) => return self.thread_acted(v),
             Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
-            Purpose::Watch | Purpose::Typing => {}
+            Purpose::FollowFind | Purpose::FollowPeek => return self.follow_answered(&purpose, v),
+            Purpose::Watch | Purpose::Typing | Purpose::FollowStart | Purpose::Unfollow => {}
         }
         Vec::new()
+    }
+
+    /// The answer to `execution.dismiss` or `task.retry` (theseus-7zgsm): a
+    /// line in the session's pane and in the footer.
+    fn failure_answered(&mut self, purpose: Purpose, v: Value) {
+        match purpose {
+            Purpose::Dismiss { session, execution } => {
+                self.refused.remove(&execution);
+                let line = format!("dismissed {}", short(&execution));
+                self.note(&session, Tag::Dim, &line);
+                self.flash = Some((Tag::Ok, format!("✓ {line}")));
+            }
+            Purpose::Retry { session, execution } => {
+                self.refused.remove(&execution);
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::TaskRetryResult>(v) {
+                    let line = format!(
+                        "retried {} as {} with {} (it had {}); the failed one is dismissed",
+                        short(&execution),
+                        short(&r.task_id),
+                        theseus_protocol::usd(r.limit_usd),
+                        theseus_protocol::usd(r.failed_limit_usd)
+                    );
+                    self.note(&session, Tag::Ok, &line);
+                    self.flash = Some((Tag::Ok, format!("✓ {line}")));
+                }
+            }
+            _ => {}
+        }
     }
 
     /// A request that failed: say so where the operator looks.
     fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
-        if matches!(purpose, Purpose::Typing | Purpose::Health) {
+        if matches!(purpose, Purpose::Typing | Purpose::Health | Purpose::Work) {
             return;
         }
         // An older daemon lacks `work.watch`: the rows say their labels, as
@@ -717,6 +803,15 @@ impl App {
             if e.code == error_code::REFUSED {
                 self.refused
                     .insert(correlation_id.clone(), e.message.clone());
+                self.flash = Some((Tag::Bad, format!("refused: {}", e.message)));
+                return;
+            }
+        }
+        // A dismissal or a retry that did not count (theseus-7zgsm): the
+        // failure's card says why, and the failure stays.
+        if let Purpose::Dismiss { execution, .. } | Purpose::Retry { execution, .. } = purpose {
+            if e.code == error_code::REFUSED {
+                self.refused.insert(execution.clone(), e.message.clone());
                 self.flash = Some((Tag::Bad, format!("refused: {}", e.message)));
                 return;
             }
@@ -741,11 +836,17 @@ impl App {
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::NewTask => method::TASK_START,
             Purpose::Answer { .. } => method::WORK_ANSWER,
+            Purpose::Dismiss { .. } => method::EXECUTION_DISMISS,
+            Purpose::Retry { .. } => method::TASK_RETRY,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
             Purpose::Threads => method::THREAD_LIST,
             Purpose::ThreadAct(_) => "thread.pause, resume or done",
             Purpose::SubmitThread(_) => method::TURN_SUBMIT,
+            Purpose::FollowFind => return self.follow_failed(method::ACTION_LIST, e),
+            Purpose::FollowPeek => return self.follow_failed(method::WORK_PEEK, e),
+            Purpose::FollowStart => return self.follow_failed(method::ACTION_OUTPUT, e),
+            Purpose::Unfollow => return,
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -883,6 +984,23 @@ impl App {
             }
             KeyCode::Char('/') => self.mode = Mode::Filter,
             KeyCode::Char('N') => self.new_task_prompt(),
+            // On a failure (theseus-7zgsm) `r` retries, `d` dismisses and `o`
+            // opens; anywhere else they filter as before.
+            KeyCode::Char('r')
+                if self
+                    .selected_failure()
+                    .is_some_and(|v| v.kind == SessionKind::Task) =>
+            {
+                return self.failure_key(true);
+            }
+            KeyCode::Char('d') if self.selected_failure().is_some() => {
+                return self.failure_key(false);
+            }
+            KeyCode::Char('o') if self.selected_failure().is_some() => {
+                if let Some(sid) = self.selected.clone() {
+                    return self.focus(&sid);
+                }
+            }
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -894,6 +1012,8 @@ impl App {
                 self.only = Only::All;
                 self.filter.clear();
             }
+            KeyCode::Esc if self.follow.is_some() => return self.follow_close(),
+            KeyCode::Char('l') => return self.follow_key(),
             KeyCode::Esc => {
                 if !self.wide() && self.pane == Pane::Session {
                     self.pane = Pane::List;
@@ -959,6 +1079,28 @@ impl App {
             Some(why) => self.flash = Some((Tag::Warn, why.to_string())),
             None => self.mode = Mode::Armed(arm, sid),
         }
+    }
+
+    /// `r` or `d` on the failure under the cursor: `task.retry`, or
+    /// `execution.dismiss`.
+    fn failure_key(&mut self, retry: bool) -> Vec<Effect> {
+        let Some(v) = self.selected_failure() else {
+            return Vec::new();
+        };
+        let (session, execution) = (v.session_id.clone(), v.execution_id.clone());
+        self.refused.remove(&execution);
+        let params = json!({ "execution_id": execution });
+        let purpose = if retry {
+            Purpose::Retry { session, execution }
+        } else {
+            Purpose::Dismiss { session, execution }
+        };
+        let m = if retry {
+            method::TASK_RETRY
+        } else {
+            method::EXECUTION_DISMISS
+        };
+        vec![call(m, params, purpose)]
     }
 
     /// `y`, `t`, or `n` on the card's question: `n` asks for a note first.

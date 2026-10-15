@@ -233,6 +233,24 @@ pub struct Progress {
     pub at_ms: u64,
 }
 
+impl Progress {
+    /// The one wording every surface shows (theseus-xlias): the plan's count,
+    /// then the model's own line: `3/5 · Running the tests again with the
+    /// fix…`. A task with no plan shows its line alone, a plan with no line
+    /// its count alone; none when it has neither.
+    pub fn line(&self) -> Option<String> {
+        let count =
+            (self.steps_total > 0).then(|| format!("{}/{}", self.steps_done, self.steps_total));
+        let said = self.said.as_deref().filter(|s| !s.is_empty());
+        match (count, said) {
+            (Some(c), Some(s)) => Some(format!("{c} · {s}")),
+            (Some(c), None) => Some(c),
+            (None, Some(s)) => Some(s.to_string()),
+            (None, None) => None,
+        }
+    }
+}
+
 /// What a question asks about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

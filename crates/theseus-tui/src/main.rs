@@ -12,6 +12,7 @@ mod board;
 mod card;
 mod chat;
 mod detail;
+mod follow;
 mod new_task;
 mod notice;
 mod run;
@@ -30,6 +31,10 @@ mod tests_cite;
 #[cfg(test)]
 mod tests_diff;
 #[cfg(test)]
+mod tests_failure;
+#[cfg(test)]
+mod tests_follow;
+#[cfg(test)]
 mod tests_grant;
 #[cfg(test)]
 mod tests_markdown;
@@ -43,6 +48,8 @@ mod tests_notice;
 mod tests_order;
 #[cfg(test)]
 mod tests_paste;
+#[cfg(test)]
+mod tests_progress;
 #[cfg(test)]
 mod tests_stop_all;
 #[cfg(test)]

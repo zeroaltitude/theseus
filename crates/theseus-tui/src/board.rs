@@ -680,3 +680,18 @@ pub fn short(id: &str) -> String {
 pub fn one_line(s: &str) -> String {
     s.lines().next().unwrap_or_default().trim().to_string()
 }
+
+/// progress' view of a row's line (theseus-xlias), read through tui-rows'
+/// overlay, which is what the rows show: `3/5 · Running the tests…`.
+#[cfg(test)]
+impl Board {
+    pub fn work_views(&mut self, views: &[theseus_protocol::work::WorkView]) {
+        for v in views {
+            self.work.apply(v.clone());
+        }
+    }
+
+    pub fn progress_line(&self, sid: &str) -> Option<String> {
+        self.work.of_session(sid)?.progress.as_ref()?.line()
+    }
+}
