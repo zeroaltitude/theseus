@@ -15,7 +15,8 @@ url: string,
  */
 outcome: string, stop_reason: string | null, started_ms: number, ended_ms: number | null, totals: InspectTotals, 
 /**
- * The route decision (`route.decided`), as the ledger has it.
+ * The route decision (`route.decided`), as the ledger has it; with none, the
+ * target the turn started on (profile, provider, model).
  */
 route: unknown, loops: Array<InspectLoop>, 
 /**

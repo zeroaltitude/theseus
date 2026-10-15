@@ -108,6 +108,9 @@ pub struct InspectCall {
     pub tool_use_id: String,
     pub tool: String,
     pub call_node: String,
+    /// The kernel's id of the call's action: the ledger rows that name it
+    /// (`action.*`, `tool.*`) carry it as their `correlation_id`.
+    pub correlation_id: Option<String>,
     pub result_node: Option<String>,
     #[cfg_attr(test, ts(type = "number"))]
     pub called_ms: u64,
@@ -163,7 +166,8 @@ pub struct TurnInspectResult {
     #[cfg_attr(test, ts(type = "number | null"))]
     pub ended_ms: Option<u64>,
     pub totals: InspectTotals,
-    /// The route decision (`route.decided`), as the ledger has it.
+    /// The route decision (`route.decided`), as the ledger has it; with none, the
+    /// target the turn started on (profile, provider, model).
     #[cfg_attr(test, ts(type = "unknown"))]
     pub route: Value,
     pub loops: Vec<InspectLoop>,

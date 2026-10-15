@@ -8,8 +8,8 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { ArrowLeft, ArrowRight, Brain, ChevronDown, ChevronRight, ClipboardCopy, Layers, Wrench } from 'lucide-react'
 import type { ContextExplainResult, InspectCall, InspectLoop, TurnInspectResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
-import { cn, ms, short, stamp, tokens, usd } from '@/lib/format'
-import { blockWords, cacheShare, loopDiff, signed, type Bar } from '@/lib/inspect'
+import { cn, ms, short, stamp, tokens, us, usd } from '@/lib/format'
+import { blockWords, breakpointParts, cacheShare, callTiming, layout, loopDiff, rowsOfCall, signed, type Bar } from '@/lib/inspect'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { JsonView } from '@/components/JsonView'
 import { TurnFlame } from '@/components/TurnFlame'
@@ -160,7 +160,7 @@ function LoopCard({ l, prev, r, open, onToggle }: { l: InspectLoop; prev: Inspec
           </nav>
           <div className="p-3">
             {tab === 'request' && <Request l={l} r={r} />}
-            {tab === 'response' && <Response l={l} />}
+            {tab === 'response' && <Response l={l} r={r} />}
             {tab === 'calls' && <Calls l={l} r={r} />}
             {tab === 'diff' && <Diff l={l} prev={prev} />}
           </div>
@@ -179,7 +179,7 @@ function Request({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
   const c = l.compiled
   const { data: x } = useRpc<ContextExplainResult>('context.explain', { session_id: r.session_id, turn_id: r.turn_id }, 0)
   if (!c) return <Empty>this loop has no compile row</Empty>
-  const stops = new Set(c.cache.breakpoints)
+  const stops = x ? breakpointParts(x.parts, c.cache.breakpoints) : new Set<number>()
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
@@ -203,14 +203,43 @@ function Request({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
               <thead><tr className="text-left text-ink-faint"><th className="py-0.5 pr-2 font-normal">block</th><th className="pr-2 font-normal">part</th><th className="pr-2 text-right font-normal">tokens</th><th className="font-normal">vs. this turn</th></tr></thead>
               <tbody>
                 {x.parts.map((p, i) => (
-                  <PartRows key={`${p.block}-${p.name}-${i}`} p={p} stop={stops.has(p.block) || stops.has(p.name)} />
+                  <PartRows key={`${p.block}-${p.name}-${i}`} p={p} stop={stops.has(i)} />
                 ))}
               </tbody>
             </table>
           </>
         )}
       </div>
+      <RequestMessages l={l} r={r} />
       {l.added.length > 0 && <div className="text-[12px] text-ink-dim">This request added {l.added.length} node{l.added.length === 1 ? '' : 's'} to the one before it: the last answer, its tool calls and their results ({l.added.map(short).join(', ')}).</div>}
+    </div>
+  )
+}
+
+/** The messages this request carried from the turn itself: the prompt, then each earlier loop's answer, its calls and
+ *  their results, in the order they went. The conversation before the turn is the compile's prefix (counted above). */
+function RequestMessages({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
+  const items: { who: string; what: string; text: string }[] = []
+  if (r.prompt.node_id) items.push({ who: 'user', what: `prompt · ${r.prompt.chars.toLocaleString('en-US')} chars`, text: r.prompt.text })
+  for (const p of r.loops) {
+    if (p.loop >= l.loop) break
+    for (const b of (p.answer?.blocks ?? []) as Record<string, unknown>[]) {
+      items.push({ who: 'assistant', what: blockWords(b), text: String(b.thinking ?? b.text ?? (b.type === 'tool_use' ? JSON.stringify(b.input) : '')) })
+    }
+    for (const c of p.calls) items.push({ who: 'tool result', what: `${c.tool}${c.is_error ? ' (error)' : ''} · ${c.bytes_total.toLocaleString('en-US')} bytes${c.truncated ? ' · cut' : ''}`, text: c.content })
+  }
+  if (!items.length) return null
+  return (
+    <div>
+      <h3 className="panel-title mb-1">Messages from this turn, in order</h3>
+      <div className="flex flex-col gap-1">
+        {items.map((m, i) => (
+          <details key={i} className="rounded-md bg-black/20 px-2.5 py-1 ring-1 ring-inset ring-line">
+            <summary className="cursor-pointer text-[12px]"><span className="text-ink-faint">{m.who}</span> · <span className="text-ink">{m.what}</span></summary>
+            {m.text && <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words text-[11.5px] text-ink-dim">{m.text}</pre>}
+          </details>
+        ))}
+      </div>
     </div>
   )
 }
@@ -232,8 +261,12 @@ function PartRows({ p, stop }: { p: ContextExplainResult['parts'][number]; stop:
 }
 
 /** The answer: thinking in full, text, tool_use blocks, the stop reason, the usage. */
-function Response({ l }: { l: InspectLoop }) {
+function Response({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
   const a = l.answer
+  const bars = useMemo(() => layout(r.trace, r.rows, r.ended_ms, r.started_ms).bars, [r])
+  const t = callTiming(bars, l.loop)
+  const row = r.rows.find((x) => x.kind === 'provider.call' && (x.data as { loop?: number } | null)?.loop === l.loop)
+  const timing = (row?.data as { timing?: { first_byte_ms?: number | null; first_token_ms?: number | null; total_ms?: number | null } } | null)?.timing
   if (!a) return <Empty>no answer was recorded for this loop</Empty>
   return (
     <div className="flex flex-col gap-3">
@@ -244,6 +277,8 @@ function Response({ l }: { l: InspectLoop }) {
         {a.cost_usd != null && <Kv k="cost">{usd(a.cost_usd)}</Kv>}
         {a.request_id && <Kv k="request id">{a.request_id}</Kv>}
         {a.request_digest && <Kv k="request digest">{a.request_digest}</Kv>}
+        {t && <Kv k="latency">call {us(t.call)}{t.firstByte != null ? ` · first byte ${us(t.firstByte)}` : ''}{t.firstToken != null ? ` · first token ${us(t.firstToken)}` : ''}{t.streaming != null ? ` · streaming ${us(t.streaming)}` : ''}</Kv>}
+        {!t && timing && <Kv k="latency">{timing.total_ms != null ? `call ${ms(timing.total_ms)}` : ''}{timing.first_byte_ms != null ? ` · first byte ${ms(timing.first_byte_ms)}` : ''}{timing.first_token_ms != null ? ` · first token ${ms(timing.first_token_ms)}` : ''}</Kv>}
         <Kv k="at">{stamp(a.at_ms)}</Kv>
       </div>
       {a.blocks.map((b, i) => <Block key={i} b={b as Record<string, unknown>} />)}
@@ -272,10 +307,7 @@ function Calls({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
 
 function CallCard({ c, r }: { c: InspectCall; r: TurnInspectResult }) {
   const [gate, setGate] = useState(false)
-  const rows = useMemo(() => r.rows.filter((x) => {
-    const d = x.data as Record<string, unknown> | null
-    return !!d && typeof d === 'object' && (d.tool_use_id === c.tool_use_id || (c.gate?.proposal && d.action_id === (c.gate.proposal as unknown as Record<string, unknown>).action_id))
-  }), [r.rows, c])
+  const rows = useMemo(() => rowsOfCall(r.rows, c.tool_use_id, c.correlation_id), [r.rows, c])
   return (
     <div className="rounded-md bg-black/20 ring-1 ring-inset ring-line" data-call={c.tool_use_id}>
       <div className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">

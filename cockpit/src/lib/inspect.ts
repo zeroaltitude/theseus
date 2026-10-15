@@ -28,6 +28,7 @@ export function laneOf(f: Pick<Flat, 'name' | 'kind'>): Lane {
   const n = f.name.toLowerCase()
   if (f.kind === 'mark') return 'marks'
   if (f.kind === 'turn' || f.kind === 'loop') return 'loops'
+  if (/^continuation|^advancer|^session\./.test(n)) return 'store'
   if (/job_wait|wait|lock|admission|queue/.test(n) || f.kind === 'lock') return 'waits'
   if (f.kind === 'provider' || /provider|model/.test(n)) return 'model'
   if (f.kind === 'tool' || f.kind === 'tools') return 'tools'
@@ -63,19 +64,36 @@ export function pack(bars: Omit<Bar, 'row'>[]): Bar[] {
     })
 }
 
-/** The time a person was waited on: each `tool.confirm_requested` row to the next answer, on the turn's clock.
- *  `originMs` is the unix ms the clock began at. */
+/** The time a person was waited on: each `tool.confirm_requested` row to its answer, on the turn's clock. The answer is
+ *  the row that carries the question's correlation id, else the next answer row. `originMs` is the unix ms the clock
+ *  began at. The wait may outlast the turn (a parked turn waits for its answer elsewhere): `waited_us` in the
+ *  bar's attributes is the whole of it. */
 export function personWaits(rows: readonly InspectRow[], originMs: number): Omit<Bar, 'row'>[] {
   const out: Omit<Bar, 'row'>[] = []
-  let open: InspectRow | null = null
-  for (const r of rows) {
-    if (r.kind === 'tool.confirm_requested' && !open) open = r
-    else if (open && (r.kind === 'action.confirm_answered' || r.kind === 'action.confirmed' || r.kind === 'action.declined' || r.kind === 'action.expired')) {
-      out.push({ id: `person-${open.position}`, lane: 'person', start: (open.at_ms - originMs) * 1000, end: Math.max((r.at_ms - originMs) * 1000, (open.at_ms - originMs) * 1000 + 1), name: `waiting on you (${r.kind.split('.')[1]})`, kind: 'person', attrs: { asked: open.data, answered: r.data }, loop: null })
-      open = null
-    }
+  const answers = rows.filter((r) => r.kind === 'action.confirm_answered' || r.kind === 'action.confirmed' || r.kind === 'action.declined' || r.kind === 'action.expired')
+  const used = new Set<number>()
+  for (const q of rows.filter((r) => r.kind === 'tool.confirm_requested')) {
+    const cid = (q.data as { correlation_id?: string } | null)?.correlation_id
+    const a = answers.find((r) => !used.has(r.position) && r.position > q.position && (cid ? (r.data as { correlation_id?: string } | null)?.correlation_id === cid : true))
+    if (a) used.add(a.position)
+    const start = (q.at_ms - originMs) * 1000
+    const end = a ? Math.max((a.at_ms - originMs) * 1000, start + 1) : start + 1
+    out.push({
+      id: `person-${q.position}`, lane: 'person', start, end,
+      name: a ? `waiting on you (${a.kind.split('.')[1]}, ${waitWords(end - start)})` : 'waiting on you (unanswered)',
+      kind: 'person', attrs: { asked: q.data, answered: a?.data ?? null, waited_us: end - start }, loop: null,
+    })
   }
   return out
+}
+
+/** A wait in a few words. */
+export function waitWords(us: number): string {
+  const s = us / 1e6
+  if (s < 1) return `${Math.round(us / 1000)} ms`
+  if (s < 120) return `${s.toFixed(1)} s`
+  if (s < 7200) return `${Math.round(s / 60)} min`
+  return `${(s / 3600).toFixed(1)} h`
 }
 
 /** The whole turn as bars: the trace's spans by lane, and the person's waits from the rows. */
@@ -87,7 +105,8 @@ export function layout(trace: Span | null | undefined, rows: readonly InspectRow
   }))
   // The trace's clock starts at the turn's arrival; the rows' times are unix ms. Anchor on the turn's end when known.
   const origin = endedMs != null && trace ? endedMs - Math.round(end / 1000) : startedMs
-  bars.push(...personWaits(rows, origin))
+  // A wait that outlasts the turn is drawn to the turn's end, so it does not flatten the rest on the axis.
+  bars.push(...personWaits(rows, origin).filter((b) => b.start < end).map((b) => ({ ...b, end: Math.min(b.end, end) })))
   const packed = pack(bars)
   const rowsIn = Object.fromEntries(LANES.map((l) => [l, 0])) as Record<Lane, number>
   for (const b of packed) rowsIn[b.lane] = Math.max(rowsIn[b.lane], b.row + 1)
@@ -178,4 +197,44 @@ export function blockWords(b: Record<string, unknown>): string {
 export function cacheShare(u: { input_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }): number | null {
   const all = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
   return all > 0 ? u.cache_read_input_tokens / all : null
+}
+
+/** A loop's model call timed from the trace: the call, the first byte and the first token (µs from the call's start),
+ *  and the streaming after the first token. Null when the loop has no provider span. */
+export interface CallTiming { call: number; firstByte: number | null; firstToken: number | null; streaming: number | null }
+
+export function callTiming(bars: readonly Bar[], loop: number): CallTiming | null {
+  const call = bars.find((b) => b.loop === loop && b.lane === 'model' && b.kind === 'provider')
+  if (!call) return null
+  const mark = (n: string) => bars.find((b) => b.loop === loop && b.kind === 'mark' && b.name === n && b.start >= call.start && b.start <= call.end)
+  const fb = mark('first_byte')
+  const ft = mark('first_token')
+  return {
+    call: call.end - call.start,
+    firstByte: fb ? fb.start - call.start : null,
+    firstToken: ft ? ft.start - call.start : null,
+    streaming: ft ? call.end - ft.start : null,
+  }
+}
+
+/** The ledger rows that name a tool call: those carrying its tool_use_id, or its action's correlation id. */
+export function rowsOfCall<T extends { data: unknown }>(rows: readonly T[], toolUseId: string, correlationId: string | null | undefined): T[] {
+  return rows.filter((r) => {
+    const d = r.data as Record<string, unknown> | null
+    if (!d || typeof d !== 'object') return false
+    return d.tool_use_id === toolUseId || (!!correlationId && d.correlation_id === correlationId)
+  })
+}
+
+/** Where a request's cache breakpoints fall among its parts: the index of the last part of each breakpoint's block (or,
+ *  for a layer named by a part, the part of that name). */
+export function breakpointParts(parts: readonly { block: string; name: string }[], breakpoints: readonly string[]): Set<number> {
+  const at = new Set<number>()
+  for (const bp of breakpoints) {
+    let k = -1
+    parts.forEach((p, i) => { if (p.block === bp) k = i })
+    if (k < 0) parts.forEach((p, i) => { if (p.name === bp) k = i })
+    if (k >= 0) at.add(k)
+  }
+  return at
 }

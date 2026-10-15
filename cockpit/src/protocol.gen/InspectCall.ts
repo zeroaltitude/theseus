@@ -4,7 +4,12 @@ import type { GateRecord } from "./GateRecord";
 /**
  * One tool call of a loop: the call, its gate's record, its result.
  */
-export type InspectCall = { tool_use_id: string, tool: string, call_node: string, result_node: string | null, called_ms: number, resulted_ms: number | null, input: unknown, gate: GateRecord | null, status: string | null, is_error: boolean, 
+export type InspectCall = { tool_use_id: string, tool: string, call_node: string, 
+/**
+ * The kernel's id of the call's action: the ledger rows that name it
+ * (`action.*`, `tool.*`) carry it as their `correlation_id`.
+ */
+correlation_id: string | null, result_node: string | null, called_ms: number, resulted_ms: number | null, input: unknown, gate: GateRecord | null, status: string | null, is_error: boolean, 
 /**
  * The result as the model saw it.
  */

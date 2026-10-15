@@ -2,7 +2,7 @@
 // pan, the person's waits, and a loop's request against the one before.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LANES, blockWords, cacheShare, laneOf, layout, loopDiff, pack, pan, personWaits, signed, step, walk, zoom } from '../src/lib/inspect.ts'
+import { LANES, blockWords, breakpointParts, cacheShare, callTiming, laneOf, layout, loopDiff, pack, pan, personWaits, rowsOfCall, signed, step, walk, zoom } from '../src/lib/inspect.ts'
 
 const span = (name: string, kind: string, start_us: number, end_us: number | null, children: unknown[] = []) =>
   ({ name, kind, start_us, end_us, attrs: null, children }) as any
@@ -78,17 +78,35 @@ test('zoom keeps the point under the pointer and the window inside the axis; pan
 test('the time spent waiting on a person runs from the question to its answer', () => {
   const rows = [
     { position: 1, at_ms: 10_000, kind: 'turn.started', data: {} },
-    { position: 2, at_ms: 10_500, kind: 'tool.confirm_requested', data: { tool: 'proc.run' } },
-    { position: 3, at_ms: 12_500, kind: 'action.confirm_answered', data: { answer: 'approve' } },
+    { position: 2, at_ms: 10_500, kind: 'tool.confirm_requested', data: { tool: 'proc.run', correlation_id: 'act_1' } },
+    { position: 3, at_ms: 12_500, kind: 'action.confirm_answered', data: { answer: 'approve', correlation_id: 'act_1' } },
   ] as any
   const w = personWaits(rows, 10_000)
   assert.equal(w.length, 1)
   assert.equal(w[0].start, 500_000)
   assert.equal(w[0].end, 2_500_000)
   assert.equal(w[0].lane, 'person')
-  const l = layout(trace, rows, null, 10_000)
+  const big = span('turn', 'turn', 0, 5_000_000, [span('loop 0', 'loop', 0, 5_000_000)])
+  const l = layout(big, rows, null, 10_000)
   assert.ok(l.bars.some((b) => b.lane === 'person'))
-  assert.ok(l.end >= 2_500_000, 'the axis reaches the wait')
+  // A wait that outlasts the turn is drawn to the turn's end, and says how long it was.
+  const long = [
+    { position: 2, at_ms: 10_500, kind: 'tool.confirm_requested', data: { correlation_id: 'act_9' } },
+    { position: 9, at_ms: 10_000 + 3_600_000, kind: 'action.confirm_answered', data: { correlation_id: 'act_9' } },
+  ] as any
+  const w2 = personWaits(long, 10_000)
+  assert.equal(w2[0].name, 'waiting on you (confirm_answered, 60 min)')
+  const l2 = layout(big, long, null, 10_000)
+  assert.equal(l2.end, 5_000_000, 'the axis stays the turn\'s')
+  assert.equal(l2.bars.find((b) => b.lane === 'person')!.end, 5_000_000)
+  // The answer is the row with the question\'s correlation id, not the next answer row.
+  const two = [
+    { position: 1, at_ms: 10_000, kind: 'tool.confirm_requested', data: { correlation_id: 'a' } },
+    { position: 2, at_ms: 11_000, kind: 'action.confirm_answered', data: { correlation_id: 'b' } },
+    { position: 3, at_ms: 12_000, kind: 'action.confirm_answered', data: { correlation_id: 'a' } },
+  ] as any
+  assert.equal(personWaits(two, 10_000)[0].end, 2_000_000)
+  assert.equal(personWaits(rows.slice(0, 2), 10_000)[0].name, 'waiting on you (unanswered)')
 })
 
 const loop = (i: number, tokens: number, messages: number, digest: string, layers: Record<string, string>, added: string[] = []) =>
@@ -117,4 +135,42 @@ test('a block is worded by its type and size, and the cache share is read over a
   assert.equal(blockWords({ type: 'tool_use', name: 'fs_read' }), 'tool_use · fs_read')
   assert.equal(cacheShare({ input_tokens: 100, cache_read_input_tokens: 800, cache_creation_input_tokens: 100 }), 0.8)
   assert.equal(cacheShare({ input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }), null)
+})
+
+test('a loop\'s model call is timed from the trace: first byte, first token, the streaming after', () => {
+  const t = span('turn', 'turn', 0, 1000, [
+    span('loop 0', 'loop', 0, 1000, [
+      span('provider.call', 'provider', 100, 900, [span('first_byte', 'mark', 250, 250), span('first_token', 'mark', 300, 300)]),
+    ]),
+  ])
+  const { bars } = layout(t)
+  assert.deepEqual(callTiming(bars, 0), { call: 800, firstByte: 150, firstToken: 200, streaming: 600 })
+  assert.equal(callTiming(bars, 1), null)
+})
+
+test('the ledger rows of a call are those that carry its tool_use_id or its action\'s correlation id, and no others', () => {
+  const rows = [
+    { kind: 'action.planned', data: { correlation_id: 'act_1' } },
+    { kind: 'tool.confirm_requested', data: { tool_use_id: 'tu_1' } },
+    { kind: 'action.planned', data: { correlation_id: 'act_2' } },
+    { kind: 'turn.ended', data: {} },
+    { kind: 'x', data: null },
+  ]
+  assert.deepEqual(rowsOfCall(rows, 'tu_1', 'act_1').map((r) => r.kind), ['action.planned', 'tool.confirm_requested'])
+  assert.deepEqual(rowsOfCall(rows, 'tu_9', null), [])
+})
+
+test('a cache breakpoint falls after the last part of its block', () => {
+  const parts = [
+    { block: 'header', name: 'persona' }, { block: 'header', name: 'assembly' },
+    { block: 'tools', name: '33 tools' }, { block: 'conversation', name: '1 nodes' },
+  ]
+  assert.deepEqual([...breakpointParts(parts, ['header', 'conversation'])], [1, 3])
+  assert.deepEqual([...breakpointParts(parts, ['persona'])], [0], 'a layer named by a part')
+  assert.deepEqual([...breakpointParts(parts, ['nothing'])], [])
+})
+
+test('a continuation or an advancer is no tool call', () => {
+  assert.equal(laneOf({ name: 'continuation', kind: 'tool' }), 'store')
+  assert.equal(laneOf({ name: 'advancer', kind: 'advancer' }), 'store')
 })

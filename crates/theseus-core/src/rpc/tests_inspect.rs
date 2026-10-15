@@ -406,3 +406,31 @@ fn reading_a_turn_writes_no_frame() {
     inspect(&core, &s, &t, true);
     assert_eq!(core.store.last_position(), before);
 }
+
+/// A turn with no `route.decided` row shows the target it started on.
+#[test]
+fn a_turn_nothing_routed_shows_the_target_it_started_on() {
+    let core = test_core("ok");
+    let s = open(&core);
+    row(
+        &core,
+        T0,
+        "turn.started",
+        &s,
+        "turn_plain",
+        json!({"profile": "sonnet", "provider": "anthropic", "model": "claude-sonnet-5"}),
+    );
+    row(
+        &core,
+        T0 + 5,
+        "turn.ended",
+        &s,
+        "turn_plain",
+        json!({"loops": 0, "stop_reason": "end_turn", "elapsed_ms": 5}),
+    );
+    let r = inspect(&core, &s, "turn_plain", true);
+    assert_eq!(r.route["model"], "claude-sonnet-5");
+    assert_eq!(r.route["profile"], "sonnet");
+    assert_eq!(r.outcome, "ended");
+    assert!(r.loops.is_empty() && r.prev_turn.is_none() && r.next_turn.is_none());
+}

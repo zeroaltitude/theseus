@@ -42,6 +42,13 @@ const NODES: usize = 3000;
 /// for the turn and its neighbours; and the most pages.
 const STARTS: usize = 500;
 const START_PAGES: usize = 12;
+/// The kinds that answer a question.
+const ANSWERS: [LedgerKind; 4] = [
+    LedgerKind::ActionConfirmAnswered,
+    LedgerKind::ActionConfirmed,
+    LedgerKind::ActionDeclined,
+    LedgerKind::ActionExpired,
+];
 
 pub(super) const WITHHELD: &str =
     "thinking, prompts, tool inputs and results go to a private place \
@@ -118,8 +125,9 @@ impl Core {
         let from = start_pos.saturating_sub(LEAD);
         let prev_turn = starts.get(at + 1).map(|(_, t)| t.clone());
 
-        let rows = self.turn_rows(sid, tid, from)?;
+        let mut rows = self.turn_rows(sid, tid, from)?;
         let nodes = self.turn_nodes(sid, tid, from)?;
+        self.answers_of(sid, from, &mut rows)?;
         // The next turn: the oldest start after this one; the walk is
         // newest first, so it is the one before in the list.
         let next_turn = at.checked_sub(1).map(|i| starts[i].1.clone());
@@ -160,6 +168,44 @@ impl Core {
             }
         }
         Ok(rows)
+    }
+
+    /// The answers to the turn's questions, which are written with no turn:
+    /// `action.confirm_answered`, `.confirmed`, `.declined` and `.expired`,
+    /// found by the correlation id of the question's `tool.confirm_requested`
+    /// row, however long after the turn the answer came.
+    fn answers_of(&self, sid: &str, from: u64, rows: &mut Vec<(u64, LedgerRow)>) -> Result<()> {
+        let asked: Vec<String> = rows
+            .iter()
+            .filter(|(_, r)| r.kind == LedgerKind::ToolConfirmRequested.as_str())
+            .filter_map(|(_, r)| r.data["correlation_id"].as_str().map(str::to_string))
+            .collect();
+        if asked.is_empty() {
+            return Ok(());
+        }
+        for kind in ANSWERS {
+            let page = Page {
+                kind: kinds::LEDGER,
+                tags: vec![ledger_kind_session(kind.as_str(), sid)],
+                after: Some(from),
+                limit: ROWS,
+                ..Page::default()
+            };
+            let Some(got) = self.store.inner().page(&page)? else {
+                continue;
+            };
+            for r in &got.records {
+                let row: LedgerRow = r.decode()?;
+                let ours = row.data["correlation_id"]
+                    .as_str()
+                    .is_some_and(|c| asked.iter().any(|a| a == c));
+                if ours && row.turn_id.is_none() {
+                    rows.push((r.position, row));
+                }
+            }
+        }
+        rows.sort_by_key(|(p, _)| *p);
+        Ok(())
     }
 
     /// The turn's nodes, oldest first.
@@ -230,10 +276,17 @@ pub(crate) fn assemble(
     private: bool,
 ) {
     let mut errors = 0u32;
+    let mut started_on = Value::Null;
     let mut compiled: BTreeMap<u32, ContextCompiled> = BTreeMap::new();
     for (pos, row) in &rows {
         match row.kind.as_str() {
-            "turn.started" => out.started_ms = row.at_unix_ms,
+            "turn.started" => {
+                out.started_ms = row.at_unix_ms;
+                started_on = json!({
+                    "profile": row.data["profile"], "provider": row.data["provider"],
+                    "model": row.data["model"], "reason": "the live profile",
+                });
+            }
             "turn.ended" => {
                 out.outcome = "ended".into();
                 out.ended_ms = Some(row.at_unix_ms);
@@ -274,6 +327,9 @@ pub(crate) fn assemble(
                 Value::Null
             },
         });
+    }
+    if out.route.is_null() {
+        out.route = started_on;
     }
     if out.outcome.is_empty() {
         out.outcome = "running".into();
@@ -346,6 +402,7 @@ pub(crate) fn assemble(
                 input,
                 assistant_node,
                 gate,
+                correlation_id,
                 ..
             } => {
                 let i = loop_of_answer
@@ -361,6 +418,7 @@ pub(crate) fn assemble(
                     tool_use_id: tool_use_id.clone(),
                     tool: tool.clone(),
                     call_node: n.id.clone(),
+                    correlation_id: correlation_id.clone(),
                     called_ms: n.created_at_ms,
                     input: if private { input.clone() } else { Value::Null },
                     gate: if private { gate.clone() } else { None },
