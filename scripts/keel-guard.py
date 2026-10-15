@@ -56,6 +56,9 @@ The rules, by the name the report and the ack use:
                     crates/theseus-sim/src/lifecycle.rs   fn budget_ms, fn margin_ms, const CANCEL_FRAMES
                     crates/theseus-sim/src/perf.rs        const PLAIN_TURN_FRAMES, TOOL_TURN_FRAMES, BINARY_MB
                     crates/theseus-sim/src/jobs.rs        const START_P95_MS
+                    crates/theseus-core/src/first_request.rs  const CLI_TASK_TOKENS, DM_TOKENS, CHANNEL_TOKENS,
+                                                          HEADLESS_TOKENS (the first request's token budgets: the
+                                                          owner's signed yes, 2026-10-15)
                     scripts/gate.sh                       THESEUS_GATE_BENCH_ALLOWANCE's default
   cap-raised      a spend or loop cap raised, removed, or its mode loosened (end/ask to notify, or a mode named for
                   the first time as notify or off):
@@ -989,6 +992,10 @@ BUDGETS = {
     "crates/theseus-sim/src/perf.rs": [("const", "PLAIN_TURN_FRAMES"), ("const", "TOOL_TURN_FRAMES"),
                                        ("const", "BINARY_MB")],
     "crates/theseus-sim/src/jobs.rs": [("const", "START_P95_MS")],
+    # The first request's budgets in tokens (theseus-to0xw): raising one is the owner's signed change (his "Yes!" of
+    # 2026-10-15 09:50 to "make any raise of the 8,000 / 15,000 limits need your signed OK").
+    "crates/theseus-core/src/first_request.rs": [("const", "CLI_TASK_TOKENS"), ("const", "DM_TOKENS"),
+                                                 ("const", "CHANNEL_TOKENS"), ("const", "HEADLESS_TOKENS")],
 }
 
 

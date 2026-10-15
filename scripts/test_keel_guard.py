@@ -56,6 +56,15 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
 pub const CANCEL_FRAMES: usize = 2;
 """
 
+FIRST_REQUEST = """\
+/// The most tokens a cli or task place's first request may be, as sent.
+pub const CLI_TASK_TOKENS: u64 = 8_000;
+/// The most in the owner's DM place.
+pub const DM_TOKENS: u64 = 15_000;
+pub const CHANNEL_TOKENS: u64 = 7_900;
+pub const HEADLESS_TOKENS: u64 = 8_600;
+"""
+
 BENCH = """\
 [model]
 max_loops = 200                         # set by the adapter
@@ -159,6 +168,7 @@ BASE = {
     ".github/workflows/ci.yml": CI,
     "crates/demo/src/timing.rs": TIMING,
     "crates/theseus-sim/src/lifecycle.rs": LIFECYCLE,
+    "crates/theseus-core/src/first_request.rs": FIRST_REQUEST,
     "bench/theseus-bench.toml": BENCH,
     "scripts/long-files.txt": LONG,
     "scripts/shape.sh": "#!/usr/bin/env bash\nlimit=2500\n",
@@ -278,6 +288,16 @@ class Erosions(Case):
         lc = sub(LIFECYCLE, "let cold = 50.0", "let cold = 60.0")
         self.assertCaught("budget-raised", "crates/theseus-sim/src/lifecycle.rs",
                           {"crates/theseus-sim/src/lifecycle.rs": lc})
+
+    def test_a_first_request_token_budget_raised(self):
+        fr = sub(FIRST_REQUEST, "DM_TOKENS: u64 = 15_000;", "DM_TOKENS: u64 = 16_000;")
+        self.assertCaught("budget-raised", "crates/theseus-core/src/first_request.rs",
+                          {"crates/theseus-core/src/first_request.rs": fr})
+
+    def test_a_first_request_token_budget_dropped(self):
+        fr = sub(FIRST_REQUEST, "pub const CLI_TASK_TOKENS: u64 = 8_000;\n", "")
+        self.assertCaught("budget-raised", "crates/theseus-core/src/first_request.rs",
+                          {"crates/theseus-core/src/first_request.rs": fr})
 
     def test_a_bench_max_loops_raised(self):
         self.assertCaught("cap-raised", "bench/theseus-bench.toml",
@@ -479,6 +499,10 @@ class NonFindings(Case):
     def test_a_budget_lowered(self):
         self.assertClean({"crates/theseus-sim/src/lifecycle.rs": sub(LIFECYCLE, '"shutdown" => Some(100.0)',
                                                                      '"shutdown" => Some(90.0)')})
+
+    def test_a_first_request_token_budget_lowered(self):
+        self.assertClean({"crates/theseus-core/src/first_request.rs": sub(FIRST_REQUEST, "CLI_TASK_TOKENS: u64 = 8_000;",
+                                                                         "CLI_TASK_TOKENS: u64 = 7_500;")})
 
     def test_a_ceiling_lowered(self):
         self.assertClean({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 2900")})
