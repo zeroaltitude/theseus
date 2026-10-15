@@ -236,7 +236,7 @@ pub async fn stop(
     }
     match what {
         Stop::Cancel(id) => crate::cmd::cancel(conn, json, id).await,
-        Stop::Halt(session) => crate::cmd::stop(conn, json, session).await,
+        Stop::Halt(session) => crate::cmd::stop(conn, json, session, false).await,
     }
 }
 
