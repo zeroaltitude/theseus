@@ -28,6 +28,7 @@ mod exec_list;
 mod explain;
 pub mod extend;
 pub mod features;
+pub mod inspect;
 pub mod fork;
 mod gate;
 pub mod grants;
@@ -331,6 +332,9 @@ pub mod method {
         /// `context::ContextExplainParams`): the system block's parts, the guidance, the tools, the
         /// recall, and the conversation. A read; it compiles nothing.
         CONTEXT_EXPLAIN = "context.explain",
+        /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
+        /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
+        TURN_INSPECT = "turn.inspect",
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
@@ -2179,6 +2183,10 @@ pub struct TurnSubmitResult {
     /// shared place may not show.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cites: Vec<cite::Citation>,
+    /// The turn in the cockpit (`[cockpit] public_url`, theseus-x9swu): the link a reply's footer carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub inspect_url: Option<String>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

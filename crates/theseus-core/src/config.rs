@@ -34,10 +34,12 @@ pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
 mod threads;
+mod cockpit;
 mod wake_limits;
 pub use routines::RoutinesConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
+pub use cockpit::CockpitConfig;
 mod sparse;
 pub mod term;
 mod web;
@@ -163,6 +165,9 @@ pub struct Config {
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
+    /// `[cockpit]`: the link a reply's footer carries (theseus-x9swu), `config/cockpit.rs`.
+    #[serde(default, skip_serializing_if = "CockpitConfig::is_default")]
+    pub cockpit: CockpitConfig,
     /// `[cache]`: the keep-warm read and the cold rewrite's stubs (theseus-ezeg).
     #[serde(default, skip_serializing_if = "CacheConfig::is_default")]
     pub cache: CacheConfig,
@@ -1384,6 +1389,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.cockpit.validate()?;
         self.routines.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;

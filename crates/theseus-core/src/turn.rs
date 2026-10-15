@@ -3256,6 +3256,7 @@ impl TurnRunner {
             outside_roots: None,
             nudged: t.nudge.result(t.tool_calls),
             cites,
+            inspect_url: Some(self.cfg.cockpit.turn_url(t.tc.session_id, t.tc.turn_id)),
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,

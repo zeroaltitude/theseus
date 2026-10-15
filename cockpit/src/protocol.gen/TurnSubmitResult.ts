@@ -81,4 +81,8 @@ nudged?: TurnNudge,
  * turn's recall (theseus-ejdk); none when it cited none, and none a
  * shared place may not show.
  */
-cites?: Array<Citation>, };
+cites?: Array<Citation>, 
+/**
+ * The turn in the cockpit (`[cockpit] public_url`, theseus-x9swu): the link a reply's footer carries.
+ */
+inspect_url?: string, };
