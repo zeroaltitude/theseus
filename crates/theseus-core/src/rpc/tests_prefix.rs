@@ -98,6 +98,7 @@ fn project(dir: &std::path::Path, c: &mut Config) {
         "surveyor".into(),
         crate::config::PersonaConfig {
             files: vec![p.to_string_lossy().into_owned().into()],
+            ..Default::default()
         },
     );
 }
