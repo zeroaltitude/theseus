@@ -160,12 +160,15 @@ impl PlaceKind {
 
     /// The most tokens of tool definitions a request in this kind of place
     /// may carry when a message's words load more families for a model
-    /// without tool search (theseus-jpjcd): the owner's budgets, 8,000 for a
-    /// terminal, a task or a headless run and 15,000 for a person's messages.
+    /// without tool search (theseus-jpjcd): the owner's first-request budget
+    /// of the kind (`first_request`), never a second set of numbers.
     pub fn tools_budget_tokens(self) -> u64 {
+        use crate::first_request as fr;
         match self {
-            PlaceKind::Dm | PlaceKind::Channel => 15_000,
-            PlaceKind::Cli | PlaceKind::Task | PlaceKind::Headless => 8_000,
+            PlaceKind::Cli | PlaceKind::Task => fr::CLI_TASK_TOKENS,
+            PlaceKind::Dm => fr::DM_TOKENS,
+            PlaceKind::Channel => fr::CHANNEL_TOKENS,
+            PlaceKind::Headless => fr::HEADLESS_TOKENS,
         }
     }
 
