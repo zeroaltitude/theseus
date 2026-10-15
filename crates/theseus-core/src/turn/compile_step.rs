@@ -108,6 +108,7 @@ impl TurnRunner {
         );
         // The records of this turn's surface (theseus-slvl.4), in the tail too.
         Self::standing_here(t, &mut compiled);
+        Self::persona_line(t, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

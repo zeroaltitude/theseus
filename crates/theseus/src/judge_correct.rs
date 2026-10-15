@@ -14,7 +14,7 @@ use crate::cmd::output;
 #[derive(Args, Debug)]
 pub struct CorrectArgs {
     /// Where it should have run: a profile (`fable`), a mode of the route pack (`deep_coding`),
-    /// `stronger`, or `cheaper`.
+    /// `stronger`, or `cheaper`; or who should have answered: `persona:<name>`.
     to: String,
     /// The session whose turn it was.
     #[arg(long, short, value_name = "SESSION")]

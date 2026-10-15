@@ -162,6 +162,9 @@ pub struct Verdict {
     pub judgment: String,
     /// The turn it was asked for.
     pub turn: String,
+    /// route.v5's answers (theseus-c1uz): which persona, and whether to seal.
+    pub persona: Option<Box<crate::engage::PersonaAnswer>>,
+    pub seal: Option<Box<crate::engage::SealAnswer>>,
 }
 
 /// One configured profile, as routing weighs it.
@@ -611,6 +614,8 @@ mod tests {
             effort: None,
             judgment: "jdg_1".into(),
             turn: "turn_1".into(),
+            persona: None,
+            seal: None,
         }
     }
 

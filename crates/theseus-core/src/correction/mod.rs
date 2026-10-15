@@ -67,6 +67,9 @@ pub struct RoutedTurn {
     pub profile: String,
     /// The message's content words ([`layer::words`]).
     pub words: Vec<String>,
+    /// The verdict carried a `persona` answer (route.v5): a persona
+    /// correction labels it.
+    pub persona_asked: bool,
 }
 
 /// Who steers a turn.
@@ -95,6 +98,8 @@ pub struct Resolved {
     /// The mode the owner named.
     pub mode: Option<String>,
     pub steer: Option<Steer>,
+    /// The question the label is on: `mode`, or `persona` (theseus-c1uz).
+    pub question: &'static str,
     /// The label's words for `judge.label`'s check (`not:<mode>`).
     pub label: Option<String>,
     /// What the owner said, as a line names it.
@@ -115,6 +120,11 @@ pub fn names(cfg: &crate::Config, pack: Option<&theseus_judge::Pack>) -> words::
             .map(|(n, p)| (n.clone(), p.model.clone()))
             .collect(),
         modes,
+        personas: cfg
+            .personas
+            .iter()
+            .map(|(k, p)| (k.clone(), crate::config::PersonaView::of(k, p).name))
+            .collect(),
     }
 }
 
@@ -126,6 +136,14 @@ pub fn to_of(word: &str, names: &words::Names) -> Option<To> {
         "stronger" | "up" | "more" => return Some(To::Stronger),
         "cheaper" | "down" | "less" => return Some(To::Cheaper),
         _ => {}
+    }
+    if let Some(who) = w.strip_prefix("persona:") {
+        let who = who.trim();
+        return names
+            .personas
+            .iter()
+            .find(|(k, n)| k.to_lowercase() == who || n.to_lowercase() == who)
+            .map(|(k, _)| To::Persona(k.clone()));
     }
     if let Some((p, _)) = names
         .profiles
@@ -152,6 +170,14 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
             .map(|m| format!("not:{m}"))
     };
     match to {
+        To::Persona(k) => Resolved {
+            profile: None,
+            mode: None,
+            steer: Some(Steer::Persona(k.clone())),
+            question: "persona",
+            label: Some(k.clone()),
+            to: format!("persona {k}"),
+        },
         To::Profile(p) => {
             let leads = last
                 .mode
@@ -161,6 +187,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
                 profile: Some(p.clone()),
                 mode: None,
                 steer: Some(Steer::Profile(p.clone())),
+                question: QUESTION,
                 label: not(leads),
                 to: p.clone(),
             }
@@ -174,6 +201,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
                 profile: Some(profile),
                 mode: Some(m.clone()),
                 steer: Some(Steer::Mode(m.clone())),
+                question: QUESTION,
                 label: not(last.mode.as_deref() == Some(m.as_str())),
                 to: format!("mode {m}"),
             }
@@ -185,6 +213,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
                 steer: profile.clone().map(Steer::Profile),
                 profile,
                 mode: None,
+                question: QUESTION,
                 label: not(false),
                 to: if up { "stronger" } else { "cheaper" }.into(),
             }
@@ -302,6 +331,33 @@ impl Corrections {
         lock(&self.layer).nearest(words, acting, cfg.similarity)
     }
 
+    /// The persona an entry of the layer says a message close to `words`
+    /// should be answered by, under `acting` (theseus-c1uz).
+    pub fn nearest_persona(
+        &self,
+        words: &[String],
+        acting: &str,
+        cfg: &CorrectionsConfig,
+    ) -> Option<(Entry, f64)> {
+        if !cfg.enabled || words.is_empty() {
+            return None;
+        }
+        lock(&self.layer).nearest_persona(words, acting, cfg.similarity)
+    }
+
+    /// The session's pending steer, taken only when `want` says so.
+    pub fn take_pending_if(
+        &self,
+        session: &str,
+        want: impl Fn(&Steering) -> bool,
+    ) -> Option<Steering> {
+        let mut m = lock(&self.pending);
+        match m.get(session) {
+            Some(s) if want(s) => m.remove(session),
+            _ => None,
+        }
+    }
+
     /// The thread an entry of the layer says a message close to `words`
     /// belongs in (theseus-rha2).
     pub fn nearest_thread(&self, words: &[String], cfg: &CorrectionsConfig) -> Option<String> {
@@ -374,6 +430,7 @@ pub fn steer_line(s: &Steer) -> String {
         Steer::Mode(m) => format!("mode {m}"),
         Steer::Profile(p) => p.clone(),
         Steer::Thread(t) => format!("thread {t}"),
+        Steer::Persona(p) => format!("persona {p}"),
     }
 }
 
@@ -420,6 +477,7 @@ mod tests {
             from: "sonnet".into(),
             profile: profile.into(),
             words: vec![],
+            persona_asked: false,
         }
     }
 
@@ -476,6 +534,7 @@ mod tests {
         let n = words::Names {
             profiles: vec![("fable".into(), "claude-fable-5-1".into())],
             modes: vec!["deep_coding".into()],
+            personas: vec![("birch".into(), "Birch".into())],
         };
         assert_eq!(to_of("Fable", &n), Some(To::Profile("fable".into())));
         assert_eq!(

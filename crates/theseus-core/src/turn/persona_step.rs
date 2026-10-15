@@ -82,7 +82,7 @@ impl TurnRunner {
 
     /// The persona the bindings file gives the place where `session_id`
     /// speaks (a task's is its parent's, as its class is).
-    fn place_persona(&self, session_id: &str) -> Option<String> {
+    pub(super) fn place_persona(&self, session_id: &str) -> Option<String> {
         let target = self
             .outbox
             .try_target(session_id)

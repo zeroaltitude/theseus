@@ -38,6 +38,7 @@ pub mod crash;
 pub mod day_ceiling;
 pub mod disk;
 pub mod egress;
+pub mod engage;
 pub mod extend;
 pub mod external;
 pub mod fact;
@@ -239,6 +240,8 @@ mod tests_defer;
 mod tests_disk_watch;
 #[cfg(test)]
 mod tests_egress;
+#[cfg(test)]
+mod tests_engage;
 #[cfg(test)]
 mod tests_explain;
 #[cfg(test)]

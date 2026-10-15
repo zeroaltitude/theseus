@@ -507,9 +507,15 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             .effort_applied
             .as_ref()
             .map_or(String::new(), |e| format!(" · effort {e}"));
-        match &ro.mode {
-            Some(m) => format!(" · {m} ({}){effort}", ro.reason),
-            None => format!(" · route {}{effort}", ro.reason),
+        // Who answered and why, when two or more personas could (route.v5).
+        let who = ro
+            .persona
+            .as_ref()
+            .map_or(String::new(), |p| format!(" · {}", p.words()));
+        match (&ro.mode, ro.reason.is_empty()) {
+            (Some(m), _) => format!("{who} · {m} ({}){effort}", ro.reason),
+            (None, true) => who,
+            (None, false) => format!("{who} · route {}{effort}", ro.reason),
         }
     });
     format!(
@@ -3074,5 +3080,13 @@ mod tests {
         assert!(status_line(&r).contains(" · sophisticated (verdict) · effort max · "));
         r.route.as_mut().unwrap().effort_applied = None;
         assert!(status_line(&r).contains(" · sophisticated (verdict) · 1 loop(s)"));
+        // Who answered, and why when shown (route.v5, theseus-c1uz).
+        r.route.as_mut().unwrap().persona = Some(theseus_protocol::route::RoutePersona {
+            key: Some("birch".into()),
+            name: "Birch".into(),
+            how: "jev_shown".into(),
+            why: "\"CVE\" \u{b7} 0.74".into(),
+        });
+        assert!(status_line(&r).contains(" · Birch · \"CVE\" · 0.74 · sophisticated (verdict) · "));
     }
 }

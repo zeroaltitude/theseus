@@ -16,7 +16,7 @@ use theseus_protocol::PlaceClass;
 use theseus_store::NewRecord;
 
 use super::*;
-use crate::correction::{self, Resolved, To, QUESTION};
+use crate::correction::{self, Resolved, To};
 
 /// One correction, resolved and checked, before it is written.
 #[derive(Debug, Clone)]
@@ -76,7 +76,7 @@ impl Correcting {
             id: self.label_id.as_deref()?,
             judgment: self.last.judgment.as_deref()?,
             pack: &self.last.pack,
-            question: Some(QUESTION),
+            question: Some(self.resolved.question),
             about: None,
             label: self.label.clone()?,
             source: "operator",
@@ -140,6 +140,24 @@ impl Correcting {
 
     /// What `route.correct` answers.
     pub fn result(&self) -> theseus_protocol::route::RouteCorrectResult {
+        if let Some(Steer::Persona(p)) = &self.resolved.steer {
+            let labeled = self
+                .label_id
+                .as_ref()
+                .map(|l| format!("; labeled {p} on the persona question ({l})"))
+                .unwrap_or_default();
+            return theseus_protocol::route::RouteCorrectResult {
+                correction: self.id.clone(),
+                turn_id: self.last.turn.clone(),
+                label: self.label_id.clone(),
+                judgment: self.last.judgment.clone(),
+                profile: None,
+                line: format!(
+                    "Corrected {}: {p} answers from the next message{labeled}.",
+                    self.last.turn
+                ),
+            };
+        }
         let moved = match &self.resolved.profile {
             Some(p) if *p != self.last.profile => {
                 format!("the session runs on {p} from its next turn")
@@ -185,14 +203,16 @@ impl TurnRunner {
         provenance: String,
     ) -> anyhow::Result<Correcting> {
         let resolved = correction::resolve(to, &last, &self.cfg.routing, &self.route_profiles());
+        let asked = resolved.question != "persona" || last.persona_asked;
         let label = match (&resolved.label, &last.judgment) {
-            (Some(words), Some(_)) => {
+            (Some(words), Some(_)) if asked => {
                 let pack = self
                     .judge
                     .pack(&last.pack)
                     .with_context(|| format!("this build has no pack {}", last.pack))?;
-                let l = crate::learning::labels::check(&pack, Some(QUESTION), &json!(words))
-                    .map_err(anyhow::Error::msg)?;
+                let l =
+                    crate::learning::labels::check(&pack, Some(resolved.question), &json!(words))
+                        .map_err(anyhow::Error::msg)?;
                 Some(l)
             }
             _ => None,
@@ -255,14 +275,50 @@ impl TurnRunner {
             }
             return self.layer_point(t, route, asked);
         }
+        // A persona's steer needs no route verdict to apply.
+        if let Some(s) = corrections.take_pending_if(sid, |s| matches!(s.steer, Steer::Persona(_)))
+        {
+            Self::set_steer(t, s);
+        }
         if !asked {
+            self.persona_layer_point(t);
             return;
         }
         if let Some(s) = corrections.take_pending(sid) {
-            t.route.steer = Some(s);
+            Self::set_steer(t, s);
             return;
         }
+        self.persona_layer_point(t);
         self.layer_point(t, route, asked)
+    }
+
+    /// A steer, to where it acts: a persona's to the persona decision, any
+    /// other to the route's.
+    fn set_steer(t: &mut Turn<'_>, s: Steering) {
+        match s.steer {
+            Steer::Persona(_) => t.route.persona_steer = Some(s),
+            _ => t.route.steer = Some(s),
+        }
+    }
+
+    /// The layer's persona entry closest to the message: a close message is
+    /// answered by the persona the owner corrected a like one to.
+    fn persona_layer_point(&self, t: &mut Turn<'_>) {
+        if t.route.persona_steer.is_some() || !self.cfg.persona_engaging() {
+            return;
+        }
+        let cfg = &self.cfg.routing.corrections;
+        if let Some((e, _)) =
+            self.judge
+                .corrections
+                .nearest_persona(&t.route.words, ROUTE_PACK, cfg)
+        {
+            t.route.persona_steer = Some(Steering {
+                steer: e.steer,
+                follows: e.label.unwrap_or(e.id),
+                by: By::Layer,
+            });
+        }
     }
 
     /// The owner's words, acted on: the label and the row ride the turn's
@@ -293,7 +349,9 @@ impl TurnRunner {
         c.announce(&t.tc.rec());
         self.corrected(&c);
         t.route.correcting = true;
-        t.route.steer = c.steering(By::Owner);
+        if let Some(s) = c.steering(By::Owner) {
+            Self::set_steer(t, s);
+        }
         true
     }
 
@@ -318,11 +376,14 @@ impl TurnRunner {
             .corrections
             .nearest(&t.route.words, ROUTE_PACK, cfg)
         {
-            t.route.steer = Some(Steering {
-                steer: e.steer,
-                follows: e.label.unwrap_or(e.id),
-                by: By::Layer,
-            });
+            Self::set_steer(
+                t,
+                Steering {
+                    steer: e.steer,
+                    follows: e.label.unwrap_or(e.id),
+                    by: By::Layer,
+                },
+            );
         }
     }
 
@@ -346,12 +407,14 @@ impl TurnRunner {
         let v = Verdict {
             mode: match &s.steer {
                 Steer::Mode(m) => m.clone(),
-                Steer::Profile(_) | Steer::Thread(_) => "correction".into(),
+                Steer::Profile(_) | Steer::Thread(_) | Steer::Persona(_) => "correction".into(),
             },
             confidence: 1.0,
             judgment: s.follows.clone(),
             turn: t.tc.turn_id.to_string(),
             effort: None,
+            persona: None,
+            seal: None,
         };
         let a = routing::Ask {
             verdict: &v,
@@ -366,7 +429,7 @@ impl TurnRunner {
             Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, at_once),
             // A thread's entry steers a message to a thread, before a turn
             // exists (the router reads it), never a turn's profile.
-            Steer::Mode(_) | Steer::Thread(_) => {
+            Steer::Mode(_) | Steer::Thread(_) | Steer::Persona(_) => {
                 let mut d = routing::decide(&self.cfg.routing, &profiles, &a);
                 if matches!(d.reason, Reason::Verdict | Reason::Detour) {
                     d.reason = Reason::Correction;
@@ -399,6 +462,7 @@ impl TurnRunner {
             from: t.target.profile.clone(),
             profile: decision.map_or_else(|| t.target.profile.clone(), |d| d.profile.clone()),
             words: std::mem::take(&mut t.route.words),
+            persona_asked: own.is_some_and(|v| v.persona.is_some()),
         });
     }
 }

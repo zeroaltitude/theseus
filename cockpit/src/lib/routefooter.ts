@@ -9,7 +9,24 @@ export function routeLine(route: TurnRoute | undefined, profile: string): string
   if (!route) return null
   const what = route.source === 'correction' ? 'correction' : (route.mode ?? route.reason)
   const from = route.from && route.from !== profile ? ` (from ${route.from})` : ''
-  return `routed: ${what} · ${profile}${from}`
+  const who = personaWords(route)
+  if (!what) return who ? `answered by: ${who}` : null
+  return who ? `routed: ${who} · ${what} · ${profile}${from}` : `routed: ${what} · ${profile}${from}`
+}
+
+/** Who answered, and why when the verdict was not sure enough to stay quiet: `Birch`,
+ *  `Birch · "CVE", "sandbox escape" · 0.94 · next alder 0.04` (route.v5's `persona`, theseus-c1uz). */
+export function personaWords(route: TurnRoute | undefined): string | null {
+  const p = route?.persona
+  if (!p) return null
+  return p.why ? `${p.name} · ${p.why}` : p.name
+}
+
+/** The footer's persona menu, as `route.correct`'s `to`: every persona but the one that answered. */
+export function personaChoices(personas: { key?: string; name: string }[], answered?: string): { to: string; text: string }[] {
+  return personas
+    .filter((p) => p.key && p.key !== answered)
+    .map((p) => ({ to: `persona:${p.key}`, text: p.name }))
 }
 
 /** The footer's controls, as `route.correct`'s `to`: a stronger model, a cheaper one, then each other profile. */

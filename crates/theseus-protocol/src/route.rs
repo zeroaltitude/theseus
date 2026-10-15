@@ -44,6 +44,43 @@ pub struct TurnRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub effort_applied: Option<String>,
+    /// Which persona answered the turn, when two or more could (route.v5's
+    /// `persona`, theseus-c1uz).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub persona: Option<RoutePersona>,
+}
+
+/// The persona that answered a turn and why, for the route line.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RoutePersona {
+    /// The `[personas]` key; absent for the built-in default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub key: Option<String>,
+    /// What the person calls it.
+    pub name: String,
+    /// `explicit` (the message addressed it), `jev` (Jev's pick, sure),
+    /// `jev_shown` (Jev's pick, less sure: show the why) or `prior` (it
+    /// answered last).
+    pub how: String,
+    /// The why for the route line: the band and probability, the runner-up,
+    /// the card terms the message matched. Empty when nothing is shown.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub why: String,
+}
+
+impl RoutePersona {
+    /// The route line's who and why, as every surface words it:
+    /// `Birch` when nothing more is shown, `Birch · "CVE" · 0.94 · next alder
+    /// 0.04` with its why.
+    pub fn words(&self) -> String {
+        match self.why.is_empty() {
+            true => self.name.clone(),
+            false => format!("{} \u{b7} {}", self.name, self.why),
+        }
+    }
 }
 
 /// `route.correct` (theseus-q31l): the owner's correction of a turn's

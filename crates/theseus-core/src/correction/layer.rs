@@ -28,6 +28,9 @@ pub enum Steer {
     /// The thread (a slug) a close message belongs in (theseus-rha2): the
     /// owner moved a message like it there.
     Thread(String),
+    /// The persona (a `[personas]` key) that should answer a close message
+    /// (route.v5, theseus-c1uz).
+    Persona(String),
 }
 
 /// One correction in the layer.
@@ -144,7 +147,7 @@ impl Layer {
             .entries
             .iter()
             .rev()
-            .filter(|e| !matches!(e.steer, Steer::Thread(_)))
+            .filter(|e| !matches!(e.steer, Steer::Thread(_) | Steer::Persona(_)))
         {
             let s = similarity(words, &e.words);
             if s >= threshold && best.is_none_or(|(_, b)| s > b) {
@@ -168,6 +171,28 @@ impl Layer {
             }
         }
         best.map(|(s, _)| s.to_string())
+    }
+
+    /// The persona entry closest to `words` at `threshold` or above, after
+    /// retiring any `acting` has replaced.
+    pub fn nearest_persona(
+        &mut self,
+        words: &[String],
+        acting: &str,
+        threshold: f64,
+    ) -> Option<(Entry, f64)> {
+        self.retire(acting);
+        let mut best: Option<(&Entry, f64)> = None;
+        for e in self.entries.iter().rev() {
+            if !matches!(e.steer, Steer::Persona(_)) {
+                continue;
+            }
+            let s = similarity(words, &e.words);
+            if s >= threshold && best.is_none_or(|(_, b)| s > b) {
+                best = Some((e, s));
+            }
+        }
+        best.map(|(e, s)| (e.clone(), s))
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {

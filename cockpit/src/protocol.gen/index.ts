@@ -436,6 +436,7 @@ export type * from './RouteCorrectResult';
 export type * from './RouteCorrectionInfo';
 export type * from './RouteCorrectionsResult';
 export type * from './RouteHow';
+export type * from './RoutePersona';
 export type * from './RouteReportParams';
 export type * from './RouteReportResult';
 export type * from './RoutineCreateParams';

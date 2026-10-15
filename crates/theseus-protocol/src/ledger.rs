@@ -203,6 +203,7 @@ ledger_kinds! {
     PeopleExtracted = "people.extracted",
     PeopleSwept = "people.swept",
     PersonaChanged = "persona.changed",
+    PersonaEngaged = "persona.engaged",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PlaceWarned = "place.warned",

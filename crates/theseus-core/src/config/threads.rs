@@ -32,9 +32,28 @@
 //!   message finds its cache gone (6; `thread-context`).
 //! - `working_tokens`: what a thread's request stays within after such a cold
 //!   resume (60,000), its newest turn aside.
+//! - `persona_engage` (`shadow`): whether Jev's `persona` verdict (route.v5,
+//!   theseus-c1uz) engages a persona. An explicit address (a name at the
+//!   message's start, `@name`, `/as name`) always does; `shadow` records
+//!   Jev's pick and keeps the prior, `act` engages it at 0.90 and shows
+//!   a why from 0.60. The maintainer sets `act` after the persona holdout.
+//! - `seal_recommend` (false): whether a `yes` of route.v5's `seal` question
+//!   at the confirm bar or above, in a thread, proposes sealing it (a card to
+//!   the owner's DM; Jev recommends, the owner seals). Off until its holdout.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
+
+/// Whether Jev's persona verdict engages a persona.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PersonaEngage {
+    /// Recorded only: the prior stands unless the message addresses one.
+    #[default]
+    Shadow,
+    /// Engaged at the act bar, shown with its why from the confirm bar.
+    Act,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,6 +82,10 @@ pub struct ThreadsConfig {
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
     pub working_tokens: u64,
+    #[serde(default)]
+    pub persona_engage: PersonaEngage,
+    #[serde(default)]
+    pub seal_recommend: bool,
 }
 
 fn default_enabled() -> bool {
@@ -114,6 +137,8 @@ impl Default for ThreadsConfig {
             ask_wait_secs: default_ask_wait(),
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
+            persona_engage: PersonaEngage::default(),
+            seal_recommend: false,
         }
     }
 }

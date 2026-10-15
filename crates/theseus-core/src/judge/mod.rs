@@ -42,6 +42,7 @@ pub mod memory;
 pub mod notice;
 pub mod people;
 pub mod rerank;
+mod seal;
 pub mod sink;
 pub mod spend;
 pub mod stop;

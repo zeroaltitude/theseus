@@ -231,6 +231,7 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # card = "Careful systems engineer; prefers a plain answer to a clever one."   # about 60 tokens of specialization and background
 # tts_voice = "aura-2-thalia-en"        # overrides [voice] tts_voice while this persona is in play
 # avatar = "~/avatars/theseus.png"      # a path or URL, for Discord
+# shareable = false                     # true: a shared place may be answered by this persona too (only its own, by default)
 # initiative = "normal"                 # quiet | normal | chatty: how readily it speaks first
 
 # ---------------------------------------------------------------- providers
@@ -995,6 +996,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # is a stub that says how to read it again.
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+# With two or more [personas], each message is answered by the one it calls for: named at its start
+# ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
+# which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).
+# persona_engage = "shadow"               # shadow | act
+# seal_recommend = false                  # true: Jev's route.v5 `seal` question, answered yes at 0.60 or above in a thread, proposes sealing it (a card to your DM; Jev recommends, you seal)
 
 # ---------------------------------------------------------------- cockpit
 # Each reply's footer links to its turn in the cockpit (`<public_url>/session/

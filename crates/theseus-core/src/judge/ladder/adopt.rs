@@ -36,7 +36,7 @@ pub struct Adopted {
 /// 2026-10-06, "we test it live, no more shadows"), its rollback rules
 /// guarding it, `route.v3`, which goes live at once in place of `route.v2`
 /// the same way (theseus-qe3v), and `route.v4` in place of `route.v3`
-/// (theseus-p8dy).
+/// (theseus-p8dy), and `route.v5` in place of `route.v4` (theseus-c1uz).
 pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v1",
@@ -53,6 +53,10 @@ pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v4",
         why: WHY_ROUTE_V4,
+    },
+    Adopted {
+        pack: "route.v5",
+        why: WHY_ROUTE_V5,
     },
     Adopted {
         pack: "rerank.v1",
@@ -74,6 +78,11 @@ pub const WHY_ROUTE_V3: &str = "decision of 2026-10-07";
 /// `route.v4`'s adoption row's reason: the owner's word on the model guide
 /// that Jev elevates and a review has its own mode (theseus-p8dy).
 pub const WHY_ROUTE_V4: &str = "decision of 2026-10-11";
+
+/// `route.v5`'s adoption row's reason: it is route.v4 word for word with two
+/// questions that decide nothing for its promotion, `persona` and `seal`
+/// (theseus-c1uz); the owner's word of 2026-10-09 that Jev engages the persona.
+pub const WHY_ROUTE_V5: &str = "decision of 2026-10-13";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local

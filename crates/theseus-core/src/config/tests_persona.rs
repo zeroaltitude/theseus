@@ -87,3 +87,38 @@ fn unset_fields_are_not_written_back() {
         assert!(!shown.contains(k), "{k}: {shown}");
     }
 }
+
+/// Persona engagement (theseus-c1uz): `[threads] persona_engage` is `shadow`
+/// and `seal_recommend` off by default, both named in the template, a note
+/// may change them and an unknown word is refused; a persona is not
+/// `shareable` unless it says so.
+#[test]
+fn engagement_is_shadow_and_off_until_the_owner_says_otherwise() {
+    use super::{Config, PersonaEngage};
+    let cfg = Config::from_toml(Config::EXAMPLE_TOML).unwrap();
+    assert_eq!(cfg.threads.persona_engage, PersonaEngage::Shadow);
+    assert!(!cfg.threads.seal_recommend);
+    for line in [
+        "# persona_engage = \"shadow\"",
+        "# seal_recommend = false",
+        "# shareable = false",
+    ] {
+        assert!(Config::EXAMPLE_TOML.contains(line), "{line}");
+    }
+    let on = Config::parse(&doc(
+        "[threads]\npersona_engage = \"act\"\nseal_recommend = true\n\n\
+         [personas.pier]\nshareable = true\n\n[personas.quiet_one]\n",
+    ))
+    .unwrap()
+    .0;
+    assert_eq!(on.threads.persona_engage, PersonaEngage::Act);
+    assert!(on.threads.seal_recommend);
+    assert!(on.personas["pier"].shareable && !on.personas["quiet_one"].shareable);
+    assert!(on.persona_engaging(), "two personas engage");
+    assert!(Config::parse(&doc("[threads]\npersona_engage = \"always\"\n")).is_err());
+    let one = Config::parse(&doc("[personas.pier]\n")).unwrap().0;
+    assert!(
+        !one.persona_engaging(),
+        "one persona is the session's, nothing is engaged"
+    );
+}

@@ -510,6 +510,7 @@ facts![
     rsi_narrow::NarrowRed,
     rsi_narrow::NarrowReverted,
     persona::PersonaChanged<'static>,
+    persona::PersonaEngaged<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

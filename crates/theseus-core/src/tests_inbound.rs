@@ -104,7 +104,7 @@ const INBOUND_ALONE: [&str; 15] = [
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v2: live",
     "role.v1: shadow",
-    "route.v4: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-11))",
+    "route.v5: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-13))",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
@@ -342,7 +342,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(
         marks(&res.trace).len(),
         4,
-        "judged: the inbound point's three marks (route.v4's, 25e), and loop.v1's at the turn's end (23b)"
+        "judged: the inbound point's three marks (route.v5's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");

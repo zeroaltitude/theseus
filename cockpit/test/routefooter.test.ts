@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { RouteCorrectionsResult } from '@protocol'
-import { correctionChoices, correctionLine, layerHead, routeLine } from '../src/lib/routefooter.ts'
+import { correctionChoices, correctionLine, layerHead, personaChoices, personaWords, routeLine } from '../src/lib/routefooter.ts'
 
 test("a turn's route line names its mode, or the correction that placed it", () => {
   assert.equal(routeLine(undefined, 'sonnet'), null)
@@ -32,4 +32,22 @@ test('the layer reads a head and a line an entry', () => {
   }
   assert.equal(layerHead(r), 'on · 1 of 64 under route.v2 · close at 50% of words in common · 2 retired')
   assert.equal(correctionLine(r.entries[0]), '→ fable · format lighthouse log parser rust write x y +1')
+})
+
+test("a turn's line says who answered and, when Jev was less than sure, why (route.v5)", () => {
+  const sure = { key: 'birch', name: 'Birch', how: 'jev', why: '' }
+  const shown = { key: 'birch', name: 'Birch', how: 'jev_shown', why: '"CVE", "sandbox escape" · 0.94 · next alder 0.04' }
+  assert.equal(routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'opus', persona: sure }, 'opus'), 'routed: Birch · deep_coding · opus')
+  assert.equal(
+    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'opus', persona: shown }, 'opus'),
+    'routed: Birch · "CVE", "sandbox escape" · 0.94 · next alder 0.04 · deep_coding · opus',
+  )
+  // A turn routing decided nothing for still says who answered.
+  assert.equal(routeLine({ reason: '', from: '', persona: sure }, 'opus'), 'answered by: Birch')
+  assert.equal(personaWords({ reason: 'verdict', from: 'opus' }), null)
+})
+
+test("the footer's persona menu is every persona but the one that answered", () => {
+  const all = [{ key: 'birch', name: 'Birch' }, { key: 'alder', name: 'Alder' }, { name: 'Theseus' }]
+  assert.deepEqual(personaChoices(all, 'birch'), [{ to: 'persona:alder', text: 'Alder' }])
 })
