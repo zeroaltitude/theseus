@@ -254,6 +254,8 @@ ledger_kinds! {
     SelfNarrowRed = "self.narrow.red",
     SelfNarrowReverted = "self.narrow.reverted",
     SelfResumed = "self.resumed",
+    SelfReverted = "self.reverted",
+    SelfVetoed = "self.vetoed",
     ServerCrashed = "server.crashed",
     ServerServing = "server.serving",
     ServerStarted = "server.started",

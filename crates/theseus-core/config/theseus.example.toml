@@ -1135,6 +1135,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # narrow_every_days = 7                   # a hand role's policy is looked at for narrowing at most this often
 # narrow_days = 14                        # the days of CloudTrail a narrowing reads (1 to 90)
 # narrow_read_pages = 400                 # the most CloudTrail pages (50 events each) one narrowing reads
+# revert_window_hours = 24                # hours after a self-join in which a red it caused reverts it on its
+#                                         # own, with a notice; 0 watches nothing (the owner's veto always works)
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day

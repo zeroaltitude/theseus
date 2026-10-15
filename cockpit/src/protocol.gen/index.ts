@@ -489,6 +489,8 @@ export type * from './SelfNarrowItem';
 export type * from './SelfNarrowParams';
 export type * from './SelfNarrowResult';
 export type * from './SelfResumeParams';
+export type * from './SelfRevertParams';
+export type * from './SelfRevertResult';
 export type * from './SelfState';
 export type * from './SelfSwitchResult';
 export type * from './SessionForkParams';

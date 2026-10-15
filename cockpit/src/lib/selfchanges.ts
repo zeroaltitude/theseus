@@ -31,3 +31,15 @@ export function numbersLine(n: unknown): string {
 export function kindWords(r: Pick<SelfLogRow, 'kind'>): string {
   return r.kind.startsWith('self.') ? r.kind.slice('self.'.length) : r.kind
 }
+
+/** The merge a `self.joined` row can be vetoed by: the commit its undo names (`theseus self revert <merge>`); none for any other row. */
+export function revertableMerge(r: Pick<SelfLogRow, 'kind' | 'undo'>): string | undefined {
+  if (r.kind !== 'self.joined') return undefined
+  return /^theseus self revert ([0-9a-f]{7,64})$/.exec(r.undo ?? '')?.[1]
+}
+
+/** Whether a later row of the log says the merge was reverted or vetoed already (their sentences name its first 12 characters). */
+export function revertedAlready(rows: Pick<SelfLogRow, 'kind' | 'what'>[], merge: string): boolean {
+  const short = merge.slice(0, 12)
+  return rows.some((r) => (r.kind === 'self.reverted' || r.kind === 'self.vetoed') && r.what.includes(short))
+}

@@ -46,6 +46,9 @@
 //!   (400): the narrowing of the hand roles' policies (theseus-pw1q.15): a
 //!   role is looked at at most this often, from this many days of CloudTrail,
 //!   reading at most this many pages (AWS reads, never model spend).
+//! - `revert_window_hours` (theseus-pw1q.10): `24` by default. For this many
+//!   hours after a self-join, a red the join caused reverts it on its own
+//!   (`rsi::revert`); `0` watches nothing. The owner's veto works at any time.
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -99,6 +102,10 @@ pub struct SelfConfig {
     /// The most CloudTrail pages (50 events each) one narrowing reads.
     #[serde(default = "default_narrow_read_pages")]
     pub narrow_read_pages: u32,
+    /// Hours after a self-join in which a red it caused reverts it
+    /// (theseus-pw1q.10); 0 watches nothing.
+    #[serde(default = "default_revert_window_hours")]
+    pub revert_window_hours: u64,
 }
 
 fn default_narrow_every_days() -> u32 {
@@ -111,6 +118,13 @@ fn default_narrow_days() -> u32 {
 
 fn default_narrow_read_pages() -> u32 {
     400
+}
+
+/// `[self] revert_window_hours`'s default.
+pub const REVERT_WINDOW_HOURS: u64 = 24;
+
+fn default_revert_window_hours() -> u64 {
+    REVERT_WINDOW_HOURS
 }
 
 /// `[self] graduate_min_calls`'s default.
@@ -165,6 +179,7 @@ impl Default for SelfConfig {
             narrow_every_days: default_narrow_every_days(),
             narrow_days: default_narrow_days(),
             narrow_read_pages: default_narrow_read_pages(),
+            revert_window_hours: REVERT_WINDOW_HOURS,
         }
     }
 }
@@ -526,5 +541,18 @@ mod tests {
             (c.self_improve.narrow_every_days, c.self_improve.narrow_days),
             (3, 30)
         );
+    }
+
+    /// Auto-revert's window (theseus-pw1q.10): a day by default, 0 watches
+    /// nothing; the template names it.
+    #[test]
+    fn the_revert_window_defaults_to_a_day_and_the_template_names_it() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!(none.revert_window_hours, 24);
+        assert!(Config::EXAMPLE_TOML.contains("\n# revert_window_hours = 24"));
+        let cfg = Config::from_toml("[self]\nrevert_window_hours = 6\n")
+            .unwrap()
+            .self_improve;
+        assert_eq!(cfg.revert_window_hours, 6);
     }
 }

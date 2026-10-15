@@ -585,6 +585,42 @@ pub struct SelfExamsResult {
     pub state: SelfState,
 }
 
+// ---- auto-revert and the owner's veto (theseus-pw1q.10) ----
+
+/// `self.revert`'s params: the owner's veto of a self-join, by its merge commit
+/// (a whole sha or a unique start of at least 7 characters).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfRevertParams {
+    pub merge: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    /// The `THESEUS_SESSION` of the shell that sent it: a job's never counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// `self.revert`'s answer: the revert commit now on main.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfRevertResult {
+    /// The self-join's merge commit that was undone.
+    pub merge: String,
+    /// The signed revert commit pushed to main.
+    pub revert: String,
+    /// The backlog item that was dropped and stays dropped, if it was still on the backlog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub item: Option<String>,
+    /// False when the merge had been reverted already.
+    pub changed: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -838,6 +838,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   For a week after an apply the nightly watch reads the role's AccessDenied events since it; each new denied action is
   a `self.narrow.red` row and a `self_narrow_red` card with the revert. State is the META record `self.narrow`. The
   pass makes AWS reads and no model call. Tests: `aws/narrow/*` (pure, with a fake account) and `rsi/tests_narrow.rs`.
+  **Auto-revert and the veto** (theseus-pw1q.10; `rsi/revert.rs` and `rsi/revert/`, `fact/rsi_revert.rs`):
+  `Core::self_revert_pass(&Seams, &mut known)`, from its tender (`revert/tender.rs`, only `[self] mode = "act"`: a pass 20
+  minutes after serving, then every 10), asks `rsi::gate` first and reads nothing with the mode off, the switch halted or
+  `[self] revert_window_hours` (24; 0 watches nothing) at zero. For each `self.joined` row inside the window and not
+  reverted, vetoed or held, `revert/signals.rs` (`Signals`; `Files` reads the gate's `gate-times.csv`, the bench
+  history and the ledger's error rows against the hour before the first join) reports a `Red`; `revert/attribute.rs`
+  says whose it is by bisecting main's first-parent commits with main's gate on a tree at each (`Prober`, `MainsGate`):
+  red at the parent of the earliest join is `Before`, the first red commit being no self-join's is `Outer`, else the
+  join; a health red is the newest join before it unless an outer commit came between. A red judged is remembered (a
+  `known` set) and not tested again. `revert/doing.rs` reverts under the self-join's lock (`git revert -m 1` in a
+  detached tree off main, `tree::gate_with_benches` through the door, `git::sign`, `git::push_main`, never forced, the
+  install by `join::install`), writes `self.reverted` or `self.vetoed` and the owner's `self_join` notice in one frame;
+  a conflict, a red or keel gate, no key or a lost race posts the owner's card and writes `self.join.stopped` (branch
+  `revert <merge>`, `numbers.held`), and the watch leaves a held merge alone. `Core::self_revert` is the owner's veto
+  (`self.revert`, `theseus self revert`, the cockpit's Revert button): `judge_act(Act::SelfRevert)` is the resume's
+  rule (`places::owner_anywhere`; a job's `THESEUS_SESSION` is refused with an `approval.refused` row), it works with
+  the mode off, finds the merge among the `self.joined` rows only (an outer-loop join is never reverted; a name of 7
+  characters or more), drops the join's backlog item for good (`Core::self_drop_vetoed`, before the revert, so a held
+  revert still keeps the item dropped), and an already-reverted merge answers `changed: false`. Tests:
+  `rsi/revert/tests.rs` (a throwaway origin, a stand-in gate and gpg, and a "world" clone that lands merges),
+  `signals.rs`'s own.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
