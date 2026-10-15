@@ -68,7 +68,7 @@ impl Core {
     ) -> anyhow::Result<PersonaImportResult> {
         let now = theseus_protocol::now_unix_ms();
         let (mut result, found) = run::import(
-            &self.cfg.state_dir(),
+            &self.runner.state_root(),
             p,
             &self.cfg.persona.import_files,
             crate::context_files::MAX_BYTES,
@@ -127,7 +127,7 @@ impl Core {
                 p.name
             );
         };
-        let dir = run::dir_of(&self.cfg.state_dir(), &p.name);
+        let dir = run::dir_of(&self.runner.state_root(), &p.name);
         if let Some(mut m) = Manifest::read(&dir) {
             if !m.card_confirmed {
                 m.card_confirmed = true;

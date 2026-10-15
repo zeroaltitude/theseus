@@ -127,7 +127,7 @@ impl Core {
         // draft it wrote, and the name its episodes carry.
         let manifest = view.key.as_deref().and_then(|k| {
             crate::persona_import::Manifest::read(&crate::persona_import::run::dir_of(
-                &self.cfg.state_dir(),
+                &self.runner.state_root(),
                 k,
             ))
         });

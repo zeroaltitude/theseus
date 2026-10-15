@@ -86,6 +86,16 @@ impl PersonaScene {
 }
 
 impl TurnRunner {
+    /// The state dir this daemon runs on: the store's parent, which a
+    /// `--state-dir` start moves and `[server].state_dir` does not know. A
+    /// persona's folder is under it (`personas/<name>`).
+    pub fn state_root(&self) -> std::path::PathBuf {
+        let store = self.store.dir();
+        store
+            .parent()
+            .map_or_else(|| self.cfg.state_dir(), std::path::Path::to_path_buf)
+    }
+
     /// The persona's part of a recall for a turn that speaks as `persona`
     /// (a `[personas]` key); none while no persona is engaged or the boost is
     /// off.
@@ -98,7 +108,7 @@ impl TurnRunner {
         let view = PersonaView::of(key, cfg);
         Some(PersonaScene {
             name: view.name,
-            agent: self.persona.agent_of(&self.cfg.state_dir(), key),
+            agent: self.persona.agent_of(&self.state_root(), key),
             boost: self.cfg.persona.own_boost,
             store: self.store.clone(),
             memo: self.persona.agents.clone(),

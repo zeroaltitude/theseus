@@ -53,7 +53,12 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
         .unwrap()
     };
     let owners = "Reads tide tables for the owner and keeps species logs.";
+    // The config names a state dir the daemon does not run on (a `--state-dir`
+    // start moves the store, not the config): the persona's folder must go
+    // beside the store.
+    let elsewhere = tempfile::tempdir().unwrap();
     let r = rig_with(MemoryMode::Off, |c| {
+        c.server.state_dir = elsewhere.path().display().to_string();
         c.personas.insert(
             "wren".into(),
             PersonaConfig {
@@ -78,7 +83,7 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
     };
     let dry = c.persona_import(&p).unwrap();
     assert!(dry.dry_run && dry.version == 1);
-    assert!(!run::dir_of(&c.cfg.state_dir(), "wren").exists());
+    assert!(!run::dir_of(&c.runner.state_root(), "wren").exists());
     // Before any import there is no record: a card is a card.
     assert!(!info(c, "wren").card_draft && info(c, "wren").offered);
 
@@ -89,7 +94,11 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
         })
         .unwrap();
     assert_eq!(done.card.as_deref(), Some(draft.as_str()));
-    let dir = run::dir_of(&c.cfg.state_dir(), "wren");
+    let dir = run::dir_of(&c.runner.state_root(), "wren");
+    // Beside the store this daemon runs on (a `--state-dir` start moves both).
+    assert_eq!(dir, c.store.dir().parent().unwrap().join("personas/wren"));
+    assert!(!dir.starts_with(elsewhere.path()), "{dir:?}");
+    assert!(!elsewhere.path().join("personas").exists());
     assert_eq!(Manifest::read(&dir).unwrap().agent, "wren");
     let w = info(c, "wren");
     assert!(w.card_draft && !w.offered, "{w:?}");
