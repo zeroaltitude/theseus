@@ -74,6 +74,7 @@ pub mod rsi_exams;
 pub mod rsi_graduate;
 pub mod rsi_join;
 pub mod rsi_narrow;
+pub mod rsi_pipeline;
 pub mod rsi_pr;
 pub mod rsi_revert;
 pub mod rsi_sealed;
@@ -514,6 +515,13 @@ facts![
     persona::PersonaChanged<'static>,
     rsi_revert::SelfReverted,
     rsi_revert::SelfVetoed,
+    rsi_pipeline::Started,
+    rsi_pipeline::Held,
+    rsi_pipeline::Returned,
+    rsi_pipeline::Parked,
+    rsi_pipeline::Queued,
+    rsi_pipeline::Cleared,
+    rsi_pipeline::Ended,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

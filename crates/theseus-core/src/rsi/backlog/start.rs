@@ -56,14 +56,37 @@ impl Core {
         }
     }
 
-    /// Start up to `n` of the top unmarked items, one frame each.
-    pub(super) fn backlog_start(&self, w: &mut Work, n: usize, night: &mut Night) -> Result<()> {
+    /// Start one proposed item now, whatever its rank: the self pipeline's
+    /// start (theseus-pw1q.16), under the backlog's lock as a night's is.
+    /// None when it is not proposed (dropped, started, or held meanwhile).
+    pub(crate) fn backlog_start_item(&self, id: &str) -> Result<Option<Started>> {
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut w = self.backlog_work()?;
+        let mut night = Night::default();
+        self.backlog_start(&mut w, 1, &mut night, Some(id))?;
+        Ok(night.started.pop())
+    }
+
+    /// Start up to `n` of the top unmarked items (or `only` that one), one
+    /// frame each.
+    pub(super) fn backlog_start(
+        &self,
+        w: &mut Work,
+        n: usize,
+        night: &mut Night,
+        only: Option<&str>,
+    ) -> Result<()> {
         let mut top: Vec<(u32, String)> = w
             .tasks
             .values()
             .filter(|t| t.state == TaskState::Proposed)
+            .filter(|t| only.is_none_or(|o| o == t.id))
             .filter_map(|t| w.st.items.get(&t.id).map(|m| (m.rank, t.id.clone())))
-            .filter(|(rank, _)| *rank > 0)
+            .filter(|(rank, _)| *rank > 0 || only.is_some())
             .collect();
         top.sort();
         for (rank, id) in top.into_iter().take(n) {

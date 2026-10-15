@@ -196,6 +196,43 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         fields: &["role", "proposal", "stack", "change_set", "by"],
         doc: "The owner reverted a narrowing to the policy before it, through a change set.",
     },
+    SelfRowKind {
+        name: "self.pipeline.started",
+        fields: &["item", "builder", "session"],
+        doc: "The pipeline started a build of the top ready item (theseus-pw1q.16): its builder, \
+              its session, and the slots and room it started in.",
+    },
+    SelfRowKind {
+        name: "self.pipeline.held",
+        fields: &["hold"],
+        doc: "The pipeline held its next start: the slots, the disk, memory or CPU pressure, or \
+              the self budget's day line. Written when the reason changes.",
+    },
+    SelfRowKind {
+        name: "self.pipeline.returned",
+        fields: &["item", "branch", "head", "findings"],
+        doc: "A rejected review sent an item back to ready, once, with the reviewer's findings.",
+    },
+    SelfRowKind {
+        name: "self.pipeline.parked",
+        fields: &["item", "rejections"],
+        doc: "A second rejection: the item left the pipeline for the owner's view.",
+    },
+    SelfRowKind {
+        name: "self.pipeline.queued",
+        fields: &["item", "branch", "head"],
+        doc: "A passed review: the branch waits for the join lock.",
+    },
+    SelfRowKind {
+        name: "self.pipeline.cleared",
+        fields: &["item", "trees", "reason"],
+        doc: "A build's trees deleted, once its branch joined or it was dropped or ended.",
+    },
+    SelfRowKind {
+        name: "self.pipeline.ended",
+        fields: &["item", "session", "reason"],
+        doc: "A build ended with no green branch: its turn ended, or a halt or a drop stopped it.",
+    },
 ];
 
 /// `[self] mode`, as the daemon read it at its start.
@@ -769,4 +806,146 @@ pub struct SelfNarrowResult {
     pub text: String,
     pub proposals: Vec<SelfNarrowItem>,
     pub state: SelfState,
+}
+
+// ---------------------------------------------------------------- self-pipeline (theseus-pw1q.16)
+// The pipeline between the backlog, the branch builder and the self-join:
+// `self.pipeline`, its three queues, what holds its next start, and the
+// week's measures. `theseus self pipeline [--week]` reads it.
+
+/// `self.pipeline`'s params: `week` adds the week's measures.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPipelineParams {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub week: bool,
+}
+
+/// One item in one of the pipeline's queues.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPipelineItem {
+    pub item: String,
+    pub title: String,
+    /// `ready`, `building`, `reviewing`, `joining` or `held`.
+    pub queue: String,
+    /// Its place in its queue, from 1.
+    pub place: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session: Option<String>,
+    /// When it entered its queue (unix ms), where known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub since_ms: Option<u64>,
+    /// Reviews that rejected it so far.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rejections: u32,
+    /// Why it waits, for one held or returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// What the capacity guard read, and why the next start waits, if it does.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPipelineRoom {
+    pub slots: u32,
+    pub building: u32,
+    pub trees: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub free_gb: Option<f64>,
+    pub min_free_gb: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub memory_psi: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cpu_psi: Option<f64>,
+    /// `slots`, `disk`, `memory`, `cpu`, `budget`, or none: a start may go.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub hold: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+}
+
+/// One day of the week's measures.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPipelineDay {
+    /// `YYYY-MM-DD`, the local day.
+    pub day: String,
+    pub started: u32,
+    pub built: u32,
+    pub accepted: u32,
+    pub rejected: u32,
+    pub joined: u32,
+    pub reverted: u32,
+    /// What its built branches and reviews cost.
+    pub cost_usd: f64,
+}
+
+/// The week's measures (rsi-plan): rows a day, the accept rate, regressions
+/// at the next rerun, and the cost of a row against today's.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPipelineWeek {
+    /// Oldest first, today last.
+    pub days: Vec<SelfPipelineDay>,
+    /// Joined rows a day, over the week.
+    pub rows_a_day: f64,
+    /// Accepted reviews over all verdicts; none before a verdict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub accept_rate: Option<f64>,
+    /// Joins reverted on their own or vetoed (`self.reverted`, `self.vetoed`).
+    pub regressions: u32,
+    /// The week's cost over its joined rows; none before a join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cost_a_row_usd: Option<f64>,
+    /// Today's, to set against it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub today_cost_a_row_usd: Option<f64>,
+}
+
+/// `self.pipeline`'s answer: the queues, the room, today's spend and rows,
+/// and the week's measures when asked.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPipelineResult {
+    pub state: SelfState,
+    /// The builder in use: `local`.
+    pub builder: String,
+    pub ready: Vec<SelfPipelineItem>,
+    pub building: Vec<SelfPipelineItem>,
+    pub reviewing: Vec<SelfPipelineItem>,
+    pub joining: Vec<SelfPipelineItem>,
+    /// Out of the pipeline, waiting on the owner: rejected twice, at the
+    /// keel, or stopped at a join.
+    pub held: Vec<SelfPipelineItem>,
+    pub room: SelfPipelineRoom,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub budget: Option<SelfBudgetView>,
+    /// Today's `self.pipeline.*` rows.
+    pub rows_today: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub week: Option<SelfPipelineWeek>,
+    /// The ledger's index is still being built: the queues are not read yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub building_index: bool,
 }

@@ -8,7 +8,7 @@ use theseus_protocol::rsi::{
     SelfBacklogItem, SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult,
     SelfMoveParams, SelfMoveResult,
 };
-use theseus_protocol::tasks::TaskState;
+use theseus_protocol::tasks::{TaskRecord, TaskState};
 
 use super::state::State;
 use super::{is_open, rank, Night, Work};
@@ -43,7 +43,16 @@ fn open_order(w: &mut Work) -> Vec<String> {
 }
 
 impl Core {
-    fn backlog_work(&self) -> Result<Work> {
+    /// The backlog as the self pipeline reads it (theseus-pw1q.16): every
+    /// item, and the open ones' ids in rank order now (the night's rule and
+    /// the owner's pins), so a returned item takes its place at once.
+    pub(crate) fn backlog_for_pipeline(&self) -> Result<(Vec<TaskRecord>, Vec<String>)> {
+        let mut w = self.backlog_work()?;
+        let order = open_order(&mut w);
+        Ok((w.tasks.into_values().collect(), order))
+    }
+
+    pub(super) fn backlog_work(&self) -> Result<Work> {
         let st = State::read(&self.store)?;
         Ok(Work {
             tasks: self.backlog_tasks(&st)?,
@@ -154,6 +163,7 @@ impl Core {
         }
         w.drop_item(&id, &who.who(), "dropped by the owner's word", true);
         self.backlog_write(&mut w)?;
+        self.rsi.pipeline.kick();
         Ok(SelfDropResult {
             item: id,
             title,
@@ -240,6 +250,7 @@ impl Core {
             .position(|o| *o == id)
             .map_or(0, |i| i as u32 + 1);
         self.backlog_write(&mut w)?;
+        self.rsi.pipeline.kick();
         Ok(SelfMoveResult {
             item: id.clone(),
             title: w.tasks[&id].title.clone(),

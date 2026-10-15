@@ -49,6 +49,11 @@
 //! - `revert_window_hours` (theseus-pw1q.10): `24` by default. For this many
 //!   hours after a self-join, a red the join caused reverts it on its own
 //!   (`rsi::revert`); `0` watches nothing. The owner's veto works at any time.
+//! - `pipeline_builds` (theseus-pw1q.16): how many self builds run at once,
+//!   1 by default (the owner raises it); the pipeline starts another only
+//!   while fewer build and fewer self trees are open.
+//! - `min_free_gb` (theseus-pw1q.16): the free space, in GB, the build trees'
+//!   filesystem must keep for the pipeline to start a build (40).
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -106,6 +111,12 @@ pub struct SelfConfig {
     /// (theseus-pw1q.10); 0 watches nothing.
     #[serde(default = "default_revert_window_hours")]
     pub revert_window_hours: u64,
+    /// Self builds at once (theseus-pw1q.16).
+    #[serde(default = "default_pipeline_builds")]
+    pub pipeline_builds: u32,
+    /// Free GB the build trees' filesystem keeps before a build starts.
+    #[serde(default = "default_min_free_gb")]
+    pub min_free_gb: u64,
 }
 
 fn default_narrow_every_days() -> u32 {
@@ -125,6 +136,14 @@ pub const REVERT_WINDOW_HOURS: u64 = 24;
 
 fn default_revert_window_hours() -> u64 {
     REVERT_WINDOW_HOURS
+}
+
+fn default_pipeline_builds() -> u32 {
+    1
+}
+
+fn default_min_free_gb() -> u64 {
+    40
 }
 
 /// `[self] graduate_min_calls`'s default.
@@ -180,6 +199,8 @@ impl Default for SelfConfig {
             narrow_days: default_narrow_days(),
             narrow_read_pages: default_narrow_read_pages(),
             revert_window_hours: REVERT_WINDOW_HOURS,
+            pipeline_builds: default_pipeline_builds(),
+            min_free_gb: default_min_free_gb(),
         }
     }
 }
@@ -554,5 +575,23 @@ mod tests {
             .unwrap()
             .self_improve;
         assert_eq!(cfg.revert_window_hours, 6);
+    }
+
+    /// The pipeline's keys (theseus-pw1q.16): one build at once and 40 GB
+    /// kept free by default; the template names both; the owner's load.
+    #[test]
+    fn the_pipeline_keys_default_to_one_build_and_forty_gb() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!((none.pipeline_builds, none.min_free_gb), (1, 40));
+        let t = Config::EXAMPLE_TOML;
+        assert!(
+            t.contains("\n# pipeline_builds = 1") && t.contains("\n# min_free_gb = 40"),
+            "the template names the pipeline's keys with their defaults"
+        );
+        let cfg = Config::from_toml("[self]\npipeline_builds = 2\nmin_free_gb = 8\n")
+            .unwrap()
+            .self_improve;
+        assert_eq!((cfg.pipeline_builds, cfg.min_free_gb), (2, 8));
+        assert!(Config::from_toml("[self]\npipeline_builds = -1\n").is_err());
     }
 }

@@ -224,9 +224,18 @@ pub fn find(p: &Place, item: &str) -> Option<Tree> {
     })
 }
 
+/// One open or close of a tree at a time in this process: two `git worktree
+/// add`s at once race for the repo's locks, and the loser leaves a tree half
+/// made (the self pipeline's builds start together, theseus-pw1q.16). The
+/// branch has no upstream (`--no-track`), so an open writes no config.
+static REPO: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// A new tree for `item` off the repo's `origin/main`, on a new
 /// `self/<date>-<slug>` branch (with `-2`, `-3`… when the name is taken).
 pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
+    let _one = REPO
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let slug = slug(item);
     let dir = p.trees().join(&slug);
     if dir.exists() {
@@ -264,7 +273,16 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     let d = dir.to_string_lossy().to_string();
     p.git_ok(
         &repo,
-        &["worktree", "add", "-q", "-b", &branch, &d, "origin/main"],
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--no-track",
+            "-b",
+            &branch,
+            &d,
+            "origin/main",
+        ],
     )?;
     let target = p.targets().join(&slug);
     std::fs::create_dir_all(&target)?;
@@ -638,6 +656,9 @@ fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
 
 /// Remove the tree and its build tree; the branch stays in the repo.
 pub fn close(p: &Place, tree: &Tree) -> Result<()> {
+    let _one = REPO
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let d = tree.dir.to_string_lossy().to_string();
     let link = tree.dir.join("target");
     if std::fs::symlink_metadata(&link).is_ok_and(|m| m.file_type().is_symlink()) {

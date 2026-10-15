@@ -82,6 +82,7 @@ impl Core {
         self.store
             .append(&[crate::fact::row(&fact, None, None)?, rec.record()?])?;
         self.rsi.set(rec.clone());
+        self.rsi.pipeline.kick();
         self.rec(None).announce(&fact);
         self.self_changed("self.halted");
         Ok(SelfSwitchResult {

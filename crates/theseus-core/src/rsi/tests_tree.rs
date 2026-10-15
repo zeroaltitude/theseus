@@ -54,9 +54,9 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 /// The upstream, the repo cloned from it, and a state dir apart from both.
-pub(super) struct Fixture {
-    pub(super) place: Place,
-    pub(super) upstream: PathBuf,
+pub(crate) struct Fixture {
+    pub(crate) place: Place,
+    pub(crate) upstream: PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -128,6 +128,31 @@ fn a_tree_is_apart_from_the_repo_with_its_own_target() {
     tree::close(&f.place, &t).unwrap();
     let t2 = tree::open(&f.place, "fix the mast", NOW).unwrap();
     assert_eq!(t2.branch, format!("{}-2", t.branch));
+}
+
+/// Trees opened at once on one repo, as the self pipeline's builds start
+/// (theseus-pw1q.16): each opens, on its own branch. Unserialized, two `git
+/// worktree add`s raced for the repo's config lock and one failed half done.
+#[test]
+fn trees_opened_at_once_each_open() {
+    let f = fixture();
+    for round in 0..4 {
+        let items: Vec<String> = (0..6).map(|i| format!("mast {round} {i}")).collect();
+        let opened: Vec<_> = std::thread::scope(|s| {
+            let hs: Vec<_> = items
+                .iter()
+                .map(|i| s.spawn(|| tree::open(&f.place, i, NOW)))
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for (item, t) in items.iter().zip(opened) {
+            let t = t.unwrap_or_else(|e| panic!("{item}: {e:#}"));
+            assert_eq!(
+                git(&t.dir, &["rev-parse", "--abbrev-ref", "HEAD"]),
+                t.branch
+            );
+        }
+    }
 }
 
 /// A state dir inside the repo's checkout would put the trees inside it:

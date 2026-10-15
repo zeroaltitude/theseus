@@ -492,7 +492,12 @@ impl Core {
             return Ok(night);
         }
         self.backlog_sweep(&mut w);
-        self.backlog_start(&mut w, cfg.backlog_starts as usize, &mut night)?;
+        // While the pipeline runs, it starts the items (theseus-pw1q.16).
+        let starts = match self.rsi.pipeline.runs() {
+            true => 0,
+            false => cfg.backlog_starts as usize,
+        };
+        self.backlog_start(&mut w, starts, &mut night, None)?;
         self.backlog_write(&mut w)?;
         self.backlog_tell(&w, &night);
         Ok(night)

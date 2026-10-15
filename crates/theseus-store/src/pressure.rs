@@ -56,6 +56,16 @@ fn busy_in(dir: &Path) -> Option<Busy> {
     avg10("io").filter(|v| *v >= IO_BUSY).map(Busy::Io)
 }
 
+/// The `some` line's `avg10` of `/proc/pressure/<kind>` (`cpu`, `io`,
+/// `memory`), in %: none on a kernel without PSI. The self pipeline's
+/// capacity guard reads memory and CPU through it (theseus-pw1q.16).
+pub fn some_avg10_of(kind: &str) -> Option<f64> {
+    std::fs::read_to_string(Path::new("/proc/pressure").join(kind))
+        .ok()
+        .as_deref()
+        .and_then(some_avg10)
+}
+
 /// The `some` line's `avg10` of one pressure file.
 fn some_avg10(text: &str) -> Option<f64> {
     text.lines()
