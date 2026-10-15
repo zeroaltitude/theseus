@@ -37,6 +37,7 @@ mod history;
 pub mod import;
 pub mod import_sync;
 pub mod index;
+pub mod job_follow;
 pub mod judge;
 pub mod judge_runs;
 pub mod later;
@@ -56,6 +57,7 @@ mod places;
 mod push;
 pub mod resident;
 pub mod retract;
+mod retry;
 pub mod route;
 pub mod routines;
 pub mod rsi;
@@ -100,24 +102,20 @@ pub use hands::*;
 pub use health::*;
 pub use history::*;
 pub use index::TenderStatus;
+pub use job_follow::*;
 pub use ledger::*;
 pub use ledger_verify::*;
 pub use ontology::*;
 pub use outbox::OutboxStatus;
 pub use places::*;
 pub use push::*;
+pub use retry::*;
 pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
-pub use standing::{
-    StandingAddParams, StandingChanged, StandingInfo, StandingKind, StandingListParams,
-    StandingListResult, StandingRecord, StandingRevokeParams, StandingScope,
-};
+pub use standing::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
 pub use toolinfo::{ToolInfo, ToolListResult};
-pub use wakes::{
-    reminder_answers, WakeAnswer, WakeCreateParams, WakeDoneResult, WakeEditResult, WakeInfo,
-    WakeNameParams, WakeNoticed, WakePauseParams, WakeSnoozeParams,
-};
+pub use wakes::*;
 pub use watches::{
     WatchCheck, WatchCreateParams, WatchCreateResult, WatchInfo, WatchListParams, WatchListResult,
     WatchThen,
@@ -176,8 +174,8 @@ pub mod method {
         LEDGER_VERIFY = "ledger.verify",
         PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
         EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
-        /// `/stop` (W1): halt a conversation's work, and keep the conversation.
-        EXECUTION_STOP = "execution.stop",
+        /// `/stop` (W1): halt a conversation's work, and keep the conversation; a failure dismissed, a failed task retried (theseus-7zgsm).
+        EXECUTION_STOP = "execution.stop", EXECUTION_DISMISS = "execution.dismiss", TASK_RETRY = "task.retry",
         ACTION_LIST = "action.list",
         ACTION_CONFIRM = "action.confirm",
         /// Every question waiting for the operator, across sessions.
@@ -271,6 +269,8 @@ pub mod method {
         /// its open subtree, then `work.changed` and `work.notice` until
         /// `work.unwatch` (`work_watch.rs`). A read.
         WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
+        /// A running job's last lines (`job_follow.rs`, theseus-e1hu4), and its output followed until `action.unfollow`.
+        WORK_PEEK = "work.peek", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
         /// The counts behind `theseus status --short` (theseus-8kn12), read from
         /// the board's O(1) fields: no per-execution view, no subscription.
         /// `push::StatusShortResult`. A read.
@@ -449,10 +449,10 @@ pub mod notify {
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
-        /// A thread changed (theseus-sjzm): `threads::ThreadChanged`.
-        THREAD_CHANGED = "thread.changed",
-        /// The router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
-        THREAD_ASKED = "thread.asked",
+        /// A thread changed (theseus-sjzm, `threads::ThreadChanged`); the router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
+        THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
+        /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
+        ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
     }
 }
 

@@ -66,7 +66,7 @@ pub mod waits;
 pub(crate) use batch::Turned;
 pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
-pub use peek::{peek, Peek};
+pub use peek::{last_line, newest, peek, Newest, Peek};
 pub use waits::{JobDone, JobWaits, Waiting};
 
 /// Starts a job. The real one spawns `theseusd job-wrapper` detached, whose

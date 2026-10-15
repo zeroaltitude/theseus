@@ -27,6 +27,16 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   stderr once). The three trailing arguments are `x` + hex words, never the text: `-Command` joins its arguments and
   parses them as code, so raw text would be code. Nothing is probed at start. `status_notify.rs` is
   `theseus status --watch --notify` (default `off`; a bell or OSC goes to /dev/tty, never stdout).
+- `src/jobout.rs` (theseus-e1hu4): `theseus peek JOB` (one `work.peek`: the size and the last 20 lines, scrubbed) and
+  `theseus attach JOB` (a peek, then `action.output` from its end, each chunk printed as it comes). A job is named
+  whole (`act_…`) or by a unique end of at least four characters among the work board's jobs. Ctrl-C detaches
+  (`action.unfollow`) and never stops the job; an `events.lost` naming the job's stream says so, peeks again and
+  follows from there; a closed connection exits 1. `board` is the one arm of `run` for `work`, `peek` and `attach`
+  (`run` sits at clippy's 100 lines). `theseus work` and `status` word a running job's time as
+  `theseus_protocol::job_follow::job_words` does (`job 0:05 of usual 0:31`), and a view's `last_line` follows it
+  (`›`); `work --watch` applies a view by (position, time), since a sample of a job's last line has its frame's
+  position and a later time. `status`'s long form makes one more read, `work.watch`, for the jobs' times. Tests: inside
+  `jobout.rs` (a scripted daemon over a duplex: order, the end, a detach that asks nothing that stops the job).
 - `src/status.rs`: `theseus status` and `wait --any` (theseus-lweh). One read, `executions.watch {limit: 0}`, feeds
   `Board` (the executions that need you or work, by the position rule) and its forms: the long one (a header and a
   row each, a command under what asks), `--short` (`●1 ◐3 ✗1 ◆2`; empty when nothing works or waits), `--watch`
@@ -84,6 +94,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   --split-from`; a sealed thread's name carries 🔒 in `thread list` and `thread show` (🔒? while a seal is proposed).
   `thread answer <ask> <1|2|new|home>` and `thread move <slug|home>` are the router's recovery (theseus-rha2): `thread/ask.rs`
   prints the question a `thread.asked` carries as `[1] [2] [n]ew [h]ome` and the line to answer it; both are in `OPERATORS`.
+- `src/retry.rs` (theseus-7zgsm): `theseus dismiss ID` and `theseus retry ID [--note WORDS]`, one call each
+  (`execution.dismiss`, `task.retry`); ID is a task's or its execution's id, or the last four characters of either
+  (`resolve.rs`'s rule), and a name that is no failure, or a conversation to retry, is refused with words before
+  anything is sent. Both are in `client::OPERATORS`: refused inside a job.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|session:ID]

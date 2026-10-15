@@ -61,6 +61,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("standing.")
         || name.starts_with("thread.")
         || name.starts_with("work.")
+        || super::peek::OWN.contains(&name)
         || name == method::LEDGER_VERIFY
 }
 
@@ -108,6 +109,9 @@ impl Core {
         }
         if name.starts_with("thread.") {
             return self.rpc_threads(name, params, conn);
+        }
+        if super::peek::OWN.contains(&name) {
+            return self.rpc_peek(name, params, conn);
         }
         if name.starts_with("work.") {
             return self.rpc_work(name, params, conn).await;

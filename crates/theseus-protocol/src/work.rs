@@ -216,6 +216,12 @@ pub struct Doing {
     pub since_ms: u64,
     pub turn: u64,
     pub loop_index: u32,
+    /// A running job's last output line (at most `LAST_LINE_CHARS`, scrubbed),
+    /// sampled at most once a second and sent to private places alone
+    /// (theseus-e1hu4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_line: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -740,6 +746,7 @@ fn doing(x: &ExecutionView, state: WorkState) -> Option<Doing> {
         since_ms: x.attention.since_ms,
         turn: x.turns,
         loop_index: 0,
+        last_line: None,
     })
 }
 

@@ -41,6 +41,10 @@ pub struct SessionBus {
     /// The `work.watch` subscribers (theseus-hkx30), each with its scope.
     /// Taken alone: never under `subs` or `all`.
     work: Mutex<Vec<WorkWatcher>>,
+    /// The followed jobs' outputs (`action.output`, theseus-e1hu4): each
+    /// connection's follower of each job, so `action.unfollow` and the
+    /// connection's end stop it. Taken alone.
+    follows: Mutex<HashMap<(String, String), tokio::task::AbortHandle>>,
     /// A test's tap: every message published, whoever watches (the output
     /// golden, theseus-j6qn).
     #[cfg(test)]
@@ -196,8 +200,48 @@ impl SessionBus {
         }
     }
 
+    /// Keep a connection's follower of a job, ending the one it had.
+    pub fn follow(&self, conn: &str, id: &str, h: tokio::task::AbortHandle) {
+        let mut f = self.follows.lock().unwrap();
+        if let Some(old) = f.insert((conn.to_string(), id.to_string()), h) {
+            old.abort();
+        }
+    }
+
+    /// End a connection's follower of a job: true if it had one.
+    pub fn unfollow(&self, conn: &str, id: &str) -> bool {
+        let old = self
+            .follows
+            .lock()
+            .unwrap()
+            .remove(&(conn.to_string(), id.to_string()));
+        old.map(|h| h.abort()).is_some()
+    }
+
+    /// A follower that ended by itself leaves the table, if it is still the
+    /// one held for the job.
+    pub fn followed_ended(&self, conn: &str, id: &str) {
+        self.follows
+            .lock()
+            .unwrap()
+            .remove(&(conn.to_string(), id.to_string()));
+    }
+
+    /// How many followers run, for a test.
+    #[cfg(test)]
+    pub fn followers(&self) -> usize {
+        self.follows.lock().unwrap().len()
+    }
+
     /// Forget a closed connection everywhere.
     pub fn drop_conn(&self, conn: &str) {
+        self.follows.lock().unwrap().retain(|(c, _), h| {
+            let keep = c != conn;
+            if !keep {
+                h.abort();
+            }
+            keep
+        });
         let mut g = self.subs.lock().unwrap();
         for v in g.values_mut() {
             v.retain(|(c, _)| c != conn);

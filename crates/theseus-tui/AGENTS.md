@@ -37,6 +37,12 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   other line wraps as before. A history reply is a header line (`[time] model:`, `Plain`) and its text as `Reply`
   lines. The reply streams in raw lines and is redrawn at each frame, so a half-typed `**` shows as typed until it
   closes. Test: `src/tests_markdown.rs`.
+- `src/follow.rs` (theseus-e1hu4): the follow pane. `l` on the session under the cursor finds its running job
+  (`action.list {execution_id, unsettled}`), peeks it (`work.peek`) and follows from the peek's end (`action.output`);
+  chunks and the end arrive as notifications and `esc` sends `action.unfollow`. `Follow` is the pane's pure state
+  (a bounded tail of lines, an open line, the next byte expected, a gap said as `-- N bytes skipped --`); `events.lost`
+  naming the job's stream, and a reconnect, peek and follow again. Its header says `job 0:05 of usual 0:31`. The
+  sidebar's own row words are `tui-rows`'. Tests: `src/tests_follow.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
   question's card), `src/notice.rs` (a re-export: the notices, their delivery and the toast are
   `theseus_client::notify`, shared with `theseus status --watch`; the TUI keeps the viewer in `app.rs`). `--notify`
@@ -118,6 +124,9 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
 - `src/tests.rs`: the TUI over a scripted daemon (a JSON-RPC stream on a duplex, through `Conn::over`), drawn on
   ratatui's `TestBackend`, whose buffer each test reads as text. Run them as
   `cargo nextest run --workspace -E 'package(theseus-tui)'`.
+- `src/tests_failure.rs` (theseus-7zgsm): a failed task's card (`[r] retry  [d] dismiss  [o] open`), `r` and `d` on the failed
+  row under the cursor sending `task.retry` and `execution.dismiss` (anywhere else they still filter ready and done), a
+  refusal said on the card, and the row leaving needs-you when the push says dismissed.
 - `src/tests_answer.rs` (theseus-ds5os): the answer keys over `work.answer` (a budget question's `y` sends `reset`; a
   question that says `may_answer: false` sends nothing and says where to answer; a `confirm.resolved` from another
   surface clears the card).

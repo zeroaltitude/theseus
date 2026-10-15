@@ -563,6 +563,9 @@ events! {
     ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
     /// A message waits for the owner to say which thread it is about.
     ThreadAsked(crate::thread_route::ThreadAsk) = notify::THREAD_ASKED,
+    /// A followed job's output, to the connection that follows it.
+    ActionOutputChunk(crate::job_follow::ActionOutputChunk) = notify::ACTION_OUTPUT_CHUNK,
+    ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
 }
 
 impl Event {
@@ -590,6 +593,8 @@ impl Event {
             Event::ThreadAsked(e) => Some(&e.session_id),
             Event::WorkChanged(_)
             | Event::WorkNotice(_)
+            | Event::ActionOutputChunk(_)
+            | Event::ActionOutputEnd(_)
             | Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -636,6 +641,8 @@ impl Event {
             | Event::WorkNotice(_)
             | Event::ThreadChanged(_)
             | Event::ThreadAsked(_)
+            | Event::ActionOutputChunk(_)
+            | Event::ActionOutputEnd(_)
             | Event::EventsLost(_) => None,
         }
     }

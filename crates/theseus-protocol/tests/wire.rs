@@ -1080,6 +1080,26 @@ fn typed_policy_notified_and_resolved() {
     }
 }
 
+/// A followed job's output (theseus-e1hu4): a chunk from a byte, and the end.
+#[test]
+fn typed_action_output() {
+    typed(
+        "action_output_chunk",
+        Event::ActionOutputChunk(ActionOutputChunk {
+            id: "act_k5".into(),
+            offset: 4096,
+            text: "leg 7\nleg 8\n".into(),
+        }),
+    );
+    typed(
+        "action_output_end",
+        Event::ActionOutputEnd(ActionOutputEnd {
+            id: "act_k5".into(),
+            outcome: "succeeded".into(),
+        }),
+    );
+}
+
 /// Every fixture decodes as its `Event` and writes the same bytes again: what a
 /// client reads is what the daemon sent.
 #[test]
@@ -1105,7 +1125,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 42);
+    assert_eq!(n, 44);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

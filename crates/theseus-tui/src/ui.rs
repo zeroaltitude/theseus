@@ -292,9 +292,6 @@ fn draw_row(app: &App, row: &Row, area: Rect, buf: &mut Buffer, selected: bool) 
     put(&row.label, label_style, &mut x, &mut used);
     put("  ", Style::default(), &mut x, &mut used);
     put(&name, Style::default(), &mut x, &mut used);
-    if let Some(p) = &row.progress {
-        put(&format!("  {p}"), dim(), &mut x, &mut used);
-    }
     let cx = area.x + area.width.saturating_sub(cost.width() as u16);
     buf.set_stringn(cx, area.y, &cost, cost.width(), base.patch(dim()));
 }

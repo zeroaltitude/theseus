@@ -183,6 +183,11 @@ pub(super) struct WorkBoard {
     /// What a root's pruned children were, by level.
     pruned: HashMap<String, Rollup>,
     eta: EtaBook,
+    /// The jobs running now, by id, with their sessions: what the last-line
+    /// sampler walks (theseus-e1hu4).
+    running: HashMap<String, String>,
+    /// A running job's last output line as last sampled; its view carries it.
+    last: HashMap<String, String>,
     /// Views the warm-up changed in place: the next frame sends them again.
     stale: BTreeSet<String>,
     position: u64,
@@ -299,6 +304,45 @@ impl WorkBoard {
     #[cfg(test)]
     pub(super) fn usual(&self, key: &str) -> Option<theseus_protocol::work::Eta> {
         self.eta.usual(key)
+    }
+
+    /// The jobs running now: (id, session), for the sampler.
+    pub(super) fn running_jobs(&self) -> Vec<(String, String)> {
+        self.running
+            .iter()
+            .map(|(id, s)| (id.clone(), s.clone()))
+            .collect()
+    }
+
+    /// The usual time of a job's program, from its view.
+    pub(super) fn usual_of(&self, id: &str) -> Option<u64> {
+        self.views.get(id)?.eta.map(|e| e.usual_ms)
+    }
+
+    /// A running job's newest output line, sampled: its view says it from
+    /// now on. Returns what changed on the board, none when the line is the
+    /// one held or the job is not running. The view keeps its position (no
+    /// frame was written) and takes the sample's time, so a client that
+    /// compares (position, time) applies the newer sample and never an older
+    /// snapshot (theseus-e1hu4).
+    pub(super) fn sample(&mut self, id: &str, line: Option<String>, at_ms: u64) -> Option<Out> {
+        if !self.running.contains_key(id) || self.last.get(id) == line.as_ref() {
+            return None;
+        }
+        match &line {
+            Some(l) => self.last.insert(id.to_string(), l.clone()),
+            None => self.last.remove(id),
+        };
+        let v = self.views.get_mut(id)?;
+        v.doing.as_mut()?.last_line = line;
+        v.at_ms = at_ms;
+        Some(Out {
+            position: self.position,
+            at_ms,
+            views: vec![v.clone()],
+            gone: Vec::new(),
+            notices: Vec::new(),
+        })
     }
 
     /// The root (execution id) of a session's tree, if the board holds it.

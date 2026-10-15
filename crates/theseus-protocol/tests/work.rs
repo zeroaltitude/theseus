@@ -103,6 +103,7 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
             since_ms: AT - 5_000,
             turn: 4,
             loop_index: 2,
+            last_line: None,
         }),
         progress: Some(Progress {
             steps_done: 2,
@@ -143,6 +144,33 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
     };
     v.attention = attention_of(&v);
     v
+}
+
+/// A running job's view carries its program's usual time and its last output
+/// line (theseus-e1hu4); an older peer's `doing` without it still decodes.
+#[test]
+fn a_running_job_says_its_last_line() {
+    let mut v = whole(
+        "act_d4e5f6",
+        WorkKind::Job,
+        WorkState::Running,
+        "sh -c leg.sh",
+    );
+    v.doing = Some(Doing {
+        what: DoingKind::Job,
+        label: "sh -c leg.sh".into(),
+        since_ms: AT - 5_000,
+        turn: 4,
+        loop_index: 2,
+        last_line: Some("leg 7 of 30".into()),
+    });
+    v.attention = attention_of(&v);
+    wire("view_job_running", &v);
+    let old: Doing = serde_json::from_value(json!({
+        "what": "job", "label": "x", "since_ms": 1, "turn": 1, "loop_index": 0
+    }))
+    .unwrap();
+    assert_eq!(old.last_line, None);
 }
 
 #[test]

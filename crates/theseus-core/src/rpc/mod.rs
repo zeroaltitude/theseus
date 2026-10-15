@@ -45,6 +45,7 @@ pub(crate) mod ordered;
 mod packs;
 mod packs_ahead;
 mod pages;
+mod peek;
 mod people;
 mod policy;
 mod proposal_groups;
@@ -92,6 +93,8 @@ mod tests_lists;
 mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;
+#[cfg(test)]
+mod tests_peek;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]

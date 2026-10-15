@@ -228,6 +228,35 @@ impl Outbound {
         true
     }
 
+    /// How many messages a connection's queue holds, written or not: 0 for a
+    /// raw channel, which counts nothing back (a follower of a job's output
+    /// reads it, theseus-e1hu4).
+    pub fn backlog(&self) -> usize {
+        match &self.tx {
+            Tx::Wire(_) => self.shared.queued.load(Ordering::Acquire),
+            Tx::Raw(_) => 0,
+        }
+    }
+
+    /// Count a notification of `stream` as lost without making one: a
+    /// follower that will not queue more for a client that fell behind says
+    /// so, and the writer sends the same `events.lost` once the queue has
+    /// drained. False once the connection is gone.
+    pub fn lose(&self, stream: &str) -> bool {
+        if self.is_closed() {
+            return false;
+        }
+        let s = &self.shared;
+        let mut lost = s.lost.lock().unwrap();
+        s.dropping.store(true, Ordering::Release);
+        lost.0 += 1;
+        if !lost.1.contains(stream) {
+            lost.1.insert(stream.to_string());
+        }
+        s.total.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+
     pub fn is_closed(&self) -> bool {
         match &self.tx {
             Tx::Wire(tx) => tx.is_closed(),
