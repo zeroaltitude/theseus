@@ -36,6 +36,9 @@ pub(crate) const DONE_SHOWN_MS: u64 = 24 * 3_600_000;
 pub(crate) struct Counts {
     pub needs_you: u32,
     pub running: u32,
+    /// The next reminder due today, as minutes into the local day
+    /// (theseus-j90w2): a time, never a word of it.
+    pub reminder: Option<u16>,
 }
 
 /// What one place shows, newest information first within each part.
@@ -74,6 +77,8 @@ pub(crate) struct Tasks {
     resend: Notify,
     /// Each place's task pings are quiet until then (unix ms), by its target.
     quiet: Mutex<HashMap<String, u64>>,
+    /// The future (theseus-j90w2): the board's Coming up, Routines and Projects.
+    pub(super) future: super::horizon::Future,
 }
 
 impl Default for Tasks {
@@ -86,6 +91,7 @@ impl Default for Tasks {
             presence_started: AtomicBool::new(false),
             resend: Notify::new(),
             quiet: Mutex::default(),
+            future: Default::default(),
         }
     }
 }
@@ -113,6 +119,19 @@ impl Tasks {
     /// Ask for the watch again, once for a burst of reasons.
     pub fn rewatch(&self) {
         self.again.notify_one();
+        self.future.dirty();
+    }
+
+    /// The next reminder due today changed (theseus-j90w2): the status line
+    /// says its time.
+    pub fn set_reminder(&self, r: Option<u16>) {
+        self.counts.send_if_modified(|c| {
+            if c.reminder == r {
+                return false;
+            }
+            c.reminder = r;
+            true
+        });
     }
 
     /// The numbers now, and a receiver that wakes when they change.
@@ -145,8 +164,13 @@ impl Tasks {
         let sessions = sessions_of(&m, &touched);
         let c = counts_of(&m);
         drop(m);
-        self.counts
-            .send_if_modified(|old| std::mem::replace(old, c) != c);
+        self.counts.send_if_modified(|old| {
+            let c = Counts {
+                reminder: old.reminder,
+                ..c
+            };
+            std::mem::replace(old, c) != c
+        });
         sessions
     }
 
@@ -165,8 +189,13 @@ impl Tasks {
         let sessions = sessions_of(&m, &touched);
         let n = counts_of(&m);
         drop(m);
-        self.counts
-            .send_if_modified(|old| std::mem::replace(old, n) != n);
+        self.counts.send_if_modified(|old| {
+            let n = Counts {
+                reminder: old.reminder,
+                ..n
+            };
+            std::mem::replace(old, n) != n
+        });
         sessions
     }
 
@@ -185,6 +214,28 @@ impl Tasks {
         };
         let cleared = m.cleared.get(session_id).copied().unwrap_or(0);
         project(&m.views, &root, cleared, theseus_protocol::now_unix_ms())
+    }
+
+    /// The projects the model holds, the soonest next step first.
+    pub fn projects(&self) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        let mut v: Vec<WorkView> = m
+            .views
+            .values()
+            .filter(|v| v.kind == WorkKind::Project && !v.state.ended())
+            .cloned()
+            .collect();
+        v.sort_by_key(|v| {
+            (
+                v.project
+                    .as_ref()
+                    .and_then(|p| p.next.as_ref())
+                    .and_then(|n| n.due_at_ms)
+                    .unwrap_or(u64::MAX),
+                v.id.clone(),
+            )
+        });
+        v
     }
 
     /// The place's done tasks are seen: the board drops them from now.
@@ -341,6 +392,7 @@ fn project(
 /// The loop that keeps the watch: asks at the start, and again whenever the
 /// places' sessions change. It ends with the daemon's stop.
 pub(super) fn watch_loop(shared: &Arc<Shared>) {
+    super::horizon::start(shared);
     let s = shared.clone();
     tokio::spawn(async move {
         let stopped = s.core.outbox.stopped();
@@ -393,9 +445,15 @@ pub(super) fn heard(shared: &Shared, e: &theseus_protocol::Event) -> bool {
         Event::WorkChanged(c) => {
             let sessions = shared.tasks.changed(c.clone());
             notify_places(shared, sessions);
+            shared.tasks.future.dirty();
             true
         }
         Event::WorkNotice(_) => true,
+        // A reminder, a routine's or a watch's wake was told: the future moved.
+        Event::WakeNoticed(_) => {
+            shared.tasks.future.dirty();
+            false
+        }
         Event::EventsLost(_) => {
             shared.tasks.rewatch();
             true
@@ -586,7 +644,8 @@ mod tests {
             *rx.borrow_and_update(),
             Counts {
                 needs_you: 1,
-                running: 2
+                running: 2,
+                reminder: None
             }
         );
         t.changed(changed_of(vec![], &["exe_b", "exe_c"]));
@@ -594,7 +653,8 @@ mod tests {
             *rx.borrow_and_update(),
             Counts {
                 needs_you: 1,
-                running: 0
+                running: 0,
+                reminder: None
             }
         );
     }

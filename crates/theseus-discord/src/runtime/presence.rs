@@ -55,6 +55,10 @@ pub(crate) fn line(c: Counts) -> Option<String> {
     if c.running > 0 {
         parts.push(format!("⚙️ {} running", c.running));
     }
+    // The next reminder due today, its time alone (theseus-j90w2).
+    if let Some(m) = c.reminder {
+        parts.push(format!("⏰ {:02}:{:02}", m / 60, m % 60));
+    }
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
@@ -154,7 +158,11 @@ mod tests {
     use super::*;
 
     fn counts(needs_you: u32, running: u32) -> Counts {
-        Counts { needs_you, running }
+        Counts {
+            needs_you,
+            running,
+            reminder: None,
+        }
     }
 
     #[test]
@@ -166,6 +174,24 @@ mod tests {
         assert_eq!(line(counts(0, 3)).as_deref(), Some("⚙️ 3 running"));
         assert_eq!(line(counts(2, 0)).as_deref(), Some("🔴 2 needs you"));
         assert_eq!(line(counts(0, 0)), None);
+    }
+
+    #[test]
+    fn the_next_reminder_due_today_adds_its_time_and_only_its_time() {
+        let at = |m| Counts {
+            reminder: Some(m),
+            ..counts(0, 0)
+        };
+        assert_eq!(line(at(16 * 60 + 52)).as_deref(), Some("⏰ 16:52"));
+        assert_eq!(
+            line(Counts {
+                needs_you: 1,
+                running: 3,
+                reminder: Some(9 * 60 + 5)
+            })
+            .as_deref(),
+            Some("🔴 1 needs you · ⚙️ 3 running · ⏰ 09:05")
+        );
     }
 
     #[test]

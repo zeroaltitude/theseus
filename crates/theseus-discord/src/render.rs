@@ -28,6 +28,7 @@ pub(crate) mod card_v2;
 pub(crate) mod cite;
 mod deferred;
 mod held;
+pub(crate) mod horizon;
 mod preview;
 pub(crate) mod process;
 mod reply;
@@ -63,6 +64,8 @@ pub enum Buttons {
     JevLabel(String),
     /// A reminder's Done and three snoozes, for this wake (theseus-8ux6x).
     Reminder(String),
+    /// A routine's or a watch's post: this wake, and the answers `(id, label)` it offers (theseus-j90w2).
+    Horizon(String, Vec<(String, String)>),
     /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
     Earned(Vec<(String, String)>),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).

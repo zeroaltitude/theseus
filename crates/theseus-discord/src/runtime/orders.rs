@@ -240,6 +240,8 @@ impl Shared {
             || self.thread_interaction(i, who, discord.clone()).await
             || self.move_interaction(i, who, discord.clone()).await
             || self.extensions_interaction(i, tx, who, discord).await
+            // The future's commands, buttons and modals (theseus-j90w2).
+            || self.horizon_interaction(i, who).await
     }
 
     /// An interaction of `/orders` or its Revoke button: true when it was

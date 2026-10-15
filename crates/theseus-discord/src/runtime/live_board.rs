@@ -144,14 +144,18 @@ impl Place {
         }
         let p = self.shared.tasks.project(&self.session_id);
         let quiet = self.shared.tasks.quiet_until(&self.target);
+        // The future is a private place's alone (theseus-j90w2).
+        let future = super::horizon::parts_for(&self.shared, &self.target);
         let comps = board_v2::render(&Parts {
             needs: &p.needs,
             working: &p.working,
             done: &p.done,
             quiet_until_ms: quiet,
+            future: future.as_ref(),
+            now_ms: theseus_protocol::now_unix_ms(),
         });
         let content = serde_json::to_string(&comps).unwrap_or_default();
-        let _ = self.lane.send(if p.is_empty() {
+        let _ = self.lane.send(if p.is_empty() && future.is_none() {
             LaneMsg::BoardIdle(content)
         } else {
             LaneMsg::Live(Op::Upsert {

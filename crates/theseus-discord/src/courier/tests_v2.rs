@@ -22,6 +22,8 @@ fn board(n: usize) -> String {
         working: &w,
         done: &[],
         quiet_until_ms: None,
+        future: None,
+        now_ms: 0,
     });
     serde_json::to_string(&c).unwrap()
 }

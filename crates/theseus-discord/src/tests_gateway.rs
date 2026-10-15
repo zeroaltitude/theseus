@@ -897,6 +897,7 @@ async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
 
 mod ask;
 mod earned;
+mod horizon;
 mod remind;
 mod reply;
 mod seal;
