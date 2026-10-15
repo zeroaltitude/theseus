@@ -1939,6 +1939,7 @@ impl TurnRunner {
                 Self::stopped(t, &by);
                 break;
             }
+            self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the

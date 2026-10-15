@@ -69,6 +69,33 @@ fn the_templates_parallel_caps_are_the_defaults() {
     );
 }
 
+/// theseus-7m7w.3: `[tools] job_wait_max_secs` is 1,800 in the template and
+/// by default, at least `proc_sync_secs` and at most the tool's own deadline.
+#[test]
+fn job_wait_max_secs_has_a_default_and_a_range() {
+    let t = Config::example().tools;
+    assert_eq!(t.job_wait_max_secs, default_job_wait_max_secs());
+    assert_eq!(t.job_wait_max_secs, 1800);
+    assert_eq!(ToolsConfig::default().job_wait_max_secs, 1800);
+    let mut cfg = Config::example();
+    for (secs, sync, ok) in [
+        (60, 60, true),
+        (3600, 60, true),
+        (59, 60, false),
+        (3601, 60, false),
+        (1800, 3000, false),
+        (3000, 3000, true),
+    ] {
+        cfg.tools.job_wait_max_secs = secs;
+        cfg.tools.proc_sync_secs = sync;
+        let r = cfg.validate();
+        assert_eq!(r.is_ok(), ok, "{secs} with sync {sync}: {r:?}");
+        if let Err(e) = r {
+            assert!(format!("{e:#}").contains("job_wait_max_secs"), "{e:#}");
+        }
+    }
+}
+
 /// theseus-n88g.1 (D6): a secret may come from outside the vault, from
 /// the daemon's environment or a private file, and a malformed entry is
 /// refused by its name.

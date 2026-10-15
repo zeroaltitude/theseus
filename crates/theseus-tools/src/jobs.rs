@@ -131,8 +131,9 @@ impl Tool for JobWait {
     }
     fn description(&self) -> &'static str {
         "Wait for a background job to end and get its result, as proc_run gives a run that ends \
-         in time; or, if it is still running when the wait ends, say so. timeout_secs is at most \
-         proc_run's own wait (its default)."
+         in time; or, if it is still running when the wait ends, say so. It waits up to \
+         timeout_secs (default: proc_run's own wait), and returns early when the job ends or a \
+         message arrives."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "required": ["job"], "additionalProperties": false,

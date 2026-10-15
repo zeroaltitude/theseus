@@ -416,6 +416,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   while its turn runs reaches the model at the turn's next loop: `take_late` runs at the top of each loop after the
   first, writing nothing when nothing settled. Tests: `tests_job_handles.rs`, and theseusd's `tests/job_handles.rs`
   (real wrappers: a wait, and a stop that leaves no process).
+  **A wait lasts as long as it asked** (theseus-7m7w.3): `job.wait`'s `timeout_secs` (default `proc_sync_secs`) is clamped to
+  `[tools] job_wait_max_secs` (1800; at least `proc_sync_secs`, at most the tool's deadline, `WAIT_SECS_MAX`), not to
+  `proc_sync_secs`: the job's end, a person's message (steer's signal) and a stop still end it at once, so the cap only
+  bounds a wait nothing ends. The result's "Still running after N s" names the real wait, and what was asked when the
+  cap cut it; the tool's description gets the cap appended (`jobs_tools::say_wait_cap`). The wait measures with
+  `tokio::time::Instant`, so a paused clock drives it. **A wait that outlasts the cache keeps it warm**
+  (`keep_warm_wait.rs`): a response that asks for a `job_wait` has `TurnRunner::stash_for_wait` keep the request it
+  answers (one clone, only for such a response, only for a request that caches and a prefix of at least `[cache]
+  keep_warm_min_tokens`); the wait sends it again at `MAX_TOKENS` through `keep_warm_send` (the between-turns read's own
+  send: reserved, held on the day ceiling, booked as a `keep_warm` row whose data says `during_wait`) every 4 minutes
+  of a 5-minute entry, or `[cache] keep_warm_minutes` of an hour's, beside its other events, so a settle, a message or a
+  stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
+  `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late

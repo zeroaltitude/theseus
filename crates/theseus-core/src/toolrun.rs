@@ -317,6 +317,8 @@ pub struct ToolRuntime {
     pub notify_socket: Option<PathBuf>,
     pub result_max_chars: usize,
     pub proc_sync_secs: u64,
+    /// The longest one `job_wait` waits (`[tools] job_wait_max_secs`).
+    pub job_wait_max_secs: u64,
     /// The most programs one group of a response's calls runs at once
     /// (`[tools] parallel_runs`, theseus-d1hi); the rest wait for a slot.
     pub parallel_runs: usize,
@@ -522,6 +524,7 @@ impl ToolRuntime {
             notify_socket: None,
             result_max_chars: 30_000,
             proc_sync_secs: 60,
+            job_wait_max_secs: crate::config::default_job_wait_max_secs(),
             parallel_runs: crate::config::default_parallel_runs(),
             parallel_reads: crate::config::default_parallel_reads(),
             parallel_writes: crate::config::default_parallel_writes(),
@@ -662,6 +665,7 @@ impl ToolRuntime {
         let mut defs = self
             .registry
             .definitions_of(true, |n| offered(n) && crate::tools_defer::listed(n));
+        jobs_tools::say_wait_cap(&mut defs, self.job_wait_max_secs);
         // The MCP servers' tools, after the built-ins, by canonical name (the
         // catalog's order): none in a shared place (the place rule), and in a
         // place with a ceiling only its `mcp:<server>` entries' (38a).
@@ -2291,6 +2295,7 @@ pub fn build_runtime(
         notify_socket,
         result_max_chars: t.result_max_chars,
         proc_sync_secs: t.proc_sync_secs,
+        job_wait_max_secs: t.job_wait_max_secs,
         parallel_runs: t.parallel_runs.max(1),
         parallel_reads: t.parallel_reads.max(1),
         parallel_writes: t.parallel_writes.max(1),

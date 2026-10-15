@@ -6,9 +6,12 @@
 //! - `job.read`: the job's latest lines, through the one tail reader
 //!   (`peek.rs`), or with no job the session's running jobs.
 //! - `job.wait`: a wait on the job's end as an event (the drain's settle, a
-//!   stop's, the reconciler's, `JobWaits::settled`), at most
-//!   `proc_sync_secs`; the job's result as a blocking `proc.run` gives it,
-//!   or that it still runs.
+//!   stop's, the reconciler's, `JobWaits::settled`), as long as the call
+//!   asked and at most `[tools] job_wait_max_secs` (theseus-7m7w.3), ended
+//!   at once by the job's end, a person's message (`Steer`) and a stop; the
+//!   job's result as a blocking `proc.run` gives it, or that it still runs.
+//!   A wait past the cache's lifetime keeps the turn's cache warm
+//!   (`keep_warm_wait`).
 //! - `job.stop`: the job's stop as `/stop` stops one (`Kernel::stop_call`,
 //!   then `terminate_all`: its tree, verified by its cgroup where it has
 //!   one), and its output so far. The gate judges it as a run of the job's
@@ -19,7 +22,7 @@
 //! model has it already (`late.rs`).
 
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use theseus_kernel::{Action, ActionState};
@@ -28,9 +31,11 @@ use theseus_tools::{
     parse, Access, AsyncMediaResult, AsyncMediaRun, Backend, External, Plan, Resource, ToolFailure,
     ToolOutput,
 };
+use tokio::time::Instant;
 
 use super::handles::{Handles, KEY};
 use super::{ToolRuntime, TurnCtx};
+use crate::keep_warm::Outcome;
 use crate::narrative;
 use crate::Core;
 
@@ -271,11 +276,11 @@ impl ToolRuntime {
                     Ok(f) => f,
                     Err(e) => return fail(e),
                 };
-                let secs = a
-                    .timeout_secs
-                    .unwrap_or(self.proc_sync_secs)
-                    .clamp(1, self.proc_sync_secs.max(1));
-                Box::pin(wait(core, f, secs))
+                // As long as the model asked, up to `[tools] job_wait_max_secs`: a
+                // person's message, the job's end and a stop end the wait at once.
+                let asked = a.timeout_secs.unwrap_or(self.proc_sync_secs);
+                let secs = asked.clamp(1, self.job_wait_max_secs.max(self.proc_sync_secs).max(1));
+                Box::pin(wait(core, f, secs, asked))
             }
             names::STOP => {
                 let a: StopArgs = match parse(input) {
@@ -404,13 +409,21 @@ fn running(core: &Core, session: &str) -> ToolOutput {
 
 /// `job.wait`: until the job ends or `secs` pass, woken by each settle
 /// (`JobWaits::settled`); the backstop's look (`waits::LOOK`) is the one
-/// the turns' own waits have.
-async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
+/// the turns' own waits have. `asked` is what the call asked: a longer ask
+/// than `secs` is said in the result. A wait that outlasts its turn's cache
+/// reads it again before it lapses (`keep_warm_wait`), beside the wait's
+/// other events.
+async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaResult {
     let rt = &core.tools;
     let until = Instant::now() + Duration::from_secs(secs);
     // A message queued behind this turn ends the wait at once, the job
     // untouched (theseus-qu1lc).
     let steer = rt.job_waits.steers.watch(&f.action.session_id);
+    let warmth = core.runner.keep_warm.warmth(&f.action.session_id);
+    let mut reading: Option<
+        std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send + '_>>,
+    > = None;
+    let mut reads = 0u32;
     loop {
         let settled = rt.job_waits.on_settle();
         tokio::pin!(settled);
@@ -426,23 +439,43 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64) -> AsyncMediaResult {
                 f.called()
             );
             let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
-                INTERRUPTED_BY: "message"});
+                INTERRUPTED_BY: "message", "warm_reads": reads});
             return Ok((ToolOutput { text, meta }, None, None));
         }
         let left = until.saturating_duration_since(Instant::now());
         if left.is_zero() {
+            let cap = match asked > secs {
+                true => format!(" (the longest one wait lasts; {asked} s was asked)"),
+                false => String::new(),
+            };
             let text = format!(
-                "Still running after {secs} s. job_read {} shows its latest output; its result \
-                 also arrives by itself when it ends.",
+                "Still running after {secs} s{cap}. job_read {} shows its latest output; its \
+                 result also arrives by itself when it ends.",
                 f.name
             );
-            let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running"});
+            let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
+                "warm_reads": reads});
             return Ok((ToolOutput { text, meta }, None, None));
         }
+        // The next read of the turn's cache, if one falls inside this wait.
+        let due = warmth.as_ref().and_then(|w| w.due_before(until));
         tokio::select! {
             () = &mut settled => {}
             () = steer.raised() => {}
             () = tokio::time::sleep(left.min(super::waits::LOOK)) => {}
+            () = async { tokio::time::sleep_until(due.unwrap_or(until)).await },
+                if due.is_some() && reading.is_none() => {
+                if let Some(w) = warmth.as_ref().filter(|w| w.claim(Instant::now())) {
+                    reads += 1;
+                    let session = f.action.session_id.clone();
+                    let runner = &core.runner;
+                    reading = Some(Box::pin(async move { w.read(runner, &session).await }));
+                }
+            }
+            out = async { reading.as_mut().unwrap().await }, if reading.is_some() => {
+                reading = None;
+                tracing::debug!(?out, job = %f.name, "job_wait: the turn's cache was read");
+            }
         }
     }
 }
@@ -542,6 +575,17 @@ fn late_written(core: &Core, a: &Action) -> bool {
             matches!(&n.body, Body::ToolResult { late: true, correlation_id: Some(c), .. }
                 if *c == a.correlation_id)
         })
+}
+
+/// Say the longest wait in `job_wait`'s description (`[tools] job_wait_max_secs`):
+/// the tool's own text is static, and the cap is the operator's.
+pub(super) fn say_wait_cap(defs: &mut [Value], max_secs: u64) {
+    let wire = theseus_tools::wire_name(names::WAIT);
+    for d in defs.iter_mut().filter(|d| d["name"] == wire.as_str()) {
+        if let Some(text) = d["description"].as_str() {
+            d["description"] = json!(format!("{text} A wait lasts at most {max_secs} s."));
+        }
+    }
 }
 
 #[cfg(test)]
