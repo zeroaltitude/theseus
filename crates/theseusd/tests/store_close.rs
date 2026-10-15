@@ -15,6 +15,16 @@ use serde_json::{json, Value};
 
 const KEY: &str = "store-close-key-0000";
 
+/// A free loopback port for the web UI: a fixed one collides with the
+/// other tests' daemons and with whatever holds it on the host.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
 fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
     t.entry(key)
         .or_insert_with(|| toml::Value::Table(Default::default()))
@@ -22,7 +32,7 @@ fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
         .unwrap()
 }
 
-fn services_on(base: String) -> impl FnOnce(&mut toml::Table) {
+fn services_on(base: String, web: u16) -> impl FnOnce(&mut toml::Table) {
     move |t| {
         table(t, "secrets").insert("mcp_server_key".into(), "env:STORE_CLOSE_KEY".into());
         let m = table(t, "mcp_server");
@@ -42,7 +52,7 @@ fn services_on(base: String) -> impl FnOnce(&mut toml::Table) {
         te.insert("metrics_interval_secs".into(), 1.into());
         let w = table(t, "web");
         w.insert("enabled".into(), true.into());
-        w.insert("port".into(), 17433.into());
+        w.insert("port".into(), i64::from(web).into());
         table(t, "model").insert("api_base".into(), base.clone().into());
         for (_, p) in table(t, "providers").iter_mut() {
             p.as_table_mut()
@@ -152,7 +162,8 @@ fn every_surface(sigterm: bool) {
     let hook = |c: &mut std::process::Command| {
         c.env("STORE_CLOSE_KEY", KEY);
     };
-    let mut s = Served::start_with(|_| {}, services_on(model.base.clone()), hook);
+    let web = free_port();
+    let mut s = Served::start_with(|_| {}, services_on(model.base.clone(), web), hook);
     let t0 = Instant::now();
     while s.call("health", Value::Null).unwrap()["index"]["state"] != "ready" {
         assert!(t0.elapsed() < Duration::from_secs(30), "{}", s.log());
@@ -160,9 +171,28 @@ fn every_surface(sigterm: bool) {
     }
     let _watching = watcher(&s);
     {
-        let mut c = std::net::TcpStream::connect("127.0.0.1:17433").unwrap();
-        c.write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:17433\r\nConnection: close\r\n\r\n")
-            .unwrap();
+        // A connect to a loopback port nothing listens on can hang (WSL's
+        // mirrored networking drops it rather than refusing): each try is
+        // bounded, as web_ui.rs's.
+        let ui = std::net::SocketAddr::from(([127, 0, 0, 1], web));
+        let t0 = Instant::now();
+        let mut c = loop {
+            match std::net::TcpStream::connect_timeout(&ui, Duration::from_millis(250)) {
+                Ok(c) => break c,
+                Err(e) => assert!(
+                    t0.elapsed() < Duration::from_secs(15),
+                    "no web UI: {e}\n{}",
+                    s.log()
+                ),
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        c.write_all(
+            format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{web}\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .unwrap();
         let mut body = String::new();
         let _ = std::io::Read::read_to_string(&mut c, &mut body);
         eprintln!("web: {}", body.lines().next().unwrap_or(""));
@@ -196,7 +226,7 @@ fn every_surface(sigterm: bool) {
                 .unwrap()
                 .success());
         },
-        services_on(model.base),
+        services_on(model.base, web),
         hook,
     );
     let p = store_phase(&second);
@@ -226,7 +256,7 @@ fn stop_soon(sigterm: bool) {
         c.env("STORE_CLOSE_KEY", KEY);
     };
     // A first run lays down a store with a session in it.
-    let first = Served::start_with(|_| {}, services_on(model.base.clone()), hook);
+    let first = Served::start_with(|_| {}, services_on(model.base.clone(), free_port()), hook);
     let ses = first
         .call("session.open", json!({"label": "close"}))
         .unwrap();
@@ -256,7 +286,7 @@ fn stop_soon(sigterm: bool) {
                     .unwrap()
                     .success());
             },
-            services_on(model.base.clone()),
+            services_on(model.base.clone(), free_port()),
             hook,
         );
         std::thread::sleep(Duration::from_millis(ms));
