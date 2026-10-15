@@ -34,6 +34,45 @@ pub enum Action {
     Escape,
     /// Ctrl-O: the folded paste, whole.
     ShowPaste,
+    /// Ctrl-Enter (where the terminal reports it): stop the turn and send
+    /// the queued message now.
+    SendNow,
+}
+
+/// What a one-key answer to a question does (theseus-wy6v.1). It works only
+/// while the question has the focus and the input line is empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ask {
+    Yes,
+    /// `n`: no, then an optional note and Enter.
+    No,
+    /// `v`: the whole call, in the transcript.
+    Whole,
+    /// `t`: yes, and trust the session again after external text.
+    Trust,
+    /// `a` (a command's prefix) or `e` (edits in this project): yes, and
+    /// the question's grant offer. A question that offers the other, or none,
+    /// ignores the key.
+    Grant,
+}
+
+/// The question's keys, one table: a later row (modes, cli-tasks) adds a row.
+pub const ASK_KEYS: &[(char, Ask)] = &[
+    ('y', Ask::Yes),
+    ('n', Ask::No),
+    ('v', Ask::Whole),
+    ('t', Ask::Trust),
+    ('a', Ask::Grant),
+    ('e', Ask::Grant),
+];
+
+/// The answer a character is, if it is one.
+pub fn ask_key(c: char) -> Option<(char, Ask)> {
+    let c = c.to_ascii_lowercase();
+    ASK_KEYS
+        .iter()
+        .find(|(k, _)| *k == c)
+        .map(|(k, a)| (*k, *a))
 }
 
 pub fn map(k: KeyEvent) -> Option<Action> {
@@ -44,6 +83,7 @@ pub fn map(k: KeyEvent) -> Option<Action> {
     let alt = k.modifiers.contains(KeyModifiers::ALT);
     let shift = k.modifiers.contains(KeyModifiers::SHIFT);
     Some(match k.code {
+        KeyCode::Enter if ctrl => Action::SendNow,
         KeyCode::Enter if shift || alt => Action::Newline,
         KeyCode::Enter => Action::Submit,
         KeyCode::Char(c) if ctrl => match c.to_ascii_lowercase() {
@@ -107,6 +147,21 @@ mod tests {
             key(KeyCode::Char('j'), KeyModifiers::CONTROL),
             Some(Action::Newline)
         );
+    }
+
+    #[test]
+    fn ctrl_enter_sends_now_and_the_question_keys_are_one_table() {
+        assert_eq!(
+            key(KeyCode::Enter, KeyModifiers::CONTROL),
+            Some(Action::SendNow)
+        );
+        assert_eq!(ask_key('Y'), Some(('y', Ask::Yes)));
+        assert_eq!(ask_key('e'), Some(('e', Ask::Grant)));
+        assert_eq!(ask_key('w'), None);
+        let mut keys: Vec<char> = ASK_KEYS.iter().map(|(k, _)| *k).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), ASK_KEYS.len());
     }
 
     #[test]

@@ -546,19 +546,23 @@ async fn a_question_shows_in_the_dock_and_y_answers_it() {
         reason: "run python3 -m unittest".into(),
         ..Default::default()
     }));
-    r.shows("[y] approve · [n] decline").await;
+    r.shows("y yes · n no").await;
     assert!(
-        r.text().contains("? Run `python3 -m unittest`?"),
+        r.text().contains("? Run `python3 -m unittest`"),
         "{}",
         r.text()
     );
     assert!(r.text().contains("waiting for you"), "{}", r.text());
     r.press(KeyCode::Char('y')).await;
-    r.asked("work.answer", 1).await;
-    let a = &r.daemon.asked("work.answer")[0];
+    r.asked("action.confirm", 1).await;
+    let a = &r.daemon.asked("action.confirm")[0];
     assert_eq!(
-        (a["question_id"].as_str(), a["option"].as_str()),
-        (Some("act_77"), Some("approve"))
+        (
+            a["correlation_id"].as_str(),
+            a["approve"].as_bool(),
+            a["author"].as_str()
+        ),
+        (Some("act_77"), Some(true), Some("theseus chat"))
     );
     r.tell(Event::ConfirmResolved(theseus_protocol::ConfirmResolved {
         correlation_id: "act_77".into(),
@@ -567,7 +571,7 @@ async fn a_question_shows_in_the_dock_and_y_answers_it() {
         ..Default::default()
     }));
     r.shows("approved").await;
-    assert!(!r.text().contains("[y]"), "{}", r.text());
+    assert!(!r.text().contains("y yes"), "{}", r.text());
 }
 
 #[tokio::test(start_paused = true)]
@@ -581,9 +585,9 @@ async fn y_is_text_when_the_line_is_not_empty() {
         reason: "r".into(),
         ..Default::default()
     }));
-    r.shows("[y] approve").await;
+    r.shows("y yes").await;
     r.type_text("why").await;
-    assert!(r.daemon.asked("work.answer").is_empty());
+    assert!(r.daemon.asked("action.confirm").is_empty());
     assert!(r.text().contains("› why"), "{}", r.text());
 }
 
@@ -631,11 +635,11 @@ async fn a_pasted_y_or_q_is_text_and_a_pasted_newline_sends_nothing() {
         reason: "r".into(),
         ..Default::default()
     }));
-    r.shows("[y] approve").await;
+    r.shows("y yes").await;
     r.paste("y\nyes\nsure").await;
     r.settle().await;
     assert!(
-        r.daemon.asked("work.answer").is_empty(),
+        r.daemon.asked("action.confirm").is_empty(),
         "a paste answered the question"
     );
     assert!(
