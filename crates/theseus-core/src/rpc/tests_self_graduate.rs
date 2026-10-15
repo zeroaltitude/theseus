@@ -88,6 +88,7 @@ fn loaded(name: &str, digest: &str, network: &[&str], acked_at: u64) -> Loaded {
         tools: vec!["count".into()],
         capabilities: Capabilities {
             network: network.iter().map(|h| h.to_string()).collect(),
+            hands: None,
             scratch: true,
         },
         acked_by: "cli".into(),

@@ -41,8 +41,9 @@ use crate::tests_route::{mode, rig, turn};
 /// 37,900 rang with all three; their joins' review), and 43,700 and 38,200 before
 /// standing-surface (theseus-slvl.4) and wait-cost (theseus-7m7w.3) joined (43,700
 /// rang with both; 43,800 to 44,200 hold: a sweep at their join).
-/// And 43,900 and 38,400 before `extend.propose`'s `hands` joined it (theseus-pw1q.14) (200 more).
-const WINDOW: u64 = 44_100;
+/// And 43,900 and 38,400 before `extend.propose`'s `hands` joined it (theseus-pw1q.14: 43,900 and
+/// 44,100 rang; 44,300 to 44,900 hold: a sweep at its join).
+const WINDOW: u64 = 44_500;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.

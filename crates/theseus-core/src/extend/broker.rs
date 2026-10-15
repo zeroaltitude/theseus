@@ -361,6 +361,7 @@ impl Core {
                 kind: None,
                 label: Some(format!("extension {name}'s hands, one local day")),
                 opened_from: None,
+                persona: None,
             },
             authority,
             Some(cap.cap_micros()),

@@ -77,14 +77,15 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// it (42,500 compacted with all three; 42,800 to 43,500 hold; their joins'
 /// review).
 /// And 0 until the assembly note named the surface tag (theseus-slvl.3) (200 more).
-/// And 200 until `extend.propose`'s `hands` joined it (theseus-pw1q.14) (200 more).
+/// And 43,100 until `extend.propose`'s `hands` joined it (theseus-pw1q.14: 43,100 compacted;
+/// 43,300 to 44,100 hold: a sweep at its join).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(43_100),
+            context_window: Some(43_500),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },
