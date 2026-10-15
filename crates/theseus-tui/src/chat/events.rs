@@ -53,6 +53,15 @@ impl Chat {
                 Vec::new()
             }
             Purpose::ListResume(given) => self.resolve(&given, v),
+            Purpose::ListContinue => self.continue_here(v),
+            Purpose::ListPick => self.listed(false, v),
+            Purpose::ListWide => self.listed(true, v),
+            Purpose::Earlier(_) => {
+                if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
+                    self.earlier_turns(&h);
+                }
+                Vec::new()
+            }
             Purpose::History(sid) => {
                 if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
                     self.history(&sid, &h);
@@ -86,7 +95,20 @@ impl Chat {
             Purpose::Open | Purpose::ListResume(_) => {
                 self.fatal(&format!("could not open a conversation: {}", e.message))
             }
-            Purpose::History(_) | Purpose::Watch => {
+            Purpose::ListContinue => {
+                self.say_words(
+                    Sty::Yellow,
+                    &format!("could not look for a conversation here: {}", e.message),
+                );
+                self.open_new()
+            }
+            Purpose::ListPick | Purpose::ListWide => {
+                if let Some(p) = self.picker.as_mut() {
+                    p.failed = Some(e.message.clone());
+                }
+                Vec::new()
+            }
+            Purpose::History(_) | Purpose::Watch | Purpose::Earlier(_) => {
                 self.say_words(
                     Sty::Yellow,
                     &format!("could not read the conversation: {}", e.message),
@@ -116,7 +138,7 @@ impl Chat {
     }
 
     /// The session is open: watch it, and send what was typed before.
-    fn opened(&mut self, sid: &str) -> Vec<Effect> {
+    pub(super) fn opened(&mut self, sid: &str) -> Vec<Effect> {
         self.session = Some(sid.to_string());
         let mut out = vec![call(
             method::SESSION_WATCH,
@@ -143,22 +165,7 @@ impl Chat {
         match hits.as_slice() {
             [one] => {
                 let info = (*one).clone();
-                self.profile = info.profile.clone();
-                self.model = self.model.take().or(info.model.clone());
-                self.cost = info.cost_usd;
-                let sid = info.session_id;
-                self.banner.last = Some(None);
-                let mut out = self.opened(&sid);
-                out.insert(
-                    0,
-                    call(
-                        method::SESSION_HISTORY,
-                        json!({ "session_id": sid, "n": 40 }),
-                        Purpose::History(sid.clone()),
-                    ),
-                );
-                self.banner_ready();
-                out
+                self.resume_info(info)
             }
             [] if g.chars().count() < 4 => {
                 self.fatal(&format!("`{given}` is too short to name a conversation: give at least four characters of its id"))
@@ -171,9 +178,12 @@ impl Chat {
         }
     }
 
-    /// A resumed conversation's recent messages, then what waits on you.
+    /// A resumed conversation's recent turns, then what waits on you: the
+    /// last [`REPLAY_TURNS`] turns through the transcript's own lines, the
+    /// older ones one line that says how many (theseus-6yka).
     fn history(&mut self, _sid: &str, h: &SessionHistoryResult) {
         self.print_banner();
+        let (from, folded) = super::reopen::window(h, super::reopen::REPLAY_TURNS);
         self.say_plain(
             Sty::Dim,
             &format!(
@@ -182,7 +192,19 @@ impl Chat {
                 h.session.title.as_deref().unwrap_or("untitled")
             ),
         );
-        for n in &h.nodes {
+        self.earlier = None;
+        if folded > 0 {
+            self.earlier = h.nodes.get(from).map(|n| n.position);
+            self.say_plain(
+                Sty::Dim,
+                &format!(
+                    "{folded} earlier turn{} · /history shows {}",
+                    if folded == 1 { "" } else { "s" },
+                    if folded == 1 { "it" } else { "them" }
+                ),
+            );
+        }
+        for n in &h.nodes[from..] {
             self.node_line(n);
         }
         self.gap();
@@ -194,12 +216,13 @@ impl Chat {
     }
 
     /// One stored node, as the transcript shows it.
-    fn node_line(&mut self, n: &NodeInfo) {
+    pub(super) fn node_line(&mut self, n: &NodeInfo) {
         match n.kind.as_str() {
             "user_message" if !n.text.trim().is_empty() => {
                 self.gap();
                 let mut first = true;
-                for raw in n.text.lines() {
+                for raw in super::reopen::folded(&n.text) {
+                    let raw = raw.as_str();
                     for row in
                         super::style::wrap_words(raw, usize::from(self.width).saturating_sub(2), 0)
                     {

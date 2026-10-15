@@ -18,7 +18,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/work.rs` (theseus-hkx30): `theseus work`, the work board as a tree (`work.watch`), and `--watch`, a line for each
   `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
   the real tree on the same wire. Tests inside it.
-- `src/chat_cmd.rs` (theseus-cyha): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION]` exec `theseus-tui chat [SESSION]` as `tui` execs the board; a pipe, a script or any argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
+- `src/chat_cmd.rs` (theseus-cyha, theseus-6yka): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION | -c | -r]` exec `theseus-tui chat [SESSION] [-c | -r]` as `tui` execs the board; `theseus -c` and `theseus -r` (the whole command line, on a terminal) are the same as `chat -c` and `chat -r`: continue this directory's last conversation, or pick one. A pipe, a script or any other argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
 - `src/notify/` (theseus-f0bi9): how a ping reaches the owner, for every terminal client. `notices.rs` is the TUI's
   former notice queue (the policy's notices, a second of debounce, the burst fold); `mod.rs` has `Delivery`
   (`auto|toast|bell|osc9|osc777|off`), `Env` (WSL from `WSL_DISTRO_NAME` or `osrelease`, injectable) and `Notifier`;

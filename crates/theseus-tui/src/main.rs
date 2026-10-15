@@ -63,10 +63,12 @@ use theseus_client::seen::Seen;
 const USAGE: &str = "theseus-tui: every session of a running theseusd, in one terminal
 
 usage: theseus-tui [--socket PATH] [--notify HOW]
-       theseus-tui [--socket PATH] chat [SESSION]
+       theseus-tui [--socket PATH] chat [SESSION | -c | -r]
 
   chat [SESSION]  an inline conversation in this directory (a new one, or SESSION's);
                   `theseus` and `theseus chat` run it
+  chat -c         continue this directory's last conversation (`theseus -c`)
+  chat -r         pick a conversation to continue, searched as you type (`theseus -r`)
   --socket PATH   the daemon's Unix socket (default: $THESEUS_SOCKET, else ~/.theseus/theseus.sock)
   --notify HOW    how a notice (needs you, finished) reaches you: auto (the default: a Windows
                   toast under WSL, OSC 9 in a terminal that has it, else the bell), toast, bell,
@@ -85,6 +87,8 @@ struct Args {
     notify: Option<Delivery>,
     /// `chat [SESSION]`: the inline conversation instead of the board.
     chat: Option<Option<String>>,
+    /// `chat -c` and `chat -r`: the last conversation here, or a pick.
+    start: chat::Start,
 }
 
 impl Args {
@@ -95,6 +99,7 @@ impl Args {
             .unwrap_or_else(|| "~/.theseus/theseus.sock".to_string());
         let mut notify = None;
         let mut chat: Option<Option<String>> = None;
+        let mut start = chat::Start::New;
         let how = |v: Option<&str>| {
             v.and_then(Delivery::parse)
                 .ok_or_else(|| anyhow::anyhow!("--notify takes {}\n\n{USAGE}", Delivery::NAMES))
@@ -115,6 +120,8 @@ impl Args {
                 },
                 "--notify" => notify = Some(how(args.next().as_deref())?),
                 "chat" if chat.is_none() => chat = Some(None),
+                "-c" | "--continue" if chat.is_some() => start = chat::Start::Continue,
+                "-r" | "--resume" if chat.is_some() => start = chat::Start::Pick,
                 other if matches!(chat, Some(None)) && !other.starts_with('-') => {
                     chat = Some(Some(other.to_string()));
                 }
@@ -133,6 +140,7 @@ impl Args {
             socket,
             notify,
             chat,
+            start,
         }))
     }
 }
@@ -148,6 +156,7 @@ fn main() -> Result<()> {
         let chat = chat::Args {
             socket: args.socket,
             resume,
+            start: args.start,
         };
         return rt.block_on(chat::run(chat));
     }

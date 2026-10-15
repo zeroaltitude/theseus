@@ -309,7 +309,7 @@ fn two_ctrl_c_leave_saying_the_conversation_goes_on() {
     assert!(status.success());
     let text = String::from_utf8_lossy(&c.raw).into_owned();
     assert!(
-        text.contains("left · the conversation goes on · theseus chat abcdef"),
+        text.contains("left · the conversation goes on · theseus -c · theseus chat abcdef"),
         "{text}"
     );
     assert!(restored(&c.raw) && c.cooked());
