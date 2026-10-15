@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use serde_json::json;
 use theseus_protocol::threads::{
-    Seal, ThreadEditParams, ThreadMergeParams, ThreadNewParams, ThreadSplitParams,
-    ThreadState, WorkingSet,
+    Seal, ThreadEditParams, ThreadMergeParams, ThreadNewParams, ThreadSplitParams, ThreadState,
+    WorkingSet,
 };
 
 use super::Core;
@@ -59,7 +59,11 @@ fn thread(c: &Core, slug: &str) -> String {
     c.thread_session(slug, cli()).unwrap().session_id
 }
 
-fn merge(c: &Core, from: &str, into: &str) -> Result<theseus_protocol::threads::ThreadMergeResult, String> {
+fn merge(
+    c: &Core,
+    from: &str,
+    into: &str,
+) -> Result<theseus_protocol::threads::ThreadMergeResult, String> {
     c.thread_merge(
         &ThreadMergeParams {
             from: from.into(),
@@ -155,7 +159,10 @@ fn a_merge_unions_and_retires_in_one_frame() {
             slug: "io-pressure".into(),
             topics: Some(vec!["t1".into(), "t2".into()]),
             working_set: Some(ws(&["gauge.log", "rotate.sh"], &["metrics.example.org"])),
-            card: Some(vec!["the log disk was at 91%".into(), "rotate weekly".into()]),
+            card: Some(vec![
+                "the log disk was at 91%".into(),
+                "rotate weekly".into(),
+            ]),
             ..Default::default()
         },
     );
@@ -181,12 +188,23 @@ fn a_merge_unions_and_retires_in_one_frame() {
     assert_eq!(b.merged_into, None);
     assert_eq!(b.state, ThreadState::Active);
     assert_eq!(b.topics, ["t3", "t4", "t1"], "B's first, three at most");
-    assert_eq!(res.topics_left_out, ["t2"], "the owner picks among the rest");
+    assert_eq!(
+        res.topics_left_out,
+        ["t2"],
+        "the owner picks among the rest"
+    );
     assert_eq!(b.working_set.files, ["rotate.sh", "tides.csv", "gauge.log"]);
     assert_eq!(b.working_set.hosts, ["metrics.example.org"]);
     assert_eq!(b.card[0], "Friday's high tide is at 06:12");
-    assert!(b.card[1].starts_with("merged from «io-pressure», "), "{:?}", b.card);
-    assert_eq!(b.card[2..], ["> the log disk was at 91%", "> rotate weekly"]);
+    assert!(
+        b.card[1].starts_with("merged from «io-pressure», "),
+        "{:?}",
+        b.card
+    );
+    assert_eq!(
+        b.card[2..],
+        ["> the log disk was at 91%", "> rotate weekly"]
+    );
     // A keeps its card and its record whole; the board links the two.
     assert_eq!(board(c, "io-pressure").card.len(), 2);
     let shown = c.thread_show("tide-tables", cli()).unwrap();
@@ -195,15 +213,27 @@ fn a_merge_unions_and_retires_in_one_frame() {
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].data["from"], "io-pressure");
     assert_eq!(merged[0].data["into"], "tide-tables");
-    assert_eq!(merged[0].data["card"], json!(["the log disk was at 91%", "rotate weekly"]));
+    assert_eq!(
+        merged[0].data["card"],
+        json!(["the log disk was at 91%", "rotate weekly"])
+    );
     // A restart reads the same board.
     let again = {
         let model = Arc::new(crate::provider::FakeProvider::default());
-        super::Core::build(super::Parts::for_tests((*c.cfg).clone(), model, c.store.clone()))
-            .unwrap()
+        super::Core::build(super::Parts::for_tests(
+            (*c.cfg).clone(),
+            model,
+            c.store.clone(),
+        ))
+        .unwrap()
     };
     assert_eq!(
-        again.threads().get("io-pressure").unwrap().merged_into.as_deref(),
+        again
+            .threads()
+            .get("io-pressure")
+            .unwrap()
+            .merged_into
+            .as_deref(),
         Some("tide-tables")
     );
 }
@@ -217,15 +247,23 @@ fn a_merge_that_cannot_be_is_refused_and_writes_nothing() {
     }
     let (n, e) = frames(|| merge(c, "a", "a"));
     assert!(e.unwrap_err().contains("into itself"));
-    assert!(merge(c, "a", "nope").unwrap_err().contains("no thread nope"));
-    assert!(merge(c, "nope", "a").unwrap_err().contains("no thread nope"));
+    assert!(merge(c, "a", "nope")
+        .unwrap_err()
+        .contains("no thread nope"));
+    assert!(merge(c, "nope", "a")
+        .unwrap_err()
+        .contains("no thread nope"));
     c.thread_done("c", cli()).unwrap();
     assert!(merge(c, "a", "c").unwrap_err().contains("is done"));
     assert_eq!(n, 0);
     merge(c, "a", "b").unwrap();
     // A is merged: it cannot be merged again, and nothing merges into it.
-    assert!(merge(c, "a", "b").unwrap_err().contains("merged into b already"));
-    assert!(merge(c, "b", "a").unwrap_err().contains("merge into that one"));
+    assert!(merge(c, "a", "b")
+        .unwrap_err()
+        .contains("merged into b already"));
+    assert!(merge(c, "b", "a")
+        .unwrap_err()
+        .contains("merge into that one"));
     assert_eq!(rows(c, "thread.merged").len(), 1);
 }
 
@@ -251,11 +289,23 @@ async fn a_merge_deletes_nothing_of_the_retired_thread() {
 
     let after = c.store.transcript(&a).unwrap();
     let ids_after: Vec<String> = after.iter().map(|(_, n)| n.id.clone()).collect();
-    assert_eq!(&ids_after[..ids_before.len()], &ids_before[..], "every node is there");
-    assert_eq!(ids_after.len(), ids_before.len() + 1, "and one note at the tail");
+    assert_eq!(
+        &ids_after[..ids_before.len()],
+        &ids_before[..],
+        "every node is there"
+    );
+    assert_eq!(
+        ids_after.len(),
+        ids_before.len() + 1,
+        "and one note at the tail"
+    );
     let texts_after = said(c, &a);
     assert_eq!(&texts_after[..texts_before.len()], &texts_before[..]);
-    assert!(texts_after.last().unwrap().2.contains("merged into tide-tables"));
+    assert!(texts_after
+        .last()
+        .unwrap()
+        .2
+        .contains("merged into tide-tables"));
     let rec: SessionRecord = c.store.get_session(&a).unwrap().unwrap();
     assert!(rec.retired.is_some(), "its session is retired");
     // B was untouched mid-warm: its session is as it was.
@@ -272,7 +322,11 @@ async fn a_merge_deletes_nothing_of_the_retired_thread() {
 async fn after_a_merge_recall_from_b_finds_as_facts_under_as_provenance() {
     let r = rig_with(MemoryMode::Live, |_| {});
     let c = &r.core;
-    r.model.script.lock().unwrap().push_back(Scripted::text("The key is under the blue stone."));
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text("The key is under the blue stone."));
     let a = thread(c, "io-pressure");
     let b = thread(c, "tide-tables");
     turn(c, &a, "Where is the pump house key kept?").await;
@@ -281,10 +335,18 @@ async fn after_a_merge_recall_from_b_finds_as_facts_under_as_provenance() {
     let res = turn(c, &b, "Remind me where the pump house key is").await;
     assert!(res.recalled >= 1, "recall reached the model");
     let rows = recalls(c, &b);
-    assert!(admitted(&rows[0]).contains(&a.as_str()), "{:?}", admitted(&rows[0]));
-    let sent = serde_json::to_string(&r.model.requests.lock().unwrap().last().unwrap().messages).unwrap();
+    assert!(
+        admitted(&rows[0]).contains(&a.as_str()),
+        "{:?}",
+        admitted(&rows[0])
+    );
+    let sent =
+        serde_json::to_string(&r.model.requests.lock().unwrap().last().unwrap().messages).unwrap();
     assert!(sent.contains("under the blue stone"), "{sent}");
-    assert!(sent.contains(&a), "A's provenance, its session, is named: {sent}");
+    assert!(
+        sent.contains(&a),
+        "A's provenance, its session, is named: {sent}"
+    );
     // The distance rule's reader: A's live thread is B.
     let live = c.threads();
     assert_eq!(live.live_of("io-pressure").unwrap().slug, "tide-tables");
@@ -302,10 +364,16 @@ async fn a_merge_with_a_sealed_thread_is_sealed_and_so_is_a_split_of_one() {
     }
     seal(c, "a");
     merge(c, "a", "b").unwrap();
-    assert!(board(c, "b").sealed.is_some(), "the retired thread's seal moves");
+    assert!(
+        board(c, "b").sealed.is_some(),
+        "the retired thread's seal moves"
+    );
     seal(c, "c");
     merge(c, "d", "c").unwrap();
-    assert!(board(c, "c").sealed.is_some(), "the receiving thread's stays");
+    assert!(
+        board(c, "c").sealed.is_some(),
+        "the receiving thread's stays"
+    );
 
     let s = thread(c, "e");
     turn(c, &s, "A question about the weir.").await;
@@ -322,7 +390,10 @@ async fn a_merge_with_a_sealed_thread_is_sealed_and_so_is_a_split_of_one() {
             cli(),
         )
         .unwrap();
-    assert!(res.thread.thread.sealed.is_some(), "a split of a sealed thread is sealed");
+    assert!(
+        res.thread.thread.sealed.is_some(),
+        "a split of a sealed thread is sealed"
+    );
 }
 
 /// An unmerge puts the retired thread back as it was, opens its session
@@ -351,7 +422,11 @@ async fn an_unmerge_restores_the_retired_thread_and_notes_the_other() {
 
     let (n, res) = frames(|| c.thread_unmerge("io-pressure", cli()));
     let res = res.unwrap();
-    assert_eq!(n, 1 + 1, "one frame for the undo, one for the session reopened");
+    assert_eq!(
+        n,
+        1 + 1,
+        "one frame for the undo, one for the session reopened"
+    );
     let now = board(c, "io-pressure");
     assert_eq!(now.state, ThreadState::Paused, "as before the merge");
     assert_eq!(now.merged_into, None);
@@ -364,7 +439,10 @@ async fn an_unmerge_restores_the_retired_thread_and_notes_the_other() {
         "{:?}",
         b.card
     );
-    assert!(b.card.iter().any(|l| l.starts_with("> key under")), "what B took stays");
+    assert!(
+        b.card.iter().any(|l| l.starts_with("> key under")),
+        "what B took stays"
+    );
     assert_eq!(res.from.thread.slug, "io-pressure");
     assert_eq!(rows(c, "thread.unmerged").len(), 1);
     // Nothing to undo twice, and it can be merged again.
@@ -385,7 +463,10 @@ async fn an_unmerge_restores_the_retired_thread_and_notes_the_other() {
 async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     let mut script = Vec::new();
     for i in 0..6 {
-        script.push(Scripted::text(&format!("Answer {i}: {}", ["tide", "tide", "tide", "disk", "disk", "disk"][i])));
+        script.push(Scripted::text(&format!(
+            "Answer {i}: {}",
+            ["tide", "tide", "tide", "disk", "disk", "disk"][i]
+        )));
     }
     // The model's answer in the new thread, and the source's next one.
     script.push(Scripted::text("The disk is the log volume."));
@@ -408,7 +489,10 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     let requests_before = r.model.requests.lock().unwrap().len();
     let last_before = r.model.requests.lock().unwrap().last().unwrap().clone();
 
-    let (first, last) = (pos_of(c, &a, "Why is the log disk"), pos_of(c, &a, "Answer 5"));
+    let (first, last) = (
+        pos_of(c, &a, "Why is the log disk"),
+        pos_of(c, &a, "Answer 5"),
+    );
     let (_, res) = frames(|| {
         c.thread_split(
             &ThreadSplitParams {
@@ -422,7 +506,10 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
         )
     });
     let res = res.unwrap();
-    assert_eq!((res.quoted, res.first_pos, res.last_pos, res.noted), (6, first, last, true));
+    assert_eq!(
+        (res.quoted, res.first_pos, res.last_pos, res.noted),
+        (6, first, last, true)
+    );
     let c_row = &res.thread.thread;
     assert_eq!(c_row.split_from.as_deref(), Some("harbour"));
     assert_eq!(c_row.state, ThreadState::Active);
@@ -439,7 +526,11 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     // messages, verbatim and in order.
     let sid = c_row.session_id.clone().expect("opened with its session");
     let nodes = c.store.transcript(&sid).unwrap();
-    assert_eq!(nodes.len(), 2, "a brief and an arrangement, nothing else yet");
+    assert_eq!(
+        nodes.len(),
+        2,
+        "a brief and an arrangement, nothing else yet"
+    );
     let Body::Arrangement { pieces, .. } = &nodes[1].1.body else {
         panic!("{:?}", nodes[1].1.body)
     };
@@ -459,8 +550,15 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     // the request that follows.
     let after = c.store.transcript(&a).unwrap();
     assert_eq!(
-        before.iter().map(|(p, n)| (*p, n.id.clone())).collect::<Vec<_>>(),
-        after.iter().take(before.len()).map(|(p, n)| (*p, n.id.clone())).collect::<Vec<_>>()
+        before
+            .iter()
+            .map(|(p, n)| (*p, n.id.clone()))
+            .collect::<Vec<_>>(),
+        after
+            .iter()
+            .take(before.len())
+            .map(|(p, n)| (*p, n.id.clone()))
+            .collect::<Vec<_>>()
     );
     assert_eq!(after.len(), before.len() + 1);
     let note = crate::arrangement::text_of(&after.last().unwrap().1).unwrap();
@@ -472,9 +570,15 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     let req = r.model.requests.lock().unwrap().last().unwrap().clone();
     let seen = serde_json::to_string(&req.messages).unwrap();
     for (_, t) in &want {
-        assert!(seen.contains(&t.replace('"', "\\\"")), "{t} is in C's first request");
+        assert!(
+            seen.contains(&t.replace('"', "\\\"")),
+            "{t} is in C's first request"
+        );
     }
-    assert!(!seen.contains("tide table for Friday"), "the other concern stayed behind");
+    assert!(
+        !seen.contains("tide table for Friday"),
+        "the other concern stayed behind"
+    );
     assert!(seen.contains("split out of the thread harbour"), "{seen}");
     // And A goes on: its request is the earlier one's bytes, the reply, the
     // note, and the new message.
@@ -510,11 +614,21 @@ fn a_split_that_cannot_be_is_refused_before_anything_is_opened() {
         )
         .map_err(|e| e.message)
     };
-    assert!(split("harbour", "x", Some([1, 2]), None).unwrap_err().contains("no turns yet"));
-    assert!(split("nope", "x", Some([1, 2]), None).unwrap_err().contains("no thread nope"));
-    assert!(split("harbour", "x", None, None).unwrap_err().contains("name the turns"));
-    assert!(split("harbour", "x", Some([1, 2]), Some(vec![3])).unwrap_err().contains("name the turns"));
-    assert!(split("harbour", "Bad Slug", Some([1, 2]), None).unwrap_err().contains("not a slug"));
+    assert!(split("harbour", "x", Some([1, 2]), None)
+        .unwrap_err()
+        .contains("no turns yet"));
+    assert!(split("nope", "x", Some([1, 2]), None)
+        .unwrap_err()
+        .contains("no thread nope"));
+    assert!(split("harbour", "x", None, None)
+        .unwrap_err()
+        .contains("name the turns"));
+    assert!(split("harbour", "x", Some([1, 2]), Some(vec![3]))
+        .unwrap_err()
+        .contains("name the turns"));
+    assert!(split("harbour", "Bad Slug", Some([1, 2]), None)
+        .unwrap_err()
+        .contains("not a slug"));
     assert!(rows(c, "thread.split").is_empty());
 }
 
@@ -546,7 +660,9 @@ async fn a_split_cannot_take_a_name_in_use_and_is_not_made_from_a_merged_thread(
         "no session was opened for a split that was refused"
     );
     merge(c, "harbour", "taken").unwrap();
-    assert!(ask("harbour", "fresh").unwrap_err().contains("merged into taken"));
+    assert!(ask("harbour", "fresh")
+        .unwrap_err()
+        .contains("merged into taken"));
 }
 
 /// The model's tool: offered in a thread's session alone, it asks for the
@@ -574,24 +690,45 @@ async fn the_tool_waits_for_the_owners_tap_and_then_splits_by_quotes() {
     turn(c, &a, "What is the tide table for Friday?").await;
     turn(c, &a, "Why is the log disk filling?").await;
     let names = |q: &crate::provider::ProviderRequest| {
-        q.tools.iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        q.tools
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
     };
     assert!(names(&r.model.requests.lock().unwrap()[0]).contains(&"thread_split".to_string()));
     let plain = crate::tests_recall::session(c, None, &[]);
     turn(c, &plain, "hello").await;
     let last = r.model.requests.lock().unwrap().last().unwrap().clone();
-    assert!(!names(&last).contains(&"thread_split".to_string()), "a thread's tool only");
-    r.model.script.lock().unwrap().extend([call, Scripted::text("It is its own thread now.")]);
+    assert!(
+        !names(&last).contains(&"thread_split".to_string()),
+        "a thread's tool only"
+    );
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .extend([call, Scripted::text("It is its own thread now.")]);
 
     turn(c, &a, "Move the disk part into its own thread.").await;
     let asked = c.confirm_list().unwrap();
-    assert_eq!(asked.len(), 1, "{asked:?} {:?}", r.model.requests.lock().unwrap().last().map(|q| serde_json::to_string(&q.messages).unwrap()));
+    assert_eq!(
+        asked.len(),
+        1,
+        "{asked:?} {:?}",
+        r.model
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .map(|q| serde_json::to_string(&q.messages).unwrap())
+    );
     assert_eq!(asked[0].tool, "thread.split");
     assert!(asked[0].reason.contains("layer 1"), "{}", asked[0].reason);
     assert!(c.threads().get("disk").is_none(), "nothing before the tap");
     assert!(rows(c, "thread.split").is_empty());
 
-    c.confirm_action(&asked[0].correlation_id, true, None, "cli").unwrap();
+    c.confirm_action(&asked[0].correlation_id, true, None, "cli")
+        .unwrap();
     until("the split thread", || c.threads().get("disk").is_some()).await;
     let t = board(c, "disk");
     assert_eq!(t.split_from.as_deref(), Some("harbour"));
@@ -606,9 +743,14 @@ async fn the_tool_waits_for_the_owners_tap_and_then_splits_by_quotes() {
     // From the quoted message through the end of the thread before the call:
     // the question and its answer; the request to split is not among them.
     let texts: Vec<&str> = pieces.iter().map(|p| p.text.as_deref().unwrap()).collect();
-    assert_eq!(texts, ["Why is the log disk filling?", "The log volume is at 91%."]);
+    assert_eq!(
+        texts,
+        ["Why is the log disk filling?", "The log volume is at 91%."]
+    );
     until("the call's result", || {
-        said(c, &a).iter().any(|(_, _, t)| t.contains("Split to «disk»"))
+        said(c, &a)
+            .iter()
+            .any(|(_, _, t)| t.contains("Split to «disk»"))
     })
     .await;
 }
@@ -669,7 +811,10 @@ async fn the_receiving_thread_is_rewritten_at_its_next_recompile_not_before() {
     merge(c, "io-pressure", "tide-tables").unwrap();
     turn(c, &b, "second").await;
     let card = |q: &crate::provider::ProviderRequest| {
-        q.messages[0]["content"][0]["text"].as_str().unwrap().to_string()
+        q.messages[0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
     };
     let reqs = r.model.requests.lock().unwrap().clone();
     assert_eq!(card(&reqs[0]), card(&reqs[1]), "not mid-warm");
@@ -695,7 +840,10 @@ async fn the_receiving_thread_is_rewritten_at_its_next_recompile_not_before() {
         .unwrap();
     let reqs = r.model.requests.lock().unwrap().clone();
     let c3 = card(reqs.last().unwrap());
-    assert!(c3.contains("merged from «io-pressure»") && c3.contains("> the log disk was at 91%"), "{c3}");
+    assert!(
+        c3.contains("merged from «io-pressure»") && c3.contains("> the log disk was at 91%"),
+        "{c3}"
+    );
 }
 
 /// A split holds what its source holds (outside text), and a session opened
@@ -709,7 +857,13 @@ async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
     turn(c, &a, "Where is the weir?").await;
     c.store
         .update_session(&a, |rec| {
-            rec.external = Some(crate::external::read("n1", "http.fetch", "https://x.example/", None, 1));
+            rec.external = Some(crate::external::read(
+                "n1",
+                "http.fetch",
+                "https://x.example/",
+                None,
+                1,
+            ));
             Ok(vec![])
         })
         .unwrap();
@@ -727,7 +881,10 @@ async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
         .unwrap();
     let sid = res.thread.thread.session_id.unwrap();
     let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
-    assert!(rec.external.is_some(), "the new thread holds what the source held");
+    assert!(
+        rec.external.is_some(),
+        "the new thread holds what the source held"
+    );
     let src: SessionRecord = c.store.get_session(&a).unwrap().unwrap();
     assert!(src.retired.is_none(), "the source goes on");
 

@@ -257,7 +257,8 @@ impl Threads {
                 t.session_id = now.get(&t.slug).and_then(|o| o.session_id.clone());
                 if let Some((slug, session)) = bound.filter(|(s, _)| *s == t.slug) {
                     t.session_id = Some(session.to_string());
-                    next.by_session.insert(session.to_string(), slug.to_string());
+                    next.by_session
+                        .insert(session.to_string(), slug.to_string());
                 }
                 next.threads.insert(t.slug.clone(), t);
             }

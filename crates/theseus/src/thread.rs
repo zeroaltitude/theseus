@@ -278,10 +278,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
 
 /// A position as `@1234` or `1234`.
 fn position(s: &str) -> Result<u64> {
-    s.trim()
-        .trim_start_matches('@')
-        .parse()
-        .map_err(|_| anyhow::anyhow!("`{s}` is no position: write `@1234` as `theseus history` shows it"))
+    s.trim().trim_start_matches('@').parse().map_err(|_| {
+        anyhow::anyhow!("`{s}` is no position: write `@1234` as `theseus history` shows it")
+    })
 }
 
 /// `thread split`'s flags as the request: a range or a list, one of the two.
@@ -494,7 +493,10 @@ pub fn show_lines(r: &ThreadRow) -> Vec<String> {
     });
     out.push(format!("  last active: {}", fmt_stamp(t.last_active_ms)));
     for (what, v) in [
-        ("merged into", t.merged_into.iter().cloned().collect::<Vec<_>>()),
+        (
+            "merged into",
+            t.merged_into.iter().cloned().collect::<Vec<_>>(),
+        ),
         ("merged from", r.merged_from.clone()),
         ("split from", t.split_from.iter().cloned().collect()),
         ("split to", r.split_to.clone()),
@@ -623,19 +625,50 @@ mod tests {
 
     #[test]
     fn split_takes_a_range_or_positions_and_never_both() {
-        let p = split_params("a".into(), "b".into(), None, None, Some("@10".into()), Some("20".into()), vec![]).unwrap();
+        let p = split_params(
+            "a".into(),
+            "b".into(),
+            None,
+            None,
+            Some("@10".into()),
+            Some("20".into()),
+            vec![],
+        )
+        .unwrap();
         assert_eq!((p.range, p.positions), (Some([10, 20]), None));
-        let p = split_params("a".into(), "b".into(), None, None, None, None, vec!["@3".into(), "9".into()]).unwrap();
+        let p = split_params(
+            "a".into(),
+            "b".into(),
+            None,
+            None,
+            None,
+            None,
+            vec!["@3".into(), "9".into()],
+        )
+        .unwrap();
         assert_eq!((p.range, p.positions), (None, Some(vec![3, 9])));
         for (first, last, at) in [
             (None, None, vec![]),
             (Some("@1".to_string()), None, vec![]),
-            (Some("@1".to_string()), Some("@2".to_string()), vec!["@3".to_string()]),
+            (
+                Some("@1".to_string()),
+                Some("@2".to_string()),
+                vec!["@3".to_string()],
+            ),
         ] {
             let e = split_params("a".into(), "b".into(), None, None, first, last, at).unwrap_err();
             assert!(e.to_string().contains("name the turns"), "{e}");
         }
-        let e = split_params("a".into(), "b".into(), None, None, Some("x".into()), Some("2".into()), vec![]).unwrap_err();
+        let e = split_params(
+            "a".into(),
+            "b".into(),
+            None,
+            None,
+            Some("x".into()),
+            Some("2".into()),
+            vec![],
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("no position"), "{e}");
     }
 
@@ -663,7 +696,10 @@ mod tests {
             noted: false,
         };
         let l = split_lines(&s).join("\n");
-        assert!(l.contains("6 messages quoted, @10 to @30") && l.contains("Nothing of harbour moved"), "{l}");
+        assert!(
+            l.contains("6 messages quoted, @10 to @30") && l.contains("Nothing of harbour moved"),
+            "{l}"
+        );
         assert!(l.contains("note \"split to disk\" was not written"), "{l}");
     }
 }

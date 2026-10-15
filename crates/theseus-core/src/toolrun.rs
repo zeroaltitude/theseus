@@ -1641,9 +1641,7 @@ impl ToolRuntime {
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
                 // Part of a thread, a thread of its own (theseus-vt9k).
-                crate::thread_split::FAMILY => {
-                    crate::thread_split::run(tc, correlation_id, &input)
-                }
+                crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
                 // A job's handle needs its session (theseus-n8gk).
                 theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
                 _ => t.run_async_with_media(&input, &ctx),

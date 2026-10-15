@@ -89,7 +89,8 @@ impl TurnRunner {
         let Some(t) = board.as_ref().and_then(|b| b.of_session(session_id)) else {
             // The tools are a thread's own.
             let own = [NOTE, crate::thread_split::SPLIT].map(theseus_tools::wire_name);
-            spec.tools.retain(|d| !own.iter().any(|n| d["name"] == n.as_str()));
+            spec.tools
+                .retain(|d| !own.iter().any(|n| d["name"] == n.as_str()));
             return;
         };
         let now = card::text(t);

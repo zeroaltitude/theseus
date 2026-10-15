@@ -143,7 +143,14 @@ pub fn merged_note(from: &str, into: &str, at_ms: u64) -> String {
 /// The note a split leaves at the tail of the source thread's session (and
 /// the result of the tool that made it): the new thread, the positions, and
 /// that nothing here moved.
-pub fn split_note(from: &str, new: &str, title: &str, quoted: u32, first: u64, last: u64) -> String {
+pub fn split_note(
+    from: &str,
+    new: &str,
+    title: &str,
+    quoted: u32,
+    first: u64,
+    last: u64,
+) -> String {
     format!(
         "Split to «{new}» ({title}) at @{first} to @{last}: {} of this thread, {from}, are \
          quoted there, on {}. Nothing here was moved or removed; `theseus thread done {new}` \
@@ -188,15 +195,18 @@ mod tests {
         // 2026-10-14 12:00 UTC.
         let at = 1_791_979_200_000;
         let c = merged_card(&["b0".into()], &thread("io", &["a0", "a1"]), at);
-        assert_eq!(
-            c,
-            ["b0", "merged from «io», 2026-10-14:", "> a0", "> a1"]
-        );
+        assert_eq!(c, ["b0", "merged from «io», 2026-10-14:", "> a0", "> a1"]);
     }
 
     #[test]
     fn a_merged_card_stays_within_the_cards_limit_and_keeps_the_newest() {
-        let from = thread("io", &lines(12, "a").iter().map(String::as_str).collect::<Vec<_>>());
+        let from = thread(
+            "io",
+            &lines(12, "a")
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        );
         // A full card on each side: the quote takes six lines, B keeps six.
         let c = merged_card(&lines(12, "b"), &from, 0);
         assert_eq!(c.len(), MAX_CARD, "{c:?}");

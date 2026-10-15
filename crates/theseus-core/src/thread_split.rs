@@ -37,7 +37,9 @@ pub const AUTHOR_PREFIX: &str = "thread:";
 
 /// Whether a node is the quoted turns a split thread opens with.
 pub fn is_quote(n: &crate::node::Node) -> bool {
-    n.author.as_deref().is_some_and(|a| a.starts_with(AUTHOR_PREFIX))
+    n.author
+        .as_deref()
+        .is_some_and(|a| a.starts_with(AUTHOR_PREFIX))
 }
 
 pub const SPLIT: &str = "thread.split";
@@ -209,7 +211,10 @@ pub fn choose(nodes: &Transcript, pick: &Pick) -> Result<Chosen, String> {
         first_pos = first_pos.min(*pos);
         last_pos = last_pos.max(*pos);
         let (body, _) = crate::toolrun::cap(&text, arrangement::PIECE_CHARS, |_| {
-            format!("the whole message is node {} of session {}", n.id, n.session_id)
+            format!(
+                "the whole message is node {} of session {}",
+                n.id, n.session_id
+            )
         });
         pieces.push(Piece {
             role: Role::Context,
@@ -228,7 +233,11 @@ pub fn choose(nodes: &Transcript, pick: &Pick) -> Result<Chosen, String> {
     if pieces.is_empty() {
         return Err("no message with text is in the part chosen: nothing to split".into());
     }
-    let chars: usize = pieces.iter().filter_map(|p| p.text.as_ref()).map(|t| t.len()).sum();
+    let chars: usize = pieces
+        .iter()
+        .filter_map(|p| p.text.as_ref())
+        .map(|t| t.len())
+        .sum();
     if pieces.len() > MAX_PIECES || chars > MAX_CHARS {
         return Err(format!(
             "the part chosen is {} messages and {chars} characters, over the {MAX_PIECES} messages \
@@ -323,7 +332,10 @@ impl Tool for ThreadSplitTool {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let i: SplitInput = parse(input)?;
         Ok(Plan {
-            summary: format!("split part of this thread into the thread {}", i.slug.trim()),
+            summary: format!(
+                "split part of this thread into the thread {}",
+                i.slug.trim()
+            ),
             authority: Some("a new thread opens with turns of this one".into()),
             ..Default::default()
         })
@@ -360,10 +372,9 @@ pub fn run(tc: &TurnCtx<'_>, correlation_id: &str, input: &Value) -> AsyncMediaR
         node: None,
         role: Role::Context,
     }];
-    let same = i
-        .to
-        .as_deref()
-        .is_some_and(|t| arrangement::normalize(t) == arrangement::normalize(&i.from));
+    let same =
+        i.to.as_deref()
+            .is_some_and(|t| arrangement::normalize(t) == arrangement::normalize(&i.from));
     if let Some(t) = i.to.as_deref().filter(|_| !same) {
         pieces.push(arrangement::PieceRef {
             quote: Some(t.to_string()),
@@ -378,7 +389,14 @@ pub fn run(tc: &TurnCtx<'_>, correlation_id: &str, input: &Value) -> AsyncMediaR
     };
     let found = match arrangement::resolve(&want, &nodes, holder.as_deref()) {
         Ok(p) => p,
-        Err(r) => return fail(format!("Not split: {}", r.message.replace("piece 0", "`from`").replace("piece 1", "`to`"))),
+        Err(r) => {
+            return fail(format!(
+                "Not split: {}",
+                r.message
+                    .replace("piece 0", "`from`")
+                    .replace("piece 1", "`to`")
+            ))
+        }
     };
     let first = found[0].node.clone();
     let last = match (same, found.get(1)) {
@@ -394,7 +412,8 @@ pub fn run(tc: &TurnCtx<'_>, correlation_id: &str, input: &Value) -> AsyncMediaR
             .iter()
             .rev()
             .find(|(_, n)| {
-                n.origin == crate::node::Origin::Operator && n.kind == crate::stub::Kind::UserMessage
+                n.origin == crate::node::Origin::Operator
+                    && n.kind == crate::stub::Kind::UserMessage
             })
             .map(|(_, n)| n.id.clone())
             .or_else(|| Some(h.to_string()))
@@ -403,7 +422,13 @@ pub fn run(tc: &TurnCtx<'_>, correlation_id: &str, input: &Value) -> AsyncMediaR
     let session = tc.session_id.to_string();
     Box::pin(async move {
         theseus_store::blocking(|| {
-            core.split_from_session(&session, &i.slug, i.title.as_deref(), i.goal.as_deref(), pick)
+            core.split_from_session(
+                &session,
+                &i.slug,
+                i.title.as_deref(),
+                i.goal.as_deref(),
+                pick,
+            )
         })
         .map(|(text, meta)| (ToolOutput { text, meta }, None, None))
         .map_err(ToolFailure::new)
@@ -464,17 +489,50 @@ mod tests {
     /// Two concerns in one thread: the tides, then the disk pressure.
     fn transcript() -> Transcript {
         vec![
-            at(Node::user("ses_harbour", None, "cli", "What is the tide table for Friday?"), 10),
-            at(Node::user("ses_harbour", None, "cli", "Why is the log disk filling, see #41?"), 20),
+            at(
+                Node::user(
+                    "ses_harbour",
+                    None,
+                    "cli",
+                    "What is the tide table for Friday?",
+                ),
+                10,
+            ),
+            at(
+                Node::user(
+                    "ses_harbour",
+                    None,
+                    "cli",
+                    "Why is the log disk filling, see #41?",
+                ),
+                20,
+            ),
             at(call("fs.read", json!({"path": "/var/log/gauge.log"})), 21),
             at(result("fs.read", "gauge.log: 91% of the volume"), 22),
-            at(call("http.fetch", json!({"url": "https://Metrics.example.org:9090/q?x=1"})), 23),
-            at(Node::user("ses_harbour", None, "cli", "Rotate it weekly, as in #41 and #7."), 30),
+            at(
+                call(
+                    "http.fetch",
+                    json!({"url": "https://Metrics.example.org:9090/q?x=1"}),
+                ),
+                23,
+            ),
+            at(
+                Node::user(
+                    "ses_harbour",
+                    None,
+                    "cli",
+                    "Rotate it weekly, as in #41 and #7.",
+                ),
+                30,
+            ),
         ]
     }
 
     fn texts(c: &Chosen) -> Vec<&str> {
-        c.pieces.iter().map(|p| p.text.as_deref().unwrap()).collect()
+        c.pieces
+            .iter()
+            .map(|p| p.text.as_deref().unwrap())
+            .collect()
     }
 
     /// A range is inclusive at both ends, in the source's order; a call has
@@ -492,7 +550,10 @@ mod tests {
             ]
         );
         assert_eq!((c.first_pos, c.last_pos), (20, 30));
-        assert!(c.pieces.iter().all(|p| p.role == Role::Context && p.superseded_by.is_none()));
+        assert!(c
+            .pieces
+            .iter()
+            .all(|p| p.role == Role::Context && p.superseded_by.is_none()));
         let one = choose(&t, &Pick::Range(10, 10)).unwrap();
         assert_eq!(texts(&one), ["What is the tide table for Friday?"]);
     }
@@ -503,7 +564,10 @@ mod tests {
         let c = choose(&t, &Pick::Positions(vec![30, 10])).unwrap();
         assert_eq!(
             texts(&c),
-            ["What is the tide table for Friday?", "Rotate it weekly, as in #41 and #7."],
+            [
+                "What is the tide table for Friday?",
+                "Rotate it weekly, as in #41 and #7."
+            ],
             "the source's order, not the order asked"
         );
         let e = choose(&t, &Pick::Positions(vec![11])).unwrap_err();
@@ -511,7 +575,10 @@ mod tests {
         let e = choose(&t, &Pick::Range(30, 20)).unwrap_err();
         assert!(e.contains("ends before it begins"), "{e}");
         let e = choose(&t, &Pick::Range(21, 21)).unwrap_err();
-        assert!(e.contains("nothing to split"), "a call alone has no text: {e}");
+        assert!(
+            e.contains("nothing to split"),
+            "a call alone has no text: {e}"
+        );
     }
 
     /// The model's way: from a message through another's, or through the
@@ -522,15 +589,43 @@ mod tests {
         let id = |i: usize| t[i].1.id.clone();
         let c = choose(
             &t,
-            &Pick::Between { first: id(1), last: None, stop: Some(id(5)) },
+            &Pick::Between {
+                first: id(1),
+                last: None,
+                stop: Some(id(5)),
+            },
         )
         .unwrap();
         assert_eq!(c.pieces.len(), 2, "through the message before the stop");
-        let c = choose(&t, &Pick::Between { first: id(1), last: None, stop: None }).unwrap();
+        let c = choose(
+            &t,
+            &Pick::Between {
+                first: id(1),
+                last: None,
+                stop: None,
+            },
+        )
+        .unwrap();
         assert_eq!(c.pieces.len(), 3);
-        let c = choose(&t, &Pick::Between { first: id(1), last: Some(id(1)), stop: None }).unwrap();
+        let c = choose(
+            &t,
+            &Pick::Between {
+                first: id(1),
+                last: Some(id(1)),
+                stop: None,
+            },
+        )
+        .unwrap();
         assert_eq!(c.pieces.len(), 1);
-        let e = choose(&t, &Pick::Between { first: id(5), last: Some(id(1)), stop: None }).unwrap_err();
+        let e = choose(
+            &t,
+            &Pick::Between {
+                first: id(5),
+                last: Some(id(1)),
+                stop: None,
+            },
+        )
+        .unwrap_err();
         assert!(e.contains("comes before"), "{e}");
     }
 
@@ -552,7 +647,12 @@ mod tests {
     fn a_part_past_the_limits_is_asked_to_be_smaller() {
         let big = "x".repeat(arrangement::PIECE_CHARS);
         let t: Transcript = (0..30)
-            .map(|i| at(Node::user("ses_harbour", None, "cli", &format!("{big}{i}")), i + 1))
+            .map(|i| {
+                at(
+                    Node::user("ses_harbour", None, "cli", &format!("{big}{i}")),
+                    i + 1,
+                )
+            })
             .collect();
         let e = choose(&t, &Pick::Range(1, 30)).unwrap_err();
         assert!(e.contains("split a smaller part"), "{e}");

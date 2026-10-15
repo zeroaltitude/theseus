@@ -125,7 +125,10 @@ fn merged(r: &ThreadMergeResult) -> String {
     let mut out = format!(
         "🧵 Merged `{}` into `{}`: `{}` is retired, nothing of it is deleted, and its card is \
          quoted in `{}`'s. `theseus thread unmerge {}` undoes it.",
-        r.from.thread.slug, r.into.thread.slug, r.from.thread.slug, r.into.thread.slug,
+        r.from.thread.slug,
+        r.into.thread.slug,
+        r.from.thread.slug,
+        r.into.thread.slug,
         r.from.thread.slug
     );
     if !r.topics_left_out.is_empty() {
@@ -219,7 +222,9 @@ impl Shared {
                     Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
                 }
             }
-            _ => "⚠️ `/thread new slug:`, `/thread list` or `/thread merge from: into:`.".to_string(),
+            _ => {
+                "⚠️ `/thread new slug:`, `/thread list` or `/thread merge from: into:`.".to_string()
+            }
         };
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,

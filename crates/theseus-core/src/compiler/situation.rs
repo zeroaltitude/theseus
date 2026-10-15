@@ -112,7 +112,10 @@ impl Class {
 /// (theseus-783a).
 pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
     use Class::*;
-    let common = matches!(class, Inbound | Reply | ToolResult | LateResult | Repair | Quoted);
+    let common = matches!(
+        class,
+        Inbound | Reply | ToolResult | LateResult | Repair | Quoted
+    );
     match situation {
         Situation::ConversationStart => common || matches!(class, Summary | TaskView | RecallNote),
         Situation::TaskStart => {

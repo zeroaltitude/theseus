@@ -202,7 +202,9 @@ impl Core {
                         .clone()
                         .filter(|r| !r.undone && r.into == into)
                         .ok_or_else(|| {
-                            anyhow!("the merge of {slug} into {into} left no record to undo it from")
+                            anyhow!(
+                                "the merge of {slug} into {into} left no record to undo it from"
+                            )
                         })?;
                     let b = board.get(&into).ok_or_else(|| no_thread(&into))?;
                     let next_a = ThreadInfo {
@@ -250,7 +252,10 @@ impl Core {
             who: &who_s,
             via: &via,
         });
-        let retired = rec.borrow().as_ref().and_then(|r| r.retired_session.clone());
+        let retired = rec
+            .borrow()
+            .as_ref()
+            .and_then(|r| r.retired_session.clone());
         if let Some(sid) = retired {
             if let Err(e) = self.reopen_session(&sid, &who) {
                 tracing::warn!(thread = %a.slug, error = %format!("{e:#}"),
@@ -352,14 +357,17 @@ impl Core {
             )));
         }
         let source = a.session_id.clone().ok_or_else(|| {
-            RpcFailure::invalid(anyhow!("the thread {} has no turns yet: nothing to split", a.slug))
+            RpcFailure::invalid(anyhow!(
+                "the thread {} has no turns yet: nothing to split",
+                a.slug
+            ))
         })?;
         let nodes = self
             .store
             .transcript(&source)
             .map_err(|e| RpcFailure::invalid(anyhow!("{e:#}")))?;
-        let chosen = thread_split::choose(&nodes, &ask.pick)
-            .map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
+        let chosen =
+            thread_split::choose(&nodes, &ask.pick).map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
         let quoted = chosen.pieces.len() as u32;
         let now = theseus_protocol::now_unix_ms();
         let max_live = self.cfg.threads.max_live as usize;
@@ -406,7 +414,10 @@ impl Core {
             return Err(RpcFailure::invalid(e));
         }
         let place = place_of(slug);
-        let bound = self.outbox.place_record(&place, &sid).map_err(RpcFailure::invalid)?;
+        let bound = self
+            .outbox
+            .place_record(&place, &sid)
+            .map_err(RpcFailure::invalid)?;
         let (from_s, pos) = (ask.from.to_string(), (chosen.first_pos, chosen.last_pos));
         let written = self
             .runner
@@ -637,7 +648,11 @@ fn no_thread(slug: &str) -> anyhow::Error {
 }
 
 /// A slug taken, or the live limit reached.
-fn refuse_taken(board: &crate::threads::Board, slug: &str, max_live: usize) -> Result<(), RpcFailure> {
+fn refuse_taken(
+    board: &crate::threads::Board,
+    slug: &str,
+    max_live: usize,
+) -> Result<(), RpcFailure> {
     if board.get(slug).is_some() {
         return Err(RpcFailure::invalid(anyhow!("the thread {slug} exists")));
     }
