@@ -59,6 +59,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod ontology;
+pub mod own_bench;
 pub mod people;
 pub mod place;
 pub mod recall;
@@ -71,6 +72,7 @@ pub mod rsi_budget;
 pub mod rsi_exams;
 pub mod rsi_graduate;
 pub mod rsi_join;
+pub mod rsi_narrow;
 pub mod rsi_pr;
 pub mod rsi_sealed;
 pub mod sandbox;
@@ -255,6 +257,8 @@ macro_rules! facts {
 }
 
 facts![
+    own_bench::TurnReplayed<'static>,
+    own_bench::RouteReplayJudged<'static>,
     turn::TurnStarted<'static>,
     turn::ExecutionOpened<'static>,
     turn::BudgetQuestionSuperseded<'static>,
@@ -497,6 +501,11 @@ facts![
     rsi_join::SelfJoined,
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
+    rsi_narrow::NarrowProposed,
+    rsi_narrow::NarrowApplied,
+    rsi_narrow::NarrowDeclined,
+    rsi_narrow::NarrowRed,
+    rsi_narrow::NarrowReverted,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

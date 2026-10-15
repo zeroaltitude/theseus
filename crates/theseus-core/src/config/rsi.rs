@@ -42,6 +42,10 @@
 //!   standing OK) builds and installs a joined merge on this machine and
 //!   restarts the daemon onto it, through a transient `systemd-run --user`
 //!   unit.
+//! - `narrow_every_days` (7), `narrow_days` (14) and `narrow_read_pages`
+//!   (400): the narrowing of the hand roles' policies (theseus-pw1q.15): a
+//!   role is looked at at most this often, from this many days of CloudTrail,
+//!   reading at most this many pages (AWS reads, never model spend).
 
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
@@ -86,6 +90,27 @@ pub struct SelfConfig {
     /// Build, install and restart onto a joined merge (theseus-pw1q.9).
     #[serde(default)]
     pub install: bool,
+    /// A hand role is narrowed at most this often (days).
+    #[serde(default = "default_narrow_every_days")]
+    pub narrow_every_days: u32,
+    /// The window of CloudTrail a narrowing reads (days, 1 to 90).
+    #[serde(default = "default_narrow_days")]
+    pub narrow_days: u32,
+    /// The most CloudTrail pages (50 events each) one narrowing reads.
+    #[serde(default = "default_narrow_read_pages")]
+    pub narrow_read_pages: u32,
+}
+
+fn default_narrow_every_days() -> u32 {
+    7
+}
+
+fn default_narrow_days() -> u32 {
+    14
+}
+
+fn default_narrow_read_pages() -> u32 {
+    400
 }
 
 /// `[self] graduate_min_calls`'s default.
@@ -137,6 +162,9 @@ impl Default for SelfConfig {
             reviewer_profile: default_reviewer_profile(),
             join_lock: None,
             install: false,
+            narrow_every_days: default_narrow_every_days(),
+            narrow_days: default_narrow_days(),
+            narrow_read_pages: default_narrow_read_pages(),
         }
     }
 }
@@ -470,5 +498,33 @@ mod tests {
         assert_eq!(cfg.reviewer_profile, "opus");
         assert_eq!(cfg.join_lock.as_deref(), Some("/srv/joins.lock"));
         assert!(cfg.install);
+    }
+
+    /// The narrowing's keys have defaults, are in the template, and take a
+    /// value of the owner's.
+    #[test]
+    fn the_narrowing_keys_have_defaults_and_are_in_the_template() {
+        let none = Config::from_toml("").unwrap().self_improve;
+        assert_eq!(
+            (
+                none.narrow_every_days,
+                none.narrow_days,
+                none.narrow_read_pages
+            ),
+            (7, 14, 400)
+        );
+        let t = Config::EXAMPLE_TOML;
+        for k in [
+            "# narrow_every_days = 7",
+            "# narrow_days = 14",
+            "# narrow_read_pages = 400",
+        ] {
+            assert!(t.contains(k), "the template names {k}");
+        }
+        let c = Config::from_toml("[self]\nnarrow_every_days = 3\nnarrow_days = 30\n").unwrap();
+        assert_eq!(
+            (c.self_improve.narrow_every_days, c.self_improve.narrow_days),
+            (3, 30)
+        );
     }
 }

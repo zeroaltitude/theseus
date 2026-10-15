@@ -217,9 +217,11 @@ impl Core {
                         }
                     }
                     // The self-exams' night follows the report's (theseus-pw1q.11);
-                    // `rsi::gate` ends it at once with `[self] mode = "off"`.
+                    // `rsi::gate` ends it at once with `[self] mode = "off"`. The
+                    // hand roles' narrowing follows (theseus-pw1q.15): at most weekly.
                     if let Some(c) = exams.upgrade() {
                         c.self_exams_nightly().await;
+                        c.self_narrow_nightly().await;
                     }
                 }
             };

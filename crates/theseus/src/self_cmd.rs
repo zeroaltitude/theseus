@@ -22,6 +22,8 @@ mod branches;
 
 mod exams;
 
+mod narrow;
+
 #[derive(Subcommand, Debug)]
 pub enum SelfCmd {
     /// What Theseus changed about itself, newest first: the self steps' rows and today's
@@ -66,6 +68,12 @@ pub enum SelfCmd {
     /// The self-exams: counted items by family and half, and today's candidates with their
     /// reviews. A sealed item shows as a number, never as text.
     Exams,
+    /// Narrower policies for the hand roles, proposed from what CloudTrail showed them calling.
+    /// An IAM change is the owner's: nothing applies without `apply`.
+    Narrow {
+        #[command(subcommand)]
+        cmd: Option<narrow::NarrowCmd>,
+    },
 }
 
 /// `7d`, `12h`, `30m`, `2w` in milliseconds.
@@ -156,6 +164,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Branches => branches::run(conn, json).await,
         SelfCmd::Exams => exams::run(conn, json).await,
+        SelfCmd::Narrow { cmd } => narrow::run(conn, json, cmd).await,
         SelfCmd::Digest => {
             let v = conn
                 .request(

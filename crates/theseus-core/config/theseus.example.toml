@@ -1003,6 +1003,18 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # min_every = "1m"                        # the most often one may check (a minute at the least)
 # max_days = 30                           # the longest one waits before it gives up, and the default
 
+# ---------------------------------------------------------------- route
+# Your own benchmark (own-benchmark, theseus-pw1q.12). Nightly, paced by
+# pressure, a few of your recent turns per (model, effort) cell are rebuilt
+# byte for byte, sent one rung down the routing table (`[routing.modes.*]`),
+# and judged by compare.v1 against the reply they got; `theseus route report`
+# says per cell what matched and what moving it would have saved. Never a
+# shared place's turn, and never one that would send a sealed thread's, a
+# veiled recall's or an attachment's bytes to another provider. It moves no
+# routing: a pack that would climbs the ladder on its frozen holdout.
+# [route]
+# replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
+
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
 # human-facing text and returns candidate people through a tool schema; Jev
@@ -1082,6 +1094,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # holds; point it at the outer loop's so their joins never overlap
 # install = false                         # true: a joined merge is built and installed on this machine, and
 #                                         # the daemon restarts onto it (the owner's standing OK)
+# narrow_every_days = 7                   # a hand role's policy is looked at for narrowing at most this often
+# narrow_days = 14                        # the days of CloudTrail a narrowing reads (1 to 90)
+# narrow_read_pages = 400                 # the most CloudTrail pages (50 events each) one narrowing reads
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day

@@ -732,6 +732,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   hands the build and the restart to a `systemd-run --user` unit (`join/install.rs`); the new daemon's
   `self_installed_after_serving` writes `self.installed` and the notice once. Tests: `rsi/join/tests.rs` (a
   throwaway origin, a stand-in gpg, stand-in tests and reviewer), and each module's own.
+  **Self-narrow** (theseus-pw1q.15; `aws/narrow/`, `rsi/narrow.rs`, `fact/rsi_narrow.rs`): Theseus proposes a narrower
+  policy for a hand role (`theseus-hand-owner`, `-read`) from what CloudTrail showed it calling, checks it, and sends it
+  to the owner's card; an IAM change is the hard keel, so nothing applies without the owner's yes. The weekly pass
+  (`Core::self_narrow_nightly`, after the exams, nothing with the mode off or the switch thrown; `[self]
+  narrow_every_days` 7, `narrow_days` 14, `narrow_read_pages` 400) reads the role's events from CloudTrail's history (a
+  page of 50 at its 2-a-second rate; `usage.rs`: distinct `service:Action` pairs and ARNs for the role, an access error
+  is not a use, the data events the history cannot show, `DATA_EVENTS`, are kept as the policy has them and named "not
+  visible"; a window cut by the page cap proposes nothing), reads the role's policies (`live.rs`: everything attached but
+  `theseus-hand-basics` is wide and replaced), and builds the candidate (`build.rs`: observed actions on the ARNs they
+  named when those sit inside the statement that allowed them, else that statement's resources; the `KEEP` list from the
+  hand's code; the denies copied). `policy::wider` proves it no wider than today on every statement (also a property
+  test over random policies). `verify.rs`: Access Analyzer's `ValidatePolicy` (an ERROR or SECURITY_WARNING blocks;
+  suggestions are listed) and `SimulateCustomPolicy` of every observed call against the candidate and what stays
+  (anything but `allowed` blocks). `apply.rs` patches the deployed hands template as text (anchors checked, read back),
+  and the guard crate's scan of it must find nothing new. The card (`self_narrow`, the owner's DM) carries the diff in
+  words (`proposal.rs`), `theseus self narrow show ID` the JSON. `theseus self narrow apply|decline|revert ID`
+  (`judge_act(Act::SelfNarrow)`: the owner, a private place, never a job's shell): apply makes a change set of the hands
+  stack from its deployed template, drops it unrun unless it touches only the role and its new policy and the guards'
+  floor is empty, runs it, and keeps the template from before in `<state>/self/narrow/<id>.before.yaml` for the revert.
+  For a week after an apply the nightly watch reads the role's AccessDenied events since it; each new denied action is
+  a `self.narrow.red` row and a `self_narrow_red` card with the revert. State is the META record `self.narrow`. The
+  pass makes AWS reads and no model call. Tests: `aws/narrow/*` (pure, with a fake account) and `rsi/tests_narrow.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
@@ -1578,6 +1600,48 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   unused), place and family. `theseus tools` (over `tool.defer`), health's `tools:` line and the cockpit's
   Actions panel show it all. Per-message additions are the `extra` argument of `Board::select` (Jev's branches, later).
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
+- **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
+  `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]
+  mode`, and nothing it finds moves routing): "which model you actually need, measured on your own past work".
+  - **System blocks by digest.** A new compilation stamps each system block's SHA-256 into its cache layout
+    (`BlockBreakpoint.digest`, `compiler::cache::stamp`) and writes each distinct text once to the blobs
+    (`cache::keep`, one `put_many` before the frame that names them; `TurnRunner::keep_blocks`, called beside
+    `persist_compilation` in `compile_step.rs` and `route_step.rs`). The digests are of the request's own system blocks,
+    so a guidance edit or a changed context file is a new blob. A compilation from before format 34 has none, and a
+    replay says so. Blobs follow the blobs' own rules (nothing sweeps them but a person).
+  - **`turn.replay { session, turn, profile, effort?, scope?, compare? }`** (`own_bench/replay.rs`, the owner's run:
+    `judge_act(Act::JudgeRun)`, in the CLI's `OPERATORS`; `theseus turn replay`). `rebuild_first` (`rebuild.rs`) renders
+    the turn's first request again from its compilation, the blobs, the tools (their digest against the manifest's) and
+    the nodes before its first answer, trying the profile's effort and then each level, and accepts it only when its
+    digest is the one the answer recorded (`request_digest`, taken before the recall, standing, task and wake views
+    ride the last block); otherwise `NotRebuildable { part, why }` names the part (`system`, `tools`, `messages`,
+    `compilation`, `profile`, `answer`). The replay is that request for the other profile's model (its thinking, its
+    effort, `max_tokens` at most `REPLAY_MAX_TOKENS`), no tool run, reserved and held on the day ceiling as a
+    consolidation call is, then judged by `compare.v1` (unless `compare: false`) and written as a `turn.replayed` row:
+    no node, no session, no execution. Never a shared place's turn; and when the other profile's provider is not the
+    original's (`Core::crossing`), never one whose session is in a sealed thread, whose recall carries a `personal` or
+    `partner-confidential` imported source, or whose rebuilt messages carry an image or a document block.
+  - **`compare.v1`** (`theseus-judge/packs/compare.v1.toml`, builder `compare`, point `replay`): the request's last
+    user message, reply A (the original) and reply B (the replay), each with the calls it asked for named; one Choice,
+    `same`, `better`, `weaker`, `different`, or `other`. `WIRED` in shadow, no action, awaited by the replay that asks
+    it (`JudgeService::compare_replies`). Its holdout baseline is the owner's labels and route corrections; a version
+    that moved routing would climb the ladder on it.
+  - **The sampler** (`own_bench/sampler.rs`, `route_replay_after_serving`): two hours after the learning hour, a missed
+    night once, never within 10 minutes of a start; before each replay it waits for the machine to be quiet
+    (`pressure`). Per (model, effort) cell of the last seven days' turns (`turn.ended` rows and `route.decided`'s
+    `effort_ran`), the newest `PER_CELL` (3) not yet judged, replayed on the rung down the routing table
+    (`own_bench/rung.rs`: `[routing.modes.*]`'s profiles, a model once, by catalog price). The day's spend is read back
+    from today's `route.replay.judged` rows (replay plus judgment, a failed call at its reservation) against `[route]
+    replay_day_usd` (1.00; 0 is off), and a replay whose reservation passes what is left is not made: the check is
+    before the call (`CapReached`). Each result is a `route.replay.judged` row.
+  - **`route.report { week? }`** (`own_bench/report.rs`, a read, any surface): per cell, the turns and spend, the
+    replays and the ones `compare.v1` called same or better at `MATCH_BAR` (0.8), the turns whose routing the owner
+    corrected (`route.corrected`), the one-sided Wilson floor at 90% of the match rate, the replays' cost against the
+    originals', and `movable = spend × floor × (1 − cost ratio)`; the replays' cost today against the cap. The
+    cockpit's Benchmarks view has a "Your work" panel over it; `theseus route report [--week]`.
+  Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
+  `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
+  `report::tests`, `rung::tests`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
