@@ -188,6 +188,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
 - `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,
   `ReplayReply`, `ReplayVerdict`) and `route.report`'s (`RouteReportParams`, `RouteReportResult`, `RouteCell`).
+- `card.rs` (theseus-slvl.6): the owner card's wire types: `CardProposal` (a META record `card.proposal.<id>`: text, kind, scope, the question and its options `Keep/Edit/Not this`, the episodes it rests on, expiry, state), `card.propose|list|answer|done`'s params and results, and `card_question`, the one place the question's words are made. Exported under `CARD_`/`card_` names at the crate root; the lib.rs line budget allowed two lines.
 - `standing.rs` (theseus-a7vi, theseus-slvl.4): the standing records' wire types. `StandingScope` has a `Surface(name)` variant
   (store format 34), `SURFACES` names the five (`terminal`, `discord`, `voice`, `cockpit`, `mcp`); `StandingListParams.surface`
   is the asker's surface with a `session_id`. `turn.submit`'s optional `surface` (in `submit.rs`) lets the Discord binding say

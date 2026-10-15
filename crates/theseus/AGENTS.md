@@ -123,6 +123,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (`execution.dismiss`, `task.retry`); ID is a task's or its execution's id, or the last four characters of either
   (`resolve.rs`'s rule), and a name that is no failure, or a conversation to retry, is refused with words before
   anything is sent. Both are in `client::OPERATORS`: refused inside a job.
+- `src/card_cmd.rs` (theseus-slvl.6): `theseus card` (what waits as questions, what was kept and declined, the spend), `card propose [--dry-run]`, `card keep|edit ID TEXT|decline ID`, `card done [--undo]`. The writes are in `client::OPERATORS`, so a job's shell refuses them; the list is a read. Its lines (`list_lines`, `propose_lines`, `answered_line`) are pure.
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|surface:NAME|session:ID | --surface

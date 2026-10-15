@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod arrangement;
 pub mod cancel;
+pub mod card;
 pub mod check;
 pub mod compaction;
 pub mod disk;
@@ -525,6 +526,8 @@ facts![
     rsi_pipeline::Cleared,
     rsi_pipeline::Ended,
     prefix::PrefixPicked<'static>,
+    card::CardProposed<'static>,
+    card::CardAnswered<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

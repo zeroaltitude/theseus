@@ -59,6 +59,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::routines::OWN.contains(&name)
         || super::watch::OWN.contains(&name)
         || name.starts_with("standing.")
+        || name.starts_with("card.")
         || name.starts_with("thread.")
         || name.starts_with("work.")
         || super::peek::OWN.contains(&name)
@@ -111,6 +112,9 @@ impl Core {
         }
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);
+        }
+        if name.starts_with("card.") {
+            return self.rpc_card(name, params, conn).await;
         }
         if name == method::THREAD_IMPORT {
             return self.rpc_thread_import(params, conn).await;

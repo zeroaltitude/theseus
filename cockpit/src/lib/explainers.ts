@@ -466,6 +466,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Show what the owner has told Theseus to hold to, and let them take it back.',
     'One group a kind: orders are followed, preferences honoured, facts known. Each record has its scope (everywhere, a session, a place, or a surface such as the terminal), when it began, where it came from, and how many compiles of its scope carried it. Revoke ends it at the next turn.',
     'These ride every prompt of their scope, so a stale one costs tokens and shapes every answer; a surface’s records ride only that surface’s turns.'),
+  'context.card': e(
+    'Show what Theseus proposes to add to the owner’s card from their own history, and let them answer.',
+    'Each proposal is one question: a short fact or preference, how many of the imported episodes it rests on, and Keep, Edit or Not this. Keep writes a standing record; Not this is remembered, so those sources are never proposed again; an unanswered one becomes Not this after a while. At most a few dozen wait at once, and the job that makes them has a daily spend line.',
+    'Nothing is added without an answer, so the card holds what the owner chose; what they decline is a label for the next proposals.'),
   'context.books': e(
     'Say honestly what state the books are in.',
     'A note: the books (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) are not compiled yet, and how many episodes carry the import’s guess at a book.',

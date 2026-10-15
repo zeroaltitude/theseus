@@ -15,6 +15,7 @@
 mod agenda;
 mod answer;
 mod budgets;
+mod card_cmd;
 mod census;
 mod chat_cmd;
 mod cite;
@@ -673,6 +674,15 @@ enum Cmd {
     Standing {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
+    },
+    /// The owner card, proposed from your imported history (theseus-slvl.6): `card` lists what
+    /// waits as questions (Keep, Edit, Not this), what you kept and declined, and the spend;
+    /// `card propose [--dry-run]` runs the job (under `[card] day_usd`); `card keep|edit|decline ID`
+    /// answers one; `card done` stops the nightly run. Nothing is added without your answer; the
+    /// writes are yours alone (refused inside a job).
+    Card {
+        #[command(subcommand)]
+        cmd: Option<card_cmd::CardCmd>,
     },
     /// Watches (theseus-f2r2b): wait on the world with no model. `watches` lists them; `watches add
     /// TITLE --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED' [--every 5m]
@@ -1405,6 +1415,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,

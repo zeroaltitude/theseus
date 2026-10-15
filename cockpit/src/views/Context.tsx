@@ -19,6 +19,7 @@ import { ChartPanel, StatTile, TipArea, TipBody, TipTarget } from '@/components/
 import { useInPast } from '@/components/OntologyParts'
 import { AskIndex, TurnContext } from '@/components/ContextTurn'
 import { StandingRecords } from '@/components/StandingRecords'
+import { CardProposals } from '@/components/CardProposals'
 import {
   PAGE, TABS, ancestors, count, filtersOf, monthBins, namedParams, ontologyPaths, paramsOf, sensitivityWords, tabOf, topicTree, veiled, when,
   type FilterKey, type Tab,
@@ -43,6 +44,7 @@ const TAB_WORDS: Record<Tab, { word: string; icon: ReactNode }> = {
   search: { word: 'Ask the index', icon: <Search size={13} /> },
   books: { word: 'The books', icon: <BookOpen size={13} /> },
   standing: { word: 'Standing', icon: <Pin size={13} /> },
+  card: { word: 'Card', icon: <Pin size={13} /> },
 }
 
 export default function Context() {
@@ -67,6 +69,7 @@ export default function Context() {
       {tab === 'turn' && <TurnContext session={params.get('session')} turn={params.get('turn')} set={set} />}
       {tab === 'search' && <AskIndex ask={params.get('ask') ?? ''} set={set} />}
       {tab === 'standing' && <StandingRecords />}
+      {tab === 'card' && <CardProposals />}
       {tab === 'books' && <Books go={(book) => set({ tab: null, book, page: null, episode: null })} />}
     </div>
   )

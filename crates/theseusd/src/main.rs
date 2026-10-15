@@ -1092,6 +1092,8 @@ async fn after_serving(
     core.earned_after_serving();
     // People's nightly sweep (theseus-j8qb), at the same hour.
     core.people_sweep_after_serving();
+    // The owner card's weekly proposals (theseus-slvl.6), at the same hour, until done.
+    core.card_after_serving();
     if let Some(text) = keep {
         keep_copy(&core, &text);
     }

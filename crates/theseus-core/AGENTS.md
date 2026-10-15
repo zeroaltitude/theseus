@@ -266,6 +266,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
   format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
   the block.
+- **The owner card** (theseus-slvl.6; no store format change: META keys and two ledger kinds; `card/`, `rpc/card.rs`,
+  `fact/card.rs`, `config/card.rs`, wire `theseus_protocol::card`): standing's facts and preferences, filled from the
+  imported history one question at a time. `card::evidence` reads the archive's evidence by labels (a USER-style file, a
+  feedback note, a `sop` book hint, a `decision_or_preference` triage) and **never a partner-confidential episode: the
+  label is checked from the session record before any node is read** (counted as `withheld`); only operator text in a
+  conversation, operator and agent text in a note, never outside text. `card::cluster` (pure) splits lines, joins
+  near-duplicates by content-word overlap through an inverted index, ranks by distinct sources then recency, and says a
+  cluster is fresh while most of its episodes are not in the seen set (every proposal's sources and every episode sent
+  in a call, `card.sent.<call>`). `card::ask` is the request (`[card] profile`, Haiku; one tool, `state_cards`; scrubbed)
+  and the parse (a statement must cite an episode its cluster showed, must not copy a line, one a cluster). `card::run`
+  (`Core::card_run`, behind `card.propose` and the nightly tender): at most `MAX_CALLS` calls of `BATCH` clusters, each
+  reserved on `[card] day_usd` and the day ceiling first, one frame a call (proposals, the sent episodes, the job's
+  state, the `card.proposed` spend row); a statement repeating a live standing record or any proposal's words
+  (`cluster::similar`) is dropped; `[card] max_open` waiting at most. A proposal is the META record `card.proposal.<id>`
+  (`CardProposal`: the question, `Keep/Edit/Not this`, its sources, expiry); `card.answer` keeps or edits it through
+  `standing_add` (`source` `card:<id>`) then settles the proposal and writes `card.answered` with the episodes; Not this
+  and expiry (`card_expire`, applied when the card is read or the job runs, no timer) make its sources seen for good.
+  The proposals are queue rows with owner-ask's words and options, not parked executions: thirty of those would hold
+  thirty executions for a fortnight. The nightly tender (`card/tender.rs`) is the learning tender's `due` held to
+  `[card] every_days`, off once `card.done`. Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in
+  `card/fixture.rs`), `config/tests_card.rs`.
 - **The surface tag** (theseus-slvl.3; store format 34; `surface.rs`, `turn/surface_step.rs`): a person's message node
   records the surface it was written from (`Node.surface`: `terminal:ask`, `terminal:tui`, `terminal`, `cockpit`, `mcp`,
   `discord:dm`, `discord:channel:<shared|private>:#name`, `voice`), settled by `Core::surface_of` in `turn.submit` from

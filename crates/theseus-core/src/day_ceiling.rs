@@ -49,7 +49,7 @@ use crate::store::Store;
 use crate::turn::TurnRunner;
 
 /// The kinds whose rows of today carry model spend (the module's list).
-pub const SPEND_KINDS: [&str; 13] = [
+pub const SPEND_KINDS: [&str; 14] = [
     "action.succeeded",
     "action.failed",
     "action.outcome_unknown",
@@ -62,6 +62,7 @@ pub const SPEND_KINDS: [&str; 13] = [
     "judge.proposal",
     "people.extracted",
     "thread.imported",
+    "card.proposed",
     "keep_warm",
 ];
 

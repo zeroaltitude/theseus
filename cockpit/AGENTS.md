@@ -81,6 +81,7 @@ build.
   `standing.list`'s live records by kind (orders, preferences, facts), each with its scope (a surface's as `on terminal`),
   since, source and how many compiles carried it, and Revoke (`standing.revoke`, confirmed first, which the core judges
   as the owner's act from this private connection). It reads only while on screen.
+- The owner card's proposals (theseus-slvl.6): the Context page's `Card` tab, `src/components/CardProposals.tsx` over `src/lib/card.ts` (pure: `restsOn`, `asksUntil`, `summary`, `declineQuestion`, `answeredLine`; `test/card.test.ts`): `card.list`'s open proposals as questions with Keep, Edit (a prompt for the words) and Not this (confirmed first), each `card.answer`; the header counts what waits and the job's spend. The job is the CLI's (`theseus card propose`). It reads only while on screen.
 - A reply's citations (theseus-ejdk): `src/lib/cites.ts` (pure: the handles in a reply, the numbered marks, the card's words; `test/cites.test.ts`) and `src/components/Cites.tsx`
   (`ReplyMarkdown`: the reply as markdown with each cited handle a mark linking to its source's session, with a hover card of
   the source's header, excerpt and the command that opens it). The sources are `session.history`'s `cites`; a handle with no
