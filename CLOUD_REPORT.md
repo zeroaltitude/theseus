@@ -53,3 +53,5 @@ I ran this here: sections Today/This week/Recurring/Waiting on the world rendere
 - A watch's `next_at_ms` is its expiry (next check lives in the checker's memory). Routine 30-day counts use the ended runs the board keeps (50 per root);
   skipped counts since the board began; routine month spend is the execution's spend.
 - TUI sends `work.watch` non-interactive (so owner-ask counts are unchanged). Docs to update: status.md/spec Part III (HZ8), the horizon design's §5.10 layout is mine.
+
+Final head: see the branch's last commit.
