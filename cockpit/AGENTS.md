@@ -14,6 +14,13 @@ build.
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
   `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
+- Threads on the work board (theseus-5i8i): `src/views/Threads.tsx` (`/threads`: each live thread as a group, its open
+  tasks, questions and wakes under it, needs you first, a seal waiting as a red line; `/threads/:slug`: the thread's
+  goal, card, working set, `parent`/`split_from`/`merged_into` links, recent turns by `session.history`, and its open
+  work). One `work.watch` while a Threads view is mounted (`src/lib/threadwatch.ts`), kept by the position rule in the pure
+  `src/lib/threadboard.ts` (the grouping and counting rules of `theseus_protocol::group`, tested by
+  `test/threadboard.test.ts`). Under the time machine the list is `foldThreads` over the ledger's `thread.*` rows (state
+  and title as of the moment); the work under a thread is the present's and the view says so.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before

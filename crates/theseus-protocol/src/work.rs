@@ -200,6 +200,12 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub retry_of: Option<String>,
+    /// The thread (`threads::ThreadInfo.slug`) the view's tree belongs to:
+    /// the thread whose session is the view's root conversation (theseus-5i8i).
+    /// Absent for work that is in none; a wire field, not a stored one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub thread: Option<String>,
 }
 
 /// What a conversation or a task is doing now.
@@ -743,6 +749,7 @@ impl WorkView {
             flagged: false,
             dismissed: x.dismissed,
             retry_of: x.retry_of.clone(),
+            thread: None,
         }
     }
 }

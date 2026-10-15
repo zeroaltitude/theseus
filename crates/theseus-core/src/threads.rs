@@ -107,11 +107,35 @@ impl Board {
     }
 
     /// Threads not done: what `[threads] max_live` bounds.
+    /// Every thread as the work board groups it.
+    pub fn groups(&self) -> Vec<theseus_protocol::ThreadGroup> {
+        self.threads.values().map(group_of).collect()
+    }
+
     pub fn open(&self) -> usize {
         self.threads
             .values()
             .filter(|t| t.state != ThreadState::Done)
             .count()
+    }
+}
+
+/// A thread as the work board groups it (theseus-5i8i): the record's words
+/// and the session it runs on. The stats a session holds (context tokens,
+/// today's dollars) are read where a person asks (`Core::thread_groups`), not
+/// here: this is memory only.
+pub fn group_of(t: &ThreadInfo) -> theseus_protocol::ThreadGroup {
+    theseus_protocol::ThreadGroup {
+        slug: t.slug.clone(),
+        title: t.title.clone(),
+        state: t.state,
+        persona: t.persona.clone(),
+        sealed: t.sealed.is_some(),
+        seal_pending: t.seal_pending.clone(),
+        session_id: t.session_id.clone(),
+        last_active_ms: t.last_active_ms,
+        context_tokens: None,
+        today_usd: None,
     }
 }
 
@@ -122,7 +146,13 @@ pub struct Threads {
     writes: Mutex<()>,
     /// What the router remembers (theseus-rha2).
     pub route: crate::thread_flow::State,
+    /// Told the board after each write or bind (the work board's feed,
+    /// theseus-5i8i), set once.
+    feed: std::sync::OnceLock<Feed>,
 }
+
+/// What a board change is told to.
+pub type Feed = Box<dyn Fn(&Board) + Send + Sync>;
 
 impl Threads {
     /// The board: memory once built; built now, by two META prefix scans,
@@ -136,6 +166,18 @@ impl Threads {
             let _w = self.writes.lock().unwrap();
             self.load(store)
         })
+    }
+
+    /// Tell `feed` the board after each write or bind. Set once; a second
+    /// call is ignored.
+    pub fn on_change(&self, feed: Feed) {
+        let _ = self.feed.set(feed);
+    }
+
+    fn told(&self, board: &Board) {
+        if let Some(f) = self.feed.get() {
+            f(board);
+        }
     }
 
     pub fn held(&self) -> Option<Arc<Board>> {
@@ -203,6 +245,7 @@ impl Threads {
                 t.session_id = now.get(&t.slug).and_then(|o| o.session_id.clone());
                 next.threads.insert(t.slug.clone(), t);
             }
+            self.told(&next);
             *self.board.write().unwrap() = Some(Arc::new(next));
             Ok(threads)
         })
@@ -258,6 +301,7 @@ impl Threads {
                     t.session_id = Some(session.clone());
                 }
                 next.by_session.insert(session, slug.to_string());
+                self.told(&next);
                 *self.board.write().unwrap() = Some(Arc::new(next));
             }
             Ok(out)

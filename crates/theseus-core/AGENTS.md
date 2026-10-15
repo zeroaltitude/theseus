@@ -293,6 +293,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   session's place. `[threads] discord_channel` and `[[discord.thread]]` (`config/discord.rs`, `ThreadBind`);
   `PlaceRule::bind_more` keeps a place the binding made while it runs across a new bindings file. Tests:
   `rpc/tests_thread_surface.rs`.
+  **On the work board** (theseus-5i8i; `push/work/threads.rs`, `rpc/work_board.rs`, `rpc/tests_thread_board.rs`): every view
+  carries `thread`, the thread whose session is its root conversation (`WorkBoard::thread_for_root`, stamped in `put`), and
+  the board holds the thread groups (`ThreadGroup`) with the session each serves. Both come from the threads' board in memory
+  only: `Threads::on_change` tells `Push::set_threads` after each write or bind (installed by `warm_threads` and by the first
+  `work.watch`), which diffs, restamps the views in place (and marks them stale, so the next frame sends them again) and
+  publishes the changed groups as `work.changed { threads }`; the seed reads the held board, never the store. A watch's
+  snapshot reads each thread's stats once (`Core::thread_groups`: context tokens, today's dollars) and a connection that
+  reads no private text is given and sent no group. A group's update leaves the stats it did not read.
 - **Threads from the owner's earlier harness** (theseus-71ib, T11; no format bump: a ledger kind and two META keys):
   `thread.import` (`rpc/thread_import.rs`, `threads_import/`), `judge_act(Act::Thread)`, the owner from a private place.
   With no `apply` it is the dry run: `source::scan` reads the imported sessions of every tag holding a source that

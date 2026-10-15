@@ -27,6 +27,7 @@
 mod eta;
 mod place;
 mod progress;
+mod threads;
 mod views;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -161,6 +162,8 @@ pub struct Out {
     /// Ids that left the board, with the root each was under.
     pub gone: Vec<(String, String)>,
     pub notices: Vec<Notice>,
+    /// The thread groups that changed (a thread's write, its session's bind).
+    pub threads: Vec<theseus_protocol::ThreadGroup>,
 }
 
 #[derive(Default)]
@@ -197,6 +200,10 @@ pub(super) struct WorkBoard {
     /// The newest position of a notice that left the ring.
     evicted: u64,
     rules: Rules,
+    /// The threads' groups by slug, and the thread each session serves
+    /// (`threads.rs`).
+    thread_groups: std::collections::BTreeMap<String, theseus_protocol::ThreadGroup>,
+    thread_of: HashMap<String, String>,
 }
 
 /// Entities marked for building again.

@@ -40,6 +40,7 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.flagged == b.flagged
         && a.dismissed == b.dismissed
         && a.retry_of == b.retry_of
+        && a.thread == b.thread
 }
 
 /// One more descendant in a rollup.
@@ -160,6 +161,7 @@ impl WorkBoard {
             views,
             gone,
             notices,
+            threads: Vec::new(),
         }
     }
 
@@ -203,6 +205,7 @@ impl WorkBoard {
         }
         new.position = f.position;
         new.at_ms = f.at_ms;
+        new.thread = self.thread_for_root(&new.root);
         if let Some(o) = &old {
             new.previous = Some(o.state);
             let level = attention_of(&new).level;

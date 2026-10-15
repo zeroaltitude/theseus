@@ -21,6 +21,32 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Fleet is every place and session; Ship is one session with its turns and tool calls; Turn is one turn’s model calls; Call is one call’s data. The lit dot is where you are. Scrolling the chart moves it too.',
     'When a ship looks wrong at fleet depth, go down a depth at a time to find the turn and the call that caused it, instead of searching the ledger.'),
 
+  // ---- the Threads (theseus-5i8i)
+  'threads.list': e(
+    'Show each live thread as one group, with what is open under it and what waits on you.',
+    'A header is the thread: its title (a lock when the owner has sealed it), its state, whether its cache is warm or cold, how many things need you, then its last activity, context size and dollars today. Under it are its open tasks, questions and wakes; click one to open its session. A seal waiting on you is the red line. A paused thread keeps its count but leaves the board’s.',
+    'A thread that needs you is where to go first. A cold thread with a large context costs more to wake than a warm one, so a message there is worth batching.'),
+  'threads.thread': e(
+    'Say what one thread is, where it stands, and where it came from.',
+    'The title is the thread’s; its goal, topics and standing follow. The size of its context and today’s dollars come from its session. “Under”, “Split from” and “Merged into” link to the threads it came from or went into.',
+    'It tells you whether a thread is cheap to continue, and which thread to open when one has been split or merged.'),
+  'threads.card': e(
+    'Show the thread’s card: where it stands, in a few lines.',
+    'Each line is one fact the thread keeps. The card is written by the thread’s own work and by you; the model reads it at the head of the thread’s messages.',
+    'If the card is wrong the thread will start from the wrong place. Edit it with `theseus thread edit`.'),
+  'threads.workingset': e(
+    'Show what the thread touches: roots, repos, branches, references, files and hosts.',
+    'Each line is one kind of thing and the names the thread holds. Nothing is guessed: these are the record’s own.',
+    'The router and the context read the working set to decide what belongs to this thread; a missing repo here is a message sent to the wrong thread.'),
+  'threads.work': e(
+    'List the thread’s open tasks, questions and wakes.',
+    'The mark is its attention: ● needs you, ◐ working, ○ ready. Click one to open its session.',
+    'A question here is waiting on you; a task that has failed stays until someone looks.'),
+  'threads.turns': e(
+    'Show the last few messages of the thread’s session.',
+    'Oldest first, newest last: what you said and what Theseus answered, with when.',
+    'A quick way to see where the thread stopped without opening its session.'),
+
   // ---- the Bridge
   'bridge.latency': e(
     'Show how long the model takes to answer, call by call.',

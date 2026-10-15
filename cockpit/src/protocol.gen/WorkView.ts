@@ -107,4 +107,10 @@ dismissed?: boolean,
 /**
  * The failed task this one retries (`task.retry`), by execution id.
  */
-retry_of?: string, };
+retry_of?: string, 
+/**
+ * The thread (`threads::ThreadInfo.slug`) the view's tree belongs to:
+ * the thread whose session is the view's root conversation (theseus-5i8i).
+ * Absent for work that is in none; a wire field, not a stored one.
+ */
+thread?: string, };

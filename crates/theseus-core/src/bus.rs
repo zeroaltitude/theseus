@@ -147,6 +147,7 @@ impl SessionBus {
             at_ms: out.at_ms,
             views: out.views.clone(),
             gone: out.gone.iter().map(|(id, _)| id.clone()).collect(),
+            threads: out.threads.clone(),
         }));
         let notices: Vec<Message> = out
             .notices
@@ -167,12 +168,19 @@ impl SessionBus {
             }
             let views = w.scope.cut(&out.views, scrubber);
             let gone = w.scope.gone(&out.gone);
-            if !views.is_empty() || !gone.is_empty() {
+            // A thread is private always: a connection that reads no private
+            // text is told of none.
+            let threads = match w.scope.guarded {
+                true => Vec::new(),
+                false => out.threads.clone(),
+            };
+            if !views.is_empty() || !gone.is_empty() || !threads.is_empty() {
                 let msg = Message::from(Event::WorkChanged(WorkChanged {
                     position: out.position,
                     at_ms: out.at_ms,
                     views,
                     gone,
+                    threads,
                 }));
                 if !w.tx.notify(&Note::new(&msg), "work") {
                     return false;

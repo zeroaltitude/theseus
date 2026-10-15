@@ -9,6 +9,7 @@
 
 mod app;
 mod board;
+mod board_threads;
 mod card;
 mod chat;
 mod detail;
@@ -28,6 +29,8 @@ mod work;
 mod tests;
 #[cfg(test)]
 mod tests_answer;
+#[cfg(test)]
+mod tests_board_threads;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]

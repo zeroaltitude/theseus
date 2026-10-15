@@ -69,6 +69,10 @@ pub(in crate::push) fn seed(
             w.track(a, *pos);
         }
     }
+    // The threads held in memory, if they have been read: never a read here.
+    if let Some(threads) = core.runner.threads.held() {
+        let _ = w.set_threads(threads.groups(), theseus_protocol::now_unix_ms());
+    }
     let f = Frame {
         at_ms: theseus_protocol::now_unix_ms(),
         committed: std::time::Instant::now(),

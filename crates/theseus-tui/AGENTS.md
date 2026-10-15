@@ -43,6 +43,12 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   (a bounded tail of lines, an open line, the next byte expected, a gap said as `-- N bytes skipped --`); `events.lost`
   naming the job's stream, and a reconnect, peek and follow again. Its header says `job 0:05 of usual 0:31`. The
   sidebar's own row words are `tui-rows`'. Tests: `src/tests_follow.rs`.
+- `src/board_threads.rs` (theseus-5i8i): the threads on the board (`App.board_threads`; `src/threads.rs` is thread-cli-tui's
+  picker). Fed by tui-rows' one `work.watch` (a connection holds one), views and `ThreadGroup`s applied by the position rule, and the sidebar's Threads block over
+  `theseus_protocol::group_threads`: a fold-able group per live thread (`▾`/`▸`, the one header wording the CLI shares), its
+  open work under it, a pending seal as a needs-you line. `T` gives the block the keys (up/down, enter folds a thread or
+  opens an item's session, esc leaves). A daemon that refuses `work.watch` costs no word and no block. Tests:
+  `src/tests_board_threads.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
   question's card), `src/notice.rs` (a re-export: the notices, their delivery and the toast are
   `theseus_client::notify`, shared with `theseus status --watch`; the TUI keeps the viewer in `app.rs`). `--notify`

@@ -20,6 +20,7 @@ use theseus_protocol::{
 use crate::board::{short, Board, Moved, Only, Question, Row};
 use crate::detail::Detail;
 use crate::follow::Follow;
+use crate::board_threads::ThreadBoard;
 use crate::notice::{Delivery, Notices};
 use crate::selfview::SelfView;
 use crate::standing::{self, Standing};
@@ -172,6 +173,8 @@ pub enum Mode {
     /// `N`: the brief of a new task, and the conversation it goes under
     /// (none: Home), typed into `App::brief` (theseus-7oq0w).
     NewTask(Option<String>),
+    /// `T`: the keys move over the board's Threads block (theseus-5i8i).
+    BoardThreads,
     /// `?`: the keys.
     Help,
     /// Ctrl-T: the thread picker (theseus-j0yh).
@@ -192,6 +195,9 @@ pub enum Pane {
 
 pub struct App {
     pub board: Board,
+    /// The threads on the work board (theseus-5i8i), fed by the one
+    /// `work.watch` (`Purpose::Work`).
+    pub board_threads: ThreadBoard,
     /// The session under the cursor.
     pub selected: Option<String>,
     /// The session in focus: its history and its events, in the detail pane.
@@ -269,6 +275,7 @@ impl App {
     pub fn new(hm: fn(u64) -> String) -> Self {
         Self {
             board: Board::default(),
+            board_threads: ThreadBoard::default(),
             selected: None,
             detail: None,
             pane: Pane::List,
@@ -493,10 +500,11 @@ impl App {
         self.board.ask_again();
         self.board.reconnected();
         self.board.work.reconnected();
+        self.board_threads.reset();
         let mut out = vec![
             snapshot(),
-            work_watch(),
             call(method::HEALTH, Value::Null, Purpose::Health),
+            work_watch(),
         ];
         // A thread chosen before: its row, for the status line.
         if self.thread.is_some() {
@@ -556,12 +564,13 @@ impl App {
                 out.extend(self.follow_up());
             }
             Event::WorkChanged(c) => {
-                for v in c.views {
-                    self.board.work.apply(v);
+                for v in &c.views {
+                    self.board.work.apply(v.clone());
                 }
                 for id in &c.gone {
                     self.board.work.gone(id);
                 }
+                self.board_threads.changed(c);
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
             Event::ConfirmResolved(r) => {
@@ -692,7 +701,10 @@ impl App {
         match purpose {
             Purpose::Snapshot => return self.snapshot_read(v),
             Purpose::Work => match serde_json::from_value::<WorkWatchResult>(v) {
-                Ok(snap) => self.board.work.snapshot(snap.views),
+                Ok(snap) => {
+                    self.board.work.snapshot(snap.views.clone());
+                    self.board_threads.snapshot(snap);
+                }
                 // An answer this build can't read is no board: rows say
                 // their labels, as with a daemon that lacks the method.
                 Err(_) => self.board.work.live = false,
@@ -993,6 +1005,7 @@ impl App {
             Mode::Armed(arm, sid) => self.armed_key(k, arm, &sid),
             Mode::Note(id) => self.note_key(k, &id),
             Mode::NewTask(home) => self.new_task_key(k, home),
+            Mode::BoardThreads => self.board_threads_key(k),
             Mode::Normal => self.normal_key(k),
         }
     }
@@ -1076,6 +1089,10 @@ impl App {
                     return self.focus(&sid);
                 }
             }
+            KeyCode::Char('T') => match self.board_threads.is_empty() {
+                true => self.flash = Some((Tag::Dim, "no threads on the board".to_string())),
+                false => self.mode = Mode::BoardThreads,
+            },
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -1120,6 +1137,34 @@ impl App {
             _ => {}
         }
         Vec::new()
+    }
+
+    /// The keys over the Threads block: the arrows move, enter folds a
+    /// thread or opens an item's session, esc and `T` go back to the list.
+    fn board_threads_key(&mut self, k: KeyEvent) -> Vec<Effect> {
+        let (now, width) = (self.now_ms, self.threads_width());
+        match k.code {
+            KeyCode::Down | KeyCode::Char('j') => self.board_threads.step(1, now, width),
+            KeyCode::Up | KeyCode::Char('k') => self.board_threads.step(-1, now, width),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(sid) = self.board_threads.session_at(now, width) {
+                    self.mode = Mode::Normal;
+                    return self.focus(&sid);
+                }
+                self.board_threads.toggle(now, width);
+            }
+            KeyCode::Esc | KeyCode::Char('T') | KeyCode::Char('q') => self.mode = Mode::Normal,
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// The columns the Threads block's lines have: the sidebar's.
+    pub fn threads_width(&self) -> usize {
+        match self.wide() {
+            true => crate::ui::sidebar_width(self.width) as usize,
+            false => self.width as usize,
+        }
     }
 
     /// The session the keys act on: the one in focus, if its pane is on
@@ -1420,7 +1465,7 @@ impl App {
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             // The self view takes no paste.
             Mode::SelfView => {}
-            Mode::Normal | Mode::Help | Mode::Standing | Mode::Armed(..) => {
+            Mode::Normal | Mode::Help | Mode::Standing | Mode::Armed(..) | Mode::BoardThreads => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop | Arm::StopAll => "not stopped",

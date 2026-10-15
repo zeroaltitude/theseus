@@ -52,6 +52,15 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   surface: verbs, not `work.answer`'s answers. `ExecutionView` and `WorkView` carry `dismissed` (the attention rules
   read it: a dismissed failure is idle, `failed: <reason> · dismissed`, on the push and on `attention_of`) and
   `retry_of`. Both fields are left out of the bytes at their defaults.
+- `work_threads.rs` (theseus-5i8i): threads on the work board, pure. `WorkView.thread` (a wire field: the thread whose
+  session is the view's root conversation) and `ThreadGroup` (in `work_watch.rs`: a thread's words, its session and its
+  stats; `work.watch`'s `threads` and `work.changed`'s `threads`, absent when empty and never sent to a connection that
+  reads no private text) are grouped by `group` into each live thread with its open tasks, questions and wakes (needs you
+  first) and the work in none (`Grouped::loose`). The counting rules are written once in its header: a question counts
+  once, a pending seal counts one, a paused thread keeps its count and leaves the board's (`Grouped::needs_you`), a done
+  thread shows only while open, warm is within `WARM_MS`. `GroupedThread::header(now, width)` is the one wording of a
+  thread's line (the CLI and the TUI share it; `cockpit/src/lib/threadboard.ts` mirrors the rules). Tests:
+  `tests_work_threads.rs`, `tests/work.rs` with the `watch_result_threads` fixture.
 - `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
   is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
   how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's

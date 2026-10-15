@@ -18,6 +18,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/work.rs` (theseus-hkx30): `theseus work`, the work board as a tree (`work.watch`), and `--watch`, a line for each
   `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
   the real tree on the same wire. Tests inside it.
+  Since theseus-5i8i it groups the board by thread (`board_lines`: a header per live thread, needs you first, then its open
+  tasks, questions and wakes; then what is in no thread as the tree it was; `--flat`, or a board with no thread, prints
+  today's tree), and `--watch` prints a line for each thread group that changes.
 - `src/chat_cmd.rs` (theseus-cyha): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION]` exec `theseus-tui chat [SESSION]` as `tui` execs the board; a pipe, a script or any argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
 - `src/notify/` (theseus-f0bi9): how a ping reaches the owner, for every terminal client. `notices.rs` is the TUI's
   former notice queue (the policy's notices, a second of debounce, the burst fold); `mod.rs` has `Delivery`

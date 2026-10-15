@@ -44,6 +44,7 @@ fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkVie
         flagged: false,
         dismissed: false,
         retry_of: None,
+        thread: None,
     }
 }
 

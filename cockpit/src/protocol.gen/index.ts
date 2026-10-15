@@ -549,6 +549,7 @@ export type * from './ThreadCandidate';
 export type * from './ThreadChanged';
 export type * from './ThreadCrossed';
 export type * from './ThreadEditParams';
+export type * from './ThreadGroup';
 export type * from './ThreadImportParams';
 export type * from './ThreadImportResult';
 export type * from './ThreadInfo';

@@ -58,6 +58,17 @@ impl Core {
             scope.clone(),
             p.interactive.unwrap_or(false),
         );
+        // The threads are the owner's: a connection that reads no private
+        // text is told of none. The watch is subscribed already, so the read
+        // of their stats reaches it as an update too.
+        let threads = match guarded {
+            true => Vec::new(),
+            false => {
+                self.install_thread_feed();
+                self.push.set_threads(self, self.thread_groups());
+                self.push.work_threads()
+            }
+        };
         let (position, views, total) = self
             .push
             .work_snapshot(p.limit.unwrap_or(DEFAULT_LIMIT) as usize, &scope);
@@ -65,6 +76,7 @@ impl Core {
             position,
             views: scope.cut(&views, &self.tools.scrubber),
             total,
+            threads,
         })
     }
 
