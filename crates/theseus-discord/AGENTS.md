@@ -158,7 +158,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - **Reply watches** (theseus-rlnbf, `runtime/reply.rs`): each message the bot hears, a place of ours or not, is told to the
   core's `watch_reply_seen` first in `on_message`, before routing; it reads only (one atomic load with no reply watch
   open). The place is `discord:channel:<id>`, or `discord:dm:<author id>` in a DM. The core writes the match and the
-  notice (to a private place). Tests: the core's `watch/tests_reply.rs`.
+  notice (to a private place). Tests: the core's `watch/tests_reply.rs`, and `tests_gateway/reply.rs` through the stand-in (ben's reply in a shared #lab, the notice in ana's DM).
 - **Typing** (theseus-tnky, `runtime/typing.rs`): the gateway asks for both typing intents (not privileged). A typing
   event of a person the place lets drive it (never in a channel that wants an @mention, never the bot) is told to the
   place's actor once per person per channel per idle spell, which sends `session.typing` with its session's id and
