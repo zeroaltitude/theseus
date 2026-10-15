@@ -121,6 +121,14 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 
 ## Traps
 
+- **A value the core keeps must not hold the core.** Anything stored in `Core` (a closure, a handle, a board's reader)
+  that reaches an `Arc<Core>` again is a cycle: the core and its store outlive the runtime, redb never closes, and
+  the next start repairs the whole index (install #29: the MCP server's health closure held the server, which held
+  the core; only the `shutdown` method's wake broke it, so a SIGTERM leaked 9 store handles and the serving start
+  went from 1 s to 8.5 s). Hold the other end by `Weak`. `tests/store_close.rs` stops a daemon with every service on,
+  by `shutdown` and by SIGTERM, and fails on `outlived the runtime` in the log or a repair at the next start; the
+  warning now names `core=` (live `Arc<Core>`s) and the threads left.
+
 - A test script's wait loop must end when its temp dir is gone, or a failing test leaves it looping on a deleted
   file.
 - A daemon test's live peer is traced through `/proc`: run inside a job, an approval it sends is refused. Such tests

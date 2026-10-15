@@ -299,7 +299,14 @@ async fn exact_asks_the_provider_to_count() {
         .await
         .unwrap();
     let e = c.exact.expect("the fake provider counts by the estimate");
-    assert_eq!(e.total, c.total_tokens);
+    // A fresh session has no message to count (theseus-7okz9): its total is its system and its tools, and the
+    // fake counts by the estimate, which the smallest form's own word rounds by a token.
+    assert_eq!(e.total, e.system + e.tools);
+    assert!(
+        e.total.abs_diff(c.total_tokens) <= 2,
+        "{e:?} {}",
+        c.total_tokens
+    );
     assert!(e.tools > 0 && e.system > 0);
     assert!(c.exact_error.is_none());
     let plain = r
@@ -308,6 +315,58 @@ async fn exact_asks_the_provider_to_count() {
         .await
         .unwrap();
     assert!(plain.exact.is_none() && plain.exact_error.is_none());
+}
+
+/// The counter refuses a request with no message (HTTP 400, as the API answers), and a fresh session's first
+/// request has none yet: `exact` counts its system and its tools over the smallest form instead, and its
+/// messages are none (theseus-7okz9: `theseus census --exact` on a fresh session answered a 400).
+#[tokio::test]
+async fn exact_on_a_fresh_session_counts_with_no_message() {
+    let r = rig(vec![]);
+    for place in ["cli", "dm", "task", "harness"] {
+        let c = r
+            .core
+            .context_census_exact(ContextCensusParams {
+                place: Some(place.into()),
+                exact: true,
+                ..ContextCensusParams::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            c.messages_tokens, 0,
+            "{place}: a fresh session has no messages"
+        );
+        assert!(c.exact_error.is_none(), "{place}: {:?}", c.exact_error);
+        let e = c
+            .exact
+            .unwrap_or_else(|| panic!("{place}: no exact counts"));
+        assert!(e.system > 0 && e.tools > 0, "{place}: {e:?}");
+        assert_eq!(e.messages, 0, "{place}: {e:?}");
+        assert_eq!(e.total, e.system + e.tools, "{place}: {e:?}");
+    }
+}
+
+/// Once a session has a message the request is counted whole, the messages the rest of it.
+#[tokio::test]
+async fn exact_on_a_session_with_messages_counts_the_whole_request() {
+    let r = rig(vec![Scripted::text("Aye.")]);
+    let done = turn(&r.core, None, "How deep is the harbour?").await;
+    let c = r
+        .core
+        .context_census_exact(ContextCensusParams {
+            session_id: Some(done.session_id),
+            exact: true,
+            ..ContextCensusParams::default()
+        })
+        .await
+        .unwrap();
+    assert!(c.exact_error.is_none(), "{:?}", c.exact_error);
+    let e = c.exact.unwrap();
+    assert!(
+        e.messages > 0 && e.total == e.system + e.tools + e.messages,
+        "{e:?}"
+    );
 }
 
 /// With deferred tools (theseus-7m7w.2), the census counts the request a turn
