@@ -48,6 +48,14 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   `theseus_client::notify`, shared with `theseus status --watch`; the TUI keeps the viewer in `app.rs`). `--notify`
   is `auto` (default: a Windows toast under WSL, OSC 9 where known, else the bell), `toast`, `bell`, `osc9`, `osc777`
   or `off`; without the flag the daemon's `[tui] notify` (read from `health`) says (theseus-f0bi9). Done until seen is `theseus_client::seen`, shared with the CLI.
+- `src/selfview.rs` (theseus-pw1q.19): the self view, `L` (`l` is the follow pane's): a pane over the whole body with the switch's state in the CLI's
+  words (`render::self_state_line`), "Self-improvement is off. Nothing has run." while `[self] mode` is off, the day's
+  and the newest branch's spend (`SelfLogResult.budget`, wide screens only), and the last 20 `self.log` rows, newest
+  first, one line each (time, kind, what, cost, undo); enter shows the picked row whole, esc goes back, then closes. A
+  screen under 100 columns folds to the state and the newest five. It reads `self.log` when it opens and again on an
+  event it already hears (an execution that changed state, a task, a question), one read at a time and a second wanted
+  meanwhile made when the first lands: no timer. The switch's move from any surface is `self.changed`; a row with no execution
+  beside it (a night's exam pass) shows at the next such event or when the pane is opened again. Tests: `src/tests_self.rs`.
 - A reply's citations (theseus-ejdk): `Detail::history` draws a page's cited replies with numbered marks and the
   footnote block under them (`session.history`'s `cites`, the CLI's `render::cite`), and `Detail::cited` does the same
   for a turn this TUI sent, from its `turn.submit` answer's `cites`; a reply another surface's turn streams in stays

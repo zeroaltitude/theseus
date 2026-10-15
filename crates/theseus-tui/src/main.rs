@@ -16,6 +16,7 @@ mod follow;
 mod new_task;
 mod notice;
 mod run;
+mod selfview;
 mod styled;
 mod term;
 mod threads;
@@ -50,6 +51,8 @@ mod tests_order;
 mod tests_paste;
 #[cfg(test)]
 mod tests_progress;
+#[cfg(test)]
+mod tests_self;
 #[cfg(test)]
 mod tests_stop_all;
 #[cfg(test)]

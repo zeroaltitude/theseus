@@ -37,12 +37,15 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     }
     header(app, Rect::new(0, 0, area.width, 1), buf);
     let body = Rect::new(0, 1, area.width, area.height - 2);
-    if app.wide() {
-        let side = if app.board.work.live {
-            work_sidebar_width(area.width)
-        } else {
-            sidebar_width(area.width)
-        };
+    let side = if app.board.work.live {
+        work_sidebar_width(area.width)
+    } else {
+        sidebar_width(area.width)
+    };
+    if app.mode == Mode::SelfView {
+        // The self view takes the whole body (theseus-pw1q.19).
+        self_view(app, body, buf);
+    } else if app.wide() {
         sidebar(app, Rect::new(0, body.y, side, body.height), buf);
         for y in body.y..body.y + body.height {
             buf.set_string(side, y, "│", dim());
@@ -76,6 +79,23 @@ pub fn sidebar_width(width: u16) -> u16 {
 /// 36 to 64 columns (theseus-k2vca).
 pub fn work_sidebar_width(width: u16) -> u16 {
     (width * 2 / 5).clamp(36, 64)
+}
+
+/// The self view: its lines, as many as fit.
+fn self_view(app: &App, area: Rect, buf: &mut Buffer) {
+    for (i, (tag, line)) in app
+        .self_lines(area.width)
+        .iter()
+        .enumerate()
+        .take(area.height as usize)
+    {
+        let style = if i == 0 {
+            Style::default().add_modifier(Modifier::BOLD)
+        } else {
+            tag_style(*tag)
+        };
+        buf.set_stringn(area.x, area.y + i as u16, line, area.width as usize, style);
+    }
 }
 
 fn header(app: &App, area: Rect, buf: &mut Buffer) {
@@ -579,7 +599,10 @@ pub(crate) fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, width: usize, ta
 }
 
 fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
-    let keys = "[?] help  [q] quit ";
+    let keys = match app.mode {
+        Mode::SelfView => app.self_keys(),
+        _ => "[l] self  [?] help  [q] quit ",
+    };
     let typed = match &app.mode {
         Mode::Filter => Some(("/", app.filter.as_str())),
         Mode::Input => Some(("> ", app.input.as_str())),
@@ -655,7 +678,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 22] = [
+    const KEYS: [&str; 23] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -674,6 +697,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " ctrl-t     the threads: pick one (enter), pause p, resume r, done d",
         " /t         in the input line: the threads; /t N or /t NAME picks one",
         " r d o      on a failed row: retry (a task) / dismiss / open it",
+        " L          what Theseus changed about itself (esc closes)",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
         "",

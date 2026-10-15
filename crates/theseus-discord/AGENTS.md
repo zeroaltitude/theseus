@@ -141,6 +141,14 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   owner handle (`places::owner_anywhere`); anyone else's is refused and ledgered there. The week's self digest is a `self_digest` post, to the
   owner's DM alone (`jev_post`).
 
+- **"self digest" and "self log"** (theseus-pw1q.19, `runtime/self_word.rs`): a message of exactly those two words (any
+  case) is `self.digest` (the text the weekly `self_digest` post carries, `rsi::digest_capped`, for the week so far)
+  or `self.log` (the last ten changes, newest first, one line each) in a place the place rule calls private (the
+  owner's DM, a channel bound private); any other place is told "The self log is private." and nothing more. With
+  `[self] mode = "off"` the answer begins "Self-improvement is off. Nothing has run." and still lists the rows so far.
+  A read of the core: no frame, no ledger row. `runtime.rs` is at its ceiling, so there is no `/self` slash command
+  yet. Tests: `tests_gateway/self_word.rs`.
+
 - **A reply's cited sources** (theseus-ejdk, `render/cite.rs`, `render/reply.rs`, `runtime/source.rs`): the reply's
   `result.cites` (the core leaves out what a shared place may not show) become numbered marks in its text, `-#`
   footnotes under its last text part (above the footer), and one row of buttons on its last message: `Open [n]`, a

@@ -566,6 +566,8 @@ events! {
     /// A followed job's output, to the connection that follows it.
     ActionOutputChunk(crate::job_follow::ActionOutputChunk) = notify::ACTION_OUTPUT_CHUNK,
     ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
+    /// The self-improvement switch moved (theseus-pw1q.19).
+    SelfChanged(crate::rsi::SelfChanged) = notify::SELF_CHANGED,
 }
 
 impl Event {
@@ -604,6 +606,7 @@ impl Event {
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
             | Event::ThreadChanged(_)
+            | Event::SelfChanged(_)
             | Event::EventsLost(_) => None,
         }
     }
@@ -643,6 +646,7 @@ impl Event {
             | Event::ThreadAsked(_)
             | Event::ActionOutputChunk(_)
             | Event::ActionOutputEnd(_)
+            | Event::SelfChanged(_)
             | Event::EventsLost(_) => None,
         }
     }

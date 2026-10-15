@@ -54,6 +54,7 @@ pub mod notices;
 pub mod nudge;
 mod ontology;
 mod outbox;
+pub mod own_bench;
 pub mod packs;
 mod places;
 mod push;
@@ -186,9 +187,8 @@ pub mod method {
         /// A new conversation from any moment of another, by reference (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",
         CATALOG_LIST = "catalog.list", COMPILATION_LIST = "compilation.list", NODE_LIST = "node.list",
-        /// Where a node went (theseus-n4m, step 12a): the contexts of its own
-        /// session that held it, then its copies in other sessions over
-        /// `derived_from`, each with theirs. A read, computed when asked.
+        /// Where a node went (theseus-n4m, step 12a): the contexts of its own session that held it, then its copies
+        /// in other sessions over `derived_from`, each with theirs. A read, computed when asked.
         NODE_REACH = "node.reach",
         TOOL_LIST = "tool.list",
         /// The tool families each kind of place loads or defers, with their use
@@ -205,16 +205,14 @@ pub mod method {
         /// Undo a tightening: the tool goes back to what the config says. It
         /// loosens, so it takes the same trusted answer as an approval.
         POLICY_UNTIGHTEN = "policy.untighten",
-        /// Trust a session again (theseus-9bp): it no longer holds external
-        /// text, so its calls that act go back to their postures. It loosens, so
-        /// it takes the same trusted answer as an approval.
+        /// Trust a session again (theseus-9bp): it no longer holds external text, so its calls that act go back to
+        /// their postures. It loosens, so it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
         /// Publish an item into a place's conversation (the place rule,
         /// theseus-nbsh): the owner's act, from a private place.
         PLACE_PUBLISH = "place.publish",
-        /// The ontology (M4 §2.8, theseus-8kk.1): the kinds, the categories
-        /// and their guidance, and memberships; then the operator's writes,
-        /// judged as an approval is (the owner, from a private place).
+        /// The ontology (M4 §2.8, theseus-8kk.1): the kinds, the categories and their guidance, and memberships; then
+        /// the operator's writes, judged as an approval is (the owner, from a private place).
         ONTOLOGY_LIST = "ontology.list",
         /// Each hands group, its cells by state, and its cost against its cap (step 40 part 2): the cockpit's grid.
         HANDS_LIST = "hands.list",
@@ -257,29 +255,24 @@ pub mod method {
         WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
-        /// The push (theseus-in3): a snapshot of every execution that needs
-        /// someone or works, then `execution.changed`, `confirm.requested`,
-        /// and `confirm.resolved` for every session, until
+        /// The push (theseus-in3): a snapshot of every execution that needs someone or works, then
+        /// `execution.changed`, `confirm.requested`, and `confirm.resolved` for every session, until
         /// `executions.unwatch`. A read.
         EXECUTIONS_WATCH = "executions.watch",
         EXECUTIONS_UNWATCH = "executions.unwatch",
-        /// The work board (theseus-hkx30): every root that needs you or works with
-        /// its open subtree, then `work.changed` and `work.notice` until
-        /// `work.unwatch` (`work_watch.rs`). A read.
+        /// The work board (theseus-hkx30): every root that needs you or works with its open subtree, then
+        /// `work.changed` and `work.notice` until `work.unwatch` (`work_watch.rs`). A read.
         WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
         /// A running job's last lines (`job_follow.rs`, theseus-e1hu4), and its output followed until `action.unfollow`.
         WORK_PEEK = "work.peek", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
-        /// The counts behind `theseus status --short` (theseus-8kn12), read from
-        /// the board's O(1) fields: no per-execution view, no subscription.
-        /// `push::StatusShortResult`. A read.
+        /// The counts behind `theseus status --short` (theseus-8kn12), read from the board's O(1) fields: no
+        /// per-execution view, no subscription. `push::StatusShortResult`. A read.
         STATUS_SHORT = "status.short",
-        /// Wait until a session needs someone, settles, or ends (theseus-in3).
-        /// The daemon owns the wait; it answers at once when it is satisfied
-        /// already. A read.
+        /// Wait until a session needs someone, settles, or ends (theseus-in3). The daemon owns the wait; it answers
+        /// at once when it is satisfied already. A read.
         SESSION_WAIT = "session.wait",
-        /// The index tender (roadmap row 51), as health's `index` block says
-        /// it: the tender as the core supervises it, and its own status. A
-        /// read; the core asks the tender, bounded.
+        /// The index tender (roadmap row 51), as health's `index` block says it: the tender as the core supervises
+        /// it, and its own status. A read; the core asks the tender, bounded.
         INDEX_STATUS = "index.status",
         /// A search of the index, forwarded to the tender as it came
         /// (`index::IndexQueryParams`): fused hits as of a position. A read.
@@ -307,6 +300,8 @@ pub mod method {
         /// that used it, its syntheses stale, one card for the tasks to re-run.
         /// Acting: the owner, from a private place.
         FACT_RETRACT = "fact.retract",
+        /// Your own benchmark (theseus-pw1q.12; `own_bench`): a past turn's first request replayed on another profile (the owner's run), and the report of what the owner's turns need (a read).
+        TURN_REPLAY = "turn.replay", ROUTE_REPORT = "route.report",
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
         /// `judge.call` rows, by pack, session, and time, without their
         /// states. A read.
@@ -377,6 +372,8 @@ pub mod method {
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
         SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_BRANCHES = "self.branches",
         SELF_EXAMS = "self.exams",
+        /// Narrower policies for the hand roles (theseus-pw1q.15; `rsi::SelfNarrowParams`). The owner's to apply.
+        SELF_NARROW = "self.narrow",
     }
 }
 
@@ -449,6 +446,9 @@ pub mod notify {
         THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
+        /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`,
+        /// to every connection that watches every session.
+        SELF_CHANGED = "self.changed",
     }
 }
 

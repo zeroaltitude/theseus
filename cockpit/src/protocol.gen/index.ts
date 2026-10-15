@@ -440,6 +440,7 @@ export type * from './SelfBranchSpend';
 export type * from './SelfBranchesParams';
 export type * from './SelfBranchesResult';
 export type * from './SelfBudgetView';
+export type * from './SelfChanged';
 export type * from './SelfDigestParams';
 export type * from './SelfDigestResult';
 export type * from './SelfDropParams';

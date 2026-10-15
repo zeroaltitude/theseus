@@ -12,6 +12,18 @@ use crate::fact::rsi::{SelfHalted, SelfResumed};
 use crate::rpc::{Act, Core};
 
 impl Core {
+    /// Tell the connections that watch every session that the switch moved
+    /// (`self.changed`), so a surface showing the self log reads it again.
+    /// The move's own frame is written already; this sends, writes nothing.
+    fn self_changed(&self, kind: &str) {
+        let e = theseus_protocol::Event::SelfChanged(theseus_protocol::rsi::SelfChanged {
+            kind: kind.into(),
+            at_ms: theseus_protocol::now_unix_ms(),
+        });
+        self.bus
+            .publish_watchers(&theseus_protocol::Message::from(e));
+    }
+
     /// What [`super::gate`] reads here.
     pub fn self_ctx(&self) -> Ctx<'_> {
         Ctx {
@@ -71,6 +83,7 @@ impl Core {
             .append(&[crate::fact::row(&fact, None, None)?, rec.record()?])?;
         self.rsi.set(rec.clone());
         self.rec(None).announce(&fact);
+        self.self_changed("self.halted");
         Ok(SelfSwitchResult {
             state: self.self_state(),
             changed: true,
@@ -113,6 +126,7 @@ impl Core {
             .append(&[crate::fact::row(&fact, None, None)?, rec.record()?])?;
         self.rsi.set(rec.clone());
         self.rec(None).announce(&fact);
+        self.self_changed("self.resumed");
         Ok(SelfSwitchResult {
             state: self.self_state(),
             changed: true,
