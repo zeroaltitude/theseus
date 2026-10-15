@@ -258,6 +258,7 @@ impl Core {
             thread: t,
             context_tokens: None,
             today_usd: 0.0,
+            cache: None,
         })
     }
 
@@ -320,6 +321,7 @@ impl Core {
             .filter_map(|t| t.session_id.clone())
             .collect();
         let today = self.spent_today_by(&sessions);
+        let cache = self.thread_cache_for(&sessions.iter().cloned().collect::<Vec<_>>());
         let mut rows: Vec<ThreadRow> = threads
             .iter_mut()
             .map(|t| {
@@ -343,6 +345,7 @@ impl Core {
                         .and_then(|s| today.get(s))
                         .copied()
                         .unwrap_or(0.0),
+                    cache: t.session_id.as_ref().and_then(|s| cache.get(s)).cloned(),
                     thread: t.clone(),
                     context_tokens: tokens,
                 }
@@ -606,6 +609,13 @@ impl Core {
             Move::Resume => rec.announce(&ThreadResumed(c)),
             Move::Done => rec.announce(&ThreadDone(c)),
             Move::Reopen => rec.announce(&ThreadReopened(c)),
+        }
+        // A paused or finished thread is not kept warm, from the next refresh
+        // on; a resume puts it back at its next owner message (theseus-ytt8).
+        if matches!(mv, Move::Pause | Move::Done) {
+            if let Some(sid) = t.session_id.as_deref() {
+                self.runner.keep_warm.forget(sid);
+            }
         }
         if mv == Move::Done {
             self.finish_thread_session(&t, &who);

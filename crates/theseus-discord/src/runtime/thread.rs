@@ -228,6 +228,7 @@ mod tests {
             },
             context_tokens: tokens,
             today_usd: usd,
+            cache: None,
         }
     }
 

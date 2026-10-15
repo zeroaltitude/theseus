@@ -66,6 +66,7 @@ pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod tests_task_info;
+pub mod thread_cache;
 pub mod threads;
 mod toolinfo;
 #[cfg(test)]
@@ -766,6 +767,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cache: Option<PromptCacheHealth>,
+    /// Threads' keep-warm window and the day's cold-resume numbers (theseus-ytt8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub threads: Option<thread_cache::ThreadsHealth>,
     /// Which killer features are on (theseus-is8t): health's first line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

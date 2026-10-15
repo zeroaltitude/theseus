@@ -238,6 +238,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+- **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): a thread's session is a private conversation, so the
+  keep-warm reads it as it reads any; what differs is who is kept. An active thread whose owner wrote within `[threads]
+  keep_warm_hours` (4; 0 keeps none), the shorter of that and the profile's window, never a paused or done one:
+  `thread.pause` and `thread.done` forget the session at once (`KeepWarm::forget`), a read re-checks the thread's state
+  (`TurnRunner::thread_warm`), a restart leaves out what is not active, and a resume holds nothing until its next owner
+  message. One request per thread: its own prefix includes the layers every thread on the profile shares, so its read
+  restarts those entries too, and a tail-only request would be a different prefix. The tender reads the most recently
+  written first (`KeepWarm::due`) and, when the day's line refuses a read, leaves the rest of the round unread, counts
+  them (`skipped_today`) and warns; they stay held and are due an interval later. The numbers (`ThreadCacheStats`:
+  cold resumes and their rewrite tokens and dollars, warm hits, rewrites avoided and the modeled saving, keep-warm reads
+  and dollars) are `stats_of` over the day's `provider.call` (a turn's first call has loop 0) and `keep_warm` rows;
+  `thread show`/`list` carry a thread's, health's `threads.cache` the total and each thread's, from a copy a minute old
+  (`CacheNumbers`) so health reads no ledger, and nothing for a daemon with no thread. Tests:
+  `rpc/tests_thread_keep_warm.rs`, `keep_warm_threads::tests`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

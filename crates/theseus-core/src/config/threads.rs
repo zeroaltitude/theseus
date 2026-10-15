@@ -15,7 +15,7 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThreadsConfig {
     #[serde(default = "default_enabled")]
@@ -26,6 +26,8 @@ pub struct ThreadsConfig {
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
     pub working_tokens: u64,
+    #[serde(default = "default_keep_warm_hours")]
+    pub keep_warm_hours: f64,
 }
 
 fn default_enabled() -> bool {
@@ -41,6 +43,10 @@ fn default_working_tokens() -> u64 {
     60_000
 }
 
+fn default_keep_warm_hours() -> f64 {
+    4.0
+}
+
 impl Default for ThreadsConfig {
     fn default() -> Self {
         Self {
@@ -48,6 +54,7 @@ impl Default for ThreadsConfig {
             max_live: default_max_live(),
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
+            keep_warm_hours: default_keep_warm_hours(),
         }
     }
 }
@@ -66,6 +73,12 @@ impl ThreadsConfig {
         }
         if self.working_tokens < 2_000 {
             bail!("threads.working_tokens is under 2,000: a resume could not keep a turn");
+        }
+        if !(self.keep_warm_hours.is_finite() && self.keep_warm_hours >= 0.0) {
+            bail!(
+                "threads.keep_warm_hours must be 0 or more, not {}",
+                self.keep_warm_hours
+            );
         }
         Ok(())
     }
@@ -88,7 +101,14 @@ mod tests {
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
         assert_eq!(cfg.threads.resume_keep_turns, 6);
         assert_eq!(cfg.threads.working_tokens, 60_000);
-        for bad in ["resume_keep_turns = 0", "working_tokens = 10"] {
+        assert_eq!(cfg.threads.keep_warm_hours, 4.0);
+        let off = crate::Config::from_toml("[threads]\nkeep_warm_hours = 0\n").unwrap();
+        assert_eq!(off.threads.keep_warm_hours, 0.0);
+        for bad in [
+            "resume_keep_turns = 0",
+            "working_tokens = 10",
+            "keep_warm_hours = -1",
+        ] {
             assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());

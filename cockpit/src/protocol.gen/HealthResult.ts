@@ -38,6 +38,7 @@ import type { TasksHealth } from "./TasksHealth";
 import type { TelemetryStatus } from "./TelemetryStatus";
 import type { TerminalInfo } from "./TerminalInfo";
 import type { TerminalLeft } from "./TerminalLeft";
+import type { ThreadsHealth } from "./ThreadsHealth";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
@@ -259,6 +260,10 @@ warm?: WarmHealth,
  * The prompt cache: each profile's TTL, and the keep-warm (theseus-ezeg).
  */
 cache?: PromptCacheHealth, 
+/**
+ * Threads' keep-warm window and the day's cold-resume numbers (theseus-ytt8).
+ */
+threads?: ThreadsHealth, 
 /**
  * Which killer features are on (theseus-is8t): health's first line.
  */
