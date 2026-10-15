@@ -488,3 +488,29 @@ async fn a_turns_result_links_to_it_at_the_configured_address() {
     assert!(seen.loops[0].compiled.is_some(), "the loop's compile row");
     assert!(seen.trace.is_some(), "the turn's trace row");
 }
+
+/// Over a connection the surface decides what a read holds: the Discord
+/// binding's gets the shapes alone, the CLI's the texts (turn-inspector's join
+/// review: the split was held below the protocol, and a planted revert that
+/// read every surface as private passed every test).
+#[tokio::test]
+async fn the_connections_surface_decides_what_its_read_holds() {
+    use crate::approval::{Client, Surface};
+    let core = test_core("ok");
+    let (s, t) = build(&core, 2, 1);
+    let params = json!({"session_id": s, "turn_id": t});
+    let read = |surface| {
+        crate::tests_m3::rpc_as(
+            &core,
+            Client::new("test", surface),
+            "turn.inspect",
+            params.clone(),
+        )
+    };
+    let other = read(Surface::Discord).await.unwrap();
+    assert!(other["withheld"].is_string(), "{other}");
+    assert!(!other.to_string().contains("harbour directory"), "{other}");
+    let cli = read(Surface::Cli).await.unwrap();
+    assert!(cli["withheld"].is_null(), "{cli}");
+    assert!(cli.to_string().contains("harbour directory"));
+}
