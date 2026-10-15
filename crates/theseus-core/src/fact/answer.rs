@@ -353,22 +353,10 @@ impl Fact for ActRefused<'_> {
                 "A correction of routing, {what}, from {who} through {via}, did not count: \
                  {why}. Nothing was written, and the session runs where it ran."
             ),
-            Act::SelfResume { .. } => format!(
-                "A resume of self-improvement, from {who} through {via}, did not count: {why}. \
-                 It stays halted."
-            ),
-            Act::SelfNarrow { what, .. } => format!(
-                "A change to a hand role's policy ({what}), from {who} through {via}, did not \
-                 count: {why}. The policy is as it was."
-            ),
-            Act::SelfBacklog { method, what, .. } => format!(
-                "{method} of {what} on the self backlog, from {who} through {via}, did not \
-                 count: {why}. The backlog is as it was."
-            ),
-            Act::SelfRevert { what, .. } => format!(
-                "A veto of self-join {what}, from {who} through {via}, did not count: {why}. \
-                 Nothing was reverted."
-            ),
+            a @ (Act::SelfResume { .. }
+            | Act::SelfNarrow { .. }
+            | Act::SelfBacklog { .. }
+            | Act::SelfRevert { .. }) => self_line(a, who, via, why),
             Act::Revoke { name } => format!(
                 "Revoking extension {name}, from {who} through {via}, did not count: {why}. It \
                  stays loaded."
@@ -379,6 +367,29 @@ impl Fact for ActRefused<'_> {
             ),
         };
         say.line(Approval, line);
+    }
+}
+
+/// A refused self-improvement act's line (`ActRefused::narrate`'s).
+fn self_line(act: Act<'_>, who: &str, via: &str, why: &str) -> String {
+    match act {
+        Act::SelfResume { .. } => format!(
+            "A resume of self-improvement, from {who} through {via}, did not count: {why}. \
+             It stays halted."
+        ),
+        Act::SelfNarrow { what, .. } => format!(
+            "A change to a hand role's policy ({what}), from {who} through {via}, did not \
+             count: {why}. The policy is as it was."
+        ),
+        Act::SelfBacklog { method, what, .. } => format!(
+            "{method} of {what} on the self backlog, from {who} through {via}, did not \
+             count: {why}. The backlog is as it was."
+        ),
+        Act::SelfRevert { what, .. } => format!(
+            "A veto of self-join {what}, from {who} through {via}, did not count: {why}. \
+             Nothing was reverted."
+        ),
+        _ => unreachable!("only the self acts come here"),
     }
 }
 

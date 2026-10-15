@@ -17,7 +17,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 10] = [
+pub(super) const OWN: [&str; 11] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
