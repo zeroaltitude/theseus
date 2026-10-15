@@ -1309,12 +1309,15 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
-/// `theseus agenda` and `theseus prefix`: the horizon, and the prefix library's report.
+/// `theseus agenda`, `prefix`, `card` and `voice`: the horizon, the prefix library's report, the owner card's
+/// proposals, and the speaking voice.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Agenda(a) => agenda::run(c, json, a).await,
         Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
-        _ => unreachable!("only agenda and prefix come here"),
+        Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Voice { cmd } => voice_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        _ => unreachable!("only agenda, prefix, card and voice come here"),
     }
 }
 
@@ -1431,10 +1434,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Voice { cmd } => voice_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        cmd @ (Cmd::Card { .. } | Cmd::Voice { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Notices { cmd } => notices_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,

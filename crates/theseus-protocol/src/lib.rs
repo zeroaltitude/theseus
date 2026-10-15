@@ -281,9 +281,7 @@ pub mod method {
         WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
-        /// The push (theseus-in3): a snapshot of every execution that needs someone or works, then
-        /// `execution.changed`, `confirm.requested`, and `confirm.resolved` for every session, until
-        /// `executions.unwatch`. A read.
+        /// The push (theseus-in3): a snapshot of every execution that needs someone or works, then `execution.changed`, `confirm.requested`, and `confirm.resolved` for every session, until `executions.unwatch`. A read.
         EXECUTIONS_WATCH = "executions.watch",
         EXECUTIONS_UNWATCH = "executions.unwatch",
         /// The work board (theseus-hkx30): every root that needs you or works with its open subtree, then
