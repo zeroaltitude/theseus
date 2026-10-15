@@ -180,25 +180,21 @@ impl Tool for TaskCreate {
          a quarter of what is left. What it spends counts against this session. Its report \
          reaches the person at once, and you read it at this conversation's next turn. With \
          `wake_parent: true`, the report starts that turn by itself, so you can review the result \
-         and act on it without waiting for the person: use it for a chain, where you review each \
-         task's result and start the next. Leave it off for work the person will ask about. A \
-         task cannot start tasks. For work on a day that needs judgment (\"on Friday, read the \
-         PR's review and draft a reply\"), give `start_after` or `start_at`: the task sleeps, its \
-         budget is carved now, and it starts then; a reminder to the owner is a `wake.at` \
-         instead.\n\n\
+         and start the next task of a chain; leave it off for work the person will ask about. A \
+         task cannot start tasks. For work on a day that needs judgment, give `start_after` or \
+         `start_at`: the task sleeps, its budget is carved now, and it starts then; a reminder \
+         to the owner is a `wake.at` instead.\n\n\
          Every task needs an `arrangement`: quote the messages of this conversation that define \
          the work, rather than paraphrasing them into the brief. Each piece is an exact quote \
-         (copied character for character, at least 20 characters, from one message: the \
-         person's, your own earlier replies, or a tool result) with its role: `objective` (what \
-         to do), `acceptance` (how to know it is done), `design` (how it was decided it should \
-         be done), or `context`. At least one piece is an `objective` or a `design`. The task \
-         reads each quoted message whole and verbatim, after the brief, with who said it and \
-         when. `trust` lists pieces to read as trusted testimony, and `supersedes` pairs \
-         [older, newer] where a later message replaced an earlier one, so the task sees the \
-         older by reference only (indexes into `pieces`, from 0). A quote that matches no \
-         message, or more than one, fails with the reason: quote again, longer or exactly. A \
-         short brief drawn from a long discussion with a single piece fails too: attach the \
-         design, or say `fidelity_ack: true` if the one piece really is the whole work.\n\n\
+         from one message (the person's, your own earlier replies, or a tool result) with its \
+         role: `objective` (what to do), `acceptance` (how to know it is done), `design` (how \
+         it was decided it should be done), or `context`. At least one piece is an `objective` \
+         or a `design`. The task reads each quoted message whole and verbatim, after the brief, \
+         with who said it and when. `trust` and `supersedes` mark testimony and replaced \
+         messages. A quote that matches no message, or more than one, fails with the reason: \
+         quote again, longer or exactly. A short brief drawn from a long discussion with a \
+         single piece fails too: attach the design, or say `fidelity_ack: true` if the one \
+         piece really is the whole work.\n\n\
          Every task is a record in the task graph, which you see each turn. Without `brief`, \
          the call records a plan item (a `title`, and `objective`, `acceptance`, `parent`, and \
          `deps` if you have them): no session works on it, and it needs no arrangement. Edit \
