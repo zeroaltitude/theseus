@@ -22,6 +22,15 @@ next_ms?: number, next?: string, run_usd: number, month_usd: number,
  */
 month_spent_usd: number, deliver_to: string, catch_up: string, speak: string, runs: number, 
 /**
+ * The tools its runs use without asking, as written (`gog.gmail.search`,
+ * `channel.post #digest`).
+ */
+grant?: Array<string>, 
+/**
+ * How many of the latest runs in a row failed or were blocked.
+ */
+streak?: number, 
+/**
  * A run is going now.
  */
 running?: boolean, last?: RunRow, };

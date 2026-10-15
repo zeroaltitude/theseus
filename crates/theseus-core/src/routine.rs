@@ -22,6 +22,9 @@
 //! - **`Book`** holds the records in memory (one META prefix scan, the first
 //!   time something needs them), so the commitments block of a turn reads memory.
 
+pub mod grant;
+pub mod watch;
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
@@ -34,7 +37,8 @@ use theseus_kernel::{
     RoutineDue, RoutinePlan, RunPlan, SessionKind, TaskRun, WakeRun,
 };
 use theseus_protocol::routines::{
-    CatchUp, RoutineInfo, RoutineSpec, RunMark, RunRow, Speak, KEY_PREFIX, NOTHING_NEW, RUN_PREFIX,
+    CatchUp, RoutineBlocked, RoutineInfo, RoutineSpec, RunMark, RunRow, Speak, BLOCKED_PREFIX,
+    KEY_PREFIX, NOTHING_NEW, RUN_PREFIX,
 };
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord, Store as _};
@@ -59,6 +63,16 @@ pub struct Book {
     specs: RwLock<Option<Arc<Specs>>>,
     writes: std::sync::Mutex<()>,
     warmed: std::sync::atomic::AtomicBool,
+    /// Each routine's grant by its session id, read from its wake once and
+    /// kept (`grant_for`); a change to the routine drops its entry.
+    grants: RwLock<BTreeMap<String, Arc<grant::Grant>>>,
+    /// The runs not yet settled (`watch.rs`), by their task session.
+    pub(crate) open: std::sync::Mutex<BTreeMap<String, String>>,
+    /// Questions a run asked outside its grant that passed the run's deadline,
+    /// for the tick to end their runs blocked (`rpc/routines_watch.rs`).
+    pub(crate) blocked: std::sync::Mutex<Vec<theseus_kernel::Action>>,
+    /// The open set was seeded from the last runs after the start.
+    pub(crate) seeded: std::sync::atomic::AtomicBool,
 }
 
 impl Book {
@@ -110,8 +124,53 @@ impl Book {
         self.specs.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// The grant of the routine a task is the run of (theseus-52tut), or none:
+    /// the book not loaded yet, a task whose parent is not a routine (a task a
+    /// run starts has the run as its parent), or a routine with no grant. One
+    /// map lookup; the first call of a routine's run reads its wake.
+    pub fn grant_for(
+        &self,
+        kernel: &Kernel,
+        _store: &Store,
+        task: &TaskOf,
+    ) -> Option<Arc<grant::Grant>> {
+        let specs = self.held()?;
+        let spec = specs.get(&task.parent_session)?;
+        if spec.execution_id != task.parent_execution {
+            return None;
+        }
+        let cached = self
+            .grants
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&spec.session_id)
+            .cloned();
+        let g = match cached {
+            Some(g) => g,
+            None => {
+                let tools = kernel
+                    .execution(&spec.execution_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|e| written_grant(&e))
+                    .unwrap_or_default();
+                let g = Arc::new(grant::Grant::of(&tools));
+                self.grants
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(spec.session_id.clone(), g.clone());
+                g
+            }
+        };
+        (!g.is_empty()).then_some(g)
+    }
+
     /// Keep `spec` after its record was written (a deleted one leaves).
     pub fn set(&self, spec: &RoutineSpec) {
+        self.grants
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&spec.session_id);
         let _w = self.writes.lock().unwrap_or_else(|e| e.into_inner());
         let mut g = self.specs.write().unwrap_or_else(|e| e.into_inner());
         let Some(all) = g.as_ref() else {
@@ -190,6 +249,14 @@ pub fn short(id: &str) -> String {
     crate::task::short(id)
 }
 
+/// The grant as written, from the routine's wake (its `TaskRun.tools`).
+pub fn written_grant(e: &Execution) -> Option<Vec<String>> {
+    e.wakes.iter().find_map(|w| match (&w.purpose, &w.run) {
+        (Purpose::Routine, WakeRun::Task(t)) => Some(t.tools.clone()),
+        _ => None,
+    })
+}
+
 pub fn spec_record(spec: &RoutineSpec) -> Result<NewRecord> {
     NewRecord::json(
         kinds::META,
@@ -237,6 +304,8 @@ pub struct NewRoutine {
     pub deliver_to: Option<String>,
     pub catch_up: Option<String>,
     pub speak: Option<String>,
+    /// The tools its runs use without asking (`grant::check` has read them).
+    pub grant: Vec<String>,
 }
 
 /// A request read and checked, nothing written: what the card says.
@@ -247,6 +316,8 @@ pub struct Prepared {
     pub first_ms: u64,
     /// The next occurrences, for the card.
     pub next: Vec<u64>,
+    /// The grant, checked, as the wake will carry it.
+    pub grant: Vec<String>,
 }
 
 /// A dollar figure a person may name: finite and above zero.
@@ -276,14 +347,14 @@ impl Prepared {
         let to = n.deliver_to.as_deref().unwrap_or("dm");
         let next: Vec<String> = next.iter().map(|m| when(zone, *m)).collect();
         format!(
-            "Create routine \"{}\": {} (next: {}) · up to {} a run, {} a month · {} · each run asks \
-             before it uses a tool, as any task does",
+            "Create routine \"{}\": {} (next: {}) · up to {} a run, {} a month · {} · {}",
             n.title.trim(),
             at_words(&describe(repeat, zone)),
             next.join(", "),
             dollars(run_usd),
             dollars(month_usd),
             deliver_words(to, speak),
+            trust_words(&n.grant),
         )
     }
 
@@ -293,14 +364,29 @@ impl Prepared {
         let s = &self.spec;
         let next: Vec<String> = self.next.iter().map(|m| when(zone, *m)).collect();
         format!(
-            "Create routine \"{}\": {} (next: {}) · up to {} a run, {} a month · {} · each run asks \
-             before it uses a tool, as any task does",
+            "Create routine \"{}\": {} (next: {}) · up to {} a run, {} a month · {} · {}",
             s.title,
             at_words(&describe(&self.repeat, zone)),
             next.join(", "),
             dollars(micros_to_usd(s.run_micros)),
             dollars(micros_to_usd(s.month_micros)),
             deliver_words(&s.deliver_to, s.speak),
+            trust_words(&self.grant),
+        )
+    }
+}
+
+/// What a run may do unasked, for the creation card: the grant, or the
+/// plain rule. A call outside the grant asks, and with nobody there the run
+/// ends blocked, naming it (theseus-52tut).
+pub fn trust_words(grant: &[String]) -> String {
+    if grant.is_empty() {
+        "each run asks before it uses a tool, as any task does".to_string()
+    } else {
+        format!(
+            "runs use without asking: {} · any other tool asks, and a run nobody answers ends \
+             blocked, naming it",
+            grant.join(", ")
         )
     }
 }
@@ -426,6 +512,7 @@ pub fn prepare(
         first_ms: parsed.first_ms,
         repeat: parsed.repeat,
         next,
+        grant: n.grant.clone(),
     })
 }
 
@@ -488,7 +575,7 @@ pub fn create(
         run: WakeRun::Task(TaskRun {
             brief: spec.brief.clone(),
             limit_micros: spec.run_micros,
-            tools: vec![],
+            tools: p.grant,
         }),
     };
     kernel.create_wake_with(
@@ -530,7 +617,12 @@ pub fn run_row(env: &Env<'_>, execution_id: &str) -> Result<Option<RunRow>> {
     let mark: Option<RunMark> = env
         .store
         .get_meta(&format!("{RUN_PREFIX}{}", e.session_id))?;
-    let report = if e.state.is_terminal() {
+    let blocked: Option<RoutineBlocked> = env
+        .store
+        .get_meta(&format!("{BLOCKED_PREFIX}{}", e.session_id))?;
+    let report = if let Some(b) = &blocked {
+        Some(format!("blocked: {} {}", b.tool, b.reason))
+    } else if e.state.is_terminal() {
         match crate::task::load_report(env.store, env.kernel, &e.id)? {
             Some(r) if r.outcome == "complete" => r.text.as_deref().map(first_line),
             Some(r) => Some(format!(
@@ -552,12 +644,16 @@ pub fn run_row(env: &Env<'_>, execution_id: &str) -> Result<Option<RunRow>> {
         task: e.session_id.clone(),
         short: crate::task::short(&e.session_id),
         run: mark.map_or(0, |m| m.run),
-        state: run_state(&e).to_string(),
+        state: match &blocked {
+            Some(_) => "blocked".to_string(),
+            None => run_state(&e).to_string(),
+        },
         started_ms: e.created_at_ms,
         started_local: local(zone, e.created_at_ms, "%Y-%m-%d %H:%M:%S"),
         duration_ms: end.saturating_sub(e.created_at_ms),
         cost_usd: micros_to_usd(e.budget.spent_micros),
         report,
+        blocked,
     }))
 }
 
@@ -604,6 +700,8 @@ pub fn info_of(env: &Env<'_>, spec: &RoutineSpec) -> Result<RoutineInfo> {
         catch_up: spec.catch_up.as_str().to_string(),
         speak: spec.speak.as_str().to_string(),
         runs: spec.runs,
+        grant: e.as_ref().and_then(written_grant).unwrap_or_default(),
+        streak: watch::streak(env, spec),
         running,
         last,
     })
@@ -636,11 +734,22 @@ fn wanted(spec: &RoutineSpec, due: &RoutineDue) -> u64 {
 
 /// Decide a due routine's fire (see the module's doc).
 pub fn plan(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue) -> Result<Planned> {
+    plan_as(env, spec, due, false)
+}
+
+/// `plan` for "Try it now" (theseus-52tut): occurrence 0, run while the
+/// owner watches. It is run 0 in the log and does not count among the
+/// routine's runs, so the first scheduled run is still run 1.
+pub fn plan_trial(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue) -> Result<Planned> {
+    plan_as(env, spec, due, true)
+}
+
+fn plan_as(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue, trial: bool) -> Result<Planned> {
     let month = month_key(&env.kernel.config().zone, due.now_ms);
     let reset = spec.month != month;
     match held_back(env, spec, due, reset)? {
         Some(skip) => Ok(skip),
-        None => run_plan(env, spec, due, reset.then_some(month)),
+        None => run_plan(env, spec, due, reset.then_some(month), trial),
     }
 }
 
@@ -715,6 +824,7 @@ fn run_plan(
     spec: &RoutineSpec,
     due: &RoutineDue,
     new_month: Option<String>,
+    trial: bool,
 ) -> Result<Planned> {
     let mut next = spec.clone();
     let reset_month = new_month.is_some();
@@ -722,9 +832,11 @@ fn run_plan(
         next.month = month;
         next.month_told = false;
     }
-    next.runs += 1;
+    if !trial {
+        next.runs += 1;
+    }
     next.last_task = Some(due.task_id.clone());
-    let run_no = next.runs;
+    let run_no = if trial { 0 } else { next.runs };
     let mut brief = spec.brief.clone();
     if spec.speak == Speak::WhenNotable {
         brief.push_str(&format!(
@@ -791,6 +903,9 @@ fn header(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue, run_no: u32) -> R
         hm(zone, f.wake.due_at_ms),
         hms_tenths(zone, due.now_ms)
     );
+    if run_no == 0 {
+        out.push_str(" (a trial: the owner is watching)");
+    }
     out.push_str(&match (f.missed, f.while_down, due.manual) {
         (0, _, true) => " (run by hand)".to_string(),
         (0, true, _) => " (late: the daemon was down at the due time)".to_string(),

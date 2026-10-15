@@ -426,7 +426,85 @@ fn woke(c: &Change) -> Option<Said> {
 pub fn wake_urgency(purpose: &str) -> Urgency {
     match purpose {
         "remind" => Urgency::Interrupt,
-        _ => Urgency::Inform,
+        p => routine_urgency(p).unwrap_or(Urgency::Inform),
+    }
+}
+
+/// The ping rule for a routine's runs (theseus-52tut; the horizon report's
+/// H-4 to H-7), one entry for each thing a run can come to. A notice about
+/// one is a `wake.noticed` whose purpose is the entry's:
+///
+/// | Purpose | A run... | Urgency |
+/// |---|---|---|
+/// | `routine_reported` | reports (its report still speaks in the chat when `speak: always`) | Inform |
+/// | `routine_failed` | fails | Interrupt, once per routine per local day, with the streak |
+/// | `routine_blocked` | is blocked: a call outside its grant went unanswered | Interrupt, once per routine per local day |
+/// | `routine_skipped` | is skipped (overlap, a spent month, no catch-up) | Inform |
+/// | `routine_missed` | was missed while the daemon was down | Inform, once at the start |
+pub const ROUTINE_PURPOSES: [&str; 5] = [
+    "routine_reported",
+    "routine_failed",
+    "routine_blocked",
+    "routine_skipped",
+    "routine_missed",
+];
+
+/// How urgent a routine entry is; none for a purpose that is not one.
+pub fn routine_urgency(purpose: &str) -> Option<Urgency> {
+    match purpose {
+        "routine_failed" | "routine_blocked" => Some(Urgency::Interrupt),
+        p if ROUTINE_PURPOSES.contains(&p) => Some(Urgency::Inform),
+        _ => None,
+    }
+}
+
+/// Whether a failed or blocked run pings now: once per routine per local
+/// day. `last_day` is the day of the last such Interrupt, `today` this one
+/// (`2026-10-14`, as the caller's zone writes it); the first one ever pings.
+pub fn routine_pings(last_day: Option<&str>, today: &str) -> bool {
+    last_day.is_none_or(|d| d != today)
+}
+
+/// A failed or blocked routine's answers: Run now, Pause, Details, and for a
+/// blocked one Add to grant first. Each names the call it makes with the
+/// routine's id (`work.answer` routes them by the notice's id, the
+/// routine's wake).
+pub fn routine_answers(blocked: bool) -> Vec<WakeAnswer> {
+    let a = |id: &str, label: &str, method: &str| WakeAnswer {
+        id: id.into(),
+        label: label.into(),
+        method: method.into(),
+        when: None,
+    };
+    let mut out = Vec::new();
+    if blocked {
+        out.push(a(
+            "add_to_grant",
+            "Add to grant",
+            crate::method::ROUTINE_UPDATE,
+        ));
+    }
+    out.push(a("run_now", "Run now", crate::method::ROUTINE_RUN_NOW));
+    out.push(a("pause", "Pause", crate::method::ROUTINE_PAUSE));
+    out.push(a("details", "Details", crate::method::ROUTINE_RUNS));
+    out
+}
+
+/// The line of a routine's failure or block: `✗ Morning digest failed (2 in
+/// a row): Gmail needs a login`, `✗ Morning digest blocked: gog.gmail.search
+/// needs approval (not in its grant)`. The streak shows from the second.
+pub fn routine_line(title: &str, blocked: bool, streak: u32, why: &str) -> String {
+    let word = if blocked { "blocked" } else { "failed" };
+    let row = if streak > 1 {
+        format!(" ({streak} in a row)")
+    } else {
+        String::new()
+    };
+    let why = why.trim();
+    if why.is_empty() {
+        format!("✗ {title} {word}{row}")
+    } else {
+        format!("✗ {title} {word}{row}: {why}")
     }
 }
 
@@ -449,6 +527,13 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
         String::new()
     };
     let remind = n.purpose == "remind";
+    let routine = routine_urgency(&n.purpose).is_some();
+    // A routine's entry says its own line (`routine_line`), not a clock.
+    let line = if routine {
+        n.note.clone()
+    } else {
+        format!("⏰ {title}{late}")
+    };
     Notice {
         urgency: wake_urgency(&n.purpose),
         why: Why::Woke,
@@ -456,7 +541,7 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
             id: n.wake_id.clone(),
             kind: WorkKind::Wake,
             session_id: Some(n.session_id.clone()),
-            title: title.clone(),
+            title,
         },
         root: WorkRef {
             id: n.execution_id.clone(),
@@ -464,10 +549,16 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
             session_id: Some(n.session_id.clone()),
             title: String::new(),
         },
-        line: format!("⏰ {title}{late}"),
+        line,
         question: None,
         retracts: None,
-        answers: if remind { reminder_answers() } else { vec![] },
+        answers: if remind {
+            reminder_answers()
+        } else if routine {
+            n.answers.clone()
+        } else {
+            vec![]
+        },
         position: n.due_at_ms.saturating_add(n.late_ms),
         at_ms: n.due_at_ms.saturating_add(n.late_ms),
     }

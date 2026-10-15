@@ -1090,6 +1090,11 @@ impl ToolRuntime {
         // The order is `order.rs`, which `policy.explain` runs too (42a).
         let held = || crate::external::held(tc.store, tc.session_id);
         let mcp = || mcp_floor(tc);
+        // A routine's run: its grant, from the book in memory; any other
+        // session pays one `Option` test (theseus-52tut).
+        let routine_grant = tc
+            .task
+            .and_then(|t| self.routines.grant_for(tc.kernel, tc.store, t));
         let at = order::At {
             place: tc.place(),
             held: &held,
@@ -1097,6 +1102,7 @@ impl ToolRuntime {
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
             session: Some(tc.session_id),
             ctx: &ctx,
+            routine: routine_grant.as_ref(),
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
@@ -1480,7 +1486,9 @@ impl ToolRuntime {
                 })
             }
             crate::routine_tool::CREATE => {
-                crate::routine_tool::run(tc, &self.routines, &call.input)
+                crate::routine_tool::run(tc, &self.routines, &call.input, &|t| {
+                    self.registry.get(t).is_some()
+                })
             }
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),

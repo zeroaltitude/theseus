@@ -70,3 +70,47 @@ impl Fact for WakeFired<'_> {
         );
     }
 }
+
+/// A routine's run came to something worth a notice (theseus-52tut): it
+/// failed, was blocked, reported, or was skipped. The same `wake.noticed`
+/// every surface reads for a reminder, with the routine entry's purpose
+/// (`theseus_protocol::notices::ROUTINE_PURPOSES`), its line as the note, and
+/// its answers (Run now, Pause, Details, and Add to grant when blocked).
+pub struct RoutineNoticed<'a> {
+    pub spec: &'a theseus_protocol::routines::RoutineSpec,
+    /// The routine's series wake: the notice's id for `work.answer`.
+    pub wake_id: &'a str,
+    /// One of `ROUTINE_PURPOSES`.
+    pub purpose: &'static str,
+    pub line: &'a str,
+    pub at_ms: u64,
+    pub posted_to: Option<&'a str>,
+    pub answers: Vec<theseus_protocol::WakeAnswer>,
+}
+
+impl Fact for RoutineNoticed<'_> {
+    const METHOD: Option<&'static str> = Some(notify::WAKE_NOTICED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::WakeNoticed(WakeNoticed {
+            wake_id: self.wake_id.into(),
+            short: crate::task::short(self.wake_id),
+            session_id: self.spec.session_id.clone(),
+            execution_id: self.spec.execution_id.clone(),
+            purpose: self.purpose.into(),
+            note: self.line.into(),
+            due_at_ms: self.at_ms,
+            late_ms: 0,
+            while_down: false,
+            every: None,
+            occurrence: None,
+            posted_to: self.posted_to.map(str::to_string),
+            home: false,
+            answers: self.answers.clone(),
+        }))
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(Session, self.line.to_string());
+    }
+}

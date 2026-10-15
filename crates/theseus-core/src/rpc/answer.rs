@@ -238,10 +238,20 @@ impl Core {
     ) -> Result<WorkAnswerResult, RpcFailure> {
         let who = conn.answerer(p.author.clone(), p.discord.clone());
         match self.resolve_question(&p.question_id)? {
+            // A routine's failure or block notice is the routine's wake
+            // (theseus-52tut): its own answers.
             Target::Wake {
                 execution_id,
                 wake_id,
-            } => self.answer_reminder(&p, &who, conn, &execution_id, &wake_id),
+            } => match self
+                .runner
+                .tools
+                .routines
+                .by_execution(&self.store, &execution_id)
+            {
+                Some(spec) => self.answer_routine(&p, who, &spec),
+                None => self.answer_reminder(&p, &who, conn, &execution_id, &wake_id),
+            },
             Target::Action(a) => self.answer_action(&p, who, conn, &a),
         }
     }
@@ -302,6 +312,7 @@ impl Core {
             question_id: a.correlation_id.clone(),
             option: chosen.id.clone(),
             resumes,
+            detail: None,
         })
     }
 
@@ -344,6 +355,7 @@ impl Core {
             question_id: a.correlation_id.clone(),
             option: theseus_protocol::grants::APPROVE_GRANT.into(),
             resumes,
+            detail: None,
         })
     }
 
@@ -440,6 +452,7 @@ impl Core {
             question_id: wake_id.into(),
             option: p.option.clone(),
             resumes: None,
+            detail: None,
         })
     }
 }

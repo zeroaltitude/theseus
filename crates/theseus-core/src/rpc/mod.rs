@@ -52,6 +52,7 @@ mod proposals;
 mod publish;
 mod route_correct;
 mod routines;
+mod routines_watch;
 mod rsi;
 mod server;
 mod session_dir;

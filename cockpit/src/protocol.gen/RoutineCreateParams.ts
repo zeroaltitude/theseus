@@ -30,6 +30,12 @@ catch_up?: string,
  */
 speak?: string, 
 /**
+ * The tools its runs use without asking, even after reading outside
+ * text: `gog.gmail.search`, or a posting tool with its place,
+ * `channel.post #digest`. Everything else still waits.
+ */
+grant?: Array<string>, 
+/**
  * Who asked, as the ledger names them (default: the surface).
  */
 author?: string, discord?: DiscordOrigin | null, };

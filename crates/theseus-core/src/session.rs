@@ -287,6 +287,8 @@ impl TaskOf {
         self.target
             .as_ref()
             .filter(|_| !crate::routine::quiet(store, &report.task, report.text.as_deref()))
+            // A run that did not complete is told by its routine (theseus-52tut).
+            .filter(|_| !crate::routine::watch::replaced(store, &report.task, report.outcome))
     }
 }
 

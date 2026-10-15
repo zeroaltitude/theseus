@@ -48,6 +48,11 @@ pub struct WorkAnswerResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub resumes: Option<WorkRef>,
+    /// Words the answer gives back: a routine's `details` (its latest runs
+    /// and why the last one failed or was blocked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub detail: Option<String>,
 }
 
 /// `confirm.list`'s params, all optional: the place the asking surface

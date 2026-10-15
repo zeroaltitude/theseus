@@ -160,7 +160,7 @@ impl Decision {
         }
     }
 
-    fn new(posture: Posture, reason: String) -> Self {
+    pub(crate) fn new(posture: Posture, reason: String) -> Self {
         Self {
             posture,
             reason,

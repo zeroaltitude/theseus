@@ -9,12 +9,24 @@
 
 use serde::{Deserialize, Serialize};
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 /// The META key of a routine's record: `routine:<session id>`.
 pub const KEY_PREFIX: &str = "routine:";
 
 /// The META key of a run's mark (`routine.run:<task session id>`): which
 /// routine opened it and how it speaks.
 pub const RUN_PREFIX: &str = "routine.run:";
+
+/// The META key of a blocked run (`routine.blocked:<task session id>`): the
+/// tool that asked and could not be answered, and why (`RoutineBlocked`).
+pub const BLOCKED_PREFIX: &str = "routine.blocked:";
+
+/// The META key of a routine's ping book (`routine.ping:<session id>`): the
+/// last run settled and the last day an Interrupt was sent (`RoutinePing`).
+pub const PING_PREFIX: &str = "routine.ping:";
 
 /// The marker a brief may end its report with, for a routine that speaks only
 /// when there is something to say.
@@ -161,6 +173,34 @@ pub struct RunRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub report: Option<String>,
+    /// Why it ended `blocked`: the tool outside its grant that nobody answered for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub blocked: Option<RoutineBlocked>,
+}
+
+/// A run that ended `blocked` (theseus-52tut): a call outside the routine's
+/// grant asked, and nobody answered by the run's deadline. The META record
+/// `routine.blocked:<task session id>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RoutineBlocked {
+    /// The tool that asked, as the grant names tools.
+    pub tool: String,
+    pub reason: String,
+}
+
+/// What a routine remembers about its pings: the last run it settled (so a
+/// restart does not tell a run twice) and the local day of the last
+/// Interrupt (so a routine that fails every minute pings once a day).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutinePing {
+    /// The task session of the last run settled.
+    #[serde(default)]
+    pub settled: String,
+    /// The local day (`2026-10-14`) of the last failed or blocked Interrupt.
+    #[serde(default)]
+    pub day: String,
 }
 
 /// A routine, as the verbs and the list show it.
@@ -191,6 +231,13 @@ pub struct RoutineInfo {
     pub catch_up: String,
     pub speak: String,
     pub runs: u32,
+    /// The tools its runs use without asking, as written (`gog.gmail.search`,
+    /// `channel.post #digest`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant: Vec<String>,
+    /// How many of the latest runs in a row failed or were blocked.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub streak: u32,
     /// A run is going now.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub running: bool,
@@ -227,6 +274,11 @@ pub struct RoutineCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub speak: Option<String>,
+    /// The tools its runs use without asking, even after reading outside
+    /// text: `gog.gmail.search`, or a posting tool with its place,
+    /// `channel.post #digest`. Everything else still waits.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant: Vec<String>,
     /// Who asked, as the ledger names them (default: the surface).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -320,6 +372,13 @@ pub struct RoutineUpdateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub speak: Option<String>,
+    /// The grant, replaced whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub grant: Option<Vec<String>>,
+    /// Entries added to the grant ("Add to grant" on a blocked run).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub add_grant: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,

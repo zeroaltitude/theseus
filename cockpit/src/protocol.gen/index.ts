@@ -389,6 +389,7 @@ export type * from './RouteCorrectParams';
 export type * from './RouteCorrectResult';
 export type * from './RouteCorrectionInfo';
 export type * from './RouteCorrectionsResult';
+export type * from './RoutineBlocked';
 export type * from './RoutineCreateParams';
 export type * from './RoutineEditResult';
 export type * from './RoutineInfo';

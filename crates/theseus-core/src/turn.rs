@@ -1563,7 +1563,7 @@ impl TurnRunner {
             turn_id: &turn_id,
             loop_index: None,
             sink: &sink,
-            confirm_ttl_ms: self.kernel.config().confirm_ttl_ms,
+            confirm_ttl_ms: self.ask_ttl_ms(&frames.store, &sid, task_of.is_some()),
             narrator: &self.narrator,
             outbox: &self.outbox,
             posts: &frames.posts,

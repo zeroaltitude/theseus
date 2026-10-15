@@ -1172,6 +1172,11 @@ pub fn cancelled_report(
     if e.parent.is_none() {
         return Ok((vec![], None));
     }
+    // A routine's run that is stopped or blocked is told by its routine
+    // (theseus-52tut), not by a report.
+    if crate::routine::watch::is_run(store, &e.session_id) {
+        return Ok((vec![], None));
+    }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
     let Some(target) = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone()) else {
         return Ok((vec![], None));

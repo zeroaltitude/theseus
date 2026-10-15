@@ -1342,8 +1342,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   brief after it, its report posted to `deliver_to` (`dm` by default, `none`, or a place) like any task's. The month turns at
   the first run of the local month (`budget.reset { why: "month" }`). `speak: when_notable`: the brief asks for a report ending
   `NOTHING NEW` when there is nothing to say, and such a run only logs (`TaskOf::target_for`, `routine::quiet`, the run's mark
-  `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); `TaskRun.tools`
-  is stored and not honoured (the `routine-trust` row). The model's `routine.create` (`routine_tool.rs`) is private-place only
+  `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); A routine's **grant** (theseus-52tut, below) is its wake's `TaskRun.tools`. The model's `routine.create` (`routine_tool.rs`) is private-place only
   and always waits for the owner's yes: its plan names an authority, which `task_graph::tools::authority_for` keeps for it, and
   its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · up to $0.50 a
   run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
@@ -1351,6 +1350,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Tests: `tests_routines.rs` (a minute routine runs three times as three fresh tasks reporting to the DM; overlap; pause and run
   now; a spent month and its reset; the catch-up's words; the model's card; `when_notable`; update and delete), the kernel's
   `tests_routines.rs` and `tests_cron.rs`, and `tests_layouts.rs`' format-33 wake.
+- **A routine's trust** (theseus-52tut; horizon §5.4, D-H6 "a routine's named tools run without asking, even after the run reads
+  outside text; everything else still waits"): `routine/grant.rs`, `routine/watch.rs`, `rpc/routines_watch.rs`. The **grant** is the
+  routine's wake's `TaskRun.tools` (no new stored field; `RoutineInfo.grant`): tool names, and for `channel.post` its place
+  (`channel.post #digest`), set by `routine.create`/`update` (`--grant`, `--add-grant`) and the model's `routine.create` (shown on its
+  card), checked at creation (`grant::check`: a tool the daemon has, none of `NEVER` (`proc.run`, `term.*`, `aws.call`, …), a post with
+  its place) and read by the gate for the routine's own run only: `Book::grant_for(task)` is one map lookup for a task whose parent
+  session and execution are the routine's (a task a run starts has the run as its parent and gets none; any other session pays an
+  `Option` test), cached from the wake and dropped by `Book::set`. `grant::gate` is the `Layer::Routine` step of `toolrun/order.rs`
+  after the glide's layer: a granted call that only the tool's posture (`posture_only`) or the hold would make wait runs at `notify`
+  (`ran under the routine's grant: <entry>`) and T1's hold does not apply; the floor, a layer-1 change, the approve lists, a granted
+  secret, a place's ceiling, a tightened tool and an L1 call's own asks still hold. **Bounded asks**: a routine run's question waits
+  `[routines] run_deadline_secs` (900) (`ask_ttl_ms`: its card, `confirm.list`, the expiry scan); past it `expire_questions` queues it
+  (`Book.blocked`) and the harness's tick (`Core::fire_notices_and_routines` -> `routines_tick`) writes META `routine.blocked:<task>`
+  `{tool, reason}` and cancels the run, so it ends `blocked` (`RunRow.state`, `blocked`) and never expires silently. **The ping rule**
+  (`notices.rs`'s `ROUTINE_PURPOSES`, `routine_pings`, `routine_line`, `routine_answers`): a failed or blocked run is one Interrupt a
+  routine a local day with the streak, posted to the routine's target as a `reminder`-shaped post and sent to every surface as the
+  `wake.noticed` of `fact::wake::RoutineNoticed` (purposes `routine_failed|blocked|skipped|missed`; the notice's id is the routine's
+  wake); the ping book is META `routine.ping:<routine>` (last run settled, last day told), so a restart tells nothing twice, and the
+  run's own failure report is not posted (`watch::replaced`). Skipped and missed occurrences inform. `work.answer` on a routine's wake
+  takes `run_now|pause|details` (+ `add_to_grant` after a block) (`answer_routine`). **Try it now**: `routine.try` runs
+  occurrence 0 (`plan_trial`: run 0 in the log, not counted in `runs`). Tests: `tests_routine_trust.rs`, `routine/grant/tests.rs`,
+  protocol `tests_notices.rs`. Not built: the creation card's `[Try it now]` button (the verb and the CLI exist).
 - **Deferred tasks** (theseus-rcgph): `task.create { start_at | start_after }` opens a task asleep (`task_start.rs`):
   `Kernel::open_task_at` writes it `Waiting{DueAt}` in the open's one frame with its carve held (the parent's
   remaining shows it), the due scan queues it, and its first turn's catch-up writes the node `Deferred task, set <when>

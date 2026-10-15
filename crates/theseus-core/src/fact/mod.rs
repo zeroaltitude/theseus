@@ -261,6 +261,7 @@ facts![
     turn::Stopped<'static>,
     turn::WakeCameDue<'static>,
     wake::WakeFired<'static>,
+    wake::RoutineNoticed<'static>,
     turn::ReportWoke<'static>,
     turn::NoCall,
     turn::ContextFileMissing<'static>,

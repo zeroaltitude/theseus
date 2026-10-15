@@ -10,8 +10,8 @@
 //! Approved, the harness makes the routine (`routine::create`, the same
 //! function the owner's `routine.create` verb calls) in the conversation's
 //! name: its commitments block lists it. A run asks before it uses a tool, as
-//! any task does: the grant `TaskRun.tools` is stored and not honoured yet
-//! (the `routine-trust` row).
+//! any task does, except the tools in its `grant` (theseus-52tut): those run
+//! unasked, even after the run reads outside text, and the card names them.
 //!
 //! Private places only, like the other tools that change what the model
 //! committed to (`places::public_tool` does not list it).
@@ -45,6 +45,8 @@ struct Input {
     deliver_to: Option<String>,
     #[serde(default)]
     speak: Option<String>,
+    #[serde(default)]
+    grant: Vec<String>,
 }
 
 impl Input {
@@ -58,6 +60,7 @@ impl Input {
             deliver_to: self.deliver_to,
             catch_up: None,
             speak: self.speak,
+            grant: self.grant,
         }
     }
 }
@@ -79,7 +82,10 @@ impl Tool for RoutineCreate {
          30m`, `monthly 09:00`, or cron), each run a fresh task that does not see this \
          conversation, reporting to the owner's DM. It waits for the owner's yes on one card. A \
          run may spend `budget_usd` (default $0.50), the routine `month_usd` a month (default \
-         $10); a spent month skips runs."
+         $10); a spent month skips runs. `grant` names the tools its runs use without \
+         asking, even after reading outside text (`gog.gmail.search`, or a post with its \
+         place, `channel.post #digest`); any other call asks, and a run nobody answers ends \
+         blocked. The card shows the grant: name only what the routine needs."
     }
 
     fn input_schema(&self) -> Value {
@@ -92,7 +98,8 @@ impl Tool for RoutineCreate {
                 "budget_usd": {"type": "number", "exclusiveMinimum": 0},
                 "month_usd": {"type": "number", "exclusiveMinimum": 0},
                 "deliver_to": {"type": "string", "description": "`dm` (default), `none`, or a place."},
-                "speak": {"type": "string", "enum": ["always", "when_notable"], "description": "`when_notable`: a report ending NOTHING NEW is not posted."}
+                "speak": {"type": "string", "enum": ["always", "when_notable"], "description": "`when_notable`: a report ending NOTHING NEW is not posted."},
+                "grant": {"type": "array", "items": {"type": "string"}, "description": "Tools its runs use without asking: `gog.gmail.search`, or `channel.post #digest`."}
             },
             "required": ["title", "schedule", "brief"],
             "additionalProperties": false
@@ -114,7 +121,11 @@ impl Tool for RoutineCreate {
 
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let i: Input = parse(input)?;
-        let new = i.new_routine();
+        let mut new = i.new_routine();
+        // A grant that cannot be read, or names what no grant may, fails
+        // here, before a card is raised; the tools it names exist is checked
+        // when the owner's yes lets the call run.
+        new.grant = crate::routine::grant::check(&new.grant, &|_| true)?;
         // A schedule that does not read fails here, before a card is raised.
         let now = theseus_protocol::now_unix_ms();
         let parsed =
@@ -151,6 +162,7 @@ pub fn run(
     tc: &TurnCtx<'_>,
     book: &crate::routine::Book,
     input: &Value,
+    known: &dyn Fn(&str) -> bool,
 ) -> Result<(String, Value), String> {
     if tc.task.is_some() {
         return Err("a task cannot set up a routine".into());
@@ -160,13 +172,9 @@ pub fn run(
     }
     let i: Input = parse(input)?;
     let by = format!("model:{}", tc.session_id);
-    let prepared = prepare(
-        tc.kernel,
-        &book.cfg,
-        &i.new_routine(),
-        &by,
-        Some(tc.session_id),
-    )?;
+    let mut new = i.new_routine();
+    new.grant = crate::routine::grant::check(&new.grant, known)?;
+    let prepared = prepare(tc.kernel, &book.cfg, &new, &by, Some(tc.session_id))?;
     let spec = create(tc.kernel, tc.store, book, prepared, &by).map_err(|e| format!("{e:#}"))?;
     let zone = &tc.kernel.config().zone;
     let first = tc
@@ -184,13 +192,15 @@ pub fn run(
         format!(
             "Created routine {} (\"{}\"), id {}: {}. Its first run is {first}. Each run is a \
              fresh task with up to ${:.2}, from a month of ${:.2}; the owner can pause it with \
-             `theseus routine pause {}`.",
+             `theseus routine pause {}`; `theseus routine try {}` runs it once now, while \
+             they watch.",
             crate::routine::short(&spec.session_id),
             spec.title,
             spec.session_id,
             spec.schedule,
             theseus_kernel::micros_to_usd(spec.run_micros),
             theseus_kernel::micros_to_usd(spec.month_micros),
+            crate::routine::short(&spec.session_id),
             crate::routine::short(&spec.session_id),
         ),
         json!({"routine": spec.session_id, "short": crate::routine::short(&spec.session_id),
