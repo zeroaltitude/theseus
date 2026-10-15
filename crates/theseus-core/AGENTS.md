@@ -1906,8 +1906,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Ship's mark), which call `session.fork`. Tests: `tests_fork.rs`, the layouts' format-29 samples, the CLI's
   `golden_fork.rs`.
 - **Deferred tools** (theseus-7m7w.2; store format 33): `tools_defer.rs` and `tools_defer/`. Every tool belongs to a
-  family by its wire name (`family.rs`: files, commands, web, memory, tasks, terminals, code, channels, aws, extensions,
-  self, and `mcp:<server>`; an unknown tool is `other` and always loads, and a test fails a registered tool in it), and a
+  family by its wire name (`family.rs`: files, commands, web, memory, tasks, routines, threads, terminals, code,
+  channels, aws, ask, projects, extensions, self, and `mcp:<server>`; an unknown tool is `other` and always loads, and a test fails a registered tool in it), and a
   request loads whole families. `RequestSpec.defer` is the turn's fresh choice (`turn/defer_step.rs`, once a turn:
   `Board::select` over the in-memory counts: a place kind's committed defaults (`PlaceKind::defaults`, never a
   benchmark's or a harness's name), `[tools.defer] always_loaded`, a family used in `load_share` of the kind's turns over

@@ -132,9 +132,6 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
     ),
     ("wake_move", &["dm"], "tasks: dm default"),
     ("wake_cancel", &["dm"], "tasks: dm default"),
-    ("watch", &["dm"], "tasks: dm default"),
-    ("routine_create", &["dm"], "tasks: dm default"),
-    ("thread_read", &["dm"], "tasks: dm default"),
     (
         "http_fetch",
         &["dm", "channel"],

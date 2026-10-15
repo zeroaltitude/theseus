@@ -28,6 +28,7 @@ const PLAIN: &[&str] = &[
     "code",
     "self",
     "tasks",
+    "threads",
     "web",
     "memory",
     "files",

@@ -34,8 +34,13 @@ pub const FAMILIES: &[(&str, &str)] = &[
     ),
     (
         "tasks",
-        "tasks and sub-sessions, wakes and reminders, routines and watches, threads, and the task graph",
+        "tasks and sub-sessions, wakes and reminders, and the task graph",
     ),
+    (
+        "routines",
+        "routines that run on a schedule, and watches that tell you when something changes",
+    ),
+    ("threads", "read another thread of the conversation"),
     (
         "terminals",
         "interactive programs on a terminal: open, send keys, read the screen, close",
@@ -76,7 +81,9 @@ pub fn of_wire(wire: &str) -> String {
             "fs" | "git" | "text" => "files",
             "job" => "commands",
             "web" | "http" => "web",
-            "task" | "wake" | "thread" | "routine" | "watch" => "tasks",
+            "task" | "wake" => "tasks",
+            "routine" | "watch" => "routines",
+            "thread" => "threads",
             "project" => "projects",
             "term" => "terminals",
             "lsp" => "code",
@@ -189,7 +196,11 @@ impl PlaceKind {
             // to and reading other places is deferred (theseus-to0xw): a
             // direct message answers in itself, and the family is 855 tokens
             // of the DM's 15,000 budget; a search loads it, and the ledger's
-            // use puts it back where a DM calls it in 1 of 10 turns.
+            // use puts it back where a DM calls it in 1 of 10 turns. Routines,
+            // watches and threads are deferred the same way (2026-10-15, the
+            // owner's "Go for it!"): `routine_create`, `watch` and
+            // `thread_read` had no call in 30 days across every session
+            // (install #30's census), 1,167 tokens of the DM's request.
             PlaceKind::Dm => &["memory", "tasks", "web"],
             PlaceKind::Channel => &["memory", "tasks", "web", "channels"],
             // A task's session works: the code. Its wakes and sub-tasks load
@@ -220,10 +231,10 @@ mod tests {
             ("memory_lookup", "memory"),
             ("task_create", "tasks"),
             ("wake_at", "tasks"),
-            ("routine_create", "tasks"),
-            ("watch", "tasks"),
+            ("routine_create", "routines"),
+            ("watch", "routines"),
             ("project_attach", "projects"),
-            ("thread_read", "tasks"),
+            ("thread_read", "threads"),
             ("term_open", "terminals"),
             ("lsp_definition", "code"),
             ("channel_post", "channels"),
