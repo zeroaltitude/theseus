@@ -1785,8 +1785,7 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
         let Ok(Some(e)) = CoreEvent::from_notification(&n.method, &n.params) else {
             continue;
         };
-        if let CoreEvent::TaskChanged(c) = &e {
-            board::route(&shared, c);
+        if board::routed(&shared, &e) {
             continue;
         }
         if let CoreEvent::ThreadChanged(c) = &e {

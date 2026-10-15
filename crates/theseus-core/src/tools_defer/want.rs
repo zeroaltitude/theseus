@@ -34,6 +34,7 @@ const PLAIN: &[&str] = &[
     "commands",
     "channels",
     "extensions",
+    "plan",
 ];
 
 /// The hidden families `ask` names, best first: one point for the family's
@@ -132,6 +133,11 @@ mod tests {
     fn everyday_words_and_one_word_of_a_tool_name_name_nothing() {
         assert!(named("write the code and open the file", &hidden()).is_empty());
         assert!(named("create my tasks and the web page", &hidden()).is_empty());
+        // `plan` is an everyday word too: saying it loads nothing, where a
+        // model has no tool search (theseus-lyxy).
+        let plan = [h("plan_present"), h("plan_step")];
+        assert!(named("make a plan for the code", &plan).is_empty());
+        assert_eq!(named("plan present the steps", &plan), ["plan"]);
         assert!(named("", &hidden()).is_empty());
     }
 

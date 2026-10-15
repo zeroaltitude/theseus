@@ -11,4 +11,4 @@ constituents for each minute of the day, and prints the extremes.
   1.2 s · Sonnet 5.5 · $0.0042 total ($0.0042 this reply)
 
 › and the tests?
-default · ~/work/harbour-tides · Sonnet 5.5 · $0.0042
+ask (shift+tab) · ~/work/harbour-tides · Sonnet 5.5 · $0.0042

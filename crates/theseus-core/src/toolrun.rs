@@ -52,6 +52,7 @@ mod job;
 pub mod jobs_tools;
 mod kept;
 mod late;
+mod mcp_floor;
 pub mod misroute;
 mod not_started;
 mod operands;
@@ -63,6 +64,9 @@ mod self_pr;
 pub(crate) mod session_dir;
 mod steps;
 pub mod waits;
+
+use mcp_floor::mcp_floor;
+pub(crate) use mcp_floor::mcp_floor_of;
 
 pub(crate) use batch::Turned;
 pub use late::LateCall;
@@ -1160,7 +1164,7 @@ impl ToolRuntime {
             Err(e) => GateResult {
                 gate: "deny".into(),
                 reason: Some(match refused {
-                    Some(_) => format!("{PLACE_REFUSAL}: {e}"),
+                    Some(_) => crate::policy::modes::refusal_reason(e),
                     None => format!("validation: {e}"),
                 }),
                 by: None,
@@ -1220,7 +1224,7 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         let (reason, text) = match bad.refused {
             true => (
-                format!("{PLACE_REFUSAL}: {}", bad.error),
+                crate::policy::modes::refusal_reason(&bad.error),
                 format!("Not run: {}", bad.error),
             ),
             false => (
@@ -1537,6 +1541,9 @@ impl ToolRuntime {
                 })
             }
             crate::ask::OWNER_ASK => crate::ask::result(tc, &call.input, correlation_id),
+            name if crate::policy::modes::is_plan(name) => self
+                .run_plan(tc, name, &call.input, correlation_id)
+                .map(|d| edit.take(d)),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
@@ -1614,6 +1621,7 @@ impl ToolRuntime {
             self.leases.note(&c.task);
         }
         crate::task_graph::tools::announce(tc, &edit.changes);
+        self.plan_moved(tc, &edit.changes);
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
     }
@@ -2213,6 +2221,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::thread_context::ThreadNote));
         r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::ask::OwnerAsk));
+        crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
@@ -2411,23 +2420,6 @@ fn map_retry(r: Retry) -> RetryClass {
     match r {
         Retry::SafeToRepeat => RetryClass::SafeToRepeat,
         Retry::NonRepeatable => RetryClass::NonRepeatable,
-    }
-}
-
-/// The floor of the turn's execution, when an MCP client opened its session
-/// (step 41b, `mcp_server::floor_of`). An execution that cannot be read is
-/// floored at `approve`: the gate never guesses the looser way.
-fn mcp_floor(tc: &TurnCtx<'_>) -> Option<Posture> {
-    mcp_floor_of(tc.kernel, tc.execution_id)
-}
-
-/// An MCP client's floor for the calls of `execution_id` (step 41b): one
-/// that cannot be read is the strictest.
-pub(crate) fn mcp_floor_of(kernel: &Kernel, execution_id: &str) -> Option<Posture> {
-    match kernel.execution(execution_id) {
-        Ok(Some(e)) => crate::mcp_server::floor_of(&e.authority),
-        Ok(None) => None,
-        Err(_) => Some(Posture::Approve),
     }
 }
 

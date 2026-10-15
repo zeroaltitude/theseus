@@ -560,6 +560,8 @@ events! {
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
     /// A reminder fired (theseus-8ux6x).
     WakeNoticed(crate::wakes::WakeNoticed) = notify::WAKE_NOTICED,
+    /// A conversation's mode or plan changed (theseus-lyxy).
+    SessionMode(crate::modes::SessionModeChanged) = notify::SESSION_MODE,
     /// A frame changed the work board (theseus-hkx30).
     WorkChanged(crate::work_watch::WorkChanged) = notify::WORK_CHANGED,
     /// The notification policy's notice for a work view's change.
@@ -598,6 +600,7 @@ impl Event {
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
             Event::ThreadAsked(e) => Some(&e.session_id),
+            Event::SessionMode(e) => Some(&e.session_id),
             Event::WorkChanged(_)
             | Event::WorkNotice(_)
             | Event::ActionOutputChunk(_)
@@ -645,6 +648,7 @@ impl Event {
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
             | Event::WakeNoticed(_)
+            | Event::SessionMode(_)
             | Event::WorkChanged(_)
             | Event::WorkNotice(_)
             | Event::ThreadChanged(_)

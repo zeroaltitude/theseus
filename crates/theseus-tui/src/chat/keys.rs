@@ -40,6 +40,9 @@ pub enum Action {
     /// Ctrl-Enter (where the terminal reports it): stop the turn and send
     /// the queued message now.
     SendNow,
+    /// Shift+Tab: the conversation's next mode, ask → edits → plan → auto
+    /// (theseus-lyxy).
+    CycleMode,
 }
 
 /// What a one-key answer to a question does (theseus-wy6v.1). It works only
@@ -122,6 +125,7 @@ pub fn map(k: KeyEvent) -> Option<Action> {
         KeyCode::End => Action::End,
         KeyCode::Tab => Action::Tab,
         KeyCode::Esc if alt => Action::DoubleEscape,
+        KeyCode::BackTab => Action::CycleMode,
         KeyCode::Esc => Action::Escape,
         _ => return None,
     })
@@ -155,6 +159,10 @@ mod tests {
 
     #[test]
     fn ctrl_enter_sends_now_and_the_question_keys_are_one_table() {
+        assert_eq!(
+            key(KeyCode::BackTab, KeyModifiers::SHIFT),
+            Some(Action::CycleMode)
+        );
         assert_eq!(
             key(KeyCode::Enter, KeyModifiers::CONTROL),
             Some(Action::SendNow)

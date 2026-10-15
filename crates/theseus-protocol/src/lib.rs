@@ -54,6 +54,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
+pub mod modes;
 pub mod notices;
 pub mod nudge;
 mod ontology;
@@ -207,9 +208,8 @@ pub mod method {
         /// Every question waiting for the operator, across sessions.
         CONFIRM_LIST = "confirm.list",
         SESSION_HISTORY = "session.history",
-        SESSION_WATCH = "session.watch",
-        SESSION_UNWATCH = "session.unwatch",
-        SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge",
+        SESSION_WATCH = "session.watch", SESSION_UNWATCH = "session.unwatch",
+        SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge", SESSION_MODE = "session.mode",
         /// A new conversation from any moment of another, by reference (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",
         /// Rewind (theseus-23rk, `rewind`): a session's messages with the
@@ -465,8 +465,8 @@ pub mod notify {
         JUDGE_NOTICED = "judge.noticed",
         /// A task record changed (39a): `tasks::TaskChanged`.
         TASK_CHANGED = "task.changed",
-        /// A notice wake fired (theseus-8ux6x): a reminder, to every connection.
-        WAKE_NOTICED = "wake.noticed",
+        /// A notice wake fired (theseus-8ux6x), to every connection; a mode or plan changed (theseus-lyxy).
+        WAKE_NOTICED = "wake.noticed", SESSION_MODE = "session.mode",
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",

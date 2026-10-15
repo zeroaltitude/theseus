@@ -41,6 +41,7 @@ mod judge_runs;
 mod keys;
 mod ledger_verify;
 mod mcp;
+mod mode_cmd;
 mod notices_cmd;
 mod ontology;
 mod open;
@@ -583,6 +584,10 @@ enum Cmd {
         #[arg(long, visible_alias = "tasks")]
         all: bool,
     },
+    /// A conversation's mode, as Shift+Tab sets it: `ask`, `edits` (file edits in this project run
+    /// with a notice), `plan` (read-only until you approve a plan) or `auto` (what only its posture
+    /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
+    Mode(mode_cmd::ModeArgs),
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
     Profile {
         #[command(subcommand)]
@@ -1299,12 +1304,14 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
-/// `theseus agenda` and `theseus prefix`: the horizon, and the prefix library's report.
+/// `theseus agenda`, `theseus prefix` and `theseus mode`: the horizon, the prefix library's
+/// report, and a conversation's mode.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Agenda(a) => agenda::run(c, json, a).await,
         Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
-        _ => unreachable!("only agenda and prefix come here"),
+        Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
+        _ => unreachable!("only agenda, prefix and mode come here"),
     }
 }
 
@@ -1405,7 +1412,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => wait_session_or_any(c, json, session, until, after, timeout).await,
         cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. }) => long_cmd(c, json, cmd).await,
+        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Mode(_)) => long_cmd(c, json, cmd).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
             unreachable!("returned above, or exec'd by main")
         }

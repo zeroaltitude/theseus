@@ -550,6 +550,11 @@ fn detail_header(app: &App, sid: &str) -> String {
     if let Some(t) = app.thread_of(sid) {
         parts.push(theseus_client::render::thread::reply_tag(&t.thread.title));
     }
+    // The mode (theseus-lyxy), and the plan's count while there is one.
+    if let Some(d) = app.detail.as_ref().filter(|d| d.session_id == sid) {
+        parts.push(d.mode.status());
+        parts.extend(theseus_protocol::modes::plan_line(&d.plan));
+    }
     parts.join(" · ")
 }
 
@@ -775,7 +780,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " tab ⇧tab   the next / previous that needs you, then done (◆)",
         " y t n      approve / approve + trust / decline (with a note)",
         " esc        back to the list (narrow screens); clear the filters",
-        " i          type to the open session: enter sends, esc leaves",
+        " i          type to the open session: enter sends, esc leaves, ⇧tab its mode",
         " s          stop the open conversation (s twice)",
         " S          stop it and cancel every task under it (S or y to confirm)",
         " c          cancel the open task (c twice)",

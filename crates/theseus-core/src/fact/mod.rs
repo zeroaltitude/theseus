@@ -60,6 +60,7 @@ pub mod limits;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;
+pub mod modes;
 pub mod ontology;
 pub mod own_bench;
 pub mod people;
@@ -532,6 +533,8 @@ facts![
     initiative::InitiativeSpoke<'static>,
     initiative::InitiativeRated<'static>,
     standing::StandingAdded<'static>,
+    modes::ModeChanged<'static>,
+    modes::PlanMoved<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,
     thread::ThreadCreated<'static>,

@@ -47,6 +47,7 @@ mod mcp;
 mod mcp_server;
 pub mod md;
 mod memory;
+pub mod modes;
 mod ontology;
 pub mod own_bench;
 mod parked;
@@ -289,6 +290,8 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
         // A notified call's score, after its notice (M5 step 24).
         Event::JudgeScored(j) => push(&mut out, Tag::Warn, &judge::scored_line(j)),
         Event::JudgeNoticed(n) => push(&mut out, Tag::Warn, &judge::noticed_line(n)),
+        // A conversation's mode or plan moved (theseus-lyxy).
+        Event::SessionMode(m) => out.extend(modes::event_lines(m)),
         // A reminder fired (theseus-8ux6x): its note, and its four answers.
         Event::WakeNoticed(n) => {
             for (i, l) in wakes::noticed_lines(n).iter().enumerate() {

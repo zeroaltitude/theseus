@@ -80,13 +80,16 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// And 43,100 until `extend.propose`'s `hands` joined it (theseus-pw1q.14: 43,100 compacted;
 /// 43,300 to 44,100 hold: a sweep at its join). And 43,500 until owner-ask's `owner_ask`
 /// joined it (theseus-j7cje: 43,300 and 43,500 compacted; 43,700 to 44,300 hold).
+/// And 44,200 until `plan_present` and `plan_step` joined the catalog (theseus-lyxy: deferred, so no
+/// request sends them, but this rig's compile still rang with them; swept, 43,900 to 44,100 compacted,
+/// 44,200 to 44,600 hold: 300 more, where the tools' whole size is about 700).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = summary.into();
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(43_900),
+            context_window: Some(44_200),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },

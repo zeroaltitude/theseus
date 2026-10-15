@@ -43,7 +43,7 @@ pub struct Segment {
 pub fn status_segments(chat: &Chat) -> Vec<Segment> {
     let mut out = vec![
         Segment {
-            text: chat.mode.clone(),
+            text: chat.mode.status(),
             keep: 3,
         },
         Segment {
@@ -69,6 +69,10 @@ pub fn status_segments(chat: &Chat) -> Vec<Segment> {
             text: words,
             keep: 4,
         });
+    }
+    // The approved plan's count, `plan 2/5` (theseus-lyxy).
+    if let Some(p) = theseus_protocol::modes::plan_line(&chat.plan) {
+        out.push(Segment { text: p, keep: 3 });
     }
     if chat.tasks > 0 {
         out.push(Segment {

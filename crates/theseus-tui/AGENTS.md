@@ -146,6 +146,14 @@ new lines, the dock again, in synchronized-output mode 2026).
   turns · /history shows them`, which `/history` answers a page back (`before` the first replayed node). Leaving
   prints `theseus -c` and `theseus chat END`. Tests: `chat/tests_reopen.rs`, `picker.rs`'s own.
 
+- **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
+  plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in
+  the list Shift+Tab is still the walk back through the queue. The mode and the plan are read once when a conversation is
+  opened or focused (`session.mode` without a mode) and kept by the `session.mode` notification; the status line says
+  `edits (shift+tab)` and `plan 2/5` (the board's pane header too), the checklist goes into the transcript each time it
+  moves (a notification whose plan changed, never one that only repeats it), and a plan's question shows its numbered steps and takes `e` for the edits-mode yes: chat-ask's one key table (`keys::ASK_KEYS`) has `e` as `Ask::Grant`, and the plan's grant offer is the question's own. The plan is the daemon's plan items (`session.mode`'s `plan`), the same the work board counts.
+  Tests: `src/tests_mode.rs`, `chat/tests_mode.rs`.
+
 Tests: `chat/tests.rs` (a scripted daemon through `Conn::over`, its bytes read back as a screen by `vt100`, a dev-dependency
 only; the paused clock and the chat's wall clock move together; goldens `tests/golden/chat_80.txt`, `chat_120.txt`,
 rewritten by `THESEUS_GOLDEN=write`), and `tests/chat_pty.rs` (the real binary on a pseudo-terminal against a fake daemon

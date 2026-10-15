@@ -43,7 +43,7 @@ impl ToolRuntime {
             return Err(Turned::Place(why));
         }
         let Some(steps) = tool.steps(input) else {
-            if let Some(why) = self.refusal(at.place, tool.name(), plan) {
+            if let Some(why) = self.refusal_at(at, tool, plan) {
                 return Err(Turned::Place(why));
             }
             return Ok(self.order(at, tool, plan, input, seen));
@@ -58,7 +58,7 @@ impl ToolRuntime {
                 .map_err(|e| Turned::Invalid(format!("step {} of {n}: {e}", i + 1)))?;
             let argv = p.argv.as_deref().unwrap_or_default();
             let named = format!("step {} of {n} (`{}`)", i + 1, argv.join(" "));
-            if let Some(why) = self.refusal(at.place, tool.name(), &p) {
+            if let Some(why) = self.refusal_at(at, tool, &p) {
                 return Err(Turned::Place(format!("{named}: {why}")));
             }
             let (d, b) = self.order(at, tool, &p, one, seen);

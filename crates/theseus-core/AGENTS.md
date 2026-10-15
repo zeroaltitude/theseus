@@ -1660,6 +1660,47 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`policy.grant_ended`), a retire or a supersession ends a session's in its frame, and `load_grants` reads them
   back after serving (`warm_grants`). No store format change: new ledger kinds only. Tests: `policy/grants/tests.rs`,
   `tests_m3/grants.rs`.
+- **Modes** (theseus-lyxy; no store format change; `policy/modes.rs`, `rpc/modes.rs`, `fact/modes.rs`, `task_graph/plan.rs`, wire
+  `theseus_protocol::modes`): `ask`, `edits`, `plan` and `auto`, an overlay on the config's postures for one conversation,
+  never written into the config. `Earned::modes` (`Modes`) is the board in memory, one atomic while no session has a
+  mode and one read-lock lookup after; a session no one moved has no entry, so a new conversation (a new session) is
+  `ask`. `session.mode {session_id, mode?}` sets or reads (`rpc/modes.rs`): `ask` and `plan` tighten, so are anyone's;
+  `edits` and `auto` loosen, so are `judge_act(Act::Session)` (the owner, from a private place; the CLI refuses it in a
+  job); a shared place has none but `ask`; it is in `ORDERED`. Each change is one `session.mode` ledger row carrying the
+  mode alone (`ModeChanged`, which is also the `session.mode` notification), read back once after serving
+  (`Core::warm_modes`, `load_modes`: each session's newest row, a retired session's none; an older row's `steps` is
+  ignored). The gate's step is
+  `modes::gate`, run inside `Layer::Scoped` right after `grants::gate` and under its conditions (a call the tool's posture
+  alone made wait, private place, no L1, no floor, no `env`, no tightening, `args_within_roots`): `edits` runs `fs.edit`,
+  `fs.write` and `fs.patch` whose every canonical resource is under the session's directory at `notify` (it asks
+  `grants::covers` with an edits grant it holds for the call), `auto` runs any such call at `notify`; the notice says
+  `ran in edits mode: edits under <dir>, this conversation`. `plan` is a refusal, not a posture: `ToolRuntime::refusal_at`
+  (the place's `refusal`, then `plan_refusal`) refuses a call whose class is not a read (a writer, a program, an MCP
+  tool, a post, a batch's every step) with `plan mode: read-only; present the plan with plan_present…`, reason `mode: …`
+  (`refusal_reason`), before the order runs, so no layer of the order can pass it. `plan_present {steps}` always asks (the
+  gate raises it to approve whatever `[policy]` says; the question's preview is the numbered plan, its other yes
+  `GrantOffer::mode_edits`, `approve_grant` / `e`, which `confirm_granting` turns into a pick, not a grant); once approved
+  its run records each step as a **plan item of the task graph** and moves the conversation to `ask`, or `edits` for the pick.
+  **One plan** (the owner's decision 2, theseus-lyxy round 2): a plan item is a `TaskRecord` with no session and no parent
+  (`task_create` without a brief makes the same), so the work board's `progress` (`plan 2/5`, its `current`) counts the
+  steps of a plan as it counts any; `task_graph/plan.rs` holds the whole of it (`create`, `step`, `view`, `items_of`): the
+  approval's records ride the call's frame, a millisecond apart so they keep their order, ids `tsk_<call>p<n>`, a call
+  made again records nothing twice. `plan_step {index, state}` (1-based by the order the items were listed; `doing` is
+  `in_progress`, `done` closes the record `done` with the evidence `plan_step:<n>`, `skipped` closes it `abandoned`; a closed
+  step stays) is a Write-class harness tool that runs open (it only moves a record), so two marks in one response keep their
+  order and plan mode, which refuses a write, has no step to mark; `task_close` moves the same items. The checklist every
+  surface shows and `plan 2/5` are `session.mode`'s `plan: Vec<PlanItem>` (`{id, title, state}`, a view of the records,
+  never stored): the result carries it (`task_graph::plan::view`, a scan of the task records, only when asked), and
+  `PlanMoved` (`fact/modes.rs`, notification only) sends it again after any frame that changed a plan item
+  (`ToolRuntime::plan_moved`, in `harness_done`: a `task_create` or `task_close` of the model's is the same plan).
+  `plan_present` and `plan_step` are in the deferred family **`plan`** (`tools_defer/family.rs`; in no place's defaults, so
+  no first request carries them), loaded while the conversation is in plan mode: `deferral_in` adds the family to the
+  fresh choice, and entering `plan` (`session.mode`) asks for a recompile on the next turn (`request_recompile`,
+  `Transcript`), so the request that follows takes the fresh set, whatever the last compilation recorded. Both are
+  harness tools in `run_harness` (`ToolRuntime::run_plan`), offered in private places only; neither is in the template's
+  `[policy.tools]` (as `thread.note` is not). The mode is not offered in the tools note or the system prompt (a
+  refusal's words and the tools' descriptions carry it). Tests: `tests_m3/modes.rs`, `task_graph/plan.rs`'s,
+  the TUI's `tests_mode.rs` and `chat/tests_mode.rs`, the CLI's `tests/mode.rs`.
 - **The model's commitments** (theseus-lherl; horizon row HZ1): `commitments.rs`, `wake_tools.rs`. The conversation's
   pending wakes ride in the last block of every request, beside the task view (`view::attach_text`, no breakpoint of
   its own; a stand-in model that reads the last user text skips both: `view::is_head`): at most `MAX_LINES` (10) lines

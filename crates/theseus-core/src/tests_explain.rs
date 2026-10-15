@@ -133,6 +133,8 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
         "proc.run" => return json!({"argv": ["wc", "-l"]}),
         // Words, a time, a book or a topic: none is required alone.
         "memory.lookup" => return json!({"words": "the tide table"}),
+        // A plan has steps (theseus-lyxy).
+        "plan.present" => return json!({"steps": ["read the tide table", "add the mean"]}),
         _ => {}
     }
     let schema = tool.input_schema();

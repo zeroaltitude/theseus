@@ -47,6 +47,7 @@ use theseus_tools::{paths, Access, Plan, Tool};
 
 pub mod earned;
 pub mod grants;
+pub mod modes;
 
 /// What the gate does with a call: `[policy].enforcement` (the posture every
 /// tool and MCP inherits) and each `[policy.tools]` / `[policy.mcp]` override.

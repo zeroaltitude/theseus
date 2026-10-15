@@ -45,11 +45,15 @@ use crate::tests_route::{mode, rig, turn};
 /// 44,100 rang; 44,300 to 44,900 hold: a sweep at its join), and 44,500 before owner-ask's
 /// `owner_ask` and `task_create`'s `notify_done` joined it (theseus-j7cje: 44,300, 44,500 and
 /// 45,100 rang; 44,700 and 44,900 hold: a sweep at its join).
-const WINDOW: u64 = 44_800;
+/// And 45,200 and 39,000 before `plan_present` and `plan_step` joined the catalog (theseus-lyxy: the
+/// two tools are in the deferred `plan` family, so no request sends them, but this rig's first compile
+/// still rang with them; swept together, 44,800 to 45,100 with 38,600 to 38,900 ring, 45,200 to 45,600
+/// hold: 400 more, where the tools' whole size is about 700).
+const WINDOW: u64 = 45_200;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget.
-const BILLED: u64 = 38_600;
+const BILLED: u64 = 39_000;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

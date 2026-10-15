@@ -101,6 +101,15 @@ impl Chat {
                 self.say_cost(v);
                 Vec::new()
             }
+            Purpose::Mode => {
+                if let Ok(r) =
+                    serde_json::from_value::<theseus_protocol::modes::SessionModeResult>(v)
+                {
+                    self.mode = r.mode;
+                    self.plan = r.plan;
+                }
+                Vec::new()
+            }
             Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
             Purpose::RewindPoints => self.rewind_points(v),
             Purpose::RewindRestore(going) => self.rewind_restored(going, v),
@@ -177,6 +186,14 @@ impl Chat {
                 self.rewind_failed("the conversation was not rewound", &e.message);
                 Vec::new()
             }
+            // A mode that did not change says why where the keys are
+            // (theseus-lyxy); an older daemon has no modes, and says nothing.
+            Purpose::Mode => {
+                if e.code != theseus_protocol::error_code::METHOD_NOT_FOUND {
+                    self.flash(e.message.clone());
+                }
+                Vec::new()
+            }
         }
     }
 
@@ -190,11 +207,19 @@ impl Chat {
     /// The session is open: watch it, and send what was typed before.
     pub(super) fn opened(&mut self, sid: &str) -> Vec<Effect> {
         self.session = Some(sid.to_string());
-        let mut out = vec![call(
-            method::SESSION_WATCH,
-            json!({ "session_id": sid }),
-            Purpose::Watch,
-        )];
+        let mut out = vec![
+            call(
+                method::SESSION_WATCH,
+                json!({ "session_id": sid }),
+                Purpose::Watch,
+            ),
+            // Its mode and plan, which its notifications then keep (theseus-lyxy).
+            call(
+                method::SESSION_MODE,
+                json!({ "session_id": sid }),
+                Purpose::Mode,
+            ),
+        ];
         for text in std::mem::take(&mut self.unsent) {
             out.push(self.submit_call(sid, text));
         }
@@ -375,6 +400,9 @@ impl Chat {
             Event::ToolStarted(t) if self.ours(&t.session_id) => self.tool_started(&t),
             Event::ToolEnded(t) if self.ours(&t.session_id) => self.tool_ended(&t),
             Event::ConfirmRequested(c) if self.ours(&c.session_id) => self.ask(c),
+            // The mode or the plan moved (theseus-lyxy): the status line
+            // follows, and the checklist goes into the transcript.
+            Event::SessionMode(m) if self.ours(&m.session_id) => self.moded(&m),
             Event::ConfirmResolved(r) => {
                 if self
                     .question
@@ -395,12 +423,7 @@ impl Chat {
                     }
                 }
             }
-            Event::TaskChanged(t) if self.ours(&t.session_id) => {
-                use theseus_protocol::tasks::TaskState::{Abandoned, Done, Failed, Proposed};
-                let open = !matches!(t.task.state, Done | Failed | Abandoned | Proposed);
-                self.task_open.insert(t.task.id, open);
-                self.tasks = self.task_open.values().filter(|o| **o).count() as u32;
-            }
+            Event::TaskChanged(t) if self.ours(&t.session_id) => self.task_changed(t),
             Event::TurnFailed(f) if self.ours(&f.session_id) => self.turn_failed(&f),
             Event::TurnEnded(r) if self.ours(&r.session_id) => self.turn_ended(&r),
             Event::EventsLost(_) => self.say_plain(
@@ -410,6 +433,14 @@ impl Chat {
             _ => {}
         }
         Vec::new()
+    }
+
+    /// A task record changed: the dock's count of the conversation's open tasks.
+    fn task_changed(&mut self, t: theseus_protocol::tasks::TaskChanged) {
+        use theseus_protocol::tasks::TaskState::{Abandoned, Done, Failed, Proposed};
+        let open = !matches!(t.task.state, Done | Failed | Abandoned | Proposed);
+        self.task_open.insert(t.task.id, open);
+        self.tasks = self.task_open.values().filter(|o| **o).count() as u32;
     }
 
     fn phase(&mut self, phase: Phase) {
@@ -519,6 +550,23 @@ impl Chat {
     }
 
     /// A question for you: the dock shows it, and the terminal rings.
+    /// A `session.mode` notification: the mode and the plan are the
+    /// conversation's, and the checklist is said in the transcript each time
+    /// it changes, whole.
+    fn moded(&mut self, m: &theseus_protocol::modes::SessionModeChanged) {
+        let plan_changed = m.plan != self.plan;
+        let mode_changed = m.mode != self.mode;
+        self.mode = m.mode;
+        self.plan.clone_from(&m.plan);
+        if plan_changed {
+            for l in theseus_client::render::modes::lines(m) {
+                self.say_plain(Sty::Dim, &l);
+            }
+        } else if mode_changed {
+            self.say_plain(Sty::Dim, &format!("  mode: {}", m.mode.status()));
+        }
+    }
+
     pub(super) fn ask(&mut self, c: ConfirmRequest) {
         if let Some(t) = self.live.turn.as_mut() {
             t.phase = Phase::Waiting;

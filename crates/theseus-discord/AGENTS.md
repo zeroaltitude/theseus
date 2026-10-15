@@ -248,6 +248,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     `Counts.reminder`).
   - Tests: `render/horizon.rs`, `runtime/horizon.rs`, `runtime/horizon_cmds.rs`, `tests_gateway/horizon.rs` (the stand-in
     now types modals and autocomplete: `FakeDiscord::modal`, `autocomplete`, and `Reply.choices`).
+- **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
+  not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
+  redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
 - **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its
   `private` beside it) and format 2 (a `[[guild]]` each, with its own `private`, and each `[[channel]]` naming its
   `guild`); a file that mixes them is refused, naming the line. `runtime/guilds.rs` tells the core each guild's word

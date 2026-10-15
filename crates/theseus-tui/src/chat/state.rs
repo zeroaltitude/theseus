@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use crossterm::event::KeyEvent;
 use serde_json::{json, Value};
+use theseus_protocol::modes::{PlanItem, SessionMode};
 use theseus_protocol::{method, warm::Typist, ConfirmRequest};
 
 use super::banner;
@@ -83,6 +84,9 @@ pub enum Purpose {
     RewindPoints,
     RewindRestore(super::rewind::Rewinding),
     RewindFork(super::rewind::Rewinding),
+    /// `session.mode`: read when the conversation opens, set by Shift+Tab
+    /// (theseus-lyxy).
+    Mode,
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +137,9 @@ pub struct Chat {
     pub(super) turn_costs: Vec<Option<f64>>,
     /// The last turn's link in the cockpit (theseus-x9swu), which `/inspect` says again.
     pub last_inspect: Option<String>,
-    pub mode: String,
+    /// The conversation's mode and approved plan (theseus-lyxy).
+    pub mode: SessionMode,
+    pub plan: Vec<PlanItem>,
     pub live: Live,
     pub question: Option<ConfirmRequest>,
     /// Where the person is in answering it (`ask.rs`).
@@ -199,7 +205,8 @@ impl Chat {
             fill: None,
             turn_costs: Vec::new(),
             last_inspect: None,
-            mode: "default".to_string(),
+            mode: SessionMode::default(),
+            plan: Vec::new(),
             live: Live::default(),
             question: None,
             ask: Default::default(),
@@ -486,6 +493,7 @@ impl Chat {
                     self.editor.history_next();
                 }
             }
+            Action::CycleMode => return self.cycle_mode(),
             Action::Tab => {
                 if self.focus_question() {
                     return Vec::new();
@@ -665,6 +673,20 @@ impl Chat {
             params["carried"] = json!(true);
         }
         call(method::TURN_SUBMIT, params, Purpose::Submit)
+    }
+
+    /// Shift+Tab: the next mode, asked of the daemon, which says whether it
+    /// counts; its notification then sets the status line.
+    fn cycle_mode(&mut self) -> Vec<Effect> {
+        let Some(sid) = self.session.clone() else {
+            self.flash("open a conversation first");
+            return Vec::new();
+        };
+        vec![call(
+            method::SESSION_MODE,
+            json!({ "session_id": sid, "mode": self.mode.next() }),
+            Purpose::Mode,
+        )]
     }
 
     /// The first key of an idle spell: one cheap `session.typing`.

@@ -674,3 +674,60 @@ async fn a_model_with_tool_search_sends_the_same_first_request_whatever_the_mess
     assert_eq!(tool_bytes(&reqs[0]), tool_bytes(&reqs[1]));
     assert!(deferred(&reqs[1], "term_open"));
 }
+
+/// The plan's two tools are in the deferred `plan` family (theseus-lyxy): no
+/// place's first request loads them, a conversation in plan mode does, and one
+/// that moves to plan mode in the middle takes them at its next turn (the move
+/// asks for a recompile, since an append keeps the set its compilation
+/// recorded).
+#[tokio::test]
+async fn the_plan_tools_are_deferred_in_every_place_and_load_in_plan_mode() {
+    use crate::approval::Surface::Cli;
+    use crate::tests_m3::{rpc_as, surface};
+    use theseus_protocol::method;
+    let r = rig();
+    for place in [None, Some("dm:271828182845904523")] {
+        let sid = session(&r.core, place);
+        say(&r.core, &sid, "hello").await;
+        let req = r.requests().pop().unwrap();
+        for name in ["plan_present", "plan_step"] {
+            assert!(
+                deferred(&req, name),
+                "{name} in {place:?}: {:?}",
+                offered(&req)
+            );
+        }
+    }
+    let mode = |sid: &str| {
+        rpc_as(
+            &r.core,
+            surface("sock#1", Cli),
+            method::SESSION_MODE,
+            json!({"session_id": sid, "mode": "plan"}),
+        )
+    };
+    // In plan mode from its first message: loaded.
+    let sid = session(&r.core, None);
+    mode(&sid).await.unwrap();
+    say(&r.core, &sid, "hello").await;
+    let req = r.requests().pop().unwrap();
+    for name in ["plan_present", "plan_step"] {
+        assert!(
+            tool(&req, name).is_some() && !deferred(&req, name),
+            "{name}: {:?}",
+            offered(&req)
+        );
+    }
+    // Moved to plan mode after a turn that hid them: the next turn loads them.
+    let sid = session(&r.core, None);
+    say(&r.core, &sid, "hello").await;
+    assert!(deferred(&r.requests().pop().unwrap(), "plan_present"));
+    mode(&sid).await.unwrap();
+    say(&r.core, &sid, "now plan it").await;
+    let req = r.requests().pop().unwrap();
+    assert!(
+        tool(&req, "plan_present").is_some() && !deferred(&req, "plan_present"),
+        "{:?}",
+        offered(&req)
+    );
+}
