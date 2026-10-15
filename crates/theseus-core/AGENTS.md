@@ -257,6 +257,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `turn::ASSEMBLY`. A reply is labelled `Theseus (model)` by `theseus_protocol::surface::reply_label` (history, the TUI)
   and the cockpit's `lib/speaker.ts`; until persona data joins, the literal. Tests: `rpc/tests_surface.rs`,
   `surface::tests`, the layouts' format-33 node sample.
+- **Initiative with a character** (theseus-slvl.9; no store format change: four ledger kinds and one META key; `initiative/`,
+  `turn/promise_step.rs`, `rpc/initiative.rs`, `config/initiative.rs`). What Theseus says first is in its persona. A wake's result
+  and a task's report are turns of a session and speak as its persona already (`persona_of`; a task takes its parent's); a
+  turn that took a wake or a report writes an `initiative.spoke` row (kind `wake` or `report`, its id the turn's) so a verdict can
+  name it. A message the daemon starts itself in words is one short call (`initiative::speak`): the persona's file (the built-in
+  default when it has none) and the standing block as its system, one sentence of task, the facts as the message, no tools, on
+  `[initiative] profile`, reserved on the day ceiling like any background call and held to `[initiative] day_usd` (0.50, read back
+  from today's `initiative.spoke` rows, which `day_ceiling::SPEND_KINDS` counts); past it, or with the model off or unreachable,
+  it is its template (`initiative/lines.rs`, one table that reads the persona's `name` and `emoji` and nothing else of it), and
+  `initiative_post` sends it to the owner's DM (courier kind `initiative`, key `ini:<id>`) with its row in one frame. Producers:
+  the morning note (`initiative/morning.rs`: the driver's tick asks `post_morning_if_due`, one lock and a comparison until the
+  day's first ask after `[initiative] morning_hour`; the work is a spawned task, only on a day a task ended, a wake fired, a
+  promise went unkept or notes were proposed, once a day by META `initiative.morning`) and the nightly consolidation's finding
+  (`initiative/consolidation.rs`, `Proactive::Observation`: chatty only). **The level**: `Initiative::lets` (theseus-protocol) is
+  the one table; `Rules::initiative` feeds `notices::policy`, and the daemon's own proactive posts ask the same `lets`.
+  **Promises**: `initiative/promise.rs`'s table of looking-ahead phrases; at a turn's end a reply that matches writes `promise.kept`
+  when the turn scheduled something (`Pending::scheduled`, bumped by `wake.at`, `watch` and `task.create`) and `promise.unkept`
+  when it did not; no row for a reply that promises nothing, so a plain turn writes nothing here. **Verdicts**: `initiative.rate`
+  (`initiative/rate.rs`, `judge_act(Act::Session)`: the owner from a private place; the CLI refuses it in a job) writes
+  `initiative.rated`, the last verdict on an id standing; Discord's 👍/👎 on a reply or a note calls it. `initiative.week`
+  (`initiative/week.rs`) is the measure `theseus persona` shows. Tests: `tests_initiative.rs`, `initiative::promise::tests`,
+  `initiative::lines::tests`, the protocol's `tests_notices.rs`.
 - **Threads** (theseus-nhew; store format 33; `threads.rs`, `rpc/threads.rs`, `fact/thread.rs`, `config/threads.rs`): a thread is
   a durable record bound to a virtual place `thread:<slug>`, so it reuses what a place has. The record is
   `theseus_protocol::threads::ThreadInfo` as a META key `thread:<slug>` (an edit writes the key again, in one frame with

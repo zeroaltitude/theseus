@@ -114,6 +114,8 @@ impl Core {
     pub fn due_without_turns(self: &std::sync::Arc<Self>) {
         self.fire_notices();
         self.watch_tick();
+        // The day's morning note, when the persona's initiative lets one (theseus-slvl.9).
+        self.post_morning_if_due();
     }
 
     /// The due scan's notice pass: every notice wake that is due, in any

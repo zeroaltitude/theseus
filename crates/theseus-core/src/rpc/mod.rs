@@ -30,6 +30,7 @@ mod import;
 mod import_sync;
 mod index_rebuild;
 mod info;
+mod initiative;
 pub(crate) mod judge;
 mod judge_prove;
 mod judge_runs;
@@ -248,6 +249,8 @@ pub struct Core {
     pub resident: crate::resident::Resident,
     /// Self-improvement's kill switch, cached (theseus-pw1q.2; `crate::rsi`).
     pub rsi: crate::rsi::Switch,
+    /// The morning note's day (theseus-slvl.9).
+    pub initiative: crate::initiative::State,
     /// The sealed holdout sets, when `[self] sealed_dir` is set (theseus-pw1q.5).
     pub sealed: Option<Arc<crate::rsi::sealed::Sealed>>,
     /// What a first keystroke warmed, and the sessions' idle spells
@@ -876,6 +879,7 @@ impl Core {
             episodes: Default::default(),
             resident: Default::default(),
             rsi: Default::default(),
+            initiative: Default::default(),
             sealed,
             warmth: Default::default(),
             watches,

@@ -178,6 +178,11 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   (store format 34), `SURFACES` names the five (`terminal`, `discord`, `voice`, `cockpit`, `mcp`); `StandingListParams.surface`
   is the asker's surface with a `session_id`. `turn.submit`'s optional `surface` (in `submit.rs`) lets the Discord binding say
   `voice`; `context.compiled` names the tail's records in `standing_here`.
+- `initiative.rs` (theseus-slvl.9): `Initiative` (the persona's `quiet|normal|chatty`, re-exported by core's config),
+  `Proactive` (the kinds of message sent first) and `Initiative::lets`, the one table of what each level lets through;
+  `notices::Rules::initiative` carries it into `policy()` (`Rules::shaped`: at `quiet` a finished root and a no-purpose or
+  check-in wake inform instead of interrupting, a reminder and a met watch never; at `chatty` a promised check-in
+  interrupts; `normal` is the table as written). The wire types of `initiative.rate` (a 👍 or 👎) and `initiative.week`.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

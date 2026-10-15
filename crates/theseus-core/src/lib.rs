@@ -51,6 +51,7 @@ pub mod glide;
 pub mod graph;
 pub mod harness;
 pub mod import;
+pub mod initiative;
 pub mod judge;
 pub mod keep_warm;
 pub mod keep_warm_wait;
@@ -265,6 +266,8 @@ mod tests_grants;
 mod tests_harness;
 #[cfg(test)]
 mod tests_inbound;
+#[cfg(test)]
+mod tests_initiative;
 #[cfg(test)]
 mod tests_job_handles;
 #[cfg(test)]

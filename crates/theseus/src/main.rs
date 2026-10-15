@@ -36,6 +36,7 @@ mod judge_runs;
 mod keys;
 mod ledger_verify;
 mod mcp;
+mod notices_cmd;
 mod ontology;
 mod open;
 mod own_bench;
@@ -654,6 +655,13 @@ enum Cmd {
     Persona {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
+    },
+    /// What Theseus said first (theseus-slvl.9): `notices rate up|down [ID]` is your 👍 or 👎 on
+    /// the latest message it sent unprompted, or the one ID names; the week's totals are in
+    /// `persona`. Yours alone (refused inside a job).
+    Notices {
+        #[command(subcommand)]
+        cmd: notices_cmd::NoticesCmd,
     },
     /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
@@ -1367,6 +1375,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Notices { cmd } => notices_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,

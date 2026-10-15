@@ -160,7 +160,11 @@ impl Core {
             crate::learning::tender::on_low_thread(plan)
         }?;
         let plan = rx.await.context("consolidation's thread ended")?.1?;
-        self.consolidate_run(plan, trigger).await
+        let done = self.consolidate_run(plan, trigger).await?;
+        if nightly {
+            self.say_consolidation(&done);
+        }
+        Ok(done)
     }
 
     /// The newest recall rows, by kind through the store's pages.

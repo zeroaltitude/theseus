@@ -731,3 +731,85 @@ fn row_4_by_purpose_a_reminder_interrupts_and_the_rest_inform() {
     });
     assert_eq!(said(&run(Some(&sleeping), &t)).0, Urgency::Interrupt);
 }
+
+/// The ping rule reads the persona's initiative through `Rules` and nowhere
+/// else (theseus-slvl.9): a planted day of events, each level's urgencies.
+#[test]
+fn the_initiative_level_shapes_a_planted_days_pings() {
+    let at = |level| Rules {
+        initiative: level,
+        ..Rules::default()
+    };
+    let ready = root(WorkState::Ready, AT - MIN, AT - 2 * MIN);
+    let woke = |purpose: Option<&str>| {
+        let mut v = root(WorkState::Ready, AT, AT - 2 * MIN);
+        v.woke = Some(Woke {
+            note: "check the build".into(),
+            at_ms: AT - 30_000,
+            purpose: purpose.map(str::to_string),
+        });
+        v
+    };
+    let long_run = root(WorkState::Running, AT - 6 * MIN, AT - 7 * MIN);
+    let finished = root(WorkState::Ready, AT, AT - 7 * MIN);
+    let waiting = task("Beta summary", WorkState::Running, AT);
+    let asking = asking(waiting.clone(), ask("cor_1", AT, AT + 10 * MIN));
+    let mut failed = task("Gamma poll", WorkState::Failed, AT);
+    failed.attention.level = Level::NeedsYou;
+    let day: [(&str, Option<&WorkView>, WorkView, [Urgency; 3]); 7] = [
+        // What needs the owner and what the owner asked for rings at every level.
+        (
+            "a question",
+            Some(&waiting),
+            asking,
+            [Urgency::Interrupt; 3],
+        ),
+        ("a failure", Some(&waiting), failed, [Urgency::Interrupt; 3]),
+        (
+            "a reminder",
+            Some(&ready),
+            woke(Some("remind")),
+            [Urgency::Interrupt; 3],
+        ),
+        (
+            "a met watch",
+            Some(&ready),
+            woke(Some("watch.met")),
+            [Urgency::Interrupt; 3],
+        ),
+        // Finished work is a normal persona's, not a quiet one's.
+        (
+            "a long root done",
+            Some(&long_run),
+            finished,
+            [Urgency::Inform, Urgency::Interrupt, Urgency::Interrupt],
+        ),
+        // A follow-up the model promised: quiet badges it, chatty rings it.
+        (
+            "a promised check-in",
+            Some(&ready),
+            woke(Some("check")),
+            [Urgency::Inform, Urgency::Inform, Urgency::Interrupt],
+        ),
+        (
+            "a wake with no purpose on a root",
+            Some(&ready),
+            woke(None),
+            [Urgency::Inform, Urgency::Interrupt, Urgency::Interrupt],
+        ),
+    ];
+    for (what, prev, next, want) in day {
+        for (level, want) in [Initiative::Quiet, Initiative::Normal, Initiative::Chatty]
+            .into_iter()
+            .zip(want)
+        {
+            let got = policy(prev, &next, &at(level), &utc_hm).map(|n| n.urgency);
+            assert_eq!(got, Some(want), "{what} at {}", level.as_str());
+        }
+    }
+    assert_eq!(
+        Rules::default().initiative,
+        Initiative::Normal,
+        "the default table is the one as written"
+    );
+}

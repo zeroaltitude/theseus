@@ -5,7 +5,9 @@
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
+use serde_json::Value;
 use theseus_client::{render, Conn};
+use theseus_protocol::initiative::{InitiativeWeekParams, InitiativeWeekResult};
 use theseus_protocol::{
     method, HealthResult, LedgerTailParams, LedgerTailResult, PersonaListParams, PersonaListResult,
 };
@@ -86,8 +88,23 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
                     serde_json::to_value(PersonaListParams::default())?,
                 )
                 .await?;
-            output(json, v, |r: PersonaListResult| {
+            if json {
+                return output(true, v, |_: Value| Ok(()));
+            }
+            output(false, v, |r: PersonaListResult| {
                 for l in show_lines(&r) {
+                    println!("{l}");
+                }
+                Ok(())
+            })?;
+            let week = conn
+                .request(
+                    method::INITIATIVE_WEEK,
+                    serde_json::to_value(InitiativeWeekParams::default())?,
+                )
+                .await?;
+            output(false, week, |w: InitiativeWeekResult| {
+                for l in week_lines(&w) {
                     println!("{l}");
                 }
                 Ok(())
@@ -296,6 +313,35 @@ pub fn set_fields(text: &str, key: &str, fields: &[(&'static str, String)]) -> R
 }
 
 /// `theseus persona`'s lines.
+/// The last week of what Theseus said first: promises kept, and the owner's
+/// verdicts (theseus-slvl.9). The maintainer's measure over a week is promises
+/// kept at 95% or more and the 👍 share.
+pub fn week_lines(w: &InitiativeWeekResult) -> Vec<String> {
+    let pct =
+        |s: Option<f64>| s.map_or_else(|| "none yet".to_string(), |s| format!("{:.0}%", s * 100.0));
+    let mut out = vec![format!(
+        "initiative this week ({}): promises kept {} ({} kept, {} unkept)",
+        w.level,
+        pct(w.kept_share),
+        w.kept,
+        w.unkept
+    )];
+    out.push(format!(
+        "  said first {}, 👍 {} 👎 {}: {} liked",
+        w.spoke,
+        w.up,
+        w.down,
+        pct(w.up_share)
+    ));
+    if w.voiced > 0 {
+        out.push(format!(
+            "  {} written by a model for ${:.4}",
+            w.voiced, w.voiced_usd
+        ));
+    }
+    out
+}
+
 pub fn show_lines(r: &PersonaListResult) -> Vec<String> {
     let mut out = Vec::new();
     for p in &r.personas {

@@ -223,7 +223,10 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # values with candour first); a persona file of your own replaces it whole, never merged.
 # A bindings place may say persona = "<name>" to speak as one there; a session may choose one
 # when it opens (session.open); a task takes its parent's. Order: session, place,
-# default_persona, the built-in.
+# default_persona, the built-in. A persona file that replaces the default should keep its
+# one line about follow-ups: a promise to act later is scheduled in the same turn (wake.at,
+# a task or a watch). A reply that promises one with nothing scheduled is a promise.unkept
+# row, and `theseus persona` shows the week's promises kept (theseus-slvl.9).
 # [personas.theseus]
 # files = ["~/.openclaw/workspace/contexts/theseus-persona-draft.md", { path = "~/projects/some-public-repo/README.md", readers = "public" }]
 # name = "Theseus"                      # shown on replies, the bot's nickname, the voice greeting; omitted: the key, capitalised
@@ -231,7 +234,7 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # card = "Careful systems engineer; prefers a plain answer to a clever one."   # about 60 tokens of specialization and background
 # tts_voice = "aura-2-thalia-en"        # overrides [voice] tts_voice while this persona is in play
 # avatar = "~/avatars/theseus.png"      # a path or URL, for Discord
-# initiative = "normal"                 # quiet | normal | chatty: how readily it speaks first
+# initiative = "normal"                 # quiet | normal | chatty: how readily it speaks first. quiet pings only what needs you and what you asked for; normal adds finished work, promised follow-ups and one morning note; chatty adds observations (see [initiative])
 
 # ---------------------------------------------------------------- providers
 # Any endpoint that speaks the Anthropic Messages API. The implicit "anthropic"
@@ -995,6 +998,22 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # is a stub that says how to read it again.
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+
+# ---------------------------------------------------------------- initiative
+# What Theseus says first, in its persona's voice (theseus-slvl.9). How readily
+# it speaks is the persona's `initiative` (`quiet`: only what needs you and what
+# you asked for; `normal`: also promised follow-ups, finished work and one
+# morning note on days something happened; `chatty`: also observations it is
+# confident are useful). A wake's result and a task's report are turns and
+# speak as the session's persona already; a message the daemon starts on its
+# own (the morning note, a consolidation finding) is one short model call that
+# carries the persona's file and your standing orders, off every turn's path.
+# A 👍 or 👎 on such a message (`theseus notices rate`) is recorded, and
+# `theseus persona` shows the week's promises kept and verdicts.
+# [initiative]
+# profile = "haiku"                       # the profile whose model writes them (a cheap one); unset: the live profile
+# day_usd = 0.50                          # what those calls may spend a local day; past it a message goes out as its template (which reads the persona's name and emoji)
+# morning_hour = 8                        # the local hour from which the day's one morning note may go
 
 # ---------------------------------------------------------------- cockpit
 # Each reply's footer links to its turn in the cockpit (`<public_url>/session/

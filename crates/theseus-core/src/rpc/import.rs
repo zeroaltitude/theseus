@@ -67,6 +67,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::FORECAST_CALIBRATION
         || name == method::TURN_INSPECT
         || name == method::PERSONA_LIST
+        || name.starts_with("initiative.")
 }
 
 impl Core {
@@ -140,6 +141,9 @@ impl Core {
         }
         if name == method::PERSONA_LIST {
             return super::server::route(params, |p| self.persona_list(p));
+        }
+        if name.starts_with("initiative.") {
+            return self.rpc_initiative(name, params, conn);
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

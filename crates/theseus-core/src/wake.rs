@@ -463,6 +463,7 @@ pub fn set(
     // after that never fires here, and the model hears so.
     let after_run = tc.outbox.one_shot.wake_after_run(w, &s, &when);
     if set.set {
+        tc.commitments.scheduled_one();
         tc.record(&crate::fact::tool::WakeSet {
             short: &s,
             when: &when,

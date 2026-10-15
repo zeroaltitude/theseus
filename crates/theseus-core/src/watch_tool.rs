@@ -172,6 +172,9 @@ pub fn set(
     };
     let w = &set.wake;
     tc.commitments.set(set.list.clone());
+    if set.set {
+        tc.commitments.scheduled_one();
+    }
     let s = crate::task::short(&w.id);
     let spec = Spec::of(w).map_err(|e| format!("Not set: {e}"))?;
     if set.set {

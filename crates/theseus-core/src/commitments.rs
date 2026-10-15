@@ -42,9 +42,24 @@ const TITLE_CHARS: usize = 50;
 /// left them. Held by the turn's frames and lent to its tools through
 /// `TurnCtx`.
 #[derive(Default)]
-pub struct Pending(Mutex<Vec<PendingWake>>);
+pub struct Pending(
+    Mutex<Vec<PendingWake>>,
+    /// What this turn scheduled: wakes, watches and tasks it set, which keep
+    /// a promise to follow up (`initiative::promise`).
+    std::sync::atomic::AtomicU32,
+);
 
 impl Pending {
+    /// The turn scheduled something that will wake it later.
+    pub fn scheduled_one(&self) {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// How many things the turn scheduled so far.
+    pub fn scheduled(&self) -> u32 {
+        self.1.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn set(&self, wakes: Vec<PendingWake>) {
         *self.0.lock().unwrap_or_else(|e| e.into_inner()) = wakes;
     }

@@ -51,6 +51,7 @@ pub mod durability;
 pub mod extend;
 pub mod import;
 pub mod index;
+pub mod initiative;
 pub mod judge;
 pub mod judge_runs;
 pub mod ladder;
@@ -510,6 +511,10 @@ facts![
     rsi_narrow::NarrowRed,
     rsi_narrow::NarrowReverted,
     persona::PersonaChanged<'static>,
+    initiative::PromiseKept<'static>,
+    initiative::PromiseUnkept<'static>,
+    initiative::InitiativeSpoke<'static>,
+    initiative::InitiativeRated<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

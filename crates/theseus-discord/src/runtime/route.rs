@@ -16,6 +16,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
+use theseus_protocol::initiative::InitiativeRateParams;
 use theseus_protocol::route::RouteCorrectParams;
 use theseus_protocol::{DiscordOrigin, LedgerKind};
 use twilight_http::request::channel::reaction::RequestReactionType;
@@ -81,10 +82,26 @@ impl Replies {
     }
 }
 
-/// A reply's key names its turn: `turn_…:0`, `turn_…:footer`.
+/// A reply's key names its turn: `turn_…:0`, `turn_…:footer`; a note Theseus
+/// wrote first names its own id, `ini:<id>` (theseus-slvl.9).
 pub(crate) fn turn_of_key(key: &str) -> Option<&str> {
+    if let Some(id) = key.strip_prefix("ini:") {
+        return Some(id);
+    }
     let (turn, _) = key.split_once(':')?;
     turn.starts_with("turn_").then_some(turn)
+}
+
+/// What a 👍 or 👎 says of a message Theseus sent first (theseus-slvl.9).
+pub(crate) fn verdict(emoji: &EmojiReactionType) -> Option<&'static str> {
+    let EmojiReactionType::Unicode { name } = emoji else {
+        return None;
+    };
+    match name.trim_end_matches('\u{fe0f}') {
+        "\u{1f44d}" => Some("up"),
+        "\u{1f44e}" => Some("down"),
+        _ => None,
+    }
 }
 
 /// What a reaction says: ⬆️ `stronger`, ⬇️ `cheaper`, with or without the
@@ -128,14 +145,18 @@ impl Shared {
         if r.user_id.get() == self.bot_id() {
             return;
         }
-        let Some(to) = direction(&r.emoji) else {
-            return;
-        };
         let Some(turn) = self.replies.turn(r.message_id.get()) else {
             return;
         };
         let place = place_of(&r);
         let Ok(Some(session)) = self.core.outbox.place_session(&place) else {
+            return;
+        };
+        if let Some(rating) = verdict(&r.emoji) {
+            self.rate_initiative(&r, session, turn, rating).await;
+            return;
+        }
+        let Some(to) = direction(&r.emoji) else {
             return;
         };
         let p = RouteCorrectParams {
@@ -170,9 +191,57 @@ impl Shared {
     }
 }
 
+impl Shared {
+    /// A 👍 or 👎 on a reply or a note: the owner's verdict on what Theseus
+    /// said first. The core says whether it was (`initiative.rate`); a
+    /// reaction on any other reply is no verdict and changes nothing.
+    async fn rate_initiative(
+        &self,
+        r: &GatewayReaction,
+        session: String,
+        turn: String,
+        rating: &'static str,
+    ) {
+        let p = InitiativeRateParams {
+            session_id: Some(session.clone()),
+            turn_id: Some(turn.clone()),
+            rating: rating.into(),
+            via: Some("reaction".into()),
+            discord: Some(DiscordOrigin {
+                user_id: r.user_id.to_string(),
+                channel_id: r.channel_id.to_string(),
+                guild_id: r.guild_id.map(|g| g.to_string()),
+            }),
+        };
+        let res = self
+            .rpc
+            .call::<_, Value>(theseus_protocol::method::INITIATIVE_RATE, p)
+            .await;
+        // Not a message sent first: no ledger line, since most replies are not.
+        if res.is_ok() {
+            self.core.binding_ledger(
+                LedgerKind::DiscordLabel,
+                Some(&session),
+                json!({"turn": turn, "rating": rating, "via": "reaction", "by": r.user_id.to_string()}),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_thumb_is_a_verdict_and_an_arrow_is_not() {
+        let u = |s: &str| EmojiReactionType::Unicode { name: s.into() };
+        assert_eq!(verdict(&u("\u{1f44d}")), Some("up"));
+        assert_eq!(verdict(&u("\u{1f44e}\u{fe0f}")), Some("down"));
+        assert_eq!(verdict(&u("\u{2b06}")), None);
+        assert_eq!(turn_of_key("ini:ini_0a1b"), Some("ini_0a1b"));
+        assert_eq!(turn_of_key("note:abc"), None);
+        assert_eq!(turn_of_key("turn_x:0"), Some("turn_x"));
+    }
 
     #[test]
     fn the_footer_says_where_routing_ran_the_turn() {

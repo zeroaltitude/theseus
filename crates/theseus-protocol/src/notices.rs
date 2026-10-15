@@ -18,6 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::initiative::{Initiative, Proactive};
 use crate::usd;
 use crate::wakes::{reminder_answers, WakeAnswer, WakeNoticed};
 use crate::work::{DoingKind, Question, QuestionKind, WorkKind, WorkRef, WorkState, WorkView};
@@ -117,6 +118,29 @@ pub struct Rules {
     pub finished: Finished,
     /// At most one Interrupt per root in this window: 10 s.
     pub burst_ms: u64,
+    /// How readily the persona in play speaks first (theseus-slvl.9): at
+    /// `quiet` a finished root and a follow-up the model promised inform
+    /// instead of interrupting; `normal` is the table as written.
+    pub initiative: Initiative,
+}
+
+impl Rules {
+    /// `urgency` as the persona's initiative level shapes it for a message
+    /// of kind `p` (theseus-slvl.9; the one place the level reads): an
+    /// Interrupt the level does not let becomes an Inform, a badge and the
+    /// digest, and a chatty persona's promised follow-up, which only
+    /// informed, interrupts.
+    pub fn shaped(&self, urgency: Urgency, p: Proactive) -> Urgency {
+        match urgency {
+            Urgency::Interrupt if !self.initiative.lets(p) => Urgency::Inform,
+            Urgency::Inform
+                if p == Proactive::Followup && self.initiative == Initiative::Chatty =>
+            {
+                Urgency::Interrupt
+            }
+            u => u,
+        }
+    }
 }
 
 impl Default for Rules {
@@ -126,6 +150,7 @@ impl Default for Rules {
             remind_at: 0.5,
             finished: Finished::LongRoots,
             burst_ms: 10_000,
+            initiative: Initiative::Normal,
         }
     }
 }
@@ -274,7 +299,7 @@ pub fn policy(
     let said = asked(&c, hm)
         .or_else(|| reminder(&c, rules))
         .or_else(|| failed(&c))
-        .or_else(|| woke(&c))
+        .or_else(|| woke(&c, rules))
         .or_else(|| finished(&c, rules))
         .or_else(|| answered(&c))
         .or_else(|| ended(&c, rules))
@@ -414,7 +439,7 @@ fn failed(c: &Change) -> Option<Said> {
 /// reminder interrupts wherever it lives; a check-in, a routine and a watch
 /// inform. A view that says none is read as before: on a root conversation it
 /// interrupts, and a task's own wake informs.
-fn woke(c: &Change) -> Option<Said> {
+fn woke(c: &Change, rules: &Rules) -> Option<Said> {
     let next = c.next;
     let line = woke_line(c.prev, next, &c.name)?;
     let purpose = next.woke.as_ref().and_then(|w| w.purpose.as_deref());
@@ -432,7 +457,11 @@ fn woke(c: &Change) -> Option<Said> {
             }
         }
     };
-    said(urgency, Why::Woke, line, None)
+    let kind = match purpose {
+        Some("remind" | "watch.met") => Proactive::Asked,
+        _ => Proactive::Followup,
+    };
+    said(rules.shaped(urgency, kind), Why::Woke, line, None)
 }
 
 /// Rule 4's ping by purpose: a reminder is for the owner, so it interrupts;
@@ -527,7 +556,8 @@ fn finished(c: &Change, rules: &Rules) -> Option<Said> {
             let s = if n == 1 { "" } else { "s" };
             line.push_str(&format!(" · {n} task{s} reported"));
         }
-        return said(Urgency::Interrupt, Why::Finished, line, None);
+        let urgency = rules.shaped(Urgency::Interrupt, Proactive::Finished);
+        return said(urgency, Why::Finished, line, None);
     }
     if c.gone.is_some() {
         return None;
