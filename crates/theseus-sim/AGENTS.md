@@ -31,6 +31,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine), and a run
     whose fewest frames a cancel are over `lifecycle::CANCEL_FRAMES` (2; its most is printed, not judged, since under
     load it picks up other work's frames; theseus-kq4n). The cancel's budget is 100 ms since cancel-fast.
+    A restart after a clean stop must not repair the store's index (`Start.index_repaired`, from the store phase): the
+    shutdown phase fails on a repair after each `shutdown`, and after one SIGTERM, sent once the MCP server listens,
+    which is the stop a service manager sends (theseus-7okz9: a repair of a big index is seconds before serving).
   - `bench lifecycle --sessions N --phases surfaces` (`src/lifecycle/surfaces.rs`, theseus-7bee): what a prompt waits
     for on a store with a great many sessions: `theseus watch --interactive` from its spawn to its prompt line, against 50 ms
     at any size. The TUI's startup reads (`executions.watch`, `confirm.list`) print beside it with no budget: at 200,000

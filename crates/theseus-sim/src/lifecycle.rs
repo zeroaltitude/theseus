@@ -329,6 +329,10 @@ pub struct Start {
     /// nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lock_wait_ms: Option<f64>,
+    /// The store's open repaired the index (redb was not closed by the last
+    /// process, theseus-7okz9): a clean stop must leave this false.
+    #[serde(default)]
+    pub index_repaired: bool,
 }
 
 /// The store's session keys from a `health` answer: the owner's own
@@ -345,6 +349,7 @@ impl Start {
     pub fn from_health(ms: f64, h: &Value) -> Self {
         let (mut phases, mut steps, mut serving_us) = (Vec::new(), Vec::new(), 0u64);
         let mut lock_wait_ms = None;
+        let mut index_repaired = false;
         for p in h["startup"].as_array().into_iter().flatten() {
             if p["background"].as_bool().unwrap_or(false) {
                 continue;
@@ -356,6 +361,7 @@ impl Start {
             let name = p["name"].as_str().unwrap_or("?").to_string();
             if name == "store" {
                 lock_wait_ms = p["detail"]["lock_wait_ms"].as_f64();
+                index_repaired = p["detail"]["index_repaired"].as_bool().unwrap_or(false);
             }
             if name == "kernel" {
                 for st in p["detail"]["steps"].as_array().into_iter().flatten() {
@@ -382,6 +388,7 @@ impl Start {
             driver_ms: driver_ms(h),
             token_ms: None,
             lock_wait_ms,
+            index_repaired,
         }
     }
 }
@@ -729,6 +736,32 @@ impl Rig {
             bail!("theseusd exited with {status} on shutdown");
         }
         Ok(ms)
+    }
+
+    /// The stop systemd sends: SIGTERM, to process exit (theseus-7okz9). The
+    /// MCP server is listening first, as the owner's is: a service the core
+    /// keeps a handle on is what a stop that is not the method must still let go.
+    pub(crate) fn stop_on_signal(&self, daemon: &mut Daemon) -> Result<()> {
+        let t0 = Instant::now();
+        loop {
+            let h = self.call("health", Value::Null)?;
+            if h["mcp_server"]["state"] == "listening" {
+                break;
+            }
+            if t0.elapsed() > Duration::from_secs(15) {
+                bail!("the MCP server never listened: {}", h["mcp_server"]);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // SAFETY: a signal to the daemon this bench started.
+        if unsafe { libc::kill(daemon.0.id() as i32, libc::SIGTERM) } != 0 {
+            bail!("signalling theseusd: {}", std::io::Error::last_os_error());
+        }
+        let status = daemon.0.wait()?;
+        if !status.success() {
+            bail!("theseusd exited with {status} on SIGTERM");
+        }
+        Ok(())
     }
 
     /// Stop a daemon cleanly if it can be; its guard kills it otherwise.
@@ -1391,10 +1424,30 @@ pub fn run(o: &Opts) -> Result<Report> {
                     let (c, mut s) = rig.start()?;
                     child = c;
                     s.after = "restart".into();
+                    // A clean stop closes the store; a restart that repairs
+                    // the index paid seconds for a handle left open
+                    // (theseus-7okz9).
+                    if s.index_repaired {
+                        bail!(
+                            "the restart after a clean stop repaired the store's index ({:.0} ms to serving): a handle outlived the runtime",
+                            s.serving_ms
+                        );
+                    }
                     starts.push(s);
                     if rig.running_jobs()? == 0 {
                         bail!("the job stopped running across a restart");
                     }
+                }
+                // The service manager's stop is a signal: it must close the
+                // store as the method does (theseus-7okz9).
+                rig.stop_on_signal(&mut child)?;
+                let (c, s) = rig.start()?;
+                child = c;
+                if s.index_repaired {
+                    bail!(
+                        "the restart after a SIGTERM repaired the store's index ({:.0} ms to serving): a handle outlived the runtime",
+                        s.serving_ms
+                    );
                 }
             }
             if want("kill") {
@@ -2289,6 +2342,13 @@ mod tests {
         );
         assert_eq!(s.serving_ms, 37.1);
         assert!((s.between_ms - 1.7).abs() < 1e-9, "{}", s.between_ms);
+        assert!(!s.index_repaired);
+        // The store phase says when the open repaired the index (theseus-7okz9).
+        let h = json!({"startup": [{"name": "store", "background": false, "start_us": 0,
+            "end_us": 8440000, "detail": {"index_repaired": true, "lock_wait_ms": 0.1}}]});
+        let s = Start::from_health(8500.0, &h);
+        assert!(s.index_repaired, "{s:?}");
+        assert_eq!(s.lock_wait_ms, Some(0.1));
     }
 
     /// The bench config loads as the daemon loads it, with nothing that
