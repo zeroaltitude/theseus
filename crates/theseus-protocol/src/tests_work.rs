@@ -42,6 +42,8 @@ fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkVie
         report: None,
         woke: None,
         flagged: false,
+        dismissed: false,
+        retry_of: None,
     }
 }
 
@@ -251,6 +253,8 @@ fn execution(state: &str, wake: Option<WaitingOn>) -> ExecutionView {
         ended_reason: None,
         why: None,
         wake_at_ms: None,
+        dismissed: false,
+        retry_of: None,
         attention: Attention {
             level: Level::Working,
             label: String::new(),
@@ -395,4 +399,52 @@ fn a_view_round_trips_and_a_newer_state_reads_as_unknown() {
     assert_eq!(back, v);
     let s: WorkState = serde_json::from_str(r#""paused_for_jev""#).unwrap();
     assert_eq!(s, WorkState::Unknown);
+}
+
+/// What a failure draws on every surface: Retry (a task only), Dismiss,
+/// Details; and nothing once it is dismissed, for a question, or for work
+/// that did not fail (theseus-7zgsm).
+#[test]
+fn a_failure_draws_retry_dismiss_and_details_and_nothing_once_dismissed() {
+    let ids = |v: &WorkView| {
+        crate::failure_options(v)
+            .iter()
+            .map(|o| o.id.clone())
+            .collect::<Vec<_>>()
+    };
+    let task = WorkView::from_execution(&execution("failed", None));
+    assert_eq!(ids(&task), ["retry", "dismiss", "details"]);
+    let opts = crate::failure_options(&task);
+    assert!(opts[0].takes_note, "a retry takes a note");
+    assert_eq!(opts[0].style, Style::Primary);
+
+    let mut conv = execution("failed", None);
+    conv.kind = SessionKind::Conversation;
+    assert_eq!(
+        ids(&WorkView::from_execution(&conv)),
+        ["dismiss", "details"]
+    );
+
+    for state in ["blocked", "budget_exhausted"] {
+        let v = WorkView::from_execution(&execution(state, None));
+        assert_eq!(ids(&v), ["retry", "dismiss", "details"], "{state}");
+    }
+    for state in ["running", "complete", "cancelled"] {
+        let v = WorkView::from_execution(&execution(state, None));
+        assert!(ids(&v).is_empty(), "{state}");
+    }
+    let mut dismissed = execution("failed", None);
+    dismissed.dismissed = true;
+    assert!(ids(&WorkView::from_execution(&dismissed)).is_empty());
+    // A failed execution with a question open: the question is the ask.
+    let mut asking = execution("failed", None);
+    asking.pending = vec![PendingConfirm {
+        correlation_id: "cor_proc.run".into(),
+        tool: "proc.run".into(),
+        reason: "run cargo test".into(),
+        floor: false,
+        budget: false,
+        expires_at_ms: 0,
+    }];
+    assert!(ids(&WorkView::from_execution(&asking)).is_empty());
 }

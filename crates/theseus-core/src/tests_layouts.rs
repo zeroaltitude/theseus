@@ -527,7 +527,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +579,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,7 +634,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -686,7 +686,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -718,4 +718,70 @@ fn a_format_33_repeating_wake_reads_with_no_cron_and_writes_back_byte_for_byte()
     assert!(text.contains(r#""cron":"0 8 * * 1-5""#));
     let again: theseus_kernel::PendingWake = serde_json::from_str(&text).unwrap();
     assert_eq!(again, cron);
+}
+
+/// A failed task's execution record as format 33 wrote it (theseus-7zgsm,
+/// store format 35): no `dismissed`, no `retry_of`. A literal, so a later
+/// change must still read it, say it is no dismissal, and write it back byte
+/// for byte.
+pub(crate) const EXECUTION_AT_33: &str = r#"{"id":"exe_01a13bdf111d745f97fb57142347f1ff","schema":2,"session_id":"ses_01a13bdf111d745f97fb57142347f1ff","kind":"task","state":"failed","authority":{"principal":"zeroaltitude","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":30000,"spent_micros":0,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"outstanding":[],"queued_results":[],"parent":"exe_01a13bdf111873f3b1daec95a22683fb","reports_to":"discord:dm:1","wake_parent":true,"turns":1,"interrupted":0,"resume_pending":false,"ended_reason":"the provider refused the request (400)","created_at_ms":1000000,"updated_at_ms":1000000}"#;
+
+#[test]
+fn a_format_33_execution_reads_as_undismissed_and_writes_back_byte_for_byte() {
+    let e: theseus_kernel::Execution = serde_json::from_str(EXECUTION_AT_33).unwrap();
+    assert_eq!(e.state, theseus_kernel::ExecState::Failed);
+    assert_eq!(e.dismissal(), None);
+    assert!(e.retry_of.is_none());
+    assert_eq!(serde_json::to_string(&e).unwrap(), EXECUTION_AT_33);
+    // Dismissed, it carries the owner's word and reads it back.
+    let mut d = e;
+    d.dismissed = Some(theseus_kernel::Dismissal { at_ms: 5, turns: 1 });
+    d.retry_of = Some("exe_old".into());
+    let again: theseus_kernel::Execution =
+        serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+    assert_eq!(again, d);
+    assert_eq!(again.dismissal(), Some(5));
+}
+
+/// A store of format 33 holding a failed task: the build opens it, reads it as
+/// not dismissed, takes the owner's dismissal and moves the manifest to 34.
+#[test]
+fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let id = "exe_01a13bdf111d745f97fb57142347f1ff";
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        store
+            .append(&[theseus_store::NewRecord::bytes(
+                kinds::EXECUTION,
+                Some(id),
+                EXECUTION_AT_33.as_bytes().to_vec(),
+            )])
+            .unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    let kernel = theseus_kernel::Kernel::new(
+        store.shared(),
+        std::sync::Arc::new(theseus_kernel::RealClock),
+        theseus_kernel::KernelConfig::default(),
+    );
+    kernel.startup(None, &theseus_kernel::NoEvidence).unwrap();
+    assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
+    kernel.dismiss_execution(id).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 35);
+    drop(kernel);
+    drop(store);
+    let again = crate::store::Store::open(&path).unwrap();
+    use theseus_store::Store as _;
+    let rec = again
+        .inner()
+        .latest_by_key(kinds::EXECUTION, id)
+        .unwrap()
+        .unwrap();
+    let e: theseus_kernel::Execution = serde_json::from_slice(&rec.payload).unwrap();
+    assert!(e.dismissal().is_some());
 }

@@ -513,6 +513,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   frame; a stop at `reachable()`), and reads never wait. The wait, from the line's arrival, is the turn root's
   `lane_us` (`ordered::lane_us()`) and `theseus.rpc.lane.wait` by method. Tests: `rpc/tests_ordered.rs`,
   `telemetry/tests_lane.rs`.
+- **Dismiss and retry** (theseus-7zgsm; `rpc/retry.rs`, `fact/retry.rs`; store format 34): a failed task stays flagged
+  until the owner dismisses it, and the daemon records it so every surface agrees. `execution.dismiss` is
+  `Kernel::dismiss_execution` (one frame: the execution's own record carries `dismissed`, so a restart and the push's
+  seed keep it); the push reads it (`ExecutionView.dismissed`: attention is idle, `failed: <reason> · dismissed`; the
+  work view keeps its `report`, `dismissed: true`, and leaves its parent's `failed` and `needs_you` counts, and may be
+  pruned like any ended task). `task.retry` reads the failed task's brief and quoted pieces and opens a new task from
+  them in `Kernel::open_retry`'s one frame (session, brief, arrangement and its edges, task record, `task.retried`, the
+  carve no larger than the failed one's, the failed one dismissed); the brief keeps the first words and ends with a
+  line saying it is a retry, why the last try ended and the owner's `note`; a retry of a retry names its predecessor
+  (`retry_of`, the work view's too). Both are `judge_act(Act::Session)` (the owner, from a private place) and the CLI
+  refuses them inside a job (`client::OPERATORS`). Core entry points `Core::dismiss_failure` and `Core::retry_failed`
+  take an `Answerer`. Not done: the new brief's `derived_from` edge to the parent's reply. Tests: `tests_retry.rs`, the
+  kernel's `tests_retry.rs`.
 - **`work.answer`** (theseus-ds5os; `rpc/answer.rs`): one verb for every question. `question_id` is a whole id or a unique
   end of at least four characters among the open questions and pending wakes (`pick`; an end naming two is refused,
   naming both); `option` is one of `answer_options` for the question's kind (`kind_of_action`: budget, extension, a

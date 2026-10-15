@@ -412,6 +412,8 @@ pub(super) fn same(a: &ExecutionView, b: &ExecutionView) -> bool {
         && a.wake_at_ms == b.wake_at_ms
         && a.parent_session_id == b.parent_session_id
         && a.why == b.why
+        && a.dismissed == b.dismissed
+        && a.retry_of == b.retry_of
 }
 
 /// The frame's nodes, read from the store by position: only for a new

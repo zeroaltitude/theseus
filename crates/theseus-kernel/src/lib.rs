@@ -33,6 +33,7 @@ pub mod probe_run;
 pub mod redact;
 mod reopen;
 pub mod repeat;
+pub mod retry;
 pub mod routines;
 mod spawn;
 pub mod spend;
@@ -78,6 +79,8 @@ mod tests_overdraw;
 mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
+#[cfg(test)]
+mod tests_retry;
 #[cfg(test)]
 mod tests_routines;
 #[cfg(test)]

@@ -201,6 +201,8 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
         resume_pending: false,
         cancel: None,
         ended_reason: None,
+        dismissed: None,
+        retry_of: None,
         created_at_ms: start,
         updated_at_ms: end,
     };

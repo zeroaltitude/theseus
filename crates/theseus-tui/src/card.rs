@@ -144,6 +144,46 @@ pub fn offer_line(o: &theseus_protocol::grants::GrantOffer) -> String {
     format!("  [{}] don't ask again: {what}, this conversation", o.key())
 }
 
+/// A failure's card (theseus-7zgsm): what failed, what it cost, and the keys
+/// that retry it (a task only), dismiss it, or open it. `refused`: why the
+/// last try did not count.
+pub fn failure_lines(
+    v: &theseus_protocol::ExecutionView,
+    refused: Option<&str>,
+) -> Vec<(Tag, String)> {
+    let what = match v.state.as_str() {
+        "blocked" => "blocked",
+        "budget_exhausted" => "out of budget",
+        _ => "failed",
+    };
+    let mut out = vec![(
+        Tag::Bad,
+        match v.ended_reason.as_deref().filter(|r| !r.is_empty()) {
+            Some(r) => format!("✗ {what}: {}", theseus_client::render::clip(r, 200)),
+            None => format!("✗ {what}"),
+        },
+    )];
+    out.push((
+        Tag::Dim,
+        format!(
+            "  spent {} of {} · turn {}",
+            usd(v.spent_usd),
+            usd(v.limit_usd),
+            v.turns
+        ),
+    ));
+    push_refusal(&mut out, refused);
+    out.push((
+        Tag::Plain,
+        if v.kind == theseus_protocol::SessionKind::Task {
+            "  [r] retry  [d] dismiss  [o] open".to_string()
+        } else {
+            "  [d] dismiss  [o] open".to_string()
+        },
+    ));
+    out
+}
+
 fn push_refusal(out: &mut Vec<(Tag, String)>, refused: Option<&str>) {
     if let Some(r) = refused {
         out.push((Tag::Bad, format!("  refused: {r}")));

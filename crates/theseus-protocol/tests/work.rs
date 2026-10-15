@@ -141,6 +141,8 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
             purpose: None,
         }),
         flagged: true,
+        dismissed: false,
+        retry_of: None,
     };
     v.attention = attention_of(&v);
     v

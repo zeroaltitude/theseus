@@ -42,6 +42,13 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   ids), `interactive`; `WorkWatchResult`), `work.unwatch`'s answer, and `work.changed` (`WorkChanged`: one per committed
   frame, every view it changed with its ancestors' rollups, `gone` for ids that left). `work.notice` carries
   `notices::Notice` as it is. Fixtures in `tests/wire/work/`.
+- `retry.rs` (theseus-7zgsm): a failed task stays flagged until the owner dismisses it, and a retry opens a linked new
+  task. `execution.dismiss { execution_id }` and `task.retry { execution_id, note? }` (params and results), `is_failure`
+  and `needs_dismissal` (a work view's and an execution view's reading of "a failure that still asks"), and
+  `failure_options()`, the three answers a failure draws (Retry for a task, Dismiss, Details), worded once for every
+  surface: verbs, not `work.answer`'s answers. `ExecutionView` and `WorkView` carry `dismissed` (the attention rules
+  read it: a dismissed failure is idle, `failed: <reason> · dismissed`, on the push and on `attention_of`) and
+  `retry_of`. Both fields are left out of the bytes at their defaults.
 - `notices.rs` (theseus-753z; the method table owns the name `notify`): the notification policy, pure. `policy()`
   is the owner's table, one function per row, first match wins; `Rules` holds its numbers as data; `deliver()` says
   how a notice reaches one viewer; `notices/burst.rs`'s `Burst` (a client's memory, not a wire type) folds a root's

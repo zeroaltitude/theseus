@@ -345,6 +345,8 @@ mod tests_retention;
 #[cfg(test)]
 mod tests_retract;
 #[cfg(test)]
+mod tests_retry;
+#[cfg(test)]
 mod tests_route;
 #[cfg(test)]
 mod tests_route_base;

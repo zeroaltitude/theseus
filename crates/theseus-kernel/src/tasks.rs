@@ -239,7 +239,7 @@ impl Kernel {
     }
 
     /// The row `execution.opened` of a new task.
-    fn opened_row(
+    pub(crate) fn opened_row(
         &self,
         task: &Execution,
         parent: &str,
@@ -257,7 +257,11 @@ impl Kernel {
 
     /// The row that says how a new task begins: queued for the driver, or,
     /// deferred, waiting for its start (theseus-rcgph).
-    fn start_row(&self, task: &Execution, start_at_ms: Option<u64>) -> Result<NewRecord> {
+    pub(crate) fn start_row(
+        &self,
+        task: &Execution,
+        start_at_ms: Option<u64>,
+    ) -> Result<NewRecord> {
         match start_at_ms {
             Some(at) => self.ledger(
                 LedgerKind::ExecutionWaiting,
@@ -491,6 +495,8 @@ impl Kernel {
             resume_pending: start_at_ms.is_none(),
             cancel: None,
             ended_reason: None,
+            dismissed: None,
+            retry_of: None,
             created_at_ms: now,
             updated_at_ms: now,
         };

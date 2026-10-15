@@ -65,4 +65,15 @@ why?: string,
 /**
  * Its soonest pending wake (`wake.at`), while it has one.
  */
-wake_at_ms?: number, attention: Attention, };
+wake_at_ms?: number, 
+/**
+ * The owner dismissed its failure (`execution.dismiss`): a failed,
+ * blocked or budget-exhausted execution that is dismissed needs no one
+ * (theseus-7zgsm). It stops being so the moment the execution takes
+ * another turn.
+ */
+dismissed?: boolean, 
+/**
+ * The failed task this one retries (`task.retry`), by execution id.
+ */
+retry_of?: string, attention: Attention, };

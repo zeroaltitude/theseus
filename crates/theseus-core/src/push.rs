@@ -128,6 +128,8 @@ pub fn view(
         ended_reason: e.ended_reason.clone(),
         why: None,
         wake_at_ms: e.wakes.iter().map(|w| w.due_at_ms).min(),
+        dismissed: e.dismissal().is_some(),
+        retry_of: e.retry_of.clone(),
         attention: Attention {
             level: theseus_protocol::Level::Idle,
             label: String::new(),
@@ -407,6 +409,13 @@ impl Push {
         self.work.lock().unwrap().snapshot(limit, scope)
     }
 
+    /// Every view the work board holds, by id: a test's oracle for what a
+    /// snapshot (roots and their open subtrees) does not list.
+    #[cfg(test)]
+    pub fn work_all(&self) -> std::collections::BTreeMap<String, theseus_protocol::work::WorkView> {
+        self.work.lock().unwrap().all()
+    }
+
     /// The questions open on the work board, the longest waiting first: from
     /// memory, never the store (`work.answer` resolves against them).
     pub fn open_questions(&self) -> Vec<theseus_protocol::work::Question> {
@@ -532,6 +541,8 @@ mod tests {
             resume_pending: false,
             cancel: None,
             ended_reason: None,
+            dismissed: None,
+            retry_of: None,
             created_at_ms: 1,
             updated_at_ms: 2,
         }

@@ -166,6 +166,16 @@ pub struct ExecutionView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub wake_at_ms: Option<u64>,
+    /// The owner dismissed its failure (`execution.dismiss`): a failed,
+    /// blocked or budget-exhausted execution that is dismissed needs no one
+    /// (theseus-7zgsm). It stops being so the moment the execution takes
+    /// another turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dismissed: bool,
+    /// The failed task this one retries (`task.retry`), by execution id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retry_of: Option<String>,
     pub attention: Attention,
 }
 
@@ -458,7 +468,13 @@ fn level_and_label(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, 
         Some(r) if !r.is_empty() => format!("{word}: {}", clip(r)),
         _ => word.to_string(),
     };
+    // A failure the owner dismissed stays on the record and asks for no one
+    // (theseus-7zgsm): idle, with the word it had.
+    let dismissed = |l: String| (Level::Idle, format!("{l} · dismissed"));
     match view.state.as_str() {
+        "blocked" if view.dismissed => dismissed(reason("blocked")),
+        "failed" if view.dismissed => dismissed(reason("failed")),
+        "budget_exhausted" if view.dismissed => dismissed("budget exhausted".into()),
         "blocked" => (Level::NeedsYou, reason("blocked")),
         "failed" => (Level::NeedsYou, reason("failed")),
         "budget_exhausted" => (Level::NeedsYou, "budget exhausted".into()),
@@ -594,6 +610,8 @@ mod tests {
             ended_reason: None,
             why: None,
             wake_at_ms: None,
+            dismissed: false,
+            retry_of: None,
             attention: Attention {
                 level: Level::Idle,
                 label: String::new(),

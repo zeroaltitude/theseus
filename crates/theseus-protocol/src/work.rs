@@ -192,6 +192,14 @@ pub struct WorkView {
     /// The owner asked to hear when it is done ("tell me when it's done").
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flagged: bool,
+    /// The owner dismissed its failure (`execution.dismiss`, theseus-7zgsm):
+    /// the view keeps its `report` and asks for no one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dismissed: bool,
+    /// The failed task this one retries (`task.retry`), by execution id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retry_of: Option<String>,
 }
 
 /// What a conversation or a task is doing now.
@@ -525,7 +533,7 @@ pub fn answer_options(q: &Question) -> Vec<AnswerOption> {
 /// |---|---|---|---|
 /// | 1 | a budget question | needs you | `budget: $10.02 of $10` |
 /// | 2 | any other question | needs you | `confirm proc.run: run cargo test` |
-/// | 3 | `failed` | needs you | `failed: <reason>` |
+/// | 3 | `failed` | needs you | `failed: <reason>`; idle `failed: <reason> · dismissed` once dismissed (theseus-7zgsm) |
 /// | 4 | `needs_you`, no question | needs you | `blocked: <reason>`, `waiting on you` |
 /// | 5 | `running` | working | its doing's label, `turn 4`, `running` |
 /// | 6 | `queued` | working | `queued`, `queued · wake` |
@@ -565,6 +573,16 @@ fn work_level_and_label(v: &WorkView) -> (Level, String) {
         Some(r) if !r.is_empty() => format!("{word}: {}", clip(r)),
         _ => word.to_string(),
     };
+    // A failure the owner dismissed asks for no one (theseus-7zgsm).
+    if v.dismissed && matches!(v.state, WorkState::Failed | WorkState::NeedsYou) {
+        let word = match (v.state, v.report.as_ref().map(|r| r.outcome.as_str())) {
+            (WorkState::Failed, _) => reason("failed"),
+            (_, Some("budget_exhausted")) => "budget exhausted".into(),
+            (_, Some(_)) => reason("blocked"),
+            _ => "waiting on you".into(),
+        };
+        return (Level::Idle, format!("{word} · dismissed"));
+    }
     let doing = || {
         v.doing
             .as_ref()
@@ -723,6 +741,8 @@ impl WorkView {
             report,
             woke: None,
             flagged: false,
+            dismissed: x.dismissed,
+            retry_of: x.retry_of.clone(),
         }
     }
 }

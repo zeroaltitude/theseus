@@ -63,6 +63,7 @@ pub mod people;
 pub mod place;
 pub mod recall;
 pub mod retract;
+pub mod retry;
 pub mod route;
 pub mod rsi;
 pub mod rsi_backlog;
@@ -474,6 +475,8 @@ facts![
     extend::ExtendDeclined<'static>,
     extend::ExtendLoaded<'static>,
     extend::ExtendRevoked<'static>,
+    retry::FailureDismissed<'static>,
+    retry::TaskRetried<'static>,
     rsi::SelfHalted<'static>,
     rsi::SelfResumed<'static>,
     rsi_budget::BudgetReserved<'static>,
