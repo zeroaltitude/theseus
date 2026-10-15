@@ -89,6 +89,7 @@ mod toolinfo;
 #[cfg(test)]
 mod ts;
 pub mod voice;
+pub mod voice_pick;
 pub mod wakes;
 pub mod warm;
 pub mod watches;
@@ -251,7 +252,7 @@ pub mod method {
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", PREFIX_REPORT = "prefix.report",
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list",
-        STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
+        VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.
         FORECAST_CALIBRATION = "forecast.calibration",

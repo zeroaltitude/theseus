@@ -246,14 +246,24 @@ impl DeepgramSpeech {
         })
     }
 
-    async fn speak(&self, text: &str) -> Result<Synthesis, SpeechError> {
-        let s = &self.settings;
+    /// `text` in `voice`, an Aura model id, instead of the settings' voice:
+    /// the persona in play at this sentence (theseus-slvl.7). The next call
+    /// may name another; nothing reconnects.
+    pub fn synthesize_as<'a>(
+        &'a self,
+        voice: &'a str,
+        text: &'a str,
+    ) -> SpeechFuture<'a, Synthesis> {
+        Box::pin(self.speak(voice, text))
+    }
+
+    async fn speak(&self, voice: &str, text: &str) -> Result<Synthesis, SpeechError> {
         let rate = SAMPLE_RATE.to_string();
         let sent = self
             .http
             .post(self.url("/v1/speak"))
             .query(&[
-                ("model", s.tts_voice.as_str()),
+                ("model", voice),
                 ("encoding", "linear16"),
                 ("sample_rate", rate.as_str()),
                 ("container", "none"),
@@ -275,7 +285,7 @@ impl DeepgramSpeech {
         Ok(Synthesis {
             usage: Usage {
                 provider: PROVIDER.into(),
-                model: s.tts_voice.clone(),
+                model: voice.to_string(),
                 audio: audio.duration(),
                 chars: counted.unwrap_or_else(|| text.chars().count()),
             },
@@ -294,7 +304,7 @@ impl Speech for DeepgramSpeech {
     }
 
     fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis> {
-        Box::pin(self.speak(text))
+        Box::pin(self.speak(&self.settings.tts_voice, text))
     }
 }
 

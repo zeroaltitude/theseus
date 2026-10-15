@@ -31,8 +31,9 @@ pub enum PersonaCmd {
         /// About 60 tokens of specialization and background.
         #[arg(long)]
         card: Option<String>,
-        /// Overrides `[voice] tts_voice` while this persona is in play.
-        #[arg(long)]
+        /// Overrides `[voice] tts_voice` while this persona is in play (`--voice` is the same flag;
+        /// `theseus voice audition` lets you hear several first).
+        #[arg(long, alias = "voice")]
         tts_voice: Option<String>,
         /// A path or a URL, for Discord.
         #[arg(long)]
@@ -409,6 +410,25 @@ mod tests {
 
     fn f(k: &'static str, v: &str) -> (&'static str, String) {
         (k, v.to_string())
+    }
+
+    /// `persona edit --voice ID` is `--tts-voice ID` (theseus-slvl.7): it sets the persona's
+    /// `tts_voice`.
+    #[test]
+    fn edit_voice_sets_the_personas_tts_voice() {
+        #[derive(clap::Parser)]
+        struct T {
+            #[command(subcommand)]
+            c: PersonaCmd,
+        }
+        use clap::Parser as _;
+        for flag in ["--voice", "--tts-voice"] {
+            let t = T::try_parse_from(["t", "edit", "pier", flag, "aura-2-luna-en"]).unwrap();
+            assert_eq!(
+                fields_of(&t.c),
+                vec![("tts_voice", "aura-2-luna-en".to_string())]
+            );
+        }
     }
 
     /// A field present is replaced in place; one missing is added after the table's last line,

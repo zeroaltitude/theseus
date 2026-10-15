@@ -67,6 +67,7 @@ mod tasks_forecast;
 mod thread;
 mod thread_import;
 mod vestige;
+mod voice_cmd;
 mod watch_cmd;
 mod why;
 mod work;
@@ -665,6 +666,14 @@ enum Cmd {
     Persona {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
+    },
+    /// The speaking voice (theseus-slvl.7): `voice` shows the voice a call speaks in and where it
+    /// comes from; `voice audition [--voices a,b,c] [--text WORDS] [--out DIR]` makes the
+    /// greeting in several voices as WAV files and prints their paths and the cost (a few cents;
+    /// yours alone). Pick with `persona edit --voice ID`.
+    Voice {
+        #[command(subcommand)]
+        cmd: Option<voice_cmd::VoiceCmd>,
     },
     /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
@@ -1404,6 +1413,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Voice { cmd } => voice_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,

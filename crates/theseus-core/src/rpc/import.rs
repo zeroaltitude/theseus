@@ -68,6 +68,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::TURN_INSPECT
         || name == method::PERSONA_LIST
         || name == method::PREFIX_REPORT
+        || super::voice_pick::OWN.contains(&name)
 }
 
 impl Core {
@@ -141,6 +142,9 @@ impl Core {
         }
         if name == method::TURN_INSPECT {
             return self.rpc_inspect(params, conn).await;
+        }
+        if super::voice_pick::OWN.contains(&name) {
+            return self.rpc_voice_pick(name, params, conn).await;
         }
         if name == method::PERSONA_LIST {
             return super::server::route(params, |p| self.persona_list(p));

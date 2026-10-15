@@ -58,6 +58,17 @@ pub struct VoiceConfig {
     /// (theseus-arp9l); a bound channel may set its own (`voice_status`).
     #[serde(default = "default_status")]
     pub status: bool,
+    /// What `/join` says first, in the persona's voice (theseus-slvl.7):
+    /// `{name}` is the persona's name. Empty: nothing is said.
+    #[serde(default = "default_greeting")]
+    pub greeting: String,
+}
+
+/// `[voice] greeting`'s default, with `{name}` for the persona's name.
+pub const DEFAULT_GREETING: &str = "{name} here. Go ahead.";
+
+fn default_greeting() -> String {
+    DEFAULT_GREETING.into()
 }
 
 fn default_status() -> bool {
@@ -94,6 +105,7 @@ impl Default for VoiceConfig {
             api_base: default_api_base(),
             deaf_after_secs: default_deaf_after_secs(),
             status: default_status(),
+            greeting: default_greeting(),
         }
     }
 }
