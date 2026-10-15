@@ -375,6 +375,9 @@ pub struct ToolRuntime {
     pub watches: Arc<crate::watch::Board>,
     /// `[watches]`, for the tool's bounds.
     pub watches_cfg: crate::config::WatchesConfig,
+    /// The finished tasks a new task's forecast is made from, and the work
+    /// board's view of it (theseus-zz752).
+    pub forecasts: Arc<crate::forecast::Book>,
     /// L1 (M4 17b): `[sandbox]`, the class, an L1 job's view, the probe.
     pub sandbox: Arc<Sandbox>,
     /// What a cancel reaches besides jobs, and health's cancel counts (18a).
@@ -546,6 +549,7 @@ impl ToolRuntime {
             leases: crate::task_graph::lease::Leases::new(30 * 60_000),
             watches: Default::default(),
             watches_cfg: Default::default(),
+            forecasts: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
@@ -1495,10 +1499,14 @@ impl ToolRuntime {
         // task's lock (39a).
         let mut edit = crate::task_graph::tools::Done::default();
         let done = match tool.name() {
-            crate::task::CREATE => {
-                crate::task::create(tc, &call.input, correlation_id, &self.profiles)
-                    .map(|c| edit.take(c))
-            }
+            crate::task::CREATE => crate::task::create(
+                tc,
+                &call.input,
+                correlation_id,
+                &self.profiles,
+                &self.forecasts,
+            )
+            .map(|c| edit.take(c)),
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
@@ -2327,6 +2335,7 @@ pub fn build_runtime(
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
         watches: Default::default(),
         watches_cfg: cfg.watches.clone(),
+        forecasts: Default::default(),
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),

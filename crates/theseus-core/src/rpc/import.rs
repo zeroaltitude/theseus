@@ -64,6 +64,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::peek::OWN.contains(&name)
         || name == method::LEDGER_VERIFY
         || name == method::TOOL_DEFER
+        || name == method::FORECAST_CALIBRATION
 }
 
 impl Core {
@@ -128,6 +129,9 @@ impl Core {
         }
         if super::watch::OWN.contains(&name) {
             return self.rpc_watches(name, params, conn);
+        }
+        if name == method::FORECAST_CALIBRATION {
+            return super::server::reply(self.forecast_calibration().await?);
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);

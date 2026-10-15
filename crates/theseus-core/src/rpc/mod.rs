@@ -39,6 +39,7 @@ mod memory;
 mod methods;
 pub(crate) use methods::ledger_tags;
 mod earned;
+mod forecast;
 mod grants;
 mod memory_read;
 mod ontology;

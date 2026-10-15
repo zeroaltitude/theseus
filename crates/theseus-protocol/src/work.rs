@@ -170,6 +170,11 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub eta: Option<Eta>,
+    /// A task: what the finished tasks nearest to it cost and took
+    /// (theseus-zz752), numbers only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub forecast: Option<crate::forecast::WorkForecast>,
     /// Its subtree, counted by level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -785,6 +790,7 @@ impl WorkView {
             question,
             cost,
             eta: None,
+            forecast: None,
             below: None,
             why: x.why.clone(),
             report,

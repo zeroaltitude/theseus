@@ -882,3 +882,157 @@ fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
         .unwrap();
     assert!(again.get("cancelled").is_none(), "{again}");
 }
+
+/// The stand-in's rules for the forecast scenario: thirty counting tasks,
+/// a slow one, and the rule that starts them.
+fn forecast_script() -> Vec<(String, Vec<(&'static str, Value)>)> {
+    let mut script: Vec<(String, Vec<(&'static str, Value)>)> = (0..30)
+        .map(|i| {
+            (
+                format!("counting task number {i} please"),
+                vec![(
+                    "task_create",
+                    json!({"brief": format!("Count the buoys, batch {i}."), "arrangement":
+                           {"pieces": [{"quote": format!("Start the counting task number {i} please"),
+                                        "role": "objective"}]}}),
+                )],
+            )
+        })
+        .collect();
+    // The slow rule comes first and keys on a word only the task's brief has:
+    // the task reads its parent's message whole too, and that starts a task.
+    script.insert(
+        0,
+        (
+            "then sleep a while".into(),
+            vec![(
+                "proc_run",
+                json!({"argv": ["sh", "-c", "sleep 5; echo slow-done"], "timeout_secs": 60}),
+            )],
+        ),
+    );
+    script.push((
+        "Kick off the task".into(),
+        vec![(
+            "task_create",
+            json!({"brief": "Count the buoys, then sleep a while.", "arrangement":
+                   {"pieces": [{"quote": "wait it out, please, then report", "role": "objective"}]}}),
+        )],
+    ));
+    script
+}
+
+/// A task's forecast, live (theseus-zz752): thirty finished tasks, a restart
+/// (the table is read from the store after serving), then a new task whose
+/// first line carries the forecast, and a slow one that runs past the p90 of
+/// minutes and is told once to a `work.watch` connection.
+#[test]
+fn a_new_task_has_a_forecast_and_a_slow_one_is_told_once() {
+    let script = forecast_script();
+    // A command waits in the turn for up to 30 s, so the slow task is slow.
+    let r = Rig::with(
+        script
+            .iter()
+            .map(|(p, c)| (p.as_str(), c.clone()))
+            .collect(),
+        |t| {
+            t.entry("tools")
+                .or_insert_with(|| toml::Value::Table(Default::default()))
+                .as_table_mut()
+                .unwrap()
+                .insert("proc_sync_secs".into(), 30.into());
+        },
+    );
+    let daemon = r.spawn();
+    let sid = r.session();
+    for i in 0..30 {
+        r.ask(&sid, &format!("Start the counting task number {i} please"));
+        r.wait("the task complete", || {
+            let done = r
+                .tasks()
+                .iter()
+                .filter(|t| t["state"] == "complete")
+                .count();
+            (done == i + 1).then_some(())
+        });
+    }
+    // A restart: the table of finished tasks is read from the store.
+    drop(daemon);
+    let _daemon = r.spawn();
+    let sid = r.session();
+    r.wait("the finished tasks read", || {
+        r.log()
+            .contains("forecast: finished tasks read")
+            .then_some(())
+    });
+    // Listen for notices first, as a terminal does.
+    let sock = UnixStream::connect(r.path("sock")).unwrap();
+    sock.set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    (&sock)
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"work.watch\",\"params\":{\"interactive\":true}}\n")
+        .unwrap();
+    let mut reader = BufReader::new(&sock);
+    r.ask(&sid, "Kick off the task: wait it out, please, then report");
+    let h = r
+        .call("session.history", json!({"session_id": sid}))
+        .unwrap();
+    let text = h.to_string();
+    let at = text
+        .rfind("⏳ task")
+        .expect("the task's first line is in the conversation");
+    let first_line = &text[at..text.len().min(at + 200)];
+    assert!(
+        first_line.contains("forecast ") && first_line.contains("from 25 like it"),
+        "{first_line}"
+    );
+    eprintln!("first line: {}", first_line.split("\\n").next().unwrap());
+    // The slow task runs past its p90 of minutes: one notice, however many
+    // frames follow.
+    let mut notices = Vec::new();
+    let t0 = Instant::now();
+    let mut line = String::new();
+    let mut ended_at: Option<Instant> = None;
+    while t0.elapsed() < Duration::from_secs(40) {
+        // A read that times out leaves its partial line in `line`: it is
+        // kept, and the next read finishes it.
+        let _ = reader.read_line(&mut line);
+        if line.ends_with('\n') {
+            if line.contains("\"work.notice\"") {
+                eprintln!("notice: {}", line.chars().take(300).collect::<String>());
+            }
+            if line.contains("\"work.notice\"") && line.contains("past_forecast") {
+                notices.push(line.clone());
+            }
+            line.clear();
+        }
+        if ended_at.is_none()
+            && !notices.is_empty()
+            && r.tasks().iter().all(|t| t["state"] == "complete")
+        {
+            ended_at = Some(Instant::now());
+        }
+        // Two seconds past the task's end, for a second notice, were there one.
+        if ended_at.is_some_and(|t| t.elapsed() > Duration::from_secs(2)) {
+            break;
+        }
+    }
+    if notices.len() != 1 {
+        for q in r.model.requests().iter().rev().take(4) {
+            let msgs = q["messages"].as_array().unwrap();
+            let last = msgs.last().unwrap()["content"].to_string();
+            eprintln!(
+                "DEBUG request: {} messages, last: {}",
+                msgs.len(),
+                last.chars().take(300).collect::<String>()
+            );
+        }
+        eprintln!("DEBUG tasks: {:?}", r.tasks().last());
+    }
+    assert_eq!(notices.len(), 1, "told once: {notices:?}");
+    assert!(
+        notices[0].contains("is past its forecast"),
+        "{}",
+        notices[0]
+    );
+}

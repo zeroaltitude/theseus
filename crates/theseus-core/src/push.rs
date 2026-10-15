@@ -325,6 +325,16 @@ impl Push {
             .map(|_| ())
     }
 
+    /// The forecast of each task open on the work board, once the finished
+    /// tasks are read (theseus-zz752). Nothing if the board is not seeded:
+    /// its own warm-up asks again when it is.
+    pub fn forecast_open(&self, core: &Core) {
+        if self.seeded() {
+            let now = theseus_protocol::now_unix_ms();
+            self.work.lock().unwrap().forecast_open(core, now);
+        }
+    }
+
     /// Whether the board is seeded.
     pub fn seeded(&self) -> bool {
         self.seed.initialized()
@@ -404,6 +414,12 @@ impl Push {
             if let Some(out) = out {
                 core.bus.publish_work(&out, &core.tools.scrubber);
             }
+            // The finished tasks a forecast is made from (theseus-zz752),
+            // then the forecast of each task that is open now.
+            core.tools
+                .forecasts
+                .loaded(crate::forecast::read_history(&core));
+            core.push.work.lock().unwrap().forecast_open(&core, now);
         });
     }
 

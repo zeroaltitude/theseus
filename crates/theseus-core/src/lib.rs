@@ -43,6 +43,7 @@ pub mod external;
 pub mod fact;
 pub mod features;
 pub mod file_read;
+pub mod forecast;
 pub mod fork;
 pub mod github;
 pub mod glide;

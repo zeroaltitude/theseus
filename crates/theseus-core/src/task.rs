@@ -398,6 +398,7 @@ pub fn create<'a>(
     input: &Value,
     correlation_id: &str,
     profiles: &std::collections::BTreeMap<String, TargetRef>,
+    forecasts: &crate::forecast::Book,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -741,6 +742,11 @@ pub fn create<'a>(
         Some(c) => crate::check::said(text, meta, &c.basis),
         None => (text, meta),
     };
+    // The task's first line: what tasks like it cost and took (theseus-zz752).
+    let text = format!(
+        "{}\n{text}",
+        crate::forecast::first_line(&s, &title, &forecasts.for_task(&graph))
+    );
     Ok(crate::task_graph::tools::Done {
         text,
         meta,

@@ -54,6 +54,7 @@ mod status;
 mod status_notify;
 mod status_progress;
 mod task_start;
+mod tasks_forecast;
 mod thread;
 mod thread_import;
 mod vestige;
@@ -400,6 +401,8 @@ enum Cmd {
         /// Only the tasks this session started.
         #[arg(long, short)]
         session: Option<String>,
+        #[command(subcommand)]
+        cmd: Option<tasks_forecast::TasksCmd>,
     },
     /// Task: `task start BRIEF` starts a task from your word with no model turn (theseus-7oq0w): now,
     /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
@@ -1276,7 +1279,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
-        Cmd::Tasks { session } => cmd::tasks(c, json, session).await,
+        Cmd::Tasks { session, cmd } => tasks_forecast::dispatch(c, json, session, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,

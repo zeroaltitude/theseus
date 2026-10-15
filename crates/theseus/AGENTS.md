@@ -57,6 +57,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   failed execution stays on the board for good, so it would end every call); one that happens while waiting answers.
   `tests/status_edges.rs`: a daemon that connects and never answers (`--short` exit 1, silent, after 2 s), a dead
   daemon's socket file (exit 3), and a signal's clearing of the tab on a pseudo-terminal.
+- `src/tasks_forecast.rs` (theseus-zz752): `theseus tasks forecast`, how many tasks of the last 7 and 30 days finished
+  inside their forecast's p90, by class (`forecast.calibration`; the words are the protocol's). `theseus work` and the
+  long `theseus status` show a task's spend against its median (`$0.42 of ~$0.60`); status asks `work.watch` once, only
+  when a task row shows, and lets it go (`status::forecasts`).
 - `src/answer.rs` (theseus-ds5os): `theseus answer ID OPTION [--note WORDS]`, one `work.answer` for every kind of question
   (a call, a spend limit, a layer-1 change, an extension's ack, a reminder). The id is sent as typed: the daemon resolves
   a whole id or a unique end of at least four characters, and an end naming two questions is refused naming both. The

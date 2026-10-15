@@ -58,6 +58,7 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         question: None,
         cost: None,
         eta: None,
+        forecast: None,
         below: None,
         why: None,
         report: None,
@@ -100,6 +101,7 @@ impl WorkBoard {
         v.title = ei.title.clone();
         v.started_at_ms = ei.created_at_ms;
         v.woke = ei.woke.clone().or_else(|| Self::due_wake(ei));
+        v.forecast = self.forecast_of(ei);
         v.position = 0;
         v.previous = None;
         v.state_since_ms = ei.x.attention.since_ms;

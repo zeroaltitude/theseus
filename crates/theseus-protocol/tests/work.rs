@@ -123,6 +123,7 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
             usual_ms: 95_000,
             runs: 12,
         }),
+        forecast: None,
         below: Some(Rollup {
             needs_you: 1,
             working: 2,

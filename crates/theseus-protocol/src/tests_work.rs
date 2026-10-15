@@ -37,6 +37,7 @@ fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkVie
             turn_usd: None,
         }),
         eta: None,
+        forecast: None,
         below: None,
         why: None,
         report: None,

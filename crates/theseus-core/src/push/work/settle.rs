@@ -33,6 +33,7 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.question == b.question
         && cost(a) == cost(b)
         && a.eta == b.eta
+        && a.forecast == b.forecast
         && a.below == b.below
         && a.why == b.why
         && a.report == b.report
@@ -212,6 +213,7 @@ impl WorkBoard {
         new.position = f.position;
         new.at_ms = f.at_ms;
         new.thread = self.thread_for_root(&new.root);
+        self.mark_past(&mut new, f.at_ms);
         if let Some(o) = &old {
             new.previous = Some(o.state);
             let level = attention_of(&new).level;
@@ -442,6 +444,7 @@ impl WorkBoard {
                 self.ended_wakes.remove(&gid);
                 self.system.forget(&gid);
                 self.steps.remove(&gid);
+                self.past.remove(&gid);
                 if let Some(ei) = self.execs.remove(&gid) {
                     self.by_session.remove(&ei.x.session_id);
                 }

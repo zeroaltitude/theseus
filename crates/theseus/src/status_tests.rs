@@ -164,7 +164,7 @@ fn a_row_whose_session_runs_a_job_says_its_time_against_the_usual() {
         ("ses_e527d2".to_string(), (T0 - 65_000, None)),
     ]
     .into();
-    let got = long_lines_with(&b, &sum, &titles, &jobs, (T0, 100), &hm);
+    let got = long_lines_with(&b, &sum, &titles, &jobs, &HashMap::new(), (T0, 100), &hm);
     let row = |id: &str| got.iter().find(|l| l.contains(id)).unwrap().clone();
     assert!(
         row("87e9c6").ends_with("turn 2 · 0:31 · job 0:05 of usual 0:31"),
@@ -182,7 +182,7 @@ fn a_row_whose_session_runs_a_job_says_its_time_against_the_usual() {
     );
     assert_eq!(
         long_lines(&b, &sum, &titles, (T0, 100), &hm),
-        long_lines_with(&b, &sum, &titles, &JobTimes::new(), (T0, 100), &hm)
+        long_lines_with(&b, &sum, &titles, &JobTimes::new(), &HashMap::new(), (T0, 100), &hm)
     );
 }
 

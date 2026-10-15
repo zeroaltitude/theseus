@@ -301,7 +301,7 @@ impl WorkBoard {
 
     /// Replace a held view with a rebuilt one, keeping what the frame that
     /// made it said: its position, time, and state before.
-    fn refresh_silent(&mut self, mut new: theseus_protocol::work::WorkView) {
+    pub(super) fn refresh_silent(&mut self, mut new: theseus_protocol::work::WorkView) {
         let Some(old) = self.views.get(&new.id) else {
             return;
         };

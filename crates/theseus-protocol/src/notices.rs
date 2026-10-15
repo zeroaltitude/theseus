@@ -58,6 +58,8 @@ pub enum Why {
     Reported,
     SpendCrossed,
     Woke,
+    /// A task passed the 90th percentile of its forecast (rule 11).
+    PastForecast,
 }
 
 /// One notice: what changed, for whom, and its one line.
@@ -256,6 +258,7 @@ pub fn next_reminder(v: &WorkView, rules: &Rules) -> Option<u64> {
 /// | 8 | a task reports; a job ends; a short turn ends; a system job fails, or ends after `long_run_ms` | Inform |
 /// | 9 | spend crosses its limit or a multiple of it | Inform |
 /// | 10 | working ↔ working, queued, spend only, cancelled | nothing |
+/// | 11 | a task passes the p90 of its forecast, of dollars or of minutes, whichever comes first (once: the view's `forecast.past` turns true) | Inform, with Keep going and Stop |
 ///
 /// A reminder is a view against itself later: pass the last view as `prev`
 /// and the same view at the time it is due as `next` (`next_reminder` says
@@ -275,7 +278,13 @@ pub fn policy(
         .or_else(|| finished(&c, rules))
         .or_else(|| answered(&c))
         .or_else(|| ended(&c, rules))
-        .or_else(|| spend(&c))?;
+        .or_else(|| spend(&c))
+        .or_else(|| past_forecast(&c))?;
+    let answers = if said.why == Why::PastForecast {
+        forecast_answers()
+    } else {
+        vec![]
+    };
     Some(Notice {
         urgency: said.urgency,
         why: said.why,
@@ -284,7 +293,7 @@ pub fn policy(
         line: said.line,
         question: said.question,
         retracts: c.gone.map(|q| q.id.clone()),
-        answers: vec![],
+        answers,
         position: next.position,
         at_ms: next.at_ms,
     })
@@ -574,6 +583,57 @@ fn spend(c: &Change) -> Option<Said> {
         )
     };
     said(Urgency::Inform, Why::SpendCrossed, line, None)
+}
+
+/// 11: a running task passed the p90 of its forecast. The view's
+/// `forecast.past` is the board's sticky bit, so the rule fires on the change
+/// to true and never again, in a run or across a restart (a seed reads it
+/// already true). The forecast never stops a task: the notice offers the
+/// owner Keep going (dismiss it) and Stop (`task.cancel`).
+fn past_forecast(c: &Change) -> Option<Said> {
+    let next = c.next;
+    let f = next.forecast.as_ref().filter(|f| f.past)?;
+    if next.kind != WorkKind::Task || next.state.ended() {
+        return None;
+    }
+    if c.prev
+        .and_then(|p| p.forecast.as_ref())
+        .is_some_and(|p| p.past)
+    {
+        return None;
+    }
+    let spent = next.cost.map_or(0.0, |c| c.spent_usd);
+    let mut line = format!(
+        "⏱ {} is past its forecast: {} (p90 {}), {} (p90 {})",
+        c.name,
+        usd(spent),
+        usd(f.usd_p90),
+        span(next.at_ms.saturating_sub(next.started_at_ms)),
+        span((f.min_p90 * 60_000.0) as u64)
+    );
+    if let Some(read) = f.read_words() {
+        line.push_str(&format!(" · {read}"));
+    }
+    said(Urgency::Inform, Why::PastForecast, line, None)
+}
+
+/// The two answers a past-forecast notice carries: Keep going dismisses it
+/// (no call), Stop is `task.cancel` on the notice's work.
+pub fn forecast_answers() -> Vec<WakeAnswer> {
+    vec![
+        WakeAnswer {
+            id: "keep_going".into(),
+            label: "Keep going".into(),
+            method: String::new(),
+            when: None,
+        },
+        WakeAnswer {
+            id: "stop".into(),
+            label: "Stop".into(),
+            method: crate::method::TASK_CANCEL.into(),
+            when: None,
+        },
+    ]
 }
 
 /// The root a view is under, as a reference.
