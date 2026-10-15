@@ -1735,8 +1735,22 @@ mod tests {
         assert_eq!(names, ["join", "leave"]);
         // The binding registers them after its own fifteen (`/why` the eleventh, `/orders` the twelfth, `/thread` the thirteenth, `/remind` the fourteenth, `/move` the fifteenth).
         let all = super::super::commands();
+        // The task commands (`/task`, `/answer`, `/quiet`, "Make this a task") come after them (theseus-a5uds).
         let last: Vec<&str> = all[15..].iter().map(|c| c.name.as_str()).collect();
-        assert_eq!((all.len(), last), (17, vec!["join", "leave"]));
+        assert_eq!(
+            (all.len(), last),
+            (
+                21,
+                vec![
+                    "join",
+                    "leave",
+                    "task",
+                    "answer",
+                    "quiet",
+                    "Make this a task"
+                ]
+            )
+        );
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

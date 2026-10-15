@@ -1,15 +1,15 @@
-=== 0 tasks: components=6 chars=23
+=== 0 tasks: components=7 chars=23
 📋 **Tasks** · all clear
-ids: tb:clear tb:quiet
+ids: tb:clear tb:quiet tb:new
 
-=== 1 task: components=10 chars=125
+=== 1 task: components=11 chars=125
 📋 **Tasks** · ⚙️ 1 running
 ---
 **⚙️ Now**
 ⚙️ **Task number 1** `…000001` · fs.edit · turn 4 · $0.42 of $2 · since <t:1789999460:R>
-ids: tb:clear tb:quiet tb:pick
+ids: tb:clear tb:quiet tb:new tb:pick
 
-=== 8 tasks: components=20 chars=826
+=== 8 tasks: components=21 chars=826
 📋 **Tasks** · 🔴 2 needs you · ⚙️ 5 running · ✅ 1 done since you looked
 ---
 **🔴 Needs you**
@@ -29,9 +29,9 @@ fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
 ---
 **✅ Done, not yet seen**
 ✅ **Task number 20** `…000020` · done <t:1789992800:R>
-ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:pick
+ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:new tb:pick
 
-=== 30 tasks: components=36 chars=2295
+=== 30 tasks: components=37 chars=2295
 📋 **Tasks** · 🔴 10 needs you · ⚙️ 14 running · ✅ 6 done since you looked
 ---
 **🔴 Needs you**
@@ -81,23 +81,23 @@ fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
 ✅ **Task number 203** `…000203` · done <t:1789992800:R>
 ✅ **Task number 204** `…000204` · done <t:1789992800:R>
 ✅ **Task number 205** `…000205` · done <t:1789992800:R>
-ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:o:exe_01J00000000000000000000002 tb:o:exe_01J00000000000000000000003 tb:o:exe_01J00000000000000000000004 tb:o:exe_01J00000000000000000000005 tb:o:exe_01J00000000000000000000006 tb:clear tb:quiet tb:pick
+ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:o:exe_01J00000000000000000000002 tb:o:exe_01J00000000000000000000003 tb:o:exe_01J00000000000000000000004 tb:o:exe_01J00000000000000000000005 tb:o:exe_01J00000000000000000000006 tb:clear tb:quiet tb:new tb:pick
 
-=== needs you: components=13 chars=143
+=== needs you: components=14 chars=143
 📋 **Tasks** · 🔴 1 needs you
 ---
 **🔴 Needs you**
 ---
 **Task number 1** `…000001`
 fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
-ids: tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:pick
+ids: tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:new tb:pick
 
-=== all done: components=10 chars=273
+=== all done: components=14 chars=273
 📋 **Tasks** · ✅ 3 done since you looked
 ---
 **✅ Done, not yet seen**
 ✅ **Task number 1** `…000001` · done <t:1789992800:R>
 ⛔ **Task number 2** `…000002` · cancelled <t:1789992800:R>
 ❌ **Task number 3** `…000003` · failed <t:1789992800:R> · the provider refused the request (400)
-ids: tb:clear tb:quiet tb:pick
+ids: tb:retry:exe_01J00000000000000000000003 tb:dismiss:exe_01J00000000000000000000003 tb:clear tb:quiet tb:new tb:pick
 

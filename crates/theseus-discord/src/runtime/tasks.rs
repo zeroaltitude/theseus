@@ -187,6 +187,60 @@ impl Tasks {
         project(&m.views, &root, cleared, theseus_protocol::now_unix_ms())
     }
 
+    /// Every view under the root of the place whose conversation is `session_id`.
+    pub fn in_place(&self, session_id: &str) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        let Some(root) = root_of(&m, session_id) else {
+            return Vec::new();
+        };
+        m.views
+            .values()
+            .filter(|v| v.root == root)
+            .cloned()
+            .collect()
+    }
+
+    /// The view `id` if it is under the place's root: a command never opens
+    /// another place's task by naming its id.
+    pub fn view_in_place(&self, session_id: &str, id: &str) -> Option<WorkView> {
+        let m = self.model.lock().unwrap();
+        let root = root_of(&m, session_id)?;
+        m.views.get(id).filter(|v| v.root == root).cloned()
+    }
+
+    /// The place's task that `text` names: an id or its end, else the one task
+    /// whose title holds the words (case aside), if there is exactly one.
+    pub fn find_task(&self, session_id: &str, text: &str) -> Option<WorkView> {
+        let t = text.trim().trim_start_matches('…').to_lowercase();
+        if t.is_empty() {
+            return None;
+        }
+        let tasks: Vec<WorkView> = self
+            .in_place(session_id)
+            .into_iter()
+            .filter(|v| v.kind == WorkKind::Task)
+            .collect();
+        if let Some(v) = tasks.iter().find(|v| {
+            v.id.to_lowercase() == t || (t.len() >= 4 && v.id.to_lowercase().ends_with(&t))
+        }) {
+            return Some(v.clone());
+        }
+        let mut by_title = tasks
+            .into_iter()
+            .filter(|v| v.title.to_lowercase().contains(&t));
+        let first = by_title.next()?;
+        by_title.next().is_none().then_some(first)
+    }
+
+    /// Quiet the place's task pings until `until` (unix ms), or end the quiet.
+    pub fn set_quiet(&self, target: &str, until: Option<u64>) {
+        let mut q = self.quiet.lock().unwrap();
+        match until {
+            Some(t) => q.insert(target.to_string(), t),
+            None => q.remove(target),
+        };
+    }
+
     /// The place's done tasks are seen: the board drops them from now.
     pub fn clear_done(&self, session_id: &str) {
         let mut m = self.model.lock().unwrap();
@@ -277,6 +331,14 @@ impl Tasks {
         v.sort_by_key(|v| std::cmp::Reverse(v.started_at_ms));
         v
     }
+}
+
+/// The execution at the top of the conversation `session_id`.
+fn root_of(m: &Model, session_id: &str) -> Option<String> {
+    m.views
+        .values()
+        .find(|v| v.kind == WorkKind::Conversation && v.session_id.as_deref() == Some(session_id))
+        .map(|v| v.id.clone())
 }
 
 /// The position rule: a view older than the one held is dropped.

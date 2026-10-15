@@ -35,10 +35,10 @@ use crate::render::{card_v2, task_view, v2, Buttons, Op, BOARD_KEY};
 
 /// A press on a board or a card, handed to the place it happened in.
 pub(crate) struct TaskPress {
-    i: Interaction,
-    who: String,
-    custom_id: String,
-    values: Vec<String>,
+    pub(super) i: Interaction,
+    pub(super) who: String,
+    pub(super) custom_id: String,
+    pub(super) values: Vec<String>,
 }
 
 impl Shared {
@@ -58,7 +58,13 @@ impl Shared {
 
     /// Answer an interaction with a V2 message: `kind` is 4 (a new message)
     /// or 7 (the pressed message, updated).
-    async fn respond_v2(&self, i: &Interaction, kind: u8, comps: &[Value], ephemeral: bool) {
+    pub(super) async fn respond_v2(
+        &self,
+        i: &Interaction,
+        kind: u8,
+        comps: &[Value],
+        ephemeral: bool,
+    ) {
         let mut flags = v2::IS_COMPONENTS_V2;
         if ephemeral && kind == 4 {
             flags |= MessageFlags::EPHEMERAL.bits();
@@ -75,7 +81,7 @@ impl Shared {
         .build();
         match req {
             Ok(req) => {
-                if let Err(e) = self.http.request::<Value>(req).await {
+                if let Err(e) = self.interact.request::<Value>(req).await {
                     self.board.error("interaction response", None, e);
                 }
             }
@@ -84,7 +90,7 @@ impl Shared {
     }
 
     /// The pressed message, edited (after a deferred update).
-    async fn edit_original_v2(&self, i: &Interaction, comps: &[Value]) {
+    pub(super) async fn edit_original_v2(&self, i: &Interaction, comps: &[Value]) {
         let body = json!({"flags": v2::IS_COMPONENTS_V2, "components": comps,
                           "allowed_mentions": {"parse": []}});
         let req = Request::builder(&HttpRoute::UpdateInteractionOriginal {
@@ -96,7 +102,7 @@ impl Shared {
         .build();
         match req {
             Ok(req) => {
-                if let Err(e) = self.http.request::<Value>(req).await {
+                if let Err(e) = self.interact.request::<Value>(req).await {
                     self.board.error("interaction edit", None, e);
                 }
             }
@@ -114,7 +120,10 @@ pub(super) fn work_interaction(
     let Some(InteractionData::MessageComponent(c)) = &i.data else {
         return false;
     };
-    if !c.custom_id.starts_with(board_v2::PREFIX) && !c.custom_id.starts_with(card_v2::PREFIX) {
+    if !c.custom_id.starts_with(board_v2::PREFIX)
+        && !c.custom_id.starts_with(card_v2::PREFIX)
+        && !crate::render::answer_v2::is_control(&c.custom_id)
+    {
         return false;
     }
     let _ = place.send(PlaceMsg::Press(Box::new(TaskPress {
@@ -132,6 +141,7 @@ impl Place {
     pub(super) async fn task_msg(&mut self, m: PlaceMsg) {
         match m {
             PlaceMsg::Press(p) => self.task_press(*p).await,
+            PlaceMsg::Cmd(c) => self.task_cmd(*c).await,
             PlaceMsg::Board => self.board(),
             _ => self.live_board(),
         }
@@ -166,7 +176,13 @@ impl Place {
     pub(super) async fn task_press(&mut self, p: TaskPress) {
         let id = p.custom_id.clone();
         if let Some((q, option)) = card_v2::parse(&id) {
+            if option == crate::render::answer_v2::OTHER {
+                return self.shared.open_answer_modal(&p.i, q, option).await;
+            }
             return self.answer_press(&p, q, option).await;
+        }
+        if self.more_press(&p, &id).await {
+            return;
         }
         let s = self.shared.clone();
         match id.as_str() {
@@ -233,7 +249,7 @@ impl Place {
         }
     }
 
-    fn detail_of(&self, v: &theseus_protocol::work::WorkView) -> Vec<Value> {
+    pub(super) fn detail_of(&self, v: &theseus_protocol::work::WorkView) -> Vec<Value> {
         let tasks = &self.shared.tasks;
         let calls: Vec<String> = tasks
             .children_of(&v.id, WorkKind::Job)
@@ -260,7 +276,7 @@ impl Place {
     }
 
     /// An answer pressed: `work.answer` as the presser.
-    async fn answer_press(&self, p: &TaskPress, question: &str, option: &str) {
+    pub(super) async fn answer_press(&self, p: &TaskPress, question: &str, option: &str) {
         let s = &self.shared;
         s.respond(
             &p.i,
@@ -314,8 +330,15 @@ impl Place {
                 // An outbox card is settled by its settle post, on every
                 // surface that shows it; any other message (a task's view)
                 // is settled here.
-                if !s.core.outbox.has_card(&done.question_id) {
-                    let word = if approve {
+                let ephemeral = p.i.message.as_ref().is_some_and(|m| {
+                    m.flags
+                        .is_some_and(|f| f.contains(MessageFlags::EPHEMERAL))
+                });
+                if ephemeral || !s.core.outbox.has_card(&done.question_id) {
+                    let word = if option.starts_with("choice:") {
+                        // An ask's choice answers it: it neither approves nor declines.
+                        "✅ **Answered**"
+                    } else if approve {
                         "✅ **Approved**"
                     } else {
                         "❎ **Declined**"

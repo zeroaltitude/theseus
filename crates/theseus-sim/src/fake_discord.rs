@@ -54,6 +54,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod commands;
 mod threads;
 
 pub use threads::{FakeHook, FakeThread};
@@ -286,6 +287,12 @@ pub struct Reply {
     pub response_type: Option<u64>,
     pub content: Option<String>,
     pub ephemeral: bool,
+    /// An autocomplete's answer (type 8): each choice's name and value.
+    #[serde(default)]
+    pub choices: Vec<(String, String)>,
+    /// A modal the binding answered with (type 9): its `data`.
+    #[serde(default)]
+    pub modal: Option<Value>,
 }
 
 /// A guild, as the binding's viewer check reads it (theseus-ck0k): its
@@ -1646,6 +1653,18 @@ impl FakeDiscord {
                     .then(|| v2_text(&data["components"]))
             }),
             ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
+            choices: data["choices"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|c| {
+                    (
+                        c["name"].as_str().unwrap_or("").to_string(),
+                        c["value"].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect(),
+            modal: (kind == "callback" && body["type"].as_u64() == Some(9)).then(|| data.clone()),
         };
         let content = r.content.clone().unwrap_or_default();
         {
@@ -1745,6 +1764,7 @@ impl FakeDiscord {
                 }
                 Err(e) => (400, json!({"error": e.to_string()})),
             },
+            ("POST", ["interact"]) => self.control_interact(body),
             ("GET", ["messages"]) => (200, json!(self.all_messages())),
             ("GET", ["replies"]) => (200, json!(self.replies())),
             ("GET", ["gateway"]) => (200, json!(self.gateway_state())),

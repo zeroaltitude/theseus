@@ -18,6 +18,39 @@ pub const STOP: &str = "tb:stop:";
 pub const STOP_YES: &str = "tb:yes:";
 /// `tb:no:<id>`: keep it going.
 pub const STOP_NO: &str = "tb:no:";
+/// `tb:follow:<id>`: a silent message that mirrors the task.
+pub const FOLLOW: &str = "tb:follow:";
+/// `tb:retry:<id>` and `tb:dismiss:<id>`: a failed task's two verbs.
+pub const RETRY: &str = "tb:retry:";
+pub const DISMISS: &str = "tb:dismiss:";
+
+/// A failed task's `[ ↻ Retry ] [ ✓ Dismiss ]`, when it is a failure the
+/// owner can still act on (`theseus_protocol::retry::failure_options`).
+pub fn failure_row(v: &WorkView, named: bool) -> Option<Value> {
+    let tag = if named {
+        format!(" …{}", short(&v.id))
+    } else {
+        String::new()
+    };
+    let options = theseus_protocol::failure_options(v);
+    let has = |id: &str| options.iter().any(|o| o.id == id);
+    let mut buttons = Vec::new();
+    if has("retry") {
+        buttons.push(button(
+            format!("{RETRY}{}", v.id),
+            &format!("↻ Retry{tag}"),
+            Look::Primary,
+        ));
+    }
+    if has("dismiss") {
+        buttons.push(button(
+            format!("{DISMISS}{}", v.id),
+            &format!("✓ Dismiss{tag}"),
+            Look::Secondary,
+        ));
+    }
+    (!buttons.is_empty()).then(|| row(buttons))
+}
 
 fn state_words(v: &WorkView) -> &'static str {
     match v.state {
@@ -125,11 +158,14 @@ pub fn detail(
     }
     if !v.state.ended() && v.kind == theseus_protocol::work::WorkKind::Task {
         inner.push(separator());
-        inner.push(row(vec![button(
-            format!("{STOP}{}", v.id),
-            "Stop",
-            Look::Danger,
-        )]));
+        inner.push(row(vec![
+            button(format!("{STOP}{}", v.id), "Stop", Look::Danger),
+            button(format!("{FOLLOW}{}", v.id), "Follow", Look::Secondary),
+        ]));
+    }
+    if let Some(r) = failure_row(v, false) {
+        inner.push(separator());
+        inner.push(r);
     }
     vec![container(Some(0x3E_63_DD), inner)]
 }
@@ -145,12 +181,12 @@ pub fn confirm_stop(v: &WorkView) -> Vec<Value> {
                 short(&v.id)
             )),
             row(vec![
-                button(format!("{STOP_YES}{}", v.id), "Yes, stop it", Look::Danger),
                 button(
-                    format!("{STOP_NO}{}", v.id),
-                    "Keep it going",
-                    Look::Secondary,
+                    format!("{STOP_YES}{}", v.id),
+                    &format!("Stop {}", short(&v.id)),
+                    Look::Danger,
                 ),
+                button(format!("{STOP_NO}{}", v.id), "Keep it", Look::Secondary),
             ]),
         ],
     )]
@@ -235,7 +271,13 @@ mod tests {
         );
         assert!(t.contains("> Two of five modules renamed."), "{t}");
         assert!(t.contains("`cargo build`\n`git diff`"), "{t}");
-        assert_eq!(custom_ids(&c), ["tb:stop:exe_01J000000000000000task01"]);
+        assert_eq!(
+            custom_ids(&c),
+            [
+                "tb:stop:exe_01J000000000000000task01",
+                "tb:follow:exe_01J000000000000000task01"
+            ]
+        );
     }
 
     #[test]

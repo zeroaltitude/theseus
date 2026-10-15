@@ -25,6 +25,11 @@ pub struct ExecutionDismissParams {
     /// The whole id (`exe_…`) of a failed, blocked or budget-exhausted
     /// execution.
     pub execution_id: String,
+    /// Set by the Discord binding: the channel and user the press came from,
+    /// which the place rule judges (theseus-a5uds).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// `execution.dismiss`'s answer.
@@ -48,6 +53,10 @@ pub struct TaskRetryParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub note: Option<String>,
+    /// Set by the Discord binding, as for `execution.dismiss`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// `task.retry`'s answer: the new task.

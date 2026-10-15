@@ -64,6 +64,17 @@ pub enum Cmd {
         #[arg(long, default_value = "tester")]
         name: String,
     },
+    /// Drive a task command (theseus-a5uds): a JSON body with an `op`
+    /// (`slash`, `autocomplete`, `message_command`, `modal`, `pick`,
+    /// `press_reply`), who sends it (`user`, `name`, `channel`) and the op's
+    /// fields (see `fake_discord::commands`). Prints the interaction's id;
+    /// `read replies` shows what the binding answered.
+    Interact {
+        #[arg(long, default_value = "127.0.0.1:9447")]
+        fake: String,
+        /// The body, as JSON.
+        body: String,
+    },
     /// What the fake holds, as JSON: `messages` (each with every version and
     /// its buttons), `replies` (the answers to interactions), or `gateway`.
     Read {
@@ -155,6 +166,10 @@ pub fn run(cmd: Cmd) -> Result<()> {
         } => {
             let body = json!({"message": message, "button": button, "user": user, "name": name});
             print_sent(control(&fake, "POST", "press", &body)?)
+        }
+        Cmd::Interact { fake, body } => {
+            let body: Value = serde_json::from_str(&body).context("the body is JSON")?;
+            print_sent(control(&fake, "POST", "interact", &body)?)
         }
         Cmd::Read { fake, what } => {
             let (_, v) = control(&fake, "GET", &what, &Value::Null)?;

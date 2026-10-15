@@ -54,6 +54,17 @@ impl std::error::Error for CallError {}
 #[cfg(test)]
 static REFUSALS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
+/// Every method called through any client of this process, in order: a test
+/// reads it to prove a command asked the daemon nothing (theseus-a5uds).
+#[cfg(test)]
+static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The methods called so far.
+#[cfg(test)]
+pub(crate) fn calls() -> Vec<String> {
+    CALLS.lock().unwrap().clone()
+}
+
 /// The next call of `method` whose request holds `text` fails, once.
 #[cfg(test)]
 pub(crate) fn refuse_once(method: &str, text: &str) {
@@ -129,6 +140,8 @@ impl RpcClient {
         params: P,
     ) -> Result<R, CallError> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
+        #[cfg(test)]
+        CALLS.lock().unwrap().push(method.to_string());
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
         let line =

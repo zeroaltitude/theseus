@@ -42,6 +42,8 @@ pub const QUIET: &str = "tb:quiet";
 pub const PICK: &str = "tb:pick";
 /// `tb:o:` + a task's id.
 pub const OPEN: &str = "tb:o:";
+/// `[ ➕ New task ]`: the new-task modal (theseus-a5uds).
+pub const NEW: &str = "tb:new";
 
 /// The accent of the board's box.
 const RED: u32 = 0xE5_48_4D;
@@ -93,7 +95,7 @@ pub fn headline(needs: usize, running: usize, done: usize) -> String {
     }
 }
 
-fn title_of(v: &WorkView) -> String {
+pub(super) fn title_of(v: &WorkView) -> String {
     let t = v.title.trim();
     if t.is_empty() {
         "(untitled task)".into()
@@ -103,7 +105,7 @@ fn title_of(v: &WorkView) -> String {
 }
 
 /// A needs-you item's second line: the question, or what blocks it.
-fn ask_line(v: &WorkView) -> String {
+pub(super) fn ask_line(v: &WorkView) -> String {
     let what = match v.question.as_ref() {
         Some(q) => clip(&q.prompt.replace('\n', " "), 160),
         None => clip(&v.attention.label, 160),
@@ -119,7 +121,7 @@ fn ask_line(v: &WorkView) -> String {
 }
 
 /// What a working task is doing: its doing's label, its turn, its spend.
-fn working_line(v: &WorkView) -> String {
+pub(super) fn working_line(v: &WorkView) -> String {
     let mut bits = vec![format!("⚙️ **{}** `…{}`", title_of(v), short(&v.id))];
     let label = v
         .doing
@@ -153,7 +155,7 @@ fn working_line(v: &WorkView) -> String {
     bits.join(" · ")
 }
 
-fn done_line(v: &WorkView) -> String {
+pub(super) fn done_line(v: &WorkView) -> String {
     let at = v.ended_at_ms.unwrap_or(v.state_since_ms);
     let (mark, word) = match v.state {
         WorkState::Failed => ("❌", "failed"),
@@ -232,6 +234,15 @@ fn build(p: &Parts<'_>, caps: [usize; 3]) -> Vec<Value> {
             lines.push(more(p.done.len() - cd));
         }
         inner.push(text(lines.join("\n")));
+        // A failure can be tried again or put away, from here (theseus-a5uds):
+        // the two newest, a row each.
+        inner.extend(
+            p.done
+                .iter()
+                .take(cd)
+                .filter_map(|v| super::task_view::failure_row(v, true))
+                .take(2),
+        );
     }
     inner.push(separator());
     let quiet = if p.quiet_until_ms.is_some() {
@@ -242,6 +253,7 @@ fn build(p: &Parts<'_>, caps: [usize; 3]) -> Vec<Value> {
     inner.push(row(vec![
         button(CLEAR, "✓ Clear done", Look::Secondary),
         quiet,
+        button(NEW, "➕ New task", Look::Secondary),
     ]));
     let options: Vec<(String, String)> = p
         .needs
