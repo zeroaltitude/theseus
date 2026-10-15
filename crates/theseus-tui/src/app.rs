@@ -14,7 +14,7 @@ use theseus_protocol::answer::{approves, WorkAnswerResult};
 use theseus_protocol::{
     error_code, method, ConfirmListResult, Event, EventsLost, ExecutionStopResult, ExecutionView,
     ExecutionsWatchResult, RpcError, SessionHistoryResult, SessionKind, SessionListResult,
-    TaskCancelResult,
+    TaskCancelResult, WorkWatchResult,
 };
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
@@ -47,6 +47,8 @@ pub struct Call {
 pub enum Purpose {
     /// `executions.watch`: the board.
     Snapshot,
+    /// `work.watch`: what the rows say (theseus-k2vca).
+    Work,
     /// `session.list { ids }`: titles.
     Titles,
     /// `confirm.list`: questions a view lists that the board lacks whole.
@@ -342,7 +344,13 @@ impl App {
             // The moment the countdown's seconds change.
             Some(self.now_ms + if left % 1000 == 0 { 1000 } else { left % 1000 })
         });
-        [countdown, self.notices.next_due(), self.save_at]
+        // An elapsed time on a row repaints on the minute, never each second.
+        let minute = self
+            .board
+            .work
+            .ticking()
+            .then(|| (self.now_ms / 60_000 + 1) * 60_000);
+        [countdown, self.notices.next_due(), self.save_at, minute]
             .into_iter()
             .flatten()
             .min()
@@ -403,13 +411,12 @@ impl App {
         Some(Effect::Save(path, self.seen.text(&|id| ids.contains(id))))
     }
 
-    /// The terminal's title, when it changed: `theseus (2)`, the queue's
-    /// length (needs you, and done until seen).
+    /// The terminal's title, when it changed: `theseus ●1`, what needs you
+    /// and nothing else; plain `theseus` when nothing does (theseus-k2vca).
     pub fn title(&mut self) -> Option<Effect> {
-        let (need, done) = self.board.counts(&|v| self.is_done(v));
-        let t = match need + done {
+        let t = match self.board.tally(&|v| self.is_done(v)).needs {
             0 => "theseus".to_string(),
-            n => format!("theseus ({n})"),
+            n => format!("theseus ●{n}"),
         };
         if t == self.title {
             return None;
@@ -428,8 +435,10 @@ impl App {
         self.asking_questions = false;
         self.board.ask_again();
         self.board.reconnected();
+        self.board.work.reconnected();
         let mut out = vec![
             snapshot(),
+            work_watch(),
             call(method::HEALTH, Value::Null, Purpose::Health),
         ];
         // A thread chosen before: its row, for the status line.
@@ -482,6 +491,14 @@ impl App {
                     self.took(&view, Some(moved));
                 }
                 out.extend(self.follow_up());
+            }
+            Event::WorkChanged(c) => {
+                for v in c.views {
+                    self.board.work.apply(v);
+                }
+                for id in &c.gone {
+                    self.board.work.gone(id);
+                }
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
             Event::ConfirmResolved(r) => {
@@ -553,6 +570,10 @@ impl App {
         if all || lost.streams.iter().any(|s| s == "executions") {
             out.push(snapshot());
         }
+        if all || lost.streams.iter().any(|s| s == "work") {
+            self.board.work.reconnected();
+            out.push(work_watch());
+        }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             let stream = format!("session:{sid}");
             if all || lost.streams.contains(&stream) {
@@ -585,6 +606,12 @@ impl App {
                     return self.follow_up();
                 }
                 Err(e) => self.flash = Some((Tag::Bad, format!("the board did not decode: {e}"))),
+            },
+            Purpose::Work => match serde_json::from_value::<WorkWatchResult>(v) {
+                Ok(snap) => self.board.work.snapshot(snap.views),
+                // An answer this build can't read is no board: rows say
+                // their labels, as with a daemon that lacks the method.
+                Err(_) => self.board.work.live = false,
             },
             Purpose::Titles => {
                 if let Ok(list) = serde_json::from_value::<SessionListResult>(v) {
@@ -678,6 +705,12 @@ impl App {
         if matches!(purpose, Purpose::Typing | Purpose::Health) {
             return;
         }
+        // An older daemon lacks `work.watch`: the rows say their labels, as
+        // they did (theseus-k2vca). Nothing to tell the operator.
+        if matches!(purpose, Purpose::Work) {
+            self.board.work.live = false;
+            return;
+        }
         // An answer that did not count (theseus-sgh): its card says why, and
         // the question stays.
         if let Purpose::Answer { correlation_id, .. } = purpose {
@@ -695,6 +728,7 @@ impl App {
         }
         let what = match purpose {
             Purpose::Snapshot => method::EXECUTIONS_WATCH,
+            Purpose::Work => method::WORK_WATCH,
             Purpose::Titles => method::SESSION_LIST,
             Purpose::Questions => {
                 self.asking_questions = false;
@@ -1314,6 +1348,16 @@ fn sync_warning(v: Value) -> Option<String> {
 /// `executions.watch`: the board's snapshot, then its events.
 fn snapshot() -> Effect {
     call(method::EXECUTIONS_WATCH, json!({}), Purpose::Snapshot)
+}
+
+/// `work.watch`, as a screen a person looks at: the rows' words, then their
+/// changes (theseus-k2vca).
+fn work_watch() -> Effect {
+    call(
+        method::WORK_WATCH,
+        json!({ "interactive": true }),
+        Purpose::Work,
+    )
 }
 
 /// A session's pane: its newest nodes, then its events (design §2.9: the

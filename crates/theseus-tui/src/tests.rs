@@ -155,6 +155,8 @@ pub fn script(world: Arc<Mutex<World>>) -> Script {
         }
         match m {
             "executions.watch" => Ok(w.board.clone()),
+            // A daemon from before the work board; a test gives it an answer.
+            "work.watch" => Err((-32601, "no method work.watch".to_string())),
             "session.list" => {
                 let ids: Vec<&str> = p["ids"]
                     .as_array()
@@ -638,7 +640,7 @@ async fn a_snapshot_and_three_events_draw_the_sidebar_and_its_tree() {
     assert_eq!(
         rig.screen()[..6],
         [
-            head80(" theseus · 1 needs you"),
+            head80(" theseus · ● 1 needs you · ◐ 1 working"),
             row80(" ● confirm proc.run  spec review", "$1.20"),
             row80(" ○ ready  DM +1", "$0.42"),
             row80("   └ ◐ turn 2  check the tide tables", "$0.10"),
@@ -685,7 +687,7 @@ async fn a_snapshot_and_three_events_draw_the_sidebar_and_its_tree() {
     assert_eq!(
         rig.screen()[..7],
         [
-            head80(" theseus · 2 need you"),
+            head80(" theseus · ● 2 need you · ◐ 1 working"),
             row80(" ● confirm proc.run  spec review", "$1.20"),
             row80(" ◐ turn 4  DM +1", "$0.43"),
             row80("   └ ● confirm proc.run  check the tide tables", "$0.11"),
@@ -1670,7 +1672,7 @@ async fn a_finished_task_is_done_counted_and_told_without_a_bell() {
     rig.runner.out = Box::new(out.clone());
     rig.shows("ready  DM +1").await;
     assert!(
-        out.text().contains("\x1b]0;theseus (1)\x07"),
+        out.text().contains("\x1b]0;theseus ●1\x07"),
         "{:?}",
         out.text()
     );
@@ -1679,13 +1681,15 @@ async fn a_finished_task_is_done_counted_and_told_without_a_bell() {
     rig.daemon().notify("execution.changed", changed(&tide));
     rig.shows("◆ done  check the tide tables").await;
     assert!(
-        rig.screen()[0].contains("1 needs you · 1 done"),
+        rig.screen()[0].contains("● 1 needs you · ✓ 1 done"),
         "{:?}",
         rig.screen()
     );
-    let title = "\x1b]0;theseus (2)\x07".to_string();
-    rig.until("the title's count", |_| out.text().contains(&title))
-        .await;
+    // A finish needs no one: the title counts what needs you, and says so
+    // once (theseus-k2vca).
+    rig.settle().await;
+    let title = "\x1b]0;theseus ●1\x07".to_string();
+    assert_eq!(out.text().matches(&title).count(), 1, "{:?}", out.text());
     // Each title ends in a BEL too: a bell is a BEL that ends no title.
     let bells =
         |o: &Captured| o.text().matches('\x07').count() - o.text().matches("\x1b]0;").count();

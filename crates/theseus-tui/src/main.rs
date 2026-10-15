@@ -19,6 +19,7 @@ mod styled;
 mod term;
 mod threads;
 mod ui;
+mod work;
 
 #[cfg(test)]
 mod tests;
@@ -50,6 +51,8 @@ mod tests_sync;
 mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
+#[cfg(test)]
+mod tests_work;
 
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -23,6 +23,14 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   `Mode::NewTask`, `App::brief`, `Purpose::NewTask`. Tests: `src/tests_new_task.rs`.
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
+- `src/work.rs` (theseus-k2vca): what `work.watch` says of each session (the position rule, the jobs under them) and
+  the words of a sidebar row: `job 2:14 of usual 2:40 · said`, `model 0:31`, `asks: …`, `failed 15:13: why`, the plan's
+  `3/5` first; the title is cut before the doing. `executions.watch` stays the board's feed (the questions, reminders
+  and `confirm.resolved` ride it, not `work.watch`); this is the overlay that words the rows, and a daemon without
+  `work.watch` leaves `live` false so rows say their labels as before. A row's words are used only when the work view's
+  level equals the board's. A finished task's first report line shows under its row (`◆` until seen). The header
+  counts `● needs you · ◐ working · ✗ failed · ✓ done`; the window title counts needs-you alone (`theseus ●1`; a
+  failure is counted apart). Elapsed times repaint on the wall minute (one deadline in `App::deadline`), never each second.
 - `src/ui.rs`: drawing into a ratatui buffer. Nothing here changes the app.
 - `src/styled.rs` (theseus-rn7s): the pane's rows. A run of `Reply` lines is one reply, drawn whole with the CLI's
   markdown renderer (`theseus_client::render::md`) at the pane's width and turned into ratatui spans here; every
@@ -131,6 +139,9 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   `execution.stop` with `tasks`; `s` is unchanged.
 - `src/tests_typing.rs` (theseus-tnky): the input line's first key sends one `session.typing` per idle spell (not
   one a key, none from the filter's keys), and an older daemon's refusal says nothing.
+- `src/tests_work.rs` (theseus-k2vca): the regatta (a job, a model, a tool, a question, a failure) at 80 and 120
+  columns, the minute tick and the countdown on the paused clock, header and title counts, a report under its row, the
+  old daemon's fallback, and `events.lost` on the work stream.
 - `src/tests_sync.rs` (theseus-pjmj7): `health` is read at each connect (`Purpose::Health`) and the OpenClaw sync's `warn`, a
   failed or a missed night, shows in the header; an older daemon's answer or refusal says nothing.
 - The CLI's `tests/tui.rs` holds `theseus tui`: the exec, the socket and the arguments passed through, and exit 2
