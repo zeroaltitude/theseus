@@ -414,6 +414,15 @@ pub const ARMS: [(&str, &[&str]); 3] = [
     ("baseline", &["bm25", "entity", "vector"]),
 ];
 
+/// A hit's list of strings (its entities), empty when it has none.
+fn strings(v: &Value) -> Vec<String> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.as_str().map(str::to_string))
+        .collect()
+}
+
 /// One arm's pack for one turn.
 #[derive(Debug, Clone, Default)]
 pub struct Pack {
@@ -450,6 +459,8 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
             index_rank: i + 1,
             place: Place::Private,
             time_ms: h["time_ms"].as_u64().unwrap_or(0),
+            entities: strings(&h["entities"]),
+            matched: strings(&h["entities_matched"]),
         });
     }
     let in_context: BTreeSet<String> = rec

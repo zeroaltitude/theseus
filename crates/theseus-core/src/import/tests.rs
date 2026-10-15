@@ -204,6 +204,7 @@ pub(super) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
                 tool: None,
                 time_ms: n.created_at_ms,
                 entities_matched: vec![],
+                entities: Vec::new(),
                 sources: [(
                     "bm25".to_string(),
                     IndexSourceRank {

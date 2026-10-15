@@ -32,8 +32,10 @@
 pub mod activation;
 pub mod adjacency;
 pub mod cite;
+pub mod evidence;
 pub mod labels;
 pub mod outcomes;
+pub mod relevance;
 pub mod render;
 pub mod retention;
 pub mod stamp;
@@ -778,6 +780,7 @@ impl Memory {
         m.indexed_through = Some(r.indexed_through);
         m.candidates = r.hits.len() as u64;
         let r = when::kept(&mut m, begun.when.as_ref(), r);
+        let r_weights = r.weights.clone();
         m.skipped = r.skipped;
         m.timings.index = Some(r.timings);
         let mut sources: BTreeMap<String, u64> = BTreeMap::new();
@@ -787,7 +790,7 @@ impl Memory {
             .hits
             .into_iter()
             .enumerate()
-            .map(|(i, h)| {
+            .map(|(i, mut h)| {
                 for s in h.sources.keys() {
                     *sources.entry(s.clone()).or_default() += 1;
                 }
@@ -795,21 +798,11 @@ impl Memory {
                     .entry(h.session_id.clone())
                     .or_insert_with(|| place_of(&h.session_id))
                     .clone();
-                ranks.insert(format!("{}#{}", h.node_id, h.chunk), h.sources);
-                Candidate {
-                    node_id: h.node_id,
-                    chunk: h.chunk,
-                    session_id: h.session_id,
-                    position: h.position,
-                    kind: h.kind,
-                    origin: h.origin,
-                    external: h.external,
-                    text: h.text,
-                    fused: h.fused,
-                    index_rank: i + 1,
-                    place,
-                    time_ms: h.time_ms,
-                }
+                ranks.insert(
+                    format!("{}#{}", h.node_id, h.chunk),
+                    std::mem::take(&mut h.sources),
+                );
+                candidate(h, i + 1, place)
             })
             .collect();
         m.sources = sources;
@@ -833,7 +826,8 @@ impl Memory {
             retention: &retention,
             threads: lens.as_ref(),
         };
-        let params = begun.params(self.cfg.params(), m.budget_tokens);
+        let mut params = begun.params(self.cfg.params(), m.budget_tokens);
+        (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
         let pack = match begun.temporal {
             Some(kind) => temporal::pack(kind, &*scene.science, &asker, &candidates, &params),
             None => pipeline::recall(&*scene.science, &asker, candidates.clone(), &params),
@@ -922,8 +916,34 @@ impl Memory {
     pub fn params_of(&self, m: &RecallManifest) -> theseus_memory::Params {
         theseus_memory::Params {
             budget_tokens: m.budget_tokens,
+            floor: m
+                .relevance
+                .as_ref()
+                .map(relevance::floor_of)
+                .unwrap_or_default(),
             ..self.cfg.params()
         }
+    }
+}
+
+/// An index hit as recall's candidate: `index_rank` its rank from 1, `place`
+/// its session's.
+fn candidate(h: theseus_protocol::index::IndexHit, index_rank: usize, place: Place) -> Candidate {
+    Candidate {
+        node_id: h.node_id,
+        chunk: h.chunk,
+        session_id: h.session_id,
+        position: h.position,
+        kind: h.kind,
+        origin: h.origin,
+        external: h.external,
+        text: h.text,
+        fused: h.fused,
+        index_rank,
+        place,
+        time_ms: h.time_ms,
+        entities: h.entities,
+        matched: h.entities_matched,
     }
 }
 

@@ -296,6 +296,7 @@ fn hit_of(n: &Node, position: u64, rank: usize, a: f32, sci: &Activated) -> Opti
         external,
         text,
         entities_matched: Vec::new(),
+        entities: Vec::new(),
         sources: [(
             SOURCE.to_string(),
             IndexSourceRank {
@@ -484,6 +485,7 @@ mod tests {
             external: false,
             text: "t".into(),
             entities_matched: vec![],
+            entities: Vec::new(),
             sources: BTreeMap::new(),
             fused,
         }

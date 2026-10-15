@@ -21,6 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::floor::Floor;
 use crate::fsrs::Retention;
 use crate::science::{MemoryScience, RankCtx, Scored, SynthesisAdmit};
 use crate::threads::{ThreadLens, Verdict};
@@ -71,8 +72,12 @@ pub enum Reason {
     /// A newer node of its `same_entity` group is a candidate or in context
     /// (31a).
     Duplicate,
-    /// Below the science's least fused score.
+    /// Below the science's least fused score, or the relevance floor
+    /// (`Params::floor`).
     Threshold,
+    /// About another subject of the same kind as the question's, and below
+    /// the subject bar (`Params::floor`).
+    Subject,
     /// It did not fit the budget, or the items were already at their most.
     Budget,
     /// Its thread is sealed, or a seal is proposed for it (theseus-f2g0).
@@ -82,7 +87,7 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub const ALL: [Reason; 13] = [
+    pub const ALL: [Reason; 14] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
@@ -93,6 +98,7 @@ impl Reason {
         Reason::Superseded,
         Reason::Duplicate,
         Reason::Threshold,
+        Reason::Subject,
         Reason::Budget,
         Reason::Sealed,
         Reason::Thread,
@@ -110,6 +116,7 @@ impl Reason {
             Reason::Superseded => "superseded",
             Reason::Duplicate => "duplicate",
             Reason::Threshold => "threshold",
+            Reason::Subject => "subject",
             Reason::Budget => "budget",
             Reason::Sealed => "sealed",
             Reason::Thread => "thread",
@@ -138,6 +145,11 @@ pub struct Candidate {
     /// When the node was written (ms since the epoch): a question about
     /// time orders by it (theseus-q1tbn).
     pub time_ms: u64,
+    /// Every entity the chunk holds (`type:value`), as the index found them
+    /// (theseus-55hlu): empty from an index that does not say.
+    pub entities: Vec<String>,
+    /// The question's entities this chunk holds.
+    pub matched: Vec<String>,
 }
 
 impl Candidate {
@@ -205,6 +217,9 @@ pub struct Params {
     pub max_items: usize,
     pub item_tokens: u64,
     pub include_external: bool,
+    /// The relevance floor and the subject bar (theseus-55hlu); the default
+    /// is neither.
+    pub floor: Floor,
 }
 
 impl Default for Params {
@@ -214,6 +229,7 @@ impl Default for Params {
             max_items: 6,
             item_tokens: 400,
             include_external: false,
+            floor: Floor::default(),
         }
     }
 }
@@ -320,6 +336,12 @@ fn filter(
     }
     if c.fused < science.min_score() || c.fused.is_nan() {
         return Some(Reason::Threshold);
+    }
+    if c.fused < p.floor.min_fused {
+        return Some(Reason::Threshold);
+    }
+    if c.fused < p.floor.subject_fused && p.floor.other_subject(&c.entities) {
+        return Some(Reason::Subject);
     }
     None
 }
@@ -471,6 +493,8 @@ mod tests {
             index_rank: 1,
             place,
             time_ms: 0,
+            entities: Vec::new(),
+            matched: Vec::new(),
         }
     }
 
@@ -704,6 +728,7 @@ mod tests {
         }
         let synth = synthesis_pack(&p);
         let threaded = threaded_pack(&p);
+        let subject = subject_pack();
         // Every reason this step builds is met above.
         for r in Reason::ALL {
             assert!(
@@ -711,6 +736,7 @@ mod tests {
                     + placed.dropped_for(r)
                     + synth.dropped_for(r)
                     + threaded.dropped_for(r)
+                    + subject.dropped_for(r)
                     > 0,
                 "{}",
                 r.as_str()
@@ -770,6 +796,7 @@ mod tests {
             max_items: 3,
             item_tokens: 400,
             include_external: false,
+            floor: Floor::default(),
         };
         let pack = run(&Place::Private, &[], cands, &p);
         let admitted: Vec<_> = pack
@@ -786,6 +813,97 @@ mod tests {
             .find(|d| d.candidate.node_id == "n1")
             .unwrap();
         assert_eq!(n1.tokens, 400, "an excerpt is cut to its item's tokens");
+    }
+
+    /// A floor of 0.4 over a ceiling of 0.05 admits what scores 0.02 or more
+    /// and drops the rest as `threshold`; the best of them is not admitted
+    /// for being the best, so a question whose every hit is faint gets an
+    /// empty pack (theseus-55hlu).
+    #[test]
+    fn a_candidate_below_the_floor_is_not_admitted() {
+        let floor = |share| Params {
+            floor: Floor::new(share, 0.0, 0.05, Vec::new()),
+            ..Params::default()
+        };
+        let cands = || {
+            vec![
+                cand("gold", "ses_a", Place::Private, 0.04),
+                cand("edge", "ses_a", Place::Private, 0.0205),
+                cand("near", "ses_b", Place::Private, 0.019),
+            ]
+        };
+        let pack = run(&Place::Private, &[], cands(), &floor(0.4));
+        let kept: Vec<_> = pack
+            .admitted
+            .iter()
+            .map(|a| a.candidate.node_id.as_str())
+            .collect();
+        assert_eq!(kept, ["gold", "edge"]);
+        assert_eq!(reason_of(&pack, "near"), Some(Reason::Threshold));
+        let faint: Vec<_> = cands()
+            .into_iter()
+            .map(|mut c| {
+                c.fused /= 4.0;
+                c
+            })
+            .collect();
+        let none = run(&Place::Private, &[], faint, &floor(0.4));
+        assert!(none.admitted.is_empty(), "no candidate passes: no pack");
+        assert_eq!(none.dropped_for(Reason::Threshold), 3);
+        assert_eq!(
+            run(&Place::Private, &[], cands(), &floor(0.0))
+                .admitted
+                .len(),
+            3,
+            "0 is off"
+        );
+    }
+
+    /// The pack of a question that names `db-prod`, over a note that names
+    /// it, two about `db-stage` (one just under the subject bar, one over it)
+    /// and one of another kind of thing.
+    fn subject_pack() -> Pack {
+        let p = Params {
+            floor: Floor::new(0.2, 0.7, 0.05, vec!["host:db-prod.example".into()]),
+            ..Params::default()
+        };
+        let with = |node: &str, fused, entities: &[&str]| {
+            let mut c = cand(node, "ses_a", Place::Private, fused);
+            c.entities = entities.iter().map(|e| e.to_string()).collect();
+            c.matched = c
+                .entities
+                .iter()
+                .filter(|e| p.floor.asked.contains(e))
+                .cloned()
+                .collect();
+            c
+        };
+        run(
+            &Place::Private,
+            &[],
+            vec![
+                with("prod", 0.031, &["host:db-prod.example"]),
+                with("stage", 0.03, &["host:db-stage.example"]),
+                with("stage_strong", 0.04, &["host:db-stage.example"]),
+                with("file", 0.03, &["file:notes.md"]),
+            ],
+            &p,
+        )
+    }
+
+    /// A distractor holding another host than the one the question names
+    /// must clear the higher bar; the one that names the asked host, and one
+    /// about another kind of thing, are held to the floor alone.
+    #[test]
+    fn a_same_kind_other_subject_must_clear_the_subject_bar() {
+        let pack = subject_pack();
+        let kept: Vec<_> = pack
+            .admitted
+            .iter()
+            .map(|a| a.candidate.node_id.as_str())
+            .collect();
+        assert_eq!(kept, ["stage_strong", "prod", "file"]);
+        assert_eq!(reason_of(&pack, "stage"), Some(Reason::Subject));
     }
 
     #[test]

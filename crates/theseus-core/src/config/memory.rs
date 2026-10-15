@@ -150,6 +150,18 @@ pub struct MemoryConfig {
     /// recall's own order stands, and the answer is recorded `late`.
     #[serde(default = "default_rerank_wait_ms")]
     pub rerank_wait_ms: u64,
+    /// The relevance floor (theseus-55hlu): a candidate whose fused score is
+    /// under this share of the best its sources allow (every answering
+    /// source's top rank) is not admitted, and a pack of none brings no
+    /// `Recall` node. 0 admits all.
+    #[serde(default = "default_recall_floor")]
+    pub recall_floor: f64,
+    /// The subject bar (theseus-55hlu): the share of that best a candidate
+    /// about another subject of the same kind as the question's must reach
+    /// (another host, path or crate than the one the question names). 0
+    /// is no bar.
+    #[serde(default)]
+    pub recall_subject_bar: f64,
     /// Whether external text (a fetched page, a listed program's output) may
     /// be recalled.
     #[serde(default)]
@@ -187,6 +199,9 @@ pub struct MemoryConfig {
 
 fn default_budget() -> u64 {
     1500
+}
+fn default_recall_floor() -> f64 {
+    0.0
 }
 fn default_max_items() -> usize {
     6
@@ -267,6 +282,8 @@ impl Default for MemoryConfig {
             recall_deadline_ms: default_deadline_ms(),
             recall_vector_tokens: default_vector_tokens(),
             rerank_wait_ms: default_rerank_wait_ms(),
+            recall_floor: default_recall_floor(),
+            recall_subject_bar: 0.0,
             include_external: false,
             summary_profile: default_summary_profile(),
             assembled_budget_tokens: default_assembled_budget(),
@@ -355,6 +372,17 @@ impl MemoryConfig {
                 self.synth_limit_usd_per_day
             );
         }
+        for (key, v) in [
+            ("recall_floor", self.recall_floor),
+            ("recall_subject_bar", self.recall_subject_bar),
+        ] {
+            if !(0.0..=1.0).contains(&v) {
+                bail!(
+                    "memory.{key} = {v} is outside 0 to 1: it is a share of the best fused \
+                     score the sources allow"
+                );
+            }
+        }
         if self.consolidate_hour > 23 {
             bail!(
                 "memory.consolidate_hour = {} is not an hour of the day (0 to 23)",
@@ -378,6 +406,7 @@ impl MemoryConfig {
             max_items: self.recall_max_items,
             item_tokens: 400,
             include_external: self.include_external,
+            floor: theseus_memory::Floor::default(),
         }
     }
 }
@@ -503,9 +532,28 @@ mod tests {
             "synth_limit_usd_per_day = -1.0",
             "consolidate_hour = 24",
             "node_cache_mb = 16385",
+            "recall_floor = 1.1",
+            "recall_floor = -0.1",
+            "recall_subject_bar = 1.5",
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"shadow\"\n{bad}\n")).unwrap();
             assert!(cfg.validate().is_err(), "{bad}");
+        }
+    }
+
+    /// The relevance floor and the subject bar are shares (theseus-55hlu): a
+    /// note says nothing, the floor is the documented default, the bar is
+    /// off, and a share is read as written; the template documents both.
+    #[test]
+    fn the_floor_and_the_subject_bar_are_shares_of_the_best_score() {
+        let m = crate::Config::example().memory;
+        assert_eq!(m.recall_floor, default_recall_floor());
+        assert_eq!(m.recall_subject_bar, 0.0, "the bar is off unless measured to help");
+        let cfg = parse("[memory]\nrecall_floor = 0.25\nrecall_subject_bar = 0.6\n").unwrap();
+        assert_eq!((cfg.memory.recall_floor, cfg.memory.recall_subject_bar), (0.25, 0.6));
+        cfg.validate().unwrap();
+        for key in ["recall_floor", "recall_subject_bar"] {
+            assert!(crate::Config::EXAMPLE_TOML.contains(&format!("# {key} = ")), "{key}");
         }
     }
 

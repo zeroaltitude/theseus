@@ -300,6 +300,7 @@ fn tied_index(c: &Arc<Core>, sessions: Vec<String>) -> Ask {
                     time_ms: 0,
                     external: false,
                     entities_matched: vec![],
+                    entities: Vec::new(),
                     sources: [(
                         "bm25".to_string(),
                         IndexSourceRank {

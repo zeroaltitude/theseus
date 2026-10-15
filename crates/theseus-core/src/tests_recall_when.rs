@@ -65,6 +65,7 @@ fn dated_index(
                 tool: None,
                 external: false,
                 entities_matched: vec![],
+                entities: Vec::new(),
                 sources: [(
                     "bm25".to_string(),
                     IndexSourceRank {

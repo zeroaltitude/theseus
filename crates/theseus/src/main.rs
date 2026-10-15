@@ -967,6 +967,10 @@ enum MemoryCmd {
         /// syntheses.
         #[arg(long, value_parser = ["bm25", "baseline", "+retention", "+activation", "+synthesis"])]
         arm: Option<String>,
+        /// Only nodes written before this WAL position are candidates (as a turn's recall at
+        /// that position would see them).
+        #[arg(long, value_name = "POSITION")]
+        as_of: Option<u64>,
     },
     /// Consolidation now: clusters of notes recall admits together become cited syntheses,
     /// checked by Jev. The operator's, refused inside a job.

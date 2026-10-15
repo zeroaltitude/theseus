@@ -20,6 +20,7 @@ pub mod bus;
 pub mod cancel;
 pub mod catalog;
 pub mod ceiling;
+pub mod census;
 pub mod cgroup;
 pub mod check;
 pub mod commitments;
@@ -111,6 +112,7 @@ pub mod threads_import;
 pub mod tighten;
 pub mod tool_words;
 pub mod toolrun;
+pub mod tools_defer;
 pub mod trace;
 pub mod transcripts;
 pub mod turn;
@@ -196,6 +198,8 @@ mod tests_categorize;
 #[cfg(test)]
 mod tests_ceilings;
 #[cfg(test)]
+mod tests_census;
+#[cfg(test)]
 mod tests_check;
 #[cfg(test)]
 mod tests_check_view;
@@ -221,6 +225,8 @@ mod tests_continue_slow;
 mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_day_notify;
+#[cfg(test)]
+mod tests_defer;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
@@ -321,6 +327,8 @@ mod tests_recall;
 mod tests_recall_deadline;
 #[cfg(test)]
 mod tests_recall_node;
+#[cfg(test)]
+mod tests_recall_precision;
 #[cfg(test)]
 mod tests_recall_time;
 #[cfg(test)]

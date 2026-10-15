@@ -1063,12 +1063,14 @@ pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
             session,
             k,
             arm,
+            as_of,
         } => {
             let p = MemorySearchParams {
                 query: query.join(" "),
                 session_id: session,
                 k: Some(k),
                 arm,
+                as_of,
             };
             let v = conn
                 .request(method::MEMORY_SEARCH, serde_json::to_value(&p)?)

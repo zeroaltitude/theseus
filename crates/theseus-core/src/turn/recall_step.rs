@@ -500,7 +500,13 @@ impl TurnRunner {
             let excerpt = item.text.as_deref().unwrap_or_default();
             let chunk = render::frozen_range(&text_of(&source), excerpt);
             let place = self.place_name(&item.session_id);
-            let mut header = render::item_header(&source, item.position, &place, chunk);
+            let session = self
+                .store
+                .get_session::<crate::session::SessionRecord>(&item.session_id)
+                .ok()
+                .flatten();
+            let mut header =
+                render::item_header(&source, item.position, &place, chunk, session.as_ref());
             if let Some(title) = threads
                 .as_ref()
                 .and_then(|th| th.other_title(&item.session_id))

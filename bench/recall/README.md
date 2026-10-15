@@ -18,6 +18,7 @@ no distance and no indirect probe. This bench drives each arm live, through its 
 | `score.py` | The scorer: every probe checked, each arm's curve, half-life, and the report. |
 | `tokens.py` | Theseus's request estimate, mirrored: the census, the rates, the margin, the budget, the ring. |
 | `standin.py` | A stand-in model that counts each request as the compiler estimates it, for the offline smoke. |
+| `precision.py` | Recall's precision without a model (theseus-55hlu): a finished stand-in run's store, a scratch daemon per `[memory] recall_floor` / `recall_subject_bar` setting, `memory.search` each probe; counts the distractors and the gold admitted, and the pack's tokens, by held-in and held-out half. |
 | `test_*.py` | Their tests. |
 
 Standard library only, everywhere.
