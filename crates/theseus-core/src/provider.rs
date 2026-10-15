@@ -105,7 +105,7 @@ impl ProviderRequest {
 
     /// sha256 of the body, keys sorted: what a reconstruction must reproduce (§4.4).
     pub fn digest(&self) -> String {
-        theseus_kernel::digest_json(&self.body())
+        digest::of(self)
     }
 
     /// The prompt's size in tokens at its model's built-in figures
@@ -747,6 +747,7 @@ pub trait Provider: Send + Sync {
 
 // --------------------------------------------------------------- anthropic
 
+mod digest;
 #[cfg(test)]
 mod tests_warm;
 
@@ -882,10 +883,9 @@ impl Anthropic {
         let deadline = started + Duration::from_secs(self.timeouts.total_secs);
         let elapsed = |s: Instant| s.elapsed().as_millis() as u64;
 
-        let mut body = req.body();
-        if let Value::Object(m) = &mut body {
-            m.insert("stream".into(), Value::Bool(true));
-        }
+        // The body and the stream flag, written from the request with no
+        // copy of it (theseus-0l3g).
+        let body = digest::bytes(req, true);
         let mut post = self
             .http
             .post(format!("{}/v1/messages", self.api_base))
@@ -895,7 +895,7 @@ impl Anthropic {
         if !req.betas.is_empty() {
             post = post.header("anthropic-beta", req.betas.join(","));
         }
-        let send = post.json(&body).send();
+        let send = post.body(body).send();
 
         // First byte: response headers within the budget.
         let first_byte_budget =

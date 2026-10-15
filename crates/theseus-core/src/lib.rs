@@ -112,6 +112,7 @@ pub mod tighten;
 pub mod tool_words;
 pub mod toolrun;
 pub mod trace;
+pub mod transcripts;
 pub mod turn;
 pub mod voice;
 pub mod wake;

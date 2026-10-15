@@ -801,6 +801,7 @@ impl TurnRunner {
             signals: None,
             assembled: None,
             situation: &crate::compiler::situation::Situation::Detour,
+            kept: None,
         });
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {

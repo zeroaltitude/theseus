@@ -1611,6 +1611,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `n.summary_last`, `compiler::renderable`, `compaction::is_summary`) **and touches `n.body` only for the nodes it
     needs**, else it decodes the session. A closure typed `|n: &Node|` over stubs derefs each one: type it `&Stub`.
     `context.compiled`'s `decoded` and `stubs` say what a compile read and what it left.
+- **A long session's turn** (theseus-0l3g): its cost follows what it renders, not the session's length.
+  - `transcripts.rs`: each session's transcript as last read, kept across turns as cold stubs (fields and position,
+    never bytes nor node; at most 256 sessions and 400,000 stubs), so a turn's first read scans only the session's
+    records after the last one it saw (`Store::scan_kept`). Debug builds still compare it with the store's whole read.
+  - `compiler/ring/sums.rs`: the ring's cut before a user message is guessed from the segments' census sums, walked
+    from the last cut back (each segment rendered once), then settled by rendering the guess and its neighbour: the
+    earliest cut whose own render is under the target, as the walk over every cut picked it while a later cut never
+    estimates more. After a start the ring decodes what lies past the stored cut. Tests: `compiler/tests_ring_sums.rs`.
+  - `compiler/render.rs` and `compiler/kept.rs`: the render is a state nodes are rendered into, kept per session
+    across loops (`[context] kept_mb`, 64; 0 none) and taken up only when its key (compilation, strip, provider, model,
+    media, refused images, the cold rewrite's view) and its nodes' ids match and it was closed (no repair, no cut answer
+    open, nothing retried). Every request is byte for byte a whole render's: `compiler/tests_kept.rs` holds it over
+    generated sessions. Change `render::State::item`, never a copy of it.
+  - `provider/digest.rs`: the digest and the body sent are written from the request, with no copy of it.
+  - `compiler/phases.rs`: `THESEUS_LOG=info,theseus_core::compiler::phases=debug` logs each compile's phases.
 
 ## Where the big things live
 

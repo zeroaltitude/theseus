@@ -361,6 +361,7 @@ impl TurnRunner {
                 signals: None,
                 assembled: None,
                 situation: &situation,
+                kept: None,
             };
             Ok((current.is_some(), crate::compiler::compile(input)))
         })()
