@@ -69,6 +69,7 @@ pub mod sessions;
 pub mod signals;
 pub mod standing;
 mod submit;
+pub mod surface;
 pub mod task_start;
 pub mod tasks;
 pub mod term;
@@ -277,10 +278,9 @@ pub mod method {
         /// A search of the index, forwarded to the tender as it came
         /// (`index::IndexQueryParams`): fused hits as of a position. A read.
         INDEX_QUERY = "index.query",
-        /// Recall's pipeline over a query, as a turn in a session's place
-        /// would run it (M6 step 30a; `memory::MemorySearchParams`): what it
-        /// would admit, and why each other hit was dropped. A read; it
-        /// writes nothing.
+        /// Recall's pipeline over a query, as a turn in a session's place would run it (M6 step 30a;
+        /// `memory::MemorySearchParams`): what it would admit, and why each other hit was dropped. A read; it writes
+        /// nothing.
         MEMORY_SEARCH = "memory.search",
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.

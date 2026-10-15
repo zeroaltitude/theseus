@@ -109,6 +109,8 @@ mod tests_session_states;
 #[cfg(test)]
 mod tests_stop_all;
 #[cfg(test)]
+mod tests_surface;
+#[cfg(test)]
 mod tests_thread_context;
 #[cfg(test)]
 mod tests_thread_import;

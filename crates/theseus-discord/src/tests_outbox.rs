@@ -139,6 +139,7 @@ async fn ask(rpc: &RpcClient, sid: &str, input: &str) -> TurnSubmitResult {
             thread: None,
             speaking: None,
             in_reply_to: None,
+            via: None,
         },
     )
     .await

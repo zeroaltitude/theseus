@@ -111,6 +111,7 @@ impl Rig {
             thread: None,
             speaking: None,
             in_reply_to: None,
+            via: None,
         };
         rpc.call(theseus_protocol::method::TURN_SUBMIT, p)
             .await

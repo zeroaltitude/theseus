@@ -419,6 +419,12 @@ const SAMPLES: &[Sample] = &[
         bytes: r#"{"at_unix_ms":1790000000075,"kind":"label.held_post_answered","session_id":"ses_lighthouse","data":{"approve":false,"by":"the CLI","question":"act_00000000000000000000000000000074"}}"#,
         kept: Kept::All,
     },
+    Sample {
+        kind: kinds::NODE,
+        layout: "a user message as format 33 wrote it (theseus-nhew's build; the layout is unchanged since 7), before the surface it was written from (`surface`, format 38, theseus-slvl.3): it reads with none and renders with no tag; by hand, in the layout the build before it (e354320) writes",
+        bytes: r#"{"id":"msg_00000000000000000000000000000341","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t34","loop_index":null,"origin":"operator","author":"sock#3","created_at_ms":1790000000341,"body":{"kind":"user_message","text":"quick one: is the tide in?"}}"#,
+        kept: Kept::All,
+    },
 ];
 
 /// A payload of `kind`, decoded as this build's reader decodes it, and
@@ -540,7 +546,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 37);
+    assert_eq!(moved["format"], 38);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -551,7 +557,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
 
 /// A store of format 29, whose ledger holds rows with no chain (theseus-bmkxk):
 /// the build opens it and reads them, its first ledger write starts the chain
-/// with a row that counts and pins them, and the manifest moves to 37. The
+/// with a row that counts and pins them, and the manifest moves to 38. The
 /// chain then verifies, with the old rows pinned by count.
 #[test]
 fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
@@ -592,7 +598,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 37);
+    assert_eq!(moved["format"], 38);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -600,7 +606,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
 
 /// A store of format 29, which holds a session and a compilation as the
 /// build before forks (theseus-2qzx) wrote them: the build opens it, reads
-/// both with no origin and no inherited run, and moves the manifest to 37,
+/// both with no origin and no inherited run, and moves the manifest to 38,
 /// which an older build then refuses. A fork written then reads back.
 #[test]
 fn a_format_29_store_opens_with_no_forks_and_takes_one() {
@@ -647,7 +653,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 37);
+    assert_eq!(moved["format"], 38);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -676,7 +682,7 @@ fn a_format_33_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 37,
+/// it, reads an empty board, takes a thread and moves the manifest to 38,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -699,7 +705,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 37);
+    assert_eq!(moved["format"], 38);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -785,7 +791,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 37);
+    assert_eq!(moved["format"], 38);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -825,7 +831,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 37,
+/// A store of format 33 opens, and its first write moves the manifest to 38,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -850,8 +856,24 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 37);
+    assert_eq!(moved["format"], 38);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
+}
+
+/// A message that records its surface (format 34) writes the code beside its
+/// author and reads it back; a node written before it has none, and keeps
+/// its bytes whatever the build (the sample above).
+#[test]
+fn a_user_message_records_its_surface_and_an_old_one_has_none() {
+    let old = r#"{"id":"msg_00000000000000000000000000000341","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t34","loop_index":null,"origin":"operator","author":"sock#3","created_at_ms":1790000000341,"body":{"kind":"user_message","text":"quick one: is the tide in?"}}"#;
+    let n: Node = serde_json::from_str(old).unwrap();
+    assert_eq!(n.surface, None);
+    let mut n = n;
+    n.surface = Some("terminal:tui".into());
+    let v = serde_json::to_value(&n).unwrap();
+    assert_eq!(v["surface"], "terminal:tui");
+    let back: Node = serde_json::from_value(v).unwrap();
+    assert_eq!(back.surface.as_deref(), Some("terminal:tui"));
 }

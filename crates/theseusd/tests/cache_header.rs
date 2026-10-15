@@ -279,8 +279,8 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     });
     let raw = r.model.raw_requests();
     let first = |what: &str, pick: &dyn Fn(&str) -> bool| first_request(&raw, what, pick);
-    let (a_raw, a) = first("the first session", &|t| t.starts_with(START));
-    let (b_raw, b) = first("the second session", &|t| t.starts_with(OTHER));
+    let (a_raw, a) = first("the first session", &|t| t.contains(START));
+    let (b_raw, b) = first("the second session", &|t| t.contains(OTHER));
     let (t_raw, t) = first("the task", &|t| t.contains(BRIEF));
     assert_ne!(a_raw, b_raw);
     assert_ne!(a_raw, t_raw);
@@ -394,9 +394,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     .unwrap();
     r.turn(profile, "third", EDITED);
     let raw = r.model.raw_requests();
-    let (_, e) = first_request(&raw, "the session after the edit", &|t| {
-        t.starts_with(EDITED)
-    });
+    let (_, e) = first_request(&raw, "the session after the edit", &|t| t.contains(EDITED));
     let edited = e["system"].as_array().unwrap();
     assert_eq!(edited.len(), 4, "{profile}: {}", bytes(&e["system"]));
     assert!(

@@ -636,7 +636,7 @@ const BULK: usize = 4096;
 /// cache layout names each block's text by its SHA-256 (`digest`), the text
 /// stored once in the blobs; and the ledger kinds `turn.replayed` and
 /// `route.replay.judged`.
-const MANIFEST_FORMAT: u32 = 37;
+const MANIFEST_FORMAT: u32 = 38;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

@@ -57,7 +57,7 @@ fn a_history_page_marks_its_cited_replies() {
     d.history(&history(&[cite("m:a1b2c3")]));
     let t = texts(&d);
     // The header, then the reply's own line (drawn as markdown by the pane).
-    assert!(t[0].ends_with("glm-x:"), "{t:?}");
+    assert!(t[0].ends_with("Theseus (glm-x):"), "{t:?}");
     assert_eq!(t[1], "We chose oak [1], not [m:ffffff].");
     let notes: Vec<_> = d
         .lines()
@@ -73,7 +73,7 @@ fn a_history_page_marks_its_cited_replies() {
     // With no citations the page is as it was.
     let mut plain = Detail::new("ses_dm0001");
     plain.history(&history(&[]));
-    assert!(texts(&plain)[0].ends_with("glm-x:"));
+    assert!(texts(&plain)[0].ends_with("Theseus (glm-x):"));
     assert_eq!(texts(&plain)[1], "We chose oak [m:a1b2c3], not [m:ffffff].");
 }
 

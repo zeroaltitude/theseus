@@ -92,6 +92,7 @@ mod standing_step;
 pub mod stdio_step;
 mod steer_step;
 mod stopping_step;
+mod surface_step;
 mod title_step;
 
 pub use route_step::{LiveSwitched, SWITCHED};
@@ -104,7 +105,7 @@ pub const PERSONA: &str = "You are Theseus, a coding and operations agent workin
 /// request, so the model never takes what the harness added (a recalled
 /// note, a wake, a report) for something the person sent (theseus-fpm2).
 /// Frozen text in the shared header, as the persona is.
-pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle.";
+pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle. A person's message may start with a bracketed tag that names where they wrote from.";
 
 /// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
@@ -1652,7 +1653,7 @@ impl TurnRunner {
             prompt,
             moved,
         } = asked;
-        let (sid, turn_id, target) = (t.tc.session_id, t.tc.turn_id, t.target);
+        let (sid, target) = (t.tc.session_id, t.target);
 
         // 1. What happened while no turn was running. A held turn that has
         // anything to take is admitted first (theseus-2uby).
@@ -1675,7 +1676,7 @@ impl TurnRunner {
         } else if let Some(text) = &input {
             let files = self.accept_files(t, attachments);
             let first_file = files.first().map(|a| a.name.clone());
-            let node = Node::user_with(sid, Some(turn_id), &author, text, files);
+            let node = t.user_node(&author, text, files);
             self.title_input(session, text, first_file.as_deref());
             // The turn's admission rides in the input's frame (theseus-2uby),
             // and so does a new target, under the record's lock; the same one

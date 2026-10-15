@@ -63,6 +63,8 @@ fn asked(req: &ProviderRequest) -> (String, usize) {
                 .iter()
                 .filter(|b| b["type"] == "text" && !crate::task_graph::view::is_view(b))
                 .filter_map(|b| b["text"].as_str())
+                // The surface tag is the harness's (theseus-slvl.3).
+                .map(crate::surface::strip_tag)
                 .collect::<Vec<_>>()
                 .join("\n"),
             _ => String::new(),

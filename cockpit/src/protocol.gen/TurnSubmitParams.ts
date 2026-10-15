@@ -76,4 +76,12 @@ speaking?: Speaking,
  * of this process's replies, theseus-rha2): when that turn ran in a
  * thread, so does this message, certain.
  */
-in_reply_to?: string, };
+in_reply_to?: string, 
+/**
+ * Which of its programs the client is, for the surface tag at the head
+ * of the message (theseus-slvl.3): `ask`, `tui`, or `voice`. A label for
+ * the model's register, never an authority: the connection's own
+ * surface decides the rest, and a word this build does not know is
+ * read as none.
+ */
+via?: string, };

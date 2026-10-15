@@ -23,6 +23,7 @@ import { scoreWords, type Noticed, type Score } from '@/lib/scores'
 import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { authorWord } from '@/ship/words'
 import { ReplyMarkdown } from '@/components/Cites'
+import { replySpeaker } from '@/lib/speaker'
 
 type D = Record<string, any>
 
@@ -297,7 +298,8 @@ function AssistantItem({ n, cites }: { n: NodeInfo; cites?: Citation[] }) {
         {n.text ? <ReplyMarkdown text={n.text} cites={cites} />
           : !n.thinking && <div className="text-[12px] text-ink-faint">(no text: tool calls only)</div>}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
-          {d.model && <span className="num text-model">{d.model}</span>}
+          <span className="font-medium text-model">{replySpeaker(d.model).name}</span>
+          {d.model && <span className="num text-model" title="the model that wrote this reply">{replySpeaker(d.model).model}</span>}
           {d.cost_usd !== undefined && <span className="num text-money">{usd(d.cost_usd)}</span>}
           {u && <span className="num">{tokens((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0))} in · {tokens(u.output_tokens)} out · {tokens(u.cache_read_input_tokens)} cached</span>}
           {d.stop_reason && <span className="num">{d.stop_reason}</span>}

@@ -78,7 +78,9 @@ async fn a_paste_in_the_input_line_is_one_message_sent_on_enter() {
     rig.asked("turn.submit", 1).await;
     assert_eq!(
         rig.daemon().asked("turn.submit"),
-        [json!({"session_id": "ses_dm0001", "input": "line\nquit", "author": "the TUI"})]
+        [
+            json!({"session_id": "ses_dm0001", "input": "line\nquit", "author": "the TUI", "via": "tui"})
+        ]
     );
     assert!(!rig.runner.quitting());
 }
@@ -165,7 +167,7 @@ async fn a_paste_with_no_session_open_is_never_sent_to_a_later_one() {
     rig.asked("turn.submit", 1).await;
     assert_eq!(
         rig.daemon().asked("turn.submit"),
-        [json!({"session_id": "ses_dm0001", "input": "hi", "author": "the TUI"})]
+        [json!({"session_id": "ses_dm0001", "input": "hi", "author": "the TUI", "via": "tui"})]
     );
 }
 

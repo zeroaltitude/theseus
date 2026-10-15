@@ -34,6 +34,8 @@ pub struct Steered {
     pub text: String,
     pub attachments: Vec<Attachment>,
     pub author: String,
+    /// The code of the surface it was written from (`surface::code_of`).
+    pub surface: Option<String>,
     /// The surface's message it answers (a Discord message id).
     pub reply_to: Option<String>,
     /// When it reached the daemon.
@@ -399,6 +401,7 @@ mod tests {
             text: text.into(),
             attachments: vec![],
             author: "test".into(),
+            surface: None,
             reply_to: None,
             arrived: Instant::now(),
         }

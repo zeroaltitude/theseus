@@ -161,9 +161,9 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     let request = model.requests().pop().unwrap();
     let said = texts(&request);
     assert_eq!(said.len(), 5, "{said:?}");
-    assert_eq!(said[0], "turn one");
-    assert_eq!(said[2], "turn two");
-    assert_eq!(said[4], "the other road, please");
+    assert_eq!(said[0], "[Terminal · theseus ask] turn one");
+    assert_eq!(said[2], "[Terminal · theseus ask] turn two");
+    assert_eq!(said[4], "[Terminal · theseus ask] the other road, please");
     assert!(!said.iter().any(|t| t.contains("turn three")), "{said:?}");
 
     // History of both: the fork shows the prefix marked as the source's,

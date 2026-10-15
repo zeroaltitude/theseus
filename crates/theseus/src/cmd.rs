@@ -100,6 +100,7 @@ pub async fn ask(
         thread,
         speaking: None,
         in_reply_to: None,
+        via: Some("ask".into()),
     })?;
     let follow_for = spawned.then_some(a.follow_for);
     let shown = (a.thinking, a.trace);

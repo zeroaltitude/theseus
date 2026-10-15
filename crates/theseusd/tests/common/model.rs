@@ -247,6 +247,8 @@ fn prompt(req: &Value) -> String {
             .filter_map(|b| b["text"].as_str())
             // The task graph's view (39a) is the harness's, not the prompt.
             .filter(|t| !theseus_core::task_graph::view::is_head(t))
+            // So is the surface tag at its head (theseus-slvl.3).
+            .map(theseus_core::surface::strip_tag)
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),

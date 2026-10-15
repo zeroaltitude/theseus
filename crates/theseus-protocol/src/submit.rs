@@ -97,6 +97,14 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub in_reply_to: Option<String>,
+    /// Which of its programs the client is, for the surface tag at the head
+    /// of the message (theseus-slvl.3): `ask`, `tui`, or `voice`. A label for
+    /// the model's register, never an authority: the connection's own
+    /// surface decides the rest, and a word this build does not know is
+    /// read as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub via: Option<String>,
 }
 
 #[cfg(test)]

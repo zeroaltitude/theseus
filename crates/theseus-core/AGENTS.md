@@ -231,6 +231,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
   format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
   the block.
+- **The surface tag** (theseus-slvl.3; store format 34; `surface.rs`, `turn/surface_step.rs`): a person's message node
+  records the surface it was written from (`Node.surface`: `terminal:ask`, `terminal:tui`, `terminal`, `cockpit`, `mcp`,
+  `discord:dm`, `discord:channel:<shared|private>:#name`, `voice`), settled by `Core::surface_of` in `turn.submit` from
+  the connection's listener (`approval::Surface`), the client's own word (`TurnSubmitParams.via`: `ask`, `tui`, `voice`;
+  anything else reads as none) and, on Discord alone, the session's place and its class. It rides the turn's
+  `EventSink.surface` into `Turn::user_node` and a steered message's `Steered.surface`; a connection no listener named
+  gets none. The compiler (`user_blocks` -> `surface::lead`) renders `[Terminal · TUI]` and the like at the head of the
+  person's text, in the user turn only: layers 1 and 2 are byte-identical across surfaces, the node's text stays as
+  typed, and a node's tag is fixed at its write, so a place that moves changes only later messages. The words are one
+  table (`surface::tag`); a voice turn keeps its framing line and gets no tag. The header's one sentence is the tail of
+  `turn::ASSEMBLY`. A reply is labelled `Theseus (model)` by `theseus_protocol::surface::reply_label` (history, the TUI)
+  and the cockpit's `lib/speaker.ts`; until persona data joins, the literal. Tests: `rpc/tests_surface.rs`,
+  `surface::tests`, the layouts' format-33 node sample.
 - **Threads** (theseus-nhew; store format 33; `threads.rs`, `rpc/threads.rs`, `fact/thread.rs`, `config/threads.rs`): a thread is
   a durable record bound to a virtual place `thread:<slug>`, so it reuses what a place has. The record is
   `theseus_protocol::threads::ThreadInfo` as a META key `thread:<slug>` (an edit writes the key again, in one frame with
