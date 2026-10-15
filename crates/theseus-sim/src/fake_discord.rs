@@ -56,7 +56,7 @@ use serde_json::{json, Value};
 
 mod threads;
 
-pub use threads::{FakeHook, FakeThread};
+pub use threads::{FakeHook, FakeTag, FakeThread};
 
 use crate::fake_gateway::{self, FakeGateway, GatewayState, Where};
 
@@ -542,6 +542,8 @@ struct State {
     threads: BTreeMap<u64, FakeThread>,
     webhooks: Vec<FakeHook>,
     forums: std::collections::BTreeSet<u64>,
+    /// Each forum's available tags (theseus-i3do6).
+    forum_tags: BTreeMap<u64, Vec<threads::FakeTag>>,
     /// Listing or making a webhook answers 403.
     refuse_webhooks: bool,
     /// The last big id given a thread or a webhook.
@@ -1546,6 +1548,11 @@ impl FakeDiscord {
                     let mut j = channel_json(g.id, ch);
                     if forum {
                         j["type"] = json!(15);
+                        j["available_tags"] = threads::forum_json(
+                            id,
+                            &st.forum_tags.get(&c).cloned().unwrap_or_default(),
+                        )["available_tags"]
+                            .clone();
                     }
                     j
                 }),
@@ -1748,6 +1755,16 @@ impl FakeDiscord {
             ("GET", ["messages"]) => (200, json!(self.all_messages())),
             ("GET", ["replies"]) => (200, json!(self.replies())),
             ("GET", ["gateway"]) => (200, json!(self.gateway_state())),
+            // The threads and posts the bot made, with every name, tag set
+            // and archive state they had (theseus-i3do6).
+            ("GET", ["threads"]) => (200, json!(self.threads())),
+            ("POST", ["forum"]) => match n("channel") {
+                Some(c) => {
+                    self.set_forum(c);
+                    (200, json!({"ok": true}))
+                }
+                None => (400, json!({"error": "a forum needs its channel"})),
+            },
             _ => (404, json!({"error": "no such control route"})),
         };
         reply(stream, status, &out)

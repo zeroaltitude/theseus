@@ -14,7 +14,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use super::{
-    message_json, now_ms, query, reply, seen, FakeDiscord, Msg, Seen, APP_ID, BOT_ID, DEFAULT_GUILD,
+    buttons, message_json, now_ms, query, reply, rows, seen, v2_refusal, v2_text, FakeDiscord, Msg,
+    Seen, APP_ID, BOT_ID, DEFAULT_GUILD, IS_COMPONENTS_V2,
 };
 
 /// A thread the bot made in a channel.
@@ -28,6 +29,28 @@ pub struct FakeThread {
     pub locked: bool,
     /// `POST /channels/<parent>/threads` or the forum's: how it was made.
     pub forum: bool,
+    /// The create's `type`, as sent (0 when it sent none: Discord then makes
+    /// a private thread in a text channel, theseus-i3do6) and its
+    /// `auto_archive_duration` in minutes (0 when it sent none: Discord's
+    /// default is 4,320).
+    pub kind: u64,
+    pub auto_archive: u64,
+    /// Every name it has had, the create's first (a rename is tightly
+    /// limited, so the tests count them).
+    pub names: Vec<String>,
+    /// A forum post's tags now (ids), as the last create or edit set them,
+    /// and every set of them in order.
+    pub tags: Vec<String>,
+    pub tag_sets: Vec<Vec<String>>,
+    /// When the create and each edit of its tags landed (ms), for the pace.
+    pub tag_times: Vec<u64>,
+}
+
+/// A tag of a forum, as it holds them.
+#[derive(Debug, Clone, Serialize)]
+pub struct FakeTag {
+    pub id: String,
+    pub name: String,
 }
 
 /// A webhook the bot made in a channel.
@@ -39,15 +62,40 @@ pub struct FakeHook {
     pub name: String,
 }
 
+/// A forum channel as Discord answers it, with its available tags.
+pub(super) fn forum_json(id: &str, tags: &[FakeTag]) -> Value {
+    let tags: Vec<Value> = tags
+        .iter()
+        .map(|t| json!({"id": t.id, "name": t.name, "moderated": false, "emoji_id": null, "emoji_name": null}))
+        .collect();
+    json!({"id": id, "type": 15, "available_tags": tags, "name": "forum"})
+}
+
+/// The ids in a `applied_tags` array.
+fn tag_ids(v: &Value) -> Vec<String> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| match t {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The ids the stand-in gives threads and webhooks: snowflake-sized, apart
 /// from the messages' small counter.
 const FIRST_ID: u64 = 900_000_000_000_500_000;
 
 pub(super) fn thread_json(t: &FakeThread) -> Value {
-    json!({"id": t.id.to_string(), "type": 11, "guild_id": t.guild.to_string(),
+    // Without `type`, Discord makes a private thread in a text channel.
+    let kind = if t.forum || t.kind != 0 { 11 } else { 12 };
+    json!({"id": t.id.to_string(), "type": kind, "guild_id": t.guild.to_string(),
         "name": t.name, "parent_id": t.parent.to_string(), "owner_id": BOT_ID.to_string(),
         "message_count": 0, "member_count": 1, "rate_limit_per_user": 0, "flags": 0,
-        "thread_metadata": {"archived": t.archived, "auto_archive_duration": 10080,
+        "applied_tags": t.tags,
+        "thread_metadata": {"archived": t.archived, "auto_archive_duration": t.auto_archive.max(60),
             "archive_timestamp": "2026-10-14T00:00:00.000000+00:00", "locked": t.locked}})
 }
 
@@ -95,6 +143,71 @@ impl FakeDiscord {
         self.state.lock().unwrap().refuse_webhooks = refuse;
     }
 
+    /// `channel` was set a forum.
+    fn is_forum(&self, channel: &str) -> bool {
+        let c: u64 = channel.parse().unwrap_or(0);
+        self.state.lock().unwrap().forums.contains(&c)
+    }
+
+    /// A forum's tags now, in order.
+    pub fn forum_tags(&self, forum: u64) -> Vec<FakeTag> {
+        self.state
+            .lock()
+            .unwrap()
+            .forum_tags
+            .get(&forum)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Put tags on a forum before the binding looks (the owner made them).
+    pub fn set_forum_tags(&self, forum: u64, names: &[&str]) {
+        let tags: Vec<FakeTag> = names
+            .iter()
+            .map(|n| FakeTag {
+                id: self.next_big().to_string(),
+                name: (*n).to_string(),
+            })
+            .collect();
+        self.state.lock().unwrap().forum_tags.insert(forum, tags);
+    }
+
+    /// `PATCH /channels/<forum>` with `available_tags`: Discord keeps at most
+    /// 20, and a tag without an id is new.
+    fn forum_tags_set(&self, stream: TcpStream, id: &str, body: &Value) -> std::io::Result<()> {
+        let path = format!("/channels/{id}");
+        let sent = body["available_tags"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if sent.len() > 20 {
+            self.record(seen("PATCH", &path, "invalid"));
+            return reply(
+                stream,
+                400,
+                &json!({"message": "Invalid Form Body", "code": 50035,
+                "errors": {"available_tags": "at most 20 tags"}}),
+            );
+        }
+        let tags: Vec<FakeTag> = sent
+            .iter()
+            .map(|t| FakeTag {
+                id: t["id"]
+                    .as_str()
+                    .map_or_else(|| self.next_big().to_string(), str::to_string),
+                name: t["name"].as_str().unwrap_or("").to_string(),
+            })
+            .collect();
+        let c: u64 = id.parse().unwrap_or(0);
+        self.state
+            .lock()
+            .unwrap()
+            .forum_tags
+            .insert(c, tags.clone());
+        self.record(seen("PATCH", &path, "forum_tags"));
+        reply(stream, 200, &forum_json(id, &tags))
+    }
+
     fn next_big(&self) -> u64 {
         let mut st = self.state.lock().unwrap();
         st.next_big = st.next_big.max(FIRST_ID) + 1;
@@ -116,7 +229,16 @@ impl FakeDiscord {
             (st.forums.contains(&p), guild)
         };
         let name = body["name"].as_str().unwrap_or("").to_string();
-        if name.is_empty() || (forum && body["message"].is_null()) {
+        let tags = tag_ids(&body["applied_tags"]);
+        let known: Vec<String> = self.forum_tags(p).into_iter().map(|t| t.id).collect();
+        let archive = body["auto_archive_duration"].as_u64();
+        let bad = name.is_empty()
+            || (forum && body["message"].is_null())
+            || name.chars().count() > 100
+            || archive.is_some_and(|a| ![60, 1440, 4320, 10080].contains(&a))
+            || tags.len() > 5
+            || tags.iter().any(|t| !known.contains(t));
+        if bad {
             self.record(seen("POST", &path, "refused"));
             return reply(
                 stream,
@@ -128,23 +250,64 @@ impl FakeDiscord {
             id: self.next_big(),
             parent: p,
             guild,
+            names: vec![name.clone()],
             name,
             archived: false,
             locked: false,
             forum,
+            kind: body["type"].as_u64().unwrap_or(0),
+            auto_archive: body["auto_archive_duration"].as_u64().unwrap_or(0),
+            tag_sets: vec![tags.clone()],
+            tag_times: vec![now_ms()],
+            tags,
         };
         let mut out = thread_json(&t);
-        self.state.lock().unwrap().threads.insert(t.id, t.clone());
         if forum {
-            let content = body["message"]["content"].as_str().unwrap_or("");
-            let m = self.push_bot_message(&t.id.to_string(), content);
-            out["message"] = message_json(&m);
+            // A forum post's first message has the post's own id, and may be
+            // a Components V2 card, held to the same rules as any create.
+            match self.starter_message(&t, &body["message"]) {
+                Ok(m) => out["message"] = message_json(&m),
+                Err(why) => {
+                    self.record(seen("POST", &path, "invalid"));
+                    return reply(
+                        stream,
+                        400,
+                        &json!({"message": "Invalid Form Body", "code": 50035,
+                        "errors": {"message": why}}),
+                    );
+                }
+            }
         }
+        self.state.lock().unwrap().threads.insert(t.id, t);
         self.record(Seen {
             message_id: None,
             ..seen("POST", &path, "thread")
         });
         reply(stream, 200, &out)
+    }
+
+    /// A forum post's first message: its id is the post's, its content the
+    /// text or the V2 card's text, kept as a create keeps it.
+    fn starter_message(&self, t: &FakeThread, body: &Value) -> Result<Msg, String> {
+        let flags = body["flags"].as_u64().unwrap_or(0);
+        if let Some(why) = v2_refusal(flags, &body["content"], &body["components"]) {
+            return Err(why);
+        }
+        let v2 = flags & IS_COMPONENTS_V2 != 0;
+        let content = if v2 {
+            v2_text(&body["components"])
+        } else {
+            body["content"].as_str().unwrap_or("").to_string()
+        };
+        self.push_bot_message(&t.id.to_string(), &content);
+        let mut st = self.state.lock().unwrap();
+        let last = st.messages.last_mut().expect("it was just pushed");
+        last.id = t.id.to_string();
+        last.flags = flags;
+        last.components = rows(&body["components"]);
+        last.buttons = buttons(&body["components"]);
+        last.components_json = body["components"].clone();
+        Ok(last.clone())
     }
 
     /// A message the bot wrote, kept in `channel`.
@@ -182,6 +345,22 @@ impl FakeDiscord {
         body: &Value,
     ) -> std::io::Result<()> {
         let path = format!("/channels/{id}");
+        // A forum itself: its available tags, whole, as Discord takes them
+        // (a tag without an id is new).
+        if body["applied_tags"].is_array()
+            && body["applied_tags"].as_array().is_some_and(|a| a.len() > 5)
+        {
+            self.record(seen("PATCH", &path, "invalid"));
+            return reply(
+                stream,
+                400,
+                &json!({"message": "Invalid Form Body", "code": 50035,
+                "errors": {"applied_tags": "at most 5 tags"}}),
+            );
+        }
+        if body["available_tags"].is_array() && self.is_forum(id) {
+            return self.forum_tags_set(stream, id, body);
+        }
         let found = {
             let mut st = self.state.lock().unwrap();
             st.threads.get_mut(&id.parse().unwrap_or(0)).map(|t| {
@@ -193,6 +372,12 @@ impl FakeDiscord {
                 }
                 if let Some(n) = body["name"].as_str() {
                     t.name = n.to_string();
+                    t.names.push(n.to_string());
+                }
+                if body["applied_tags"].is_array() {
+                    t.tags = tag_ids(&body["applied_tags"]);
+                    t.tag_sets.push(t.tags.clone());
+                    t.tag_times.push(now_ms());
                 }
                 t.clone()
             })
