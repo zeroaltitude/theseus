@@ -106,6 +106,8 @@ struct Today {
     day: String,
     reads: u64,
     micros: u64,
+    /// Due reads the day's line kept the tender from making (theseus-ytt8).
+    skipped: u64,
 }
 
 /// What one due read came to.
@@ -185,19 +187,53 @@ impl KeepWarm {
             .min()
     }
 
-    /// The sessions due now, the longest overdue first.
+    /// The sessions due now, the one whose person wrote last first: when the
+    /// day's line cuts the round short, those nearest to a return are warm
+    /// (theseus-ytt8).
     pub fn due(&self, interval: Duration) -> Vec<String> {
         let now = Instant::now();
-        let mut due: Vec<(Instant, String)> = self
+        let mut due: Vec<(std::cmp::Reverse<Instant>, Instant, String)> = self
             .sessions
             .lock()
             .unwrap()
             .iter()
             .filter(|(_, k)| k.stopped.is_none() && k.call_at + interval <= now)
-            .map(|(s, k)| (k.call_at, s.clone()))
+            .map(|(s, k)| (std::cmp::Reverse(k.message_at), k.call_at, s.clone()))
             .collect();
         due.sort();
-        due.into_iter().map(|(_, s)| s).collect()
+        due.into_iter().map(|(_, _, s)| s).collect()
+    }
+
+    /// Whether `session_id` is kept warm now: held, its reads not stopped.
+    pub fn holds(&self, session_id: &str) -> bool {
+        let s = self.sessions.lock().unwrap();
+        s.get(session_id).is_some_and(|k| k.stopped.is_none())
+    }
+
+    /// The day's line left `sessions` unread this round: they wait an
+    /// interval, and the count is today's (`day` is the local date).
+    pub fn skipped(&self, day: &str, sessions: &[String]) {
+        for sid in sessions {
+            self.postpone(sid);
+        }
+        let mut t = self.today.lock().unwrap();
+        if t.day != day {
+            *t = Today {
+                day: day.to_string(),
+                ..Today::default()
+            };
+        }
+        t.skipped += sessions.len() as u64;
+    }
+
+    /// Reads skipped today (`day` is the local date).
+    pub fn skipped_today(&self, day: &str) -> u64 {
+        let t = self.today.lock().unwrap();
+        if t.day == day {
+            t.skipped
+        } else {
+            0
+        }
     }
 
     /// How long ago `session_id`'s person last wrote.
@@ -439,6 +475,16 @@ impl TurnRunner {
                 return Err(Outcome::Stopped(why));
             }
         };
+        // A thread's session is kept only while its thread is active, and
+        // within `[threads] keep_warm_hours` of its owner's last message.
+        let thread_hours = match self.thread_warm(session_id) {
+            crate::keep_warm_threads::ThreadWarm::NotThread => None,
+            crate::keep_warm_threads::ThreadWarm::Window(h) => Some(h),
+            crate::keep_warm_threads::ThreadWarm::Out(why) => {
+                kw.forget(session_id);
+                return Err(Outcome::Forgotten(why));
+            }
+        };
         let execution = rec
             .execution_id
             .as_deref()
@@ -468,6 +514,7 @@ impl TurnRunner {
             .all_profiles()
             .get(&b.target.profile)
             .map_or(0.0, |p| p.keep_warm_hours());
+        let hours = thread_hours.map_or(hours, |t| hours.min(t));
         let window = Duration::from_secs_f64(hours * 3600.0);
         if kw.since_message(session_id).is_none_or(|ago| ago >= window) {
             kw.forget(session_id);
@@ -629,6 +676,11 @@ impl TurnRunner {
             if self.view_of(sid).class != PlaceClass::Private {
                 continue;
             }
+            let thread = match self.thread_warm(sid) {
+                crate::keep_warm_threads::ThreadWarm::Out(_) => continue,
+                crate::keep_warm_threads::ThreadWarm::Window(h) => Some(h),
+                crate::keep_warm_threads::ThreadWarm::NotThread => None,
+            };
             let Ok(target) = self.target_for_session(&rec, live) else {
                 continue;
             };
@@ -637,6 +689,10 @@ impl TurnRunner {
             }
             let message_ms = self.newest_message_ms(sid).unwrap_or(rec.last_active_ms);
             let ago = |ms: u64| Duration::from_millis(now.saturating_sub(ms));
+            // A thread's own window may be shorter than the profile's.
+            if thread.is_some_and(|h| ago(message_ms).as_secs_f64() >= h * 3600.0) {
+                continue;
+            }
             self.keep_warm
                 .restore(sid, ago(message_ms), ago(rec.last_active_ms));
             n += 1;
@@ -717,10 +773,29 @@ impl crate::rpc::Core {
                     () = outbox.stopped() => return,
                 }
                 let Some(c) = core.upgrade() else { return };
-                for sid in c.runner.keep_warm.due(interval) {
+                let due = c.runner.keep_warm.due(interval);
+                for (i, sid) in due.iter().enumerate() {
                     let live = c.live_profile().0;
-                    if c.runner.keep_warm_once(&sid, &live).await == Outcome::Stopping {
-                        return;
+                    match c.runner.keep_warm_once(sid, &live).await {
+                        Outcome::Stopping => return,
+                        // The day's line: the sessions after this one, the
+                        // less recently written, are left for the next round.
+                        Outcome::Stopped(why)
+                            if why.contains("ceiling") || why.contains("runaway") =>
+                        {
+                            let rest = &due[i + 1..];
+                            if !rest.is_empty() {
+                                tracing::warn!(
+                                    skipped = rest.len(),
+                                    read = i + 1,
+                                    "keep-warm: the day's spend line was reached; the less \
+                                     recently written sessions were not warmed this round"
+                                );
+                                c.runner.keep_warm.skipped(&today(&c.kernel), rest);
+                            }
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             }

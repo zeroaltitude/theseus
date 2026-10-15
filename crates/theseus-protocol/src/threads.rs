@@ -185,6 +185,11 @@ pub struct ThreadRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cache_ttl_secs: Option<u64>,
+    /// The day's cold resumes, warm hits and keep-warm reads of the session
+    /// (theseus-ytt8); none while it has none of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cache: Option<crate::thread_cache::ThreadCacheStats>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

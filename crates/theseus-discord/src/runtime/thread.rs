@@ -301,6 +301,7 @@ mod tests {
             context_tokens: tokens,
             today_usd: usd,
             cache_ttl_secs: None,
+            cache: None,
         }
     }
 

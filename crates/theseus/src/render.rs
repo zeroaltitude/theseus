@@ -62,6 +62,7 @@ pub mod style;
 mod task_graph;
 mod tasks;
 pub mod thread;
+mod threads_cache;
 pub mod time;
 mod wakes;
 mod warm;
@@ -1816,6 +1817,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         .chain(defer::defer_lines(h.tools_defer.as_ref()))
         .chain(warm::warm_lines(h.warm.as_ref(), now_ms))
         .chain(cache::cache_lines(h.cache.as_ref()))
+        .chain(threads_cache::threads_lines(h.threads.as_ref()))
     {
         push(o, tag, &line);
     }

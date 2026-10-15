@@ -995,6 +995,13 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # is a stub that says how to read it again.
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+# Keep-warm for threads: an active thread whose owner last wrote within
+# keep_warm_hours has its session read at the [cache] interval, as a long
+# conversation's is, so its next message reads the cache instead of rewriting
+# it. A paused or done thread is never read, and pausing stops it at once. The
+# profile's own keep_warm_hours still bounds it. `theseus health` has a threads
+# line, and `theseus thread show` the thread's own numbers.
+# keep_warm_hours = 4                     # 0: no thread is kept warm
 
 # ---------------------------------------------------------------- cockpit
 # Each reply's footer links to its turn in the cockpit (`<public_url>/session/

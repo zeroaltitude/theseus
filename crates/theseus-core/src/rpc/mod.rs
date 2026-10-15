@@ -136,6 +136,8 @@ mod tests_thread_route;
 #[cfg(test)]
 mod tests_thread_surface;
 #[cfg(test)]
+mod tests_thread_keep_warm;
+#[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
@@ -808,6 +810,7 @@ impl Core {
             ),
             effort_refusals: Default::default(),
             keep_warm: Default::default(),
+            cache_numbers: Default::default(),
             stubs: Default::default(),
             kept: Arc::new(crate::compiler::kept::Kept::new(cfg.context.kept_bytes())),
             judge,

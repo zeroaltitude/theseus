@@ -209,6 +209,8 @@ pub struct TurnRunner {
     /// The conversations kept warm after their turns, and the stubs their
     /// cold rewrites decided (theseus-ezeg).
     pub keep_warm: crate::keep_warm::KeepWarm,
+    /// A minute's copy of the day's thread cache numbers (theseus-ytt8).
+    pub(crate) cache_numbers: crate::keep_warm_threads::CacheNumbers,
     pub stubs: crate::compiler::stubs::InForce,
     /// Each session's render, kept across turns (theseus-0l3g).
     pub kept: Arc<crate::compiler::kept::Kept>,

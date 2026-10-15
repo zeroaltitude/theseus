@@ -598,6 +598,9 @@ pub fn show_lines(r: &ThreadRow) -> Vec<String> {
         None => "  session: none yet; its first message opens one".into(),
     });
     out.push(format!("  last active: {}", fmt_stamp(t.last_active_ms)));
+    if let Some(c) = &r.cache {
+        out.push(format!("  cache today: {}", c.line()));
+    }
     if !t.card.is_empty() {
         out.push("  card:".into());
         out.extend(t.card.iter().map(|l| format!("    - {l}")));
@@ -634,6 +637,7 @@ mod tests {
             context_tokens: tokens,
             today_usd: usd,
             cache_ttl_secs: None,
+            cache: None,
         }
     }
 

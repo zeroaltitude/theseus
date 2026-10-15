@@ -54,6 +54,7 @@ pub mod import;
 pub mod judge;
 pub mod keep_warm;
 pub mod keep_warm_wait;
+pub mod keep_warm_threads;
 pub mod learning;
 pub mod ledger;
 pub mod ledger_pin;

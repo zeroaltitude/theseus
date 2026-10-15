@@ -135,6 +135,7 @@ impl Core {
             self_improve: Some(self.self_state()),
             warm: Some(self.warmth.health()),
             cache: Some(self.cache_health()),
+            threads: self.threads_health(),
         }
     }
 

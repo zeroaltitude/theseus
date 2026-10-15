@@ -20,12 +20,12 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-const MIN: Duration = Duration::from_secs(60);
+pub(crate) const MIN: Duration = Duration::from_secs(60);
 
 /// The template with a 1-hour `[model]`, so every profile that says none
 /// (the live one, sonnet, among them) caches for an hour, kept warm for
 /// `hours` after a message.
-fn one_hour(hours: u32) -> Config {
+pub(crate) fn one_hour(hours: u32) -> Config {
     let text = Config::EXAMPLE_TOML
         .replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"")
         .replace(
@@ -37,7 +37,7 @@ fn one_hour(hours: u32) -> Config {
     c
 }
 
-fn build(dir: &std::path::Path, c: Config) -> (Arc<Core>, Arc<FakeProvider>) {
+pub(crate) fn build(dir: &std::path::Path, c: Config) -> (Arc<Core>, Arc<FakeProvider>) {
     let fake = Arc::new(FakeProvider::default());
     (build_with(dir, c, fake.clone()), fake)
 }
@@ -51,7 +51,7 @@ fn build_with(dir: &std::path::Path, c: Config, fake: Arc<FakeProvider>) -> Arc<
 }
 
 /// A conversation, posting to `place` when given (unbound: the CLI's).
-fn session(core: &Core, kind: SessionKind, place: Option<&str>) -> String {
+pub(crate) fn session(core: &Core, kind: SessionKind, place: Option<&str>) -> String {
     let r = SessionRecord::new(kind, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -61,7 +61,7 @@ fn session(core: &Core, kind: SessionKind, place: Option<&str>) -> String {
 }
 
 /// A person's message and its turn, as `turn.submit` makes them.
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
     core.runner.keep_warm.message(sid, true);
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
@@ -85,14 +85,14 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
         .unwrap();
 }
 
-fn reads(fake: &FakeProvider) -> Vec<ProviderRequest> {
+pub(crate) fn reads(fake: &FakeProvider) -> Vec<ProviderRequest> {
     fake.requests()
         .into_iter()
         .filter(|r| r.max_tokens == MAX_TOKENS)
         .collect()
 }
 
-fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
     let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(5000).unwrap();
     rows.into_iter()
         .map(|(_, r)| r)
@@ -102,7 +102,7 @@ fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
 
 /// Let the tender run what is due: a few turns of the runtime, and the
 /// blocking pool's work, on the paused clock.
-async fn settle() {
+pub(crate) async fn settle() {
     for _ in 0..50 {
         tokio::task::yield_now().await;
     }
