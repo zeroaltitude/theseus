@@ -9,8 +9,8 @@ How each step reaches Theseus (the rules the baseline was measured by):
   them: enter opens the session, `i` the input line, `y` answers a question.
 - S7's interrupt is Ctrl-C, the key a person presses in a terminal; the stop
   that B3 verifies is the TUI's own (`s`, then `s`).
-- An arm with no key or command for a step (S5's mode, S9's undo, S11's
-  reopen and picker, S12's plan mode) records none, and its checks say so.
+- An arm with no key or command for a step (S5's mode, S9's undo, S12's
+  plan mode) records none, and its checks say so.
 
 The daemon's config is the defaults, with the stand-in as the model, the
 scratch project as its workspace, Discord, the web UI, the index and the
@@ -435,12 +435,40 @@ class Theseus:
         ctx.tmux.keys("q")
         time.sleep(1.0)
         ctx.capture("S11.left")
-        ctx.rec("S11", work_alive=bool(ctx.survey_pids()), reopen_cmd=None, picker_cmd=None)
+        ctx.rec("S11", work_alive=bool(ctx.survey_pids()))
+        self.reopen(ctx)
         # B4: the agent's own process, theseusd, stopped and started again.
         self.stop_daemon()
         self.start_daemon(ctx)
         time.sleep(2.0)
         ctx.rec("S11", alive_after_restart=bool(ctx.survey_pids()), restart_how="theseusd's stop and start")
+
+    def reopen(self, ctx):
+        """Back at the shell: `theseus -c` reopens this directory's last
+        conversation (theseus-6yka), and `theseus -r` opens the picker, where
+        a word of S8's question is typed. Each is left by its own keys: the
+        chat by /quit, the picker by ctrl+d, which opens nothing."""
+        ctx.tmux.keys("C-l")
+        ctx.tmux.type("theseus -c")
+        ctx.tmux.keys("Enter")
+        ctx.tmux.wait(lambda t: "› " in t and ctx.tmux.foreground() == "theseus-tui", 20, every=0.05)
+        ctx.tmux.wait(lambda t: "resumed" in t, 10)
+        time.sleep(1.0)
+        ctx.capture("S11.reopen")
+        ctx.rec("S11", reopen_cmd="theseus -c", reopen_foreground=ctx.tmux.foreground())
+        self.leave_chat(ctx)
+        ctx.tmux.keys("C-l")
+        ctx.tmux.type("theseus -r")
+        ctx.tmux.keys("Enter")
+        ctx.tmux.wait(lambda t: "resume a conversation" in t, 20, every=0.05)
+        time.sleep(1.0)
+        ctx.tmux.type("these log lines")
+        time.sleep(1.0)
+        ctx.capture("S11.picker")
+        ctx.rec("S11", picker_cmd="theseus -r", picker_searched=True)
+        ctx.tmux.keys("C-u")
+        ctx.tmux.keys("C-d")
+        ctx.tmux.wait(lambda t: self.shell_back(t), 10)
 
     def s12(self, ctx):
         ctx.rec("S12", plan_keys=None)
