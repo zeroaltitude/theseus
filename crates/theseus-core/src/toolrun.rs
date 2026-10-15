@@ -156,6 +156,7 @@ impl TurnCtx<'_> {
         crate::ceiling::PlaceView {
             class: self.class,
             ceiling: self.ceiling,
+            voice: false,
         }
     }
 }

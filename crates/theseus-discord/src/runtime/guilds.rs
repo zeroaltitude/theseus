@@ -155,6 +155,7 @@ pub(super) fn tell_core(
 ) -> Vec<theseus_protocol::PlaceWarning> {
     let unbound = unbind_unknown_profiles(core, b);
     core.trust_guilds(b.trusted());
+    core.bind_voice(b.channel.iter().any(|c| c.voice));
     let places = bound_places(b);
     core.bind_places(places.clone());
     core.place_warnings(&places, unbound)

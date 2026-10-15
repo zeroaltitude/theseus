@@ -4044,6 +4044,17 @@ fn aged(path: &str, secs: u64) {
 /// The system the model reads in request `i`: its blocks' texts (the header,
 /// then the context files: theseus-ev1), joined as the single block before
 /// the split joined them.
+/// The tools note as a private place's header reads it: the note, then the
+/// self card (theseus-slvl.8).
+fn noted(r: &Rig) -> String {
+    let card = crate::self_card::card(
+        &r.core.runner.cfg,
+        &r.core.tools,
+        crate::places::PlaceClass::Private.into(),
+    );
+    format!("{}\n{card}", r.core.tools.system_note())
+}
+
 fn system_of(r: &Rig, i: usize) -> String {
     r.fake.requests()[i]
         .system
@@ -4277,7 +4288,7 @@ async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
             crate::turn::PERSONA,
             crate::turn::ASSEMBLY,
             crate::compiler::situation::PRECEDENCE,
-            r.core.tools.system_note()
+            noted(&r)
         )
     );
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
@@ -4320,7 +4331,7 @@ async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_lev
         format!("# Context file (persona theseus): {own}\n\nEnd every answer with 'Ithaca'."),
     );
     assert!(
-        system.ends_with(&format!("{}\n\n{b}\n\n{a}", r.core.tools.system_note())),
+        system.ends_with(&format!("{}\n\n{b}\n\n{a}", noted(&r))),
         "{system}"
     );
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
@@ -4387,7 +4398,7 @@ async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
             crate::turn::PERSONA,
             crate::turn::ASSEMBLY,
             crate::compiler::situation::PRECEDENCE,
-            r.core.tools.system_note()
+            noted(&r)
         )
     );
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();

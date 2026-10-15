@@ -93,6 +93,7 @@ pub mod rsi;
 pub mod sandbox;
 pub mod scrub;
 pub mod secrets;
+pub mod self_card;
 pub mod session;
 pub mod signals;
 pub mod standing;
@@ -397,6 +398,8 @@ mod tests_sandbox;
 mod tests_security;
 #[cfg(test)]
 mod tests_self_budget;
+#[cfg(test)]
+mod tests_self_card;
 #[cfg(test)]
 mod tests_session_dir;
 #[cfg(test)]
