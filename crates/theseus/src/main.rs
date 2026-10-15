@@ -26,6 +26,7 @@ mod harness;
 mod herdr;
 mod herdr_slots;
 mod herdr_sync;
+mod herdr_up;
 mod import;
 mod import_sync;
 mod interactive;
@@ -69,6 +70,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use herdr_sync::HerdrCmd;
 use theseus_client::Conn;
 
 const AFTER_HELP: &str = "\
@@ -1276,11 +1278,27 @@ async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     }
 }
 
+/// The daemon's connection: a spawned one, or its socket's.
+async fn connect(cli: &Cli) -> Result<Conn> {
+    Ok(match (&cli.spawn, &cli.cmd) {
+        // One run's daemon, followed for its bound (theseus-mqxk).
+        (Some(bin), Cmd::Ask(a)) => Conn::spawn_with(bin, &follow::daemon_args(a.follow_for))?,
+        (Some(bin), _) => Conn::spawn(bin)?,
+        (None, _) => Conn::socket(&cli.socket).await?,
+    })
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
     if let Cmd::Status(a) = &cli.cmd {
         return status::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
+    }
+    if let Cmd::Herdr {
+        cmd: HerdrCmd::Up(a),
+    } = cli.cmd
+    {
+        return herdr_up::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await;
     }
     // `theseus postmortem --from-rows FILE` reports from kept rows and asks no daemon.
     if let Cmd::Postmortem(a) = cli.cmd {
@@ -1288,8 +1306,6 @@ async fn run(cli: Cli) -> Result<()> {
     }
     let mut conn = connect(&cli).await?;
     let (c, json, spawned) = (&mut conn, cli.json, cli.spawn.is_some());
-    // `herdr sync`'s own socket, for its panes: none for a spawned daemon.
-    let herdr_socket = cli.spawn.is_none().then_some(cli.socket.as_str());
     let result = match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a, spawned).await,
         Cmd::Prompt(a) => prompt::run(c, json, cli.no_stream, a, spawned).await,
@@ -1357,7 +1373,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
-        Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, herdr_socket).await,
+        Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,

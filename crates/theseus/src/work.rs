@@ -233,7 +233,7 @@ fn system_line(v: &WorkView, now: u64) -> String {
 
 /// A view as one line of the tree: its glyph, its title, and what it says of
 /// itself (its attention's label), then its progress and rollup.
-fn view_line(v: &WorkView, now: u64) -> String {
+pub(crate) fn view_line(v: &WorkView, now: u64) -> String {
     if v.kind == WorkKind::System {
         return system_line(v, now);
     }
@@ -286,7 +286,7 @@ fn view_line(v: &WorkView, now: u64) -> String {
 }
 
 /// A change, as `--watch` prints it.
-fn change_line(v: &WorkView, now: u64) -> String {
+pub(crate) fn change_line(v: &WorkView, now: u64) -> String {
     let before = v
         .previous
         .filter(|p| *p != v.state)
