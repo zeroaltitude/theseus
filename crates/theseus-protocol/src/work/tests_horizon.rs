@@ -61,6 +61,10 @@ fn view(kind: WorkKind, state: WorkState) -> WorkView {
         routine: None,
         watch: None,
         project: None,
+        dismissed: false,
+        retry_of: None,
+        forecast: None,
+        thread: None,
     }
 }
 
@@ -228,6 +232,7 @@ fn a_wake_with_no_time_is_later_and_other_work_with_none_is_now() {
         since_ms: now,
         turn: 1,
         loop_index: 0,
+        last_line: None,
     });
     assert_eq!(horizon_of(&t, now, &d), Horizon::Now);
     // A deferred task asleep until Friday is dated.

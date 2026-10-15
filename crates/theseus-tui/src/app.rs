@@ -798,7 +798,7 @@ impl App {
             Purpose::ThreadAct(_) => return self.thread_acted(v),
             Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
-            Purpose::HorizonAct(_) => self.horizon_answered(purpose, v),
+            Purpose::HorizonAct(_) => self.horizon_answered(purpose),
             Purpose::FollowFind | Purpose::FollowPeek => return self.follow_answered(&purpose, v),
             Purpose::Watch | Purpose::Typing | Purpose::SelfLog => {}
             Purpose::FollowStart | Purpose::Unfollow => {}
@@ -1526,7 +1526,12 @@ impl App {
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             // The self view takes no paste.
             Mode::SelfView => {}
-            Mode::Normal | Mode::Help | Mode::Standing | Mode::Horizon | Mode::Armed(..) | Mode::BoardThreads => {
+            Mode::Normal
+            | Mode::Help
+            | Mode::Standing
+            | Mode::Horizon
+            | Mode::Armed(..)
+            | Mode::BoardThreads => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop | Arm::StopAll => "not stopped",

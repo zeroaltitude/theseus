@@ -115,12 +115,10 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         }
         let mut board = Board::default();
         board.reload(&mut conn).await?;
-        if !a.short && !json {
-            board.read_due(&mut conn).await;
-        }
         let titles = if a.short || json {
             HashMap::new()
         } else {
+            board.read_due(&mut conn).await;
             board.progress = crate::status_progress::lines(&mut conn).await;
             titles(&mut conn, &board).await.unwrap_or_default()
         };

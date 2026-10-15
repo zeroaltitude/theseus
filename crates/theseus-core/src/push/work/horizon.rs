@@ -253,6 +253,7 @@ impl WorkBoard {
                 since_ms: last.map_or(0, |l| l.started_at_ms),
                 turn: 0,
                 loop_index: 0,
+                last_line: None,
             }
         } else {
             Doing {
@@ -265,6 +266,7 @@ impl WorkBoard {
                 since_ms: w.set_at_ms,
                 turn: 0,
                 loop_index: 0,
+                last_line: None,
             }
         });
         v.routine = Some(RoutineView {
@@ -305,6 +307,7 @@ impl WorkBoard {
             since_ms: w.set_at_ms,
             turn: 0,
             loop_index: 0,
+            last_line: None,
         });
         v.watch = Some(WatchView {
             check,

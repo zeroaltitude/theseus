@@ -150,7 +150,9 @@ impl WorkBoard {
                 .filter(|n| !quiet_here(v, n))
                 .filter(|n| !self.run_speaks_through_its_routine(v, n))
             {
-                n.answers = theseus_protocol::notices::answers_for(v, n.why);
+                if n.answers.is_empty() {
+                    n.answers = theseus_protocol::notices::answers_for(v, n.why);
+                }
                 notices.push(n);
             }
         }

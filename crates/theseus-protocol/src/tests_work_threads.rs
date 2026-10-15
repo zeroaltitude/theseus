@@ -51,6 +51,13 @@ fn view(id: &str, kind: WorkKind, state: WorkState, thread: Option<&str>) -> Wor
         retry_of: None,
         forecast: None,
         thread: thread.map(str::to_string),
+        purpose: None,
+        next_at_ms: None,
+        series: None,
+        paused: false,
+        routine: None,
+        watch: None,
+        project: None,
     }
 }
 

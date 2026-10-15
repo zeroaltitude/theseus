@@ -1282,6 +1282,15 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
+/// `theseus agenda` and `theseus prefix`: the horizon, and the prefix library's report.
+async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Agenda(a) => agenda::run(c, json, a).await,
+        Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
+        _ => unreachable!("only agenda and prefix come here"),
+    }
+}
+
 /// `theseus ledger`: a check of the chain, or the rows.
 async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     match l {
@@ -1379,7 +1388,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => wait_session_or_any(c, json, session, until, after, timeout).await,
         cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        Cmd::Agenda(a) => agenda::run(c, json, a).await,
+        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
             unreachable!("returned above, or exec'd by main")
         }
@@ -1400,7 +1409,6 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
-        Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

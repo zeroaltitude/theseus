@@ -269,10 +269,9 @@ impl App {
     }
 
     /// The answer to the section's own requests: the views, or a key's done.
-    pub(crate) fn horizon_answered(&mut self, purpose: Purpose, v: Value) {
-        match purpose {
-            Purpose::HorizonAct(done) => self.flash = Some((Tag::Ok, format!("✓ {done}"))),
-            _ => {}
+    pub(crate) fn horizon_answered(&mut self, purpose: Purpose) {
+        if let Purpose::HorizonAct(done) = purpose {
+            self.flash = Some((Tag::Ok, format!("✓ {done}")));
         }
     }
 
