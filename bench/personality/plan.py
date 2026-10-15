@@ -324,7 +324,7 @@ def build(per: pe.Persona, seed: int, size: str = "smoke", window: int = DEFAULT
     # the calm session: single-turn families, before any preference is stated
     calm = b.session("calm", "atlas", "calm")
     todo: list[tuple[Probe, str, str, str | None]] = []
-    for fam in ("identity", "owner", "correction", "candour", "register", "initiative"):
+    for fam in ("identity", "persona", "owner", "correction", "candour", "register", "initiative"):
         if b.on(fam):
             todo += [(p, "", "cli", None) for p in chosen(fam)]
     if b.on("owner"):

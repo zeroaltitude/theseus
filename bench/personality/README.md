@@ -104,4 +104,7 @@ Claude Code has one surface: its `rpc` and `discord` steps run as ordinary `clau
 
 - "A week later" is a restart and later sessions; the clock is not moved.
 - The judge is not calibrated against the owner's picks; read its means beside the blind result.
-- The persona-identity family is one run per persona file; the report of a run reads its own persona's row.
+- The persona-identity family (`persona`: who are you, what do you care about, what do you call me) is one run per
+  persona file; the report of a run reads its own persona's row. Its checks look for the persona's own words
+  (`role_words` from its IDENTITY.md, `care_words` from its SOUL.md, in the persona TOML), so an agent imported with
+  `theseus persona import` is scored against its files.

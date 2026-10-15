@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,10 @@ class Persona:
     facts: list[Fact]
     prefs: list[Pref]
     others: list[str] = field(default_factory=list)
+    # The persona's own files, as words (theseus-a8n7): what its identity file says it is for, and what its soul says
+    # it cares about. The `persona` family's checks look for them, so an imported agent is scored against its files.
+    role_words: list[str] = field(default_factory=list)
+    care_words: list[str] = field(default_factory=list)
     persona_file: Path | None = None
     card_file: Path | None = None
     source: str = "built-in"
@@ -88,12 +93,15 @@ class Persona:
 
     def fields(self) -> dict:
         return {"name": self.name, "owner_call": self.owner_call, "tz": self.tz, "tz_names": self.tz_names,
-                "facts": [f.key for f in self.facts], "prefs": [p.kind for p in self.prefs], "others": self.others}
+                "facts": [f.key for f in self.facts], "prefs": [p.kind for p in self.prefs], "others": self.others,
+                "role_words": self.role_words, "care_words": self.care_words}
 
     def subs(self) -> dict[str, str]:
         return {"persona": self.name, "owner": self.owner_call, "tz": self.tz,
                 "tznames": " or ".join(self.tz_names), "tzname": self.tz_names[0], "other": self.others[0] if self.others else "",
-                "others": ", ".join(self.others)}
+                "others": ", ".join(self.others), "rolewords": alt(self.role_words),
+                "carewords": alt(self.care_words), "rolefirst": (self.role_words or [""])[0],
+                "carefirst": (self.care_words or [""])[0]}
 
     def fill(self, s: str) -> str:
         for k, v in self.subs().items():
@@ -103,6 +111,11 @@ class Persona:
     def check_fill(self, s: str) -> str:
         """A check line's template: the same fields, quoted for a check string."""
         return self.fill(s)
+
+
+def alt(words: list[str]) -> str:
+    """Words as a regex alternation (`tide|log`), each escaped, for a check line's /…/."""
+    return "|".join(re.escape(w) for w in words)
 
 
 def _pref(d: dict) -> Pref:
@@ -149,7 +162,8 @@ def load(path: Path | None, others: list[str] | None = None) -> Persona:
     per = Persona(
         name=merged["name"], owner_call=merged["owner_call"], tz=merged["tz"], tz_names=list(merged["tz_names"]),
         voice=merged["voice"], facts=[_fact(f) for f in facts], prefs=[_pref(p) for p in prefs.values()],
-        others=list(others or merged.get("others", [])), persona_file=file("persona_file"),
+        others=list(others or merged.get("others", [])), role_words=list(merged.get("role_words", [])),
+        care_words=list(merged.get("care_words", [])), persona_file=file("persona_file"),
         card_file=file("card_file"), source=src)
     validate(per)
     return per
@@ -173,6 +187,9 @@ def validate(p: Persona) -> None:
             raise ValueError(f"preference {x.kind!r} needs 6 asks, one for each context (it has {len(x.asks)})")
     if not p.facts:
         raise ValueError("a persona needs at least one card fact")
+    for key, words in (("role_words", p.role_words), ("care_words", p.care_words)):
+        if not words or any(not w.strip() or "/" in w for w in words):
+            raise ValueError(f"{key} must list words from the persona's own files (no slash, none empty)")
     for t in [x.say for x in p.prefs] + [f.ask for f in p.facts]:
         if "<<" in p.fill(t):
             raise ValueError(f"an unfilled template in {t!r}")

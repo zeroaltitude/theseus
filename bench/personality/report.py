@@ -37,10 +37,11 @@ LABELS = {"theseus": "Theseus (as configured)", "theseus-persona": "Theseus + pe
 # the legend names them (a series' `label`), so a slot's name in another report does not carry over.
 CHART_ARM = {"theseus": "theseus", "theseus-persona": "theseus-batching", "claude-code": "claude-code",
              "claude-code-fair": "openclaw"}
-FAMILY_ORDER = ("identity", "owner", "preference", "correction", "candour", "register", "initiative", "surfaces",
+FAMILY_ORDER = ("identity", "persona", "owner", "preference", "correction", "candour", "register", "initiative", "surfaces",
                 "models")
 FAMILY_WORDS = {
-    "identity": "P1 identity and voice", "owner": "P2 knows the owner", "preference": "P3 a preference stated once",
+    "identity": "P1 identity and voice", "persona": "P1 identity from the persona's own files",
+    "owner": "P2 knows the owner", "preference": "P3 a preference stated once",
     "correction": "P4 learns from a correction", "candour": "P5 candour", "register": "P6 register and warmth",
     "initiative": "P7 initiative", "surfaces": "the same prompt on another surface",
     "models": "the same probe on each routed profile",

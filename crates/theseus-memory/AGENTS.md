@@ -27,6 +27,9 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   above `bar` of `top_fused` (the index's best), else it pays `penalty` in the pack's rank; naming the thread
   (`waived`) waives the distance and never a seal. Reasons `sealed` and `thread` join `Reason::ALL`.
   Tests: `tests_threads.rs` (a property over generated recalls: a sealed note is never admitted).
+- `recall.rs`'s `PersonaBoost` (theseus-a8n7), in `Params.persona`: while a persona is engaged, a candidate whose session
+  the core read as an imported episode of the persona's own agent ranks `boost` (1.0 to 2.0) times its score; the
+  filters see the index's score, so the boost reorders and admits nothing. Tests: `tests_persona.rs`.
 - `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
   order (only it may reach Jev); `reorder` re-sorts the top 20 by Jev's probabilities (an unanswered item keeps its
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order

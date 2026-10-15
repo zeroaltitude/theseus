@@ -176,7 +176,38 @@ class Shape(unittest.TestCase):
         smoke, full = pl.build(pe.load(None), 7, "smoke"), pl.build(pe.load(None), 7, "full")
         self.assertLess(len(smoke.probes()), len(full.probes()))
         self.assertEqual({s.family for s in smoke.probes()},
-                         {"identity", "owner", "correction", "candour", "register", "initiative", "preference"})
+                         {"identity", "persona", "owner", "correction", "candour", "register", "initiative",
+                          "preference"})
+
+    def test_the_persona_family_asks_for_the_personas_own_words(self):
+        """theseus-a8n7: who are you, what do you care about, what do you call me, checked against the words of the
+        persona's own files (role_words from its IDENTITY.md, care_words from its SOUL.md)."""
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t, "wren.toml")
+            f.write_text('[persona]\nname = "Wren"\nowner_call = "Skipper"\nrole_words = ["tidal", "field notes"]\n'
+                        'care_words = ["measure twice", "never loud"]\n')
+            per = pe.load(f)
+        plan = pl.build(per, 7, "full", families={"persona"})
+        got = {s.probe: s for s in plan.probes()}
+        self.assertEqual(set(got), {"persona.who", "persona.cares", "persona.owner"})
+        who = got["persona.who"]
+        self.assertIn("tidal|field\\ notes", who.checks)
+        self.assertIn("Wren", who.checks)
+        self.assertIn("measure\\ twice|never\\ loud", got["persona.cares"].checks)
+        self.assertIn("Skipper", got["persona.owner"].checks)
+        # The oracle answers pass the persona's own checks and the planted wrong ones fail them.
+        for s in got.values():
+            good = xc.verdict(xc.run(s.checks, s.oracle))
+            bad = xc.verdict(xc.run(s.checks, s.wrong))
+            self.assertTrue(good, f"{s.probe}: its oracle fails its own checks: {s.oracle!r}")
+            self.assertFalse(bad, f"{s.probe}: the planted wrong answer passes: {s.wrong!r}")
+
+    def test_a_persona_without_words_from_its_files_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t, "x.toml")
+            f.write_text('[persona]\nname = "Wren"\nowner_call = "Skipper"\nrole_words = []\n')
+            with self.assertRaises(ValueError):
+                pe.load(f)
 
     def test_the_surfaces_and_the_profiles_repeat_probes(self):
         plan = pl.build(pe.load(None), 7, "full", profiles=["alt", "big"])

@@ -156,6 +156,12 @@ pub struct Board {
     /// Which persona answered each session's recent turns, in memory
     /// (theseus-c1uz).
     pub engaged: crate::engage::Engagements,
+    /// Each persona's agent, as its import recorded it (theseus-a8n7), read
+    /// once.
+    persona_agents: Mutex<HashMap<String, String>>,
+    /// The agent of each imported session recall met, read once
+    /// (`persona_recall::PersonaScene`).
+    pub(crate) agents: std::sync::Arc<Mutex<HashMap<String, Option<String>>>>,
 }
 
 impl Board {
@@ -178,6 +184,22 @@ impl Board {
             changes,
             write: Some(now),
         }
+    }
+
+    /// The name a persona's imported episodes carry, lower case: its import's
+    /// record, else its key.
+    pub fn agent_of(&self, state_dir: &std::path::Path, persona: &str) -> String {
+        let mut g = self.persona_agents.lock().unwrap();
+        g.entry(persona.to_string())
+            .or_insert_with(|| {
+                crate::persona_import::Manifest::read(&crate::persona_import::run::dir_of(
+                    state_dir, persona,
+                ))
+                .map(|m| m.agent)
+                .unwrap_or_else(|| persona.to_string())
+                .to_lowercase()
+            })
+            .clone()
     }
 
     /// The last sighting of a persona.

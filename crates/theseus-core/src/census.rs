@@ -133,7 +133,7 @@ impl TurnRunner {
         } else {
             notes.push("a fresh session has no category guidance yet".to_string());
         }
-        let standing = self.census_standing(&sid, view.class, &mut spec);
+        let standing = self.census_standing(&sid, target.persona.as_deref(), view.class, &mut spec);
         let nodes = match rec {
             Some(r) => self.store.transcript(&r.session_id)?,
             None => Vec::new(),
@@ -246,7 +246,13 @@ impl TurnRunner {
     }
 
     /// The standing block a turn of `sid` would carry, applied to `spec`; its text, empty when none.
-    fn census_standing(&self, sid: &str, class: PlaceClass, spec: &mut RequestSpec) -> String {
+    fn census_standing(
+        &self,
+        sid: &str,
+        persona: Option<&str>,
+        class: PlaceClass,
+        spec: &mut RequestSpec,
+    ) -> String {
         let Ok(all) = self.standing.all(&self.store) else {
             return String::new();
         };
@@ -255,6 +261,7 @@ impl TurnRunner {
             session: sid,
             place: place.as_deref(),
             surface: None,
+            persona,
         };
         match crate::standing::Block::of(&all, scope, class, theseus_protocol::now_unix_ms()) {
             Some(b) => {

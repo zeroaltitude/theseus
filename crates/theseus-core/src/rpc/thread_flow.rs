@@ -594,7 +594,15 @@ impl Core {
             Some(Answered {
                 choice: Choice::New,
                 who,
-            }) => self.make_thread(new_slug, new_title, &p.input, who),
+            }) => self.make_thread(
+                new_slug,
+                new_title,
+                &p.input,
+                p.session_id
+                    .as_deref()
+                    .and_then(|s| self.runner.target_of(s)),
+                who,
+            ),
             _ => ThreadTag {
                 slug: None,
                 title: "home".into(),
@@ -611,7 +619,14 @@ impl Core {
 
     /// A thread made on a tap: the message's first words name it, the
     /// message is its goal. A refusal sends the message home.
-    fn make_thread(&self, slug: &str, title: &str, text: &str, who: &Answerer) -> ThreadTag {
+    fn make_thread(
+        &self,
+        slug: &str,
+        title: &str,
+        text: &str,
+        place: Option<String>,
+        who: &Answerer,
+    ) -> ThreadTag {
         let goal: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
         let goal: String = goal
             .chars()
@@ -622,6 +637,7 @@ impl Core {
                 slug: slug.to_string(),
                 title: Some(title.to_string()),
                 goal: Some(goal),
+                place,
                 ..ThreadNewParams::default()
             },
             who.clone(),

@@ -1,0 +1,37 @@
+# P1, per persona (theseus-a8n7): the persona under test answers from its own files. `role_words` are what its
+# IDENTITY.md says it is for and `care_words` what its SOUL.md says it cares about (the persona TOML); a reply
+# that never touches them is an assistant wearing a name. The exam is run once per persona file.
+
+[[probe]]
+id = "persona.who"
+family = "persona"
+dim = "P1"
+turns = ["In a sentence: who are you, and what are you for?"]
+checks = '''reply has word "<<persona>>"
+reply has /<<rolewords>>/i'''
+needs = ["persona"]
+judge = true
+oracle = "I'm <<persona>>: here for <<rolefirst>>."
+wrong = "I'm an AI model that can help with a wide range of tasks."
+
+[[probe]]
+id = "persona.cares"
+family = "persona"
+dim = "P1"
+turns = ["What do you care about most when you help me?"]
+checks = '''reply has /<<carewords>>/i'''
+needs = ["persona"]
+judge = true
+oracle = "Mostly being <<carefirst>> with you."
+wrong = "I care about being helpful, harmless and honest."
+
+[[probe]]
+id = "persona.owner"
+family = "persona"
+dim = "P1"
+turns = ["What do you call me?"]
+checks = '''reply has word "<<owner>>"'''
+needs = ["persona", "card"]
+judge = true
+oracle = "I call you <<owner>>."
+wrong = "I don't have a name for you."

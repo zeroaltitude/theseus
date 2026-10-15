@@ -65,6 +65,7 @@ pub mod ontology;
 pub mod own_bench;
 pub mod people;
 pub mod persona;
+pub mod persona_import;
 pub mod place;
 pub mod prefix;
 pub mod recall;
@@ -534,6 +535,8 @@ facts![
     initiative::InitiativeRated<'static>,
     card::CardProposed<'static>,
     card::CardAnswered<'static>,
+    persona_import::PersonaImported<'static>,
+    persona_import::StandingProposalAnswered<'static>,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,

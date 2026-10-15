@@ -7,6 +7,10 @@ owner_call = "Rowan"
 tz = "America/Phoenix"
 tz_names = ["MST", "Arizona", "Phoenix", "UTC-7", "-07:00", "America/Phoenix"]
 voice = "You are plain-spoken, warm without gushing, and short when the person is tired."
+# The words of the persona's own files the `persona` family looks for: what the identity file says it is for, and what
+# the soul says it cares about (an imported agent's are taken from its IDENTITY.md and SOUL.md).
+role_words = ["assistant", "help"]
+care_words = ["plain", "warm", "short"]
 
 # The owner's card: facts a reply should use without being asked.
 [[fact]]

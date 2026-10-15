@@ -41,6 +41,7 @@ pub(crate) mod routing;
 pub mod rsi;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
+mod persona_settings;
 mod sessions;
 mod threads;
 mod wake_limits;
@@ -50,6 +51,7 @@ mod watches;
 pub use initiative::InitiativeConfig;
 pub use notify::NotifyConfig;
 pub use prefix::PrefixConfig;
+pub use persona_settings::PersonaSettings;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use threads::{PersonaEngage, ThreadsConfig};
@@ -180,6 +182,9 @@ pub struct Config {
     /// `[route]`: your own benchmark's sampler (theseus-pw1q.12), `config/route.rs`.
     #[serde(default, skip_serializing_if = "RouteConfig::is_default")]
     pub route: RouteConfig,
+    /// `[persona]`: the agent import and the recall boost (theseus-a8n7), `config/persona_settings.rs`.
+    #[serde(default, skip_serializing_if = "PersonaSettings::is_default")]
+    pub persona: PersonaSettings,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
@@ -1442,6 +1447,7 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
+        self.persona.validate()?;
         self.cockpit.validate()?;
         self.routines.validate()?;
         self.watches.validate()?;

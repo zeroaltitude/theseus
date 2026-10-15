@@ -649,7 +649,12 @@ const BULK: usize = 4096;
 /// extension's `capabilities.hands`, a hands group's `extension`, and the
 /// META keys `extend.hands.<name>` (its day sessions).
 /// 43 = a task's `notify_done` (theseus-j7cje): its report interrupts the owner.
-const MANIFEST_FORMAT: u32 = 43;
+/// 44 = a standing record's persona scope (theseus-a8n7): the scope variant
+/// `{"kind":"persona","of":"wren"}` in a `standing:<id>` META record, and the
+/// `standing.proposal:<id>` META records (an imported agent's feedback,
+/// proposed and never live), with the ledger kinds `persona.imported` and
+/// `standing.proposal_answered`.
+const MANIFEST_FORMAT: u32 = 44;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

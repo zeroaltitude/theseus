@@ -234,9 +234,15 @@ impl Shared {
         let said = match parsed(&c.options) {
             Some(("new", args)) => {
                 let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+                // Born in this place, the thread takes its persona (theseus-a8n7).
+                let place = discord.as_ref().map(|d| match d.guild_id {
+                    Some(_) => format!("discord:channel:{}", d.channel_id),
+                    None => format!("discord:dm:{}", d.user_id),
+                });
                 let p = ThreadNewParams {
                     slug: get("slug").unwrap_or_default(),
                     title: get("title"),
+                    place,
                     author: Some(who.to_string()),
                     discord,
                     ..Default::default()

@@ -250,6 +250,12 @@ impl Core {
         let topics = topics_of(p.topics.as_deref().unwrap_or(&[]))?;
         let now = theseus_protocol::now_unix_ms();
         let max_live = self.cfg.threads.max_live as usize;
+        // The persona of the place it is born in is its prior (theseus-a8n7).
+        let persona = p
+            .place
+            .as_deref()
+            .and_then(|t| self.runner.place_rule.persona_of(t))
+            .filter(|n| self.cfg.personas.contains_key(n));
         let (who_s, via) = (who.who(), who.via());
         let written = self
             .runner
@@ -283,7 +289,7 @@ impl Core {
                         topics: topics.clone(),
                         working_set: WorkingSet::default(),
                         card: vec![],
-                        persona: None,
+                        persona: persona.clone(),
                         state: ThreadState::Active,
                         sealed,
                         seal_pending: None,

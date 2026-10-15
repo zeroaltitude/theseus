@@ -29,7 +29,7 @@ impl TurnRunner {
     /// nothing to hold it to).
     pub(super) fn stand(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
         (t.standing.block, t.standing.here) =
-            self.standing_blocks(t.tc.session_id, t.tc.class, t.standing.surface);
+            self.standing_blocks(t.tc.session_id, t.tc.class, t.standing.surface, t.target.persona.as_deref());
         if let Some(block) = &t.standing.block {
             block.apply(spec);
         }
@@ -43,7 +43,14 @@ impl TurnRunner {
         session_id: &str,
         class: crate::places::PlaceClass,
     ) -> Option<Block> {
-        self.standing_blocks(session_id, class, None).0
+        // The session's persona, as its next turn speaks as (theseus-a8n7).
+        let persona = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session_id)
+            .ok()
+            .flatten()
+            .and_then(|s| self.persona_of(&s));
+        self.standing_blocks(session_id, class, None, persona.as_deref()).0
     }
 
     /// The system's block and the tail's (the records of `surface`) of
@@ -53,6 +60,7 @@ impl TurnRunner {
         session_id: &str,
         class: crate::places::PlaceClass,
         surface: Option<&'static str>,
+        persona: Option<&str>,
     ) -> (Option<Block>, Option<Block>) {
         let all = match self.standing.all(&self.store) {
             Ok(a) => a,
@@ -67,6 +75,7 @@ impl TurnRunner {
             session: session_id,
             place: place.as_deref(),
             surface,
+            persona,
         };
         let now = theseus_protocol::now_unix_ms();
         (

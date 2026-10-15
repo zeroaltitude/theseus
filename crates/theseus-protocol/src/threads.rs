@@ -219,6 +219,13 @@ pub struct ThreadNewParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub split_from: Option<String>,
+    /// The place the thread is born in (a bound place's target, such as
+    /// `discord:channel:<id>`): the thread's persona is that place's, when
+    /// the place names one the config has (theseus-a8n7). `thread.edit
+    /// { persona }` changes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub place: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,

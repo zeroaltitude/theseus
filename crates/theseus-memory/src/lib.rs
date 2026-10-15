@@ -35,6 +35,8 @@ pub mod science;
 pub mod threads;
 
 #[cfg(test)]
+mod tests_persona;
+#[cfg(test)]
 mod tests_threads;
 
 pub use access::{Access, AccessEvent, Durability, Label, Outcome};
@@ -43,7 +45,7 @@ pub use activation::{spread, Adjacency, AdjacencyList, EdgeKind, EdgeWeights, Sp
 pub use floor::Floor;
 pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
 pub use recall::{
-    Admitted, Asker, Candidate, Dropped, Link, LinkKind, Pack, Params, Place, Reason,
+    Admitted, Asker, Candidate, Dropped, Link, LinkKind, Pack, Params, PersonaBoost, Place, Reason,
 };
 pub use retention::RetentionRank;
 pub use science::{Baseline, MemoryScience, ScienceId, SynthesisAdmit, WithSyntheses};
