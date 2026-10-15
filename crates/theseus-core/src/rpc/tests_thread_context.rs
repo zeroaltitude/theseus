@@ -88,6 +88,7 @@ fn files(dir: &std::path::Path, c: &mut crate::Config) {
         "surveyor".into(),
         crate::config::PersonaConfig {
             files: vec![p.to_string_lossy().into_owned().into()],
+            ..Default::default()
         },
     );
 }
@@ -153,7 +154,10 @@ async fn threads_and_sessions_share_the_first_layers_byte_for_byte() {
             marked(other)
         );
     }
-    assert!(r[0].system[0]["text"].as_str().unwrap().contains("Theseus"));
+    assert!(r[0].system[0]["text"]
+        .as_str()
+        .unwrap()
+        .contains(crate::turn::ASSEMBLY));
     assert!(r[0].system[1]["text"]
         .as_str()
         .unwrap()

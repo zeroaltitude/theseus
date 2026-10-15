@@ -1515,8 +1515,7 @@ impl TurnRunner {
             };
         }
         target.persona = self.persona_of(&session);
-        let read;
-        (target, read) = self.route_base(&mut session, target, input.is_some());
+        let (target, read) = self.route_base(&mut session, target, input.is_some());
         let provider = self
             .providers
             .get(&target.provider)

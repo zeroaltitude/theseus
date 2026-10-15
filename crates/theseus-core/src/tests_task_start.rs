@@ -170,6 +170,7 @@ async fn a_named_home_is_the_parent_and_a_task_cannot_be() {
             kind: None,
             label: Some("Quay".into()),
             opened_from: None,
+            persona: None,
         })
         .unwrap();
     let started = r
@@ -336,6 +337,7 @@ async fn a_parent_holding_external_text_passes_it_to_the_task() {
             kind: None,
             label: Some("Reading".into()),
             opened_from: None,
+            persona: None,
         })
         .unwrap();
     let mut rec: SessionRecord = r.core.store.get_session(&conv.session_id).unwrap().unwrap();
@@ -471,6 +473,7 @@ async fn the_board_reports_to_nobody_and_home_to_the_parents_place() {
                 kind: None,
                 label: None,
                 opened_from: None,
+                persona: None,
             })
             .unwrap();
         r.core.outbox.bind_place("dm:43", &rec.session_id).unwrap();

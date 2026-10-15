@@ -205,6 +205,7 @@ impl Shared {
             silent: None,
             ping_window_secs: None,
             voice_status: None,
+            persona: None,
         }
     }
 
@@ -227,6 +228,7 @@ impl Shared {
             private: true,
             guild: guild.map(|g| g.to_string()),
             ceiling: None,
+            persona: None,
         });
         Ok(b)
     }
