@@ -268,21 +268,26 @@ fn thinking_chars(blocks: &[Value]) -> u64 {
         .sum()
 }
 
-/// Builds the answer from the turn's rows and nodes (pure, so a test feeds it).
-pub(crate) fn assemble(
-    out: &mut TurnInspectResult,
-    rows: Vec<(u64, LedgerRow)>,
-    nodes: Vec<(u64, Node)>,
-    private: bool,
-) {
-    let mut errors = 0u32;
-    let mut started_on = Value::Null;
-    let mut compiled: BTreeMap<u32, ContextCompiled> = BTreeMap::new();
-    for (pos, row) in &rows {
+/// What reading the rows found besides the rows themselves.
+struct Read {
+    errors: u32,
+    compiled: BTreeMap<u32, ContextCompiled>,
+    started_on: Value,
+}
+
+/// The turn's rows into the answer: its times, outcome, trace, route and
+/// compiles, and every row as the surface may see it.
+fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bool) -> Read {
+    let mut r = Read {
+        errors: 0,
+        compiled: BTreeMap::new(),
+        started_on: Value::Null,
+    };
+    for (pos, row) in rows {
         match row.kind.as_str() {
             "turn.started" => {
                 out.started_ms = row.at_unix_ms;
-                started_on = json!({
+                r.started_on = json!({
                     "profile": row.data["profile"], "provider": row.data["provider"],
                     "model": row.data["model"], "reason": "the live profile",
                 });
@@ -296,7 +301,7 @@ pub(crate) fn assemble(
             "turn.failed" | "turn.refused" if out.outcome.is_empty() => {
                 out.outcome = row.kind.trim_start_matches("turn.").into();
                 out.ended_ms = Some(row.at_unix_ms);
-                errors += 1;
+                r.errors += 1;
             }
             "turn.trace" => {
                 out.trace = serde_json::from_value::<Span>(row.data.clone())
@@ -311,10 +316,10 @@ pub(crate) fn assemble(
             "route.decided" => out.route = row.data.clone(),
             "context.compiled" => {
                 if let Ok(c) = serde_json::from_value::<ContextCompiled>(row.data.clone()) {
-                    compiled.insert(c.loop_index, c);
+                    r.compiled.insert(c.loop_index, c);
                 }
             }
-            "provider.error" | "provider.refusal" | "tool.invalid_input" => errors += 1,
+            "provider.error" | "provider.refusal" | "tool.invalid_input" => r.errors += 1,
             _ => {}
         }
         out.rows.push(InspectRow {
@@ -328,25 +333,148 @@ pub(crate) fn assemble(
             },
         });
     }
-    if out.route.is_null() {
-        out.route = started_on;
-    }
-    if out.outcome.is_empty() {
-        out.outcome = "running".into();
-    }
-    if out.started_ms == 0 {
-        out.started_ms = rows.first().map_or(0, |(_, r)| r.at_unix_ms);
-    }
-    if out.totals.wall_ms == 0 {
-        out.totals.wall_ms = out.ended_ms.map_or(0, |e| e.saturating_sub(out.started_ms));
+    r
+}
+
+/// The loops as the nodes build them: each answer, call and result in its loop.
+#[derive(Default)]
+struct Loops {
+    loops: BTreeMap<u32, InspectLoop>,
+    /// The loop of each answer node, and of each tool use's call: (loop, index among the loop's calls).
+    of_answer: BTreeMap<String, u32>,
+    by_use: BTreeMap<String, (u32, usize)>,
+    /// The ids of the nodes each loop wrote, in order: what the next request adds.
+    order: BTreeMap<u32, Vec<String>>,
+    errors: u32,
+}
+
+impl Loops {
+    fn answer(&mut self, out: &mut TurnInspectResult, n: &Node, private: bool) {
+        let Body::AssistantMessage {
+            blocks,
+            model,
+            provider,
+            stop_reason,
+            usage,
+            cost_usd,
+            request_id,
+            compilation_id,
+            request_digest,
+            effort,
+            ..
+        } = &n.body
+        else {
+            return;
+        };
+        let i = n.loop_index.unwrap_or(0);
+        self.of_answer.insert(n.id.clone(), i);
+        add(&mut out.totals.usage, usage);
+        out.totals.cost_usd += cost_usd.unwrap_or(0.0);
+        out.totals.model_calls += 1;
+        self.order.entry(i).or_default().push(n.id.clone());
+        self.loops.entry(i).or_default().answer = Some(InspectAnswer {
+            node_id: n.id.clone(),
+            at_ms: n.created_at_ms,
+            model: model.clone(),
+            provider: provider.clone(),
+            stop_reason: stop_reason.clone(),
+            usage: usage.clone(),
+            cost_usd: *cost_usd,
+            request_id: request_id.clone(),
+            compilation_id: compilation_id.clone(),
+            request_digest: request_digest.clone(),
+            effort: effort.as_ref().map(|e| format!("{e:?}").to_lowercase()),
+            blocks: if private {
+                blocks.clone()
+            } else {
+                blocks.iter().map(shape_of).collect()
+            },
+            thinking_chars: thinking_chars(blocks),
+        });
     }
 
-    // The nodes: the prompt, each loop's answer, each call and its result.
-    let mut loops: BTreeMap<u32, InspectLoop> = BTreeMap::new();
-    let mut loop_of_answer: BTreeMap<String, u32> = BTreeMap::new();
-    let mut by_use: BTreeMap<String, (u32, usize)> = BTreeMap::new();
-    let mut order: BTreeMap<u32, Vec<String>> = BTreeMap::new();
-    for (_, n) in &nodes {
+    fn call(&mut self, out: &mut TurnInspectResult, n: &Node, private: bool) {
+        let Body::ToolCall {
+            tool_use_id,
+            tool,
+            input,
+            assistant_node,
+            gate,
+            correlation_id,
+            ..
+        } = &n.body
+        else {
+            return;
+        };
+        let i = self
+            .of_answer
+            .get(assistant_node)
+            .copied()
+            .or(n.loop_index)
+            .unwrap_or(0);
+        out.totals.tool_calls += 1;
+        self.order.entry(i).or_default().push(n.id.clone());
+        let l = self.loops.entry(i).or_default();
+        self.by_use.insert(tool_use_id.clone(), (i, l.calls.len()));
+        l.calls.push(InspectCall {
+            tool_use_id: tool_use_id.clone(),
+            tool: tool.clone(),
+            call_node: n.id.clone(),
+            correlation_id: correlation_id.clone(),
+            called_ms: n.created_at_ms,
+            input: if private { input.clone() } else { Value::Null },
+            gate: if private { gate.clone() } else { None },
+            ..InspectCall::default()
+        });
+    }
+
+    fn result(&mut self, n: &Node, private: bool) {
+        let Body::ToolResult {
+            tool_use_id,
+            status,
+            is_error,
+            content,
+            bytes_total,
+            truncated,
+            full_ref,
+            duration_ms,
+            late,
+            ..
+        } = &n.body
+        else {
+            return;
+        };
+        let Some(&(i, k)) = self.by_use.get(tool_use_id) else {
+            return;
+        };
+        self.order.entry(i).or_default().push(n.id.clone());
+        // A late result replaces its placeholder in the view; the
+        // placeholder stays in the node history.
+        let Some(c) = self.loops.get_mut(&i).and_then(|l| l.calls.get_mut(k)) else {
+            return;
+        };
+        c.result_node = Some(n.id.clone());
+        c.resulted_ms = Some(n.created_at_ms);
+        c.status = Some(format!("{status:?}").to_lowercase());
+        c.is_error = *is_error;
+        c.content = if private {
+            content.clone()
+        } else {
+            String::new()
+        };
+        c.bytes_total = *bytes_total;
+        c.truncated = *truncated;
+        c.full_ref = full_ref.clone();
+        c.duration_ms = *duration_ms;
+        c.late = *late;
+        self.errors += u32::from(*is_error);
+    }
+}
+
+/// The nodes into the answer: the prompt, and each loop's answer and calls.
+fn read_nodes(out: &mut TurnInspectResult, nodes: &[(u64, Node)], private: bool) -> Loops {
+    let mut l = Loops::default();
+    for (_, n) in nodes {
         match &n.body {
             Body::UserMessage { text, .. } if out.prompt.node_id.is_none() => {
                 out.prompt = InspectPrompt {
@@ -357,123 +485,48 @@ pub(crate) fn assemble(
                     chars: text.chars().count() as u64,
                 };
             }
-            Body::AssistantMessage {
-                blocks,
-                model,
-                provider,
-                stop_reason,
-                usage,
-                cost_usd,
-                request_id,
-                compilation_id,
-                request_digest,
-                effort,
-                ..
-            } => {
-                let i = n.loop_index.unwrap_or(0);
-                loop_of_answer.insert(n.id.clone(), i);
-                add(&mut out.totals.usage, usage);
-                out.totals.cost_usd += cost_usd.unwrap_or(0.0);
-                out.totals.model_calls += 1;
-                order.entry(i).or_default().push(n.id.clone());
-                loops.entry(i).or_default().answer = Some(InspectAnswer {
-                    node_id: n.id.clone(),
-                    at_ms: n.created_at_ms,
-                    model: model.clone(),
-                    provider: provider.clone(),
-                    stop_reason: stop_reason.clone(),
-                    usage: usage.clone(),
-                    cost_usd: *cost_usd,
-                    request_id: request_id.clone(),
-                    compilation_id: compilation_id.clone(),
-                    request_digest: request_digest.clone(),
-                    effort: effort.as_ref().map(|e| format!("{e:?}").to_lowercase()),
-                    blocks: if private {
-                        blocks.clone()
-                    } else {
-                        blocks.iter().map(shape_of).collect()
-                    },
-                    thinking_chars: thinking_chars(blocks),
-                });
-            }
-            Body::ToolCall {
-                tool_use_id,
-                tool,
-                input,
-                assistant_node,
-                gate,
-                correlation_id,
-                ..
-            } => {
-                let i = loop_of_answer
-                    .get(assistant_node)
-                    .copied()
-                    .or(n.loop_index)
-                    .unwrap_or(0);
-                out.totals.tool_calls += 1;
-                order.entry(i).or_default().push(n.id.clone());
-                let l = loops.entry(i).or_default();
-                by_use.insert(tool_use_id.clone(), (i, l.calls.len()));
-                l.calls.push(InspectCall {
-                    tool_use_id: tool_use_id.clone(),
-                    tool: tool.clone(),
-                    call_node: n.id.clone(),
-                    correlation_id: correlation_id.clone(),
-                    called_ms: n.created_at_ms,
-                    input: if private { input.clone() } else { Value::Null },
-                    gate: if private { gate.clone() } else { None },
-                    ..InspectCall::default()
-                });
-            }
-            Body::ToolResult {
-                tool_use_id,
-                status,
-                is_error,
-                content,
-                bytes_total,
-                truncated,
-                full_ref,
-                duration_ms,
-                late,
-                ..
-            } => {
-                if let Some(&(i, k)) = by_use.get(tool_use_id) {
-                    order.entry(i).or_default().push(n.id.clone());
-                    // A late result replaces its placeholder in the view; the
-                    // placeholder stays in the node history.
-                    let c = &mut loops.get_mut(&i).unwrap().calls[k];
-                    c.result_node = Some(n.id.clone());
-                    c.resulted_ms = Some(n.created_at_ms);
-                    c.status = Some(format!("{status:?}").to_lowercase());
-                    c.is_error = *is_error;
-                    c.content = if private {
-                        content.clone()
-                    } else {
-                        String::new()
-                    };
-                    c.bytes_total = *bytes_total;
-                    c.truncated = *truncated;
-                    c.full_ref = full_ref.clone();
-                    c.duration_ms = *duration_ms;
-                    c.late = *late;
-                    errors += u32::from(*is_error);
-                }
-            }
+            Body::AssistantMessage { .. } => l.answer(out, n, private),
+            Body::ToolCall { .. } => l.call(out, n, private),
+            Body::ToolResult { .. } => l.result(n, private),
             _ => {}
         }
     }
-    for (i, c) in compiled {
-        loops.entry(i).or_default().compiled = Some(c);
+    l
+}
+
+/// Builds the answer from the turn's rows and nodes (pure, so a test feeds it).
+pub(crate) fn assemble(
+    out: &mut TurnInspectResult,
+    rows: Vec<(u64, LedgerRow)>,
+    nodes: Vec<(u64, Node)>,
+    private: bool,
+) {
+    let read = read_rows(out, &rows, private);
+    if out.route.is_null() {
+        out.route = read.started_on;
+    }
+    if out.outcome.is_empty() {
+        out.outcome = "running".into();
+    }
+    if out.started_ms == 0 {
+        out.started_ms = rows.first().map_or(0, |(_, r)| r.at_unix_ms);
+    }
+    if out.totals.wall_ms == 0 {
+        out.totals.wall_ms = out.ended_ms.map_or(0, |e| e.saturating_sub(out.started_ms));
+    }
+    let mut l = read_nodes(out, &nodes, private);
+    for (i, c) in read.compiled {
+        l.loops.entry(i).or_default().compiled = Some(c);
     }
     let mut prior: Vec<String> = Vec::new();
-    for (i, l) in &mut loops {
-        l.loop_index = *i;
-        l.added = std::mem::take(&mut prior);
-        prior = order.remove(i).unwrap_or_default();
+    for (i, lp) in &mut l.loops {
+        lp.loop_index = *i;
+        lp.added = std::mem::take(&mut prior);
+        prior = l.order.remove(i).unwrap_or_default();
     }
-    out.totals.loops = loops.len() as u32;
-    out.totals.errors = errors;
-    out.loops = loops.into_values().collect();
+    out.totals.loops = l.loops.len() as u32;
+    out.totals.errors = read.errors + l.errors;
+    out.loops = l.loops.into_values().collect();
 }
 
 fn add(t: &mut Usage, u: &Usage) {

@@ -39,6 +39,150 @@ fn compiled(i: u32, s: &str, t: &str) -> Value {
            "cache": {"breakpoints": ["header", "conversation"], "ttl": "1h", "conversation_ttl": "5m", "layers": {"header": "h1"}}})
 }
 
+fn write_loop(core: &Core, s: &str, t: &str, i: u32, last: bool, calls: u32) {
+    let at = T0 + 1_000 * u64::from(i + 1);
+    row(core, at, "context.compiled", s, t, compiled(i, s, t));
+    let mut blocks = vec![
+        json!({"type": "thinking", "thinking": format!("Plan for loop {i}: list, then count."), "signature": "sig"}),
+        json!({"type": "text", "text": format!("Looking, round {i}.")}),
+    ];
+    let uses: Vec<String> = (0..calls).map(|k| format!("tu_{i}_{k}")).collect();
+    if !last {
+        for u in &uses {
+            blocks.push(json!({"type": "tool_use", "id": u, "name": "fs_list", "input": {"path": "/harbour"}}));
+        }
+    }
+    let mut a = Node::assistant(
+        s,
+        t,
+        i,
+        Body::AssistantMessage {
+            blocks,
+            model: "claude-sonnet-5".into(),
+            provider: "anthropic".into(),
+            stop_reason: Some(if last { "end_turn" } else { "tool_use" }.into()),
+            usage: Usage {
+                input_tokens: 100,
+                output_tokens: 50 + u64::from(i),
+                cache_read_input_tokens: 8_000,
+                cache_creation_input_tokens: 200,
+                cache_creation_1h_input_tokens: 0,
+            },
+            cost_usd: Some(0.01),
+            catalog_version: None,
+            request_id: Some(format!("req_{i}")),
+            correlation_id: None,
+            compilation_id: Some("cmp_a".into()),
+            request_digest: Some(format!("dig{i}")),
+            effort: None,
+        },
+    );
+    a.created_at_ms = at + 400;
+    let aid = a.id.clone();
+    let mut recs = vec![a.record().unwrap()];
+    if !last {
+        for u in &uses {
+            let mut c = Node::tool_call(
+                s,
+                Some(t),
+                None,
+                Body::ToolCall {
+                    tool_use_id: u.clone(),
+                    tool: "fs.list".into(),
+                    wire_name: "fs_list".into(),
+                    input: json!({"path": "/harbour"}),
+                    assistant_node: aid.clone(),
+                    correlation_id: Some(u.replace("tu_", "act_")),
+                    gate: None,
+                },
+            );
+            c.created_at_ms = at + 450;
+            recs.push(c.record().unwrap());
+            let mut r = Node::tool_result(
+                s,
+                Some(t),
+                None,
+                Body::ToolResult {
+                    tool_use_id: u.clone(),
+                    tool: "fs.list".into(),
+                    status: ResultStatus::Ok,
+                    is_error: false,
+                    content: "tide.log\nquay.txt".into(),
+                    correlation_id: None,
+                    bytes_total: 17,
+                    truncated: false,
+                    full_ref: None,
+                    duration_ms: Some(12),
+                    late: false,
+                    meta: Value::Null,
+                    image: None,
+                    external: None,
+                },
+            );
+            r.created_at_ms = at + 470;
+            recs.push(r.record().unwrap());
+        }
+    }
+    core.store.append(&recs).unwrap();
+    row(core, at + 100, "recall.ran", s, t, json!({"admitted": 2}));
+}
+
+fn write_end(core: &Core, s: &str, t: &str, loops: u32) {
+    // A compaction, a floor question and its answer.
+    row(
+        core,
+        T0 + 500,
+        "context.compacted",
+        s,
+        t,
+        json!({"from": 40_000, "to": 9_000}),
+    );
+    row(
+        core,
+        T0 + 600,
+        "tool.confirm_requested",
+        s,
+        t,
+        json!({"tool": "proc.run", "tool_use_id": "tu_0_0", "correlation_id": "act_q"}),
+    );
+    // The answer is written with no turn, as the daemon writes it, and may come long after.
+    core.store
+        .append_ledger(
+            &json!({"at_unix_ms": T0 + 900, "kind": "action.confirm_answered", "session_id": s,
+                               "data": {"correlation_id": "act_q", "option": "approve"}}),
+        )
+        .unwrap();
+    row(
+        core,
+        T0 + 1_000 * u64::from(loops + 1),
+        "turn.ended",
+        s,
+        t,
+        json!({"loops": loops, "stop_reason": "end_turn", "elapsed_ms": 1_000 * (u64::from(loops) + 1)}),
+    );
+    row(
+        core,
+        T0 + 1_000 * u64::from(loops + 1),
+        "turn.trace",
+        s,
+        t,
+        json!({"name": "turn", "kind": "turn", "start_us": 0, "end_us": 5_000_000, "children": [
+        {"name": "loop 0", "kind": "loop", "start_us": 0, "end_us": 2_000_000, "children": [
+            {"name": "provider.messages", "kind": "provider", "start_us": 100_000, "end_us": 900_000},
+            {"name": "tool fs.list", "kind": "tool", "start_us": 1_000_000, "end_us": 1_500_000},
+            {"name": "tool fs.list", "kind": "tool", "start_us": 1_100_000, "end_us": 1_600_000}]}]}),
+    );
+    // Another turn after it, so there is a next.
+    row(
+        core,
+        T0 + 90_000,
+        "turn.started",
+        s,
+        "turn_after",
+        json!({}),
+    );
+}
+
 /// The turn: `loops` loops of `calls` parallel calls each (the last loop
 /// answers with text alone). Returns (session, turn).
 fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
@@ -78,146 +222,9 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
         .unwrap()])
         .unwrap();
     for i in 0..loops {
-        let at = T0 + 1_000 * u64::from(i + 1);
-        row(core, at, "context.compiled", &s, &t, compiled(i, &s, &t));
-        let last = i + 1 == loops;
-        let mut blocks = vec![
-            json!({"type": "thinking", "thinking": format!("Plan for loop {i}: list, then count."), "signature": "sig"}),
-            json!({"type": "text", "text": format!("Looking, round {i}.")}),
-        ];
-        let uses: Vec<String> = (0..calls).map(|k| format!("tu_{i}_{k}")).collect();
-        if !last {
-            for u in &uses {
-                blocks.push(json!({"type": "tool_use", "id": u, "name": "fs_list", "input": {"path": "/harbour"}}));
-            }
-        }
-        let mut a = Node::assistant(
-            &s,
-            &t,
-            i,
-            Body::AssistantMessage {
-                blocks,
-                model: "claude-sonnet-5".into(),
-                provider: "anthropic".into(),
-                stop_reason: Some(if last { "end_turn" } else { "tool_use" }.into()),
-                usage: Usage {
-                    input_tokens: 100,
-                    output_tokens: 50 + u64::from(i),
-                    cache_read_input_tokens: 8_000,
-                    cache_creation_input_tokens: 200,
-                    cache_creation_1h_input_tokens: 0,
-                },
-                cost_usd: Some(0.01),
-                catalog_version: None,
-                request_id: Some(format!("req_{i}")),
-                correlation_id: None,
-                compilation_id: Some("cmp_a".into()),
-                request_digest: Some(format!("dig{i}")),
-                effort: None,
-            },
-        );
-        a.created_at_ms = at + 400;
-        let aid = a.id.clone();
-        let mut recs = vec![a.record().unwrap()];
-        if !last {
-            for u in &uses {
-                let mut c = Node::tool_call(
-                    &s,
-                    Some(&t),
-                    None,
-                    Body::ToolCall {
-                        tool_use_id: u.clone(),
-                        tool: "fs.list".into(),
-                        wire_name: "fs_list".into(),
-                        input: json!({"path": "/harbour"}),
-                        assistant_node: aid.clone(),
-                        correlation_id: Some(u.replace("tu_", "act_")),
-                        gate: None,
-                    },
-                );
-                c.created_at_ms = at + 450;
-                recs.push(c.record().unwrap());
-                let mut r = Node::tool_result(
-                    &s,
-                    Some(&t),
-                    None,
-                    Body::ToolResult {
-                        tool_use_id: u.clone(),
-                        tool: "fs.list".into(),
-                        status: ResultStatus::Ok,
-                        is_error: false,
-                        content: "tide.log\nquay.txt".into(),
-                        correlation_id: None,
-                        bytes_total: 17,
-                        truncated: false,
-                        full_ref: None,
-                        duration_ms: Some(12),
-                        late: false,
-                        meta: Value::Null,
-                        image: None,
-                        external: None,
-                    },
-                );
-                r.created_at_ms = at + 470;
-                recs.push(r.record().unwrap());
-            }
-        }
-        core.store.append(&recs).unwrap();
-        row(core, at + 100, "recall.ran", &s, &t, json!({"admitted": 2}));
+        write_loop(core, &s, &t, i, i + 1 == loops, calls);
     }
-    // A compaction, a floor question and its answer.
-    row(
-        core,
-        T0 + 500,
-        "context.compacted",
-        &s,
-        &t,
-        json!({"from": 40_000, "to": 9_000}),
-    );
-    row(
-        core,
-        T0 + 600,
-        "tool.confirm_requested",
-        &s,
-        &t,
-        json!({"tool": "proc.run", "tool_use_id": "tu_0_0", "correlation_id": "act_q"}),
-    );
-    // The answer is written with no turn, as the daemon writes it, and may come long after.
-    core.store
-        .append_ledger(
-            &json!({"at_unix_ms": T0 + 900, "kind": "action.confirm_answered", "session_id": s,
-                               "data": {"correlation_id": "act_q", "option": "approve"}}),
-        )
-        .unwrap();
-    row(
-        core,
-        T0 + 1_000 * u64::from(loops + 1),
-        "turn.ended",
-        &s,
-        &t,
-        json!({"loops": loops, "stop_reason": "end_turn", "elapsed_ms": 1_000 * (u64::from(loops) + 1)}),
-    );
-    row(
-        core,
-        T0 + 1_000 * u64::from(loops + 1),
-        "turn.trace",
-        &s,
-        &t,
-        json!({"name": "turn", "kind": "turn", "start_us": 0, "end_us": 5_000_000, "children": [
-        {"name": "loop 0", "kind": "loop", "start_us": 0, "end_us": 2_000_000, "children": [
-            {"name": "provider.messages", "kind": "provider", "start_us": 100_000, "end_us": 900_000},
-            {"name": "tool fs.list", "kind": "tool", "start_us": 1_000_000, "end_us": 1_500_000},
-            {"name": "tool fs.list", "kind": "tool", "start_us": 1_100_000, "end_us": 1_600_000}]}]}),
-    );
-    // Another turn after it, so there is a next.
-    row(
-        core,
-        T0 + 90_000,
-        "turn.started",
-        &s,
-        "turn_after",
-        json!({}),
-    );
+    write_end(core, &s, &t, loops);
     (s, t)
 }
 
@@ -266,6 +273,7 @@ fn a_multi_loop_turn_comes_back_whole() {
         r.url
     );
     assert!(r.trace.as_ref().is_some_and(|x| x.children.len() == 1));
+    assert!(r.withheld.is_none());
     let kinds: Vec<&str> = r.rows.iter().map(|x| x.kind.as_str()).collect();
     for k in [
         "context.compacted",
@@ -276,6 +284,15 @@ fn a_multi_loop_turn_comes_back_whole() {
     ] {
         assert!(kinds.contains(&k), "{k} in {kinds:?}");
     }
+}
+
+/// Each loop of that turn: its compile, its answer with the thinking in full,
+/// its parallel calls with their results, and what its request added.
+#[test]
+fn each_loop_of_a_turn_has_its_compile_its_answer_and_its_calls() {
+    let core = test_core("ok");
+    let (s, t) = build(&core, 3, 2);
+    let r = inspect(&core, &s, &t, true);
     let l0 = &r.loops[0];
     assert_eq!(l0.calls.len(), 2);
     assert_eq!(
@@ -314,7 +331,6 @@ fn a_multi_loop_turn_comes_back_whole() {
         r.loops[2].calls.is_empty()
             && r.loops[2].answer.as_ref().unwrap().stop_reason.as_deref() == Some("end_turn")
     );
-    assert!(r.withheld.is_none());
 }
 
 /// Another surface reads shapes and sizes, never thinking, texts, inputs or results.
@@ -360,7 +376,7 @@ fn a_turn_the_session_never_had_is_refused_and_a_session_it_never_had_too() {
     let e = core
         .turn_inspect(
             &TurnInspectParams {
-                session_id: s.clone(),
+                session_id: s,
                 turn_id: "turn_nope".into(),
             },
             true,
