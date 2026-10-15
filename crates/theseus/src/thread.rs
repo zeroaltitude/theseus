@@ -663,7 +663,7 @@ mod tests {
             noted: false,
         };
         let l = split_lines(&s).join("\n");
-        assert!(l.contains("6 messages, @10 to @30") && l.contains("Nothing of harbour moved"), "{l}");
+        assert!(l.contains("6 messages quoted, @10 to @30") && l.contains("Nothing of harbour moved"), "{l}");
         assert!(l.contains("note \"split to disk\" was not written"), "{l}");
     }
 }

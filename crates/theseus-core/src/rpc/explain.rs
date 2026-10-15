@@ -436,6 +436,9 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
     Plan {
         resources: vec![Resource { path: at, access }],
         summary: format!("a call of {}", tool.name()),
+        // The owner's tap, at every posture (theseus-vt9k).
+        authority: (tool.name() == crate::thread_split::SPLIT)
+            .then(|| "a new thread opens with turns of this one".to_string()),
         ..Default::default()
     }
 }

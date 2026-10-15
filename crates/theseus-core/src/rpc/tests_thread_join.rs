@@ -697,3 +697,42 @@ async fn the_receiving_thread_is_rewritten_at_its_next_recompile_not_before() {
     let c3 = card(reqs.last().unwrap());
     assert!(c3.contains("merged from «io-pressure»") && c3.contains("> the log disk was at 91%"), "{c3}");
 }
+
+/// A split holds what its source holds (outside text), and a session opened
+/// for a split that did not happen is retired, not left looking like a
+/// conversation.
+#[tokio::test]
+async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
+    let r = rig(vec![Scripted::text("ok")]);
+    let c = &r.core;
+    let a = thread(c, "harbour");
+    turn(c, &a, "Where is the weir?").await;
+    c.store
+        .update_session(&a, |rec| {
+            rec.external = Some(crate::external::read("n1", "http.fetch", "https://x.example/", None, 1));
+            Ok(vec![])
+        })
+        .unwrap();
+    let p = pos_of(c, &a, "Where is the weir");
+    let res = c
+        .thread_split(
+            &ThreadSplitParams {
+                from: "harbour".into(),
+                slug: "weir".into(),
+                range: Some([p, p]),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    let sid = res.thread.thread.session_id.unwrap();
+    let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    assert!(rec.external.is_some(), "the new thread holds what the source held");
+    let src: SessionRecord = c.store.get_session(&a).unwrap().unwrap();
+    assert!(src.retired.is_none(), "the source goes on");
+
+    let orphan = c.open_session(Default::default()).unwrap().session_id;
+    c.drop_orphan(&orphan);
+    let rec: SessionRecord = c.store.get_session(&orphan).unwrap().unwrap();
+    assert!(rec.retired.is_some());
+}

@@ -95,8 +95,9 @@ impl Core {
                     if let Some(m) = &a.merged_into {
                         bail!("the thread {from} was merged into {m} already: `theseus thread unmerge {from}` undoes it");
                     }
-                    if let Some(m) = &b.merged_into {
-                        bail!("the thread {into} was merged into {m}: merge into that one");
+                    let live = board.live_of(&into).map_or(into.as_str(), |t| t.slug.as_str());
+                    if live != into {
+                        bail!("the thread {into} was merged into {live}: merge into that one");
                     }
                     if b.state == ThreadState::Done {
                         bail!("the thread {into} is done: `theseus thread reopen {into}` takes it up again");
@@ -492,7 +493,7 @@ impl Core {
             .execution_id
             .clone()
             .ok_or_else(|| anyhow!("session {sid} has no execution"))?;
-        let author = format!("{NOTE_AUTHOR}:{from}");
+        let author = format!("{}{from}", thread_split::AUTHOR_PREFIX);
         let text = thread_split::brief(
             new,
             from,
@@ -523,7 +524,7 @@ impl Core {
 
     /// A session opened for a split that did not happen: retired, so it is
     /// not left looking like a conversation. Best effort, and said.
-    fn drop_orphan(&self, sid: &str) {
+    pub(super) fn drop_orphan(&self, sid: &str) {
         let now = theseus_protocol::now_unix_ms();
         let done = self.store.update_session(sid, |r| {
             r.retired = Some(theseus_protocol::sessions::SessionRetired {

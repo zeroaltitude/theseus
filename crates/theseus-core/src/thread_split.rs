@@ -31,6 +31,15 @@ use crate::store::Transcript;
 use crate::thread_join::MAX_SET;
 use crate::toolrun::TurnCtx;
 
+/// The author of the arrangement a split writes (`thread:<source>`), which
+/// tells it from a task's (`session:<parent>`) to the compiler.
+pub const AUTHOR_PREFIX: &str = "thread:";
+
+/// Whether a node is the quoted turns a split thread opens with.
+pub fn is_quote(n: &crate::node::Node) -> bool {
+    n.author.as_deref().is_some_and(|a| a.starts_with(AUTHOR_PREFIX))
+}
+
 pub const SPLIT: &str = "thread.split";
 /// The tool's family, for the runtime's dispatch.
 pub const FAMILY: &str = "thread.split";
@@ -315,7 +324,7 @@ impl Tool for ThreadSplitTool {
         let i: SplitInput = parse(input)?;
         Ok(Plan {
             summary: format!("split part of this thread into the thread {}", i.slug.trim()),
-            authority: Some(format!("a new thread, {}, opens with turns of this one", i.slug.trim())),
+            authority: Some("a new thread opens with turns of this one".into()),
             ..Default::default()
         })
     }
