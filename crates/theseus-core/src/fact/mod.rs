@@ -70,6 +70,7 @@ pub mod rsi_budget;
 pub mod rsi_exams;
 pub mod rsi_graduate;
 pub mod rsi_join;
+pub mod rsi_pipeline;
 pub mod rsi_pr;
 pub mod rsi_sealed;
 pub mod sandbox;
@@ -487,6 +488,13 @@ facts![
     rsi_join::SelfJoined,
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
+    rsi_pipeline::Started,
+    rsi_pipeline::Held,
+    rsi_pipeline::Returned,
+    rsi_pipeline::Parked,
+    rsi_pipeline::Queued,
+    rsi_pipeline::Cleared,
+    rsi_pipeline::Ended,
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     thread::ThreadCreated<'static>,

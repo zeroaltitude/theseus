@@ -40,10 +40,12 @@
 
 pub mod backlog;
 pub mod budget;
+pub mod capacity;
 mod digest;
 pub mod exams;
 pub mod join;
 mod log;
+pub mod pipeline;
 pub mod pr;
 pub mod sealed;
 mod switch;
@@ -162,6 +164,9 @@ pub struct Switch {
     pub(crate) digest_at: Mutex<Option<u64>>,
     /// One backlog move at a time: a night, a drop, a move (`backlog.rs`).
     pub(crate) backlog: Mutex<()>,
+    /// The self pipeline's one tick at a time, its one self-join pass at a
+    /// time, and its kick (`pipeline.rs`, theseus-pw1q.16).
+    pub(crate) pipeline: pipeline::Shared,
 }
 
 impl Switch {

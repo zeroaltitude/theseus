@@ -70,6 +70,7 @@ impl Core {
                                 updated = n.updated.len(), trimmed = n.trimmed.len(),
                                 started = n.started.len(), "self backlog: the night ran"
                             );
+                            c.rsi.pipeline.kick();
                             for s in n.started {
                                 let c = c.clone();
                                 tokio::spawn(async move { c.backlog_run(s).await });
@@ -88,7 +89,7 @@ impl Core {
     /// An item's first turn: its objective, in its own session. Stops short
     /// if the gate no longer allows it; a failed turn is logged, and the item
     /// stays `in_progress` for the owner to see.
-    pub(super) async fn backlog_run(self: &Arc<Self>, s: Started) {
+    pub(crate) async fn backlog_run(self: &Arc<Self>, s: Started) {
         if gate(&self.self_ctx()) != Gate::Allowed {
             return;
         }

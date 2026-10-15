@@ -365,7 +365,7 @@ pub mod method {
         POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke",
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
         SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_BRANCHES = "self.branches",
-        SELF_EXAMS = "self.exams",
+        SELF_EXAMS = "self.exams", SELF_PIPELINE = "self.pipeline",
     }
 }
 

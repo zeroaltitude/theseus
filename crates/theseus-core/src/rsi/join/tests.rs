@@ -114,15 +114,52 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&o.stdout).trim().to_string()
 }
 
-struct Rig {
-    core: Arc<Core>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
     says: Arc<Says>,
-    f: Fixture,
+    pub(crate) f: Fixture,
     stand: Arc<Stand>,
     _work: tempfile::TempDir,
 }
 
-fn rig(mode: SelfMode) -> Rig {
+/// A reviewer that says `accept` after a while, and counts its asks and
+/// how many ran at once (the self pipeline's test, theseus-pw1q.16).
+#[derive(Default)]
+pub(crate) struct Slow {
+    asks: std::sync::atomic::AtomicUsize,
+    now: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+impl Slow {
+    pub(crate) fn asks(&self) -> usize {
+        self.asks.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    pub(crate) fn most(&self) -> usize {
+        self.most.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Reviewer for Slow {
+    fn review<'a>(&'a self, _core: &'a Arc<Core>, _ask: &'a Ask) -> Fut<'a> {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.asks.fetch_add(1, SeqCst);
+        let now = self.now.fetch_add(1, SeqCst) + 1;
+        self.most.fetch_max(now, SeqCst);
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            self.now.fetch_sub(1, SeqCst);
+            Ok(Review {
+                accept: true,
+                reasons: vec!["the slow stand-in accepts".into()],
+                cost_usd: 0.25,
+                session: None,
+            })
+        })
+    }
+}
+
+pub(crate) fn rig(mode: SelfMode) -> Rig {
     let f = fixture();
     let root = f.place.state.parent().unwrap().to_path_buf();
     let gpg = root.join("fake-gpg.sh");
@@ -162,7 +199,7 @@ fn rig(mode: SelfMode) -> Rig {
 }
 
 impl Rig {
-    fn seams(&self) -> Seams {
+    pub(crate) fn seams(&self) -> Seams {
         Seams {
             reviewer: self.stand.clone(),
             tests: Arc::new(Scripts),
@@ -174,7 +211,12 @@ impl Rig {
 
     /// A self branch off origin/main holding `files`, its row as self-pr
     /// writes one (green), built by a session that ran on `builder`.
-    fn seed(&self, name: &str, files: &[(&str, &str)], builder: &str) -> (String, String) {
+    pub(crate) fn seed(
+        &self,
+        name: &str,
+        files: &[(&str, &str)],
+        builder: &str,
+    ) -> (String, String) {
         let branch = format!("self/20261014-{name}");
         let wt = self
             .f
@@ -245,7 +287,7 @@ impl Rig {
         (branch, head)
     }
 
-    fn rows(&self, kind: &str) -> Vec<Value> {
+    pub(crate) fn rows(&self, kind: &str) -> Vec<Value> {
         self.core
             .store
             .ledger_tail::<crate::ledger::LedgerRow>(100_000)
@@ -293,11 +335,11 @@ async fn the_dry_run_in_a_tree_answers_without_merge_tree() {
 }
 
 /// The fix and the test that proves it: fails without `fix.txt`.
-const PROVED: &[(&str, &str)] = &[
+pub(crate) const PROVED: &[(&str, &str)] = &[
     ("fix.txt", "fixed\n"),
     ("tests/fix.sh", "test -f fix.txt\n"),
 ];
-const SONNET: &str = "claude-sonnet-5-5";
+pub(crate) const SONNET: &str = "claude-sonnet-5-5";
 
 /// A green branch: reviewed by another model (the check turn itself, on
 /// fable), its planted revert failing as it should, joined to the remote's

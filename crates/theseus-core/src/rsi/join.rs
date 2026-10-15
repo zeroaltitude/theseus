@@ -49,7 +49,7 @@ pub mod review;
 mod reviewing;
 mod tender;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -342,6 +342,9 @@ impl Run<'_> {
 impl Core {
     /// One pass of the self-join: the module's doc.
     pub async fn self_join_pass(self: &Arc<Self>, seams: &Seams) -> Result<Pass> {
+        // One pass at a time, the join tender's and the pipeline's
+        // (theseus-pw1q.16): never two reviews of one head, never two joins.
+        let _one = self.rsi.pipeline.joins.lock().await;
         let mut pass = Pass::default();
         let g = super::gate(&self.self_ctx());
         pass.gate = g.name().into();

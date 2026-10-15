@@ -54,9 +54,9 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 /// The upstream, the repo cloned from it, and a state dir apart from both.
-pub(super) struct Fixture {
-    pub(super) place: Place,
-    pub(super) upstream: PathBuf,
+pub(crate) struct Fixture {
+    pub(crate) place: Place,
+    pub(crate) upstream: PathBuf,
     _dir: tempfile::TempDir,
 }
 
