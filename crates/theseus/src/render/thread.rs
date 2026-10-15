@@ -160,6 +160,8 @@ pub(crate) mod tests {
             today_usd: 0.0,
             cache_ttl_secs: Some(3600),
             cache: None,
+            merged_from: vec![],
+            split_to: vec![],
         }
     }
 

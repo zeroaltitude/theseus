@@ -294,7 +294,8 @@ impl Shared {
                     Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
                 }
             }
-            _ => "⚠️ `/thread new`, `list`, `bind slug:`, `unbind` or `merge from: into:`.".to_string(),
+            _ => "⚠️ `/thread new`, `list`, `bind slug:`, `unbind` or `merge from: into:`."
+                .to_string(),
         };
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,

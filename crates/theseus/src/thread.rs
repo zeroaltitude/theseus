@@ -17,9 +17,9 @@ use theseus_protocol::thread_route::{
     ThreadAnswerParams, ThreadAnswerResult, ThreadMoveParams, ThreadMoveResult,
 };
 use theseus_protocol::threads::{
-    crossed_words, ThreadEditParams, ThreadMergeParams, ThreadMergeResult, ThreadSplitParams,
-    ThreadSplitResult, ThreadListParams, ThreadListResult, ThreadNameParams,
-    ThreadNewParams, ThreadRow, ThreadSealParams, ThreadSealResult, ThreadState, WorkingSet,
+    crossed_words, ThreadEditParams, ThreadListParams, ThreadListResult, ThreadMergeParams,
+    ThreadMergeResult, ThreadNameParams, ThreadNewParams, ThreadRow, ThreadSealParams,
+    ThreadSealResult, ThreadSplitParams, ThreadSplitResult, ThreadState, WorkingSet,
 };
 
 use crate::cmd::output;
@@ -190,6 +190,23 @@ fn name(slug: String) -> ThreadNameParams {
     }
 }
 
+/// `thread list [--state S]`.
+async fn list(conn: &mut Conn, json: bool, state: Option<String>) -> Result<()> {
+    let p = ThreadListParams {
+        state: state.as_deref().map(state_of).transpose()?,
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::THREAD_LIST, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: ThreadListResult| {
+        for l in list_lines(&r) {
+            println!("{l}");
+        }
+        Ok(())
+    })
+}
+
 pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
     let show = |r: ThreadRow| {
         for l in show_lines(&r) {
@@ -198,21 +215,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         Ok(())
     };
     match cmd {
-        ThreadCmd::List { state } => {
-            let p = ThreadListParams {
-                state: state.as_deref().map(state_of).transpose()?,
-                ..Default::default()
-            };
-            let v = conn
-                .request(method::THREAD_LIST, serde_json::to_value(&p)?)
-                .await?;
-            output(json, v, |r: ThreadListResult| {
-                for l in list_lines(&r) {
-                    println!("{l}");
-                }
-                Ok(())
-            })
-        }
+        ThreadCmd::List { state } => list(conn, json, state).await,
         ThreadCmd::New {
             slug,
             title,

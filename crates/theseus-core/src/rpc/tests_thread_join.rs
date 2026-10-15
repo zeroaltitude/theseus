@@ -847,6 +847,8 @@ async fn the_receiving_thread_is_rewritten_at_its_next_recompile_not_before() {
             attachments: vec![],
             arrived: None,
             reply_to: None,
+            answer_at: None,
+            surface: None,
         })
         .await
         .unwrap();
@@ -904,4 +906,48 @@ async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
     c.drop_orphan(&orphan);
     let rec: SessionRecord = c.store.get_session(&orphan).unwrap().unwrap();
     assert!(rec.retired.is_some());
+}
+
+/// A merge, a split and an unmerge are the owner's, from a private place: a
+/// person in a shared channel is refused and nothing changes (a review's
+/// planted revert: the merge's judgement removed, every other test passed).
+#[test]
+fn a_merge_split_or_unmerge_from_a_shared_place_is_refused() {
+    use theseus_protocol::error_code::REFUSED;
+    let r = rig(vec![]);
+    let c = &r.core;
+    for s in ["a", "b"] {
+        new(c, s);
+    }
+    let stranger = Answerer {
+        label: "discord:777".into(),
+        surface: Surface::Discord,
+        discord: Some(theseus_protocol::DiscordOrigin {
+            user_id: "777".into(),
+            channel_id: "314159".into(),
+            guild_id: Some("7".into()),
+        }),
+    };
+    let p = ThreadMergeParams {
+        from: "a".into(),
+        into: "b".into(),
+        ..Default::default()
+    };
+    let e = c.thread_merge(&p, stranger.clone()).unwrap_err();
+    assert_eq!(e.code, REFUSED, "{}", e.message);
+    assert_eq!(board(c, "a").state, ThreadState::Active);
+    assert!(rows(c, "thread.merged").is_empty());
+    let split = ThreadSplitParams {
+        from: "a".into(),
+        slug: "c".into(),
+        range: Some([1, 2]),
+        ..Default::default()
+    };
+    let e = c.thread_split(&split, stranger.clone()).unwrap_err();
+    assert_eq!(e.code, REFUSED, "{}", e.message);
+    assert!(c.threads().get("c").is_none());
+    merge(c, "a", "b").unwrap();
+    let e = c.thread_unmerge("a", stranger).unwrap_err();
+    assert_eq!(e.code, REFUSED, "{}", e.message);
+    assert_eq!(board(c, "a").merged_into.as_deref(), Some("b"));
 }

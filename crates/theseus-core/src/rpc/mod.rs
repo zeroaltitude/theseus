@@ -70,10 +70,10 @@ mod stop_all;
 mod task_start;
 mod thread_flow;
 mod thread_import;
+mod thread_join;
 mod thread_move;
 mod thread_seal;
 mod thread_surface;
-mod thread_join;
 mod threads;
 mod wake_owner;
 mod watch;
@@ -131,6 +131,8 @@ mod tests_thread_context;
 #[cfg(test)]
 mod tests_thread_import;
 #[cfg(test)]
+mod tests_thread_join;
+#[cfg(test)]
 mod tests_thread_keep_warm;
 #[cfg(test)]
 mod tests_thread_recall;
@@ -138,8 +140,6 @@ mod tests_thread_recall;
 mod tests_thread_route;
 #[cfg(test)]
 mod tests_thread_surface;
-#[cfg(test)]
-mod tests_thread_join;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
