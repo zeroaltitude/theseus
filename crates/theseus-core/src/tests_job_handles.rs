@@ -488,3 +488,51 @@ async fn the_gate_reads_job_read_as_a_read_and_job_stop_as_the_jobs_run() {
     );
     assert_eq!(plan.resources[0].access, theseus_tools::Access::Exec);
 }
+
+/// Esc's stop, `execution.stop {keep_jobs: true}` through the protocol
+/// (theseus-wy6v.1), leaves the session's background job running: not told
+/// to stop, still dispatched, no cancel on its action (chat-ask's join
+/// review: the kernel's keeping had a test and the RPC's flag had none).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_keeping_jobs_leaves_the_background_job_running() {
+    let job = json!({"argv": ["sh", "-c", "sleep 30; echo late"], "background": true});
+    let r = rig(
+        vec![
+            Scripted::tools("Starting it.", &[("t1", "proc_run", job)]),
+            Scripted::text("Started."),
+        ],
+        10,
+        |_| {},
+    );
+    let res = r.turn(None, "start it").await;
+    let corr = r
+        .result(&res.session_id, "t1")
+        .3
+        .expect("its correlation id");
+    let eid = r
+        .core
+        .kernel
+        .open_executions()
+        .unwrap()
+        .into_iter()
+        .find(|e| e.session_id == res.session_id)
+        .expect("the conversation's execution")
+        .id;
+    let stopped = crate::tests_route::call(
+        &r.core,
+        "execution.stop",
+        json!({"execution_id": eid, "author": "theseus chat", "keep_jobs": true}),
+    )
+    .await;
+    assert!(
+        !stopped["stopped_actions"].to_string().contains(&corr),
+        "the job was told to stop: {stopped}"
+    );
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(
+        a.state,
+        theseus_kernel::ActionState::Dispatched,
+        "it runs on"
+    );
+    assert!(a.cancel.is_none(), "no cancel on the kept job");
+}

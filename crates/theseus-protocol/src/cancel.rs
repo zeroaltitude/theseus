@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::{DiscordOrigin, ExecutionInfo};
+
 /// How one call a cancel or a stop reached ended.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -147,4 +149,77 @@ mod tests {
         );
         assert_eq!(note(None), "");
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExecutionCancelParams {
+    pub execution_id: String,
+    /// Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default: the connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExecutionCancelResult {
+    pub execution: ExecutionInfo,
+    /// Dispatched actions whose backends were asked to stop.
+    pub cancelled_actions: Vec<String>,
+    /// How each of them stopped, and how that is known (M4 18a).
+    #[serde(default)]
+    pub verdicts: Vec<CancelVerdict>,
+}
+
+/// `execution.stop` (W1, theseus-lji; `/stop`): halt a conversation's work
+/// and keep the conversation. Its running jobs and calls are told to stop,
+/// what waits on the operator is declined, and a running turn plans nothing
+/// more; the execution then waits on its next input. A task is refused:
+/// `task.cancel` stops one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExecutionStopParams {
+    pub execution_id: String,
+    /// Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default:
+    /// the surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    /// Also cancel every task under the conversation, depth first: an owner's act (theseus-cdcwr).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tasks: bool,
+    /// Stop the turn and what it waits on, and leave the jobs that went on in
+    /// the background and the terminals running: the chat's Esc
+    /// (theseus-wy6v.1).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_jobs: bool,
+    /// Where a Discord caller asked from; the place rule reads it for `tasks`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ExecutionStopResult {
+    pub execution: ExecutionInfo,
+    /// False when the execution had ended already: nothing was stopped.
+    pub stopped: bool,
+    /// Running jobs and calls whose backends were asked to stop.
+    pub stopped_actions: Vec<String>,
+    /// How each of them stopped, and how that is known (M4 18a).
+    #[serde(default)]
+    pub verdicts: Vec<CancelVerdict>,
+    /// Planned calls, approvals, and a budget question that will not run.
+    pub declined: Vec<String>,
+    /// A turn was running: it ends at its next step.
+    pub turn_running: bool,
+    /// What goes on, which `/cancel <id>` stops one by one: the session's
+    /// running tasks and its pending wakes.
+    pub tasks_running: u32,
+    pub wakes_pending: u32,
+    /// With `tasks`: the tasks cancelled, depth first (theseus-cdcwr).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancelled: Vec<String>,
 }

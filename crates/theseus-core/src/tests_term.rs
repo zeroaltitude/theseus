@@ -690,3 +690,22 @@ async fn the_configs_term_settings_reach_the_terminals() {
         assert_eq!(core.tools.terms.idle_max_ms, idle_max_ms);
     }
 }
+
+/// Esc's stop (`keep_jobs`, theseus-wy6v.1) leaves the session's terminals
+/// open, their programs running and no close recorded (chat-ask's join
+/// review: nothing held the terminals' half of the flag).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_keeping_jobs_leaves_the_sessions_terminals_open() {
+    let r = rig(&[], false, opener);
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "open one").await;
+    let (id, pid) = only_terminal(&r.core, &sid);
+    r.core
+        .stop_execution_with(res.execution_id.as_deref().unwrap(), "test", true)
+        .await
+        .unwrap();
+    assert!(r.core.tools.terms.get(&id).is_some(), "{id} was closed");
+    assert!(lives(pid), "{id}'s program was ended");
+    assert!(rows(&r.core, "term.closed").is_empty());
+    r.core.finish_stop().await;
+}
