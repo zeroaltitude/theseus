@@ -426,7 +426,48 @@ async fn a_routines_failure_posts_with_buttons_once_a_day_and_the_buttons_act() 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_met_watch_posts_once_and_pings() {
     let r = rig(model(false), false).await;
-    let rpc = owner(&r);
+    let posts = met_watch(&r).await;
+    assert_eq!(posts.len(), 1, "once: {posts:#?}");
+    assert!(!posts[0].silent(), "a met watch pings: {:?}", posts[0]);
+    assert!(
+        posts[0].buttons.is_empty(),
+        "no verb answers a met watch yet: {:?}",
+        posts[0]
+    );
+}
+
+/// The met watch's post is a reminder's kind, not a notice's: a place that
+/// silences notices still hears it (the core's `purpose: watch.met`).
+#[tokio::test]
+async fn a_met_watch_pings_where_notices_are_silent() {
+    let m = model(false);
+    let r = Rig::start_tweaked(
+        move |_, _| m as Arc<dyn Provider>,
+        super::guild(true),
+        &super::bindings(true),
+        &[],
+        |c| c.discord.silent = vec![theseus_core::config::discord::Category::Notices],
+    )
+    .await;
+    r.say((ANA, "ana"), None, "hello");
+    r.until("the DM answered", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("Tide at 06:12."))
+    })
+    .await;
+    let posts = met_watch(&r).await;
+    assert_eq!(posts.len(), 1, "once: {posts:#?}");
+    assert!(
+        !posts[0].silent(),
+        "a met watch pings though notices are silent: {:?}",
+        posts[0]
+    );
+}
+
+/// A file watch made and met: its posts in the owner's DM.
+async fn met_watch(r: &Rig) -> Vec<Msg> {
+    let rpc = owner(r);
     let file = r.dir.path().join("build.flag");
     let made: WatchCreateResult = rpc
         .call(
@@ -456,14 +497,7 @@ async fn a_met_watch_posts_once_and_pings() {
     r.until("the watch met", || r.posted(ANA_DM).iter().any(is_it))
         .await;
     tokio::time::sleep(Duration::from_millis(2500)).await;
-    let posts: Vec<Msg> = r.posted(ANA_DM).into_iter().filter(is_it).collect();
-    assert_eq!(posts.len(), 1, "once: {posts:#?}");
-    assert!(!posts[0].silent(), "a met watch pings: {:?}", posts[0]);
-    assert!(
-        posts[0].buttons.is_empty(),
-        "no verb answers a met watch yet: {:?}",
-        posts[0]
-    );
+    r.posted(ANA_DM).into_iter().filter(is_it).collect()
 }
 
 #[tokio::test]
