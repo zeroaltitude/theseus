@@ -457,6 +457,17 @@ mod tests {
             report: None,
             woke: None,
             flagged: false,
+            dismissed: false,
+            retry_of: None,
+            forecast: None,
+            thread: None,
+            purpose: None,
+            next_at_ms: None,
+            series: None,
+            paused: false,
+            routine: None,
+            watch: None,
+            project: None,
         }
     }
 
@@ -466,6 +477,7 @@ mod tests {
             at_ms: 0,
             views,
             gone: gone.iter().map(|s| s.to_string()).collect(),
+            threads: vec![],
         }
     }
 
@@ -625,6 +637,7 @@ mod tests {
                 view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9),
             ],
             total: 2,
+            threads: vec![],
         });
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Done);
         assert!(

@@ -345,6 +345,17 @@ mod tests {
             report: None,
             woke: None,
             flagged: false,
+            dismissed: false,
+            retry_of: None,
+            forecast: None,
+            thread: None,
+            purpose: None,
+            next_at_ms: None,
+            series: None,
+            paused: false,
+            routine: None,
+            watch: None,
+            project: None,
         }
     }
 
@@ -356,6 +367,7 @@ mod tests {
             since_ms: NOW,
             turn: 4,
             loop_index: 1,
+            last_line: None,
         });
         v.cost = Some(Cost {
             spent_usd: 0.42,

@@ -652,7 +652,9 @@ async fn the_config_binds_a_channel_when_its_thread_exists() {
 async fn a_threads_task_board_lands_in_its_discord_thread() {
     use theseus_core::task_graph::{record, NewTask, TaskOrigin, TaskState};
     let r = rig_with(&["noted"], false, |c| {
-        c.threads.discord_channel = Some(DESK.to_string())
+        c.threads.discord_channel = Some(DESK.to_string());
+        // The text board this test reads (discord-board's V2 board is the default).
+        c.discord.live_board = false;
     })
     .await;
     make(&r, "tides");

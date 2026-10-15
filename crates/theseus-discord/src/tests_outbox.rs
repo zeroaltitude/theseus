@@ -1038,7 +1038,7 @@ async fn an_operators_notice_falls_back_only_to_a_place_this_daemon_binds() {
     const ELSEWHERE: u64 = 900_000_000_000_000_009;
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
-    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let core = core_at(d.path(), &fake, vec![], |c| c.discord.live_board = false);
     // What a copied store names: a DM and a channel this daemon does not bind.
     let placed = |place: &str| {
         let r = theseus_core::session::SessionRecord::new(

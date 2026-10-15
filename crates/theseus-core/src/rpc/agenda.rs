@@ -36,7 +36,7 @@ impl Core {
             roots: p.roots.clone(),
             ..Default::default()
         };
-        let scope = self.work_scope(&named, guarded, conn.surface.name())?;
+        let scope = self.work_scope(&named, guarded, conn.surface)?;
         self.push.ensure(self).await?;
         let mut out = self
             .push

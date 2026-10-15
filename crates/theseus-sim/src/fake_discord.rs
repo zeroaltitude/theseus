@@ -1676,6 +1676,7 @@ impl FakeDiscord {
                     components_json: data["components"].clone(),
                     pinned: false,
                     flags: data["flags"].as_u64().unwrap_or(0),
+                    hook: None,
                 };
                 if let Some(i) = interaction {
                     st.ephemerals.insert(i.to_string(), m);

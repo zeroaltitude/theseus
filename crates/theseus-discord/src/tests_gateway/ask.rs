@@ -24,10 +24,13 @@ fn model(_: &std::path::Path, _: Arc<theseus_sim::fake_discord::FakeDiscord>) ->
     ]))
 }
 
+/// The classic card and text board (owner-ask was written before discord-board's
+/// Components V2 card; with `live_board` on, a DM question's card is a V2 box).
 async fn rig() -> Rig {
     // The model's owner_ask is deferred by default (its own family): these scripts call it directly.
     Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
-        c.tools.defer.always_loaded.push("ask".into())
+        c.tools.defer.always_loaded.push("ask".into());
+        c.discord.live_board = false;
     })
     .await
 }

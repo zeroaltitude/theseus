@@ -190,6 +190,7 @@ mod tests {
                 since_ms: 0,
                 turn: 4,
                 loop_index: 0,
+                last_line: None,
             }),
             progress: Some(Progress {
                 steps_done: 2,
@@ -206,6 +207,17 @@ mod tests {
             report: None,
             woke: None,
             flagged: false,
+            dismissed: false,
+            retry_of: None,
+            forecast: None,
+            thread: None,
+            purpose: None,
+            next_at_ms: None,
+            series: None,
+            paused: false,
+            routine: None,
+            watch: None,
+            project: None,
         }
     }
 
