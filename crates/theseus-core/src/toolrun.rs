@@ -399,6 +399,8 @@ pub struct ToolRuntime {
     pub lookup: crate::memory_lookup::Board,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
     pub routines: crate::routine::Book,
+    /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
+    pub projects: crate::config::ProjectsConfig,
     /// The job tools' core and the sessions' short job ids (theseus-n8gk).
     pub jobs: jobs_tools::Board,
     /// `self.propose_change`'s core and trees (theseus-pw1q.8).
@@ -541,6 +543,7 @@ impl ToolRuntime {
             judge: Default::default(),
             lookup: Default::default(),
             routines: Default::default(),
+            projects: Default::default(),
             jobs: Default::default(),
             self_pr: Arc::new(crate::rsi::pr::Board::new(tmp.join("state"))),
             extend: Arc::new(crate::extend::Extensions::new(
@@ -1466,10 +1469,14 @@ impl ToolRuntime {
         // task's lock (39a).
         let mut edit = crate::task_graph::tools::Done::default();
         let done = match tool.name() {
-            crate::task::CREATE => {
-                crate::task::create(tc, &call.input, correlation_id, &self.profiles)
-                    .map(|c| edit.take(c))
-            }
+            crate::task::CREATE => crate::task::create(
+                tc,
+                &call.input,
+                correlation_id,
+                (&self.profiles, (&self.routines, &self.projects)),
+            )
+            .map(|c| edit.take(c)),
+            crate::project_tool::ATTACH => crate::project_tool::attach(tc, &call.input),
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             crate::wake_tools::CANCEL => crate::wake_tools::cancel(tc, &call.input),
             crate::wake_tools::MOVE => crate::wake_tools::move_to(tc, &call.input),
@@ -1559,6 +1566,7 @@ impl ToolRuntime {
             self.leases.note(&c.task);
         }
         crate::task_graph::tools::announce(tc, &edit.changes);
+        crate::project::remind::after(self, tc, &edit.changes);
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
     }
@@ -2162,6 +2170,7 @@ pub fn build_runtime(
             cfg: cfg.routines.clone(),
             floor_ms: cfg.kernel.min_repeat_minutes.max(1) * 60_000,
         }));
+        r.register(Arc::new(crate::project_tool::ProjectAttach));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
@@ -2296,6 +2305,7 @@ pub fn build_runtime(
         judge: Default::default(),
         lookup: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
+        projects: cfg.projects.clone(),
         jobs: Default::default(),
         self_pr,
         profiles: cfg

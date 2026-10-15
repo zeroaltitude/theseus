@@ -4,6 +4,7 @@ import type { CompileSignal } from "./CompileSignal";
 import type { ContextFileRef } from "./ContextFileRef";
 import type { EstimateSummary } from "./EstimateSummary";
 import type { PlaceClass } from "./PlaceClass";
+import type { ProjectSliceSummary } from "./ProjectSliceSummary";
 import type { Situation } from "./Situation";
 import type { TaskViewSummary } from "./TaskViewSummary";
 
@@ -76,6 +77,11 @@ signals?: Array<CompileSignal>,
  * no task, as in a plain turn.
  */
 tasks?: TaskViewSummary, 
+/**
+ * The project slice the request carried (theseus-n5ui2); absent when
+ * the conversation has no project attached.
+ */
+project?: ProjectSliceSummary, 
 /**
  * The situation the loop compiled in (M6 35a, §2.11), which decides what
  * its request may admit; absent from a daemon before it.

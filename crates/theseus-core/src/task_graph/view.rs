@@ -44,7 +44,9 @@ pub fn is_view(block: &Value) -> bool {
 /// view's, or the commitments'. A stand-in model that reads the last user
 /// text skips these.
 pub fn is_head(text: &str) -> bool {
-    text.starts_with(HEAD) || text.starts_with(crate::commitments::HEAD)
+    text.starts_with(HEAD)
+        || text.starts_with(crate::commitments::HEAD)
+        || text.starts_with(crate::project::slice::HEAD)
 }
 
 /// The view's text and what it showed.

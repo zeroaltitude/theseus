@@ -40,6 +40,7 @@ mod pages;
 mod policy_explain;
 mod postmortem;
 mod print;
+mod project;
 mod prompt;
 mod remind;
 mod retract;
@@ -580,6 +581,20 @@ enum Cmd {
     Routine {
         #[command(subcommand)]
         cmd: Option<routine::RoutineCmd>,
+    },
+    /// The open projects (theseus-n5ui2): long-term work with a goal, dated milestones that remind
+    /// you, a weekly review, and a slice in every session attached to it. A bar of milestones done,
+    /// the next one and its date, the review's next run. `--all` adds closed ones.
+    Projects {
+        #[arg(long)]
+        all: bool,
+    },
+    /// One project: `project show ID` (the tree with dates), `project new TITLE --milestone
+    /// TITLE@WHEN`, `project attach SESSION ID`, `project detach SESSION`. The writes are yours alone
+    /// (refused inside a job).
+    Project {
+        #[command(subcommand)]
+        cmd: Option<project::ProjectCmd>,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -1231,6 +1246,8 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Routine { cmd } => routine::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Projects { all } => project::list(c, json, all).await,
+        Cmd::Project { cmd } => project::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

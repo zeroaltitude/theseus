@@ -1351,6 +1351,30 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Tests: `tests_routines.rs` (a minute routine runs three times as three fresh tasks reporting to the DM; overlap; pause and run
   now; a spent month and its reset; the catch-up's words; the model's card; `when_notable`; update and delete), the kernel's
   `tests_routines.rs` and `tests_cron.rs`, and `tests_layouts.rs`' format-33 wake.
+- **Projects** (theseus-n5ui2; horizon HZ10; store format 35): long-term work on the task graph, no second list. A project is a
+  TASK record of `kind: project` (`TaskRecord.kind`, `due_at_ms`, `review`; an item is what a record without a kind is),
+  its milestones `kind: milestone` with a date, its steps the plan items under it. `project/` holds the parts: `progress.rs`
+  (steps and milestones done of total, the next due, the overdue, from the subtree), `slice.rs` (an attached conversation's
+  slice: the goal, the open milestones with dates, the next steps, within `MAX_TOKENS` (300) of the task view's 1,500,
+  built from the records in memory every loop and attached after the commitments' block, so the request ends with it and
+  no compaction can take it; a conversation with no project adds nothing and reads nothing), `remind.rs` (each open dated
+  milestone holds two notice wakes in Home, or in the conversation whose call set them: `⚑ due today: <project>, milestone
+  N: <title>` at the date and `⚑ overdue: …` a grace later, `[projects] overdue_after_minutes`; their ids are made from the
+  milestone's, so `sync_milestone` finds them again, moves them with the date, and cancels them when the milestone or its
+  project closes; a date already past sets none), `create.rs` (the project and its milestones as records in one frame,
+  deterministic ids from the call's), `review.rs` (the weekly review, a routine made with the project, `[projects]
+  review_schedule` `mon 08:00` by default; its brief names the project by id and asks for a report with next week's steps
+  as plan items and `Decisions for you`, because `owner_ask` is not on main yet), `info.rs` (a list row). The owner's verbs
+  are `rpc/projects.rs` (`project.create|list|show|attach`; the first is `judge_act(Act::Routine)`, the last `Act::Session`);
+  the model's are `task_create { kind: project|milestone, due, milestones, review }` (a project with a review waits on one
+  card, as `routine.create` does: `task_create`'s plan names the authority, `authority_for` keeps it) and `project.attach`
+  (`project_tool.rs`; it writes `SessionRecord.project`, which no turn's write-back touches). `task_update`'s patch takes
+  `due`. The goal is the owner's layer when the owner sets it (a project made by `project.create` has `by_model` false, so
+  an agent's edit of its objective or acceptance waits for a yes); a milestone's date is the agent's plan. Reminders are
+  synced after the call's frame (`remind::after`, in `harness_done`) and after the owner's verb; a plain item costs a kind
+  test. `context.compiled.project` names the slice (`theseus why` prints it). Tests: `project/tests.rs` (pure, and the
+  slice's bench), `tests_projects.rs` (the owner's create, a moved date and a close, a date firing, an overdue notice with no
+  sound, the review's run in its log, the layer-1 guard, the model's card, and three compactions), `tests_layouts.rs`.
 - **Deferred tasks** (theseus-rcgph): `task.create { start_at | start_after }` opens a task asleep (`task_start.rs`):
   `Kernel::open_task_at` writes it `Waiting{DueAt}` in the open's one frame with its carve held (the parent's
   remaining shows it), the due scan queues it, and its first turn's catch-up writes the node `Deferred task, set <when>

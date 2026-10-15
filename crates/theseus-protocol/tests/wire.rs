@@ -841,6 +841,7 @@ fn summary(recompile: bool) -> ContextCompiled {
             }]
         },
         tasks: None,
+        project: None,
         situation: recompile.then(|| theseus_protocol::Situation::Recompile {
             trigger: "window".into(),
         }),

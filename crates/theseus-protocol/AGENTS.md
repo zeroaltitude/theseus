@@ -126,6 +126,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `routines.rs` (theseus-pvm5c): routines on the wire: `RoutineSpec` (the META record `routine:<session id>`, no store
   format of its own), `RoutineInfo`, `RunRow`, the eight `routine.*` methods' params, `CatchUp` and `Speak`, and `NOTHING_NEW`
   (the marker a `when_notable` routine's report ends with when there is nothing to say).
+- `projects.rs` (theseus-n5ui2): projects on the wire: `ProjectInfo` and `ProjectProgress` (`bar`, `▰▰▰▱▱▱▱ 3/7`), the four `project.*`
+  methods' params and results, `ProjectSliceSummary` (`context.compiled`'s `project`), and `DEFAULT_REVIEW`. `TaskRecord` gained `kind`
+  (`TaskKind`), `due_at_ms` and `review` (store format 35, each left out of the bytes at its default). `notices.rs` reads a reminder
+  whose note begins `⚑` as a milestone's (`MILESTONE_MARK`, no clock icon), and `⚑ overdue` as `Why::Overdue`: an Interrupt with no sound.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

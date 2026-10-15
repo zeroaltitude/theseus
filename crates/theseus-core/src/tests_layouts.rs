@@ -93,7 +93,31 @@ pub(crate) const SESSION_BEFORE_FORK: &str = r#"{"session_id":"ses_0000000000000
 /// theseus-2qzx (7005d130) writes.
 pub(crate) const COMPILATION_BEFORE_FORK: &str = r#"{"id":"cmp_00000000000000000000000000000292","schema":1,"session_id":"ses_00000000000000000000000000000291","created_at_ms":1790000000292,"trigger":"new_session","strategy":"transcript","as_of":71,"includes":["msg_00000000000000000000000000000291"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"standing":[{"id":"std_00000029","shown":true}]},"situation":{"kind":"conversation_start"}}"#;
 
+/// A plan item as format 34 wrote it (theseus-pvm5c's build; the layout is
+/// unchanged since 19), before a task's long-term kind, date and review
+/// (`kind`, `due_at_ms`, `review`, format 35, theseus-n5ui2). It reads as an
+/// item with no date and no review, and writes back byte for byte. By hand, in
+/// the layout the build before theseus-n5ui2 (f8975aac) writes.
+pub(crate) const TASK_BEFORE_PROJECTS: &str = r#"{"id":"tsk_00000000000000000000000000000301","version":3,"title":"Chart the reef","objective":"chart the reef's north edge","acceptance":["every marker has a depth"],"state":"accepted","parent":"tsk_00000000000000000000000000000300","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator","by_model":true},"evidence":[],"claim":{"by":"exe_00000000000000000000000000000302","session":"ses_00000000000000000000000000000302","until_ms":1790000900000},"created_at_ms":1790000000301,"updated_at_ms":1790000000305}"#;
+
+/// A session as format 34 wrote it, before the project it serves (`project`,
+/// format 35, theseus-n5ui2). It reads with no project, and writes back byte
+/// for byte. By hand, in the layout the build before theseus-n5ui2 writes.
+pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_00000000000000000000000000000311","kind":"conversation","label":null,"created_at_unix_ms":1790000000311,"turns":2,"last_turn_id":"turn_00000000000000000000000000000313","usage":{"input_tokens":700,"output_tokens":90,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"execution_id":"exe_00000000000000000000000000000311","compilation_id":"cmp_00000000000000000000000000000312","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000319,"cost_usd":0.0066,"tool_calls":0,"title":"Plan the harbour survey","dir":"/work/harbour"}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::TASK,
+        layout: "a plan item at format 34 (theseus-pvm5c's; unchanged since 19): before a task's kind, date and review (35, theseus-n5ui2)",
+        bytes: TASK_BEFORE_PROJECTS,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 34 (theseus-pvm5c's; unchanged since 32): before the project it serves (35, theseus-n5ui2)",
+        bytes: SESSION_BEFORE_PROJECT,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::SESSION,
         layout: "a session at format 29 (theseus-a7vi's; unchanged since 28): before a fork's origin (32, theseus-2qzx)",
@@ -527,7 +551,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -579,7 +603,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -634,7 +658,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -686,7 +710,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 34);
+    assert_eq!(moved["format"], 35);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -718,4 +742,25 @@ fn a_format_33_repeating_wake_reads_with_no_cron_and_writes_back_byte_for_byte()
     assert!(text.contains(r#""cron":"0 8 * * 1-5""#));
     let again: theseus_kernel::PendingWake = serde_json::from_str(&text).unwrap();
     assert_eq!(again, cron);
+}
+
+/// A task from before projects reads as a plain item, with no date and no
+/// review, and a project's three fields survive a round trip.
+#[test]
+fn a_format_34_task_reads_as_an_item_and_a_project_round_trips() {
+    use theseus_protocol::tasks::{TaskKind, TaskRecord};
+    let old: TaskRecord = serde_json::from_str(TASK_BEFORE_PROJECTS).unwrap();
+    assert_eq!(old.kind, TaskKind::Item);
+    assert_eq!((old.due_at_ms, old.review.as_deref()), (None, None));
+    assert_eq!(serde_json::to_string(&old).unwrap(), TASK_BEFORE_PROJECTS);
+    let mut project = old.clone();
+    project.kind = TaskKind::Project;
+    project.review = Some("ses_00000000000000000000000000000321".into());
+    project.due_at_ms = Some(1_790_100_000_000);
+    let text = serde_json::to_string(&project).unwrap();
+    assert!(text.contains(r#""kind":"project""#) && text.contains(r#""due_at_ms":1790100000000"#));
+    assert_eq!(serde_json::from_str::<TaskRecord>(&text).unwrap(), project);
+    let s: SessionRecord = serde_json::from_str(SESSION_BEFORE_PROJECT).unwrap();
+    assert_eq!(s.project, None);
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_PROJECT);
 }

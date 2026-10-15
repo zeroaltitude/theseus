@@ -29,12 +29,14 @@ pub(crate) mod lsp;
 pub(crate) mod memory;
 mod outputs;
 pub(crate) mod people;
+mod projects;
 mod routines;
 pub(crate) mod routing;
 pub mod rsi;
 mod sessions;
 mod threads;
 mod wake_limits;
+pub use projects::ProjectsConfig;
 pub use routines::RoutinesConfig;
 pub use sessions::SessionsConfig;
 pub use threads::ThreadsConfig;
@@ -160,6 +162,9 @@ pub struct Config {
     /// `[routines]`: recurring work, a run a task (theseus-pvm5c), `config/routines.rs`.
     #[serde(default, skip_serializing_if = "RoutinesConfig::is_default")]
     pub routines: RoutinesConfig,
+    /// `[projects]`: long-term work (theseus-n5ui2), `config/projects.rs`.
+    #[serde(default, skip_serializing_if = "ProjectsConfig::is_default")]
+    pub projects: ProjectsConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,
@@ -1385,6 +1390,7 @@ impl Config {
         self.sessions.validate()?;
         self.threads.validate()?;
         self.routines.validate()?;
+        self.projects.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
         self.import.validate()?;
@@ -1478,6 +1484,7 @@ impl Config {
                 .chain(crate::task_graph::tools::NAMES)
                 .chain(crate::wake::NAMES)
                 .chain(crate::routine_tool::NAMES)
+                .chain(crate::project_tool::NAMES)
                 .chain(crate::glide::NAMES)
                 .chain(crate::extend::NAMES)
                 .chain(crate::aws::NAMES)

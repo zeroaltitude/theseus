@@ -53,6 +53,7 @@ mod ontology;
 mod outbox;
 pub mod packs;
 mod places;
+pub mod projects;
 mod push;
 pub mod resident;
 pub mod retract;
@@ -251,6 +252,10 @@ pub mod method {
         /// Routines (theseus-pvm5c, `routines.rs`): recurring work that is its
         /// own execution, every run a fresh task with a budget.
         ROUTINE_CREATE = "routine.create", ROUTINE_LIST = "routine.list", ROUTINE_RUNS = "routine.runs", ROUTINE_PAUSE = "routine.pause", ROUTINE_RESUME = "routine.resume", ROUTINE_RUN_NOW = "routine.run_now", ROUTINE_UPDATE = "routine.update", ROUTINE_DELETE = "routine.delete",
+        /// Projects (theseus-n5ui2, `projects.rs`): long-term work on the task
+        /// graph, with milestones, a weekly review, and a slice in every
+        /// session that attaches.
+        PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs

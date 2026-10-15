@@ -286,6 +286,17 @@ fn blocks(i: &WhyInput, largest_first: bool) -> Vec<String> {
     if let Some(u) = &x.unbuilt {
         out.push(format!("  the parts could not be built: {u}"));
     }
+    // The project slice rides the request's last block (theseus-n5ui2).
+    if let Some(p) = x.compiled.as_ref().and_then(|c| c.project.as_ref()) {
+        let left = match p.left_out {
+            0 => String::new(),
+            n => format!(", {n} left out"),
+        };
+        out.push(format!(
+            "  project     {} · the slice in the request's last block · {} lines · {} tok{left}",
+            p.project, p.lines, p.tokens
+        ));
+    }
     let hide = i.hide_sources || x.class != "private";
     let mut parts: Vec<&ContextPart> = x.parts.iter().collect();
     if largest_first {

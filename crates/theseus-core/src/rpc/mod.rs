@@ -47,6 +47,7 @@ mod packs_ahead;
 mod pages;
 mod people;
 mod policy;
+mod projects;
 mod proposal_groups;
 mod proposals;
 mod publish;

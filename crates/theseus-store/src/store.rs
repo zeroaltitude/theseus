@@ -626,7 +626,9 @@ const BULK: usize = 4096;
 /// expression, the occurrences its times), a `mo` span, `Task` wakes that
 /// fire, META keys `routine:<session>` and `routine.run:<task session>`, and
 /// the ledger kinds `wake.skipped` and `routine.changed`.
-const MANIFEST_FORMAT: u32 = 34;
+/// 35 = projects (theseus-n5ui2): a TASK record's `kind` (`project` or
+/// `milestone`), `due_at_ms` and `review`, and a session's `project`.
+const MANIFEST_FORMAT: u32 = 35;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

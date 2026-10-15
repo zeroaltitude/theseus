@@ -3,4 +3,4 @@
 /**
  * Why a notice was given: the policy's rule.
  */
-export type Why = "asked" | "reminder" | "answered" | "expired" | "failed" | "blocked" | "finished" | "reported" | "spend_crossed" | "woke";
+export type Why = "asked" | "reminder" | "answered" | "expired" | "failed" | "blocked" | "finished" | "reported" | "spend_crossed" | "woke" | "overdue";

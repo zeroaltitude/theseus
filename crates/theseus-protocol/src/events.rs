@@ -220,6 +220,11 @@ pub struct ContextCompiled {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub tasks: Option<crate::tasks::TaskViewSummary>,
+    /// The project slice the request carried (theseus-n5ui2); absent when
+    /// the conversation has no project attached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub project: Option<crate::projects::ProjectSliceSummary>,
     /// The situation the loop compiled in (M6 35a, §2.11), which decides what
     /// its request may admit; absent from a daemon before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

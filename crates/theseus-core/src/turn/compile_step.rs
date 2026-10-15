@@ -91,6 +91,9 @@ impl TurnRunner {
             self.kernel.now_ms(),
             &mut compiled,
         );
+        // The project this conversation serves, last of all (theseus-n5ui2).
+        let project =
+            crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
@@ -103,8 +106,13 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
-        let mut summary =
-            Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
+        let mut summary = Self::compiled_summary(
+            t,
+            &compiled,
+            spec,
+            (&nodes, read_before, i),
+            (tasks, project),
+        );
         summary.cache.stubbed = stubbed;
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
@@ -171,7 +179,10 @@ impl TurnRunner {
         compiled: &Compiled,
         spec: &RequestSpec,
         (nodes, read_before, i): (&[(u64, crate::stub::Stub)], u64, u32),
-        tasks: Option<theseus_protocol::tasks::TaskViewSummary>,
+        (tasks, project): (
+            Option<theseus_protocol::tasks::TaskViewSummary>,
+            Option<theseus_protocol::projects::ProjectSliceSummary>,
+        ),
     ) -> ContextCompiled {
         let sid = t.tc.session_id;
         ContextCompiled {
@@ -220,6 +231,7 @@ impl TurnRunner {
             withheld: compiled.withheld,
             signals: compiled.signals.fired.clone(),
             tasks,
+            project,
             situation: Some(compiled.situation.clone()),
         }
     }
