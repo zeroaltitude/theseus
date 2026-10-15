@@ -506,7 +506,7 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
         }
     });
     format!(
-        "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}]",
+        "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}{}]",
         r.profile,
         r.provider,
         r.model,
@@ -530,8 +530,17 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             .map(|t| format!(" (first token {t} ms)"))
             .unwrap_or_default(),
         r.session_id,
+        inspect_words(r),
         later::left(r)
     )
+}
+
+/// The turn in the cockpit, as the status line's last words (theseus-x9swu):
+/// the bare address, which terminals link and the line's wrap keeps whole.
+fn inspect_words(r: &TurnSubmitResult) -> String {
+    r.inspect_url
+        .as_ref()
+        .map_or(String::new(), |u| format!(" · inspect {u}"))
 }
 
 /// A span's bar is drawn on this stretch of the turn: its start, its length,

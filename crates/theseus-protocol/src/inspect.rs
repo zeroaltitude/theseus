@@ -33,6 +33,7 @@ pub struct TurnInspectParams {
 /// The turn's input.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct InspectPrompt {
     pub node_id: Option<String>,
     pub author: Option<String>,
@@ -46,6 +47,7 @@ pub struct InspectPrompt {
 /// The turn's totals.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct InspectTotals {
     pub loops: u32,
     pub model_calls: u32,
@@ -61,6 +63,7 @@ pub struct InspectTotals {
 /// One ledger row of the turn, as it was written.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct InspectRow {
     #[cfg_attr(test, ts(type = "number"))]
     pub position: u64,
@@ -74,6 +77,7 @@ pub struct InspectRow {
 /// One answer of the model, a loop's.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct InspectAnswer {
     pub node_id: String,
     #[cfg_attr(test, ts(type = "number"))]
@@ -99,6 +103,7 @@ pub struct InspectAnswer {
 /// One tool call of a loop: the call, its gate's record, its result.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct InspectCall {
     pub tool_use_id: String,
     pub tool: String,
@@ -129,6 +134,7 @@ pub struct InspectCall {
 /// One loop: what was compiled for it, the model's answer, and the calls it made.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct InspectLoop {
     #[serde(rename = "loop")]
     pub loop_index: u32,
@@ -142,6 +148,7 @@ pub struct InspectLoop {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
 pub struct TurnInspectResult {
     pub session_id: String,
     pub turn_id: String,

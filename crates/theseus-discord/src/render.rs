@@ -1209,6 +1209,11 @@ fn footer(r: &TurnSubmitResult) -> String {
     } else if !matches!(r.stop_reason.as_str(), "" | "no_tool_calls" | "end_turn") {
         bits.push(format!("stopped: {}", r.stop_reason));
     }
+    // The turn in the cockpit (theseus-x9swu): a masked link, its brackets
+    // keeping Discord from an embed, on this line and no other.
+    if let Some(u) = &r.inspect_url {
+        bits.push(format!("[inspect](<{u}>)"));
+    }
     let lines = r.harness_lines(); // a refusal's fallback, a nudge (theseus-7gir.18, theseus-fh0u)
     let fell: String = lines.iter().map(|l| format!("-# {l}\n")).collect();
     format!("{fell}-# {}", bits.join(" · "))
@@ -1453,6 +1458,35 @@ mod tests {
             fed[0].1
         );
         assert!(!alone[0].1.contains("recalled"), "{}", alone[0].1);
+    }
+
+    /// The footer links to its turn in the cockpit (theseus-x9swu): a masked
+    /// link, angle brackets and all so Discord draws no embed, on the footer's
+    /// one line, from the result's `inspect_url`; none without one.
+    #[test]
+    fn the_footer_links_to_its_turn_on_its_own_line() {
+        let url = "http://localhost:17433/session/s/turn/t1";
+        let mut with = ended("t1", None);
+        with["inspect_url"] = json!(url);
+        let parts = reply_parts("t1", &[(0, "Done.".into())], Some(&result_of(with.clone())));
+        let footer = parts[0].1.lines().last().unwrap();
+        assert!(footer.starts_with("-# "), "{footer}");
+        assert!(
+            footer.ends_with(&format!(" · [inspect](<{url}>)")),
+            "{footer}"
+        );
+        assert_eq!(parts.len(), 1, "no new message");
+        let alone = reply_parts("t1", &[], Some(&result_of(with)));
+        assert_eq!(alone.len(), 1);
+        assert_eq!(
+            alone[0].1.lines().count(),
+            1,
+            "the footer stays one line: {:?}",
+            alone[0].1
+        );
+        assert!(!alone[0].1.contains("@"), "no mention");
+        let none = reply_parts("t2", &[], Some(&result_of(ended("t2", None))));
+        assert!(!none[0].1.contains("inspect"), "{}", none[0].1);
     }
 
     /// The stream shows without waiting (theseus-ck0n): a loop's first text

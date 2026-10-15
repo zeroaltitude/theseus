@@ -942,3 +942,30 @@ async fn the_status_line_counts_the_open_tasks_it_has_seen() {
     })
     .await;
 }
+
+/// The turn's link in the cockpit (theseus-x9swu) sits under its line, and
+/// `/inspect` says it again; before any turn ended it says there is none.
+#[tokio::test(start_paused = true)]
+async fn a_turn_ends_with_its_link_and_inspect_says_it_again() {
+    let url = "http://localhost:17433/session/ses_reef42/turn/trn_1";
+    let mut r = Rig::new(120, 30).await;
+    r.ready().await;
+    r.type_text("/inspect").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("no turn has ended here yet").await;
+    r.starts_turn("trn_1");
+    r.tell(Event::TurnEnded(TurnSubmitResult {
+        session_id: SID.into(),
+        turn_id: "trn_1".into(),
+        model: "claude-sonnet-5-5".into(),
+        elapsed_ms: 1234,
+        stop_reason: "done".into(),
+        inspect_url: Some(url.into()),
+        ..Default::default()
+    }));
+    r.shows(&format!("inspect {url}")).await;
+    r.type_text("/inspect").await;
+    r.press(KeyCode::Enter).await;
+    let text = r.text();
+    assert_eq!(text.matches(&format!("inspect {url}")).count(), 2, "{text}");
+}

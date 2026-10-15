@@ -94,6 +94,8 @@ pub struct Chat {
     /// The model in the status line and the turn lines.
     pub model: Option<String>,
     pub cost: f64,
+    /// The last turn's link in the cockpit (theseus-x9swu), which `/inspect` says again.
+    pub last_inspect: Option<String>,
     pub mode: String,
     pub live: Live,
     pub question: Option<ConfirmRequest>,
@@ -139,6 +141,7 @@ impl Chat {
             profile: None,
             model: None,
             cost: 0.0,
+            last_inspect: None,
             mode: "default".to_string(),
             live: Live::default(),
             question: None,
