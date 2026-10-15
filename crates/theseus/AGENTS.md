@@ -127,6 +127,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   Ctrl-W, Enter, Ctrl-D on an empty line), since a terminal's own line mode shows nothing until Enter, and the first
   key of a line is the `session.typing` notice's moment; a pipe is read by lines as before. `render/warm.rs` is
   health's `warm:` line.
+- `render/defer.rs` (theseus-7m7w.2): `theseus tools`' families per place (over `tool.defer`: loaded or deferred, why, use,
+  searches and misses; `-v` names each family's tools) and health's `tools:` line.
 - `src/ledger_verify.rs` (theseus-bmkxk): `theseus ledger verify [--since POS] [--anchor SEQ:DIGEST]` (exit 0 whole, 1 at the
   first broken link, which it names) and `theseus ledger head`, over `ledger.verify`; `theseus ledger` with no subcommand is the
   tail as before. Its words are pure functions of the answer (`lines`, `head_lines`), tested in the file.
@@ -189,6 +191,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   start line of a call already worded, and under the end line shows the result behind a `⎿` gutter (the first 3 lines,
   a failed command's last 8, then `… all N lines`) or the edit's diff. A question's `preview` stands in for its input
   line (`answers`). Tests: `diffview.rs`'s and `print.rs`'s.
+- `src/census.rs`, `src/render/census.rs` (theseus-7m7w.1): `theseus census [SESSION] [--place cli|dm|task|harness]
+  [--exact] [--json]`, one read (`context.census`): the next request's system sections, every tool's description, schema and
+  total tokens with its calls in the last 30 days and the last one's date, the messages, and the total against the window.
+  The lines are `census_lines` (pure; tested in the file).
 - `src/render/history.rs`: `theseus history`'s own lines: each node with its short id, which `theseus reach` takes
   (theseus-glyw), and `page_lines`, where a page ends and the command for the next one either way (theseus-xo0m).
   Its `node_lines` is the history's own; `render.rs`'s, which the terminal UI shares, stays apart.

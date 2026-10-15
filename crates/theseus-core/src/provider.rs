@@ -122,9 +122,9 @@ impl ProviderRequest {
     /// and the messages.
     pub fn census(&self) -> Census {
         let mut c = Census::of_messages(&self.messages);
-        for t in &self.tools {
-            c.json += json_len(t);
-        }
+        // Deferred tools cost a constant, whatever their schemas, and the
+        // search tool its own figure (theseus-7m7w.2).
+        c.json += crate::tools_defer::tools_bytes(&self.tools);
         for b in &self.system {
             c.messages += 1;
             c.text += str_len(&b["text"]);
@@ -743,11 +743,21 @@ pub trait Provider: Send + Sync {
             })
         })
     }
+    /// The provider's own count of the request's input tokens, sent and billed as no model call
+    /// (`theseus census --exact`, theseus-7m7w.1). A provider with no counter says so.
+    fn count_tokens<'a>(&'a self, _req: &'a ProviderRequest) -> CountFuture<'a> {
+        Box::pin(async { Err(anyhow::anyhow!("this provider has no token counter")) })
+    }
 }
+
+pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 // --------------------------------------------------------------- anthropic
 
+mod count;
 mod digest;
+#[cfg(test)]
+mod tests_count;
 #[cfg(test)]
 mod tests_warm;
 
@@ -1036,6 +1046,9 @@ impl Provider for Anthropic {
     fn warm(&self) -> WarmFuture<'_> {
         Box::pin(self.warm_impl())
     }
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        Box::pin(self.count_impl(req))
+    }
 }
 
 /// The event stream's lines, from its chunks as they arrive. The network cuts
@@ -1181,7 +1194,16 @@ impl Accumulator {
             StreamEvent::ContentBlockStop { index } => {
                 if let Some(json) = self.partial_json.remove(&index) {
                     if let Some(block @ Value::Object(_)) = self.blocks.get_mut(&index) {
-                        if block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                        // A server tool's input (the tool search's query) streams
+                        // the same way; it is the provider's own call, so one that
+                        // does not parse is left empty and no call of ours.
+                        let server =
+                            block.get("type").and_then(Value::as_str) == Some("server_tool_use");
+                        if server {
+                            if let Ok(v @ Value::Object(_)) = serde_json::from_str::<Value>(&json) {
+                                block["input"] = v;
+                            }
+                        } else if block.get("type").and_then(Value::as_str) == Some("tool_use") {
                             let parsed = if json.trim().is_empty() {
                                 Ok(Value::Object(Default::default()))
                             } else {
@@ -1374,6 +1396,10 @@ impl FakeProvider {
 impl Provider for FakeProvider {
     fn name(&self) -> &str {
         "fake"
+    }
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        let n = req.estimate_tokens();
+        Box::pin(async move { Ok(n) })
     }
     fn warm(&self) -> WarmFuture<'_> {
         self.warms
@@ -1630,6 +1656,28 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(out.content.len(), 2);
         assert_eq!(out.content[0]["type"], "server_tool_use");
+    }
+
+    /// The tool search's call streams its query as partial JSON, like any
+    /// tool call's input (theseus-7m7w.2): it must land in the block, or the
+    /// history sent back would hold an empty query.
+    #[test]
+    fn a_server_tools_streamed_input_lands_in_its_block() {
+        let (out, _, err) = run(&[
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"tool_search_tool_bm25","input":{}}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"aws bucket\"}"}}"#,
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_search_tool_result","tool_use_id":"srvtoolu_1","content":{"type":"tool_search_tool_search_result","tool_references":[{"type":"tool_reference","tool_name":"aws_call"}]}}}"#,
+            r#"data: {"type":"content_block_stop","index":1}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ]);
+        assert!(err.is_none());
+        assert_eq!(out.content[0]["input"]["query"], "aws bucket");
+        let found = crate::tools_defer::scan::searches_in(&out.content);
+        assert_eq!(found[0].query, "aws bucket");
+        assert_eq!(found[0].tools, ["aws_call"]);
+        assert!(out.invalid_tool_inputs.is_empty());
     }
 
     #[test]

@@ -22,6 +22,7 @@ mod aws;
 mod cache;
 mod cancel;
 mod catalog;
+pub mod census;
 pub mod cite;
 pub mod code;
 mod connections;

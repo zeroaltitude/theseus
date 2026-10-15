@@ -190,6 +190,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's
     execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
     which asks `places::owner_in_private`. `theseus publish`, Discord's `/publish`.
+- **The request census** (theseus-7m7w.1; `census.rs`, `provider/count.rs`): `context.census` compiles the *next* request of
+  a session (`TurnRunner::census_request`: the spec a turn builds, its standing block, `compiler::compile` over the
+  transcript, as `keep_warm_request` does), or a fresh session's first request for a kind of place (`cli`, `dm`, `task`,
+  `harness`), and sends nothing. `census_parts` apportions the compile's own estimate to the parts with `Ledger` (a part's
+  tokens are the rounded-up running total through it less the one before it), so the system's sections, each tool
+  (description, schema, the rest) and the messages add up to the total exactly. A tool's use is the ledger's
+  `action.planned` rows over 30 days (`tool_use`, an operator's read, never a turn's path; none while the index's shape is
+  built). `exact` asks `Provider::count_tokens` (Anthropic's `/v1/messages/count_tokens`, no model run) four times in
+  parallel, the request and its smallest form with the system and the tools added alone. A surface that reads no private
+  text gets the sizes without the context files' names. Tests: `tests_census.rs`, `provider/tests_count.rs`; the bench
+  is `theseus-sim bench prompt`.
 - **The ontology** (row 26, step 21b; M4 §2.8; theseus-8kk.1): `ontology.rs` holds the snapshot (`Board`: built
   after serving by one `onto:` META prefix scan, `Core::warm_ontology`, or by its first reader; kept current on every
   write, which checks, writes its records and their rows in one frame, and swaps it), the given kinds (a bound

@@ -106,6 +106,11 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `--check` holds p90 to 5 ms: meant for a release-thin build on the owner's machine (a debug build on a 4-core VM
     reads p90 about 6 ms at 1,000 sessions, 4.9 at 10, where the process's own start is about 3.7). Outside lifecycle's
     gated phases; `--record` writes the `status_short` column.
+  - `bench prompt` (`src/perf/prompt.rs`, theseus-7m7w.1): a fresh session's first request in tokens for each kind of place,
+    by `context.census` on a scratch daemon of the default config (`cli`, `dm`, `task`) and of the benchmark's profile
+    (`harness`), against the committed `baselines/prompt.json`. It **warns** (stdout and stderr) at more than +5 % over a
+    place's baseline and never fails: other rows add tools every week. `--update` rewrites the baseline, for a change you
+    mean (the commit says why). Nothing is sent to a model.
   - `bench concurrency` (`src/perf/concurrency.rs`, theseus-4g0l): M task turns (`--turns 8,16,32,80`) submitted 5 ms
     apart, then a person's turn 0.5 s after the first, on a stand-in that holds each call `--hold-ms` (2000): total
     wall, each turn's wall and admission (its `admission.wait` span), inversions inside the tasks' class (admitted and

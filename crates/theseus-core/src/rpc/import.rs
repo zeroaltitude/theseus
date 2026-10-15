@@ -81,7 +81,7 @@ impl Core {
             return self.rpc_packs(name, params, conn);
         }
         if super::context::prefixed(name) {
-            return self.rpc_context(params, conn).await;
+            return self.rpc_context(name, params, conn).await;
         }
         if name.starts_with("books.") {
             return self.rpc_books(name, params, conn).await;

@@ -51,11 +51,13 @@ mod counted;
 mod judge;
 mod long;
 mod overhead;
+mod prompt;
 mod runs;
 mod soak;
 mod status;
 
 pub use concurrency::{concurrency_cmd, ConcurrencyArgs};
+pub use prompt::{prompt_cmd, PromptArgs};
 use runs::Run;
 pub use status::{status_cmd, StatusArgs};
 

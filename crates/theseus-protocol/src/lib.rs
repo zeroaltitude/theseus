@@ -16,6 +16,7 @@ pub mod bench;
 pub mod books;
 mod budgets;
 pub mod cancel;
+pub mod census;
 pub mod check;
 pub mod cite;
 pub mod context;
@@ -339,6 +340,8 @@ pub mod method {
         /// `context::ContextExplainParams`): the system block's parts, the guidance, the tools, the
         /// recall, and the conversation. A read; it compiles nothing.
         CONTEXT_EXPLAIN = "context.explain",
+        /// The next request, counted part by part down to each tool (theseus-7m7w.1; `census`). A read.
+        CONTEXT_CENSUS = "context.census",
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
