@@ -753,7 +753,7 @@ fn a_format_34_task_reads_as_an_item_and_a_project_round_trips() {
     assert_eq!(old.kind, TaskKind::Item);
     assert_eq!((old.due_at_ms, old.review.as_deref()), (None, None));
     assert_eq!(serde_json::to_string(&old).unwrap(), TASK_BEFORE_PROJECTS);
-    let mut project = old.clone();
+    let mut project = old;
     project.kind = TaskKind::Project;
     project.review = Some("ses_00000000000000000000000000000321".into());
     project.due_at_ms = Some(1_790_100_000_000);

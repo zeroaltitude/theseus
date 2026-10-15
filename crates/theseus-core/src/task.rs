@@ -357,10 +357,11 @@ impl Tool for TaskCreate {
                     ..Default::default()
                 });
             }
-            let what = match i.kind.as_deref() {
-                Some(k @ ("project" | "milestone")) => k,
-                _ => "plan item",
-            };
+            let what = i
+                .kind
+                .as_deref()
+                .filter(|k| matches!(*k, "project" | "milestone"))
+                .unwrap_or("plan item");
             return Ok(Plan {
                 summary: format!("record a {what}: {title}"),
                 ..Default::default()

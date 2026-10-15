@@ -325,7 +325,7 @@ fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     let rig = Rig::new();
     std::fs::write(
         rig.path("state/store/MANIFEST.json"),
-        r#"{"format": 35, "engine": "redb"}"#,
+        r#"{"format": 36, "engine": "redb"}"#,
     )
     .unwrap();
     let before = snapshot(&rig.path("state/store"));
@@ -334,7 +334,7 @@ fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     assert!(!status.success(), "it served");
     let log = rig.log();
     for says in [
-        "is format 35",
+        "is format 36",
         "this build reads formats 2 to 35",
         "install the newer theseusd",
     ] {

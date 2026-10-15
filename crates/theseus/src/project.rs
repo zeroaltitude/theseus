@@ -21,11 +21,13 @@ use theseus_client::render::time::{fmt_date, fmt_starts};
 
 const BAR: usize = 7;
 
-#[derive(Subcommand, Debug, Default)]
+#[derive(Subcommand, Debug)]
 pub enum ProjectCmd {
-    /// The open projects (the same as `theseus projects`).
-    #[default]
-    List,
+    /// The open projects (`theseus projects`); `--all` adds the closed.
+    List {
+        #[arg(long)]
+        all: bool,
+    },
     /// A project and everything under it, with dates.
     Show { id: String },
     /// Make a project: its goal (yours: an agent's edit of it waits for your yes), dated milestones,
@@ -54,6 +56,12 @@ pub enum ProjectCmd {
     Detach { session: String },
 }
 
+impl Default for ProjectCmd {
+    fn default() -> Self {
+        ProjectCmd::List { all: false }
+    }
+}
+
 /// `Title@when` into a milestone; the last `@` splits, so a title may hold one.
 pub fn milestone_of(s: &str) -> MilestoneSpec {
     match s.rsplit_once('@') {
@@ -70,7 +78,7 @@ pub fn milestone_of(s: &str) -> MilestoneSpec {
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: ProjectCmd) -> Result<()> {
     match cmd {
-        ProjectCmd::List => list(conn, json, false).await,
+        ProjectCmd::List { all } => list(conn, json, all).await,
         ProjectCmd::Show { id } => {
             let v = conn
                 .request(method::PROJECT_SHOW, ProjectShowParams { id })

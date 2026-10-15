@@ -65,7 +65,6 @@ pub fn make(
     new: &NewRoutine,
     (by, created_in): (&str, Option<&str>),
 ) -> Result<RoutineSpec, String> {
-    let prepared =
-        routine::prepare(kernel, &book.cfg, new, by, created_in).map_err(|e| format!("{e}"))?;
+    let prepared = routine::prepare(kernel, &book.cfg, new, by, created_in)?;
     routine::create(kernel, store, book, prepared, by).map_err(|e| format!("{e:#}"))
 }

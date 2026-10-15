@@ -76,16 +76,8 @@ fn milestone_line(t: &TaskRecord, now_ms: u64, at: &dyn Fn(u64) -> Local) -> Str
     )
 }
 
-/// The slice of `project` at `now_ms`, in the zone `at` reads; None when no
-/// such task is among `tasks`.
-pub fn render(
-    tasks: &[TaskRecord],
-    project: &str,
-    now_ms: u64,
-    at: &dyn Fn(u64) -> Local,
-) -> Option<Shown> {
-    let p = tasks.iter().find(|t| t.id == project)?;
-    let n = progress(tasks, &p.id, now_ms);
+/// The block's first line: the project, its state and its counts.
+fn headline(p: &TaskRecord, n: &theseus_protocol::projects::ProjectProgress) -> String {
     let mut head = format!(
         "{HEAD}: {} \"{}\" [{}], {}/{} milestones, {}/{} steps",
         p.id,
@@ -103,6 +95,20 @@ pub fn render(
         ". Its goal is the owner's; plan its steps as task_create items under {}.]",
         crate::task::short(&p.id)
     ));
+    head
+}
+
+/// The slice of `project` at `now_ms`, in the zone `at` reads; None when no
+/// such task is among `tasks`.
+pub fn render(
+    tasks: &[TaskRecord],
+    project: &str,
+    now_ms: u64,
+    at: &dyn Fn(u64) -> Local,
+) -> Option<Shown> {
+    let p = tasks.iter().find(|t| t.id == project)?;
+    let n = progress(tasks, &p.id, now_ms);
+    let head = headline(p, &n);
     // Candidate lines, by priority: the goal, then the milestones, the
     // steps, and the acceptance.
     let mut cand: Vec<(u8, String)> = Vec::new();
