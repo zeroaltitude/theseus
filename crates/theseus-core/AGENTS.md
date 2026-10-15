@@ -238,6 +238,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
+  **Merge and split** (theseus-vt9k; `thread_join.rs`, `thread_split.rs`, `rpc/thread_join.rs`; no store format change:
+  the fields were T1's, the one new key is a META record). `thread.merge {from, into}` is one frame: B's record (A's card
+  quoted at its end under `merged from «a», <date>:`, at most six lines while B has lines of its own, A's working set
+  and topics joined, three topics at most with the rest named in the result for the owner to pick, a seal on either
+  kept), A's record (`state: done`, `merged_into: B`, its surfaces cleared), the META `thread.merge.<a>` (what the undo
+  needs: A's state, surfaces, and the session the merge retired) and the `thread.merged` row (A's whole card and the
+  surfaces it archived). A's session then gets a note at its tail and is retired, a frame each; nothing of A is
+  deleted and B's session is untouched (its card snapshot refreshes at its next recompile, as T2's does).
+  `Board::live_of(a)` follows `merged_into` to the thread that is live now (the distance rule's reader), `links_of`
+  the other ends of `merged_into` and `split_from` (`ThreadRow.merged_from`, `split_to`). `thread.unmerge {slug}` is one
+  frame that puts A back and gives B a card line, then reopens the session the merge retired. `thread.split {from, slug,
+  range | positions}` (WAL positions, the `@` numbers of `theseus history`) opens the new thread's session first
+  (`opened_from` the source, so it holds what the source holds), writes its brief and one `Body::Arrangement` of the
+  chosen messages (role `context`, verbatim, an edge to each quoted node), then writes the thread, its place record and
+  the `thread.split` row in one frame with the session already bound (`Threads::write_bound`), then one note at the
+  source's tail: the source keeps every node, so a split is a quote, never a move, and `thread.done` on the new thread
+  is its undo. The new thread inherits topics, persona and seal; its working set is read from what the chosen turns did
+  (paths, hosts, `#` refs: `thread_split::working_set_of`). The model's `thread.split {slug, from, to?}` (a thread
+  session's tool, async, the owner's tap at every posture by `Plan::authority`) quotes the first message and
+  optionally the last, resolved as an arrangement's quotes are; its result is the source's note. A conversation's first
+  compile admits an arrangement (`compiler::situation`) for it. Tests: `rpc/tests_thread_join.rs`, `thread_split::tests`,
+  `thread_join::tests`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

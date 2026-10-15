@@ -114,6 +114,9 @@ impl Core {
             method::THREAD_RESUME => route(params, |p: ThreadNameParams| {
                 self.thread_resume(&p.slug, conn.answerer(p.author, p.discord))
             }),
+            method::THREAD_MERGE | method::THREAD_UNMERGE | method::THREAD_SPLIT => {
+                self.rpc_thread_joins(name, params, conn)
+            }
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),
@@ -147,7 +150,7 @@ impl Core {
     }
 
     /// Judge an act on the threads: the owner, from a private place.
-    fn judge_thread(
+    pub(super) fn judge_thread(
         &self,
         who: &Answerer,
         method: &'static str,
@@ -164,7 +167,7 @@ impl Core {
         .map_err(failure)
     }
 
-    fn threads_on(&self) -> Result<(), RpcFailure> {
+    pub(super) fn threads_on(&self) -> Result<(), RpcFailure> {
         match self.cfg.threads.enabled {
             true => Ok(()),
             false => Err(RpcFailure::new(
@@ -258,6 +261,8 @@ impl Core {
             thread: t,
             context_tokens: None,
             today_usd: 0.0,
+            merged_from: vec![],
+            split_to: vec![],
         })
     }
 
@@ -314,7 +319,8 @@ impl Core {
     /// context's tokens, and today's dollars. Reads the sessions, the
     /// compilations and today's spend rows: a read for a person, never a
     /// turn's path.
-    fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
+    pub(super) fn thread_rows(&self, threads: &mut [ThreadInfo]) -> Vec<ThreadRow> {
+        let board = self.threads();
         let sessions: BTreeSet<String> = threads
             .iter()
             .filter_map(|t| t.session_id.clone())
@@ -336,7 +342,10 @@ impl Core {
                 if let Some(r) = &rec {
                     t.last_active_ms = t.last_active_ms.max(r.last_active_ms);
                 }
+                let (merged_from, split_to) = board.links_of(&t.slug);
                 ThreadRow {
+                    merged_from,
+                    split_to,
                     today_usd: t
                         .session_id
                         .as_ref()
@@ -735,7 +744,7 @@ fn card_note(t: &ThreadInfo) -> String {
 
 /// A line of words: whitespace folded to single spaces, at most
 /// `MAX_LINE_CHARS`.
-fn line(text: &str, what: &str) -> Result<String, RpcFailure> {
+pub(super) fn line(text: &str, what: &str) -> Result<String, RpcFailure> {
     let l = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if l.chars().count() > MAX_LINE_CHARS {
         return Err(RpcFailure::invalid(anyhow!(
@@ -800,7 +809,7 @@ fn unique<'a>(items: impl Iterator<Item = &'a str>) -> Vec<String> {
 }
 
 /// A write's error on the wire: a judged refusal is `REFUSED`.
-fn failure(e: anyhow::Error) -> RpcFailure {
+pub(super) fn failure(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
             code: error_code::REFUSED,

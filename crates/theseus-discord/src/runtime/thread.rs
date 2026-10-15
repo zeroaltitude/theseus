@@ -11,7 +11,10 @@
 //! core's refusal, and a shared place never sees a thread's words.
 
 use theseus_protocol::method;
-use theseus_protocol::threads::{ThreadListParams, ThreadListResult, ThreadNewParams, ThreadRow};
+use theseus_protocol::threads::{
+    ThreadListParams, ThreadListResult, ThreadMergeParams, ThreadMergeResult, ThreadNewParams,
+    ThreadRow,
+};
 use theseus_protocol::{DiscordOrigin, LedgerKind};
 use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::{
@@ -47,6 +50,11 @@ pub(super) fn command() -> Command {
         "list",
         "Your threads, with their context and today's spend",
     ))
+    .option(
+        SubCommandBuilder::new("merge", "Fold one thread into another; nothing is deleted")
+            .option(StringBuilder::new("from", "The thread to retire").required(true))
+            .option(StringBuilder::new("into", "The thread that takes it").required(true)),
+    )
     .build()
 }
 
@@ -110,6 +118,23 @@ fn made(r: &ThreadRow) -> String {
         "🧵 Made the thread `{}`: `theseus ask --thread {}` opens its session.",
         r.thread.slug, r.thread.slug
     )
+}
+
+/// What a merge said.
+fn merged(r: &ThreadMergeResult) -> String {
+    let mut out = format!(
+        "🧵 Merged `{}` into `{}`: `{}` is retired, nothing of it is deleted, and its card is \
+         quoted in `{}`'s. `theseus thread unmerge {}` undoes it.",
+        r.from.thread.slug, r.into.thread.slug, r.from.thread.slug, r.into.thread.slug,
+        r.from.thread.slug
+    );
+    if !r.topics_left_out.is_empty() {
+        out.push_str(&format!(
+            "\nThree topics fit; left out: {}.",
+            r.topics_left_out.join(", ")
+        ));
+    }
+    out
 }
 
 /// The `/thread` subcommand and its string options.
@@ -177,7 +202,24 @@ impl Shared {
                     Err(e) => format!("⚠️ {}", e.message),
                 }
             }
-            _ => "⚠️ `/thread new slug:` or `/thread list`.".to_string(),
+            Some(("merge", args)) => {
+                let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+                let p = ThreadMergeParams {
+                    from: get("from").unwrap_or_default(),
+                    into: get("into").unwrap_or_default(),
+                    author: Some(who.to_string()),
+                    discord,
+                };
+                match self
+                    .rpc
+                    .call::<_, ThreadMergeResult>(method::THREAD_MERGE, p)
+                    .await
+                {
+                    Ok(r) => merged(&r),
+                    Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
+                }
+            }
+            _ => "⚠️ `/thread new slug:`, `/thread list` or `/thread merge from: into:`.".to_string(),
         };
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,
@@ -228,16 +270,18 @@ mod tests {
             },
             context_tokens: tokens,
             today_usd: usd,
+            merged_from: vec![],
+            split_to: vec![],
         }
     }
 
-    /// The command has the two subcommands, `new` with a required slug.
+    /// The command has its subcommands, `new` with a required slug.
     #[test]
-    fn the_command_has_new_and_list() {
+    fn the_command_has_new_list_and_merge() {
         let c = command();
         assert_eq!(c.name, "thread");
         let names: Vec<&str> = c.options.iter().map(|o| o.name.as_str()).collect();
-        assert_eq!(names, ["new", "list"]);
+        assert_eq!(names, ["new", "list", "merge"]);
     }
 
     /// The list says each thread's state, activity, context and spend, and
@@ -276,5 +320,21 @@ mod tests {
             total: 0
         })
         .contains("No threads here"));
+    }
+
+    /// A merge says what was retired, where its card went, and how to undo.
+    #[test]
+    fn a_merge_says_what_was_retired_and_how_to_undo_it() {
+        let r = ThreadMergeResult {
+            from: row("io", ThreadState::Done, None, 0.0),
+            into: row("tides", ThreadState::Active, None, 0.0),
+            topics_left_out: vec!["gauges".into()],
+        };
+        let t = merged(&r);
+        assert!(
+            t.contains("Merged `io` into `tides`") && t.contains("`theseus thread unmerge io`"),
+            "{t}"
+        );
+        assert!(t.contains("left out: gauges"), "{t}");
     }
 }

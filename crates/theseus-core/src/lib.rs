@@ -100,6 +100,8 @@ pub mod telemetry;
 pub mod tender;
 pub mod term;
 pub mod thread_context;
+pub mod thread_join;
+pub mod thread_split;
 pub mod threads;
 pub mod tighten;
 pub mod toolrun;

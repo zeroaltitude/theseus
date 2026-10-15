@@ -22,7 +22,7 @@
 //!   session has no Discord target to post to, as a CLI session has none.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use anyhow::Result;
 use theseus_protocol::threads::{place_of, ThreadInfo, ThreadState, PLACE_PREFIX};
@@ -106,6 +106,37 @@ impl Board {
         live
     }
 
+    /// The thread a thread now lives in: itself, or, when it was merged away,
+    /// the thread it was merged into, followed to the end (theseus-vt9k). What
+    /// the distance rule treats as the live thread of a retired one's nodes.
+    pub fn live_of(&self, slug: &str) -> Option<&ThreadInfo> {
+        let mut t = self.threads.get(slug)?;
+        // A chain is as long as the merges, and a cycle cannot form (a merged
+        // thread takes none), but a walk that cannot end is never the answer.
+        for _ in 0..self.threads.len() {
+            match t.merged_into.as_deref().and_then(|s| self.threads.get(s)) {
+                Some(next) => t = next,
+                None => break,
+            }
+        }
+        Some(t)
+    }
+
+    /// The threads merged into `slug`, and those split from it, by slug.
+    pub fn links_of(&self, slug: &str) -> (Vec<String>, Vec<String>) {
+        let by = |f: fn(&ThreadInfo) -> Option<&str>| -> Vec<String> {
+            self.threads
+                .values()
+                .filter(|t| f(t) == Some(slug))
+                .map(|t| t.slug.clone())
+                .collect()
+        };
+        (
+            by(|t| t.merged_into.as_deref()),
+            by(|t| t.split_from.as_deref()),
+        )
+    }
+
     /// Threads not done: what `[threads] max_live` bounds.
     pub fn open(&self) -> usize {
         self.threads
@@ -120,9 +151,20 @@ impl Board {
 pub struct Threads {
     board: RwLock<Option<Arc<Board>>>,
     writes: Mutex<()>,
+    /// The core, given once it is built: `thread.split`, a tool of the
+    /// model's, opens a thread and its session through it.
+    core: OnceLock<Weak<crate::rpc::Core>>,
 }
 
 impl Threads {
+    pub fn attach(&self, core: &Arc<crate::rpc::Core>) {
+        let _ = self.core.set(Arc::downgrade(core));
+    }
+
+    pub fn core(&self) -> Option<Arc<crate::rpc::Core>> {
+        self.core.get().and_then(Weak::upgrade)
+    }
+
     /// The board: memory once built; built now, by two META prefix scans,
     /// when nothing has built it yet. A record that does not read is left
     /// out and warned of.
@@ -177,6 +219,20 @@ impl Threads {
         check: impl FnOnce(&Board) -> Result<Vec<ThreadInfo>>,
         rows: impl FnOnce(&Board, &[ThreadInfo]) -> Result<Vec<NewRecord>>,
     ) -> Result<Vec<ThreadInfo>> {
+        self.write_bound(store, check, rows, None)
+    }
+
+    /// `write`, and the thread `bound.0` is held as running on the session
+    /// `bound.1` from the same swap: a thread made with its session already
+    /// open (a split's), whose place record the caller put in `rows`' frame.
+    /// No reader sees the thread without its session.
+    pub fn write_bound(
+        &self,
+        store: &Store,
+        check: impl FnOnce(&Board) -> Result<Vec<ThreadInfo>>,
+        rows: impl FnOnce(&Board, &[ThreadInfo]) -> Result<Vec<NewRecord>>,
+        bound: Option<(&str, &str)>,
+    ) -> Result<Vec<ThreadInfo>> {
         theseus_store::blocking(|| {
             let _w = self.writes.lock().unwrap();
             let now = self.load(store)?;
@@ -199,6 +255,10 @@ impl Threads {
             for t in &threads {
                 let mut t = t.clone();
                 t.session_id = now.get(&t.slug).and_then(|o| o.session_id.clone());
+                if let Some((slug, session)) = bound.filter(|(s, _)| *s == t.slug) {
+                    t.session_id = Some(session.to_string());
+                    next.by_session.insert(session.to_string(), slug.to_string());
+                }
                 next.threads.insert(t.slug.clone(), t);
             }
             *self.board.write().unwrap() = Some(Arc::new(next));

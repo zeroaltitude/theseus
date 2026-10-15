@@ -94,7 +94,7 @@ impl Class {
 ///
 /// | Situation | Admits |
 /// |---|---|
-/// | conversation start | the transcript (messages, replies, results), a new recall note, earlier notes, a summary, the task view |
+/// | conversation start | the transcript (messages, replies, results), a split thread's arrangement, a new recall note, earlier notes, a summary, the task view |
 /// | task start | the brief, its arrangement, a new assembled recall section, the task view |
 /// | continuation | the prefix and the tail (its arrangement, summary, and section included), a new recall note |
 /// | recompile | all of it, a new section (a compaction's) and a new note included |
@@ -110,7 +110,9 @@ pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
     use Class::*;
     let common = matches!(class, Inbound | Reply | ToolResult | LateResult | Repair);
     match situation {
-        Situation::ConversationStart => common || matches!(class, Summary | TaskView | RecallNote),
+        Situation::ConversationStart => {
+            common || matches!(class, Arrangement | Summary | TaskView | RecallNote)
+        }
         Situation::TaskStart => {
             common || matches!(class, Arrangement | TaskView) || (class == RecallSection && new)
         }
@@ -408,7 +410,7 @@ mod tests {
             (ToolResult, false, [true, true, true, true, true, true]),
             (LateResult, false, [true, true, true, true, true, true]),
             (Repair, false, [true, true, true, true, true, true]),
-            (Arrangement, false, [false, true, true, true, true, true]),
+            (Arrangement, false, [true, true, true, true, true, true]),
             (Summary, false, [true, false, true, true, true, false]),
             (
                 RecallSection,

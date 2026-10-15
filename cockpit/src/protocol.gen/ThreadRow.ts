@@ -13,4 +13,9 @@ context_tokens?: number,
 /**
  * What the thread's sessions spent since local midnight.
  */
-today_usd: number, };
+today_usd: number, 
+/**
+ * The threads merged into this one, and those split from it
+ * (theseus-vt9k): the other ends of `merged_into` and `split_from`.
+ */
+merged_from?: Array<string>, split_to?: Array<string>, };

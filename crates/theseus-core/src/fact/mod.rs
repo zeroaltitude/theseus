@@ -495,6 +495,9 @@ facts![
     thread::ThreadResumed<'static>,
     thread::ThreadDone<'static>,
     thread::ThreadReopened<'static>,
+    thread::ThreadMerged<'static>,
+    thread::ThreadUnmerged<'static>,
+    thread::ThreadSplit<'static>,
 ];
 
 #[cfg(test)]

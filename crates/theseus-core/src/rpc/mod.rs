@@ -56,6 +56,7 @@ mod session_dir;
 mod sessions;
 mod standing;
 mod task_start;
+mod thread_join;
 mod threads;
 mod wake_owner;
 mod work_board;
@@ -95,6 +96,8 @@ mod tests_self_graduate;
 mod tests_session_states;
 #[cfg(test)]
 mod tests_thread_context;
+#[cfg(test)]
+mod tests_thread_join;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]
@@ -842,6 +845,7 @@ impl Core {
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
         core.tools.jobs.attach(&core);
+        core.runner.threads.attach(&core);
         core.runner.judge.attach(&core);
         // The judge's sink writes between turns, as the pass does.
         core.runner

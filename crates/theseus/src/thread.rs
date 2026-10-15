@@ -1,7 +1,10 @@
 //! `theseus thread …` (theseus-nhew): the threads on virtual places
 //! `thread:<slug>`. `list` and `show` read; `new`, `edit`, `pause`, `resume`,
-//! `done` and `reopen` are the owner's acts (refused inside a job,
-//! `client::OPERATORS`). Address a thread with `theseus ask --thread <slug>`.
+//! `done`, `reopen`, `merge`, `unmerge` and `split` are the owner's acts
+//! (refused inside a job, `client::OPERATORS`). Address a thread with
+//! `theseus ask --thread <slug>`. A merge or a split deletes nothing:
+//! `unmerge` undoes a merge and `done` on the new thread undoes a split
+//! (theseus-vt9k).
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -10,8 +13,9 @@ use theseus_client::render::time::fmt_stamp;
 use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::threads::{
-    ThreadEditParams, ThreadListParams, ThreadListResult, ThreadNameParams, ThreadNewParams,
-    ThreadRow, ThreadState, WorkingSet,
+    ThreadEditParams, ThreadListParams, ThreadListResult, ThreadMergeParams, ThreadMergeResult,
+    ThreadNameParams, ThreadNewParams, ThreadRow, ThreadSplitParams, ThreadSplitResult,
+    ThreadState, WorkingSet,
 };
 
 use crate::cmd::output;
@@ -78,6 +82,38 @@ pub enum ThreadCmd {
     Done { slug: String },
     /// Take a finished thread up again: its next message opens a successor session.
     Reopen { slug: String },
+    /// Fold thread FROM into thread INTO. Nothing is deleted: FROM is retired (`merged_into`), its
+    /// card is quoted at the end of INTO's, the working sets and topics are joined (at most three
+    /// topics: the rest are named, and `thread edit --topic` picks), and a seal on either stays on
+    /// INTO. INTO's session takes the new card at its next cold resume, never mid-warm.
+    /// `theseus thread unmerge FROM` undoes it.
+    Merge { from: String, into: String },
+    /// Undo a merge: FROM is as it was before (its state, its surfaces; its session opens again).
+    /// INTO keeps what it took and gains a card line saying so.
+    Unmerge { slug: String },
+    /// Move part of a thread into a thread of its own. NEW opens with the chosen turns of FROM
+    /// quoted verbatim (an arrangement) and FROM keeps every node: it gains one note at its tail,
+    /// "split to «NEW» at @pos". Choose the turns by the `@` positions `theseus history` prints:
+    /// `--first @A --last @B` (inclusive), or `--at @N` for single messages (repeat the flag).
+    /// There is no delete: `theseus thread done NEW` ends the new thread, and FROM is unchanged.
+    Split {
+        from: String,
+        /// The new thread's name.
+        new: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        goal: Option<String>,
+        /// The first position of the range to quote (`@1234` or `1234`).
+        #[arg(long)]
+        first: Option<String>,
+        /// The last position of the range.
+        #[arg(long)]
+        last: Option<String>,
+        /// One message to quote, by position; repeat the flag.
+        #[arg(long = "at")]
+        at: Vec<String>,
+    },
 }
 
 impl Default for ThreadCmd {
@@ -190,7 +226,149 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Resume { slug } => moved(conn, json, method::THREAD_RESUME, slug).await,
         ThreadCmd::Done { slug } => moved(conn, json, method::THREAD_DONE, slug).await,
         ThreadCmd::Reopen { slug } => moved(conn, json, method::THREAD_REOPEN, slug).await,
+        ThreadCmd::Merge { from, into } => {
+            let p = ThreadMergeParams {
+                from,
+                into,
+                ..Default::default()
+            };
+            let v = conn
+                .request(method::THREAD_MERGE, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: ThreadMergeResult| {
+                for l in merge_lines(&r, true) {
+                    println!("{l}");
+                }
+                Ok(())
+            })
+        }
+        ThreadCmd::Unmerge { slug } => {
+            let v = conn
+                .request(method::THREAD_UNMERGE, serde_json::to_value(name(slug))?)
+                .await?;
+            output(json, v, |r: ThreadMergeResult| {
+                for l in merge_lines(&r, false) {
+                    println!("{l}");
+                }
+                Ok(())
+            })
+        }
+        ThreadCmd::Split {
+            from,
+            new,
+            title,
+            goal,
+            first,
+            last,
+            at,
+        } => {
+            let p = split_params(from, new, title, goal, first, last, at)?;
+            let v = conn
+                .request(method::THREAD_SPLIT, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: ThreadSplitResult| {
+                for l in split_lines(&r) {
+                    println!("{l}");
+                }
+                Ok(())
+            })
+        }
     }
+}
+
+/// A position as `@1234` or `1234`.
+fn position(s: &str) -> Result<u64> {
+    s.trim()
+        .trim_start_matches('@')
+        .parse()
+        .map_err(|_| anyhow::anyhow!("`{s}` is no position: write `@1234` as `theseus history` shows it"))
+}
+
+/// `thread split`'s flags as the request: a range or a list, one of the two.
+fn split_params(
+    from: String,
+    new: String,
+    title: Option<String>,
+    goal: Option<String>,
+    first: Option<String>,
+    last: Option<String>,
+    at: Vec<String>,
+) -> Result<ThreadSplitParams> {
+    let (range, positions) = match (first, last, at.is_empty()) {
+        (Some(a), Some(b), true) => (Some([position(&a)?, position(&b)?]), None),
+        (None, None, false) => (
+            None,
+            Some(at.iter().map(|p| position(p)).collect::<Result<Vec<_>>>()?),
+        ),
+        _ => bail!("name the turns: `--first @A --last @B`, or `--at @N` for each message"),
+    };
+    Ok(ThreadSplitParams {
+        from,
+        slug: new,
+        title,
+        goal,
+        range,
+        positions,
+        ..Default::default()
+    })
+}
+
+/// What a merge or an unmerge did, in lines.
+pub fn merge_lines(r: &ThreadMergeResult, merged: bool) -> Vec<String> {
+    let (a, b) = (&r.from.thread, &r.into.thread);
+    let mut out = match merged {
+        true => vec![format!(
+            "Merged {} into {}: {} is retired and nothing of it is deleted; its card is quoted \
+             in {}'s. `theseus thread unmerge {}` undoes it.",
+            a.slug, b.slug, a.slug, b.slug, a.slug
+        )],
+        false => vec![format!(
+            "Unmerged {} from {}: {} is {} again.",
+            a.slug,
+            b.slug,
+            a.slug,
+            a.state.as_str()
+        )],
+    };
+    if !r.topics_left_out.is_empty() {
+        out.push(format!(
+            "{} holds three topics; left out: {}. `theseus thread edit {} --topic …` picks.",
+            b.slug,
+            r.topics_left_out.join(", "),
+            b.slug
+        ));
+    }
+    if merged && b.sealed.is_some() {
+        out.push(format!("{} is sealed.", b.slug));
+    }
+    out
+}
+
+/// What a split made, in lines.
+pub fn split_lines(r: &ThreadSplitResult) -> Vec<String> {
+    let t = &r.thread.thread;
+    let mut out = vec![format!(
+        "Split {} out of {}: {} quoted, @{} to @{}. `theseus ask --thread {}` goes on from them; \
+         `theseus thread done {}` ends it. Nothing of {} moved.",
+        t.slug,
+        r.from,
+        match r.quoted {
+            1 => "1 message".to_string(),
+            n => format!("{n} messages"),
+        },
+        r.first_pos,
+        r.last_pos,
+        t.slug,
+        t.slug,
+        r.from
+    )];
+    if !r.noted {
+        out.push(format!(
+            "{} had a turn running, so its note \"split to {}\" was not written.",
+            r.from, t.slug
+        ));
+    }
+    out
 }
 
 /// The working set with the lists given put in place of the thread's own,
@@ -315,6 +493,16 @@ pub fn show_lines(r: &ThreadRow) -> Vec<String> {
         None => "  session: none yet; its first message opens one".into(),
     });
     out.push(format!("  last active: {}", fmt_stamp(t.last_active_ms)));
+    for (what, v) in [
+        ("merged into", t.merged_into.iter().cloned().collect::<Vec<_>>()),
+        ("merged from", r.merged_from.clone()),
+        ("split from", t.split_from.iter().cloned().collect()),
+        ("split to", r.split_to.clone()),
+    ] {
+        if !v.is_empty() {
+            out.push(format!("  {what}: {}", v.join(", ")));
+        }
+    }
     if !t.card.is_empty() {
         out.push("  card:".into());
         out.extend(t.card.iter().map(|l| format!("    - {l}")));
@@ -350,6 +538,8 @@ mod tests {
             },
             context_tokens: tokens,
             today_usd: usd,
+            merged_from: vec![],
+            split_to: vec![],
         }
     }
 
@@ -408,5 +598,72 @@ mod tests {
         assert!(show_lines(&row("a", ThreadState::Paused, None, 0.0))
             .join("\n")
             .contains("session: none yet"));
+    }
+
+    #[test]
+    fn show_names_the_threads_it_was_merged_into_or_split_from() {
+        let mut r = row("io", ThreadState::Done, None, 0.0);
+        r.thread.merged_into = Some("tides".into());
+        r.thread.split_from = Some("harbour".into());
+        r.merged_from = vec!["a".into(), "b".into()];
+        r.split_to = vec!["disk".into()];
+        let s = show_lines(&r).join("\n");
+        for want in [
+            "merged into: tides",
+            "merged from: a, b",
+            "split from: harbour",
+            "split to: disk",
+        ] {
+            assert!(s.contains(want), "{want} in {s}");
+        }
+        assert!(!show_lines(&row("x", ThreadState::Active, None, 0.0))
+            .join("\n")
+            .contains("merged"));
+    }
+
+    #[test]
+    fn split_takes_a_range_or_positions_and_never_both() {
+        let p = split_params("a".into(), "b".into(), None, None, Some("@10".into()), Some("20".into()), vec![]).unwrap();
+        assert_eq!((p.range, p.positions), (Some([10, 20]), None));
+        let p = split_params("a".into(), "b".into(), None, None, None, None, vec!["@3".into(), "9".into()]).unwrap();
+        assert_eq!((p.range, p.positions), (None, Some(vec![3, 9])));
+        for (first, last, at) in [
+            (None, None, vec![]),
+            (Some("@1".to_string()), None, vec![]),
+            (Some("@1".to_string()), Some("@2".to_string()), vec!["@3".to_string()]),
+        ] {
+            let e = split_params("a".into(), "b".into(), None, None, first, last, at).unwrap_err();
+            assert!(e.to_string().contains("name the turns"), "{e}");
+        }
+        let e = split_params("a".into(), "b".into(), None, None, Some("x".into()), Some("2".into()), vec![]).unwrap_err();
+        assert!(e.to_string().contains("no position"), "{e}");
+    }
+
+    #[test]
+    fn a_merge_and_a_split_say_what_was_kept_and_how_to_undo() {
+        let r = ThreadMergeResult {
+            from: row("io", ThreadState::Done, None, 0.0),
+            into: row("tides", ThreadState::Active, None, 0.0),
+            topics_left_out: vec!["gauges".into()],
+        };
+        let m = merge_lines(&r, true).join("\n");
+        assert!(
+            m.contains("nothing of it is deleted") && m.contains("`theseus thread unmerge io`"),
+            "{m}"
+        );
+        assert!(m.contains("left out: gauges"), "{m}");
+        let u = merge_lines(&r, false).join("\n");
+        assert!(u.contains("Unmerged io from tides"), "{u}");
+        let s = ThreadSplitResult {
+            thread: row("disk", ThreadState::Active, None, 0.0),
+            from: "harbour".into(),
+            quoted: 6,
+            first_pos: 10,
+            last_pos: 30,
+            noted: false,
+        };
+        let l = split_lines(&s).join("\n");
+        assert!(l.contains("6 messages, @10 to @30") && l.contains("Nothing of harbour moved"), "{l}");
+        assert!(l.contains("note \"split to disk\" was not written"), "{l}");
     }
 }

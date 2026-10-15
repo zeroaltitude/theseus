@@ -310,7 +310,9 @@ pub fn authority_for(
     input: &Value,
     mut plan: Plan,
 ) -> Plan {
-    if plan.authority.is_some() && !waits(store, name, input) {
+    // Only a task edit's authority is conditional; another tool that names one
+    // (`thread.split`) always waits for the owner.
+    if plan.authority.is_some() && is_edit(name) && !waits(store, name, input) {
         plan.authority = None;
     }
     plan

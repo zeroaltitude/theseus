@@ -179,6 +179,12 @@ pub struct ThreadRow {
     /// What the thread's sessions spent since local midnight.
     #[serde(default)]
     pub today_usd: f64,
+    /// The threads merged into this one, and those split from it
+    /// (theseus-vt9k): the other ends of `merged_into` and `split_from`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged_from: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub split_to: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,6 +275,79 @@ pub struct ThreadEditParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub discord: Option<DiscordOrigin>,
+}
+
+/// `thread.merge`: thread `from` is folded into thread `into` (theseus-vt9k).
+/// Nothing is deleted: `from` is retired with `merged_into = into`, its card
+/// quoted at the end of `into`'s, its working set and topics joined. The
+/// owner's act, from a private place.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadMergeParams {
+    pub from: String,
+    pub into: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What `thread.merge` and `thread.unmerge` did: both threads as they stand,
+/// and the topics the three-topic limit left out of the merged thread (the
+/// owner picks among them with `thread.edit`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadMergeResult {
+    pub from: ThreadRow,
+    pub into: ThreadRow,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics_left_out: Vec<String>,
+}
+
+/// `thread.split`: a new thread `slug` that opens with turns of thread
+/// `from` quoted, by WAL position (the `@` numbers of `theseus history`):
+/// the inclusive `range` `[first, last]`, or the `positions` of single
+/// nodes. One of the two. Nothing of `from` moves: its session gets one note
+/// at its tail (theseus-vt9k).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadSplitParams {
+    pub from: String,
+    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub goal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub range: Option<[u64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub positions: Option<Vec<u64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What `thread.split` made: the new thread, how many messages it quotes
+/// (and the span of their positions), and whether the note reached the tail
+/// of the source (not while a turn runs there).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadSplitResult {
+    pub thread: ThreadRow,
+    pub from: String,
+    pub quoted: u32,
+    pub first_pos: u64,
+    pub last_pos: u64,
+    pub noted: bool,
 }
 
 #[cfg(test)]

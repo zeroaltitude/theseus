@@ -97,3 +97,109 @@ thread_fact!(
     LedgerKind::ThreadReopened,
     "Thread: {who} reopened the thread {slug}; its next message opens a successor session."
 );
+
+/// A thread was folded into another (`thread.merged`, theseus-vt9k): the row
+/// holds the retired thread's card and the state it was in, so nothing the
+/// merge changed is lost to the record.
+pub struct ThreadMerged<'a> {
+    pub from: &'a ThreadInfo,
+    pub into: &'a ThreadInfo,
+    /// The state `from` was in before it was retired.
+    pub was: &'a str,
+    pub topics_left_out: &'a [String],
+    /// The surfaces `from` had, now archived: a surface that reads the row
+    /// points each at `into`'s.
+    pub archived: &'a [String],
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ThreadMerged<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadMerged);
+
+    fn row(&self) -> Value {
+        json!({"from": self.from.slug, "into": self.into.slug, "was": self.was,
+               "card": self.from.card, "topics_left_out": self.topics_left_out,
+               "archived_surfaces": self.archived,
+               "sealed": self.into.sealed.is_some(), "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Thread: {} merged the thread {} into {}; {} is retired and nothing of it is deleted.",
+                self.who, self.from.slug, self.into.slug, self.from.slug
+            ),
+        );
+    }
+}
+
+/// A merge was undone (`thread.unmerged`).
+pub struct ThreadUnmerged<'a> {
+    pub from: &'a ThreadInfo,
+    pub into: &'a ThreadInfo,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ThreadUnmerged<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadUnmerged);
+
+    fn row(&self) -> Value {
+        json!({"from": self.from.slug, "into": self.into.slug,
+               "state": self.from.state.as_str(), "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Thread: {} undid the merge of {} into {}; {} is {} again.",
+                self.who,
+                self.from.slug,
+                self.into.slug,
+                self.from.slug,
+                self.from.state.as_str()
+            ),
+        );
+    }
+}
+
+/// Part of a thread became a thread of its own (`thread.split`): the new
+/// thread's record, the source, and the span of positions it quotes.
+pub struct ThreadSplit<'a> {
+    pub thread: &'a ThreadInfo,
+    pub from: &'a str,
+    pub quoted: u32,
+    pub first_pos: u64,
+    pub last_pos: u64,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ThreadSplit<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadSplit);
+
+    fn row(&self) -> Value {
+        json!({"slug": self.thread.slug, "title": self.thread.title, "from": self.from,
+               "quoted": self.quoted, "first_pos": self.first_pos, "last_pos": self.last_pos,
+               "sealed": self.thread.sealed.is_some(), "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Thread: {} split the thread {} out of {}: {} quoted from @{} to @{}; nothing of {} moved.",
+                self.who,
+                self.thread.slug,
+                self.from,
+                crate::narrative::count(self.quoted as u64, "message", "messages"),
+                self.first_pos,
+                self.last_pos,
+                self.from
+            ),
+        );
+    }
+}
