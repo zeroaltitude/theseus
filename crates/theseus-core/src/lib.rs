@@ -43,6 +43,7 @@ pub mod external;
 pub mod fact;
 pub mod features;
 pub mod file_read;
+pub mod first_request;
 pub mod fork;
 pub mod github;
 pub mod glide;
@@ -242,6 +243,8 @@ mod tests_external;
 mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
+#[cfg(test)]
+mod tests_first_request;
 #[cfg(test)]
 mod tests_fit;
 #[cfg(test)]

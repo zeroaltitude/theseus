@@ -6,7 +6,7 @@ export type ContextCensusParams = {
  */
 session_id?: string, 
 /**
- * With no session: `cli`, `dm`, `task` or `harness` (default `cli`).
+ * With no session: `cli`, `dm`, `channel`, `task`, `headless` or `harness` (default `cli`).
  */
 place?: string, 
 /**

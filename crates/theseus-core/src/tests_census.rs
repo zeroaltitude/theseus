@@ -271,7 +271,7 @@ fn a_place_or_session_it_cannot_count_is_refused() {
         .unwrap()
         .to_string();
     assert!(
-        e.contains("no place kind") && e.contains("cli, dm, task, harness"),
+        e.contains("no place kind") && e.contains(&PLACES.join(", ")),
         "{e}"
     );
     let e = r

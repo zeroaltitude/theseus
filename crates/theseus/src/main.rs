@@ -219,7 +219,7 @@ enum Cmd {
     /// and sections, every tool's description, schema and total with its use (calls planned in the
     /// last 30 days across every session, and the last one's date), the messages, and the total
     /// against the window. SESSION is that session's next request; with none, a fresh session's
-    /// first request for --place (cli, dm, task or harness; default cli). It compiles once and
+    /// first request for --place (cli, dm, channel, task, headless or harness; default cli). It compiles once and
     /// sends nothing. --exact also asks the provider's token counter (not a model) when a key
     /// resolves. --json prints what the daemon answered.
     Census {

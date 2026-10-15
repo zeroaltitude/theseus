@@ -35,11 +35,29 @@ impl TurnRunner {
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
+        self.deferral_in(sid, self.place_kind(sid, task), spec)
+    }
+
+    /// The same for a census: a fresh session's first request on a kind of place the daemon has no
+    /// session in is counted with that kind's families, not the CLI's.
+    pub(crate) fn census_deferral(
+        &self,
+        sid: &str,
+        task: bool,
+        fresh: Option<&str>,
+        spec: &RequestSpec,
+    ) -> Option<Deferral> {
+        match fresh.and_then(PlaceKind::parse) {
+            Some(kind) => self.deferral_in(sid, kind, spec),
+            None => self.deferral(sid, task, spec),
+        }
+    }
+
+    fn deferral_in(&self, sid: &str, kind: PlaceKind, spec: &RequestSpec) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
         if !cfg.enabled {
             return None;
         }
-        let kind = self.place_kind(sid, task);
         let mechanism = match self.catalog.get(&spec.model) {
             Some(e) if e.tool_search => Mechanism::Search,
             _ => Mechanism::Find,
