@@ -62,6 +62,8 @@ fn on_a_terminal(cli: &Path, path: &Path, args: &[&str]) -> (i32, String) {
         .args(args)
         .env("PATH", path)
         .env("NO_COLOR", "1")
+        // A screen: the gate may run under TERM=dumb, which is line mode.
+        .env("TERM", "xterm")
         .env_remove("THESEUS_SOCKET")
         .stdin(Stdio::from(slave.try_clone().unwrap()))
         .stdout(Stdio::from(slave))

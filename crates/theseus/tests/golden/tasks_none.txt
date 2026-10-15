@@ -1,4 +1,4 @@
-$ theseus tasks
+$ theseus tasks --graph
 --- requests
 task.list
 --- stdout

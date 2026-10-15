@@ -306,7 +306,7 @@ pub(crate) fn change_line(v: &WorkView, now: u64) -> String {
 }
 
 /// A notice, as `--watch` prints it.
-fn notice_line(n: &Notice) -> String {
+pub(crate) fn notice_line(n: &Notice) -> String {
     let who = match n.urgency {
         theseus_protocol::notices::Urgency::Interrupt => "!!",
         theseus_protocol::notices::Urgency::Inform => "! ",

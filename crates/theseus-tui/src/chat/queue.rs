@@ -50,7 +50,7 @@ impl Chat {
             return Vec::new();
         }
         if self.live.turn.is_some() {
-            return self.stop_turn();
+            return self.stop_turn(false);
         }
         self.release_queue()
     }

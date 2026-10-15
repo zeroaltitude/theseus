@@ -1,0 +1,9 @@
+◐ s_conv  Regatta prep
+  ● 2a329e  Paint log                                                    1:00  asks: write regatta/paint-log.md (37 B)
+            theseus answer 2a329e approve · theseus answer 2a329e decline --note …
+  ✗ 0f1e2d  Rigging check                                                5:00  failed: the provider refused the request (400)
+            theseus retry 0f1e2d · theseus dismiss 0f1e2d
+  ◐ 5a877c  Buoy survey                                                  3:20  job 2:14 › leg 5: 4.5 fathoms · 4/9 · sounding the channel
+  ◐ 77c0de  Tide tables with the long name of a very thorough analysis   0:31  model 0:31
+  ✓ beef01  Weather brief                                                5:00  Fair winds Saturday, gusts to 18 knots
+1 needs you · 2 working · 1 failed · 1 done

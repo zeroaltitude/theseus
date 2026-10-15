@@ -9,6 +9,14 @@
 //! Esc goes back to typing (the question stays, one compact row, and Tab
 //! gives it the focus again); `n` takes an optional note, and Enter sends the
 //! decline. An answer is `action.confirm`, author `theseus chat`.
+//!
+//! The one model also holds the questions this conversation's tasks ask
+//! (theseus-mnd9g): [`Asked`] is the conversation's own or a task's, drawn by
+//! the same rows (the task's title says who asks) and answered by the same
+//! keys, `1`..`6` choosing an `ask` question's options. A task's answer is
+//! `work.answer`. With several waiting, the conversation's own comes first,
+//! then the tasks' oldest first; Tab, with the question holding the focus,
+//! moves it to the next.
 
 use serde_json::json;
 use theseus_client::render::diffview;
@@ -19,6 +27,8 @@ use super::keys::{self, Ask};
 use super::live::elapsed;
 use super::state::{call, Chat, Effect, Purpose, AUTHOR};
 use super::style::{one, span, wrap_words, Line, Sty};
+use super::tasks::TaskQ;
+use theseus_protocol::work::QuestionKind;
 
 /// The most rows of a call's preview the dock shows beyond what the terminal
 /// has room for.
@@ -34,18 +44,84 @@ pub struct AskState {
     pub note: bool,
     /// An answer is sent for this question and not yet heard back.
     pub sent: bool,
+    /// Tab chose this question (its id) to hold the focus; none, the first.
+    pub focus: Option<String>,
+    /// The id of the question the fields above are about.
+    pub seen: Option<String>,
+}
+
+/// A question that waits for you: this conversation's own, or a task's.
+#[derive(Debug, Clone)]
+pub(super) enum Asked {
+    Own(Box<ConfirmRequest>),
+    Task(Box<TaskQ>),
+}
+
+impl Asked {
+    fn id(&self) -> &str {
+        match self {
+            Asked::Own(q) => &q.correlation_id,
+            Asked::Task(t) => &t.id,
+        }
+    }
 }
 
 impl Chat {
-    /// A question is new or gone: the focus is on it, or on nothing.
-    pub(super) fn ask_reset(&mut self) {
-        self.ask = AskState::default();
+    /// Every question that waits: the conversation's own, then its tasks'.
+    pub(super) fn asked(&self) -> Vec<Asked> {
+        let mut out: Vec<Asked> = self
+            .question
+            .iter()
+            .map(|q| Asked::Own(Box::new(q.clone())))
+            .collect();
+        out.extend(
+            self.task_questions()
+                .into_iter()
+                .map(|t| Asked::Task(Box::new(t))),
+        );
+        out
+    }
+
+    /// The question that has the keys: the one Tab chose, else the first.
+    pub(super) fn current(&self) -> Option<Asked> {
+        let all = self.asked();
+        let at = self
+            .ask
+            .focus
+            .as_deref()
+            .and_then(|f| all.iter().position(|a| a.id() == f))
+            .unwrap_or(0);
+        all.into_iter().nth(at)
+    }
+
+    /// When the question that has the keys expires, if it does.
+    pub(super) fn asked_expiry(&self) -> Option<u64> {
+        match self.current()? {
+            Asked::Own(q) => (q.expires_at_ms > 0).then_some(q.expires_at_ms),
+            Asked::Task(t) => t.expires_at_ms,
+        }
+    }
+
+    /// The question in the dock changed (one came, went or was answered):
+    /// the state of answering starts over, keeping a Tab's choice that
+    /// still waits.
+    pub(super) fn ask_sync(&mut self) {
+        let now = self.current().map(|a| a.id().to_string());
+        if now != self.ask.seen {
+            let waiting: Vec<String> = self.asked().iter().map(|a| a.id().to_string()).collect();
+            let focus = self.ask.focus.take().filter(|f| waiting.contains(f));
+            self.ask = AskState {
+                focus,
+                seen: now,
+                ..AskState::default()
+            };
+        }
     }
 
     /// Whether a one-key answer applies now: a question waits, the person has
     /// not gone back to typing, and the line is empty.
     pub fn answering(&self) -> bool {
-        self.question.is_some()
+        self.current().is_some()
             && !self.ask.typing
             && !self.ask.note
             && !self.ask.sent
@@ -55,33 +131,78 @@ impl Chat {
     /// A character with the line empty: an answer when it is one, else None
     /// and the character is text.
     pub(super) fn question_key(&mut self, c: char) -> Option<Vec<Effect>> {
-        if self.question.is_none() || self.ask.typing || self.ask.note {
+        if self.ask.typing || self.ask.note {
             return None;
         }
+        let cur = self.current()?;
         let (key, which) = keys::ask_key(c)?;
         if self.ask.sent {
             // Answered, and the daemon has not said so yet: a second key
             // would be a second answer.
             return Some(Vec::new());
         }
-        let q = self.question.clone()?;
+        match cur {
+            Asked::Own(q) => self.own_key(&q, key, which),
+            Asked::Task(t) => self.task_key(&t, which),
+        }
+    }
+
+    fn own_key(&mut self, q: &ConfirmRequest, key: char, which: Ask) -> Option<Vec<Effect>> {
         match which {
-            Ask::Yes => Some(self.confirm(&q, true, None, false, false)),
+            Ask::Yes => Some(self.confirm(q, true, None, false, false)),
             Ask::Trust if q.external_text.is_some() => {
-                Some(self.confirm(&q, true, None, true, false))
+                Some(self.confirm(q, true, None, true, false))
             }
             Ask::Grant if q.grant_offer.as_ref().is_some_and(|o| o.key() == key) => {
-                Some(self.confirm(&q, true, None, false, true))
+                Some(self.confirm(q, true, None, false, true))
             }
             Ask::No => {
                 self.ask.note = true;
                 Some(Vec::new())
             }
             Ask::Whole => {
-                self.show_whole(&q);
+                self.show_whole(q);
                 Some(Vec::new())
             }
-            Ask::Trust | Ask::Grant => None,
+            Ask::Trust | Ask::Grant | Ask::Choice(_) => None,
+        }
+    }
+
+    /// A task's question: `y` and `n` for an approval, `1`..`6` for an
+    /// `ask`'s choices (the other kind's keys are text there), `t` when
+    /// external text holds the session, `v` for the call.
+    fn task_key(&mut self, t: &TaskQ, which: Ask) -> Option<Vec<Effect>> {
+        let ask = t.kind == QuestionKind::Ask;
+        match which {
+            Ask::Whole => {
+                self.show_task_call(t);
+                Some(Vec::new())
+            }
+            Ask::No if !ask => {
+                self.ask.note = true;
+                Some(Vec::new())
+            }
+            Ask::Yes if !ask => {
+                let yes = t.options.first().map_or(
+                    if t.kind == QuestionKind::Budget {
+                        "reset"
+                    } else {
+                        "approve"
+                    },
+                    |o| o.id.as_str(),
+                );
+                Some(self.answer_task(t, yes, None))
+            }
+            Ask::Trust if t.external_text => Some(self.answer_task(t, "approve_trust", None)),
+            Ask::Choice(n) if ask => {
+                let o = t
+                    .options
+                    .iter()
+                    .filter(|o| o.id != "choice:other")
+                    .nth(usize::from(n))?;
+                Some(self.answer_task(t, &o.id, None))
+            }
+            _ => None,
         }
     }
 
@@ -91,11 +212,20 @@ impl Chat {
         let note = self.editor.take().text;
         self.ask.note = false;
         let note = note.trim();
-        let Some(q) = self.question.clone() else {
-            return Vec::new();
-        };
         let note = (!note.is_empty()).then(|| note.to_string());
-        self.confirm(&q, false, note, false, false)
+        match self.current() {
+            Some(Asked::Own(q)) => self.confirm(&q, false, note, false, false),
+            Some(Asked::Task(t)) => {
+                let decline = t
+                    .options
+                    .iter()
+                    .find(|o| o.id == "decline")
+                    .map_or("decline", |o| o.id.as_str())
+                    .to_string();
+                self.answer_task(&t, &decline, note)
+            }
+            None => Vec::new(),
+        }
     }
 
     /// One `action.confirm`.
@@ -134,20 +264,42 @@ impl Chat {
             self.editor.clear();
             return true;
         }
-        if self.question.is_some() && !self.ask.typing && self.editor.is_empty() {
+        if self.current().is_some() && !self.ask.typing && self.editor.is_empty() {
             self.ask.typing = true;
             return true;
         }
         false
     }
 
-    /// Tab with the line empty: the question has the focus again.
+    /// Tab with the line empty: back from typing, the question has the focus
+    /// again; else, with more than one waiting, the next one has it.
     pub(super) fn focus_question(&mut self) -> bool {
-        if self.question.is_some() && self.ask.typing && self.editor.is_empty() {
+        if !self.editor.is_empty() || self.ask.note {
+            return false;
+        }
+        let all = self.asked();
+        if all.is_empty() {
+            return false;
+        }
+        if self.ask.typing {
             self.ask.typing = false;
             return true;
         }
-        false
+        if all.len() < 2 {
+            return false;
+        }
+        let at = self
+            .current()
+            .and_then(|c| all.iter().position(|a| a.id() == c.id()))
+            .unwrap_or(0);
+        let next = all[(at + 1) % all.len()].id().to_string();
+        self.ask = AskState {
+            focus: Some(next.clone()),
+            seen: Some(next),
+            ..AskState::default()
+        };
+        self.board_refresh();
+        true
     }
 
     /// `v`: the whole call, written into the transcript.
@@ -224,12 +376,15 @@ fn expiry(q: &ConfirmRequest, now_ms: u64) -> Option<String> {
     })
 }
 
-/// The dock's rows for the question.
+/// The dock's rows for the question that has the keys.
 pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
-    let Some(q) = &chat.question else {
+    let Some(cur) = chat.current() else {
         return Vec::new();
     };
-    let title = chat.ask_title(q);
+    let title = match &cur {
+        Asked::Own(q) => chat.ask_title(q),
+        Asked::Task(t) => format!("{} asks: {}?", t.who, t.words),
+    };
     let mut out = Vec::new();
     for (i, row) in wrap_words(&title, ctx.width.saturating_sub(2), 2)
         .into_iter()
@@ -241,11 +396,16 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
             span(Sty::Bold, row.trim_start().to_string()),
         ]);
     }
+    let more = chat.asked().len().saturating_sub(1);
     if chat.ask.typing {
         // The question waits one row high while the person types.
         out.push(one(Sty::Dim, "  tab: answer it"));
         return out;
     }
+    let q = match &cur {
+        Asked::Own(q) => q,
+        Asked::Task(t) => return task_rows(chat, t, out, more, ctx),
+    };
     out.extend(preview(chat, q, ctx));
     // `by` names who is asked (the operator); who asks is the task, or Theseus.
     let mut who = Vec::new();
@@ -292,18 +452,55 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     } else if chat.ask.sent {
         out.push(one(Sty::Dim, "  answering…"));
     } else {
-        out.push(one(Sty::Yellow, keys_line(q)));
+        out.push(one(Sty::Yellow, keys_line(q, more)));
     }
     out
 }
 
+/// A task's question under its title: its expiry, then the keys.
+fn task_rows(chat: &Chat, t: &TaskQ, mut out: Vec<Line>, more: usize, ctx: &DockCtx) -> Vec<Line> {
+    if let Some(at) = t.expires_at_ms {
+        let left = at.saturating_sub(ctx.now_ms);
+        let words = if at > ctx.now_ms {
+            format!("expires in {}", elapsed(left))
+        } else {
+            "expired".to_string()
+        };
+        out.push(one(Sty::Dim, format!("  {words}")));
+    }
+    if chat.ask.note {
+        out.push(one(
+            Sty::Yellow,
+            "  no · say what to do instead (enter sends, esc goes back)",
+        ));
+    } else if chat.ask.sent {
+        out.push(one(Sty::Dim, "  answering…"));
+    } else {
+        let mut line = format!("  {}", super::tasks::keys_line(t));
+        line.push_str(&more_words(more));
+        line.push_str(" · esc type");
+        out.push(one(Sty::Yellow, line));
+    }
+    out
+}
+
+/// ` · tab next (2 more)`, when another question waits.
+fn more_words(more: usize) -> String {
+    if more == 0 {
+        String::new()
+    } else {
+        format!(" · tab next ({more} more)")
+    }
+}
+
 /// `y yes · n no · v whole call · esc type`, with the question's extra keys.
-fn keys_line(q: &ConfirmRequest) -> String {
+fn keys_line(q: &ConfirmRequest, more: usize) -> String {
     let yes = if q.budget.is_some() { "reset" } else { "yes" };
     let mut line = format!("  y {yes} · n no, say what instead · v whole call");
     if q.external_text.is_some() {
         line.push_str(" · t yes and trust");
     }
+    line.push_str(&more_words(more));
     line.push_str(" · esc type");
     line
 }

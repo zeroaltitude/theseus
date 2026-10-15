@@ -23,12 +23,12 @@ pub enum TasksCmd {
 pub async fn dispatch(
     conn: &mut Conn,
     json: bool,
-    session: Option<String>,
+    args: crate::tasks_tree::TasksArgs,
     cmd: Option<TasksCmd>,
 ) -> Result<()> {
     match cmd {
         Some(k) => run(conn, json, k).await,
-        None => crate::cmd::tasks(conn, json, session).await,
+        None => crate::tasks_tree::run(conn, json, args).await,
     }
 }
 

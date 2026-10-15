@@ -71,7 +71,8 @@ pub fn exec_tui(cmd: &crate::Cmd, socket: &str, spawn: bool) -> Option<Result<()
             session,
             cont,
             resume,
-        } => {
+            plain,
+        } if !line_mode_wanted(*plain) => {
             let start = match (cont, resume) {
                 (true, _) => Some(Start::Continue),
                 (_, true) => Some(Start::Pick),
@@ -81,6 +82,41 @@ pub fn exec_tui(cmd: &crate::Cmd, socket: &str, spawn: bool) -> Option<Result<()
         }
         _ => None,
     }
+}
+
+/// Line mode: asked for with `--plain`, or the terminal is no screen (a pipe
+/// in or out, `TERM=dumb`). The same conversation as `watch --interactive`,
+/// with the tasks' events as lines.
+fn line_mode_wanted(plain: bool) -> bool {
+    plain
+        || !std::io::stdin().is_terminal()
+        || !std::io::stdout().is_terminal()
+        || std::env::var("TERM").is_ok_and(|t| t == "dumb")
+}
+
+/// `theseus chat --plain [SESSION]`: SESSION's conversation, or a new one in
+/// this directory, followed by `watch --interactive`'s loop.
+pub async fn line_mode(cli: crate::Cli) -> Result<()> {
+    let mut conn = crate::connect(&cli).await?;
+    let conn = &mut conn;
+    let crate::Cmd::Chat { session, .. } = cli.cmd else {
+        unreachable!("main sends only the chat here")
+    };
+    let sid = match session {
+        Some(s) => s,
+        None => {
+            let dir = std::env::current_dir()?;
+            let v = conn
+                .request(
+                    theseus_protocol::method::SESSION_OPEN,
+                    serde_json::json!({ "dir": dir.to_string_lossy() }),
+                )
+                .await?;
+            let info: theseus_protocol::SessionInfo = serde_json::from_value(v)?;
+            info.session_id
+        }
+    };
+    crate::interactive::watch(conn, cli.json, Some(sid), false, true, true).await
 }
 
 /// Exec `theseus-tui chat [SESSION] [-c | -r]` over `socket`.

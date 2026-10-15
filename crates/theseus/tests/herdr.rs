@@ -583,6 +583,7 @@ fn interactive_answers_the_question_and_sends_messages() {
             "session.watch",
             "session.wait",
             "session.list",
+            "work.watch",
             "action.confirm",
             "turn.submit"
         ],

@@ -145,6 +145,22 @@ new lines, the dock again, in synchronized-output mode 2026).
   (`reopen::window`; a message over 6 lines is shown folded, its last lines kept), older turns one line, `N earlier
   turns · /history shows them`, which `/history` answers a page back (`before` the first replayed node). Leaving
   prints `theseus -c` and `theseus chat END`. Tests: `chat/tests_reopen.rs`, `picker.rs`'s own.
+- **Tasks** (theseus-mnd9g; `chat/tasks.rs`, `chat/footer.rs`; the questions join chat-ask's `chat/ask.rs`): one `work.watch
+  {roots: [session], interactive: true}` at open and at each reconnect. The chat keeps the conversation's views by the position
+  rule; a task that starts, asks, reports or fails prints one titled line in the words of the CLI's
+  `render::task_tree::event_line`, and a snapshot prints none for what already runs. The **footer** is a dock provider above the
+  question: a summary line, then a row for each task that works or asks (5 at most, then `+N more · ctrl-t`), with minute clocks
+  (`task_tree::footer`, `coarse`), so it changes only on a push or the minute a clock turns over (`Board::repaint_at` is the
+  chat's one deadline for it; the expiry of the question that has the keys ticks each second while it shows). **One question model**
+  (`ask.rs`, `Asked`): the conversation's own (a `ConfirmRequest`, answered by `action.confirm`) or a task's (`tasks::TaskQ` from the
+  board's views, answered by `work.answer`, author `theseus chat`, refused inside a job); the dock draws either with the same rows
+  (a task's title says who asks), and the same keys (`keys::ASK_KEYS`) answer either: `y`, `n` then an optional note, `t`, `v`, and
+  `1`..`6` an `ask` question's choices (text for any other question). The conversation's own comes first, then the tasks',
+  oldest asked first; Tab with the line empty gives the keys back after Esc, else moves them to the next question
+  (`AskState::focus`). Esc is chat-ask's: back to typing. `/tasks` and ctrl-t draw the tree in place, `/cancel ID` is
+  `task.cancel`, `/stop [--tasks]` is Esc's stop (`keep_jobs`) and with `--tasks` (or `all`) also cancels the conversation's tasks
+  (refused in a job). An Interrupt notice (`work.notice` through `notices::deliver`) rings the bell once (`Effect::Bell`); the
+  status line's `◐ N tasks` is the board's count once it is live. Tests: `chat/tests_tasks.rs`, `chat/tests_ask.rs`.
 
 Tests: `chat/tests.rs` (a scripted daemon through `Conn::over`, its bytes read back as a screen by `vt100`, a dev-dependency
 only; the paused clock and the chat's wall clock move together; goldens `tests/golden/chat_80.txt`, `chat_120.txt`,
