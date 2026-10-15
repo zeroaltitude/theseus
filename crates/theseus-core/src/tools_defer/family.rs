@@ -49,6 +49,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "aws",
         "AWS: the account's calls, stacks, hands, costs and buckets",
     ),
+    ("ask", "ask the owner a question with options, and wait for the answer"),
     ("extensions", "propose a new extension of your own tools"),
     ("self", "propose and inspect changes to Theseus itself"),
 ];
@@ -69,7 +70,7 @@ pub fn of_wire(wire: &str) -> String {
         "file_read" => "files",
         "memory_lookup" => "memory",
         "proc_run" => "commands",
-        "owner_ask" => "tasks",
+        "owner_ask" => "ask",
         _ => match wire.split('_').next().unwrap_or("") {
             "fs" | "git" | "text" => "files",
             "job" => "commands",

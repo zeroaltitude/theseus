@@ -446,6 +446,10 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
         summary: format!("a call of {}", tool.name()),
         authority: match tool.name() {
             n if n == crate::routine_tool::CREATE => Some(crate::routine_tool::ASKS.to_string()),
+            // The owner's tap, at every posture (theseus-vt9k).
+            n if n == crate::thread_split::SPLIT => {
+                Some("a new thread opens with turns of this one".to_string())
+            }
             // A question for the owner asks at every posture, as a layer-1
             // change does (theseus-j7cje).
             n if n == crate::ask::OWNER_ASK => Some("the owner's decision".to_string()),

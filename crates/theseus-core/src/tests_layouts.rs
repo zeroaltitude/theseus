@@ -127,7 +127,7 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::SESSION,
-        layout: "a task's session at format 33 (theseus-nhew's): before the owner's flag on it (34, theseus-j7cje)",
+        layout: "a task's session at format 33 (theseus-nhew's): before the owner's flag on it (43, theseus-j7cje)",
         bytes: TASK_SESSION_BEFORE_NOTIFY,
         kept: Kept::All,
     },

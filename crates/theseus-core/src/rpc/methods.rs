@@ -1497,8 +1497,7 @@ impl Core {
                 p.note.as_deref(),
                 who,
                 p.trust,
-                &[],
-                None,
+                Default::default(),
             ),
         }
         .map_err(|e| match e.downcast::<Refusal>() {

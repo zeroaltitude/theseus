@@ -314,6 +314,7 @@ async fn a_task_speaks_as_its_parents_persona() {
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     r.core.store.put_session(&child.session_id, &child).unwrap();
     assert_eq!(r.core.runner.persona_of(&child).as_deref(), Some("birch"));

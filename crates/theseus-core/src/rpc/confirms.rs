@@ -35,6 +35,16 @@ pub(crate) fn expired_answer(a: &Action) -> Option<(ResultStatus, String)> {
     ))
 }
 
+/// What rides in an answer's frame besides the answer: a grant's row
+/// (`extra`, theseus-drjs) and an `owner_ask`'s choice (`ask`: the option's id
+/// and the META record the call reads back, theseus-j7cje). One parameter, so
+/// `confirm_action_with` stays within clippy's argument count.
+#[derive(Default)]
+pub struct Rides<'a> {
+    pub extra: &'a [theseus_store::NewRecord],
+    pub ask: Option<(&'a str, theseus_store::NewRecord)>,
+}
+
 impl Core {
     /// A waiting action as the question the operator sees: the one place a
     /// pending confirm becomes a `ConfirmRequest` (theseus-0g4). A tool call
@@ -81,9 +91,10 @@ impl Core {
             reason: decision.reason,
             by: OPERATOR.into(),
             requested_at_ms: a.planned_at_ms,
-            expires_at_ms: a.planned_at_ms
-                + self.ask_ttl_ms(&session.session_id, session.task.is_some()),
-            expires_at_ms: crate::ask::expiry_of(a, self.kernel.config().confirm_ttl_ms),
+            expires_at_ms: crate::ask::expiry_of(
+                a,
+                self.ask_ttl_ms(&session.session_id, session.task.is_some()),
+            ),
             floor: decision.floor,
             budget: None,
             task: crate::task::task_ref(session),
@@ -289,7 +300,7 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        self.confirm_action_with(correlation_id, approve, note, by, false, &[], None)
+        self.confirm_action_with(correlation_id, approve, note, by, false, Rides::default())
     }
 
     /// `confirm_action`, and with `trust`, trust the call's session again as
@@ -311,9 +322,9 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
         trust: bool,
-        extra: &[theseus_store::NewRecord],
-        ask: Option<(&str, theseus_store::NewRecord)>,
+        rides: Rides<'_>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
+        let Rides { extra, ask } = rides;
         let who = by.into();
         let a = self
             .kernel
@@ -550,7 +561,6 @@ impl Core {
             // A routine's run waits its run deadline, not the confirm lifetime
             // (theseus-52tut).
             let ttl = self.ask_ttl_ms(&a.session_id, self.is_task_session(&a.session_id));
-            let due = a.planned_at_ms + ttl;
             let due = crate::ask::expiry_of(a, ttl);
             if due > now {
                 next = next.min(due);

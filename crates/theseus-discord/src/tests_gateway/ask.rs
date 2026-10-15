@@ -25,7 +25,11 @@ fn model(_: &std::path::Path, _: Arc<theseus_sim::fake_discord::FakeDiscord>) ->
 }
 
 async fn rig() -> Rig {
-    Rig::start_tweaked(model, guild(true), &bindings(false), &[], |_| {}).await
+    // The model's owner_ask is deferred by default (its own family): these scripts call it directly.
+    Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
+        c.tools.defer.always_loaded.push("ask".into())
+    })
+    .await
 }
 
 /// A CLI's turn: a session of no place asks the owner.
@@ -48,6 +52,10 @@ async fn asked_from_the_cli(r: &Rig) -> (String, u64) {
                 reply_to: None,
                 opened_from: None,
                 thread: None,
+                speaking: None,
+                in_reply_to: None,
+                surface: None,
+                via: None,
             },
         )
         .await

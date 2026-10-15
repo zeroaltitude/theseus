@@ -863,6 +863,7 @@ fn run_plan(
         target: env.target.clone(),
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     let author = format!("session:{}", spec.session_id);
     let node = Node::relayed(&due.session_id, None, Origin::Agent, &author, &text);

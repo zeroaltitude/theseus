@@ -1536,7 +1536,6 @@ impl ToolRuntime {
                     done
                 })
             }
-            // The owner's answer to a question, read back (theseus-j7cje).
             crate::ask::OWNER_ASK => crate::ask::result(tc, &call.input, correlation_id),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),

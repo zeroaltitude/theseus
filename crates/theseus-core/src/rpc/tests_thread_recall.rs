@@ -418,6 +418,7 @@ async fn a_split_and_a_task_inherit_the_seal() {
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     });
     c.store.put_session(&task.session_id, &task).unwrap();
     say(c, &task.session_id, "the task's finding");

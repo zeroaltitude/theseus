@@ -274,7 +274,7 @@ pub struct TaskOf {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<theseus_protocol::TaskCheck>,
     /// The owner asked to hear when it is done (`task.create { notify_done }`,
-    /// format 34, theseus-j7cje): its work view is flagged, and the policy's
+    /// format 43, theseus-j7cje): its work view is flagged, and the policy's
     /// finish row interrupts instead of informing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub notify_done: bool,

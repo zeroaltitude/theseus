@@ -307,8 +307,7 @@ impl Core {
                 p.note.as_deref(),
                 who,
                 trust,
-                &[],
-                None,
+                Default::default(),
             )
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
@@ -425,7 +424,10 @@ impl Core {
                 text,
                 who,
                 false,
-                Some((&option, record)),
+                super::confirms::Rides {
+                    extra: &[],
+                    ask: Some((&option, record)),
+                },
             )
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
@@ -442,6 +444,7 @@ impl Core {
             question_id: a.correlation_id.clone(),
             option,
             resumes,
+            detail: None,
         })
     }
 

@@ -308,6 +308,7 @@ impl Core {
             target: d.reports_to.map(str::to_string),
             arrangement: d.arrangement.map(|a| a.id.clone()),
             check: None,
+            notify_done: false,
         });
         let mut records = match d.hold {
             Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),

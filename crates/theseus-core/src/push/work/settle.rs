@@ -309,6 +309,7 @@ impl WorkBoard {
             views: Vec::new(),
             gone: Vec::new(),
             notices,
+            threads: Vec::new(),
         })
     }
 

@@ -559,6 +559,7 @@ async fn the_grant_applies_to_the_routines_own_runs_and_nothing_else() {
         target: None,
         arrangement: None,
         check: None,
+        notify_done: false,
     };
     let of = |t: crate::session::TaskOf| book.grant_for(&r.core.kernel, &r.core.store, &t);
     let own = of(task_of(&spec.session_id, &spec.execution_id)).expect("the run's own grant");

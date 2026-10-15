@@ -121,7 +121,17 @@ impl Core {
             serde_json::to_value(&g)?,
         );
         let extra = [NewRecord::json(kinds::LEDGER, None, &row)?];
-        let mut done = self.confirm_action_with(correlation_id, true, note, who, trust, &extra)?;
+        let mut done = self.confirm_action_with(
+            correlation_id,
+            true,
+            note,
+            who,
+            trust,
+            super::confirms::Rides {
+                extra: &extra,
+                ask: None,
+            },
+        )?;
         self.tools.earned.scoped.add(g.clone());
         narrate!(
             self.narrator,

@@ -304,6 +304,7 @@ impl Copy {
             target: task_of.target.clone(),
             arrangement: Some(arrangement.id.clone()),
             check: task_of.check.clone(),
+            notify_done: false,
         });
         let text = retry_brief(
             &task.session_id,
