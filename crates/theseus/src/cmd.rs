@@ -37,6 +37,8 @@ pub(crate) const NEWEST: SessionListParams = SessionListParams {
     n: Some(1),
     before: None,
     state: None,
+    dir: None,
+    with_text: false,
 };
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it

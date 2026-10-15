@@ -448,6 +448,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`judge_act(Act::Session)`, `rpc/sessions.rs`). `execution.list` pages the same way (`rpc/exec_list.rs`: `{n, before}` newest-born first, `{ids}`; none is every one as before); `session.list` with no params is every session as before; `state`
   filters, and the answer names its windows. The re-title is `turn/title_step.rs` (in the turn's own session write,
   once, never a task's). Tests: `rpc/tests_session_states.rs`.
+  `session.list {dir, with_text}` (theseus-6yka, `rpc/session_find.rs`): one directory's sessions, where a session's directory and the asked one have the same root (the nearest ancestor holding `.git`, else itself); the index's births are scanned a step at a time and the answer holds whole steps (it can hold more than `n`; its `older` goes back from the last), newest active first; `with_text` (alone, every directory's) adds `first_text`, `last_text` and `prompts`, read from the store's node pages, no model. `SessionInfo.started_on` is `discord` (the outbox has a target for it) or `cli` (a client gave it a directory). Tests: `rpc/tests_session_find.rs`.
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
   `telemetry/` (OTLP, metrics, spans).
 - **Facts**: `fact/` (theseus-j6qn, Review 2's C2). One type per thing that happened, which says in one place what

@@ -54,6 +54,7 @@ mod route_correct;
 mod rsi;
 mod server;
 mod session_dir;
+mod session_find;
 mod sessions;
 mod standing;
 mod stop_all;
@@ -93,6 +94,8 @@ mod tests_self_backlog;
 mod tests_self_exams;
 #[cfg(test)]
 mod tests_self_graduate;
+#[cfg(test)]
+mod tests_session_find;
 #[cfg(test)]
 mod tests_session_states;
 #[cfg(test)]
