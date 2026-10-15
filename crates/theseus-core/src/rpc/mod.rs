@@ -76,9 +76,9 @@ mod tests_health_imported;
 #[cfg(test)]
 mod tests_history;
 #[cfg(test)]
-mod tests_inspect;
-#[cfg(test)]
 mod tests_imported;
+#[cfg(test)]
+mod tests_inspect;
 #[cfg(test)]
 mod tests_ledger;
 #[cfg(test)]

@@ -20,8 +20,8 @@ use std::time::Instant;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_protocol::inspect::{
-    InspectAnswer, InspectCall, InspectLoop, InspectPrompt, InspectRow,
-    TurnInspectParams, TurnInspectResult,
+    InspectAnswer, InspectCall, InspectLoop, InspectPrompt, InspectRow, TurnInspectParams,
+    TurnInspectResult,
 };
 use theseus_protocol::{error_code, ContextCompiled, LedgerKind, Span, Usage};
 use theseus_store::pages::{ledger_kind_session, ledger_session};
@@ -43,7 +43,8 @@ const NODES: usize = 3000;
 const STARTS: usize = 500;
 const START_PAGES: usize = 12;
 
-pub(super) const WITHHELD: &str = "thinking, prompts, tool inputs and results go to a private place \
+pub(super) const WITHHELD: &str =
+    "thinking, prompts, tool inputs and results go to a private place \
      only (the cockpit, the CLI): this surface reads the shapes, sizes and timings";
 
 impl Core {
@@ -189,7 +190,11 @@ impl Core {
 /// A block as a surface that reads no private text sees it: its type and its
 /// length.
 fn shape_of(b: &Value) -> Value {
-    let len = |k: &str| b.get(k).and_then(Value::as_str).map_or(0, |s| s.chars().count());
+    let len = |k: &str| {
+        b.get(k)
+            .and_then(Value::as_str)
+            .map_or(0, |s| s.chars().count())
+    };
     match b.get("type").and_then(Value::as_str) {
         Some("thinking") => json!({"type": "thinking", "chars": len("thinking")}),
         Some("text") => json!({"type": "text", "chars": len("text")}),
@@ -263,7 +268,11 @@ pub(crate) fn assemble(
             position: *pos,
             at_ms: row.at_unix_ms,
             kind: row.kind.clone(),
-            data: if private { row.data.clone() } else { Value::Null },
+            data: if private {
+                row.data.clone()
+            } else {
+                Value::Null
+            },
         });
     }
     if out.outcome.is_empty() {
@@ -273,9 +282,7 @@ pub(crate) fn assemble(
         out.started_ms = rows.first().map_or(0, |(_, r)| r.at_unix_ms);
     }
     if out.totals.wall_ms == 0 {
-        out.totals.wall_ms = out
-            .ended_ms
-            .map_or(0, |e| e.saturating_sub(out.started_ms));
+        out.totals.wall_ms = out.ended_ms.map_or(0, |e| e.saturating_sub(out.started_ms));
     }
 
     // The nodes: the prompt, each loop's answer, each call and its result.
@@ -381,7 +388,11 @@ pub(crate) fn assemble(
                     c.resulted_ms = Some(n.created_at_ms);
                     c.status = Some(format!("{status:?}").to_lowercase());
                     c.is_error = *is_error;
-                    c.content = if private { content.clone() } else { String::new() };
+                    c.content = if private {
+                        content.clone()
+                    } else {
+                        String::new()
+                    };
                     c.bytes_total = *bytes_total;
                     c.truncated = *truncated;
                     c.full_ref = full_ref.clone();

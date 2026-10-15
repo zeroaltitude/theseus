@@ -25,7 +25,9 @@ fn open(core: &Core) -> String {
 
 fn row(core: &Core, at: u64, kind: &str, s: &str, t: &str, data: Value) {
     core.store
-        .append_ledger(&json!({"at_unix_ms": at, "kind": kind, "session_id": s, "turn_id": t, "data": data}))
+        .append_ledger(
+            &json!({"at_unix_ms": at, "kind": kind, "session_id": s, "turn_id": t, "data": data}),
+        )
         .unwrap();
 }
 
@@ -41,11 +43,39 @@ fn compiled(i: u32, s: &str, t: &str) -> Value {
 /// answers with text alone). Returns (session, turn).
 fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
     let (s, t) = (open(core), "turn_inspected".to_string());
-    row(core, T0 - 10_000, "turn.started", &s, "turn_before", json!({}));
-    row(core, T0 - 40, "route.decided", &s, &t, json!({"mode": "quick", "reason": "short question", "effort_applied": "low"}));
-    row(core, T0, "turn.started", &s, &t, json!({"author": "web#1", "model": "claude-sonnet-5"}));
+    row(
+        core,
+        T0 - 10_000,
+        "turn.started",
+        &s,
+        "turn_before",
+        json!({}),
+    );
+    row(
+        core,
+        T0 - 40,
+        "route.decided",
+        &s,
+        &t,
+        json!({"mode": "quick", "reason": "short question", "effort_applied": "low"}),
+    );
+    row(
+        core,
+        T0,
+        "turn.started",
+        &s,
+        &t,
+        json!({"author": "web#1", "model": "claude-sonnet-5"}),
+    );
     core.store
-        .append(&[Node::user(&s, Some(&t), "web#1", "How many files are in the harbour directory?").record().unwrap()])
+        .append(&[Node::user(
+            &s,
+            Some(&t),
+            "web#1",
+            "How many files are in the harbour directory?",
+        )
+        .record()
+        .unwrap()])
         .unwrap();
     for i in 0..loops {
         let at = T0 + 1_000 * u64::from(i + 1);
@@ -61,29 +91,73 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
                 blocks.push(json!({"type": "tool_use", "id": u, "name": "fs_list", "input": {"path": "/harbour"}}));
             }
         }
-        let mut a = Node::assistant(&s, &t, i, Body::AssistantMessage {
-            blocks, model: "claude-sonnet-5".into(), provider: "anthropic".into(),
-            stop_reason: Some(if last { "end_turn" } else { "tool_use" }.into()),
-            usage: Usage { input_tokens: 100, output_tokens: 50 + u64::from(i), cache_read_input_tokens: 8_000, cache_creation_input_tokens: 200, cache_creation_1h_input_tokens: 0 },
-            cost_usd: Some(0.01), catalog_version: None, request_id: Some(format!("req_{i}")),
-            correlation_id: None, compilation_id: Some("cmp_a".into()), request_digest: Some(format!("dig{i}")), effort: None,
-        });
+        let mut a = Node::assistant(
+            &s,
+            &t,
+            i,
+            Body::AssistantMessage {
+                blocks,
+                model: "claude-sonnet-5".into(),
+                provider: "anthropic".into(),
+                stop_reason: Some(if last { "end_turn" } else { "tool_use" }.into()),
+                usage: Usage {
+                    input_tokens: 100,
+                    output_tokens: 50 + u64::from(i),
+                    cache_read_input_tokens: 8_000,
+                    cache_creation_input_tokens: 200,
+                    cache_creation_1h_input_tokens: 0,
+                },
+                cost_usd: Some(0.01),
+                catalog_version: None,
+                request_id: Some(format!("req_{i}")),
+                correlation_id: None,
+                compilation_id: Some("cmp_a".into()),
+                request_digest: Some(format!("dig{i}")),
+                effort: None,
+            },
+        );
         a.created_at_ms = at + 400;
         let aid = a.id.clone();
         let mut recs = vec![a.record().unwrap()];
         if !last {
             for u in &uses {
-                let mut c = Node::tool_call(&s, Some(&t), Some(i), Body::ToolCall {
-                    tool_use_id: u.clone(), tool: "fs.list".into(), wire_name: "fs_list".into(),
-                    input: json!({"path": "/harbour"}), assistant_node: aid.clone(), correlation_id: None, gate: None,
-                });
+                let mut c = Node::tool_call(
+                    &s,
+                    Some(&t),
+                    Some(i),
+                    Body::ToolCall {
+                        tool_use_id: u.clone(),
+                        tool: "fs.list".into(),
+                        wire_name: "fs_list".into(),
+                        input: json!({"path": "/harbour"}),
+                        assistant_node: aid.clone(),
+                        correlation_id: None,
+                        gate: None,
+                    },
+                );
                 c.created_at_ms = at + 450;
                 recs.push(c.record().unwrap());
-                let mut r = Node::tool_result(&s, Some(&t), Some(i), Body::ToolResult {
-                    tool_use_id: u.clone(), tool: "fs.list".into(), status: ResultStatus::Ok, is_error: false,
-                    content: "tide.log\nquay.txt".into(), correlation_id: None, bytes_total: 17, truncated: false,
-                    full_ref: None, duration_ms: Some(12), late: false, meta: Value::Null, image: None, external: None,
-                });
+                let mut r = Node::tool_result(
+                    &s,
+                    Some(&t),
+                    Some(i),
+                    Body::ToolResult {
+                        tool_use_id: u.clone(),
+                        tool: "fs.list".into(),
+                        status: ResultStatus::Ok,
+                        is_error: false,
+                        content: "tide.log\nquay.txt".into(),
+                        correlation_id: None,
+                        bytes_total: 17,
+                        truncated: false,
+                        full_ref: None,
+                        duration_ms: Some(12),
+                        late: false,
+                        meta: Value::Null,
+                        image: None,
+                        external: None,
+                    },
+                );
                 r.created_at_ms = at + 470;
                 recs.push(r.record().unwrap());
             }
@@ -92,22 +166,71 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
         row(core, at + 100, "recall.ran", &s, &t, json!({"admitted": 2}));
     }
     // A compaction, a floor question and its answer.
-    row(core, T0 + 500, "context.compacted", &s, &t, json!({"from": 40_000, "to": 9_000}));
-    row(core, T0 + 600, "tool.confirm_requested", &s, &t, json!({"tool": "proc.run", "tool_use_id": "tu_0_0"}));
-    row(core, T0 + 900, "action.confirm_answered", &s, &t, json!({"answer": "approve"}));
-    row(core, T0 + 1_000 * u64::from(loops + 1), "turn.ended", &s, &t, json!({"loops": loops, "stop_reason": "end_turn", "elapsed_ms": 1_000 * (u64::from(loops) + 1)}));
-    row(core, T0 + 1_000 * u64::from(loops + 1), "turn.trace", &s, &t, json!({"name": "turn", "kind": "turn", "start_us": 0, "end_us": 5_000_000, "children": [
+    row(
+        core,
+        T0 + 500,
+        "context.compacted",
+        &s,
+        &t,
+        json!({"from": 40_000, "to": 9_000}),
+    );
+    row(
+        core,
+        T0 + 600,
+        "tool.confirm_requested",
+        &s,
+        &t,
+        json!({"tool": "proc.run", "tool_use_id": "tu_0_0"}),
+    );
+    row(
+        core,
+        T0 + 900,
+        "action.confirm_answered",
+        &s,
+        &t,
+        json!({"answer": "approve"}),
+    );
+    row(
+        core,
+        T0 + 1_000 * u64::from(loops + 1),
+        "turn.ended",
+        &s,
+        &t,
+        json!({"loops": loops, "stop_reason": "end_turn", "elapsed_ms": 1_000 * (u64::from(loops) + 1)}),
+    );
+    row(
+        core,
+        T0 + 1_000 * u64::from(loops + 1),
+        "turn.trace",
+        &s,
+        &t,
+        json!({"name": "turn", "kind": "turn", "start_us": 0, "end_us": 5_000_000, "children": [
         {"name": "loop 0", "kind": "loop", "start_us": 0, "end_us": 2_000_000, "children": [
             {"name": "provider.messages", "kind": "provider", "start_us": 100_000, "end_us": 900_000},
             {"name": "tool fs.list", "kind": "tool", "start_us": 1_000_000, "end_us": 1_500_000},
-            {"name": "tool fs.list", "kind": "tool", "start_us": 1_100_000, "end_us": 1_600_000}]}]}));
+            {"name": "tool fs.list", "kind": "tool", "start_us": 1_100_000, "end_us": 1_600_000}]}]}),
+    );
     // Another turn after it, so there is a next.
-    row(core, T0 + 90_000, "turn.started", &s, "turn_after", json!({}));
+    row(
+        core,
+        T0 + 90_000,
+        "turn.started",
+        &s,
+        "turn_after",
+        json!({}),
+    );
     (s, t)
 }
 
 fn inspect(core: &Core, s: &str, t: &str, private: bool) -> TurnInspectResult {
-    core.turn_inspect(&TurnInspectParams { session_id: s.into(), turn_id: t.into() }, private).unwrap()
+    core.turn_inspect(
+        &TurnInspectParams {
+            session_id: s.into(),
+            turn_id: t.into(),
+        },
+        private,
+    )
+    .unwrap()
 }
 
 /// A multi-loop turn with parallel tools, thinking, a compaction and a floor
@@ -119,36 +242,74 @@ fn a_multi_loop_turn_comes_back_whole() {
     let r = inspect(&core, &s, &t, true);
     assert_eq!(r.outcome, "ended");
     assert_eq!(r.stop_reason.as_deref(), Some("end_turn"));
-    assert_eq!(r.prompt.text, "How many files are in the harbour directory?");
+    assert_eq!(
+        r.prompt.text,
+        "How many files are in the harbour directory?"
+    );
     assert_eq!(r.prompt.author.as_deref(), Some("web#1"));
     assert_eq!(r.totals.loops, 3);
     assert_eq!(r.totals.model_calls, 3);
-    assert_eq!(r.totals.tool_calls, 4, "two parallel calls in each of two loops");
+    assert_eq!(
+        r.totals.tool_calls, 4,
+        "two parallel calls in each of two loops"
+    );
     assert_eq!(r.totals.usage.cache_read_input_tokens, 24_000);
     assert!((r.totals.cost_usd - 0.03).abs() < 1e-9);
-    assert_eq!(r.route["mode"], "quick", "the route decision written before turn.started is the turn's");
+    assert_eq!(
+        r.route["mode"], "quick",
+        "the route decision written before turn.started is the turn's"
+    );
     assert_eq!(r.prev_turn.as_deref(), Some("turn_before"));
     assert_eq!(r.next_turn.as_deref(), Some("turn_after"));
-    assert!(r.url.ends_with(&format!("/session/{s}/turn/{t}")), "{}", r.url);
+    assert!(
+        r.url.ends_with(&format!("/session/{s}/turn/{t}")),
+        "{}",
+        r.url
+    );
     assert!(r.trace.as_ref().is_some_and(|x| x.children.len() == 1));
     let kinds: Vec<&str> = r.rows.iter().map(|x| x.kind.as_str()).collect();
-    for k in ["context.compacted", "tool.confirm_requested", "action.confirm_answered", "recall.ran", "turn.ended"] {
+    for k in [
+        "context.compacted",
+        "tool.confirm_requested",
+        "action.confirm_answered",
+        "recall.ran",
+        "turn.ended",
+    ] {
         assert!(kinds.contains(&k), "{k} in {kinds:?}");
     }
     let l0 = &r.loops[0];
     assert_eq!(l0.calls.len(), 2);
     assert_eq!(l0.compiled.as_ref().unwrap().est_tokens, 9_000);
     let a = l0.answer.as_ref().unwrap();
-    assert_eq!(a.thinking_chars, "Plan for loop 0: list, then count.".len() as u64);
-    assert_eq!(a.blocks[0]["thinking"], "Plan for loop 0: list, then count.", "thinking in full");
+    assert_eq!(
+        a.thinking_chars,
+        "Plan for loop 0: list, then count.".len() as u64
+    );
+    assert_eq!(
+        a.blocks[0]["thinking"], "Plan for loop 0: list, then count.",
+        "thinking in full"
+    );
     assert_eq!(a.request_digest.as_deref(), Some("dig0"));
     let c = &l0.calls[1];
-    assert_eq!((c.tool.as_str(), c.status.as_deref(), c.duration_ms), ("fs.list", Some("ok"), Some(12)));
+    assert_eq!(
+        (c.tool.as_str(), c.status.as_deref(), c.duration_ms),
+        ("fs.list", Some("ok"), Some(12))
+    );
     assert_eq!(c.content, "tide.log\nquay.txt");
     assert_eq!(c.input["path"], "/harbour");
-    assert!(l0.added.is_empty(), "the first request adds nothing to a request before it");
-    assert_eq!(r.loops[1].added.len(), 5, "the answer, two calls and two results of loop 0");
-    assert!(r.loops[2].calls.is_empty() && r.loops[2].answer.as_ref().unwrap().stop_reason.as_deref() == Some("end_turn"));
+    assert!(
+        l0.added.is_empty(),
+        "the first request adds nothing to a request before it"
+    );
+    assert_eq!(
+        r.loops[1].added.len(),
+        5,
+        "the answer, two calls and two results of loop 0"
+    );
+    assert!(
+        r.loops[2].calls.is_empty()
+            && r.loops[2].answer.as_ref().unwrap().stop_reason.as_deref() == Some("end_turn")
+    );
     assert!(r.withheld.is_none());
 }
 
@@ -164,21 +325,53 @@ fn a_surface_that_reads_no_private_text_gets_the_shapes_alone() {
     let a = r.loops[0].answer.as_ref().unwrap();
     assert!(a.thinking_chars > 0, "the size of the thinking is told");
     let wire = serde_json::to_string(&r).unwrap();
-    for secret in ["Plan for loop", "Looking, round", "tide.log", "harbour directory", "/harbour"] {
-        assert!(!wire.contains(secret), "{secret} reached a surface that reads no private text");
+    for secret in [
+        "Plan for loop",
+        "Looking, round",
+        "tide.log",
+        "harbour directory",
+        "/harbour",
+    ] {
+        assert!(
+            !wire.contains(secret),
+            "{secret} reached a surface that reads no private text"
+        );
     }
     assert!(r.rows.iter().all(|x| x.data.is_null()));
-    assert!(r.loops.iter().flat_map(|l| &l.calls).all(|c| c.gate.is_none() && c.input.is_null() && c.content.is_empty()));
-    assert!(r.trace.as_ref().is_some_and(|t| t.attrs.is_null()), "the trace keeps its times and loses its attributes");
+    assert!(r
+        .loops
+        .iter()
+        .flat_map(|l| &l.calls)
+        .all(|c| c.gate.is_none() && c.input.is_null() && c.content.is_empty()));
+    assert!(
+        r.trace.as_ref().is_some_and(|t| t.attrs.is_null()),
+        "the trace keeps its times and loses its attributes"
+    );
 }
 
 #[test]
 fn a_turn_the_session_never_had_is_refused_and_a_session_it_never_had_too() {
     let core = test_core("ok");
     let (s, _) = build(&core, 1, 1);
-    let e = core.turn_inspect(&TurnInspectParams { session_id: s.clone(), turn_id: "turn_nope".into() }, true).unwrap_err();
+    let e = core
+        .turn_inspect(
+            &TurnInspectParams {
+                session_id: s.clone(),
+                turn_id: "turn_nope".into(),
+            },
+            true,
+        )
+        .unwrap_err();
     assert!(e.to_string().contains("no turn turn_nope"), "{e}");
-    assert!(core.turn_inspect(&TurnInspectParams { session_id: "ses_none".into(), turn_id: "x".into() }, true).is_err());
+    assert!(core
+        .turn_inspect(
+            &TurnInspectParams {
+                session_id: "ses_none".into(),
+                turn_id: "x".into()
+            },
+            true
+        )
+        .is_err());
 }
 
 /// A turn of 20 loops and 40 tool calls is read in 150 ms or less (p95, a debug build).
@@ -187,7 +380,11 @@ fn a_twenty_loop_turn_with_forty_calls_is_read_within_150_ms() {
     let core = test_core("ok");
     let (s, t) = build(&core, 20, 2);
     let r = inspect(&core, &s, &t, true);
-    assert_eq!((r.totals.loops, r.totals.tool_calls), (20, 38), "19 loops of 2 calls, the last answers in text");
+    assert_eq!(
+        (r.totals.loops, r.totals.tool_calls),
+        (20, 38),
+        "19 loops of 2 calls, the last answers in text"
+    );
     let mut times: Vec<f64> = (0..20)
         .map(|_| {
             let t0 = Instant::now();
