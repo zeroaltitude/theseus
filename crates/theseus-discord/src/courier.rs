@@ -777,7 +777,19 @@ impl Lane {
             "notice" => {
                 let channel = self.place_channel().await?;
                 let t = body["text"].as_str().unwrap_or("").to_string();
-                let mut w = text(t, format!("note:{corr}"), channel, reply_to, Event::Note);
+                // A watch that is met speaks (theseus-j90w2): it pings as a
+                // reminder does and offers its answers.
+                let met = body["purpose"].as_str() == Some("watch.met");
+                let event = if met { Event::Reminder } else { Event::Note };
+                let mut w = text(t, format!("note:{corr}"), channel, reply_to, event);
+                if met {
+                    let answers = crate::runtime::horizon_answers(&body);
+                    if !answers.is_empty() {
+                        let wake = body["wake_id"].as_str().unwrap_or(corr).to_string();
+                        w.buttons = Buttons::Horizon(wake, answers);
+                    }
+                    self.shared.tasks_future_dirty();
+                }
                 // A pointer (theseus-sjzm) is history, not news: no ping.
                 w.ping &= !body["quiet"].as_bool().unwrap_or(false);
                 Ok(Plan {
@@ -1230,12 +1242,27 @@ impl Lane {
         let channel = self.place_channel().await?;
         let wake = body["wake_id"].as_str().unwrap_or(corr).to_string();
         let ping = self.pings(Event::Reminder);
+        // A routine's failure speaks for the routine, with its own answers
+        // (theseus-j90w2): its line as the core wrote it, its buttons through
+        // `work.answer`.
+        let routine = body["purpose"]
+            .as_str()
+            .is_some_and(|p| theseus_protocol::notices::routine_urgency(p).is_some());
+        self.shared.tasks_future_dirty();
         Ok(Plan {
             writes: vec![Write {
                 key: format!("reminder:{corr}"),
                 channel,
-                content: crate::runtime::remind_text(body),
-                buttons: Buttons::Reminder(wake.clone()),
+                content: if routine {
+                    body["text"].as_str().unwrap_or("").to_string()
+                } else {
+                    crate::runtime::remind_text(body)
+                },
+                buttons: if routine {
+                    Buttons::Horizon(wake.clone(), crate::runtime::horizon_answers(body))
+                } else {
+                    Buttons::Reminder(wake.clone())
+                },
                 reply_to: None,
                 message: None,
                 mentions: vec![],
@@ -1252,7 +1279,12 @@ impl Lane {
         let said = body["node"]
             .as_str()
             .and_then(|n| self.shared.core.outbox.said(n));
-        let content = render::report(body, said.as_deref());
+        // A routine's run speaks as the routine (theseus-j90w2).
+        let routine = self.shared.routine_report(body, said.as_deref());
+        if routine.is_some() {
+            self.shared.tasks_future_dirty();
+        }
+        let content = routine.unwrap_or_else(|| render::report(body, said.as_deref()));
         let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
         let ping = self.pings(policy::of_report(body));
         Ok(Plan {
@@ -1556,6 +1588,7 @@ impl Lane {
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
+            Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::Sources(session, srcs) => crate::runtime::source_buttons(session, srcs),
@@ -1621,6 +1654,7 @@ impl Lane {
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
+            Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
             Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
             Buttons::Sources(session, srcs) => Some(crate::runtime::source_buttons(session, srcs)),

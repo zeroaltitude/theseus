@@ -286,6 +286,8 @@ pub struct Reply {
     pub response_type: Option<u64>,
     pub content: Option<String>,
     pub ephemeral: bool,
+    /// An autocomplete answer's choices, `(name, value)` (type 8).
+    pub choices: Vec<(String, String)>,
 }
 
 /// A guild, as the binding's viewer check reads it (theseus-ck0k): its
@@ -437,6 +439,15 @@ pub struct Command<'a> {
     pub command: &'a str,
     pub sub: &'a str,
     pub options: &'a [(&'a str, &'a str)],
+}
+
+/// A modal a user submits (`modal`): its `custom_id` and the text of each input.
+pub struct Modal<'a> {
+    pub user: u64,
+    pub name: &'a str,
+    pub channel: u64,
+    pub custom_id: &'a str,
+    pub fields: &'a [(&'a str, &'a str)],
 }
 
 /// A press of a button on a posted message, found by its label or its
@@ -1050,6 +1061,75 @@ impl FakeDiscord {
         Ok(iid.to_string())
     }
 
+    /// A modal the user submits, sent through the gateway as Discord sends it.
+    /// The interaction's id; what the binding answered is `replies()`.
+    pub fn modal(&self, m: &Modal<'_>) -> Result<String, String> {
+        let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
+        let (at, iid) = self.next_interaction(m.channel);
+        let token = format!("{TOKEN_PREFIX}{iid}");
+        let i = fake_gateway::Interaction {
+            id: iid,
+            app: APP_ID,
+            token: &token,
+            at,
+            user: (m.user, m.name),
+        };
+        let d = fake_gateway::modal_submit(&i, m.custom_id, m.fields);
+        if !gw.dispatch("INTERACTION_CREATE", d) {
+            return Err("no client is connected to the gateway".into());
+        }
+        Ok(iid.to_string())
+    }
+
+    /// A user typing in the last option of a slash command: Discord's
+    /// autocomplete request. What the binding offered is `replies()`' `choices`.
+    pub fn autocomplete(&self, c: &Command<'_>) -> Result<String, String> {
+        let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
+        let (at, iid) = self.next_interaction(c.channel);
+        let token = format!("{TOKEN_PREFIX}{iid}");
+        let i = fake_gateway::Interaction {
+            id: iid,
+            app: APP_ID,
+            token: &token,
+            at,
+            user: (c.user, c.name),
+        };
+        let last = c.options.len().saturating_sub(1);
+        let options: Vec<Value> = c
+            .options
+            .iter()
+            .enumerate()
+            .map(|(n, (k, v))| {
+                let mut o = json!({"name": k, "type": 3, "value": v});
+                if n == last {
+                    o["focused"] = json!(true);
+                }
+                o
+            })
+            .collect();
+        let data = if c.sub.is_empty() {
+            json!({"id": "1000000000000000003", "name": c.command, "type": 1, "options": options})
+        } else {
+            let sub = json!([{"name": c.sub, "type": 1, "options": options}]);
+            json!({"id": "1000000000000000003", "name": c.command, "type": 1, "options": sub})
+        };
+        let mut d = fake_gateway::slash_command(&i, c.parent, data);
+        d["type"] = json!(4);
+        if !gw.dispatch("INTERACTION_CREATE", d) {
+            return Err("no client is connected to the gateway".into());
+        }
+        Ok(iid.to_string())
+    }
+
+    fn next_interaction(&self, channel: u64) -> (Where, u64) {
+        let mut st = self.state.lock().unwrap();
+        st.next_id += 1;
+        let iid = st.next_id;
+        st.pressed.insert(iid.to_string(), channel);
+        let guild = Some(st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id));
+        (Where { channel, guild }, iid)
+    }
+
     fn record(&self, s: Seen) {
         let mut st = self.state.lock().unwrap();
         if let Some(log) = &self.log {
@@ -1646,6 +1726,17 @@ impl FakeDiscord {
                     .then(|| v2_text(&data["components"]))
             }),
             ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
+            choices: data["choices"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|c| {
+                    (
+                        c["name"].as_str().unwrap_or("").to_string(),
+                        c["value"].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect(),
         };
         let content = r.content.clone().unwrap_or_default();
         {

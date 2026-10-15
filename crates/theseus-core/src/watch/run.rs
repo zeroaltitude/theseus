@@ -182,7 +182,15 @@ impl Core {
         } else {
             None
         };
-        let body = json!({"kind": "notice", "text": news.text});
+        let mut body = json!({"kind": "notice", "text": news.text});
+        // A met watch pings as a reminder does (theseus-j90w2): the post names
+        // its purpose. It offers no answer: a met watch's wake is gone, so
+        // `work.answer` has nothing to find for Done, and "keep watching" has
+        // no verb yet.
+        if matches!(news.verdict, ProbeVerdict::Met { .. }) {
+            body["wake_id"] = json!(e.wake_id);
+            body["purpose"] = json!("watch.met");
+        }
         let applied = self
             .kernel
             .probe_result(&e.execution_id, &e.wake_id, news, |ex, _| {

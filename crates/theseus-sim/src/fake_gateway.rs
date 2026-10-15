@@ -362,6 +362,26 @@ pub fn slash_command(i: &Interaction<'_>, parent: Option<u64>, data: Value) -> V
     d
 }
 
+/// `INTERACTION_CREATE` for a modal submitted with `fields` (`custom_id` of
+/// each text input, and its text), each input in an action row.
+pub fn modal_submit(i: &Interaction<'_>, custom_id: &str, fields: &[(&str, &str)]) -> Value {
+    let mut d = component_press(i, Value::Null, "");
+    d["type"] = json!(5);
+    if let Some(o) = d.as_object_mut() {
+        o.remove("message");
+    }
+    let rows: Vec<Value> = fields
+        .iter()
+        .enumerate()
+        .map(|(n, (k, v))| {
+            json!({"type": 1, "id": 2 * n + 1, "components":
+                [{"type": 4, "id": 2 * n + 2, "custom_id": k, "value": v}]})
+        })
+        .collect();
+    d["data"] = json!({"custom_id": custom_id, "components": rows});
+    d
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

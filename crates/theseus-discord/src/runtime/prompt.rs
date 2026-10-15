@@ -103,7 +103,7 @@ pub(super) fn choices(prompts: &[McpPromptInfo], typed: &str) -> Vec<CommandOpti
         .collect()
 }
 
-fn input(
+pub(super) fn input(
     custom_id: &str,
     style: TextInputStyle,
     required: bool,
@@ -123,7 +123,7 @@ fn input(
     })
 }
 
-fn labelled(label: &str, description: Option<String>, inner: Component) -> Component {
+pub(super) fn labelled(label: &str, description: Option<String>, inner: Component) -> Component {
     Component::Label(Label {
         id: None,
         label: clip(label, 45),
@@ -305,7 +305,7 @@ impl Shared {
             .map_err(|e| e.message)
     }
 
-    async fn answer(
+    pub(super) async fn answer(
         &self,
         i: &Interaction,
         kind: InteractionResponseType,

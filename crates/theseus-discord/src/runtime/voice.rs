@@ -1733,10 +1733,10 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave"]);
-        // The binding registers them after its own fifteen (`/why` the eleventh, `/orders` the twelfth, `/thread` the thirteenth, `/remind` the fourteenth, `/move` the fifteenth).
+        // The binding registers them after its own nineteen (`/why` the eleventh, `/orders` the twelfth, `/thread` the thirteenth, `/remind` the fourteenth, `/move` the fifteenth; the future's `/agenda`, `/routine`, `/snooze` and `/watch` follow, theseus-j90w2).
         let all = super::super::commands();
-        let last: Vec<&str> = all[15..].iter().map(|c| c.name.as_str()).collect();
-        assert_eq!((all.len(), last), (17, vec!["join", "leave"]));
+        let last: Vec<&str> = all[19..].iter().map(|c| c.name.as_str()).collect();
+        assert_eq!((all.len(), last), (21, vec!["join", "leave"]));
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

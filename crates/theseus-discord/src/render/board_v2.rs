@@ -30,6 +30,7 @@ use theseus_protocol::usd;
 use theseus_protocol::work::{WorkState, WorkView};
 
 use super::clip;
+use super::horizon::{self, FutureParts};
 use super::v2::{button, container, row, section, select, separator, text, validate, Look};
 
 /// A button's `custom_id` prefix: every control of the board starts with it.
@@ -72,6 +73,11 @@ pub struct Parts<'a> {
     pub done: &'a [WorkView],
     /// The place's task pings are quiet until then, unix ms.
     pub quiet_until_ms: Option<u64>,
+    /// The future (theseus-j90w2): Coming up, Routines and Projects, for a
+    /// private place alone. None draws the board as it was.
+    pub future: Option<&'a FutureParts>,
+    /// The clock the future's lines are drawn at.
+    pub now_ms: u64,
 }
 
 /// The header line: the counts, `0`s left out.
@@ -186,8 +192,8 @@ fn more(n: usize) -> String {
 
 /// The board's components, within Discord's limits. `caps` are the most of
 /// each part to show; `render` lowers them until the message fits.
-fn build(p: &Parts<'_>, caps: [usize; 3]) -> Vec<Value> {
-    let [cn, cw, cd] = caps;
+fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
+    let [cn, cw, cd, cc, cr, cp] = caps;
     let mut inner = vec![text(format!(
         "📋 **Tasks** · {}{}",
         headline(p.needs.len(), p.working.len(), p.done.len()),
@@ -233,6 +239,9 @@ fn build(p: &Parts<'_>, caps: [usize; 3]) -> Vec<Value> {
         }
         inner.push(text(lines.join("\n")));
     }
+    if let Some(f) = p.future {
+        future_parts(&mut inner, f, p.now_ms, [cc, cr, cp]);
+    }
     inner.push(separator());
     let quiet = if p.quiet_until_ms.is_some() {
         button(QUIET, "🔔 Unquiet", Look::Secondary)
@@ -276,24 +285,68 @@ fn build(p: &Parts<'_>, caps: [usize; 3]) -> Vec<Value> {
     vec![container(Some(accent), inner)]
 }
 
+/// The future's three sections (theseus-j90w2): Coming up as one text, each
+/// routine as a line and its buttons, Projects as one text, each folded to
+/// its cap.
+fn future_parts(inner: &mut Vec<Value>, f: &FutureParts, now_ms: u64, caps: [usize; 3]) {
+    let [cc, cr, cp] = caps;
+    if !f.coming.is_empty() && cc > 0 {
+        inner.push(separator());
+        inner.push(horizon::coming_text(&f.coming, now_ms, cc));
+    }
+    if !f.routines.is_empty() && cr > 0 {
+        inner.push(separator());
+        inner.push(text("**🔁 Routines**"));
+        for r in f.routines.iter().take(cr) {
+            inner.push(text(horizon::routine_line(
+                r,
+                f.records.get(&r.id).copied(),
+            )));
+            inner.push(horizon::routine_row(r));
+        }
+        if f.routines.len() > cr {
+            inner.push(text(format!(
+                "-# +{} more · /routine list",
+                f.routines.len() - cr
+            )));
+        }
+    }
+    if !f.projects.is_empty() && cp > 0 {
+        inner.push(separator());
+        inner.push(horizon::projects_text(&f.projects, cp));
+    }
+}
+
 /// The board for these parts: at most 40 components and 4,000 characters,
 /// the tails of its parts folded into `+N more · /tasks` as much as it takes.
 pub fn render(p: &Parts<'_>) -> Vec<Value> {
-    let mut caps = [NEEDS, WORKING, DONE];
+    let f = p.future;
+    let mut caps = [
+        NEEDS,
+        WORKING,
+        DONE,
+        horizon::COMING,
+        horizon::ROUTINES,
+        horizon::PROJECTS,
+    ];
     loop {
         let c = build(p, caps);
         if validate(&c).is_ok() {
             return c;
         }
-        // Lower the part with the most lines shown; a board that cannot fit
-        // with nothing shown is its header alone.
+        // Lower the part with the most lines shown (a routine is four
+        // components); a board that cannot fit with nothing shown is its
+        // header alone.
         let shown = [
             p.needs.len().min(caps[0]),
             p.working.len().min(caps[1]),
             p.done.len().min(caps[2]),
+            f.map_or(0, |f| f.coming.len().min(caps[3])),
+            f.map_or(0, |f| f.routines.len().min(caps[4]) * 4),
+            f.map_or(0, |f| f.projects.len().min(caps[5])),
         ];
-        match (0..3)
-            .max_by_key(|&i| (shown[i], 3 - i))
+        match (0..6)
+            .max_by_key(|&i| (shown[i], 6 - i))
             .filter(|&i| shown[i] > 0)
         {
             Some(i) => caps[i] -= 1,
@@ -415,6 +468,8 @@ mod tests {
             working,
             done,
             quiet_until_ms: None,
+            future: None,
+            now_ms: NOW,
         }
     }
 
@@ -612,6 +667,52 @@ mod tests {
         use proptest::prelude::*;
 
         proptest! {
+            /// With the future too (theseus-j90w2): however many lines, routines and projects
+            /// beside the tasks, the board is within the same bounds with unique ids, and the
+            /// Run now button of a routine it shows is in it.
+            #[test]
+            fn a_board_with_the_future_fits_and_has_unique_ids(
+                a in 0usize..12, b in 0usize..30, c in 0usize..12,
+                lines in 0usize..40, routines in 0usize..14, projects in 0usize..9, long in 1usize..300,
+            ) {
+                use crate::render::horizon::FutureParts;
+                use theseus_protocol::work::horizon::{AgendaLine, AgendaWhat};
+                let n: Vec<_> = (0..a).map(asking).collect();
+                let w: Vec<_> = (0..b).map(|i| working(1000 + i)).collect();
+                let d: Vec<_> = (0..c).map(|i| view(2000 + i, WorkState::Done)).collect();
+                let f = FutureParts {
+                    coming: (0..lines).map(|i| AgendaLine {
+                        at_ms: NOW + 60_000 * (i as u64 + 1),
+                        id: format!("wak_{i}"),
+                        kind: WorkKind::Wake,
+                        what: AgendaWhat::Due,
+                        title: "x".repeat(long),
+                        session_id: None,
+                        purpose: Some("remind".into()),
+                        occurrence: None,
+                    }).collect(),
+                    routines: (0..routines).map(|i| {
+                        let mut r = crate::render::horizon::tests::routine(&"r".repeat(long), false, "complete");
+                        r.id = format!("ses_routine_{i}");
+                        r
+                    }).collect(),
+                    projects: (0..projects).map(|i| {
+                        let mut v = view(3000 + i, WorkState::Ready);
+                        v.kind = WorkKind::Project;
+                        v.title = "p".repeat(long);
+                        v
+                    }).collect(),
+                    ..Default::default()
+                };
+                let out = render(&Parts { future: Some(&f), ..parts(&n, &w, &d) });
+                prop_assert!(count(&out) <= 40, "components {}", count(&out));
+                prop_assert!(text_len(&out) <= 4000, "chars {}", text_len(&out));
+                prop_assert!(crate::render::v2::validate(&out).is_ok());
+                let ids = crate::render::v2::custom_ids(&out);
+                let set: std::collections::HashSet<_> = ids.iter().collect();
+                prop_assert_eq!(ids.len(), set.len());
+            }
+
             /// However many tasks of each part, and however long their words, the board is
             /// within 40 components and 4,000 characters, and its ids are unique.
             #[test]
