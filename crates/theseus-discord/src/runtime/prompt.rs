@@ -313,7 +313,7 @@ impl Shared {
     ) {
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
-            .http
+            .interact
             .interaction(i.application_id)
             .create_response(i.id, &i.token, &resp)
             .await
@@ -322,7 +322,7 @@ impl Shared {
         }
     }
 
-    async fn say_ephemeral(&self, i: &Interaction, text: String) {
+    pub(super) async fn say_ephemeral(&self, i: &Interaction, text: String) {
         let data = InteractionResponseData {
             content: Some(text),
             flags: Some(MessageFlags::EPHEMERAL),
@@ -358,7 +358,9 @@ impl Shared {
                 self.prompt_submit(i, m, tx, who.to_string()).await;
                 true
             }
-            _ => false,
+            // The task commands (`task_cmds.rs`) are asked next, from here, since
+            // `on_interaction` is at clippy's complexity limit.
+            _ => self.task_cmd_interaction(i, tx, who).await,
         }
     }
 

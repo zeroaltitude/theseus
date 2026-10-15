@@ -79,7 +79,10 @@ pub async fn dismiss(conn: &mut Conn, json: bool, id: String) -> Result<()> {
     let v = conn
         .request(
             method::EXECUTION_DISMISS,
-            ExecutionDismissParams { execution_id },
+            ExecutionDismissParams {
+                execution_id,
+                discord: None,
+            },
         )
         .await?;
     output(json, v, |r: ExecutionDismissResult| {
@@ -102,6 +105,7 @@ pub async fn retry(conn: &mut Conn, json: bool, a: RetryArgs) -> Result<()> {
             TaskRetryParams {
                 execution_id,
                 note: a.note,
+                discord: None,
             },
         )
         .await?;

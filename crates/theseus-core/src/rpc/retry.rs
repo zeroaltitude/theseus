@@ -55,7 +55,7 @@ impl Core {
         p: ExecutionDismissParams,
         conn: Conn<'_>,
     ) -> Result<ExecutionDismissResult, RpcFailure> {
-        let who = conn.answerer(None, None);
+        let who = conn.answerer(None, p.discord.clone());
         let done = self
             .dismiss_failure(&p.execution_id, &who)
             .map_err(failure)?;
@@ -70,7 +70,7 @@ impl Core {
         p: TaskRetryParams,
         conn: Conn<'_>,
     ) -> Result<TaskRetryResult, RpcFailure> {
-        let who = conn.answerer(None, None);
+        let who = conn.answerer(None, p.discord.clone());
         self.retry_failed(&p.execution_id, p.note.as_deref(), &who)
             .map_err(failure)
     }

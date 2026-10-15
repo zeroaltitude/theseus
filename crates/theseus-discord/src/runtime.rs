@@ -92,8 +92,12 @@ mod slash;
 use slash::commands;
 pub(crate) mod horizon;
 mod horizon_cmds;
+mod answer_cmd;
+mod follow;
+mod start_task;
 mod steer;
 mod succession;
+mod task_cmds;
 mod tasks;
 mod typing;
 #[cfg(test)]
@@ -283,7 +287,15 @@ async fn bot_token(core: &Arc<Core>, name: &str, board: &Board) -> Option<String
 /// The REST client: Discord's, or a local stand-in when `[discord]
 /// rest_proxy` names one (tests and scratch daemons), over plain http.
 fn http_client(token: &str, cfg: &DiscordConfig) -> Http {
+    client_with(token, cfg, true)
+}
+
+/// The same client, `limited` or not. Interaction callbacks go on one with no
+/// limiter, so a busy lane's rate-limit wait never delays a three-second
+/// deadline (theseus-a5uds).
+fn client_with(token: &str, cfg: &DiscordConfig, limited: bool) -> Http {
     let b = Http::builder().token(token.to_string());
+    let b = if limited { b } else { b.ratelimiter(None) };
     match cfg.rest_proxy.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => b.proxy(p.to_string(), true).build(),
         None => b.build(),
@@ -335,6 +347,8 @@ async fn connect(
         core: core.clone(),
         rpc: rpc.clone(),
         http: http.clone(),
+        interact: client_with(token, cfg, false),
+        cmds: Default::default(),
         board: board.clone(),
         bot_id: AtomicU64::new(0),
         edit_interval: Duration::from_millis(cfg.edit_interval_ms.max(250)),
@@ -543,6 +557,10 @@ pub(crate) struct Shared {
     pub(crate) core: Arc<Core>,
     rpc: Arc<RpcClient>,
     pub(crate) http: Arc<Http>,
+    /// Answers interactions: no rate limiter, so a busy lane never delays a callback's deadline.
+    pub(crate) interact: Http,
+    /// The task commands' state (theseus-a5uds).
+    pub(crate) cmds: task_cmds::Cmds,
     pub(crate) board: Board,
     bot_id: AtomicU64,
     edit_interval: Duration,
@@ -651,6 +669,8 @@ enum PlaceMsg {
     Tasks,
     /// A press on the board or on a card (`live_board.rs`).
     Press(Box<live_board::TaskPress>),
+    /// A task command or its modal (`task_cmds.rs`, theseus-a5uds).
+    Cmd(Box<task_cmds::TaskCmd>),
     /// The bindings file changed this place's settings (theseus-ocwt).
     Rebound(Box<live::Rebound>),
     /// The bindings file no longer names this place: its actor ends.
@@ -1353,7 +1373,7 @@ impl Shared {
                     .await
                     .unwrap_or_else(|_| "The place did not answer.".into());
                 if let Err(e) = self
-                    .http
+                    .interact
                     .interaction(i.application_id)
                     .update_response(&i.token)
                     .content(Some(&text))
@@ -1398,7 +1418,7 @@ impl Shared {
     async fn followup(&self, i: &Interaction, text: &str) {
         let none = AllowedMentions::default();
         if let Err(e) = self
-            .http
+            .interact
             .interaction(i.application_id)
             .create_followup(&i.token)
             .content(text)
@@ -1487,7 +1507,7 @@ impl Shared {
         });
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
-            .http
+            .interact
             .interaction(i.application_id)
             .create_response(i.id, &i.token, &resp)
             .await
@@ -1850,6 +1870,7 @@ struct Place {
 
 impl Place {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<PlaceMsg>) {
+        self.restore_quiet();
         let mut tick = tokio::time::interval(self.shared.edit_interval);
         let mut typing = tokio::time::interval(Duration::from_secs(8));
         loop {
@@ -1976,7 +1997,9 @@ impl Place {
             }
             PlaceMsg::Steered(r) => self.steered_done(r),
             PlaceMsg::Voice(t) => self.voice_when_ready(t).await,
-            m @ (PlaceMsg::Board | PlaceMsg::Tasks | PlaceMsg::Press(_)) => self.task_msg(m).await,
+            m @ (PlaceMsg::Board | PlaceMsg::Tasks | PlaceMsg::Press(_) | PlaceMsg::Cmd(_)) => {
+                self.task_msg(m).await
+            }
             PlaceMsg::Rebound(r) => self.rebound(*r),
             PlaceMsg::Unbind | PlaceMsg::Thread(_) => {}
             PlaceMsg::Typing(origin) => typing::notice(&self.shared.rpc, &self.session_id, origin),
@@ -2305,6 +2328,8 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         core: core.clone(),
         rpc,
         http: Arc::new(http_client("fake-token-not-a-secret", &core.cfg.discord)),
+        interact: client_with("fake-token-not-a-secret", &core.cfg.discord, false),
+        cmds: Default::default(),
         board: Board::new(core.clone()),
         bot_id: AtomicU64::new(0),
         edit_interval: Duration::from_millis(250),

@@ -157,6 +157,33 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     leave "3 running" behind. A V2 write's `content` is its components as JSON with `Buttons::V2` (the lane's
     `sent` dedup and the nonce follow). Discord refusing V2 (a 400) flips the process to the text board and the
     classic card (`Tasks::refuse_v2`), said once.
+  - **The task commands** (theseus-a5uds; `runtime/task_cmds.rs`, `answer_cmd.rs`, `follow.rs`, `start_task.rs`, `render/snapshot.rs`,
+    `render/answer_v2.rs`). Every one answers ephemerally or edits, so it adds no noise, and its callback goes out on `Shared.interact`,
+    a second HTTP client with no rate limiter, so a busy lane never delays a three-second deadline.
+    `/tasks [show: needs_you|working|done|all]`: the place's snapshot (`snapshot::render`) with `↻` (`tb:refresh:<show>`, edits it in place).
+    `/task name:` (autocomplete from `Tasks`, in memory: the place's tasks, needs-you first, then working, then ended, at most 25, `new` first
+    when it matches): Details (`task_view::detail`, which now also has **Follow** and, for a failure, **Retry**/**Dismiss**); Stop asks once more
+    (`[Stop d4e5f6] [Keep it]`) then `task.cancel`. `task`, `cancel` and `answer` autocompletes are answered from
+    `task_cmd_interaction` (reached from `prompt_interaction`'s last arm, since `on_interaction` is at clippy's complexity limit); a command is
+    handed to its place (`PlaceMsg::Cmd`). `/cancel id:` autocompletes the place's open tasks and wakes by short id. `/quiet [for: 30m|1h|morning|off]`
+    sets the place's pings off (`Tasks::set_quiet`, the board's 🔕 does the same) and keeps it in one META key, `discord.quiet:<target>`, read back
+    when the place starts.
+    **Follow** (`tb:follow:<task>`): one silent message in the place that mirrors the task's tool lines and stream (`session.watch` on a
+    connection of the follow's own, private places only), edited in place, at most 3 a place, all of a place's follows together edit at most once in
+    2.4 s (so one never edits more than once in 2 s, and a busy place costs 25 edits a minute beside the board's 30), sealed with the report line
+    when the task ends.
+    **`/answer [question:]`**: autocomplete over the open questions the presser may answer (`confirm.list` as the presser, kept for 3 s per
+    presser and channel, so a keystroke asks the daemon nothing: `Questions::fetches`), then the card's controls ephemerally. More than five
+    answers are one string select (`ws:<q>`; an ask with six choices has seven answers); "Decline with a note…" (`wn:<q>:decline`) and an ask's
+    "Something else" (`choice:other`, from a button or the select) open a modal (`wm:<q>:<option>`): a paragraph input, and for an ask's own
+    words a file upload. The submit is `work.answer` as the presser with the words as the note and a text file's text after them (read as any file
+    sent here is: `files::plan`, the same caps; a file that is not text is named as not read); it is not stored as an attachment, since an answer
+    has none. A refusal is told to the presser alone and the card keeps waiting.
+    **Starting tasks** (`tb:new` on the board, `/task name:new`, and the message command "Make this a task"): one modal (brief, budget $1/$2/$5/$10,
+    report here or silently to the board; a message made a task brings its text as an editable `quote` field) whose submit is `task.start`
+    as the presser, homed in this place's session; `quotes` hold the new session as outside text. A shared place is told where to start it.
+    Tests: `tests_board/commands.rs` (the fake gateway's `slash`, `autocomplete`, `message_command`, `submit_modal` and `pick_in_reply`, in
+    `theseus_sim::fake_discord::commands`).
   - **The needs-you card** (`render/card_v2.rs`): today's approval card, its words kept (`render::card`), as one V2 box
     with a button for each of the question's `answer_options` on `wa:<last 6>:<option>`; a press is `work.answer` as the
     presser (`runtime/live_board.rs::answer_press`), so the core judges it as it judges the CLI's: a refusal is told to

@@ -7,19 +7,16 @@
 //! A closed card is the same box with its settled line and no buttons.
 
 use serde_json::Value;
-use theseus_protocol::work::{AnswerOption, Style};
+use theseus_protocol::work::AnswerOption;
 
 use super::board_v2::short;
-use super::v2::{button, container, row, text, Look};
+use super::v2::{container, text};
 
 /// A button's `custom_id` prefix.
 pub const PREFIX: &str = "wa:";
 /// The card's accent while it waits, and once it closed.
 const RED: u32 = 0xE5_48_4D;
 const GREY: u32 = 0x8B_8D_98;
-
-/// The most buttons a card draws: four rows of five.
-const MAX_BUTTONS: usize = 20;
 
 /// `wa:<last 6>:<option>`.
 pub fn custom_id(question: &str, option: &str) -> String {
@@ -33,22 +30,10 @@ pub fn parse(custom_id: &str) -> Option<(&str, &str)> {
     (!q.is_empty() && !option.is_empty()).then_some((q, option))
 }
 
-fn look(s: Style) -> Look {
-    match s {
-        Style::Primary => Look::Success,
-        Style::Plain => Look::Secondary,
-        Style::Danger => Look::Danger,
-    }
-}
-
-/// The answer buttons of `options`, in rows of five.
+/// The answer controls of `options`: buttons in rows of five, or one select
+/// when there are more than five (`answer_v2::controls`).
 pub fn buttons(question: &str, options: &[AnswerOption]) -> Vec<Value> {
-    let all: Vec<Value> = options
-        .iter()
-        .take(MAX_BUTTONS)
-        .map(|o| button(custom_id(question, &o.id), &o.label, look(o.style)))
-        .collect();
-    all.chunks(5).map(|c| row(c.to_vec())).collect()
+    super::answer_v2::controls(question, options)
 }
 
 /// A waiting card: its words and its buttons.
@@ -122,12 +107,14 @@ mod tests {
     }
 
     #[test]
-    fn an_ask_with_many_choices_draws_rows_of_five_and_stays_valid() {
+    fn an_ask_with_many_choices_draws_one_select_and_stays_valid() {
         let q = question(QuestionKind::Ask, false, 30);
         let card = waiting(&q.id, "Which one?", &answer_options(&q));
         assert_eq!(validate(&card), Ok(()));
-        assert_eq!(custom_ids(&card).len(), MAX_BUTTONS);
-        assert!(custom_ids(&card).contains(&"wa:abcdef:choice:0".to_string()));
+        assert_eq!(custom_ids(&card), ["ws:abcdef"]);
+        assert!(serde_json::to_string(&card)
+            .unwrap()
+            .contains("\"choice:0\""));
     }
 
     #[test]

@@ -5,9 +5,7 @@
 use twilight_model::application::command::CommandType;
 use twilight_util::builder::command::CommandBuilder;
 
-use super::{
-    extensions, halt, horizon_cmds, orders, prompt, remind, thread, thread_ask, voice, why,
-};
+use super::{extensions, halt, horizon_cmds, orders, prompt, remind, task_cmds, thread, thread_ask, voice, why};
 
 /// The slash commands every place answers, one effect each (the owner's rule):
 /// `/stop` halts this session's own work and keeps the conversation (W1),
@@ -90,5 +88,6 @@ pub(super) fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(remind::command());
     cmds.extend(horizon_cmds::commands());
     cmds.extend(voice::commands());
+    cmds.extend(task_cmds::commands());
     cmds
 }

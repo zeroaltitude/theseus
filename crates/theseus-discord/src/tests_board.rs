@@ -26,6 +26,8 @@ use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 
 use theseus_sim::fake_discord::DEFAULT_GUILD;
 
+mod commands;
+
 const ASK: &str = "START: run this as a background task, please";
 const QUOTE: &str = "run this as a background task, please";
 const REEF: &str = "Reef-chart: chart the reef";
@@ -684,7 +686,7 @@ async fn stop_asks_twice_and_the_second_press_stops_the_task() {
     // ...and the second press stops it.
     let yes = r
         .fake
-        .press_reply(&stop, "Yes, stop it", ANA, "ana")
+        .press_reply(&stop, &format!("tb:yes:{running}"), ANA, "ana")
         .unwrap();
     r.until("the task cancelled", || {
         state(&running).as_str() == "cancelled"

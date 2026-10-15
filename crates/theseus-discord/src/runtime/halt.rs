@@ -22,6 +22,7 @@ use super::{Control, Place};
 pub(super) fn command(name: &str, description: &str) -> Command {
     match name {
         "stop" => stop_command(),
+        "tasks" => super::task_cmds::tasks_command(),
         _ => CommandBuilder::new(
             name,
             description,
