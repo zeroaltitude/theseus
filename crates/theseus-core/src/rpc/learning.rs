@@ -130,7 +130,8 @@ impl Core {
     /// The judgment's `judge.call` row; or, while the judge's sink has not
     /// written it yet (its window is 2 s), the `tool.notified` row of the
     /// notice that names it, which carries its pack and call, so a notice's
-    /// label counts the moment the notice is seen.
+    /// label counts the moment the notice is seen; or the `standing.captured`
+    /// row of the record it kept.
     pub(crate) fn judgment_row(&self, judgment: &str) -> anyhow::Result<LedgerRow> {
         if let Some(r) = self.store.ledger_by_key(judgment)? {
             let row: LedgerRow = r.decode()?;
@@ -140,7 +141,15 @@ impl Core {
             return Ok(row);
         }
         let key = crate::judge::notice::notice_key(judgment);
-        match self.store.ledger_by_key(&key)? {
+        if let Some(r) = self.store.ledger_by_key(&key)? {
+            return r.decode();
+        }
+        // A record `directive.v1` kept names its judgment and its pack
+        // (theseus-slvl.5): the owner's undo labels it at once.
+        match self
+            .store
+            .ledger_by_key(&crate::capture::captured_key(judgment))?
+        {
             Some(r) => Ok(r.decode()?),
             None => anyhow::bail!("no judgment is named {judgment}"),
         }

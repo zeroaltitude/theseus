@@ -42,6 +42,7 @@ mod methods;
 pub(crate) use methods::ledger_tags;
 mod agenda;
 mod card;
+mod capture;
 mod earned;
 mod forecast;
 mod grants;

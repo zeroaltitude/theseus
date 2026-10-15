@@ -1140,12 +1140,12 @@ mod tests {
         assert_eq!(c.state.json, r.state.json);
         assert_eq!(c.state.sha256, r.state.sha256);
         // route.v1 (25e), route.v2 (theseus-3okf), route.v3 (theseus-qe3v)
-        // and route.v4 (theseus-p8dy) ride the same request: the same state,
-        // byte for byte.
+        // and route.v4 (theseus-p8dy) ride the same request, as does
+        // directive.v1 (theseus-slvl.5): the same state, byte for byte.
         let cp = crate::pack::by_name("classify.v1").unwrap();
         let (_, c2) = prepared("classify.v2");
         assert_eq!(c.state.json, c2.state.json, "classify.v2");
-        for route in ["route.v1", "route.v2", "route.v3", "route.v4", "route.v5"] {
+        for route in ["route.v1", "route.v2", "route.v3", "route.v4", "route.v5", "directive.v1"] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");
             assert_eq!(

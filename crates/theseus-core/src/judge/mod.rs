@@ -93,6 +93,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (inbound::CLASSIFY_PACK, PackMode::Live),
     (inbound::ROLE_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),
+    (inbound::DIRECTIVE_PACK, PackMode::Live),
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),

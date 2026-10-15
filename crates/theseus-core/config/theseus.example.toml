@@ -1148,6 +1148,17 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # overdue_after_minutes = 1440            # how long after its date an open milestone is overdue
 # max_milestones = 32                     # the most milestones one task_create makes
 
+# ---------------------------------------------------------------- standing
+# What the owner's words become (theseus-slvl.5). `directive.v1` reads the
+# owner's own messages in a private place (the CLI, the web UI, a DM), in the
+# request the other inbound packs ride: what it is sure of (a preference, a
+# fact, a correction) is kept as a standing record with a notice and an undo;
+# what it is unsure of, and every order, is asked; and a message that says a
+# live record again is counted (`theseus standing` shows the week's count).
+# `theseus packs rollback directive.v1` puts the pack back in shadow.
+# [standing]
+# capture = true                          # false: nothing is captured, asked or counted
+
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
 # human-facing text and returns candidate people through a tool schema; Jev

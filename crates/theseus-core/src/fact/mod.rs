@@ -44,6 +44,7 @@ pub mod answer;
 pub mod arrangement;
 pub mod cancel;
 pub mod card;
+pub mod capture;
 pub mod check;
 pub mod compaction;
 pub mod disk;
@@ -540,6 +541,11 @@ facts![
     standing::StandingAdded<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,
+    capture::StandingCaptured<'static>,
+    capture::StandingAsked<'static>,
+    capture::StandingAnswered<'static>,
+    capture::StandingCandidate<'static>,
+    capture::StandingRepeated<'static>,
     thread::ThreadCreated<'static>,
     thread::ThreadEdited<'static>,
     thread::ThreadPaused<'static>,

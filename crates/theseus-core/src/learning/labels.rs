@@ -25,9 +25,17 @@ pub enum Truth {
 }
 
 /// Whole-judgment words: `right` and `wrong` grade every answer's lean;
-/// `wrong role` is role.v1's "wrong role" press, a `wrong`; `noise` and
+/// `wrong role` is role.v1's "wrong role" press, and `wrong capture` the
+/// undo of a record directive.v1 kept (theseus-slvl.5), each a `wrong`; `noise` and
 /// `useful` are kept for the ladder's rules and grade nothing.
-pub const WHOLE: [&str; 5] = ["right", "wrong", "wrong role", "noise", "useful"];
+pub const WHOLE: [&str; 6] = [
+    "right",
+    "wrong",
+    "wrong role",
+    "wrong capture",
+    "noise",
+    "useful",
+];
 
 /// What `label` says of `answer`, if anything.
 pub fn truth(label: &Value, answer: &AnswerRecord) -> Option<Truth> {
@@ -35,7 +43,7 @@ pub fn truth(label: &Value, answer: &AnswerRecord) -> Option<Truth> {
     if let Some(s) = label.as_str() {
         match s {
             "right" => return Some(same(top)),
-            "wrong" | "wrong role" => return Some(opposite(top)),
+            "wrong" | "wrong role" | "wrong capture" => return Some(opposite(top)),
             // The ladder's (26a's `labels_per_day`): they grade nothing.
             "noise" | "useful" => return None,
             _ => {}

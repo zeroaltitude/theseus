@@ -20,6 +20,7 @@ pub mod broker;
 pub mod bus;
 pub mod cancel;
 pub mod card;
+pub mod capture;
 pub mod catalog;
 pub mod ceiling;
 pub mod census;
@@ -218,6 +219,8 @@ mod tests_budget_loop;
 mod tests_budgets;
 #[cfg(test)]
 mod tests_cancel;
+#[cfg(test)]
+mod tests_capture;
 #[cfg(test)]
 mod tests_categorize;
 #[cfg(test)]

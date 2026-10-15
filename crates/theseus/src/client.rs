@@ -296,7 +296,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 80] = [
+pub const OPERATORS: [(&str, &str); 81] = [
     (method::VOICE_AUDITION, "theseus voice audition"),
     (method::INITIATIVE_RATE, "theseus notices rate"),
     (method::STANDING_KEEP, "theseus standing keep"),
@@ -361,6 +361,7 @@ pub const OPERATORS: [(&str, &str); 80] = [
     (method::CARD_ANSWER, "theseus card keep|edit|decline"),
     (method::CARD_DONE, "theseus card done"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
+    (method::STANDING_ANSWER, "theseus standing answer"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),
     (method::WATCH_CREATE, "theseus watches add"),
@@ -502,7 +503,11 @@ mod tests {
     /// read, and goes.
     #[test]
     fn a_jobs_process_cannot_write_standing_records() {
-        for m in [method::STANDING_ADD, method::STANDING_REVOKE] {
+        for m in [
+            method::STANDING_ADD,
+            method::STANDING_REVOKE,
+            method::STANDING_ANSWER,
+        ] {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
             assert!(e.to_string().contains("theseus standing"), "{e}");
         }

@@ -388,6 +388,8 @@ mod tests {
             state: "live".into(),
             compiles: 4,
             missing: 0,
+            repeats: 0,
+            captured_by: String::new(),
         }
     }
 
@@ -407,6 +409,7 @@ mod tests {
                 .collect(),
             compiles: 4,
             missing: 0,
+            asks: vec![],
         };
         let t = text(&list);
         assert!(t.starts_with("**Standing** · 7 live\n"), "{t}");
@@ -440,7 +443,8 @@ mod tests {
         assert!(text(&StandingListResult {
             records: vec![],
             compiles: 0,
-            missing: 0
+            missing: 0,
+            asks: vec![]
         })
         .starts_with("No standing records."));
     }

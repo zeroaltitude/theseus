@@ -8,7 +8,7 @@ use clap::Subcommand;
 use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::standing::{
-    StandingAddParams, StandingChanged, StandingKind, StandingListParams, StandingListResult,
+    StandingAddParams, StandingAnswerParams, StandingAnswerResult, StandingChanged, StandingKind, StandingListParams, StandingListResult,
     StandingRevokeParams, StandingScope, SURFACES,
 };
 use theseus_protocol::{
@@ -53,6 +53,7 @@ pub enum StandingCmd {
         text: Vec<String>,
     },
     /// Revoke a record by its id (or the start of it): it leaves every prompt at its next turn.
+    /// This is the undo of a record Theseus kept from your words (`captured`).
     Revoke { id: String },
     /// The records an imported agent's feedback proposes (`theseus persona import`): none is live
     /// until you keep it.
@@ -69,6 +70,14 @@ pub enum StandingCmd {
     Keep { id: String },
     /// Dismiss a proposal: no record is made, and the same words are not proposed again.
     Dismiss { id: String },
+    /// Answer an ask: what Theseus heard in your words and was not sure enough to keep, or an
+    /// order, which it always asks about. `keep` holds it where it was heard, `everywhere` holds
+    /// it for every session, `not` drops it. The ask's id is on `theseus standing`.
+    Answer {
+        id: String,
+        /// `keep`, `everywhere`, or `not`.
+        answer: String,
+    },
 }
 
 fn scope_of(s: &str) -> Result<StandingScope> {
@@ -171,6 +180,20 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: StandingCmd) -> Result<()> {
         }
         StandingCmd::Keep { id } => answer(conn, json, method::STANDING_KEEP, id).await,
         StandingCmd::Dismiss { id } => answer(conn, json, method::STANDING_DISMISS, id).await,
+        StandingCmd::Answer { id, answer } => {
+            let p = StandingAnswerParams {
+                id,
+                answer,
+                ..Default::default()
+            };
+            let v = conn
+                .request(method::STANDING_ANSWER, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: StandingAnswerResult| {
+                println!("{}", answered_line(&r));
+                Ok(())
+            })
+        }
         StandingCmd::Revoke { id } => {
             let p = StandingRevokeParams {
                 id,
@@ -267,16 +290,32 @@ pub fn added_line(r: &StandingChanged) -> String {
     )
 }
 
+/// What an answer says.
+pub fn answered_line(r: &StandingAnswerResult) -> String {
+    match &r.record {
+        Some(rec) => format!(
+            "Kept {} {} for {}: every prompt of that scope carries it from its next turn.",
+            rec.kind.name(),
+            rec.id,
+            rec.scope.words()
+        ),
+        None => format!("Dropped {}: nothing was kept.", r.id),
+    }
+}
+
 /// `theseus standing`'s lines: a row a record (id, kind, scope, since, source, text), then the
 /// manifests' tally.
 pub fn list_lines(r: &StandingListResult) -> Vec<String> {
-    if r.records.is_empty() {
+    let mut out = Vec::new();
+    if r.records.is_empty() && r.asks.is_empty() {
         return vec![
             "No standing records. `theseus standing add \"never push to main\"` makes an order."
                 .into(),
         ];
     }
-    let mut out = Vec::new();
+    if r.records.is_empty() {
+        out.push("No standing records.".to_string());
+    }
     let width = r
         .records
         .iter()
@@ -285,10 +324,18 @@ pub fn list_lines(r: &StandingListResult) -> Vec<String> {
         .unwrap_or(0);
     for i in &r.records {
         let rec = &i.record;
-        let ended = match i.state.as_str() {
+        let mut ended = match i.state.as_str() {
             "live" => String::new(),
             s => format!(" [{s}]"),
         };
+        if !i.captured_by.is_empty() {
+            ended.push_str(" [kept from your words]");
+        }
+        // A week with a repeat is a finding: the record's wording or its
+        // delivery failed (theseus-slvl.5).
+        if i.repeats > 0 {
+            ended.push_str(&format!(" [said again {}x this week]", i.repeats));
+        }
         out.push(format!(
             "{}  {:<10} {:<width$} {}  {}  {}{ended}",
             rec.id,
@@ -299,10 +346,23 @@ pub fn list_lines(r: &StandingListResult) -> Vec<String> {
             rec.text
         ));
     }
-    out.push(format!(
-        "in every compile of their scope since they began: {} compiles, {} missing",
-        r.compiles, r.missing
-    ));
+    if !r.records.is_empty() {
+        out.push(format!(
+            "in every compile of their scope since they began: {} compiles, {} missing",
+            r.compiles, r.missing
+        ));
+    }
+    for a in &r.asks {
+        out.push(format!(
+            "ask {}  {:<10} {}  \"{}\" ({}): `theseus standing answer {} keep|everywhere|not`",
+            a.id,
+            a.kind.name(),
+            a.scope.words(),
+            a.text,
+            a.why,
+            a.id
+        ));
+    }
     out
 }
 
@@ -332,6 +392,8 @@ mod tests {
             state: state.into(),
             compiles: 12,
             missing: 0,
+            repeats: 0,
+            captured_by: String::new(),
         }
     }
 
@@ -357,6 +419,7 @@ mod tests {
             ],
             compiles: 12,
             missing: 0,
+            asks: vec![],
         };
         let d = render::fmt_date(1_790_000_000_000);
         assert_eq!(
@@ -368,7 +431,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            list_lines(&StandingListResult { records: vec![], compiles: 0, missing: 0 }),
+            list_lines(&StandingListResult { records: vec![], compiles: 0, missing: 0, asks: vec![] }),
             vec!["No standing records. `theseus standing add \"never push to main\"` makes an order."]
         );
     }

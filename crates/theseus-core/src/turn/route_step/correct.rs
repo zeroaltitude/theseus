@@ -187,7 +187,7 @@ impl Correcting {
 /// `judge.label`'s place rule asks of its answerer (`owner_in_private`); a
 /// reaction there is judged by its reactor.
 fn owners(class: PlaceClass, place: Option<&str>) -> bool {
-    class == PlaceClass::Private && place.is_none_or(|p| p.starts_with("discord:dm:"))
+    crate::capture::owner_alone(class, place)
 }
 
 impl TurnRunner {

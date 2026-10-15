@@ -1,0 +1,57 @@
+# directive.v1 (DIRECTIVE): does the owner's new message set a standing
+# instruction, a style preference, or a fact about themself, or correct
+# something the assistant just did? At `inbound`, batched with classify.v1 and
+# role.v1 (the same `inbound` state, one request: no call of its own). Asked
+# only for the owner's own words in a private place. Live (the owner's "live,
+# not shadow", 2026-10-13): the core keeps what it is sure of as a standing
+# record with a notice and an undo (act band, 0.80 and up), asks between 0.50
+# and 0.80, and keeps a correction below 0.50 only to notice it said twice.
+# An `order` (a rule or a limit) is always asked, never kept on confidence
+# alone. The words kept are the message's own, normalised to one line by the
+# core: Jev answers choices and probabilities, not text. Rolled back by the
+# owner's undos (label "wrong capture"); `[standing] capture = false` turns it
+# off, and `theseus packs rollback directive.v1` puts it back in shadow.
+id = "directive"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "none"
+action = "capture"
+description = "DIRECTIVE: whether a message sets a standing order, a preference or a fact about the person, or corrects the last reply, and for what scope."
+
+[questions.kind]
+type = "choice"
+decides = true
+instructions = "Does the person's new message state something to keep from now on, or correct what the assistant just did?"
+act = 0.80
+confirm = 0.50
+no_match = "none"
+options = [
+  { id = "none", means = "It asks for work or says something that holds only for this moment: nothing to keep." },
+  { id = "order", means = "It sets a rule or a limit on what the assistant may do (never do X, always ask before Y)." },
+  { id = "preference", means = "It states how the person wants answers given or work done, from now on (style, length, format, tone)." },
+  { id = "fact", means = "It tells the assistant a lasting fact about the person, their work, or their setup." },
+  { id = "correction", means = "It says the assistant's last reply or action was done the wrong way, in a way that should change from now on." },
+]
+
+[questions.scope]
+type = "choice"
+instructions = "Where does what the person said hold?"
+act = 0.80
+confirm = 0.50
+no_match = "unsure"
+options = [
+  { id = "session", means = "Only in this conversation." },
+  { id = "place", means = "Only in this place or on this surface, such as this channel or this terminal." },
+  { id = "everywhere", means = "Everywhere the person talks to the assistant." },
+  { id = "unsure", means = "The message does not say." },
+]
+
+# §2.7: the owner's undos.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong capture"
+count = 3

@@ -858,7 +858,7 @@ impl Lane {
             // hand role and the red after its apply (theseus-pw1q.15): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" => self.jev_post(a, &body).await,
+            | "self_narrow_red" | "initiative" | "standing_card" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1347,6 +1347,15 @@ impl Lane {
                 format!("ini:{}", body["id"].as_str().unwrap_or(&a.correlation_id)),
                 Buttons::Keep,
             ),
+            // What `directive.v1` kept, or asks about (theseus-slvl.5).
+            "standing_card" => {
+                let (mode, id, everywhere) = crate::runtime::capture_card(body);
+                (
+                    body["text"].as_str().unwrap_or("").to_string(),
+                    format!("standing:{}", a.correlation_id),
+                    Buttons::Standing(mode, id, everywhere),
+                )
+            }
             _ => {
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 (t, format!("note:{}", a.correlation_id), Buttons::Keep)
@@ -1598,6 +1607,7 @@ impl Lane {
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
+            Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::Sources(session, srcs) => crate::runtime::source_buttons(session, srcs),
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
@@ -1664,6 +1674,9 @@ impl Lane {
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
             Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
+            Buttons::Standing(mode, id, wide) => {
+                Some(crate::runtime::capture_buttons(mode, id, *wide))
+            }
             Buttons::Sources(session, srcs) => Some(crate::runtime::source_buttons(session, srcs)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,

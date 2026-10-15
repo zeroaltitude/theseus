@@ -435,6 +435,9 @@ impl Core {
                 chosen: None,
                 task: false,
                 persona: self.runner.persona_ctx(home, class),
+                // Not asked here before the owner's answer (the join fix after
+                // this merge asks it in this call).
+                capture: false,
             });
             if let Some(mut e) = started {
                 if let Some(rx) = e.thread.take() {

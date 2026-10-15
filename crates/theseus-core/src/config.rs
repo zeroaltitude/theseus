@@ -44,6 +44,7 @@ pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
 mod persona_settings;
 mod sessions;
+mod standing;
 mod threads;
 mod wake_limits;
 pub use cockpit::CockpitConfig;
@@ -56,6 +57,7 @@ pub use persona_settings::PersonaSettings;
 pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
+pub use standing::StandingConfig;
 pub use threads::{PersonaEngage, ThreadsConfig};
 pub use watches::WatchesConfig;
 pub mod defer;
@@ -190,6 +192,9 @@ pub struct Config {
     /// `[projects]`: long-term work (theseus-n5ui2), `config/projects.rs`.
     #[serde(default, skip_serializing_if = "ProjectsConfig::is_default")]
     pub projects: ProjectsConfig,
+    /// `[standing]`: what the owner's words become, `config/standing.rs` (theseus-slvl.5).
+    #[serde(default, skip_serializing_if = "StandingConfig::is_default")]
+    pub standing: StandingConfig,
     /// `[threads]`: threads on virtual places (theseus-nhew), `config/threads.rs`.
     #[serde(default, skip_serializing_if = "ThreadsConfig::is_default")]
     pub threads: ThreadsConfig,

@@ -92,6 +92,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI. The core's
   `needs_you` post (an open question past `[notify]`'s line) goes to the owner's DM alone, always pings (`Event::NeedsYou` is in no
   category), has the same buttons for an ask, and is edited by the question's settle. Tests: `tests_gateway/ask.rs`.
+  Capture's cards (`runtime/capture_card.rs`, theseus-slvl.5): the core's `standing_card` post goes to the owner's DM
+  alone, as the earned card does (`Buttons::Standing`): a record `directive.v1` kept, with **Undo**
+  (`standing:undo:<std id>`, `standing.revoke`), or an ask with **Keep**, **Keep everywhere** (when it would hold
+  narrower) and **Not this** (`standing:<keep|everywhere|not>:<ask id>`, `standing.answer`), each as the presser with
+  their `DiscordOrigin`, which the core judges. Only a Discord-origin message makes a card; the CLI and the web UI hear
+  the narrative line. Tests: `tests_gateway/standing.rs`.
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

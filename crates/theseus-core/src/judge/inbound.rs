@@ -59,8 +59,12 @@ pub const ROLE_PACK: &str = "role.v1";
 /// (theseus-3okf) and `route.v1` stay embedded for their history, and the
 /// ladder never runs them again.
 pub const ROUTE_PACK: &str = "route.v5";
+/// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
+/// `role.v1` (no request of its own), live: asked only for the owner's own
+/// message in a place only the owner writes in (`Inbound.capture`).
+pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
+pub const PACKS: [&str; 4] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK, DIRECTIVE_PACK];
 
 /// What a turn waits on for `route.v1`'s verdict: `None` when Jev gave none
 /// (a failure, a skip, model drift); a dropped sender (nothing sent, the
@@ -178,6 +182,9 @@ pub struct Inbound {
     pub task: bool,
     /// route.v5's persona and seal inputs.
     pub persona: PersonaCtx,
+    /// The message is the owner's own, in a place only the owner writes in,
+    /// and `[standing] capture` is on: `directive.v1` is asked about it.
+    pub capture: bool,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -268,6 +275,7 @@ impl JudgeService {
             })
             .map(|(p, root)| (mode_of(&p), p, root))
             .filter(|(m, _, _)| *m != PackMode::Off)
+            .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
             .map(|(p, m, _)| (p, m))
@@ -301,7 +309,16 @@ impl JudgeService {
             }
             false => (None, None),
         };
-        rt.spawn(judge_inbound(self.me.clone(), packs, msg, tx, ttx));
+        let heard = packs
+            .iter()
+            .any(|(p, _, _)| p.name().starts_with("directive."))
+            .then(|| crate::capture::act::Message {
+                session: msg.session_id.clone(),
+                node: msg.node_id.clone(),
+                text: msg.text.clone(),
+                place_kind: msg.place_kind.clone(),
+            });
+        rt.spawn(judge_inbound(self.me.clone(), packs, msg, tx, ttx, heard));
         Some(Early {
             marks,
             route: rx,
@@ -773,6 +790,7 @@ async fn judge_inbound(
     msg: Inbound,
     route: Option<tokio::sync::oneshot::Sender<Answered>>,
     thread: Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
+    heard: Option<crate::capture::act::Message>,
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
@@ -876,6 +894,22 @@ async fn judge_inbound(
         spent = need;
     }
     svc.budget.settle(&today, need, spent, called, failed);
+    // The owner's words, acted on once the batch has settled (theseus-slvl.5):
+    // `directive.v1` rode this request, so no call was added for it.
+    capture_after(&svc, heard, &judgments);
+}
+
+/// The owner's words, acted on (theseus-slvl.5): the batch's `directive.v1`
+/// judgment, when there is one, goes to the core.
+fn capture_after(
+    svc: &JudgeService,
+    heard: Option<crate::capture::act::Message>,
+    judgments: &[theseus_judge::Judgment],
+) {
+    let found = judgments.iter().find(|j| j.pack.starts_with("directive."));
+    if let (Some(m), Some(j), Some(core)) = (heard, found, svc.core()) {
+        core.capture_directive(&m, j);
+    }
 }
 
 #[cfg(test)]

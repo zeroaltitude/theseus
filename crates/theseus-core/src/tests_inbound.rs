@@ -105,6 +105,7 @@ const INBOUND_ALONE: [&str; 15] = [
     "classify.v2: live",
     "role.v1: shadow",
     "route.v5: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-13))",
+    "directive.v1: live",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",

@@ -53,6 +53,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("classify.v1", include_str!("../packs/classify.v1.toml")),
     ("classify.v2", include_str!("../packs/classify.v2.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
+    ("directive.v1", include_str!("../packs/directive.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
@@ -105,7 +106,7 @@ pub enum Builder {
     Security,
     /// `security.v2`'s: `security.v1`'s state, and facts computed for Jev.
     Security2,
-    /// `classify.v1` and `role.v1` share it, so they batch.
+    /// `classify.v1`, `role.v1` and `directive.v1` share it, so they batch.
     Inbound,
     Continue,
     Categorize,
@@ -159,6 +160,9 @@ pub enum Action {
     /// Routes an unaddressed message to the thread the `thread` question
     /// names (`classify.v2`, theseus-rha2).
     ThreadRoute,
+    /// Keeps, asks about, or notes a standing record from the owner's words
+    /// (`directive.v1`, theseus-slvl.5).
+    Capture,
 }
 
 /// Where a question's dynamic options or per-item Nouls come from.
@@ -1221,6 +1225,15 @@ mod tests {
                 ],
             ),
             (
+                "directive.v1",
+                &[
+                    "Inbound Inbound None Capture",
+                    "kind Choice decides [none order preference fact correction]",
+                    "scope Choice [session place everywhere unsure]",
+                    "rollback [labels_per_day]",
+                ],
+            ),
+            (
                 "continue.v1",
                 &[
                     "Compile Continue Append None",
@@ -1298,10 +1311,16 @@ mod tests {
             assert_eq!(shape(&p), *lines, "{name}");
             assert_eq!(p.jev_model, "jev-1.13.0", "{name}");
             assert_eq!(p.sample, 1.0, "{name}: Q16 samples every event");
+            // Conservative, but for `directive.v1`, whose bands the owner set:
+            // keep at 0.80, ask from 0.50 (2026-10-13, killer OD5).
+            let bands = match *name {
+                "directive.v1" => (0.80, 0.50),
+                _ => (0.90, 0.60),
+            };
             for q in &p.questions {
                 assert_eq!(
                     (q.thresholds.act, q.thresholds.confirm),
-                    (0.90, 0.60),
+                    bands,
                     "{name}/{}: thresholds start conservative",
                     q.id
                 );
@@ -1374,6 +1393,13 @@ mod tests {
             }]
         );
         assert_eq!(
+            rules("directive.v1"),
+            vec![RollbackRule::LabelsPerDay {
+                label: "wrong capture".into(),
+                count: 3
+            }]
+        );
+        assert_eq!(
             rules("role.v1"),
             vec![
                 RollbackRule::SwitchesPerExchange { max: 2 },
@@ -1391,9 +1417,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            21,
+            22,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3, v4 and v5, citation.v1, people.v1, people_seen.v1, classify.v2 and compare.v1"
+             v3, v4 and v5, citation.v1, people.v1, people_seen.v1, classify.v2, compare.v1 and directive.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1417,8 +1443,12 @@ mod tests {
                 Rule::StateCap,
                 "a cap past Jev's limit",
             );
+            let act_line = text
+                .lines()
+                .find(|l| l.starts_with("act = "))
+                .unwrap_or_else(|| panic!("{file} has no act line"));
             check(
-                edit("act = 0.90", "act = 0.50"),
+                edit(act_line, "act = 0.10"),
                 Rule::Thresholds,
                 "act below confirm",
             );

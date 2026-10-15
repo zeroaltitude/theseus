@@ -262,7 +262,7 @@ pub mod method {
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list", PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm", // an agent's workspace carried over as a persona, and its card kept (theseus-a8n7)
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
-        VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss",
+        VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss", STANDING_ANSWER = "standing.answer",
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.
         FORECAST_CALIBRATION = "forecast.calibration",
@@ -476,6 +476,8 @@ pub mod notify {
         /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`,
         /// to every connection that watches every session.
         SELF_CHANGED = "self.changed",
+        /// What capture did with the owner's words (theseus-slvl.5): a record kept, or a question.
+        STANDING_NOTICED = "standing.noticed",
     }
 }
 

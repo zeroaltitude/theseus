@@ -355,6 +355,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `initiative.rated`, the last verdict on an id standing; Discord's 👍/👎 on a reply or a note calls it. `initiative.week`
   (`initiative/week.rs`) is the measure `theseus persona` shows. Tests: `tests_initiative.rs`, `initiative::promise::tests`,
   `initiative::lines::tests`, the protocol's `tests_notices.rs`.
+- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v1`; no store
+  format: new META key `standing.capture` and new ledger kinds): the owner's words become standing records without a
+  command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
+  asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
+  never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
+  (`capture::owner_alone`: no place, or an owner's DM) and never a task's. `judge_inbound` hands its judgment to
+  `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
+  0.50): `capture::decide` (pure) keeps at the act band, asks from the confirm band, and below it only notes a correction
+  (`standing.candidate`) to propose it when its words overlap one noted in the last week (`capture::words::same`); an order
+  is always asked; a message of the same kind as a live record of its scope and sharing its words is `standing.repeated`
+  and no record. The words kept are the message's own on one line (Jev answers choices, not text; over 240 characters
+  nothing is captured). A kept record's source is `capture:<node>`, its scope Jev's when its `scope` answer reached the act
+  band, else where it was said (a Discord place, else the session). One frame each (`capture/act.rs`): the record, its
+  `standing.added` and `standing.captured` rows, the state (`capture/state.rs`: candidates, open asks, repeats, which
+  judgment kept which record), and, for Discord-origin words, the `standing_card` post to the owner's DM. The CLI and web
+  UI hear the fact's narrative line. `standing.answer` (`rpc/capture.rs`) keeps an ask (`keep`, `everywhere`) or drops it
+  (`not`); an undo is `standing.revoke`, which labels the judgment `wrong capture` (`capture_undone`; three in a day roll
+  the pack back, and a label finds its pack in the `standing.captured` row while the sink has not written the judgment).
+  `[standing] capture = false` stops all of it. Tests: `tests_capture.rs`, `capture::tests`.
 - **Threads** (theseus-nhew; store format 33; `threads.rs`, `rpc/threads.rs`, `fact/thread.rs`, `config/threads.rs`): a thread is
   a durable record bound to a virtual place `thread:<slug>`, so it reuses what a place has. The record is
   `theseus_protocol::threads::ThreadInfo` as a META key `thread:<slug>` (an edit writes the key again, in one frame with

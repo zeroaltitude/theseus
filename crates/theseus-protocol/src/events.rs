@@ -578,6 +578,8 @@ events! {
     ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
     /// The self-improvement switch moved (theseus-pw1q.19).
     SelfChanged(crate::rsi::SelfChanged) = notify::SELF_CHANGED,
+    /// A record kept from the owner's words, or a question about them (theseus-slvl.5).
+    StandingNoticed(crate::standing::StandingNoticed) = notify::STANDING_NOTICED,
 }
 
 impl Event {
@@ -603,6 +605,7 @@ impl Event {
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
             Event::ThreadAsked(e) => Some(&e.session_id),
+            Event::StandingNoticed(e) => Some(&e.session_id),
             Event::WorkChanged(_)
             | Event::WorkNotice(_)
             | Event::ActionOutputChunk(_)
@@ -657,6 +660,7 @@ impl Event {
             | Event::ActionOutputChunk(_)
             | Event::ActionOutputEnd(_)
             | Event::SelfChanged(_)
+            | Event::StandingNoticed(_)
             | Event::EventsLost(_) => None,
         }
     }
