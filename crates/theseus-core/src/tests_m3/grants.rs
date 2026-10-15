@@ -334,6 +334,7 @@ fn ordered(
         place: crate::ceiling::PlaceView {
             class,
             ceiling: None,
+            voice: false,
         },
         held: &held,
         mcp: &mcp,

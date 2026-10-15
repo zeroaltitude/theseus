@@ -251,6 +251,7 @@ async fn the_plan_sentence_is_in_the_brief_and_the_system_note() {
     let note = r.core.tools.system_note_for(crate::ceiling::PlaceView {
         class: crate::places::PlaceClass::Private,
         ceiling: None,
+        voice: false,
     });
     assert!(note.contains(crate::task_graph::PLAN_NOTE), "{note}");
 }

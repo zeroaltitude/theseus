@@ -4044,17 +4044,6 @@ fn aged(path: &str, secs: u64) {
 /// The system the model reads in request `i`: its blocks' texts (the header,
 /// then the context files: theseus-ev1), joined as the single block before
 /// the split joined them.
-/// The tools note as a private place's header reads it: the note, then the
-/// self card (theseus-slvl.8).
-fn noted(r: &Rig) -> String {
-    let card = crate::self_card::card(
-        &r.core.runner.cfg,
-        &r.core.tools,
-        crate::places::PlaceClass::Private.into(),
-    );
-    format!("{}\n{card}", r.core.tools.system_note())
-}
-
 fn system_of(r: &Rig, i: usize) -> String {
     r.fake.requests()[i]
         .system
@@ -4064,6 +4053,17 @@ fn system_of(r: &Rig, i: usize) -> String {
         .filter(|t| !t.starts_with("Directory: "))
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// The tools note as a private place's header reads it: the note, then the
+/// self card (theseus-slvl.8).
+fn noted(r: &Rig) -> String {
+    let card = crate::self_card::card(
+        &r.core.runner.cfg,
+        &r.core.tools,
+        crate::places::PlaceClass::Private.into(),
+    );
+    format!("{}\n{card}", r.core.tools.system_note())
 }
 
 fn sha16(s: &str) -> String {
