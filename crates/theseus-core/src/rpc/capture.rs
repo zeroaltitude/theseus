@@ -207,15 +207,21 @@ impl Core {
     /// files is never noted, so the pack is not asked about it: the rule the
     /// owner's route corrections follow (`rpc/route_correct.rs`).
     pub(super) fn expect_capture(&self, p: &TurnSubmitParams, conn: Conn<'_>, session: &str) {
-        if !self.cfg.standing.capture
-            || !self.cfg.judge.enabled
-            || p.opened_from.is_some()
-            || p.prompt.is_some()
-            || !p.attachments.is_empty()
-            || matches!(conn.surface, Surface::Mcp | Surface::Unnamed)
-        {
-            return;
+        if self.capture_wanted(p, conn) {
+            self.runner.standing.expected.note(session, &p.input);
         }
-        self.runner.standing.expected.note(session, &p.input);
+    }
+
+    /// The rule `expect_capture` notes by, for the router's early judge too
+    /// (thread-route asks the inbound batch before `turn.submit` notes the
+    /// message: the owner's 2026-10-15 "I think that sounds right" to asking
+    /// `directive.v1` in the routing call each message already makes).
+    pub(super) fn capture_wanted(&self, p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
+        self.cfg.standing.capture
+            && self.cfg.judge.enabled
+            && p.opened_from.is_none()
+            && p.prompt.is_none()
+            && p.attachments.is_empty()
+            && !matches!(conn.surface, Surface::Mcp | Surface::Unnamed)
     }
 }

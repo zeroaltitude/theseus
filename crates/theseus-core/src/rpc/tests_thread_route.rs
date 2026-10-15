@@ -482,6 +482,53 @@ async fn jevs_thread_answer_rides_the_one_inbound_request_and_the_bands_route() 
     assert_eq!(tag(&h).words(), None);
 }
 
+/// The owner's words in a message the router places (theseus-slvl.5 on thread-route, the owner's 2026-10-15
+/// "I think that sounds right"): `directive.v1` rides the router's early call, the one request the message makes,
+/// and the record names the message the turn wrote, in the thread's session it ran in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    thread_answer(&jev, "security-fix", 0.95);
+    jev.script(
+        "directive.v1/kind",
+        Jev::Choice {
+            option: "preference".into(),
+            confidence: 0.93,
+        },
+    );
+    jev.script(
+        "directive.v1/scope",
+        Jev::Choice {
+            option: "everywhere".into(),
+            confidence: 0.9,
+        },
+    );
+    let a = submit(c, &dm, "no tables with me when we talk about the build").await;
+    assert_eq!(a.session_id, session_of(c, "security-fix"));
+    wait_for(|| !rows(c, "standing.captured").is_empty()).await;
+    assert_eq!(jev.seen().len(), 1, "no call was added");
+    let q = jev.seen()[0].body["questions"].clone();
+    let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
+    assert!(ids.contains(&"classify.v2/thread".to_string()), "{ids:?}");
+    assert!(ids.contains(&"directive.v1/kind".to_string()), "{ids:?}");
+    assert_eq!(rows(c, "thread.routed")[0].data["early"], true);
+    let cap = &rows(c, "standing.captured")[0];
+    let node = cap.data["node"].as_str().unwrap_or_default().to_string();
+    assert!(node.starts_with("msg_"), "{:?}", cap.data);
+    assert!(
+        c.store
+            .session_nodes(&a.session_id)
+            .unwrap()
+            .iter()
+            .any(|(_, n)| n.id == node),
+        "the record names the message the routed turn wrote"
+    );
+}
+
 /// Jev not answering in `[threads] route_wait_ms` leaves the router's pick,
 /// tagged a guess, and the ledger counts the timeout.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

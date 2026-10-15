@@ -435,9 +435,9 @@ impl Core {
                 chosen: None,
                 task: false,
                 persona: self.runner.persona_ctx(home, class),
-                // Not asked here before the owner's answer (the join fix after
-                // this merge asks it in this call).
-                capture: false,
+                // The owner's own words: `directive.v1` rides this call, and
+                // the turn says where the message was written (`Early::said`).
+                capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
             });
             if let Some(mut e) = started {
                 if let Some(rx) = e.thread.take() {

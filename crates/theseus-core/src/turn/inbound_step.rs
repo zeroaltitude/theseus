@@ -74,14 +74,19 @@ impl TurnRunner {
             .iter()
             .any(|a| matches!(a.content, AttachmentContent::Image { .. }));
         // The owner's own words, in a place only the owner writes in: the
-        // note `turn.submit` made is spent either way (theseus-slvl.5).
+        // note `turn.submit` made is spent either way (theseus-slvl.5). A
+        // message the router judged early (thread-route) asked `directive.v1`
+        // in that call, by the same rule (`Core::capture_wanted`).
         let noted = self.standing.expected.take(t.tc.session_id, text);
         let capture = noted
             && self.cfg.standing.capture
             && t.tc.task.is_none()
             && crate::capture::owner_alone(class, place.as_deref());
         let wait = match begun {
-            Some(early) => early.adopt(&mut t.trace),
+            Some(early) => early.adopt(
+                &mut t.trace,
+                Some((t.tc.session_id.to_string(), node.id.clone())),
+            ),
             None => self.judge.at_inbound(
                 &mut t.trace,
                 Inbound {

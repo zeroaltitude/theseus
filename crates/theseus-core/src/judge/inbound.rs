@@ -96,14 +96,22 @@ pub struct Early {
     pub marks: Vec<serde_json::Value>,
     pub route: Option<RouteWait>,
     pub thread: Option<ThreadWait>,
+    /// Where the owner's words were said, for `directive.v1` asked before
+    /// the turn wrote its message (theseus-slvl.5 on thread-route's early
+    /// judge): the turn's session and the message's node, sent at `adopt`.
+    pub said: Option<tokio::sync::oneshot::Sender<(String, String)>>,
 }
 
 impl Early {
-    /// The turn takes the point as its own: the marks go on its trace, and
+    /// The turn takes the point as its own: the marks go on its trace, it
+    /// names the session and node its message was written as (`said`), and
     /// it waits on the route verdict as it would have.
-    pub fn adopt(self, trace: &mut Trace) -> Option<RouteWait> {
+    pub fn adopt(self, trace: &mut Trace, said: Option<(String, String)>) -> Option<RouteWait> {
         for m in self.marks {
             trace.mark("judge", "mark", m);
+        }
+        if let (Some(tx), Some(at)) = (self.said, said) {
+            let _ = tx.send(at);
         }
         self.route
     }
@@ -250,7 +258,7 @@ impl JudgeService {
     /// does, with the channel `route.v1`'s verdict comes back on when it is
     /// asked (in any mode): the turn decides whether to wait for it.
     pub fn at_inbound(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
-        self.inbound_early(msg)?.adopt(trace)
+        self.inbound_early(msg)?.adopt(trace, None)
     }
 
     /// `at_inbound`, begun before its turn has a trace: the same asks, in the
@@ -318,11 +326,28 @@ impl JudgeService {
                 text: msg.text.clone(),
                 place_kind: msg.place_kind.clone(),
             });
-        rt.spawn(judge_inbound(self.me.clone(), packs, msg, tx, ttx, heard));
+        // Asked before its turn wrote the message (the router's early judge):
+        // the turn names where it was said when it adopts the point.
+        let (said, said_rx) = match heard.is_some() && msg.node_id.is_empty() {
+            true => {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                (Some(tx), Some(rx))
+            }
+            false => (None, None),
+        };
+        rt.spawn(judge_inbound(
+            self.me.clone(),
+            packs,
+            msg,
+            tx,
+            ttx,
+            (heard, said_rx),
+        ));
         Some(Early {
             marks,
             route: rx,
             thread: trx,
+            said,
         })
     }
 
@@ -790,7 +815,10 @@ async fn judge_inbound(
     msg: Inbound,
     route: Option<tokio::sync::oneshot::Sender<Answered>>,
     thread: Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
-    heard: Option<crate::capture::act::Message>,
+    (heard, said): (
+        Option<crate::capture::act::Message>,
+        Option<tokio::sync::oneshot::Receiver<(String, String)>>,
+    ),
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
@@ -895,9 +923,24 @@ async fn judge_inbound(
     }
     svc.budget.settle(&today, need, spent, called, failed);
     // The owner's words, acted on once the batch has settled (theseus-slvl.5):
-    // `directive.v1` rode this request, so no call was added for it.
+    // `directive.v1` rode this request, so no call was added for it. Asked
+    // early, it waits for the turn to say where the words were written, and
+    // a turn that never does (it did not run) captures nothing.
+    let heard = match (heard, said) {
+        (Some(mut m), Some(rx)) => match tokio::time::timeout(SAID_WAIT, rx).await {
+            Ok(Ok((session, node))) => {
+                (m.session, m.node) = (session, node);
+                Some(m)
+            }
+            _ => None,
+        },
+        (heard, _) => heard,
+    };
     capture_after(&svc, heard, &judgments);
 }
+
+/// How long an early `directive.v1` waits for its turn to write the message.
+const SAID_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The owner's words, acted on (theseus-slvl.5): the batch's `directive.v1`
 /// judgment, when there is one, goes to the core.
