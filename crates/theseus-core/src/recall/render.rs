@@ -132,8 +132,14 @@ pub fn thread_mark(title: &str, n: &Node, position: u64) -> String {
         .collect();
     format!(
         "[from thread «{title}», {}, @{position}]",
-        &utc(n.created_at_ms)[..10]
+        utc_day(n.created_at_ms)
     )
+}
+
+/// `2026-09-30`: a source's day (UTC), as a thread's citations name it
+/// (the mark above and `thread.read`'s hits).
+pub fn utc_day(ms: u64) -> String {
+    utc(ms)[..10].to_string()
 }
 
 /// The place of a session no place runs on, in a header: the session, on

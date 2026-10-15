@@ -346,7 +346,7 @@ async fn hits(core: &Arc<Core>, query: &str, sessions: Vec<String>) -> Result<Ve
                 .flatten()
                 .map_or(0, |(_, n)| n.created_at_ms);
             Hit {
-                day: crate::judge::spend::local_day(at),
+                day: crate::recall::render::utc_day(at),
                 position: i.position,
                 text: i
                     .text
