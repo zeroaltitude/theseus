@@ -54,8 +54,14 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "aws",
         "AWS: the account's calls, stacks, hands, costs and buckets",
     ),
-    ("ask", "ask the owner a question with options, and wait for the answer"),
-    ("projects", "long-term projects: attach this conversation to one"),
+    (
+        "ask",
+        "ask the owner a question with options, and wait for the answer",
+    ),
+    (
+        "projects",
+        "long-term projects: attach this conversation to one",
+    ),
     ("extensions", "propose a new extension of your own tools"),
     ("self", "propose and inspect changes to Theseus itself"),
 ];

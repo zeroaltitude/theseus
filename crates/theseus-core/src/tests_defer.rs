@@ -653,6 +653,46 @@ async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_messag
     assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
 }
 
+/// install #30's live check (theseus-ezad2): asked "Call the thread_read tool once", Haiku on the owner's cli
+/// found nothing loaded, because the place's tools were already over its budget and no family could be added.
+/// With the language servers on (the owner's config) and deferred, the threads family fits and is offered.
+#[tokio::test]
+async fn on_the_owners_cli_a_model_without_tool_search_reaches_a_tool_the_message_names() {
+    let r = rig_deferring(
+        |c| {
+            c.lsp.enabled = true;
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                CatalogRow {
+                    tool_search: Some(false),
+                    ..Default::default()
+                },
+            );
+        },
+        |req: &ProviderRequest| {
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            if last_user(req).contains("thread_read")
+                && offered(req).contains(&"thread_read".to_string())
+            {
+                return Scripted::tools("", &[("t1", "thread_read", json!({}))]);
+            }
+            Scripted::text("No such tool is loaded here.")
+        },
+    );
+    let sid = session(&r.core, None);
+    let res = say(&r.core, &sid, "Call the thread_read tool once").await;
+    let names = offered(&r.requests()[0]);
+    assert!(names.contains(&"thread_read".to_string()), "{names:?}");
+    assert!(
+        !names.iter().any(|n| n.starts_with("lsp_")),
+        "the language servers are deferred: {names:?}"
+    );
+    assert_eq!(res.tool_calls, 1, "the call reached the tool");
+    assert!(rows(&r.core, "tools.missed").is_empty());
+}
+
 #[tokio::test]
 async fn a_message_that_names_nothing_leaves_the_fallback_request_as_it_was() {
     let r = rig_haiku();
