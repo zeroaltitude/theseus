@@ -1399,7 +1399,14 @@ impl Provider for FakeProvider {
     }
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
         let n = req.estimate_tokens();
-        Box::pin(async move { Ok(n) })
+        // As the API's counter: no message is a 400 (theseus-7okz9).
+        let none = req.messages.is_empty();
+        Box::pin(async move {
+            if none {
+                anyhow::bail!("count_tokens answered 400 Bad Request: messages: at least one message is required");
+            }
+            Ok(n)
+        })
     }
     fn warm(&self) -> WarmFuture<'_> {
         self.warms

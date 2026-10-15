@@ -579,14 +579,27 @@ async fn exact_counts(
         r
     };
     let (small, with_s, with_t) = (one(false, false), one(true, false), one(false, true));
+    // The counter refuses a request with no message (a 400: a fresh session's
+    // first request before its first message, theseus-7okz9). That one is not
+    // counted: its messages are none, so its total is its system and its tools
+    // over the smallest form, which the three counts above already give.
+    let empty = request.messages.is_empty();
+    let full = async {
+        if empty {
+            Ok(None)
+        } else {
+            provider.count_tokens(request).await.map(Some)
+        }
+    };
     let (full, base, with_system, with_tools) = tokio::try_join!(
-        provider.count_tokens(request),
+        full,
         provider.count_tokens(&small),
         provider.count_tokens(&with_s),
         provider.count_tokens(&with_t),
     )?;
     let system = with_system.saturating_sub(base);
     let tools = with_tools.saturating_sub(base);
+    let full = full.unwrap_or(system + tools);
     Ok(CensusExact {
         total: full,
         system,
