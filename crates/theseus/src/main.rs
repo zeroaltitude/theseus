@@ -12,6 +12,7 @@
 //! (`render`) are this package's library, which the TUI shares, and
 //! `print.rs` writes the lines they return.
 
+mod agenda;
 mod answer;
 mod budgets;
 mod census;
@@ -526,6 +527,10 @@ enum Cmd {
     /// printed, until the job ends. Ctrl-C detaches and the job goes on; a stream that fell behind
     /// says so and reads the job again.
     Attach(jobout::AttachArgs),
+    /// The future in one view: Now, Today, This week, Later, Recurring (routines and repeating
+    /// reminders), Waiting on the world (watches) and Projects, with the verbs that act on them.
+    /// `--watch` keeps it current.
+    Agenda(agenda::AgendaArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -1374,6 +1379,7 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => wait_session_or_any(c, json, session, until, after, timeout).await,
         cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
+        Cmd::Agenda(a) => agenda::run(c, json, a).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
             unreachable!("returned above, or exec'd by main")
         }

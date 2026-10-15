@@ -282,7 +282,7 @@ pub mod method {
         EXECUTIONS_UNWATCH = "executions.unwatch",
         /// The work board (theseus-hkx30): every root that needs you or works with its open subtree, then
         /// `work.changed` and `work.notice` until `work.unwatch` (`work_watch.rs`). A read.
-        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch",
+        WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch", WORK_AGENDA = "work.agenda",
         /// A running job's last lines (`job_follow.rs`, theseus-e1hu4), and its output followed until `action.unfollow`.
         WORK_PEEK = "work.peek", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
         /// The counts behind `theseus status --short` (theseus-8kn12), read from the board's O(1) fields: no

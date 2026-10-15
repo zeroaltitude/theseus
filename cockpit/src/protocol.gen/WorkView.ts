@@ -4,8 +4,12 @@ import type { Cost } from "./Cost";
 import type { Doing } from "./Doing";
 import type { Eta } from "./Eta";
 import type { Progress } from "./Progress";
+import type { ProjectView } from "./ProjectView";
 import type { Question } from "./Question";
 import type { Rollup } from "./Rollup";
+import type { RoutineView } from "./RoutineView";
+import type { Series } from "./Series";
+import type { WatchView } from "./WatchView";
 import type { Woke } from "./Woke";
 import type { WorkForecast } from "./WorkForecast";
 import type { WorkKind } from "./WorkKind";
@@ -119,4 +123,33 @@ retry_of?: string,
  * the thread whose session is the view's root conversation (theseus-5i8i).
  * Absent for work that is in none; a wire field, not a stored one.
  */
-thread?: string, };
+thread?: string, 
+/**
+ * Why a wake exists: `remind`, `check`, `routine`, `watch`.
+ */
+purpose?: string, 
+/**
+ * When it is next due: a reminder's time, a routine's next run, a
+ * watch's next check, a deferred task's start.
+ */
+next_at_ms?: number, 
+/**
+ * A repeating wake's or a routine's series.
+ */
+series?: Series, 
+/**
+ * Held by the owner: it does not fire until resumed.
+ */
+paused?: boolean, 
+/**
+ * A routine's schedule, last run, counts and month.
+ */
+routine?: RoutineView, 
+/**
+ * A watch's check, condition and last value.
+ */
+watch?: WatchView, 
+/**
+ * A project's goal, tallies and next date.
+ */
+project?: ProjectView, };

@@ -239,6 +239,17 @@ pub struct StatusShortResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub first: Option<String>,
+    /// When the next reminder falls due (theseus-nuhsz), unpaused and unfired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next_due_ms: Option<u64>,
+    /// Routines whose last run failed or blocked.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub routines_failed: u32,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
 }
 
 /// `session.list`: every session, or only these (theseus-in3): a client that

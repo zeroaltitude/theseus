@@ -14,7 +14,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod horizon;
+
 use crate::push::clip;
+use crate::work::horizon::{ProjectView, RoutineView, Series, WatchView};
 use crate::{usd, Attention, ExecutionView, Level, PendingConfirm, SessionKind, WaitingOn};
 
 /// What a piece of work is.
@@ -36,6 +39,12 @@ pub enum WorkKind {
     Wake,
     /// The daemon's own work, under the `system` root.
     System,
+    /// A routine: a task on a schedule (theseus-nuhsz).
+    Routine,
+    /// A watch: a check on a timer until a condition holds.
+    Watch,
+    /// A project: a goal with steps and milestones.
+    Project,
 }
 
 impl WorkKind {
@@ -48,6 +57,9 @@ impl WorkKind {
             WorkKind::Question => "question",
             WorkKind::Wake => "wake",
             WorkKind::System => "system",
+            WorkKind::Routine => "routine",
+            WorkKind::Watch => "watch",
+            WorkKind::Project => "project",
         }
     }
 }
@@ -211,6 +223,34 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub thread: Option<String>,
+    /// Why a wake exists: `remind`, `check`, `routine`, `watch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub purpose: Option<String>,
+    /// When it is next due: a reminder's time, a routine's next run, a
+    /// watch's next check, a deferred task's start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next_at_ms: Option<u64>,
+    /// A repeating wake's or a routine's series.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub series: Option<Series>,
+    /// Held by the owner: it does not fire until resumed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
+    /// A routine's schedule, last run, counts and month.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub routine: Option<RoutineView>,
+    /// A watch's check, condition and last value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub watch: Option<WatchView>,
+    /// A project's goal, tallies and next date.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub project: Option<ProjectView>,
 }
 
 /// What a conversation or a task is doing now.
@@ -607,6 +647,7 @@ fn work_level_and_label(v: &WorkView) -> (Level, String) {
         WorkState::Failed => (Level::NeedsYou, reason("failed")),
         WorkState::NeedsYou => match v.report.as_ref().map(|r| r.outcome.as_str()) {
             Some("budget_exhausted") => (Level::NeedsYou, "budget exhausted".into()),
+            Some("failed") => (Level::NeedsYou, reason("failed")),
             Some(_) => (Level::NeedsYou, reason("blocked")),
             None => (Level::NeedsYou, "waiting on you".into()),
         },
@@ -799,6 +840,13 @@ impl WorkView {
             dismissed: x.dismissed,
             retry_of: x.retry_of.clone(),
             thread: None,
+            purpose: None,
+            next_at_ms: None,
+            series: None,
+            paused: false,
+            routine: None,
+            watch: None,
+            project: None,
         }
     }
 }

@@ -12,12 +12,12 @@ use theseus_protocol::work::{
 };
 use theseus_protocol::{Attention, Level};
 
-use super::{answered, eta, hm, is_job, step_state, ActIn, EndedWake, ExecIn, WorkBoard};
+use super::{answered, eta, hm, horizon, is_job, step_state, ActIn, EndedWake, ExecIn, WorkBoard};
 
 /// A title's longest: a command or a note cut to a line.
 const TITLE_CHARS: usize = 120;
 
-fn line(s: &str) -> String {
+pub(super) fn line(s: &str) -> String {
     let l = s
         .lines()
         .find(|l| !l.trim().is_empty())
@@ -67,6 +67,13 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         dismissed: false,
         retry_of: None,
         thread: None,
+        purpose: None,
+        next_at_ms: None,
+        series: None,
+        paused: false,
+        routine: None,
+        watch: None,
+        project: None,
     }
 }
 
@@ -100,6 +107,11 @@ impl WorkBoard {
         v.root = self.root_of(id);
         v.title = ei.title.clone();
         v.started_at_ms = ei.created_at_ms;
+        if let Some(w) = self.routine_wake_of(ei) {
+            // A routine's run hangs from the routine, not from its execution.
+            v.parent = Some(w.id.clone());
+        }
+        Self::decorate_exec(&mut v, ei);
         v.woke = ei.woke.clone().or_else(|| Self::due_wake(ei));
         v.forecast = self.forecast_of(ei);
         v.position = 0;
@@ -400,27 +412,39 @@ impl WorkBoard {
             loop_index: 0,
             last_line: None,
         });
+        self.decorate_wake(&mut v, ei, w);
         Some(v)
     }
 
     fn ended_wake_view(&self, e: &EndedWake) -> Option<WorkView> {
         let ei = self.execs.get(&e.exec)?;
         let w = &e.wake;
-        let mut v = blank(&w.id, WorkKind::Wake, w.set_at_ms);
+        let mut v = blank(&w.id, horizon::kind_of(w), w.set_at_ms);
         v.parent = Some(ei.x.execution_id.clone());
         v.root = self.root_of(&ei.x.execution_id);
         v.session_id = Some(ei.x.session_id.clone());
         v.title = line(&w.note);
-        v.state = if e.fired {
-            WorkState::Done
-        } else {
-            WorkState::Cancelled
+        v.purpose = Some(w.purpose.as_str().to_string());
+        v.state = match self.watches.get(&w.id).and_then(|h| h.end) {
+            Some("met") => WorkState::Done,
+            Some(_) => WorkState::Expired,
+            None if e.fired => WorkState::Done,
+            None => WorkState::Cancelled,
         };
+        if w.purpose == theseus_kernel::Purpose::Watch {
+            self.watch_part(&mut v, w);
+            v.doing = None;
+        }
         v.started_at_ms = w.set_at_ms;
         v.ended_at_ms = Some(e.at_ms);
         v.state_since_ms = e.at_ms;
         v.report = Some(WorkReport {
-            outcome: if e.fired { "fired" } else { "cancelled" }.to_string(),
+            outcome: match self.watches.get(&w.id).and_then(|h| h.end) {
+                Some(end) => end,
+                None if e.fired => "fired",
+                None => "cancelled",
+            }
+            .to_string(),
             first_line: None,
             reason: None,
         });

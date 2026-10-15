@@ -110,6 +110,9 @@ fn blank(v: &WorkView) -> WorkView {
         progress: None,
         report: None,
         woke: None,
+        routine: None,
+        watch: None,
+        project: None,
         attention: theseus_protocol::Attention {
             label: String::new(),
             ..v.attention.clone()

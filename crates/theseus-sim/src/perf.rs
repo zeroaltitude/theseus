@@ -43,6 +43,7 @@ use crate::procfs::{self, Sample};
 use crate::walcount::{Frame, Tail};
 use counted::{Counted, Counter};
 
+mod agenda;
 mod budgets;
 #[cfg(test)]
 mod burst;
@@ -56,6 +57,7 @@ mod runs;
 mod soak;
 mod status;
 
+pub use agenda::{agenda_cmd, AgendaArgs};
 pub use concurrency::{concurrency_cmd, ConcurrencyArgs};
 pub use prompt::{prompt_cmd, PromptArgs};
 use runs::Run;

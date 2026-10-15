@@ -42,13 +42,20 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.dismissed == b.dismissed
         && a.retry_of == b.retry_of
         && a.thread == b.thread
+        && a.purpose == b.purpose
+        && a.next_at_ms == b.next_at_ms
+        && a.series == b.series
+        && a.paused == b.paused
+        && a.routine == b.routine
+        && a.watch == b.watch
+        && a.project == b.project
 }
 
 /// One more descendant in a rollup.
 pub(super) fn bump(r: &mut Rollup, v: &WorkView) {
     r.total += 1;
     match v.kind {
-        WorkKind::Wake => {}
+        WorkKind::Wake | WorkKind::Routine | WorkKind::Watch | WorkKind::Project => {}
         WorkKind::Question if !v.state.ended() => r.needs_you += 1,
         WorkKind::Question => {}
         _ => match v.state {
@@ -73,10 +80,14 @@ impl WorkBoard {
         let mut before: HashMap<String, Option<WorkView>> = HashMap::new();
         let mut changed: BTreeSet<String> = BTreeSet::new();
         let mut gone: Vec<(String, String)> = Vec::new();
+        // Executions first: a routine's view reads the views of its runs.
+        let built: Vec<(String, Option<WorkView>)> = d
+            .execs
+            .iter()
+            .map(|id| (id.clone(), self.exec_view(id)))
+            .collect();
+        self.settle_built(f, built, &mut before, &mut changed, &mut gone);
         let mut built: Vec<(String, Option<WorkView>)> = Vec::new();
-        for id in &d.execs {
-            built.push((id.clone(), self.exec_view(id)));
-        }
         for id in &d.wakes {
             built.push((id.clone(), self.wake_view(id)));
         }
@@ -89,24 +100,7 @@ impl WorkBoard {
         for id in &d.system {
             built.push((id.clone(), self.system.view(id)));
         }
-        for (id, new) in built {
-            match new {
-                Some(v) => {
-                    if self.put(f, &mut before, v) {
-                        changed.insert(id);
-                    }
-                }
-                None => {
-                    if let Some(old) = self.views.get(&id).cloned() {
-                        before
-                            .entry(id.clone())
-                            .or_insert_with(|| Some(old.clone()));
-                        self.remove(&id);
-                        gone.push((id, old.root));
-                    }
-                }
-            }
-        }
+        self.settle_built(f, built, &mut before, &mut changed, &mut gone);
         // What the warm-up changed in place goes out with this frame.
         for id in std::mem::take(&mut self.stale) {
             if let Some(v) = self.views.get_mut(&id) {
@@ -152,7 +146,11 @@ impl WorkBoard {
         let mut notices = Vec::new();
         for v in &views {
             let prev = before.get(&v.id).and_then(|o| o.as_ref());
-            if let Some(n) = notice_of(prev, v, &self.rules).filter(|n| !quiet_here(v, n)) {
+            if let Some(mut n) = notice_of(prev, v, &self.rules)
+                .filter(|n| !quiet_here(v, n))
+                .filter(|n| !self.run_speaks_through_its_routine(v, n))
+            {
+                n.answers = theseus_protocol::notices::answers_for(v, n.why);
                 notices.push(n);
             }
         }
@@ -166,6 +164,35 @@ impl WorkBoard {
             gone,
             notices,
             threads: Vec::new(),
+        }
+    }
+
+    /// Put each built view on the board, or take it off when it is no more.
+    fn settle_built(
+        &mut self,
+        f: &Frame,
+        built: Vec<(String, Option<WorkView>)>,
+        before: &mut HashMap<String, Option<WorkView>>,
+        changed: &mut BTreeSet<String>,
+        gone: &mut Vec<(String, String)>,
+    ) {
+        for (id, new) in built {
+            match new {
+                Some(v) => {
+                    if self.put(f, before, v) {
+                        changed.insert(id);
+                    }
+                }
+                None => {
+                    if let Some(old) = self.views.get(&id).cloned() {
+                        before
+                            .entry(id.clone())
+                            .or_insert_with(|| Some(old.clone()));
+                        self.remove(&id);
+                        gone.push((id, old.root));
+                    }
+                }
+            }
         }
     }
 
@@ -256,12 +283,18 @@ impl WorkBoard {
             self.running.remove(&v.id);
             self.last.remove(&v.id);
         }
+        if super::horizon::is_future(&v) {
+            self.futures.insert(v.id.clone());
+        } else {
+            self.futures.remove(&v.id);
+        }
         self.views.insert(v.id.clone(), v);
     }
 
     fn remove(&mut self, id: &str) {
         self.running.remove(id);
         self.last.remove(id);
+        self.futures.remove(id);
         if let Some(v) = self.views.remove(id) {
             if let Some(p) = &v.parent {
                 if let Some(k) = self.kids.get_mut(p) {
@@ -468,6 +501,20 @@ fn quiet_here(v: &WorkView, n: &Notice) -> bool {
                 n.why,
                 Why::Asked | Why::Answered | Why::Expired | Why::Reminder
             ))
+}
+
+impl WorkBoard {
+    /// A routine's run that fails or blocks is told by the routine, whose
+    /// notice carries the answers (run now, pause, details); the run's own
+    /// would say it twice.
+    fn run_speaks_through_its_routine(&self, v: &WorkView, n: &Notice) -> bool {
+        use theseus_protocol::notices::Why;
+        matches!(n.why, Why::Failed | Why::Blocked)
+            && v.parent
+                .as_ref()
+                .and_then(|p| self.views.get(p))
+                .is_some_and(|p| p.kind == WorkKind::Routine)
+    }
 }
 
 /// An ended view that may leave its root: done, cancelled, expired, and a

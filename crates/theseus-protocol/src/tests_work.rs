@@ -46,6 +46,13 @@ fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkVie
         dismissed: false,
         retry_of: None,
         thread: None,
+        purpose: None,
+        next_at_ms: None,
+        series: None,
+        paused: false,
+        routine: None,
+        watch: None,
+        project: None,
     }
 }
 
@@ -76,7 +83,7 @@ fn question(kind: QuestionKind) -> Question {
     q
 }
 
-const KINDS: [WorkKind; 7] = [
+const KINDS: [WorkKind; 10] = [
     WorkKind::Conversation,
     WorkKind::Task,
     WorkKind::Step,
@@ -84,6 +91,9 @@ const KINDS: [WorkKind; 7] = [
     WorkKind::Question,
     WorkKind::Wake,
     WorkKind::System,
+    WorkKind::Routine,
+    WorkKind::Watch,
+    WorkKind::Project,
 ];
 
 const STATES: [WorkState; 10] = [
@@ -138,7 +148,7 @@ fn every_kind_and_state_with_and_without_a_question_has_its_level() {
             }
         }
     }
-    assert_eq!(seen, 7 * 10 * 3);
+    assert_eq!(seen, 10 * 10 * 3);
 }
 
 /// Each label, as `attention()`'s are written.

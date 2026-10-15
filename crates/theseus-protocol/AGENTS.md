@@ -34,6 +34,16 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   sticky `past` bit, and Jev's latest read), its words (`words`, `spent_of`, `read_words`, `none_words`), and
   `forecast.calibration`'s types (`ForecastCalibrationResult::lines`, what `theseus tasks forecast` prints). Numbers only.
   `notices.rs` row 11 (`Why::PastForecast`) and `forecast_answers()` (Keep going, Stop).
+- `work/horizon.rs` (theseus-nuhsz; horizon HZ8; a submodule of `work.rs`, since lib.rs has no room): the future on the work board.
+  `WorkKind` gained `Routine`, `Watch` and `Project`, and `WorkView` gained `purpose`, `next_at_ms`, `series`, `paused`, `routine`,
+  `watch` and `project` (every one absent from the bytes at its default, so older peers and every old fixture are unchanged).
+  `Horizon` (Now, Today, Week, Later, Recurring, World, Projects), `LocalDay` (the *client's* two local midnights: this crate reads
+  no clock and no zone) and the pure `horizon_of(view, now_ms, day)` / `bucket_at` (the table is its doc). `work.agenda`'s params and
+  answer (`AgendaParams`, `AgendaLine`, `AgendaResult`, at most `AGENDA_MAX` 200 lines), and the answers a new kind offers
+  (`routine_failed_answers`, `watch_met_answers`, `milestone_answers`; `notices::answers_for` and `reminder_notice` attach them).
+  `ProjectView` is declared and empty until the `projects` row fills it. `StatusShortResult` gained `next_due_ms` and
+  `routines_failed`. Tests: `work/tests_horizon.rs`, `tests/work.rs`' `the_future_shapes` (fixtures `view_routine`, `view_watch`,
+  `view_project`, `agenda_*`, `status_short`).
 - `answer.rs` (theseus-ds5os): `work.answer` (`WorkAnswerParams`/`WorkAnswerResult`), `confirm.list`'s optional params,
   `reminder_options()` (a reminder's four answers as `AnswerOption`s, made from `wakes::reminder_answers`, the one
   wording), `approves()` (which option ids approve), and `ConfirmRequest::question(kind, may_answer)`, the pure

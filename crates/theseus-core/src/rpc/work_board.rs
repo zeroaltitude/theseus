@@ -37,6 +37,7 @@ impl Core {
             }
             method::WORK_UNWATCH => reply(self.work_unwatch(conn)),
             method::WORK_PEEK => reply(self.work_peek(parse(params)?, conn).await?),
+            method::WORK_AGENDA => reply(self.work_agenda_rpc(parse(params)?, conn).await?),
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("no method {other}"),
@@ -89,7 +90,7 @@ impl Core {
     /// guarded connection (one that reads no private text) must name them,
     /// and a root that does not speak in a shared place is left out without
     /// a word: asking is no way to learn that a private session exists.
-    fn work_scope(
+    pub(super) fn work_scope(
         &self,
         p: &WorkWatchParams,
         guarded: bool,

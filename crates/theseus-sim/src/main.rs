@@ -319,6 +319,9 @@ enum BenchCmd {
     /// serving a synthetic store (--sessions 1000), p50 and p90 over many runs; --check holds
     /// p90 to 5 ms (theseus-lweh).
     Status(perf::StatusArgs),
+    /// What `work.agenda` costs at its 200 lines: a scratch daemon with reminders and routines, the
+    /// call timed over many runs; --check holds p90 to 5 ms (theseus-nuhsz).
+    Agenda(perf::AgendaArgs),
     /// The release binaries' sizes, against §9's 60 MB (theseus-goa8).
     Size(perf::SizeArgs),
     /// A fresh session's first request in tokens for each kind of place (cli, dm, task, and the
@@ -508,6 +511,9 @@ fn main() -> Result<()> {
         Cmd::Bench {
             bench: BenchCmd::Status(args),
         } => perf::status_cmd(args),
+        Cmd::Bench {
+            bench: BenchCmd::Agenda(args),
+        } => perf::agenda_cmd(args),
         Cmd::Bench {
             bench: BenchCmd::Size(args),
         } => perf::size_cmd(args),

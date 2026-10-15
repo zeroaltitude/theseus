@@ -111,6 +111,9 @@ pub enum Purpose {
     FollowPeek,
     FollowStart,
     Unfollow,
+    /// A key in the Horizon section (a snooze, a pause, a run): the words
+    /// the footer says when it is done.
+    HorizonAct(String),
 }
 
 /// What the loop does for the app.
@@ -183,6 +186,8 @@ pub enum Mode {
     SelfView,
     /// `p`: the standing records that hold in the session in focus.
     Standing,
+    /// `H`: the Horizon section has the keys (theseus-nuhsz).
+    Horizon,
 }
 
 /// Which pane a narrow screen shows: the list, or the session in focus.
@@ -270,6 +275,8 @@ pub struct App {
     pub(crate) threads_focused: bool,
     /// The follow pane: a running job's output, over the detail area.
     pub follow: Option<Follow>,
+    /// The future under the task tree (theseus-nuhsz).
+    pub horizon: crate::horizon::Section,
 }
 
 /// How long after a change of focus the seen file is written.
@@ -317,6 +324,7 @@ impl App {
             selfview: SelfView::default(),
             standing: None,
             system: Default::default(),
+            horizon: Default::default(),
         }
     }
 
@@ -576,6 +584,7 @@ impl App {
                     self.board.work.gone(id);
                 }
                 self.system_changed(&c);
+                self.horizon.apply(&c);
                 self.board_threads.changed(c);
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
@@ -789,6 +798,7 @@ impl App {
             Purpose::ThreadAct(_) => return self.thread_acted(v),
             Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
+            Purpose::HorizonAct(_) => self.horizon_answered(purpose, v),
             Purpose::FollowFind | Purpose::FollowPeek => return self.follow_answered(&purpose, v),
             Purpose::Watch | Purpose::Typing | Purpose::SelfLog => {}
             Purpose::FollowStart | Purpose::Unfollow => {}
@@ -907,6 +917,7 @@ impl App {
             Purpose::Unfollow => return,
             Purpose::SelfLog => method::SELF_LOG,
             Purpose::Standing(_) => method::STANDING_LIST,
+            Purpose::HorizonAct(_) => "the Horizon section",
         };
         let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
@@ -996,6 +1007,7 @@ impl App {
         }
         match self.mode.clone() {
             Mode::Threads => self.picker_key(k),
+            Mode::Horizon => self.horizon_key(k),
             Mode::Help | Mode::Standing => {
                 self.mode = Mode::Normal;
                 Vec::new()
@@ -1020,6 +1032,8 @@ impl App {
     fn work_read(&mut self, v: Value) {
         match serde_json::from_value::<WorkWatchResult>(v) {
             Ok(snap) => {
+                // The Horizon section reads the same watch (theseus-nuhsz).
+                self.horizon.load(snap.clone());
                 self.board.work.snapshot(snap.views.clone());
                 self.system = snap
                     .views
@@ -1139,6 +1153,7 @@ impl App {
                 true => self.flash = Some((Tag::Dim, "no threads on the board".to_string())),
                 false => self.mode = Mode::BoardThreads,
             },
+            KeyCode::Char('H') => self.focus_horizon(),
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
             KeyCode::Char('r') => self.only = Only::Ready,
@@ -1511,7 +1526,7 @@ impl App {
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             // The self view takes no paste.
             Mode::SelfView => {}
-            Mode::Normal | Mode::Help | Mode::Standing | Mode::Armed(..) | Mode::BoardThreads => {
+            Mode::Normal | Mode::Help | Mode::Standing | Mode::Horizon | Mode::Armed(..) | Mode::BoardThreads => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop | Arm::StopAll => "not stopped",

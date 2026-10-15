@@ -14,6 +14,7 @@ mod card;
 mod chat;
 mod detail;
 mod follow;
+mod horizon;
 mod new_task;
 mod notice;
 mod run;
@@ -41,6 +42,8 @@ mod tests_failure;
 mod tests_follow;
 #[cfg(test)]
 mod tests_grant;
+#[cfg(test)]
+mod tests_horizon;
 #[cfg(test)]
 mod tests_markdown;
 #[cfg(test)]

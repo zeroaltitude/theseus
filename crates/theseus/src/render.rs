@@ -34,6 +34,7 @@ mod features;
 mod flight;
 pub mod fork;
 pub mod history;
+pub mod horizon;
 mod imported;
 mod index;
 mod judge;

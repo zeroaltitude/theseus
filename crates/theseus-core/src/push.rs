@@ -458,6 +458,17 @@ impl Push {
         self.work.lock().unwrap().threads()
     }
 
+    /// `work.agenda`: every occurrence in a window, from the board's wakes in
+    /// memory (see `WorkBoard::agenda`).
+    pub fn work_agenda(
+        &self,
+        p: &theseus_protocol::work::horizon::AgendaParams,
+        scope: &WorkScope,
+        zone: &theseus_kernel::TimeZone,
+    ) -> theseus_protocol::work::horizon::AgendaResult {
+        self.work.lock().unwrap().work_agenda(p, scope, zone)
+    }
+
     /// The questions open on the work board, the longest waiting first: from
     /// memory, never the store (`work.answer` resolves against them).
     pub fn open_questions(&self) -> Vec<theseus_protocol::work::Question> {
@@ -497,8 +508,14 @@ impl Push {
     /// The short line's facts (theseus-8kn12): the counts the board keeps as
     /// its views change, and the failures with their positions.
     pub fn status_short(&self) -> theseus_protocol::StatusShortResult {
-        let b = self.board.lock().unwrap();
-        b.short.result(b.position)
+        let mut r = {
+            let b = self.board.lock().unwrap();
+            b.short.result(b.position)
+        };
+        let (next, failed) = self.work.lock().unwrap().future_stats();
+        r.next_due_ms = next;
+        r.routines_failed = failed;
+        r
     }
 
     /// A session's view, loading its execution when the board left it cold

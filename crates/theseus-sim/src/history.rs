@@ -47,7 +47,7 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 29] = [
+pub const OTHER: [(&str, &str); 30] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
@@ -86,6 +86,8 @@ pub const OTHER: [(&str, &str); 29] = [
     ("size_theseus_tui", "MB"),
     // `bench status` (theseus-lweh): `theseus status --short`'s whole run
     ("status_short", "ms"),
+    // `bench agenda` (theseus-nuhsz): `work.agenda` at its 200 lines
+    ("work_agenda", "ms"),
     // `bench turn`'s batch (theseus-d1hi): programs of one response together
     ("turn_batch", "ms"),
     ("frames_batch", "frames"),

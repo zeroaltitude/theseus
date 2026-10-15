@@ -2063,6 +2063,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   finished before it opened would have given, by class, on the blocking pool. Tests: `forecast/tests.rs` (synthetic
   histories), `push/work/tests_forecast.rs` (whole cores: the line, the view, the notice once, a restart, the place),
   and the protocol's `tests_notices.rs` row 11.
+- **The future on the board** (theseus-nuhsz, horizon HZ8; no store change; `push/work/horizon.rs`, `rpc/agenda.rs`): a wake is a
+  `Wake` view with `purpose`, `next_at_ms`, `series` and `paused`; the wake of purpose `Routine` is a `Routine` view and `Watch` a
+  `Watch` view (id: the wake's; parent: the execution; the routine's runs are its children, so a run hangs from the routine, not
+  from its execution). A routine is `Ready` between runs, `Running` while a run's task is open, `NeedsYou` after a failed or blocked
+  last run until it runs well, is paused or deleted (a dismissal needs a record, so none is built), `Waiting` while paused; its
+  `RoutineView` reads the routine's META record (a frame's payload that begins `{"session_id":"` and holds `"wake_id":`),
+  `wake.fired`'s `missed`, `wake.skipped` rows, and the runs the board still holds (30-day counts count the ended runs kept, the 50
+  newest per root). A watch's view reads `watch.checked|met|expired|failing` rows (the seed: `watch_state`), and ends `Done` or
+  `Expired` by them; its `next_at_ms` is the time it gives up (the next check is in the checker's memory). A deferred task's
+  `next_at_ms` is its `DueAt` wait. The board builds executions before wakes in a frame (`settle_built`), since a routine reads its
+  runs' views; a routine's failed run speaks through the routine (`run_speaks_through_its_routine`: one notice, with
+  `answers_for`'s run now, pause, details). `work.watch`'s snapshot appends every future view (`futures`, a small set kept as views
+  are installed) whatever its root does, so a client keeps the future beside the tree. `work.agenda` (`WorkBoard::agenda`) merges
+  the wakes' occurrences lazily by time, to the cap, expanding a series with the kernel's `Repeat::next_after` in the daemon's
+  zone (a DST change keeps the wall time), skipping what is paused; a window ahead is jumped to with its numbers. `status.short`
+  carries `next_due_ms` and `routines_failed` from the `futures` set. Tests: `tests_horizon.rs` (whole cores: the views, a failed run
+  and its answers, a met watch, the agenda's weekdays and its pause and its cap, and the golden `tests/golden/horizon_board.txt`),
+  `push/work/tests_horizon.rs` (a weekday and a cron series across a DST change, a far window, `until`, the cap, a watch).
 - **The push's board**: `crates/theseus-core/src/push/board.rs` (and `push.rs`), fed by `Kernel::observe`; `attention()` is in
   `crates/theseus-protocol/src/push.rs`. A view's `outstanding` counts tool calls only, never the model's own
   (`tool_calls`, as `park` counts them), and `same()` compares it; a queued view keeps its `why` until it leaves

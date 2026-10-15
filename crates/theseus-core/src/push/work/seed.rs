@@ -50,6 +50,38 @@ pub(in crate::push) fn seed(
         };
         w.add_exec(core, *pos, e, x, by_exec.remove(&e.id), &mut d);
     }
+    // The routines' records and the watches' last values, which the frames
+    // that wrote them are behind the seed (`horizon.rs`).
+    for s in core
+        .runner
+        .tools
+        .routines
+        .all(&core.store)
+        .unwrap_or_default()
+    {
+        w.routines.entry(s.wake_id.clone()).or_default().spec = Some((*s).clone());
+    }
+    let watches: Vec<String> = w
+        .execs
+        .values()
+        .flat_map(|e| e.wakes.iter())
+        .filter(|k| k.probe().is_some())
+        .map(|k| k.id.clone())
+        .collect();
+    for id in watches {
+        if let Ok(Some(st)) = core.kernel.watch_state(&id) {
+            w.watches.insert(
+                id,
+                super::horizon::WatchIn {
+                    value: st.last,
+                    at_ms: st.checked_ms,
+                    checks: st.checks,
+                    failing: st.failing,
+                    end: None,
+                },
+            );
+        }
+    }
     // The steps that hang from an execution on the board.
     let all: HashMap<String, TaskRecord> = plan.iter().map(|t| (t.id.clone(), t.clone())).collect();
     w.steps = all;

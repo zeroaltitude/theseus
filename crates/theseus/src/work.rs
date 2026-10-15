@@ -210,6 +210,9 @@ fn kind_word(k: WorkKind) -> &'static str {
         WorkKind::Question => "question",
         WorkKind::Wake => "wake",
         WorkKind::System => "system",
+        WorkKind::Routine => "routine",
+        WorkKind::Watch => "watch",
+        WorkKind::Project => "project",
     }
 }
 

@@ -435,6 +435,19 @@ fn woke(c: &Change) -> Option<Said> {
     said(urgency, Why::Woke, line, None)
 }
 
+/// What the owner may answer a notice with, by the kind of work it is about
+/// (theseus-nuhsz): a routine whose run failed or blocked (run now, pause,
+/// details). A reminder's and a met watch's ride `wake.noticed`
+/// (`reminder_notice`); everything else has none.
+pub fn answers_for(v: &WorkView, why: Why) -> Vec<WakeAnswer> {
+    match (v.kind, why) {
+        (WorkKind::Routine, Why::Failed | Why::Blocked) => {
+            crate::work::horizon::routine_failed_answers()
+        }
+        _ => vec![],
+    }
+}
+
 /// Rule 4's ping by purpose: a reminder is for the owner, so it interrupts;
 /// so does a watch that is met (`watch.met`, theseus-f2r2b: what the owner
 /// waited for). The model's own check-ins, a routine's run, and a watch that
@@ -581,6 +594,8 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
             reminder_answers()
         } else if routine {
             n.answers.clone()
+        } else if n.purpose == "watch.met" {
+            crate::work::horizon::watch_met_answers()
         } else {
             vec![]
         },
