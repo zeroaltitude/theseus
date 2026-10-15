@@ -72,7 +72,13 @@ fn fetch(ui: std::net::SocketAddr, head: &str) -> (String, String) {
 /// before the suite (a debug daemon reads `cockpit/dist` as it serves), and otherwise the 404 that says how to
 /// build it.
 fn assert_cockpit(ui: std::net::SocketAddr, host: &str, what: &str) {
-    let (st, body) = fetch(ui, &get("/", host));
+    assert_cockpit_at(ui, host, "/", what);
+}
+
+/// The same at a route of the app (theseus-x9swu): the link in a reply's footer, `/session/<id>/turn/<turn>`,
+/// is the app shell too, which draws the inspector from there.
+fn assert_cockpit_at(ui: std::net::SocketAddr, host: &str, path: &str, what: &str) {
+    let (st, body) = fetch(ui, &get(path, host));
     let built = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("cockpit/dist/index.html")
         .exists();
@@ -133,6 +139,12 @@ fn the_web_ui_answers_only_its_own_page_and_address() {
     // The UI's own address and page: the cockpit, and the socket opens.
     assert_cockpit(ui, &own, "the app");
     assert_cockpit(ui, &local, "the app at localhost");
+    assert_cockpit_at(
+        ui,
+        &local,
+        "/session/ses_x/turn/trn_y",
+        "a turn's inspector link",
+    );
     let (st, _) = fetch(ui, &get("/cockpit/session/ses_x", &own));
     assert!(st.contains(" 308 "), "the cockpit's old address: {st}");
     switched(&status(port, &upgrade(&own, Some(&page))), "its own page");

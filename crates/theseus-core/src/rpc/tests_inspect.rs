@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use theseus_protocol::inspect::{TurnInspectParams, TurnInspectResult};
 use theseus_protocol::{SessionKind, Usage};
 
-use super::tests::test_core;
+use super::tests::{roundtrip, submit, test_core, test_core_with};
 use super::Core;
 use crate::node::{Body, Node, ResultStatus};
 use crate::session::SessionRecord;
@@ -124,14 +124,14 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
                 let mut c = Node::tool_call(
                     &s,
                     Some(&t),
-                    Some(i),
+                    None,
                     Body::ToolCall {
                         tool_use_id: u.clone(),
                         tool: "fs.list".into(),
                         wire_name: "fs_list".into(),
                         input: json!({"path": "/harbour"}),
                         assistant_node: aid.clone(),
-                        correlation_id: None,
+                        correlation_id: Some(u.replace("tu_", "act_")),
                         gate: None,
                     },
                 );
@@ -140,7 +140,7 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
                 let mut r = Node::tool_result(
                     &s,
                     Some(&t),
-                    Some(i),
+                    None,
                     Body::ToolResult {
                         tool_use_id: u.clone(),
                         tool: "fs.list".into(),
@@ -180,16 +180,15 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
         "tool.confirm_requested",
         &s,
         &t,
-        json!({"tool": "proc.run", "tool_use_id": "tu_0_0"}),
+        json!({"tool": "proc.run", "tool_use_id": "tu_0_0", "correlation_id": "act_q"}),
     );
-    row(
-        core,
-        T0 + 900,
-        "action.confirm_answered",
-        &s,
-        &t,
-        json!({"answer": "approve"}),
-    );
+    // The answer is written with no turn, as the daemon writes it, and may come long after.
+    core.store
+        .append_ledger(
+            &json!({"at_unix_ms": T0 + 900, "kind": "action.confirm_answered", "session_id": s,
+                               "data": {"correlation_id": "act_q", "option": "approve"}}),
+        )
+        .unwrap();
     row(
         core,
         T0 + 1_000 * u64::from(loops + 1),
@@ -279,6 +278,11 @@ fn a_multi_loop_turn_comes_back_whole() {
     }
     let l0 = &r.loops[0];
     assert_eq!(l0.calls.len(), 2);
+    assert_eq!(
+        l0.calls[0].correlation_id.as_deref(),
+        Some("act_0_0"),
+        "a call names its action's ledger rows"
+    );
     assert_eq!(l0.compiled.as_ref().unwrap().est_tokens, 9_000);
     let a = l0.answer.as_ref().unwrap();
     assert_eq!(
@@ -433,4 +437,38 @@ fn a_turn_nothing_routed_shows_the_target_it_started_on() {
     assert_eq!(r.route["profile"], "sonnet");
     assert_eq!(r.outcome, "ended");
     assert!(r.loops.is_empty() && r.prev_turn.is_none() && r.next_turn.is_none());
+}
+
+/// A real turn's result carries the link built from `[cockpit] public_url`
+/// (a relay's port, never a hard-coded one), and `turn.inspect` of that turn
+/// answers the same link.
+#[tokio::test]
+async fn a_turns_result_links_to_it_at_the_configured_address() {
+    let core = test_core_with("ok", |c| {
+        c.cockpit.public_url = "http://localhost:17433".into();
+    });
+    let out = roundtrip(core.clone(), vec![submit(1, "hello")]).await;
+    let Some(theseus_protocol::Message::Response(r)) = out
+        .iter()
+        .find(|m| matches!(m, theseus_protocol::Message::Response(_)))
+    else {
+        panic!("the turn answered nothing")
+    };
+    let res: theseus_protocol::TurnSubmitResult =
+        serde_json::from_value(r.result.clone().expect("a result")).unwrap();
+    let url = res.inspect_url.clone().expect("the result's link");
+    assert_eq!(
+        url,
+        format!(
+            "http://localhost:17433/session/{}/turn/{}",
+            res.session_id, res.turn_id
+        )
+    );
+    let seen = inspect(&core, &res.session_id, &res.turn_id, true);
+    assert_eq!(seen.url, url);
+    assert_eq!(seen.outcome, "ended");
+    assert_eq!(seen.totals.model_calls, 1);
+    assert!(seen.loops[0].answer.as_ref().unwrap().blocks[0]["text"].is_string());
+    assert!(seen.loops[0].compiled.is_some(), "the loop's compile row");
+    assert!(seen.trace.is_some(), "the turn's trace row");
 }
