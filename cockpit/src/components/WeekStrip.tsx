@@ -55,7 +55,7 @@ export function WeekStrip({ marks, window: w, now, selected, onPick, onHover, on
           <span style={{ color: toneHex.ok }}>✓ ok</span><span style={{ color: toneHex.fault }}>✗ failed</span><span style={{ color: toneHex.idle }}>– skipped</span>
           <span style={{ color: toneHex.wait }}>▷ task starts · ⚑ milestone</span><span style={{ color: toneHex.think }}>▬ watch</span>
         </span>
-        {hidden && <span className="ml-auto text-wait">more fell in the week than the strip holds</span>}
+        {hidden && <span className="ml-auto text-wait">the daemon would say more than the strip holds: busy series are cut</span>}
       </div>
       <div className="grid grid-cols-[28px_repeat(7,minmax(0,1fr))] gap-px overflow-x-auto rounded-lg bg-line/60 ring-1 ring-line">
         <div className="bg-hull/80" />

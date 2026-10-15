@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgendaResult, RoutineRunsResult, RunRow, WakeInfo, WakeListResult, WorkChanged, WorkView } from '@protocol'
 import { client, useConn } from './rpc'
-import { RUNS_SHOWN, runsSignature, touchesFuture } from './agenda'
+import { page, RUNS_SHOWN, runsSignature, touchesFuture } from './agenda'
 
 /** The push's bursts are one read: a frame that moves three wakes tells three views at once. */
 const DEBOUNCE_MS = 300
@@ -25,10 +25,13 @@ export function useFuture(from_ms: number, to_ms: number, held: ReadonlySet<stri
     let timer: ReturnType<typeof setTimeout> | null = null
     const read = async () => {
       try {
-        const [agenda, wl] = await Promise.all([
+        const [first, wl] = await Promise.all([
           client.call<AgendaResult>('work.agenda', { from_ms, to_ms }),
           client.call<WakeListResult>('wake.list', {}),
         ])
+        // The daemon answers at most AGENDA_MAX lines. A busy series (a routine every five minutes) can fill them
+        // before the week is out, so the rest is read from where the lines stopped, only when it says `more`.
+        const agenda = await page(first, (from) => client.call<AgendaResult>('work.agenda', { from_ms: from, to_ms }))
         if (!dead) setState({ agenda, wakes: wl.wakes, error: null })
       } catch (e) {
         if (!dead) setState((s) => ({ ...s, error: e instanceof Error ? e.message : String(e) }))

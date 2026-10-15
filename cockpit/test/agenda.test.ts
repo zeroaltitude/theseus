@@ -4,9 +4,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import type { AgendaLine, RunRow, WakeInfo, WorkView } from '../src/protocol.gen/index.ts'
+import type { AgendaLine, AgendaResult, RunRow, WakeInfo, WorkView } from '../src/protocol.gen/index.ts'
 import {
-  allMarks, costSeries, dayOf, futureMarks, glyph, lastRuns, layout, outcomeOf, pastMarks, projectRows, routineRows, routineVerbs, runsSignature,
+  allMarks, costSeries, page, dayOf, futureMarks, glyph, lastRuns, layout, outcomeOf, pastMarks, projectRows, routineRows, routineVerbs, runsSignature,
   sparkPoints, toneOf, touchesFuture, verbsFor, wakeFacts, watchBars, watchRows, weekWindow, RUNS_SHOWN, type Mark,
 } from '../src/lib/agenda.ts'
 
@@ -246,4 +246,31 @@ test('the strip lays out 200 items in under 16 ms', () => {
     assert.ok(median < 16, `median ${median} ms`)
     assert.equal(layout(marks, w).placed.length, 200)
   })
+})
+
+test('a busy series that fills the daemon’s cap is read on from where its lines stopped, and nothing is lost or doubled', async () => {
+  // A minute-by-minute stream of 450 lines, the daemon answering 200 at a time from the asked time, `more` while it has left.
+  const all = Array.from({ length: 450 }, (_, i) => line('run', 1_000 + i * 60_000, { id: 'wak_busy', occurrence: i + 1 }))
+  const ask: number[] = []
+  const answer = async (from: number): Promise<AgendaResult> => {
+    ask.push(from)
+    const rest = all.filter((l) => l.at_ms >= from)
+    return { from_ms: from, to_ms: 9e12, lines: rest.slice(0, 200), more: rest.length > 200 }
+  }
+  const out = await page(await answer(0), answer)
+  assert.equal(out.lines.length, 450)
+  assert.equal(new Set(out.lines.map((l) => `${l.id}:${l.at_ms}`)).size, 450, 'no line twice')
+  assert.equal(out.more, false)
+  assert.equal(ask.length, 3, 'three reads for 450 lines, the first included')
+  assert.deepEqual(out.lines.map((l) => l.at_ms), all.map((l) => l.at_ms), 'in order')
+  // One read when the answer is whole; a stream that never ends stops at the page limit and says it is cut.
+  ask.length = 0
+  const small = await page({ from_ms: 0, to_ms: 9, lines: all.slice(0, 3), more: false }, answer)
+  assert.equal(small.lines.length, 3)
+  assert.equal(ask.length, 0)
+  let calls = 0
+  const endless = async (from: number): Promise<AgendaResult> => { calls++; return { from_ms: from, to_ms: 9e12, lines: [line('run', from + 60_000, { id: `wak_${calls}` })], more: true } }
+  const cut = await page({ from_ms: 0, to_ms: 9e12, lines: [line('run', 5, { id: 'wak_0' })], more: true }, endless)
+  assert.equal(cut.more, true)
+  assert.ok(calls <= 12, `${calls} reads`)
 })

@@ -18,7 +18,7 @@ import { markLine } from '@/lib/agendawords'
 import { RoutinesTable } from '@/components/RoutinesTable'
 import { ProjectList, WatchList } from '@/components/FutureLists'
 import { Wakes } from '@/components/Wakes'
-import { clock } from '@/lib/format'
+import { stamp } from '@/lib/format'
 import { useNavigate } from 'react-router'
 
 export default function Agenda() {
@@ -46,7 +46,7 @@ export default function Agenda() {
     <div className="flex flex-col gap-3">
       {error && <div className="rounded-lg bg-fault/[0.06] px-3 py-2 text-[12px] text-fault ring-1 ring-fault/30">the agenda could not be read: {error}</div>}
       <Panel help="agenda.week" title={<>This week · {marks.length} item{marks.length === 1 ? '' : 's'}</>} icon={<CalendarClock size={13} />} bodyClassName="p-3"
-        actions={<span className="num truncate text-[11px] text-ink-faint">{hover ? markLine(hover).split('\n')[0] : `${clock(win.from_ms)} → ${clock(win.to_ms - 1)}`}</span>}>
+        actions={<span className="num truncate text-[11px] text-ink-faint">{hover ? markLine(hover).split('\n')[0] : `${stamp(win.from_ms)} → ${stamp(win.to_ms - 1)}`}</span>}>
         <WeekStrip marks={marks} window={win} now={now} selected={sel} weeks={weeks} hidden={agenda?.more}
           onPick={(m) => set('sel', sel === m.key ? null : m.key)} onHover={setHover} onWeek={(d) => set('w', String(weeks + d))} />
         {picked && <Detail mark={picked} onClose={() => set('sel', null)} onOpen={(id) => nav(`/session/${id}`)} />}

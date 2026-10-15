@@ -10,7 +10,7 @@
 //   by how it ended), a deferred task's start (▷), a project's milestone (flag), or a watch's check (a bar across its
 //   window, from the time it was set to the time it gives up).
 // - Past runs are `routine.runs`' rows; the future is `work.agenda`'s lines. Neither is copied into a ledger of its own.
-import type { AgendaLine, RoutineInfo, RunRow, WakeInfo, WorkView } from '@protocol'
+import type { AgendaLine, AgendaResult, RoutineInfo, RunRow, WakeInfo, WorkView } from '@protocol'
 
 export const DAY_MS = 86_400_000
 export const HOUR_MS = 3_600_000
@@ -359,6 +359,24 @@ export function projectRows(views: readonly WorkView[]): ProjectRow[] {
 }
 
 // ---------------------------------------------------------------- the push
+
+/** Follows a capped answer to the end of its window: while it says `more`, the next read starts at its last line (a
+ *  line at that very time comes again, and is dropped). At most `MAX_PAGES` reads, then the answer says `more` still. */
+export async function page(first: AgendaResult, next: (from_ms: number) => Promise<AgendaResult>): Promise<AgendaResult> {
+  let out = first
+  for (let n = 1; out.more && n < MAX_PAGES && out.lines.length; n++) {
+    const from = out.lines[out.lines.length - 1].at_ms
+    const r = await next(from)
+    const seen = new Set(out.lines.map(lineKey))
+    const lines = [...out.lines, ...r.lines.filter((l) => !seen.has(lineKey(l)))]
+    if (lines.length === out.lines.length) break
+    out = { from_ms: first.from_ms, to_ms: first.to_ms, lines, more: r.more }
+  }
+  return out
+}
+const MAX_PAGES = 12
+const lineKey = (l: AgendaResult['lines'][number]) => `${l.what}:${l.id}:${l.at_ms}`
+
 
 /** Does this `work.changed` (its views and gone ids) touch the future: a wake, routine, watch or project, or a task
  *  with a start time? Only then does the page read `work.agenda` and `wake.list` again; nothing else moves them. */
