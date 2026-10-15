@@ -179,18 +179,24 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         }
     }
     drop(out);
+    crate::digest::status_line(&mut conn, a.short || json).await;
     // The long form shows the sessions that need you or work: recorded as seen
     // after its output, as `history` does. `--short` and `--json` are a status
     // bar's and a script's polls, and show no one anything.
     if !a.short && !json {
-        let shown: Vec<String> = board
-            .ordered()
-            .iter()
-            .map(|v| v.session_id.clone())
-            .collect();
-        theseus_client::shown::shown(&mut conn, &shown).await;
+        mark_shown(&mut conn, &board).await;
     }
     conn.close().await
+}
+
+/// The sessions the board showed, recorded as seen.
+async fn mark_shown(conn: &mut Conn, board: &Board) {
+    let shown: Vec<String> = board
+        .ordered()
+        .iter()
+        .map(|v| v.session_id.clone())
+        .collect();
+    theseus_client::shown::shown(conn, &shown).await;
 }
 
 /// The daemon's own jobs running (`⚙ importing 41/120`), from the work board,

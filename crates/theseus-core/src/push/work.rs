@@ -24,6 +24,7 @@
 //! - **No timer.** A question's reminder (rule 2 of the policy) is a view
 //!   against itself later; nothing wakes the board for it.
 
+mod digest;
 mod eta;
 mod forecast;
 mod horizon;
@@ -42,6 +43,7 @@ use theseus_protocol::work::{Question, Rollup, Woke, WorkKind, WorkState, WorkVi
 use theseus_protocol::{ExecutionView, Level, SessionKind};
 use theseus_store::kinds;
 
+pub use digest::DigestRead;
 pub use place::Scope;
 
 use super::board::Board;
@@ -56,6 +58,8 @@ use crate::forecast::Outcome;
 
 /// The notices the board keeps for `work-digest`.
 pub const RING: usize = 4096;
+/// The `wake.fired` rows the board keeps for the digest.
+pub const FIRED: usize = 1024;
 
 /// The rows kept for an action the board has not seen yet.
 const EARLY: usize = 256;
@@ -181,6 +185,8 @@ struct Taken {
     execs: Vec<(u64, Execution)>,
     actions: Vec<(u64, Action)>,
     rows: Vec<LedgerRow>,
+    /// The frame's `wake.fired` rows with their own positions (the digest).
+    fired: Vec<(u64, LedgerRow)>,
     tasks: Vec<(u64, TaskRecord)>,
     sessions: Vec<SessionRecord>,
     /// Routine records the frame carried (horizon).
@@ -239,6 +245,11 @@ pub(super) struct WorkBoard {
     ring: VecDeque<Notice>,
     /// The newest position of a notice that left the ring.
     evicted: u64,
+    /// The last `FIRED` `wake.fired` rows with their positions, and the newest
+    /// position of one that left: what `work.digest` tells a wake from, the
+    /// one fact the ledger's path reads too (theseus-qkoi3).
+    fired: VecDeque<(u64, LedgerRow)>,
+    fired_evicted: u64,
     rules: Rules,
     /// The threads' groups by slug, and the thread each session serves
     /// (`threads.rs`).
@@ -309,7 +320,17 @@ impl WorkBoard {
             .filter(|n| n.position > position)
             .cloned()
             .collect();
-        (out, position >= self.evicted.max(self.seeded_at))
+        let reaches = self.evicted.max(self.fired_evicted).max(self.seeded_at);
+        (out, position >= reaches)
+    }
+
+    /// The `wake.fired` rows after `position`, oldest first.
+    pub(super) fn fired_since(&self, position: u64) -> Vec<(u64, LedgerRow)> {
+        self.fired
+            .iter()
+            .filter(|(p, _)| *p > position)
+            .cloned()
+            .collect()
     }
 
     /// The board as `work.watch` answers it: its position, every root that
@@ -448,6 +469,14 @@ impl WorkBoard {
         self.position = self.position.max(f.position);
         self.now_ms = self.now_ms.max(f.at_ms);
         let taken = Self::decode(core, f);
+        for row in &taken.fired {
+            if self.fired.len() == FIRED {
+                if let Some((p, _)) = self.fired.pop_front() {
+                    self.fired_evicted = self.fired_evicted.max(p);
+                }
+            }
+            self.fired.push_back(row.clone());
+        }
         let mut d = Dirty::default();
         for spec in &taken.routines {
             self.take_routine_spec(spec.clone(), &mut d);
@@ -476,6 +505,7 @@ impl WorkBoard {
             execs: Vec::new(),
             actions: Vec::new(),
             rows: Vec::new(),
+            fired: Vec::new(),
             tasks: Vec::new(),
             sessions: Vec::new(),
             routines: Vec::new(),
@@ -508,6 +538,9 @@ impl WorkBoard {
                 }
                 kinds::LEDGER => {
                     if let Ok(r) = serde_json::from_slice::<LedgerRow>(payload) {
+                        if r.kind == "wake.fired" {
+                            t.fired.push((*pos, r.clone()));
+                        }
                         t.rows.push(r);
                     }
                 }

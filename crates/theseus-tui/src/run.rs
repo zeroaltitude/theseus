@@ -291,14 +291,8 @@ impl<B: Backend> Runner<B> {
                 self.app.resized(w, h);
                 Vec::new()
             }
-            TermEvent::FocusGained => {
-                self.app.term_focused(true);
-                Vec::new()
-            }
-            TermEvent::FocusLost => {
-                self.app.term_focused(false);
-                Vec::new()
-            }
+            TermEvent::FocusGained => self.app.term_focused(true),
+            TermEvent::FocusLost => self.app.term_focused(false),
             _ => Vec::new(),
         };
         self.apply(effects).await;

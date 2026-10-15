@@ -20,6 +20,7 @@ mod census;
 mod chat_cmd;
 mod cite;
 mod cmd;
+mod digest;
 mod earned;
 mod extend;
 mod follow;
@@ -114,6 +115,7 @@ Quick start:
   theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
   theseus wait --any --until blocked         return once any session needs you
   theseus status [--short] [--watch]         what needs you, what works, what failed: a screen, a prompt segment, a status bar
+  theseus digest [--since 2h]                what finished, failed or was answered since you last looked, in a few lines
   theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
@@ -541,6 +543,11 @@ enum Cmd {
     /// reminders), Waiting on the world (watches) and Projects, with the verbs that act on them.
     /// `--watch` keeps it current.
     Agenda(agenda::AgendaArgs),
+    /// What finished, failed, was answered or woke since you last looked, in a few lines
+    /// (work.digest). `--since 2h` names a time; the default is since the last time a terminal
+    /// client showed you the board, and with none yet, the last 24 hours. `--session` is one
+    /// conversation's or task's own timeline.
+    Digest(digest::DigestArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
@@ -1326,15 +1333,16 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
-/// `theseus agenda`, `prefix`, `card` and `voice`: the horizon, the prefix library's report, the owner card's
-/// proposals, and the speaking voice.
+/// `theseus agenda`, `prefix`, `card`, `voice` and `digest`: the horizon, the prefix library's report, the
+/// owner card's proposals, the speaking voice, and what happened while you were away.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Agenda(a) => agenda::run(c, json, a).await,
         Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
         Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Voice { cmd } => voice_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        _ => unreachable!("only agenda, prefix, card and voice come here"),
+        Cmd::Digest(a) => digest::run(c, json, a).await,
+        _ => unreachable!("only agenda, prefix, card, voice and digest come here"),
     }
 }
 
@@ -1446,9 +1454,9 @@ async fn run(cli: Cli) -> Result<()> {
             ..
         } => wait_session_or_any(c, json, session, until, after, timeout).await,
         cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. }) => long_cmd(c, json, cmd).await,
+        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_)) => long_cmd(c, json, cmd).await,
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
-            unreachable!("returned above, or exec'd by main")
+            unreachable!("above")
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,

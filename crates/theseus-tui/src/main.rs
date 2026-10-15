@@ -37,6 +37,8 @@ mod tests_cite;
 #[cfg(test)]
 mod tests_diff;
 #[cfg(test)]
+mod tests_digest;
+#[cfg(test)]
 mod tests_failure;
 #[cfg(test)]
 mod tests_follow;

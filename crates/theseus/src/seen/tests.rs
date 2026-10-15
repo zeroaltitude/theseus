@@ -194,6 +194,7 @@ fn the_older_tui_file_is_read_when_the_new_one_is_absent() {
         version: VERSION,
         board_read: true,
         executions: HashMap::from([("a".to_string(), mark(3, 9, 9))]),
+        looked: Looked::default(),
         forget: Vec::new(),
     })
     .unwrap();
@@ -263,4 +264,39 @@ fn done_count_is_the_finishes_not_yet_displayed() {
     // The CLI showed it: nothing is done.
     record(&path, &[view("a", 20, "ready", 1)]).unwrap();
     assert_eq!(done_count(&path), 0);
+}
+
+#[test]
+fn the_last_look_is_the_machines_and_only_moves_forward() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    assert_eq!(looked(&path), Looked::default(), "no file, no look");
+    record_looked(&path, 500, 9_000).unwrap();
+    assert_eq!(
+        looked(&path),
+        Looked {
+            position: 500,
+            at_ms: 9_000
+        }
+    );
+    // An older look from a slower client changes nothing.
+    record_looked(&path, 400, 9_500).unwrap();
+    assert_eq!(looked(&path).position, 500);
+    record_looked(&path, 700, 9_100).unwrap();
+    assert_eq!(looked(&path).position, 700);
+}
+
+#[test]
+fn the_tuis_save_keeps_the_last_look_another_client_wrote() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seen.json");
+    record_looked(&path, 800, 1).unwrap();
+    let mut seen = Seen::open(Some(path.clone()));
+    seen.first_board_read();
+    write_merged(&path, &seen.text(&|_| true)).unwrap();
+    assert_eq!(looked(&path).position, 800, "a save is not a look");
+    assert!(
+        read_file(&path).unwrap().board_read,
+        "and the file still says the board was read"
+    );
 }

@@ -83,6 +83,9 @@ impl Shared {
         let Some(InteractionData::ApplicationCommand(c)) = &i.data else {
             return false;
         };
+        if c.name == "digest" {
+            return self.digest_interaction(i, tx, who).await;
+        }
         if c.name != "why" {
             return false;
         }
