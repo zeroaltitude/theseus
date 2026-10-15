@@ -1338,6 +1338,21 @@ async fn wait_any(c: &mut Conn, json: bool, until: &str, timeout: Option<&str>) 
     status::wait_any(c, json, until, ms).await
 }
 
+/// `theseus wait`: one arm of `run` (clippy holds it to 100 lines).
+async fn wait_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    let Cmd::Wait {
+        session,
+        until,
+        after,
+        timeout,
+        ..
+    } = cmd
+    else {
+        unreachable!("only wait comes here")
+    };
+    wait_session_or_any(c, json, session, until, after, timeout).await
+}
+
 /// `theseus agenda`, `prefix`, `card`, `voice`, `digest` and `mode`: the horizon, the prefix library's report,
 /// the owner card's proposals, the speaking voice, what happened while you were away, and a conversation's mode.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
@@ -1452,18 +1467,15 @@ async fn run(cli: Cli) -> Result<()> {
         cmd @ (Cmd::Resume { .. } | Cmd::Done { .. }) => remind::settle(c, json, cmd).await,
         Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
         cmd @ (Cmd::Dismiss { .. } | Cmd::Retry(_)) => retry::run(c, json, cmd).await,
-        Cmd::Wait {
-            session,
-            until,
-            after,
-            timeout,
-            ..
-        } => wait_session_or_any(c, json, session, until, after, timeout).await,
+        w @ Cmd::Wait { .. } => wait_cmd(c, json, w).await,
         cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_) | Cmd::Mode(_)) => long_cmd(c, json, cmd).await,
+        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_) | Cmd::Mode(_)) => {
+            long_cmd(c, json, cmd).await
+        }
         Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
             unreachable!("above")
         }
+        cmd @ (Cmd::Card { .. } | Cmd::Voice { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,
@@ -1476,7 +1488,6 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        cmd @ (Cmd::Card { .. } | Cmd::Voice { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Notices { cmd } => notices_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
