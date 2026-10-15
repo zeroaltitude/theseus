@@ -283,6 +283,8 @@ fn main() -> Result<()> {
         // replays nothing; but redb never closes, and the holder should join.
         tracing::warn!(
             held,
+            core = CORE.get().map_or(0, std::sync::Weak::strong_count),
+            threads = %live_threads(),
             "stop: handles on the store outlived the runtime, so it is not closed (the stop's checkpoint was durable by itself)"
         );
     }
@@ -854,6 +856,23 @@ async fn reap_children() {
             _ = tick.tick() => {}
         }
     }
+}
+
+/// The names of the threads still alive (`/proc/self/task/*/comm`), counted:
+/// after the runtime is dropped, the ones left are who holds the store.
+fn live_threads() -> String {
+    let mut names: std::collections::BTreeMap<String, usize> = Default::default();
+    if let Ok(dir) = std::fs::read_dir("/proc/self/task") {
+        for t in dir.flatten() {
+            let comm = std::fs::read_to_string(t.path().join("comm")).unwrap_or_default();
+            *names.entry(comm.trim().to_string()).or_default() += 1;
+        }
+    }
+    names
+        .into_iter()
+        .map(|(n, c)| format!("{n}x{c}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// A daemon that restarted itself is the image `/proc/self/exe`, which the

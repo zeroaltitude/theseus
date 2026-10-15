@@ -67,9 +67,20 @@ pub fn start(core: Arc<TheseusCore>) {
         match listen(core.clone()).await {
             Ok(server) => {
                 let server = Arc::new(server);
-                let read = server.clone();
-                core.mcp_server
-                    .listening(Arc::new(move || health(&read.stats())));
+                // The core keeps this closure and the server holds the core:
+                // by `Weak`, so a stop that never reaches the server (a
+                // signal, once) cannot leave the core and its store alive
+                // past the runtime (theseus-7okz9).
+                let read = Arc::downgrade(&server);
+                core.mcp_server.listening(Arc::new(move || {
+                    read.upgrade().map_or_else(
+                        || McpServerHealth {
+                            state: "stopped".into(),
+                            ..McpServerHealth::default()
+                        },
+                        |s| health(&s.stats()),
+                    )
+                }));
                 // It stops with the daemon.
                 core.shutdown.notified().await;
                 server.stop();
