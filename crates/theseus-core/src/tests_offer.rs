@@ -30,6 +30,16 @@ struct Rig {
 /// A core whose classify batch acts and whose provider answers after `PROVIDER_MS`;
 /// `routing`: route.v5 asks too, with every detour on the `zai` fake.
 fn rig(jev: &FakeJev, script: Vec<Scripted>, routing: bool) -> Rig {
+    rig_with(jev, script, routing, |_| {})
+}
+
+/// `rig`, with `more` said of the config last.
+fn rig_with(
+    jev: &FakeJev,
+    script: Vec<Scripted>,
+    routing: bool,
+    more: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg: Config = crate::tests_judge::judge_config(dir.path(), Some(jev));
     inbound_only(&mut cfg);
@@ -38,6 +48,7 @@ fn rig(jev: &FakeJev, script: Vec<Scripted>, routing: bool) -> Rig {
         cfg.routing.max_wait_ms = 5_000;
         glm_placements(&mut cfg);
     }
+    more(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
     let mut fake = FakeProvider::scripted(script);
@@ -115,6 +126,23 @@ async fn a_yes_at_the_confirm_band_or_a_no_offers_nothing() {
         let body = reply(&r, "dm:42", LATER).await;
         assert!(body.get("offer").is_none(), "p = {p}: {body}");
     }
+}
+
+/// classify.v3 in shadow (the config's ceiling) judges, and offers nothing:
+/// "shadow before they act".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shadow_judgment_offers_nothing() {
+    let jev = FakeJev::start().unwrap();
+    offer(&jev, 0.95);
+    let r = rig_with(&jev, crate::tests_judge::texts(1), false, |c| {
+        c.judge
+            .packs
+            .entry(crate::judge::inbound::CLASSIFY_PACK.into())
+            .or_default()
+            .mode = Some(crate::config::PackMode::Shadow);
+    });
+    let body = reply(&r, "dm:42", LATER).await;
+    assert!(body.get("offer").is_none(), "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
