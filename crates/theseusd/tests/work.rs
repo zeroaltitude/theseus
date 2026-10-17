@@ -236,6 +236,8 @@ impl Rig {
                 .arg(self.path("sock"))
                 .args(args)
                 .env_remove("THESEUS_SESSION")
+                // A wide screen: `tasks` gives the activity column up first when the width is short.
+                .env("COLUMNS", "200")
                 .output()
                 .expect("running theseus")
         })
@@ -324,7 +326,7 @@ impl Watcher {
 }
 
 /// `theseus status` counts what the board shows needs you and works, and
-/// `theseus work` draws the tree.
+/// `theseus tasks` draws the tree (`theseus work` is its watching alias and does not exit).
 fn cli_says_the_same(r: &Rig, held: &std::collections::BTreeMap<String, Value>, _corr: &str) {
     if let Some(out) = r.cli(&["--json", "status"]) {
         let status: Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -344,13 +346,16 @@ fn cli_says_the_same(r: &Rig, held: &std::collections::BTreeMap<String, Value>, 
             Some(count("working")),
             "{status}"
         );
-        // And `theseus work` draws the tree.
-        let tree = r.cli(&["work"]).unwrap();
+        // And `theseus tasks` draws the tree.
+        let tree = r.cli(&["tasks"]).unwrap();
         let text = String::from_utf8_lossy(&tree.stdout).into_owned();
         assert!(text.contains("sleep 30"), "{text}");
         assert!(text.contains("confirm fs.write"), "{text}");
-        assert!(text.contains("(1 need you"), "the rollup is drawn: {text}");
-        eprintln!("theseus work:\n{text}");
+        assert!(
+            text.contains("1 needs you · 1 working"),
+            "the counts are drawn: {text}"
+        );
+        eprintln!("theseus tasks:\n{text}");
     } else {
         eprintln!("no theseus binary beside theseusd: the CLI half is skipped");
     }

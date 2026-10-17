@@ -5,20 +5,19 @@
 //! each task event (started, asks, reported, failed) and each notice the
 //! policy makes that is not one of those, driven by the push, and tells the
 //! daemon a person is looking (`interactive`). `--graph` is the task graph
-//! and `--json` the task list, as before. `theseus work` (`work.rs`) stays
-//! the board: threads, and the job ids `peek` and `attach` take.
-
-use std::collections::HashMap;
+//! and `--json` the task list, as before. `theseus work` is an alias of
+//! `tasks --watch` (theseus-6kgp8); `board.rs` adds what the work board showed to the tree: threads, the
+//! job ids `peek` and `attach` take, and the daemon's own work.
 
 use anyhow::Result;
 use clap::Args;
 use serde_json::Value;
 use theseus_client::render::task_tree;
 use theseus_client::Conn;
-use theseus_protocol::notices::{Notice, Why};
 use theseus_protocol::work::WorkView;
-use theseus_protocol::{method, notify, Event, Message, WorkWatchParams, WorkWatchResult};
+use theseus_protocol::{method, notify, Message, WorkWatchParams, WorkWatchResult};
 
+use crate::board::{self, Follow};
 use crate::cmd;
 
 /// How many of the conversations that need no one are listed besides those
@@ -42,6 +41,9 @@ pub struct TasksArgs {
     /// work (the most recent first). Default 20.
     #[arg(long)]
     pub limit: Option<u32>,
+    /// The board as one list of conversations, with no group for a thread.
+    #[arg(long)]
+    pub flat: bool,
 }
 
 /// The params of the one read: only the session's own tree when one is named.
@@ -74,7 +76,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
     if json {
         println!("{}", serde_json::json!({"result": v}));
     } else {
-        print_tree(&snap);
+        print_board(&snap, a.flat);
     }
     if !a.watch {
         let _ = conn
@@ -88,13 +90,9 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
         snap.total,
         snap.position
     );
-    let mut last: HashMap<String, WorkView> = snap
-        .views
-        .iter()
-        .map(|v| (v.id.clone(), v.clone()))
-        .collect();
+    let mut follow = Follow::new(&snap);
     for (m, p) in early {
-        show(&m, &p, json, &mut last)?;
+        follow.show(&m, &p, json)?;
     }
     while let Some(msg) = conn.next().await? {
         let Message::Notification(n) = msg else {
@@ -110,27 +108,23 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
                     "-- events were lost; the board again at position {} --",
                     snap.position
                 );
-                print_tree(&snap);
+                print_board(&snap, a.flat);
             }
-            last = snap
-                .views
-                .iter()
-                .map(|v| (v.id.clone(), v.clone()))
-                .collect();
+            follow.reset(&snap);
             continue;
         }
-        show(&n.method, &n.params, json, &mut last)?;
+        follow.show(&n.method, &n.params, json)?;
     }
     Ok(())
 }
 
 /// The snapshot, drawn at the terminal's width.
-fn print_tree(snap: &WorkWatchResult) {
-    let lines = tree_lines_at(
-        &snap.views,
+fn print_board(snap: &WorkWatchResult, flat: bool) {
+    let lines = board::lines(
+        snap,
+        flat,
         theseus_protocol::now_unix_ms(),
         theseus_client::render::style::terminal_width(),
-        snap.total,
     );
     for l in lines {
         println!("{l}");
@@ -146,59 +140,11 @@ pub fn tree_lines_at(views: &[WorkView], now_ms: u64, width: usize, total: u64) 
         .collect()
 }
 
-/// One notification, printed: a line for each task event of each view newer
-/// than the last printed for its id, each id that left, each notice that
-/// is not a task's own event.
-fn show(m: &str, p: &Value, json: bool, last: &mut HashMap<String, WorkView>) -> Result<()> {
-    if json {
-        if m == notify::WORK_CHANGED || m == notify::WORK_NOTICE {
-            println!("{}", serde_json::json!({"method": m, "params": p}));
-        }
-        return Ok(());
-    }
-    match Event::from_notification(m, p)? {
-        Some(Event::WorkChanged(c)) => {
-            for v in &c.views {
-                let prev = last.get(&v.id);
-                if prev.is_some_and(|p| p.position >= v.position) {
-                    continue;
-                }
-                for e in task_tree::events(prev, v) {
-                    println!("{}", task_tree::event_line(&e).text);
-                    if let Some(c) = task_tree::event_commands(
-                        &e,
-                        theseus_client::render::style::terminal_width(),
-                    ) {
-                        println!("  {c}");
-                    }
-                }
-                last.insert(v.id.clone(), v.clone());
-            }
-            for id in &c.gone {
-                last.remove(id);
-            }
-        }
-        Some(Event::WorkNotice(n)) if !told_by_events(&n) => {
-            println!("{}", crate::work::notice_line(&n))
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-/// Whether the view's change already printed this notice's words: a
-/// question, a failure, a block and a task's report are task events.
-fn told_by_events(n: &Notice) -> bool {
-    matches!(
-        n.why,
-        Why::Asked | Why::Failed | Why::Blocked | Why::Reported | Why::Answered
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
+    use theseus_protocol::notices::Notice;
 
     fn view(v: Value) -> WorkView {
         let mut base = json!({

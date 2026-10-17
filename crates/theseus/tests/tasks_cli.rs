@@ -228,8 +228,7 @@ fn a_session_narrows_the_watch_to_its_root() {
 }
 
 /// `--watch` is a screen a person looks at, and says each task event: a new
-/// task started, a question asked, a report, a failure. (`theseus work` is
-/// the board, `work.rs`, not this.)
+/// task started, a question asked, a report, a failure.
 #[test]
 fn watch_says_each_task_event_and_is_a_screen() {
     let started = view(json!({
@@ -266,4 +265,53 @@ fn watch_says_each_task_event_and_is_a_screen() {
     // The tree first, the events after it.
     let tree = out.find("Regatta prep").unwrap();
     assert!(tree < out.find("started:").unwrap(), "{out}");
+}
+
+/// `theseus work` is `theseus tasks --watch` (theseus-6kgp8): it keeps the connection, tells the daemon a
+/// person is looking, and prints what the work board showed: the thread's group, the job's id for `peek`
+/// and `attach`, a line for the job's change and the thread's.
+#[test]
+fn work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids() {
+    let mut views = board();
+    views[0]["thread"] = json!("regatta");
+    views[2]["thread"] = json!("regatta");
+    let job = |position: u64, at: u64, last: &str| {
+        view(json!({
+            "id": "act_job_c0ffee", "kind": "job", "parent": "exe_tide", "title": "cargo build",
+            "position": position, "at_ms": at,
+            "doing": {"what": "job", "label": "cargo build", "since_ms": ago(5_000), "turn": 1,
+                "loop_index": 0, "last_line": last},
+            "attention": {"level": "working", "label": "running", "since_ms": ago(5_000)}
+        }))
+    };
+    views.push(job(10, ago(2_000), "Compiling theseus"));
+    let snap = json!({"position": 10, "views": views, "total": 1, "threads": [
+        {"slug": "regatta", "title": "Regatta thread", "state": "active", "session_id": "ses_conv",
+         "last_active_ms": ago(60_000)}]});
+    let moved = json!({"slug": "regatta", "title": "Regatta thread, renamed", "state": "active",
+        "session_id": "ses_conv", "last_active_ms": ago(1_000)});
+    let after = {
+        let mut n = changed(vec![job(12, now_ms(), "Finished dev profile")], 12);
+        n["params"]["threads"] = json!([moved]);
+        n
+    };
+    let (out, _, asked) = run(&["work"], vec![("work.watch", snap)], vec![after]);
+    let read = asked.iter().find(|(m, _)| m == "work.watch").unwrap();
+    assert_eq!(
+        read.1["interactive"],
+        json!(true),
+        "work watches: {asked:?}"
+    );
+    assert!(out.starts_with("Threads: 1 live"), "{out}");
+    assert!(out.contains("Regatta thread"), "{out}");
+    assert!(
+        out.contains("Jobs (theseus peek JOB · theseus attach JOB):\n  c0ffee  ◐ cargo build"),
+        "{out}"
+    );
+    assert!(out.contains("@12 job c0ffee"), "{out}");
+    assert!(out.contains("› Finished dev profile"), "{out}");
+    assert!(
+        out.contains("@12 ") && out.contains("Regatta thread, renamed"),
+        "{out}"
+    );
 }

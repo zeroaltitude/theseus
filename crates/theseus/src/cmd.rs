@@ -1034,7 +1034,7 @@ pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
                 println!(
                     "{}",
                     if r.accepted {
-                        "the index is being rebuilt from the WAL: theseus work shows it"
+                        "the index is being rebuilt from the WAL: theseus tasks shows it"
                     } else {
                         "the tender did not accept the rebuild"
                     }

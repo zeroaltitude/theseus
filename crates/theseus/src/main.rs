@@ -14,6 +14,7 @@
 
 mod agenda;
 mod answer;
+mod board;
 mod budgets;
 mod card_cmd;
 mod census;
@@ -534,7 +535,7 @@ enum Cmd {
     /// The work board, kept current: `tasks --watch`.
     Work(work::WorkArgs),
     /// A running job's last lines, once: its size and the last 20 lines (work.peek), scrubbed.
-    /// JOB is its id (`act_…`), or a unique end of it as `theseus work` prints it.
+    /// JOB is its id (`act_…`), or a unique end of it as `theseus tasks` (and its alias `work`) prints it.
     Peek(jobout::PeekArgs),
     /// Follow a running job's output live (action.output): its last lines, then each line as it is
     /// printed, until the job ends. Ctrl-C detaches and the job goes on; a stream that fell behind
