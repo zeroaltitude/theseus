@@ -273,7 +273,6 @@ impl TaskPosts {
 
     /// A task whose post was its place now works at `url`: the post stays
     /// listed and live as the task's index card, its tag following the state.
-    #[cfg(test)] // task channels' promotion calls it at the join, and the cfg goes
     pub(crate) fn moved(&self, task: &str, url: &str) {
         self.moved
             .lock()
@@ -285,7 +284,6 @@ impl TaskPosts {
     }
 
     /// The worker keeps a post for the task.
-    #[cfg(test)] // task channels' promotion calls it at the join, and the cfg goes
     pub(crate) fn owns(&self, task: &str) -> bool {
         self.posts.lock().unwrap().iter().any(|p| p.task == task)
     }
@@ -426,7 +424,13 @@ impl Place {
             .filter_map(|v| Some((v.id.clone(), s.task_threads.url_of(&v.id)?)))
             .collect();
         let homed = match self.home() {
-            Home::Post => views.iter().map(|v| v.id.clone()).collect(),
+            // A task with a channel of its own works there: its post is an
+            // index card (task channels, theseus-bh3t.1).
+            Home::Post => views
+                .iter()
+                .filter(|v| !s.task_threads.has_channel(&v.id))
+                .map(|v| v.id.clone())
+                .collect(),
             _ => HashSet::new(),
         };
         let _ = tx.send(Seen {

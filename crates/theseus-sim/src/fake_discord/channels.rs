@@ -107,6 +107,10 @@ impl FakeDiscord {
         guild: &str,
         body: &Value,
     ) -> std::io::Result<()> {
+        // A forum is the default forum's (`forums.rs`, theseus-bh3t.6).
+        if body["type"].as_u64() == Some(15) {
+            return self.forum_create(stream, guild, body);
+        }
         let path = format!("/guilds/{guild}/channels");
         let (code, out) = {
             let mut st = self.state.lock().unwrap();

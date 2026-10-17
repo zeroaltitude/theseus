@@ -382,6 +382,14 @@ impl TaskThreads {
     }
 
     /// The link to the task's thread, if it had one.
+    /// Whether the task works in a channel of its own (task channels).
+    pub(super) fn has_channel(&self, task: &str) -> bool {
+        let i = self.inner.lock().unwrap();
+        i.made
+            .iter()
+            .any(|m| m.task == task && m.kind == PlaceKind::Channel)
+    }
+
     pub(super) fn url_of(&self, task: &str) -> Option<String> {
         self.inner.lock().unwrap().urls.get(task).cloned()
     }
@@ -815,7 +823,8 @@ impl Place {
             if channels && why.is_none() {
                 self.promote_later(&v);
             }
-            match s.task_threads.next(&v, why, p.threads) {
+            // A homed place's task with no channel is made its post (`home_of`).
+            match s.task_threads.next(&v, why, p.threads || p.homed) {
                 Next::Nothing => {}
                 Next::Create => {
                     tokio::spawn(async move { s.make_task_thread(p, v).await });

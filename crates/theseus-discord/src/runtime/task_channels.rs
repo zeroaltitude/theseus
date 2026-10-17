@@ -567,6 +567,14 @@ impl Shared {
     /// and routes gone, after `GRACE` (the pointer it was left with is posted
     /// by then).
     fn close_old_thread(self: &Arc<Self>, old: Made) {
+        // A post of the default forum stays, unarchived, as the task's index
+        // card linking the channel (theseus-bh3t.6): only its place goes.
+        let post = self.task_posts.owns(&old.task);
+        if post {
+            if let Some(url) = self.task_threads.url_of(&old.task) {
+                self.task_posts.moved(&old.task, &url);
+            }
+        }
         let s = self.clone();
         tokio::spawn(async move {
             let stopped = s.core.outbox.stopped();
@@ -575,9 +583,11 @@ impl Shared {
                 () = tokio::time::sleep(super::threads::GRACE) => {}
                 () = &mut stopped => return,
             }
-            if let Err(e) = s.guild_thread_set(old.thread, Some(true), None).await {
-                s.board
-                    .error("task thread", Some(&old.session), format!("{e:#}"));
+            if !post {
+                if let Err(e) = s.guild_thread_set(old.thread, Some(true), None).await {
+                    s.board
+                        .error("task thread", Some(&old.session), format!("{e:#}"));
+                }
             }
             s.forget_thread_place(&old);
         });

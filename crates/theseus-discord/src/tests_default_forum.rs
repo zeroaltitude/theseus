@@ -681,3 +681,123 @@ async fn a_refused_forum_falls_back_with_exactly_one_owner_line() {
     assert_eq!(dm_lines(&r, "🧵"), 0, "the DM's task has no post");
     open_gate(&r);
 }
+
+// ------------------------------------------------- with task channels (the join)
+
+/// The channels (not categories) task channels made and kept.
+fn task_channels(r: &Rig) -> Vec<theseus_sim::fake_discord::FakeChannel> {
+    r.fake
+        .made_channels()
+        .into_iter()
+        .filter(|c| c.kind == 0 && !c.deleted)
+        .collect()
+}
+
+/// The parent starts a task that says it will run long (task channels' (b)).
+fn start_long(brief: &str) -> Scripted {
+    let quote = "run this as a background task, please";
+    let input = serde_json::json!({"brief": brief, "expect": "long",
+        "arrangement": {"pieces": [{"quote": quote, "role": "objective"}]}});
+    Scripted::tools("Starting.", &[("t_task0", "task_create", input)])
+}
+
+/// The post whose card links `link`.
+fn card_linking(r: &Rig, forum: u64, link: &str) -> Option<FakeThread> {
+    posts(r, forum).into_iter().find(|p| {
+        r.fake
+            .messages(p.id)
+            .first()
+            .is_some_and(|m| m.components_json.to_string().contains(link))
+    })
+}
+
+/// A DM task with a channel of its own works there, and the forum still has
+/// its post: an index card linking the channel, never the task's place.
+#[tokio::test]
+async fn a_dm_task_with_a_channel_gets_an_index_card_linking_it() {
+    let r = rig(
+        vec![start_long(REEF), Scripted::text("Started.")],
+        |dir| vec![(REEF, [vec![gate(dir)], sleeps(1, "Reef charted.")].concat())],
+        &bindings(true, ""),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.say((ANA, "ana"), None, ASK);
+    until(&r, "the task's channel", || task_channels(&r).len() == 1).await;
+    let c = task_channels(&r).remove(0);
+    let link = format!("https://discord.com/channels/{DEFAULT_GUILD}/{}", c.id);
+    until(&r, "an index card linking the channel", || {
+        card_linking(&r, forum, &link).is_some()
+    })
+    .await;
+    let card = card_linking(&r, forum, &link).unwrap();
+    assert!(
+        !card.names[0].starts_with("⚙️"),
+        "an index card is no place: {:?}",
+        card.names
+    );
+    assert_eq!(
+        posts(&r, forum).len(),
+        1,
+        "one post: {:#?}",
+        posts(&r, forum)
+    );
+    assert_eq!(
+        dm_lines(&r, "🧵"),
+        0,
+        "the DM links the channel, not a post"
+    );
+    open_gate(&r);
+    until(&r, "the card's tag goes done", || {
+        last_tags(&r, card.id) == [tag_id(&r, forum, "done")]
+    })
+    .await;
+}
+
+/// A DM task whose post was its place, moved to a channel when it qualifies
+/// (the minutes, none here), keeps that post unarchived: it links the channel
+/// and its tag follows the task to done.
+#[tokio::test]
+async fn a_promoted_tasks_post_stays_as_its_index_card_and_is_tagged_done() {
+    let r = rig(
+        vec![start(&[REEF]), Scripted::text("Started.")],
+        |dir| vec![(REEF, [vec![gate(dir)], sleeps(1, "Reef charted.")].concat())],
+        &bindings(true, ""),
+        |_| {},
+        |c| c.discord.task_channel_after_minutes = 0,
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.say((ANA, "ana"), None, ASK);
+    until(&r, "the task's channel", || task_channels(&r).len() == 1).await;
+    let c = task_channels(&r).remove(0);
+    let link = format!("https://discord.com/channels/{DEFAULT_GUILD}/{}", c.id);
+    until(&r, "its post links the channel", || {
+        card_linking(&r, forum, &link).is_some()
+    })
+    .await;
+    let post = card_linking(&r, forum, &link).unwrap();
+    assert_eq!(
+        posts(&r, forum).len(),
+        1,
+        "the same post: {:#?}",
+        posts(&r, forum)
+    );
+    open_gate(&r);
+    until(&r, "the post's tag goes done", || {
+        last_tags(&r, post.id) == [tag_id(&r, forum, "done")]
+    })
+    .await;
+    let now = r
+        .fake
+        .threads()
+        .into_iter()
+        .find(|t| t.id == post.id)
+        .unwrap();
+    assert!(
+        !now.archived,
+        "the post stays open as the index card: {now:?}"
+    );
+}
