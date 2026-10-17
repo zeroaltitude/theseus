@@ -1215,24 +1215,7 @@ impl FakeDiscord {
             return reply(stream, 200, &v);
         }
         match (method.as_str(), segs.as_slice()) {
-            ("GET", ["attachments", ..]) => {
-                let file = self
-                    .state
-                    .lock()
-                    .unwrap()
-                    .files
-                    .get(route.trim_matches('/'))
-                    .cloned();
-                self.record(seen("GET", route, "file"));
-                match file {
-                    Some((kind, bytes)) => reply_bytes(stream, &kind, &bytes),
-                    None => reply(
-                        stream,
-                        404,
-                        &json!({"message": "Unknown attachment", "code": 0}),
-                    ),
-                }
-            }
+            ("GET", ["attachments", ..]) => self.attachment(stream, route),
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
             ("POST", ["channels", c, "threads"]) => self.thread_create(stream, c, &body),
             ("PATCH", ["channels", c]) => self.channel_patch(stream, c, &body),
@@ -1263,13 +1246,7 @@ impl FakeDiscord {
             ("POST" | "PATCH", ["interactions" | "webhooks", ..]) => {
                 self.interaction_route(stream, &method, &segs, &body)
             }
-            ("POST", ["channels", c, "typing"]) => {
-                self.record(Seen {
-                    message_id: None,
-                    ..seen(&method, &format!("/channels/{c}/typing"), "typing")
-                });
-                reply_empty(stream)
-            }
+            ("POST", ["channels", c, "typing"]) => self.typing_route(stream, c),
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
             ("PUT", ["channels", c, "messages", "pins", m]) => self.pin(stream, c, m),
@@ -1290,6 +1267,35 @@ impl FakeDiscord {
                 )
             }
         }
+    }
+
+    /// `GET /attachments/…`: a file a message uploaded, by its path.
+    fn attachment(&self, stream: TcpStream, route: &str) -> std::io::Result<()> {
+        let file = self
+            .state
+            .lock()
+            .unwrap()
+            .files
+            .get(route.trim_matches('/'))
+            .cloned();
+        self.record(seen("GET", route, "file"));
+        match file {
+            Some((kind, bytes)) => reply_bytes(stream, &kind, &bytes),
+            None => reply(
+                stream,
+                404,
+                &json!({"message": "Unknown attachment", "code": 0}),
+            ),
+        }
+    }
+
+    /// `POST /channels/{c}/typing`: recorded, answered empty.
+    fn typing_route(&self, stream: TcpStream, channel: &str) -> std::io::Result<()> {
+        self.record(Seen {
+            message_id: None,
+            ..seen("POST", &format!("/channels/{channel}/typing"), "typing")
+        });
+        reply_empty(stream)
     }
 
     fn create(
