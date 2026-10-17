@@ -1120,3 +1120,45 @@ fn a_calls_spans_are_taken_once() {
     assert!(aws.spans("toolu_1", |_| 7).is_empty());
     assert!(aws.spans("toolu_other", |_| 7).is_empty());
 }
+
+/// The AWS tools are deferred in five families by use (theseus-3msy0): the whole set is more than any
+/// place can add for a message that names one tool, so each family must fit the room a place leaves
+/// (the owner's cli has about 1,500 tokens of tools to spare under its budget). Every tool is in a
+/// family, and no family is over the cap; a tool added to one that is full goes to a new family.
+#[test]
+fn every_aws_tool_is_in_a_deferred_family_small_enough_to_load_alone() {
+    use crate::tools_defer::family::of_wire;
+    // Tokens as the request estimates them: bytes at 2.4 to the token.
+    const FAMILY_MAX_TOKENS: usize = 1_300;
+    let fake = Fake::start(aws_answers(ACCOUNT));
+    let aws = layer(&fake, board());
+    let mut families: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
+    for t in aws.tools() {
+        let wire = t.name().replace('.', "_");
+        let def =
+            json!({"name": wire, "description": t.description(), "input_schema": t.input_schema()});
+        let entry = families.entry(of_wire(&wire)).or_default();
+        entry.0 += def.to_string().len() * 10 / 24;
+        entry.1.push(wire);
+    }
+    let names: Vec<&String> = families.values().flat_map(|(_, w)| w).collect();
+    assert_eq!(names.len(), super::NAMES.len(), "{families:?}");
+    for (family, (tokens, wires)) in &families {
+        assert!(family.starts_with("aws"), "{family}: {wires:?}");
+        assert!(
+            *tokens <= FAMILY_MAX_TOKENS,
+            "{family} is {tokens} tokens ({wires:?}), over {FAMILY_MAX_TOKENS}"
+        );
+    }
+    assert_eq!(
+        families.keys().cloned().collect::<Vec<_>>(),
+        [
+            "aws",
+            "aws-hands",
+            "aws-logs",
+            "aws-review",
+            "aws-s3",
+            "aws-stacks"
+        ]
+    );
+}

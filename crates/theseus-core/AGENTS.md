@@ -2011,6 +2011,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   within the place kind's budget (`PlaceKind::tools_budget_tokens`: 8,000 for cli, task and headless, 15,000 for dm and
   channel). The text is `RouteState.ask`, set at the inbound point; a model with tool search never reads it. It takes
   effect where a compile takes the fresh set (a first compile, a detour, a boundary): an append keeps its recorded set.
+  **The AWS tools are six families by use** (theseus-3msy0; `family::aws_family`): `aws` (call, describe, whoami),
+  `aws-s3`, `aws-logs`, `aws-review` (inventory, cost, trail), `aws-stacks`, `aws-hands`. The whole set is 6,869 tokens,
+  more than any place can add, so a message that named `aws_whoami` loaded nothing; each family is at most 1,300
+  tokens (`aws::tests::every_aws_tool_is_in_a_deferred_family_small_enough_to_load_alone` holds the cap: a tool added
+  to a full family goes to a new one). A hyphenated family name is said when each of its words is, and its name's
+  point is scored once per family. Evidence from before the split names `aws` for every AWS tool; a place that
+  learned to load `aws` loads the generic three now, and the others learn from use again. The detour's test is
+  `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`.
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
 - **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
   `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]
