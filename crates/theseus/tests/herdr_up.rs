@@ -17,6 +17,10 @@ use serde_json::{json, Value};
 
 const THESEUS: &str = env!("CARGO_BIN_EXE_theseus");
 
+#[path = "support/herdr_schema.rs"]
+mod herdr_schema;
+use herdr_schema::Schema;
+
 #[derive(Clone, Debug)]
 struct Pane {
     id: String,
@@ -25,88 +29,188 @@ struct Pane {
     tokens: serde_json::Map<String, Value>,
 }
 
+/// herdr's state as the follower sees it. Every request is checked against herdr's own schema first
+/// (`support/herdr_schema.rs`), and every result against its success schema: a shape herdr would
+/// refuse is refused here with its `invalid_request`, and noted in `bad` so the test fails.
 #[derive(Default)]
 struct Model {
     workspaces: Vec<(String, String)>,
     panes: Vec<Pane>,
+    labels: std::collections::HashMap<String, String>,
     n: u32,
 }
+
+type Reply = Result<Value, (&'static str, String)>;
 
 impl Model {
     fn ws_of(&mut self, label: &str) -> String {
         if let Some((id, _)) = self.workspaces.iter().find(|(_, l)| l == label) {
             return id.clone();
         }
+        self.make_ws(label)
+    }
+
+    fn make_ws(&mut self, label: &str) -> String {
         self.n += 1;
         let id = format!("w{}", self.n);
         self.workspaces.push((id.clone(), label.to_string()));
         id
     }
 
-    fn answer(&mut self, m: &str, p: &Value) -> Value {
-        match m {
+    /// A new tab with one pane, in `ws`.
+    fn make_tab(&mut self, ws: &str, label: &str, tokens: serde_json::Map<String, Value>) -> Pane {
+        self.n += 1;
+        let tab = format!("{ws}:t{}", self.n);
+        self.n += 1;
+        let pane = Pane {
+            id: format!("{ws}:p{}", self.n),
+            tab: tab.clone(),
+            ws: ws.to_string(),
+            tokens,
+        };
+        self.labels.insert(tab, label.to_string());
+        self.panes.push(pane.clone());
+        pane
+    }
+
+    fn tab_ids(&self, ws: &str) -> Vec<String> {
+        let mut tabs: Vec<String> = Vec::new();
+        for p in self.panes.iter().filter(|p| p.ws == ws) {
+            if !tabs.contains(&p.tab) {
+                tabs.push(p.tab.clone());
+            }
+        }
+        tabs
+    }
+
+    fn pane_info(p: &Pane) -> Value {
+        json!({"pane_id": p.id, "tab_id": p.tab, "workspace_id": p.ws,
+               "terminal_id": format!("term-{}", p.id), "focused": false,
+               "agent_status": "idle", "revision": 1, "tokens": p.tokens})
+    }
+
+    fn tab_info(&self, tab: &str) -> Value {
+        let ws = self
+            .panes
+            .iter()
+            .find(|p| p.tab == tab)
+            .map(|p| p.ws.clone());
+        let ws = ws.unwrap_or_default();
+        let number = self.tab_ids(&ws).iter().position(|t| t == tab).unwrap_or(0) + 1;
+        json!({"tab_id": tab, "workspace_id": ws, "number": number,
+               "label": self.labels.get(tab).cloned().unwrap_or_default(), "focused": false,
+               "pane_count": self.panes.iter().filter(|p| p.tab == tab).count(),
+               "agent_status": "idle"})
+    }
+
+    fn ws_info(&self, number: usize, id: &str, label: &str) -> Value {
+        let tabs = self.tab_ids(id);
+        json!({"workspace_id": id, "number": number, "label": label, "focused": false,
+               "pane_count": self.panes.iter().filter(|p| p.ws == id).count(),
+               "tab_count": tabs.len(), "active_tab_id": tabs.first().cloned().unwrap_or_default(),
+               "agent_status": "idle"})
+    }
+
+    /// A pane closes; a tab or a workspace left without a pane goes with it, as herdr's do.
+    fn close_panes(&mut self, keep: impl Fn(&Pane) -> bool) {
+        self.panes.retain(keep);
+        let live: Vec<String> = self.panes.iter().map(|p| p.ws.clone()).collect();
+        self.workspaces.retain(|(id, _)| live.contains(id));
+    }
+
+    fn answer(&mut self, m: &str, p: &Value) -> Reply {
+        Ok(match m {
             "workspace.list" => {
                 let ws: Vec<Value> = self
                     .workspaces
                     .iter()
-                    .map(|(id, l)| json!({"workspace_id": id, "label": l}))
+                    .enumerate()
+                    .map(|(i, (id, l))| self.ws_info(i + 1, id, l))
                     .collect();
                 json!({"type": "workspace_list", "workspaces": ws})
             }
+            "workspace.create" => {
+                let label = p["label"].as_str().unwrap_or("workspace").to_string();
+                let ws = self.make_ws(&label);
+                let pane = self.make_tab(&ws, "shell", Default::default());
+                let number = self.workspaces.len();
+                json!({"type": "workspace_created", "workspace": self.ws_info(number, &ws, &label),
+                       "tab": self.tab_info(&pane.tab), "root_pane": Self::pane_info(&pane)})
+            }
             "pane.list" => {
-                let panes: Vec<Value> = self
-                    .panes
-                    .iter()
-                    .map(|p| {
-                        json!({"pane_id": p.id, "tab_id": p.tab, "workspace_id": p.ws,
-                               "focused": false, "tokens": p.tokens})
-                    })
-                    .collect();
+                let panes: Vec<Value> = self.panes.iter().map(Self::pane_info).collect();
                 json!({"type": "pane_list", "panes": panes})
             }
-            "layout.apply" => {
-                let ws = self.ws_of(p["workspace"]["label"].as_str().unwrap_or("theseus"));
-                let mut tabs = Vec::new();
-                for t in p["tabs"].as_array().into_iter().flatten() {
-                    self.n += 1;
-                    let tab = format!("{ws}:t{}", self.n);
-                    let mut panes = Vec::new();
-                    for q in t["panes"].as_array().into_iter().flatten() {
-                        self.n += 1;
-                        let id = format!("{ws}:p{}", self.n);
-                        self.panes.push(Pane {
-                            id: id.clone(),
-                            tab: tab.clone(),
-                            ws: ws.clone(),
-                            tokens: q["tokens"].as_object().cloned().unwrap_or_default(),
-                        });
-                        panes.push(json!({"pane_id": id}));
-                    }
-                    tabs.push(json!({"tab_id": tab, "panes": panes}));
-                }
-                json!({"type": "layout_applied", "workspace": {"workspace_id": ws}, "tabs": tabs})
-            }
+            "layout.apply" => self.layout_apply(p)?,
             "tab.close" => {
-                let tab = p["tab_id"].as_str().unwrap_or_default();
-                self.panes.retain(|q| q.tab != tab);
+                let tab = p["tab_id"].as_str().unwrap_or_default().to_string();
+                self.close_panes(|q| q.tab != tab);
                 json!({"type": "ok"})
             }
             "pane.close" => {
-                let id = p["pane_id"].as_str().unwrap_or_default();
-                self.panes.retain(|q| q.id != id);
+                let id = p["pane_id"].as_str().unwrap_or_default().to_string();
+                self.close_panes(|q| q.id != id);
                 json!({"type": "ok"})
             }
             "pane.report_metadata" => {
                 let id = p["pane_id"].as_str().unwrap_or_default();
-                if let Some(q) = self.panes.iter_mut().find(|q| q.id == id) {
-                    for (k, v) in p["tokens"].as_object().into_iter().flatten() {
+                let Some(q) = self.panes.iter_mut().find(|q| q.id == id) else {
+                    return Err(("pane_not_found", format!("pane {id} not found")));
+                };
+                for (k, v) in p["tokens"].as_object().into_iter().flatten() {
+                    if v.is_null() {
+                        q.tokens.remove(k);
+                    } else {
                         q.tokens.insert(k.clone(), v.clone());
                     }
                 }
                 json!({"type": "ok"})
             }
+            "agent.view.set" => json!({"type": "agent_view", "active": true}),
+            "notification.show" => {
+                json!({"type": "notification_show", "shown": true, "reason": "shown"})
+            }
             _ => json!({"type": "ok"}),
+        })
+    }
+
+    /// herdr's `layout.apply`: one new tab with the layout's pane, in the workspace or in place of
+    /// the tab named; the answer describes the layout.
+    fn layout_apply(&mut self, p: &Value) -> Reply {
+        let (target_ws, replace) = match (p["tab_id"].as_str(), p["workspace_id"].as_str()) {
+            (Some(_), Some(_)) => {
+                return Err(("invalid_target", "use either tab_id or workspace_id".into()))
+            }
+            (Some(tab), None) => match self.panes.iter().find(|q| q.tab == tab) {
+                Some(q) => (q.ws.clone(), Some(tab.to_string())),
+                None => return Err(("tab_not_found", format!("tab {tab} not found"))),
+            },
+            (None, Some(ws)) => match self.workspaces.iter().any(|(id, _)| id == ws) {
+                true => (ws.to_string(), None),
+                false => return Err(("workspace_not_found", format!("workspace {ws} not found"))),
+            },
+            (None, None) => match self.workspaces.first() {
+                Some((id, _)) => (id.clone(), None),
+                None => return Err(("workspace_not_found", "no active workspace".into())),
+            },
+        };
+        let mut node = &p["root"];
+        while node["type"] == "split" {
+            node = &node["first"];
         }
+        let old_label = replace.as_ref().and_then(|t| self.labels.get(t)).cloned();
+        let label = p["tab_label"].as_str().map(str::to_string).or(old_label);
+        let pane = self.make_tab(
+            &target_ws,
+            label.as_deref().unwrap_or("tab"),
+            Default::default(),
+        );
+        if let Some(old) = replace {
+            self.close_panes(|q| q.tab != old);
+        }
+        Ok(json!({"type": "layout_apply", "layout": {
+            "workspace_id": target_ws, "tab_id": pane.tab, "zoomed": false,
+            "focused_pane_id": pane.id, "root": {"type": "pane", "pane_id": pane.id}}}))
     }
 }
 
@@ -115,6 +219,17 @@ struct FakeHerdr {
     model: Arc<Mutex<Model>>,
     got: Arc<Mutex<Vec<Value>>>,
     subs: Arc<Mutex<Vec<UnixStream>>>,
+    /// What herdr's schema refused: a request it would not take, a result it would not give.
+    bad: Arc<Mutex<Vec<String>>>,
+}
+
+impl Drop for FakeHerdr {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            let bad = self.bad.lock().unwrap();
+            assert!(bad.is_empty(), "herdr's schema refused: {bad:#?}");
+        }
+    }
 }
 
 impl FakeHerdr {
@@ -124,11 +239,14 @@ impl FakeHerdr {
         let model = Arc::new(Mutex::new(model));
         let got = Arc::new(Mutex::new(Vec::new()));
         let subs = Arc::new(Mutex::new(Vec::new()));
-        let (m, g, s) = (model.clone(), got.clone(), subs.clone());
+        let bad = Arc::new(Mutex::new(Vec::new()));
+        let schema = Arc::new(Schema::load());
+        let (m, g, s, b) = (model.clone(), got.clone(), subs.clone(), bad.clone());
         std::thread::spawn(move || {
             for c in listener.incoming() {
                 let Ok(c) = c else { break };
-                let (m, g, s) = (m.clone(), g.clone(), s.clone());
+                let (m, g, s, b, schema) =
+                    (m.clone(), g.clone(), s.clone(), b.clone(), schema.clone());
                 std::thread::spawn(move || {
                     let mut line = String::new();
                     if BufReader::new(&c).read_line(&mut line).unwrap_or(0) == 0 {
@@ -137,13 +255,31 @@ impl FakeHerdr {
                     let req: Value = serde_json::from_str(&line).unwrap();
                     let method = req["method"].as_str().unwrap().to_string();
                     g.lock().unwrap().push(req.clone());
-                    let result = if method == "events.subscribe" {
-                        s.lock().unwrap().push(c.try_clone().unwrap());
-                        json!({"type": "subscribed"})
-                    } else {
-                        m.lock().unwrap().answer(&method, &req["params"])
+                    let reply = match schema.check_request(&method, &req["params"]) {
+                        Err(e) => {
+                            b.lock().unwrap().push(format!("{method}: {e}"));
+                            json!({"id": req["id"], "error": {"code": "invalid_request", "message": e}})
+                        }
+                        Ok(()) => {
+                            let result = if method == "events.subscribe" {
+                                s.lock().unwrap().push(c.try_clone().unwrap());
+                                Ok(json!({"type": "subscription_started"}))
+                            } else {
+                                m.lock().unwrap().answer(&method, &req["params"])
+                            };
+                            match result {
+                                Ok(r) => {
+                                    if let Err(e) = schema.check_result(&r) {
+                                        b.lock().unwrap().push(format!("{method} result: {e}"));
+                                    }
+                                    json!({"id": req["id"], "result": r})
+                                }
+                                Err((code, message)) => json!({"id": req["id"],
+                                    "error": {"code": code, "message": message}}),
+                            }
+                        }
                     };
-                    let _ = writeln!(&c, "{}", json!({"id": req["id"], "result": result}));
+                    let _ = writeln!(&c, "{reply}");
                 });
             }
         });
@@ -152,11 +288,22 @@ impl FakeHerdr {
             model,
             got,
             subs,
+            bad,
         }
     }
 
-    fn push(&self, event: &str, data: Value) {
-        let line = json!({"event": event, "data": data}).to_string();
+    /// An event as herdr pushes it: its name with underscores and the typed data (`pane.exited`
+    /// becomes `pane_exited`), checked against the event schema.
+    fn push(&self, event: &str, mut data: Value) {
+        let name = event.replace('.', "_");
+        data["type"] = json!(name);
+        if data["workspace_id"].is_null() {
+            data["workspace_id"] = json!("w1");
+        }
+        let line = json!({"event": name, "data": data});
+        if let Err(e) = Schema::load().check_event(&line) {
+            self.bad.lock().unwrap().push(format!("event {event}: {e}"));
+        }
         for mut s in self.subs.lock().unwrap().iter() {
             let _ = writeln!(s, "{line}");
         }
@@ -194,6 +341,32 @@ impl FakeHerdr {
             .iter()
             .filter(|p| p.tokens.get("session").and_then(Value::as_str) == Some(sid))
             .map(|p| p.tab.clone())
+            .collect()
+    }
+
+    /// The labels of the `theseus` workspace's tabs, in order.
+    fn tab_labels(&self) -> Vec<String> {
+        let m = self.model.lock().unwrap();
+        m.workspaces
+            .iter()
+            .filter(|(_, l)| l == "theseus")
+            .flat_map(|(id, _)| m.tab_ids(id))
+            .map(|t| m.labels[&t].clone())
+            .collect()
+    }
+
+    /// The `kind` tokens of the panes now in the model, in tab order.
+    fn kinds(&self) -> Vec<String> {
+        let m = self.model.lock().unwrap();
+        m.panes
+            .iter()
+            .map(|p| {
+                p.tokens
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("-")
+                    .to_string()
+            })
             .collect()
     }
 }
@@ -354,23 +527,31 @@ fn until(secs: u64, what: &str, f: impl Fn() -> bool) {
     panic!("timed out waiting for {what}");
 }
 
-fn tabs_in(call: &Value) -> Vec<Value> {
-    call["params"]["tabs"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn watched(tab: &Value) -> String {
-    let argv: Vec<&str> = tab["panes"][0]["argv"]
+/// The argv a `layout.apply` request's pane runs.
+fn argv_of(call: &Value) -> Vec<String> {
+    call["params"]["root"]["command"]
         .as_array()
         .unwrap()
         .iter()
         .filter_map(Value::as_str)
-        .collect();
-    let i = argv.iter().position(|a| *a == "watch").unwrap();
+        .map(str::to_string)
+        .collect()
+}
+
+/// The session a `layout.apply` request's pane watches.
+fn watched(call: &Value) -> String {
+    let argv = argv_of(call);
+    let i = argv.iter().position(|a| a == "watch").unwrap();
     assert_eq!(argv[i + 2], "--interactive");
-    argv[i + 1].to_string()
+    argv[i + 1].clone()
+}
+
+/// The sessions the `layout.apply` requests from `from` on watch, in order.
+fn watched_from(herdr: &FakeHerdr, from: usize) -> Vec<String> {
+    herdr.requests("layout.apply")[from..]
+        .iter()
+        .map(watched)
+        .collect()
 }
 
 fn three_tasks() -> Vec<Value> {
@@ -397,21 +578,37 @@ fn three_tasks() -> Vec<Value> {
 }
 
 /// A snapshot becomes one tab per task that wants one (a conversation only while it
-/// needs you), in one `layout.apply`, each an argv pane running the session's watch:
-/// nothing is typed into a shell. A new task is one more `layout.apply`.
+/// needs you), a `layout.apply` each (herdr makes one tab a call), each an argv pane running
+/// the session's watch: nothing is typed into a shell. The first replaces the new workspace's
+/// blank tab. A new task is one more `layout.apply`.
 #[test]
 fn a_snapshot_makes_a_tab_per_task_and_a_new_task_one_more() {
     let dir = tempfile::tempdir().unwrap();
     let herdr = FakeHerdr::start(dir.path(), Model::default());
     let daemon = FakeDaemon::start(dir.path(), three_tasks());
     let _f = follow(&daemon.sock, &herdr.sock, &[]);
-    until(10, "the first layout", || {
-        herdr.requests("layout.apply").len() == 1
+    until(10, "the first layouts", || {
+        herdr.requests("layout.apply").len() == 3
     });
     let first = herdr.requests("layout.apply");
-    let mut sids: Vec<String> = tabs_in(&first[0]).iter().map(watched).collect();
+    let mut sids = watched_from(&herdr, 0);
     sids.sort();
     assert_eq!(sids, ["ses_ask002", "ses_conv03", "ses_work01"]);
+    assert_eq!(herdr.requests("workspace.create").len(), 1);
+    assert!(
+        first[0]["params"]["tab_id"].is_string(),
+        "the blank tab is replaced"
+    );
+    assert!(
+        first[1]["params"]["workspace_id"].is_string(),
+        "then new tabs"
+    );
+    assert_eq!(
+        herdr.tab_labels().len(),
+        3,
+        "no blank tab is left: {:?}",
+        herdr.tab_labels()
+    );
     assert!(herdr.requests("pane.send_input").is_empty());
     assert!(herdr.requests("pane.split").is_empty());
     daemon.change(vec![view(
@@ -423,11 +620,10 @@ fn a_snapshot_makes_a_tab_per_task_and_a_new_task_one_more() {
         1,
     )]);
     until(10, "the new task's tab", || {
-        herdr.requests("layout.apply").len() == 2
+        herdr.requests("layout.apply").len() == 4
     });
-    let second = herdr.requests("layout.apply");
-    assert_eq!(tabs_in(&second[1]).len(), 1);
-    assert_eq!(watched(&tabs_in(&second[1])[0]), "ses_new009");
+    assert_eq!(watched_from(&herdr, 3), ["ses_new009"]);
+    assert_eq!(herdr.requests("workspace.create").len(), 1);
     // The Space row's counts and the view's sort were sent once the layout stood.
     until(10, "the counts", || {
         herdr
@@ -449,7 +645,7 @@ fn a_finished_tab_closes_a_grace_after_it_is_seen_and_a_cancelled_one_at_once() 
     let daemon = FakeDaemon::start(dir.path(), three_tasks());
     let _f = follow(&daemon.sock, &herdr.sock, &[]);
     until(10, "the layout", || {
-        herdr.requests("layout.apply").len() == 1
+        herdr.requests("layout.apply").len() == 3
     });
     let tab_work = herdr.tabs_of("ses_work01")[0].clone();
     let tab_ask = herdr.tabs_of("ses_ask002")[0].clone();
@@ -495,7 +691,7 @@ fn a_pane_that_exits_is_swept_and_its_tab_made_again() {
     let daemon = FakeDaemon::start(dir.path(), three_tasks());
     let _f = follow(&daemon.sock, &herdr.sock, &[]);
     until(10, "the layout", || {
-        herdr.requests("layout.apply").len() == 1
+        herdr.requests("layout.apply").len() == 3
     });
     // Wait out the reopen hold, then lose the pane as herdr would.
     std::thread::sleep(Duration::from_millis(5200));
@@ -512,11 +708,31 @@ fn a_pane_that_exits_is_swept_and_its_tab_made_again() {
     herdr.model.lock().unwrap().panes.retain(|p| p.id != pane);
     herdr.push("pane.exited", json!({"pane_id": pane}));
     until(10, "the tab made again", || {
-        herdr.requests("layout.apply").len() == 2
+        herdr.requests("layout.apply").len() == 4
     });
-    let again = herdr.requests("layout.apply");
-    assert_eq!(tabs_in(&again[1]).len(), 1);
-    assert_eq!(watched(&tabs_in(&again[1])[0]), "ses_work01");
+    assert_eq!(watched_from(&herdr, 3), ["ses_work01"]);
+    assert_eq!(
+        herdr.requests("layout.apply").len(),
+        4,
+        "one tab, made again"
+    );
+}
+
+/// A herdr restart restores a pane as a shell with no tokens: `pane`, in a tab of its own.
+fn restored(model: &mut Model, ws: &str, i: u32, tokens: &[(&str, &str)]) {
+    let tokens = tokens
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), json!(v)))
+        .collect();
+    model.panes.push(Pane {
+        id: format!("{ws}:r{i}"),
+        tab: format!("{ws}:rt{i}"),
+        ws: ws.to_string(),
+        tokens,
+    });
+    model
+        .labels
+        .insert(format!("{ws}:rt{i}"), format!("restored {i}"));
 }
 
 /// `--boot` over what a herdr restart left: the restored shells (no `kind` token) are
@@ -526,24 +742,19 @@ fn boot_closes_restored_shells_and_rebuilds() {
     let dir = tempfile::tempdir().unwrap();
     let mut model = Model::default();
     let ws = model.ws_of("theseus");
-    for (i, kind) in [(1, None), (2, None), (3, Some("task"))] {
-        let mut tokens = serde_json::Map::new();
-        if let Some(k) = kind {
-            tokens.insert("kind".into(), json!(k));
-            tokens.insert("session".into(), json!("ses_work01"));
-        }
-        model.panes.push(Pane {
-            id: format!("{ws}:r{i}"),
-            tab: format!("{ws}:rt{i}"),
-            ws: ws.clone(),
-            tokens,
-        });
-    }
+    restored(&mut model, &ws, 1, &[]);
+    restored(&mut model, &ws, 2, &[]);
+    restored(
+        &mut model,
+        &ws,
+        3,
+        &[("kind", "task"), ("session", "ses_work01")],
+    );
     let herdr = FakeHerdr::start(dir.path(), model);
     let daemon = FakeDaemon::start(dir.path(), three_tasks());
     let _f = follow(&daemon.sock, &herdr.sock, &["--boot"]);
     until(10, "the rebuild", || {
-        !herdr.requests("layout.apply").is_empty()
+        herdr.requests("layout.apply").len() == 2
     });
     let methods = herdr.methods();
     let closes = herdr.requests("pane.close");
@@ -552,23 +763,19 @@ fn boot_closes_restored_shells_and_rebuilds() {
     let last_close = methods.iter().rposition(|m| m == "pane.close").unwrap();
     assert!(last_close < first_layout, "closes come first: {methods:?}");
     // The kept pane already watched ses_work01, so only the other two are made.
-    let mut sids: Vec<String> = tabs_in(&herdr.requests("layout.apply")[0])
-        .iter()
-        .map(watched)
-        .collect();
+    let mut sids = watched_from(&herdr, 0);
     sids.sort();
     assert_eq!(sids, ["ses_ask002", "ses_conv03"]);
+    assert!(
+        herdr.requests("workspace.create").is_empty(),
+        "the workspace stood"
+    );
 }
 
-/// From anywhere but the board tab, `--boot` closes the leftovers and makes the board
-/// tab, whose pane runs the follower, and exits.
-#[test]
-fn boot_makes_the_board_tab_and_exits() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = FakeHerdr::start(dir.path(), Model::default());
-    let daemon = FakeDaemon::start(dir.path(), vec![]);
+/// Run `theseus herdr up` with `args` and wait for it to exit well.
+fn up_with(daemon: &FakeDaemon, herdr: &FakeHerdr, args: &[&str]) -> String {
     let out = theseus(&daemon.sock, &herdr.sock)
-        .arg("--boot")
+        .args(args)
         .output()
         .unwrap();
     assert!(
@@ -576,29 +783,112 @@ fn boot_makes_the_board_tab_and_exits() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// The startup hook, from anywhere but the board tab, with no task at all: the `theseus`
+/// workspace has a `main` tab (the home conversation's chat) and a `board` tab (the follower),
+/// the new workspace's blank shell tab is gone, and the command exits. Run again, it sends herdr
+/// only reads (theseus-6ifz1: later tasks found no follower, because none ran when idle).
+#[test]
+fn boot_makes_the_board_tab_and_exits() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path(), Model::default());
+    let daemon = FakeDaemon::start(dir.path(), vec![]);
+    up_with(&daemon, &herdr, &["--boot"]);
+    assert_eq!(herdr.requests("workspace.create").len(), 1);
     let layouts = herdr.requests("layout.apply");
-    assert_eq!(layouts.len(), 1);
-    let tab = &tabs_in(&layouts[0])[0];
-    let argv: Vec<&str> = tab["panes"][0]["argv"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
+    assert_eq!(layouts.len(), 2);
+    let (main, board) = (argv_of(&layouts[0]), argv_of(&layouts[1]));
+    assert_eq!(main[main.len() - 1], "chat", "{main:?}");
+    assert!(main.iter().any(|a| a == "--socket"), "{main:?}");
     assert!(
-        argv.windows(4)
+        board
+            .windows(4)
             .any(|w| w == ["herdr", "up", "--follow", "--here"]),
-        "{argv:?}"
+        "{board:?}"
     );
-    assert_eq!(tab["panes"][0]["tokens"]["kind"], "board");
-    // A second boot finds the board tab and makes nothing.
+    assert_eq!(
+        herdr.tab_labels(),
+        ["main", "board"],
+        "and no blank shell tab"
+    );
+    assert_eq!(herdr.kinds(), ["main", "board"]);
+    // A second boot finds both and makes nothing.
     herdr.clear();
-    let out = theseus(&daemon.sock, &herdr.sock)
-        .arg("--boot")
-        .output()
-        .unwrap();
-    assert!(out.status.success());
-    assert!(herdr.requests("layout.apply").is_empty());
+    up_with(&daemon, &herdr, &["--boot"]);
+    let methods = herdr.methods();
+    assert!(
+        methods
+            .iter()
+            .all(|m| m == "workspace.list" || m == "pane.list"),
+        "a second boot wrote: {methods:?}"
+    );
+    assert_eq!(herdr.tab_labels(), ["main", "board"]);
+}
+
+/// After a herdr restart the workspace is back as shells without tokens: boot closes them, and
+/// makes the workspace and both tabs again, once. With only the board gone it makes only that.
+#[test]
+fn boot_after_a_herdr_restart_remakes_the_base_tabs_without_doubling_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut model = Model::default();
+    let ws = model.ws_of("theseus");
+    restored(&mut model, &ws, 1, &[]);
+    restored(&mut model, &ws, 2, &[]);
+    let herdr = FakeHerdr::start(dir.path(), model);
+    let daemon = FakeDaemon::start(dir.path(), vec![]);
+    up_with(&daemon, &herdr, &["--boot"]);
+    assert_eq!(herdr.requests("pane.close").len(), 2);
+    assert_eq!(herdr.tab_labels(), ["main", "board"]);
+    assert_eq!(herdr.kinds(), ["main", "board"]);
+    // The board's pane goes (the user closed it): the next boot makes it again, and only it.
+    let board = herdr
+        .model
+        .lock()
+        .unwrap()
+        .panes
+        .iter()
+        .find(|p| p.tokens["kind"] == "board")
+        .unwrap()
+        .id
+        .clone();
+    herdr.model.lock().unwrap().panes.retain(|p| p.id != board);
+    herdr.clear();
+    up_with(&daemon, &herdr, &["--boot"]);
+    assert_eq!(herdr.requests("layout.apply").len(), 1);
+    assert!(herdr.requests("workspace.create").is_empty());
+    assert_eq!(herdr.kinds(), ["main", "board"]);
+}
+
+/// `--follow` from a shell is the same: it makes what is missing and exits, and the board tab's
+/// follower (the `--here` process) then lays out tasks as they start.
+#[test]
+fn follow_from_a_shell_makes_the_base_tabs_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path(), Model::default());
+    let daemon = FakeDaemon::start(dir.path(), vec![]);
+    let out = up_with(&daemon, &herdr, &["--follow"]);
+    assert!(
+        out.contains("main tab") && out.contains("board tab"),
+        "{out}"
+    );
+    assert_eq!(herdr.tab_labels(), ["main", "board"]);
+    // The follower in the board pane starts with no task and then gets one: the tab appears.
+    let _f = follow(&daemon.sock, &herdr.sock, &[]);
+    daemon.change(vec![view(
+        "exe_9",
+        "ses_new009",
+        "task",
+        "running",
+        "working",
+        1,
+    )]);
+    until(10, "the task's tab", || {
+        herdr.tabs_of("ses_new009").len() == 1
+    });
+    assert_eq!(herdr.tab_labels().len(), 3);
+    assert_eq!(herdr.requests("workspace.create").len(), 1);
 }
 
 /// `up` lays out and exits; a second `up` sends herdr only reads.
@@ -613,7 +903,7 @@ fn a_second_up_sends_only_reads() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(herdr.requests("layout.apply").len(), 1);
+    assert_eq!(herdr.requests("layout.apply").len(), 3);
     herdr.clear();
     let out = theseus(&daemon.sock, &herdr.sock).output().unwrap();
     assert!(
@@ -647,9 +937,10 @@ fn a_pin_survives_a_second_up() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let first = herdr.requests("layout.apply");
-    assert_eq!(first.len(), 1);
-    assert_eq!(tabs_in(&first[0])[0]["panes"][0]["tokens"]["pinned"], "1");
+    assert_eq!(herdr.requests("layout.apply").len(), 1);
+    let tokens = herdr.requests("pane.report_metadata")[0]["params"]["tokens"].clone();
+    assert_eq!(tokens["pinned"], "1");
+    assert_eq!(tokens["session"], "ses_pinned1");
     herdr.clear();
     let out = theseus(&daemon.sock, &herdr.sock).output().unwrap();
     assert!(
@@ -675,7 +966,7 @@ fn a_lost_daemon_is_one_notice_and_its_return_another() {
     let daemon = FakeDaemon::start(dir.path(), three_tasks());
     let _f = follow(&daemon.sock, &herdr.sock, &[]);
     until(10, "the layout", || {
-        herdr.requests("layout.apply").len() == 1
+        herdr.requests("layout.apply").len() == 3
     });
     daemon.go_down();
     until(10, "the loss notice", || {
@@ -698,7 +989,7 @@ fn a_lost_daemon_is_one_notice_and_its_return_another() {
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(
         herdr.requests("layout.apply").len(),
-        1,
+        3,
         "nothing laid out again"
     );
 }
@@ -747,9 +1038,18 @@ fn the_space_row_carries_the_digest_and_the_horizon_after_a_disconnect() {
     assert_eq!(row["since"], "", "nothing happened since the owner looked");
     assert_eq!(row["routines"], "🔁1", "the routine's time has come");
     assert!(row["next"].as_str().unwrap().starts_with('⏰'), "{row:?}");
-    assert_eq!(herdr.requests("layout.apply").len(), 1);
-    let tabs = tabs_in(&herdr.requests("layout.apply")[0]);
-    assert_eq!(tabs.len(), 3, "the horizon's kinds get no tab");
+    until(10, "the tabs", || herdr.requests("layout.apply").len() == 3);
+    assert_eq!(
+        herdr.requests("layout.apply").len(),
+        3,
+        "the horizon's kinds get no tab"
+    );
+    assert_eq!(
+        herdr.tab_labels().len(),
+        3,
+        "and no blank tab: {:?}",
+        herdr.tab_labels()
+    );
 
     daemon.go_down();
     until(10, "the loss notice", || {

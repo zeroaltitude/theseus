@@ -4,13 +4,11 @@
 //! from the conversation that started it. The command talks to herdr alone, and nothing stays
 //! resident. The task pane's header (`task_header`) names the keys.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
-use crate::herdr;
-use crate::herdr_sync::WORKSPACE;
 use crate::herdr_up::wire;
 
 /// The pane of the `main` tab, if herdr has one: its `kind` token.
@@ -39,49 +37,38 @@ pub fn task_header(short: &str, parent: Option<&str>) -> String {
 
 /// `theseus herdr main`: focus the `main` tab, making it the first time.
 pub async fn run(socket: &str, herdr_socket: Option<PathBuf>) -> Result<()> {
-    let herdr_socket = crate::herdr_keys::herdr_socket_or_default(herdr_socket)?;
-    let listed =
-        herdr::request(&herdr_socket, "theseus:main:panes", "pane.list", json!({})).await?;
+    let mut h = wire::Herdr::new(crate::herdr_keys::herdr_socket_or_default(herdr_socket)?);
+    let listed = h.call("pane.list", json!({})).await?;
     let panes = listed["panes"].as_array().cloned().unwrap_or_default();
     let pane = match main_pane(&panes).and_then(|p| p["pane_id"].as_str()) {
         Some(id) => id.to_string(),
         None => {
             let socket = theseus_client::client::tilde(socket, std::env::var("HOME").ok());
             let exe = std::env::current_exe()?;
-            let made = herdr::request(
-                &herdr_socket,
-                "theseus:main:make",
-                "layout.apply",
-                main_params(&exe, &socket),
-            )
-            .await?;
-            match wire::made_tabs(&made).first() {
-                Some(t) if !t.pane_id.is_empty() => t.pane_id.clone(),
-                _ => bail!("herdr made no `main` tab"),
+            let at = (exe.as_path(), socket.as_str());
+            let tab = h
+                .open_tab(
+                    &mut wire::Space::default(),
+                    at,
+                    &wire::TabSpec::main(),
+                    true,
+                )
+                .await?;
+            if tab.pane_id.is_empty() {
+                bail!("herdr made no `main` tab");
             }
+            tab.pane_id
         }
     };
-    herdr::request(
-        &herdr_socket,
-        "theseus:main:focus",
-        "pane.focus",
-        json!({ "pane_id": pane }),
-    )
-    .await?;
+    h.call("pane.focus", json!({ "pane_id": pane })).await?;
     println!("focused the main tab ({pane})");
     Ok(())
 }
 
-/// `layout.apply`'s params for the `main` tab: the home conversation's chat, in the workspace.
-pub fn main_params(exe: &Path, socket: &str) -> Value {
-    json!({"workspace": {"label": WORKSPACE, "create": true}, "focus": true,
-           "tabs": [{"label": "main", "focus": true, "panes": [{
-               "argv": [exe.to_string_lossy(), "--socket", socket, "chat"],
-               "tokens": {"kind": wire::MAIN_KIND}}]}]})
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
@@ -97,6 +84,19 @@ mod tests {
     }
 
     #[test]
+    fn the_main_tab_runs_chat_as_an_argv() {
+        let spec = wire::TabSpec::main();
+        let at = wire::Where::Workspace("w1");
+        let p = wire::tab_params(&at, Path::new("/bin/theseus"), "/run/t.sock", &spec, true);
+        assert_eq!(
+            p["root"]["command"],
+            json!(["/bin/theseus", "--socket", "/run/t.sock", "chat"])
+        );
+        let tokens = wire::pane_tokens_params("w1:p2", &spec);
+        assert_eq!(tokens["tokens"]["kind"], "main");
+    }
+
+    #[test]
     fn the_main_pane_is_the_one_with_the_main_kind() {
         let panes = vec![
             json!({"pane_id": "p1", "tokens": {"kind": "task"}}),
@@ -104,16 +104,5 @@ mod tests {
         ];
         assert_eq!(main_pane(&panes).unwrap()["pane_id"], "p2");
         assert!(main_pane(&panes[..1]).is_none());
-    }
-
-    #[test]
-    fn the_main_tab_runs_chat_as_an_argv() {
-        let p = main_params(Path::new("/bin/theseus"), "/run/t.sock");
-        let pane = &p["tabs"][0]["panes"][0];
-        assert_eq!(
-            pane["argv"],
-            json!(["/bin/theseus", "--socket", "/run/t.sock", "chat"])
-        );
-        assert_eq!(pane["tokens"]["kind"], "main");
     }
 }

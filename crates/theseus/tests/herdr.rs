@@ -35,13 +35,28 @@ fn wait_until<T>(what: &str, mut ready: impl FnMut() -> Option<T>) -> T {
     }
 }
 
+#[path = "support/herdr_schema.rs"]
+mod herdr_schema;
+
 /// A fake herdr: one request per connection, answered by `answer` (a result,
-/// or an error object), and recorded.
+/// or an error object), and recorded. A request of a shape herdr's own schema
+/// does not take (`support/herdr_schema.rs`) is noted, and the test fails when
+/// the fake is dropped with any noted (theseus-6ifz1).
 struct FakeHerdr {
     sock: PathBuf,
     got: Arc<Mutex<Vec<Value>>>,
     /// When each request in `got` arrived.
     at: Arc<Mutex<Vec<Instant>>>,
+    bad: Arc<Mutex<Vec<String>>>,
+}
+
+impl Drop for FakeHerdr {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            let bad = self.bad.lock().unwrap();
+            assert!(bad.is_empty(), "herdr's schema refused: {bad:#?}");
+        }
+    }
 }
 
 impl FakeHerdr {
@@ -57,7 +72,9 @@ impl FakeHerdr {
         let listener = UnixListener::bind(&sock).unwrap();
         let got = Arc::new(Mutex::new(Vec::new()));
         let at = Arc::new(Mutex::new(Vec::new()));
-        let (g, t) = (got.clone(), at.clone());
+        let bad = Arc::new(Mutex::new(Vec::new()));
+        let schema = herdr_schema::Schema::load();
+        let (g, t, b) = (got.clone(), at.clone(), bad.clone());
         std::thread::spawn(move || {
             for s in listener.incoming() {
                 let Ok(s) = s else { break };
@@ -67,6 +84,10 @@ impl FakeHerdr {
                 }
                 let arrived = Instant::now();
                 let req: Value = serde_json::from_str(&line).unwrap();
+                let method = req["method"].as_str().unwrap_or_default();
+                if let Err(e) = schema.check_request(method, &req["params"]) {
+                    b.lock().unwrap().push(format!("{method}: {e}"));
+                }
                 let out = match answer(&req) {
                     Ok(r) => json!({"id": req["id"], "result": r}),
                     Err(e) => json!({"id": req["id"], "error": e}),
@@ -77,7 +98,7 @@ impl FakeHerdr {
                 let _ = writeln!(&s, "{out}");
             }
         });
-        Self { sock, got, at }
+        Self { sock, got, at, bad }
     }
 
     fn requests(&self) -> Vec<Value> {
@@ -422,8 +443,17 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
         "execution.changed",
         view(12, "running", "working", "turn 2", None, 0.42),
     );
-    let spend = herdr.wait_for("pane.report_metadata", 2);
-    assert_eq!(spend.last().unwrap()["params"]["tokens"]["cost"], "$0.42");
+    // The second view's metadata (its label moved) comes first; the spend's is the one waited for.
+    let spend = wait_until("the spend token", || {
+        let got = herdr.requests();
+        last_meta(&got)
+            .filter(|m| m["params"]["tokens"]["cost"] == "$0.42")
+            .map(|_| got)
+    });
+    assert_eq!(
+        last_meta(&spend).unwrap()["params"]["tokens"]["cost"],
+        "$0.42"
+    );
     assert_eq!(reports(&spend).len(), 2, "spend alone is no report");
     d.push("confirm.requested", question("act_m3"));
     d.push(
@@ -437,11 +467,10 @@ fn the_reporter_maps_reports_only_changes_and_releases_when_the_daemon_ends() {
             0.42,
         ),
     );
-    let blocked = herdr.wait_for("pane.report_metadata", 3);
-    assert_eq!(
-        blocked.last().unwrap()["params"]["tokens"]["confirm"],
-        "act_m3"
-    );
+    let blocked = wait_until("the confirm token", || {
+        last_meta(&herdr.requests()).filter(|m| m["params"]["tokens"]["confirm"] == "act_m3")
+    });
+    assert_eq!(blocked["params"]["tokens"]["confirm"], "act_m3");
     d.push("execution.changed", view(14, s, l, lbl, None, 0.42));
     herdr.wait_for("pane.report_agent", 4);
     w.signal(libc::SIGTERM);
@@ -1031,19 +1060,46 @@ fn task_daemon(dir: &Path, first: Value) -> FakeDaemon {
     FakeDaemon::start(dir, move |req| task_answers(first.clone(), req))
 }
 
-/// The reports alone, whole.
+/// The reports alone, whole. herdr's `pane.report_agent` takes no state label, so a report's
+/// `state_labels` is joined here from the `pane.report_metadata` that follows it (the watch sends
+/// the label with the metadata); a report not yet followed by one has none.
 fn report_requests(got: &[Value]) -> Vec<Value> {
     got.iter()
-        .filter(|r| r["method"] == "pane.report_agent")
-        .cloned()
+        .enumerate()
+        .filter(|(_, r)| r["method"] == "pane.report_agent")
+        .map(|(i, r)| {
+            let mut r = r.clone();
+            let meta = got[i..].iter().find(|m| {
+                m["method"] == "pane.report_metadata" && m["params"].get("state_labels").is_some()
+            });
+            if let Some(m) = meta {
+                r["params"]["state_labels"] = m["params"]["state_labels"].clone();
+            }
+            r
+        })
         .collect()
 }
 
-/// A report's state and its one label.
+/// Wait for `n` reports, the last with its label.
+fn labelled_reports(herdr: &FakeHerdr, n: usize) -> Vec<Value> {
+    wait_until(&format!("{n} labelled reports"), || {
+        let got = report_requests(&herdr.requests());
+        (got.len() >= n && got[n - 1]["params"].get("state_labels").is_some()).then_some(got)
+    })
+}
+
+/// A report's state and its one label (empty while the label has not come).
 fn state_and_label(r: &Value) -> (String, String) {
-    let labels = r["params"]["state_labels"].as_object().unwrap();
-    assert_eq!(labels.len(), 1, "one state's label: {r}");
-    let label = labels.values().next().unwrap().as_str().unwrap();
+    let labels = r["params"]["state_labels"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    assert!(labels.len() <= 1, "one state's label: {r}");
+    let label = labels
+        .values()
+        .next()
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     (r["params"]["state"].as_str().unwrap().into(), label.into())
 }
 
@@ -1069,8 +1125,9 @@ fn within_herdrs_limits(got: &[Value]) {
         }
         if r["method"] == "pane.report_agent" {
             assert!(chars(&p["agent"]) <= 22, "{r}");
-            let labels = p["state_labels"].as_object().unwrap();
-            assert!(labels.values().all(|v| chars(v) <= 80));
+        }
+        if let Some(labels) = p["state_labels"].as_object() {
+            assert!(labels.values().all(|v| chars(v) <= 80), "{r}");
         }
     }
 }
@@ -1238,12 +1295,12 @@ fn a_call_runs_and_ends(d: &FakeDaemon, herdr: &FakeHerdr) {
     let argv = json!(["cargo", "nextest", "run"]);
     call("tool.proposed", json!({"input": {"argv": argv}}));
     call("tool.started", json!({"backend": "job", "argv": argv}));
-    let running = herdr.wait_for("pane.report_agent", 2);
+    let running = labelled_reports(herdr, 2);
     let want = (
         "working".to_string(),
         "turn 3 · proc.run cargo nextest run".to_string(),
     );
-    assert_eq!(state_and_label(&report_requests(&running)[1]), want);
+    assert_eq!(state_and_label(&running[1]), want);
     let doing = wait_until("the doing token", || {
         last_meta(&herdr.requests()).filter(|m| m["params"]["tokens"]["doing"].is_string())
     });
@@ -1256,9 +1313,9 @@ fn a_call_runs_and_ends(d: &FakeDaemon, herdr: &FakeHerdr) {
         "{words}"
     );
     call("tool.ended", json!({"status": "ok"}));
-    let ended = herdr.wait_for("pane.report_agent", 3);
+    let ended = labelled_reports(herdr, 3);
     let want = ("working".to_string(), "turn 3".to_string());
-    assert_eq!(state_and_label(&report_requests(&ended)[2]), want);
+    assert_eq!(state_and_label(&ended[2]), want);
 }
 
 /// Each state's labels, and the tokens beside them (theseus-qb1es): the agent
@@ -1278,8 +1335,9 @@ fn every_state_has_its_label_and_the_tokens_beside_it() {
     assert_eq!(state_and_label(first), ("working".into(), "turn 3".into()));
     // The agent is the short name, and so is what the sidebar row says.
     assert_eq!(first["params"]["agent"], "Write the harbour log");
-    assert_eq!(first["params"]["display_agent"], "Write the harbour log");
-    the_first_tokens_say(&last_meta(&got).unwrap());
+    let meta = last_meta(&got).unwrap();
+    assert_eq!(meta["params"]["display_agent"], "Write the harbour log");
+    the_first_tokens_say(&meta);
     a_call_runs_and_ends(&d, &herdr);
 
     // Each state, one view after another.
@@ -1287,7 +1345,8 @@ fn every_state_has_its_label_and_the_tokens_beside_it() {
     for (view, state, text) in state_cases() {
         d.push("execution.changed", view);
         n += 1;
-        let got = report_requests(&herdr.wait_for("pane.report_agent", n));
+        herdr.wait_for("pane.report_agent", n);
+        let got = labelled_reports(&herdr, n);
         assert_eq!(
             state_and_label(&got[n - 1]),
             (state.into(), text.into()),

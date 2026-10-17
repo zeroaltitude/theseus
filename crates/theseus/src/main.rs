@@ -29,6 +29,8 @@ mod fork;
 mod harness;
 mod herdr;
 mod herdr_answer;
+#[cfg(test)]
+mod herdr_contract_tests;
 mod herdr_keys;
 mod herdr_main;
 mod herdr_setup;
