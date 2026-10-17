@@ -3,6 +3,7 @@
 //! gateway (its channels, `theseus_sim::fake_discord::FakeChannel`), and a
 //! stand-in model that starts tasks (the rig of `tests_task_threads.rs`).
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
@@ -344,6 +345,79 @@ async fn a_shared_channels_task_keeps_its_thread_whatever_its_plan() {
     })
     .await;
     open_gate(&r);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(made(&r).is_empty(), "{:#?}", made(&r));
+}
+
+/// The model, with the answer after a task's plan held back `SLOW`: a shared
+/// place runs no `proc_run`, so this keeps its task working with its plan.
+struct SlowAfterPlan(Arc<dyn theseus_core::provider::Provider>);
+
+const SLOW: Duration = Duration::from_secs(4);
+
+impl theseus_core::provider::Provider for SlowAfterPlan {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a theseus_core::provider::ProviderRequest,
+        on_delta: theseus_core::provider::DeltaSink<'a>,
+    ) -> theseus_core::provider::ProviderFuture<'a> {
+        let after_plan = req
+            .messages
+            .last()
+            .is_some_and(|m| m.to_string().contains("as a plan item"));
+        Box::pin(async move {
+            if after_plan {
+                tokio::time::sleep(SLOW).await;
+            }
+            self.0.stream_message(req, on_delta).await
+        })
+    }
+}
+
+/// A shared channel's task that plans two steps and goes on working keeps its
+/// public thread: no channel while its plan is on the board, nor after.
+#[tokio::test]
+async fn a_shared_channels_working_task_with_a_plan_gets_no_channel() {
+    let r = Rig::start_tweaked(
+        |_, _| {
+            Arc::new(SlowAfterPlan(model(
+                vec![start(&[REEF]), Scripted::text("Started.")],
+                vec![(REEF, vec![plan_steps(), Scripted::text("Reef charted.")])],
+            )))
+        },
+        guild(),
+        &bindings(false),
+        &[],
+        |c| {
+            tweak(c);
+            c.tools.defer.always_loaded.push("tasks".into());
+        },
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "its thread", || {
+        r.fake.threads().iter().any(|t| t.parent == LAB)
+    })
+    .await;
+    let task = task_session(&r);
+    until(&r, "its plan of two steps", || {
+        held(&r, &task)
+            .iter()
+            .filter(|b| b.contains("as a plan item"))
+            .count()
+            == 2
+    })
+    .await;
+    // The task works on, its plan on the board, for SLOW.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(made(&r).is_empty(), "{:#?}", made(&r));
+    until(&r, "it ends", || {
+        held(&r, &task).iter().any(|b| b.contains("Reef charted."))
+    })
+    .await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(made(&r).is_empty(), "{:#?}", made(&r));
 }
