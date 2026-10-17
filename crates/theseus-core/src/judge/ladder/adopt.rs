@@ -36,7 +36,8 @@ pub struct Adopted {
 /// 2026-10-06, "we test it live, no more shadows"), its rollback rules
 /// guarding it, `route.v3`, which goes live at once in place of `route.v2`
 /// the same way (theseus-qe3v), and `route.v4` in place of `route.v3`
-/// (theseus-p8dy), and `route.v5` in place of `route.v4` (theseus-c1uz).
+/// (theseus-p8dy), `route.v5` in place of `route.v4` (theseus-c1uz), and
+/// `route.v6` in place of `route.v5` (theseus-a1wvq.2).
 pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v1",
@@ -57,6 +58,10 @@ pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v5",
         why: WHY_ROUTE_V5,
+    },
+    Adopted {
+        pack: "route.v6",
+        why: WHY_ROUTE_V6,
     },
     Adopted {
         pack: "rerank.v1",
@@ -83,6 +88,11 @@ pub const WHY_ROUTE_V4: &str = "decision of 2026-10-11";
 /// questions that decide nothing for its promotion, `persona` and `seal`
 /// (theseus-c1uz); the owner's word of 2026-10-09 that Jev engages the persona.
 pub const WHY_ROUTE_V5: &str = "decision of 2026-10-13";
+
+/// `route.v6`'s adoption row's reason: route.v5 word for word and the `data`
+/// question, which decides nothing for its promotion and acts from the day the
+/// pack does (theseus-a1wvq.2).
+pub const WHY_ROUTE_V6: &str = "the owner's decision of 2026-10-17";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local

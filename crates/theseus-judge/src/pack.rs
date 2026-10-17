@@ -43,7 +43,8 @@ use crate::learn::RollbackRule;
 /// effort beside v2's mode (theseus-qe3v), `route.v4`, which adds a
 /// `review` mode to v3's (theseus-p8dy), and `classify.v2`, which adds the
 /// `thread` question to v1's (theseus-rha2), and `route.v5`, which adds the
-/// `persona` and `seal` questions to v4's (theseus-c1uz).
+/// `persona` and `seal` questions to v4's (theseus-c1uz), and `route.v6`, which
+/// adds the `data` question to v5's (theseus-a1wvq.2).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -67,6 +68,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v3", include_str!("../packs/route.v3.toml")),
     ("route.v4", include_str!("../packs/route.v4.toml")),
     ("route.v5", include_str!("../packs/route.v5.toml")),
+    ("route.v6", include_str!("../packs/route.v6.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
@@ -1305,6 +1307,18 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v6",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "data Choice [open private unclear]",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
+                    "persona Choice from Personas + [prior] only_when Personas",
+                    "reply_effort Choice decides [low medium high xhigh max unclear]",
+                    "seal Choice [yes no] only_when ThreadNow",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1386,6 +1400,11 @@ mod tests {
             "route.v5 keeps v1's rules"
         );
         assert_eq!(
+            rules("route.v6"),
+            rules("route.v1"),
+            "route.v6 keeps v1's rules"
+        );
+        assert_eq!(
             rules("classify.v2"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong thread".into(),
@@ -1417,9 +1436,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            22,
+            23,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3, v4 and v5, citation.v1, people.v1, people_seen.v1, classify.v2, compare.v1 and directive.v1"
+             v3, v4, v5 and v6, citation.v1, people.v1, people_seen.v1, classify.v2, compare.v1 and directive.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1604,5 +1623,78 @@ mod tests {
             (v4.point, v4.builder, v4.baseline, v4.action)
         );
         assert_eq!(v5.state_cap_tokens, v4.state_cap_tokens);
+    }
+
+    /// route.v6 (theseus-a1wvq.2) is route.v5 word for word, its rules and its
+    /// description's opening included, and one question that decides nothing for
+    /// the pack's promotion: `data`, three options, `unclear` when nothing fits.
+    #[test]
+    fn route_v6_is_v5_word_for_word_and_a_data_question() {
+        let (v5, v6) = (by_name("route.v5").unwrap(), by_name("route.v6").unwrap());
+        for q in ["mode", "reply_effort", "persona", "seal"] {
+            assert_eq!(v6.question(q), v5.question(q), "{q} word for word");
+        }
+        let ids: Vec<&str> = v6.questions.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(ids.len(), 5, "v5's four and data: {ids:?}");
+        let data = v6.question("data").unwrap();
+        assert!(!data.decides && data.kind == Kind::Choice);
+        assert_eq!((data.thresholds.act, data.thresholds.confirm), (0.90, 0.60));
+        assert_eq!(data.no_match.as_deref(), Some("unclear"));
+        let options: Vec<&str> = data.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(options, ["open", "private", "unclear"]);
+        assert_eq!(v6.rollback, v5.rollback, "both rules, word for word");
+        assert_eq!(v6.version, 6);
+        assert_eq!(
+            (v6.point, v6.builder, v6.baseline, v6.action),
+            (v5.point, v5.builder, v5.baseline, v5.action)
+        );
+        assert_eq!(v6.state_cap_tokens, v5.state_cap_tokens);
+        let opening = v5.description.trim_end_matches(['.', '"']);
+        let opening = opening.replace("and whether it warrants", "whether it warrants");
+        assert!(
+            v6.description.starts_with(&opening),
+            "v6's description keeps v5's: {}",
+            v6.description
+        );
+        assert!(v6.description.contains("outside the owner's trust"));
+    }
+
+    /// The organisations the data rule keeps out of the public repository are
+    /// named here by digest, never in words (theseus-a1wvq.2): the SHA-256 of
+    /// each lowercased word of the pack text, and of each two-word span joined
+    /// by a hyphen, is checked against this list. The operator's names are added
+    /// by digest at the join; "acme-private" is a made-up one that proves the
+    /// mechanism.
+    const DENIED_DIGESTS: &[&str] =
+        &["69dbe55440dc6269f3739371f9267126d733e93d72b3c17dc0112d2009d7b62a"];
+
+    fn digest(text: &str) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(text.as_bytes()))
+    }
+
+    /// The deny-listed digests that a pack's text hits, as the words that hit.
+    fn denied_in(text: &str, denied: &[&str]) -> Vec<String> {
+        let words: Vec<String> = text
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        let spans = words.windows(2).map(|w| w.join("-"));
+        words
+            .iter()
+            .cloned()
+            .chain(spans)
+            .filter(|w| denied.contains(&digest(w).as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn the_pack_text_names_no_organisation() {
+        let text = include_str!("../packs/route.v6.toml");
+        assert_eq!(denied_in(text, DENIED_DIGESTS), Vec::<String>::new());
+        // The mechanism catches a word and a two-word span.
+        let planted = format!("{text}\nAcme private plans, and Acme");
+        assert_eq!(denied_in(&planted, DENIED_DIGESTS), ["acme-private"]);
     }
 }

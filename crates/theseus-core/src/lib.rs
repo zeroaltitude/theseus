@@ -408,6 +408,8 @@ mod tests_route_cap;
 #[cfg(test)]
 mod tests_route_correct;
 #[cfg(test)]
+mod tests_route_data;
+#[cfg(test)]
 mod tests_route_defer;
 #[cfg(test)]
 mod tests_route_down;

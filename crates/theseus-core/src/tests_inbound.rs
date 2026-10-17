@@ -104,7 +104,7 @@ const INBOUND_ALONE: [&str; 16] = [
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v2: live",
     "role.v1: shadow",
-    "route.v5: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-13))",
+    "route.v6: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-17))",
     "directive.v1: live",
     "continue.v1: off",
     "categorize.v1: off",
@@ -258,6 +258,39 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
     assert_eq!(state["minutes_since_last_message"], 0);
 }
 
+/// The operator's names (`[routing.data]`) ride Jev's state as `data_names`
+/// (route.v6's `data` question, theseus-a1wvq.2); with none configured the
+/// state has no such key, so it is the one before, byte for byte.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_operators_names_ride_the_state_only_when_configured() {
+    let state_of = |r: &crate::tests_judge::Rig| {
+        let rows = scoped(&r.core.store, "judge:classify");
+        let digest = rows[0].1.data["state"]["sha256"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let text = std::fs::read_to_string(r.core.store.blobs().path(&digest)).unwrap();
+        serde_json::from_str::<Value>(&text).unwrap()
+    };
+    let jev = FakeJev::start().unwrap();
+    let r = rig_on(texts(1), Some(&jev), |c| {
+        inbound_only(c);
+        c.routing.data.open_topics = vec!["Widgetco".into()];
+        c.routing.data.private_topics = vec!["Acme".into()];
+    });
+    turn(&r.core, None, "Summarise the Widgetco release notes.").await;
+    until_inbound(&r.core.store, 1).await;
+    let state = state_of(&r);
+    assert_eq!(state["data_names"]["open"], serde_json::json!(["Widgetco"]));
+    assert_eq!(state["data_names"]["private"], serde_json::json!(["Acme"]));
+
+    let jev = FakeJev::start().unwrap();
+    let r = rig_on(texts(1), Some(&jev), inbound_only);
+    turn(&r.core, None, "Summarise the release notes.").await;
+    until_inbound(&r.core.store, 1).await;
+    assert!(state_of(&r).get("data_names").is_none());
+}
+
 /// A slash command is no person's message to judge: it makes no call, and
 /// the message after it makes one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -343,7 +376,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(
         marks(&res.trace).len(),
         4,
-        "judged: the inbound point's three marks (route.v5's, 25e), and loop.v1's at the turn's end (23b)"
+        "judged: the inbound point's three marks (route.v6's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");

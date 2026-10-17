@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
 };
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
@@ -53,12 +53,11 @@ pub const THREAD_QUESTION: &str = "thread";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v4` since theseus-p8dy (2026-10-11), the
-/// mode (with `review`) and the reply's effort in one request, live at once
-/// with route.v1's rollback rules; `route.v3` (theseus-qe3v), `route.v2`
-/// (theseus-3okf) and `route.v1` stay embedded for their history, and the
+/// The acting route pack: `route.v6` since theseus-a1wvq.2 (2026-10-17), v5's
+/// questions and the `data` question, live at once with route.v1's rollback
+/// rules; `route.v5` to `route.v1` stay embedded for their history, and the
 /// ladder never runs them again.
-pub const ROUTE_PACK: &str = "route.v5";
+pub const ROUTE_PACK: &str = "route.v6";
 /// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
@@ -193,6 +192,9 @@ pub struct Inbound {
     /// The message is the owner's own, in a place only the owner writes in,
     /// and `[standing] capture` is on: `directive.v1` is asked about it.
     pub capture: bool,
+    /// The operator's names for open and private matter (`[routing.data]`),
+    /// carried to route.v6's `data` question.
+    pub data_names: DataNames,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -682,6 +684,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
                 .collect(),
         }),
         current_role: None,
+        data_names: msg.data_names.clone(),
         roles: SEED_ROLES
             .iter()
             .map(|(id, stance)| RoleInput {
@@ -733,6 +736,13 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         turn: turn.to_string(),
         persona: crate::engage::persona_answer(j).map(Box::new),
         seal: crate::engage::seal_answer(j).map(Box::new),
+        data: choice(crate::routing::data::QUESTION).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::DataAnswer {
+                choice,
+                confidence,
+                band,
+            })
+        }),
     })
 }
 

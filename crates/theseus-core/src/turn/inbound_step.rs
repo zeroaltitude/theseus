@@ -104,6 +104,7 @@ impl TurnRunner {
                     threads: Vec::new(),
                     persona: self.persona_ctx(t.tc.session_id, class),
                     capture,
+                    data_names: self.cfg.routing.data.names(),
                 },
             ),
         };

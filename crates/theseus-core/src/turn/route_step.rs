@@ -917,6 +917,7 @@ mod tests {
             turn: "turn_1".into(),
             persona: None,
             seal: None,
+            data: None,
         }
     }
 

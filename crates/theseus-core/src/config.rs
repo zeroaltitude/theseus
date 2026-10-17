@@ -39,6 +39,7 @@ mod projects;
 pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
+mod routing_data;
 pub mod rsi;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
