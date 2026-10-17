@@ -460,3 +460,32 @@ fn a_failure_draws_retry_dismiss_and_details_and_nothing_once_dismissed() {
     }];
     assert!(ids(&WorkView::from_execution(&asking)).is_empty());
 }
+
+/// A task is joinable while its session takes input, and the redirect line
+/// has the words every surface prints.
+#[test]
+fn a_task_is_joinable_until_it_ends_and_the_redirect_line_has_one_wording() {
+    let joinable_in = |s| joinable(&view(WorkKind::Task, s, None));
+    for s in [
+        WorkState::Running,
+        WorkState::Queued,
+        WorkState::Waiting,
+        WorkState::NeedsYou,
+    ] {
+        assert!(joinable_in(s), "{s:?}");
+    }
+    for s in [
+        WorkState::Done,
+        WorkState::Failed,
+        WorkState::Cancelled,
+        WorkState::Expired,
+        WorkState::Ready,
+        WorkState::Unknown,
+    ] {
+        assert!(!joinable_in(s), "{s:?}");
+    }
+    assert_eq!(
+        task_redirect_line("Chart the reef", "a1b2c3", "the task is over"),
+        "[Written to the task “Chart the reef” (…a1b2c3), and the task is over] "
+    );
+}

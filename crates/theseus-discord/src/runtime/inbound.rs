@@ -26,6 +26,9 @@ pub(super) struct Inbound {
     /// The turn whose reply this message replies to (theseus-rha2): the
     /// router places the message in that turn's thread, certain.
     pub(super) reply_turn: Option<String>,
+    /// The task whose Follow mirror this message replies to
+    /// (theseus-esxyb): the owner's word to that task.
+    pub(super) task: Option<String>,
 }
 
 impl Inbound {

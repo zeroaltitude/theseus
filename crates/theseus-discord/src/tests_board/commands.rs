@@ -321,6 +321,114 @@ async fn details_stop_needs_the_second_press_and_follow_mirrors_and_seals() {
     assert_eq!(mirror(&r).unwrap().edits, edits);
 }
 
+/// A reply to a Follow mirror is the owner's word to the task, even while it
+/// runs; a message that is not a reply is the conversation's; and once the task
+/// has ended a reply goes to the conversation with the shared line
+/// (theseus-esxyb).
+#[tokio::test]
+async fn a_reply_to_the_follow_mirror_joins_the_task_and_an_ended_ones_goes_to_the_conversation() {
+    let r = one_asking_one_running().await;
+    let board = boards(&r, ANA_DM).remove(0);
+    let (running, _) = ids_of(&board);
+    let iid = r.fake.slash(&ana(), "task", &[("name", &running)]).unwrap();
+    r.until("details", || r.fake.reply_message(&iid).is_some())
+        .await;
+    r.fake
+        .press_reply(&iid, &format!("tb:follow:{running}"), ANA, "ana")
+        .unwrap();
+    let mirror = |r: &Rig| {
+        r.posted(ANA_DM)
+            .into_iter()
+            .find(|m| m.content.contains("Reef-chart") && m.flags & IS_COMPONENTS_V2 == 0)
+    };
+    r.until("the mirror message", || mirror(&r).is_some()).await;
+    let mirror_id = mirror(&r).unwrap().id;
+    assert!(
+        mirror(&r)
+            .unwrap()
+            .content
+            .contains("reply here to talk to the task"),
+        "{}",
+        mirror(&r).unwrap().content
+    );
+    let task = r
+        .core
+        .kernel
+        .execution(&running)
+        .unwrap()
+        .unwrap()
+        .session_id
+        .to_string();
+    let home = r
+        .core
+        .outbox
+        .place_session(&format!("dm:{ANA}"))
+        .unwrap()
+        .expect("the DM's session");
+    let held = |sid: &str| -> Vec<String> {
+        r.core
+            .store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| format!("{:?}", n.body))
+            .collect()
+    };
+    let typed = |content| theseus_sim::fake_discord::Typed {
+        user: ANA,
+        name: "ana",
+        channel: None,
+        content,
+        file: None,
+    };
+    r.fake
+        .say_reply(&typed("paint it blue instead"), &mirror_id)
+        .unwrap();
+    r.until("the reply reached the task", || {
+        held(&task)
+            .iter()
+            .any(|b| b.contains("paint it blue instead"))
+    })
+    .await;
+    assert!(
+        !held(&home)
+            .iter()
+            .any(|b| b.contains("paint it blue instead")),
+        "the conversation did not hear what the task took"
+    );
+    // Not a reply: the conversation's, as ever.
+    r.fake.say(&typed("and what of the reef")).unwrap();
+    r.until("a plain message is the conversation's", || {
+        held(&home)
+            .iter()
+            .any(|b| b.contains("and what of the reef"))
+    })
+    .await;
+    assert!(!held(&task)
+        .iter()
+        .any(|b| b.contains("and what of the reef")));
+    // The task ends; a reply to its sealed mirror goes to the conversation.
+    r.core
+        .task_cancel_by(&task, "discord:operator")
+        .await
+        .unwrap();
+    r.until("the mirror sealed", || {
+        mirror(&r).is_some_and(|m| m.content.contains("🏁"))
+    })
+    .await;
+    r.fake
+        .say_reply(&typed("one last thing for the buoy"), &mirror_id)
+        .unwrap();
+    r.until("the conversation heard it, with the shared line", || {
+        held(&home).iter().any(|b| {
+            b.contains("one last thing for the buoy")
+                && b.contains("[Written to the task")
+                && b.contains("and the task is over]")
+        })
+    })
+    .await;
+}
+
 #[tokio::test]
 async fn answer_resolves_a_seven_answer_ask_through_its_select_and_settles_the_card_everywhere() {
     let r = asking_six().await;

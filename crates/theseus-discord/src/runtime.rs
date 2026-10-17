@@ -1173,6 +1173,7 @@ impl Shared {
             guild: m.guild_id,
             thread,
             reply_turn: self.reply_turn_of(m),
+            task: self.reply_task_of(m),
         }));
     }
 
@@ -3005,6 +3006,7 @@ pub(crate) mod tests {
             guild: None,
             thread: None,
             reply_turn: None,
+            task: None,
         }]);
         let done = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -3280,6 +3282,7 @@ pub(crate) mod tests {
                 guild: None,
                 thread: None,
                 reply_turn: None,
+                task: None,
             }))
             .await;
         assert!(held().is_none());

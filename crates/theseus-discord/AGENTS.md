@@ -185,7 +185,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     **Follow** (`tb:follow:<task>`): one silent message in the place that mirrors the task's tool lines and stream (`session.watch` on a
     connection of the follow's own, private places only), edited in place, at most 3 a place, all of a place's follows together edit at most once in
     2.4 s (so one never edits more than once in 2 s, and a busy place costs 25 edits a minute beside the board's 30), sealed with the report line
-    when the task ends.
+    when the task ends. Its footer says `reply here to talk to the task`: a message that replies to the mirror (its id is kept in
+    `Follows`, in memory, 64 of them) is the owner's word to that task (`Place::task_reply`, `join_task`'s rule: steered while it runs, the
+    conversation with the shared line once it is over); a message that is not a reply is the conversation's.
     **`/answer [question:]`**: autocomplete over the open questions the presser may answer (`confirm.list` as the presser, kept for 3 s per
     presser and channel, so a keystroke asks the daemon nothing: `Questions::fetches`), then the card's controls ephemerally. More than five
     answers are one string select (`ws:<q>`; an ask with six choices has seven answers); "Decline with a note…" (`wn:<q>:decline`) and an ask's
@@ -287,10 +289,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     send it, the channel, as it did before threads. The task's **report** (`📋 Task … finished`) stays in the channel: it is the
     conversation's news, posted to the place the task reports to. The board's rows link the thread (`Parts.links`,
     `TaskThreads::url_of`, kept in memory after the place goes). Tests: `tests_task_threads.rs`, `runtime/threads.rs`'s.
-  - **A message in the thread** is an operator message to the task (`Place::task_message`, from `handle_in`): `turn.submit` on
-    its session, under the kernel's rule (a waiting or blocked task is woken, a running one queues it as its next turn, an ended one
-    refuses it `execution_*`); a refused message goes to the conversation that started the task, quoting it, and the thread says so.
-    `/new` in a task's thread is refused: the thread is the task's.
+  - **A message in the thread** is an operator message to the task (`Place::task_message`, then `Place::join_task`, which a
+    reply to a Follow mirror shares; theseus-esxyb): `turn.submit` on its session. **The owner's goes to the task whatever it is
+    doing** (the core steers it into a running task at its next step); a guest's goes there only while the kernel's rule takes it
+    (a waiting or blocked task is woken), and while the task runs, or once it is over (`execution_*`), it goes to the conversation
+    that started the task with the shared redirect line (`theseus_protocol::work::task_redirect_line`), and the thread says so: a
+    message is never lost. The owner is `[places] owner` (else the DMs' users). The thread's first line links back to the channel
+    (`↩ back to <#channel>`). `/new` in a task's thread is refused: the thread is the task's.
   - **The forum.** The worker (`forum::run`) is the only thing that talks to a forum. Each task of an eligible place is a post
     (`takes`: a private forum shows every task, a shared one only the shared places' of its own guild): the first message is the
     task's card (`task_view::post_card`, no button that acts; a link to its thread), edited on change at most once in 2 s; the four

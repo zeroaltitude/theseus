@@ -406,6 +406,113 @@ async fn a_message_in_a_task_thread_reaches_the_task_or_its_conversation_and_is_
     open_gate(&r);
 }
 
+/// What a session's nodes hold, as text.
+fn held(r: &Rig, sid: &str) -> Vec<String> {
+    r.core
+        .store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| format!("{:?}", n.body))
+        .collect()
+}
+
+/// The owner's message in a running task's thread goes to the task, not to
+/// the conversation that started it; a guest's still goes to the
+/// conversation, with the shared line; and the thread's first line links back
+/// to the channel (theseus-esxyb).
+#[tokio::test]
+async fn the_owners_message_joins_a_running_task_and_a_guests_is_redirected() {
+    let r = rig(
+        vec![
+            start(&[REEF]),
+            Scripted::text("Started."),
+            Scripted::text("Noted."),
+        ],
+        |dir| vec![(REEF, [vec![gate(dir)], answers("Reef charted.")].concat())],
+        true,
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "a thread for the task", || !threads(&r).is_empty()).await;
+    let t = threads(&r).remove(0);
+    bound(&r, t.id).await;
+    until(&r, "the jump link back to the channel", || {
+        said(&r, t.id).contains(&format!("↩ back to <#{LAB}>"))
+    })
+    .await;
+    let (task, parent) = (task_session(&r), parent_session(&r));
+    r.say((ANA, "ana"), Some(t.id), "chart the north reef too");
+    r.say((CY, "cy"), Some(t.id), "cy says hello to the reef");
+    until(&r, "the owner's message reached the task", || {
+        held(&r, &task)
+            .iter()
+            .any(|b| b.contains("chart the north reef too"))
+    })
+    .await;
+    until(&r, "the guest's message reached the conversation", || {
+        held(&r, &parent)
+            .iter()
+            .any(|b| b.contains("cy says hello to the reef") && b.contains("[Written to the task"))
+    })
+    .await;
+    assert!(
+        !held(&r, &parent)
+            .iter()
+            .any(|b| b.contains("chart the north reef too")),
+        "the owner's message did not go to the conversation"
+    );
+    assert!(
+        !held(&r, &task)
+            .iter()
+            .any(|b| b.contains("cy says hello to the reef")),
+        "the guest's message did not go to the running task"
+    );
+    open_gate(&r);
+}
+
+/// A message for a task that has ended goes to the conversation, quoting the
+/// task with the shared line, whoever wrote it.
+#[tokio::test]
+async fn the_owners_message_for_an_ended_task_goes_to_the_conversation_with_the_shared_line() {
+    let r = rig(
+        vec![
+            start(&[REEF]),
+            Scripted::text("Started."),
+            Scripted::text("Noted."),
+            Scripted::text("Noted again."),
+        ],
+        |_| vec![(REEF, answers("Reef charted."))],
+        true,
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "a thread for the task", || !threads(&r).is_empty()).await;
+    let t = threads(&r).remove(0);
+    until(&r, "the thread is renamed at the task's end", || {
+        threads(&r)[0].names.len() == 2
+    })
+    .await;
+    let parent = parent_session(&r);
+    r.say((ANA, "ana"), Some(t.id), "one more chart of the reef");
+    until(
+        &r,
+        "the conversation heard it, with the shared line",
+        || {
+            held(&r, &parent).iter().any(|b| {
+                b.contains("one more chart of the reef")
+                    && b.contains("[Written to the task")
+                    && b.contains("and the task is over]")
+            })
+        },
+    )
+    .await;
+    until(&r, "the thread says where it went", || {
+        said(&r, t.id).contains("sent to the conversation that started it")
+    })
+    .await;
+}
+
 /// The task session: the one the work model calls a task.
 fn task_session(r: &Rig) -> String {
     r.core
