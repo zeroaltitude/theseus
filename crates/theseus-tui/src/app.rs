@@ -1626,7 +1626,7 @@ impl App {
                 }
                 // A task that has reported takes no more: the message goes to main (theseus-mu0e6).
                 if self.ended_task(&sid).is_some() {
-                    return self.send_to_main(&sid, &text, "the task has reported");
+                    return self.send_to_main(&sid, &text, "the task is over");
                 }
                 self.input.clear();
                 self.mode = Mode::Normal;

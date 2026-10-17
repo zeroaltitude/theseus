@@ -141,7 +141,7 @@ async fn i_on_an_ended_task_sends_to_main() {
     assert_eq!(sent[0]["session_id"], json!("ses_dm0001"));
     assert_eq!(
         sent[0]["input"],
-        json!("[Written to the task “check the tide tables” (…tide01), and the task has reported] and the south?")
+        json!("[Written to the task “check the tide tables” (…tide01), and the task is over] and the south?")
     );
     assert_eq!(focused(&rig).as_deref(), Some("ses_dm0001"));
 }
@@ -169,7 +169,7 @@ async fn a_message_that_loses_the_race_goes_to_main() {
         sent[1]["input"]
             .as_str()
             .unwrap()
-            .ends_with("and the task ended first] hurry"),
+            .ends_with("and the task is over] hurry"),
         "{sent:?}"
     );
     assert_eq!(focused(&rig).as_deref(), Some("ses_dm0001"));

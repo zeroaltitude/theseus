@@ -125,7 +125,7 @@ impl App {
     pub(crate) fn request_failed(&mut self, purpose: &Purpose, e: &RpcError) -> Vec<Effect> {
         if let Purpose::SubmitTask { task, text } = purpose {
             if task_is_over(e) {
-                return self.send_to_main(task, text, "the task ended first");
+                return self.send_to_main(task, text, "the task is over");
             }
         }
         self.failed(purpose, e);
