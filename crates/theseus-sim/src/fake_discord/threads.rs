@@ -86,7 +86,7 @@ fn tag_ids(v: &Value) -> Vec<String> {
 
 /// The ids the stand-in gives threads and webhooks: snowflake-sized, apart
 /// from the messages' small counter.
-const FIRST_ID: u64 = 900_000_000_000_500_000;
+pub(super) const FIRST_ID: u64 = 900_000_000_000_500_000;
 
 pub(super) fn thread_json(t: &FakeThread) -> Value {
     // Without `type`, Discord makes a private thread in a text channel.

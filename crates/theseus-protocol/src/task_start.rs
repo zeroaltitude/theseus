@@ -20,6 +20,18 @@ pub enum ReportTo {
     Board,
 }
 
+/// How long a task is expected to take (theseus-bh3t.1): `long` is likely over
+/// ten minutes, which a surface may give a place of its own. Short, the
+/// default, is never stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Expect {
+    #[default]
+    Short,
+    Long,
+}
+
 /// `task.start`: a task from the owner's word.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -64,6 +76,10 @@ pub struct TaskStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub report_to: Option<ReportTo>,
+    /// Its expected length; `short` when not given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub expect: Option<Expect>,
     /// Who asked, as a label. It names and proves nothing; the connection's
     /// surface decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]

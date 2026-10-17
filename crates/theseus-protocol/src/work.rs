@@ -221,6 +221,10 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub woke: Option<Woke>,
+    /// A task: expected to run long (`task.create { expect }`, theseus-bh3t.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub expect: Option<crate::task_start::Expect>,
     /// The owner asked to hear when it is done ("tell me when it's done").
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flagged: bool,
@@ -846,6 +850,7 @@ impl WorkView {
             why: x.why.clone(),
             report,
             woke: None,
+            expect: None,
             flagged: false,
             dismissed: x.dismissed,
             retry_of: x.retry_of.clone(),

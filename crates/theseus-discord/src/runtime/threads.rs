@@ -57,6 +57,7 @@ use twilight_model::id::marker::ChannelMarker;
 use twilight_model::id::Id;
 
 use super::inbound::{Inbound, Pending};
+use super::task_channels::{Chan, Why};
 use super::{show, Place, PlaceMsg, Shared};
 use crate::courier::LaneMsg;
 use crate::render::board_v2;
@@ -77,16 +78,34 @@ const RETRY: Duration = Duration::from_secs(300);
 /// A thread older than this and never finished is dropped from the list.
 const STALE_MS: u64 = 7 * 24 * 3_600_000;
 
+/// A task channel's row goes this long after its last word, whatever the
+/// sweep did (the sweep deletes the channel at `task_channel_keep_days`).
+const CHANNEL_STALE_MS: u64 = 60 * 24 * 3_600_000;
+
 /// META key of the open task threads.
 const OPEN_KEY: &str = "discord.task_threads";
 
-/// A task's thread, as the list keeps it.
+/// What a task's place is in Discord (theseus-bh3t.1).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlaceKind {
+    /// A public thread in a guild channel (theseus-i3do6).
+    #[default]
+    Thread,
+    /// A private text channel under the bot's category.
+    Channel,
+}
+
+/// A task's thread or channel, as the list keeps it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Made {
     /// The task's work id (`exe_…`) and its session.
     pub task: String,
     pub session: String,
+    /// The thread's channel id; for a channel (`kind`), the channel's own.
     pub thread: u64,
+    #[serde(default)]
+    pub kind: PlaceKind,
     /// The channel it is in, and the conversation that started the task.
     pub parent: u64,
     pub parent_session: String,
@@ -115,6 +134,8 @@ type Mailbox = (
 #[derive(Clone)]
 pub(super) struct Parent {
     pub channel: u64,
+    /// The place may have a thread made in it (a guild channel, not a DM).
+    pub threads: bool,
     pub key: String,
     pub target: String,
     pub label: String,
@@ -169,6 +190,10 @@ pub(crate) fn task_name(mark: Mark, task: &str, title: &str) -> String {
 pub(super) enum Next {
     Nothing,
     Create,
+    /// A task that qualifies for a channel of its own (theseus-bh3t.1).
+    Channel(Why),
+    /// A task with a thread that now qualifies: the channel replaces it.
+    Promote(Made, Why),
     /// Its thread is in the list but its place is not running (a restart).
     Revive(Made),
     /// The task ended: its one rename.
@@ -199,6 +224,8 @@ struct Inner {
 #[derive(Default)]
 pub(crate) struct TaskThreads {
     inner: Mutex<Inner>,
+    /// What task channels need beside the rows (theseus-bh3t.1).
+    pub(super) chan: Chan,
 }
 
 impl TaskThreads {
@@ -213,7 +240,12 @@ impl TaskThreads {
         let list: Vec<Made> = store.get_meta(OPEN_KEY).ok().flatten().unwrap_or_default();
         i.made = list
             .into_iter()
-            .filter(|m| now.saturating_sub(m.created_ms) < STALE_MS)
+            .filter(|m| match m.kind {
+                PlaceKind::Thread => now.saturating_sub(m.created_ms) < STALE_MS,
+                PlaceKind::Channel => {
+                    now.saturating_sub(m.ended_ms.unwrap_or(m.created_ms)) < CHANNEL_STALE_MS
+                }
+            })
             .collect();
         let threads: Vec<u64> = i.made.iter().map(|m| m.thread).collect();
         i.threads.extend(threads);
@@ -267,12 +299,14 @@ impl TaskThreads {
     }
 
     /// Every thread in the list.
-    pub(super) fn all(&self) -> Vec<Made> {
+    pub(crate) fn all(&self) -> Vec<Made> {
         self.inner.lock().unwrap().made.clone()
     }
 
-    /// What to do about the task `v` seen in the channel `parent`'s place.
-    pub(super) fn next(&self, v: &WorkView) -> Next {
+    /// What to do about the task `v` seen in the place of a channel `parent`
+    /// (or a DM, where `threads` is false): `why` says it qualifies for a
+    /// channel of its own now.
+    pub(super) fn next(&self, v: &WorkView, why: Option<Why>, threads: bool) -> Next {
         let mut i = self.inner.lock().unwrap();
         if i.busy.contains(&v.id) {
             return Next::Nothing;
@@ -286,16 +320,27 @@ impl TaskThreads {
                 if v.session_id.is_none() {
                     return Next::Nothing;
                 }
+                let next = match (why, threads) {
+                    (Some(w), _) => Next::Channel(w),
+                    (None, true) => Next::Create,
+                    (None, false) => return Next::Nothing,
+                };
                 i.busy.insert(v.id.clone());
-                Next::Create
+                next
             }
             (None, true) => Next::Nothing,
             (Some(m), false) => {
-                if i.places.contains_key(&m.session) {
-                    return Next::Nothing;
+                if !i.places.contains_key(&m.session) {
+                    i.busy.insert(v.id.clone());
+                    return Next::Revive(m);
                 }
-                i.busy.insert(v.id.clone());
-                Next::Revive(m)
+                match why {
+                    Some(w) if m.kind == PlaceKind::Thread => {
+                        i.busy.insert(v.id.clone());
+                        Next::Promote(m, w)
+                    }
+                    _ => Next::Nothing,
+                }
             }
             (Some(m), true) => {
                 if m.ended_ms.is_some() {
@@ -307,12 +352,21 @@ impl TaskThreads {
         }
     }
 
-    fn settle(&self, task: &str) {
+    /// The channel that is the task's place, if it has one.
+    pub(super) fn channel_of(&self, task: &str) -> Option<u64> {
+        let i = self.inner.lock().unwrap();
+        i.made
+            .iter()
+            .find(|m| m.task == task && m.kind == PlaceKind::Channel)
+            .map(|m| m.thread)
+    }
+
+    pub(super) fn settle(&self, task: &str) {
         self.inner.lock().unwrap().busy.remove(task);
     }
 
     /// The session's mailbox goes: its place never started.
-    fn not_running(&self, session: &str) {
+    pub(super) fn not_running(&self, session: &str) {
         self.inner.lock().unwrap().places.remove(session);
     }
 
@@ -327,7 +381,7 @@ impl TaskThreads {
         self.inner.lock().unwrap().urls.get(task).cloned()
     }
 
-    fn add(&self, m: Made) {
+    pub(crate) fn add(&self, m: Made) {
         let mut i = self.inner.lock().unwrap();
         if let Some(g) = m.guild {
             if i.urls.len() >= 512 {
@@ -343,14 +397,33 @@ impl TaskThreads {
         i.made.push(m);
     }
 
-    fn update(&self, task: &str, f: impl FnOnce(&mut Made)) {
+    pub(super) fn update(&self, task: &str, f: impl FnOnce(&mut Made)) {
         let mut i = self.inner.lock().unwrap();
         if let Some(m) = i.made.iter_mut().find(|m| m.task == task) {
             f(m);
         }
     }
 
-    fn drop_made(&self, task: &str) -> Option<Made> {
+    /// The task's place goes. A thread's row goes with it; a channel's stays
+    /// until the sweep deletes the channel (`task_channel_keep_days`).
+    fn retire_row(&self, task: &str) -> Option<Made> {
+        let kept = {
+            let i = self.inner.lock().unwrap();
+            i.made
+                .iter()
+                .find(|m| m.task == task && m.kind == PlaceKind::Channel)
+                .cloned()
+        };
+        let Some(m) = kept else {
+            return self.drop_made(task);
+        };
+        let mut i = self.inner.lock().unwrap();
+        i.places.remove(&m.session);
+        i.failed.remove(task);
+        Some(m)
+    }
+
+    pub(super) fn drop_made(&self, task: &str) -> Option<Made> {
         let mut i = self.inner.lock().unwrap();
         let at = i.made.iter().position(|m| m.task == task)?;
         let m = i.made.remove(at);
@@ -360,7 +433,7 @@ impl TaskThreads {
         Some(m)
     }
 
-    fn running(&self, session: &str, tx: mpsc::UnboundedSender<PlaceMsg>) {
+    pub(super) fn running(&self, session: &str, tx: mpsc::UnboundedSender<PlaceMsg>) {
         self.inner
             .lock()
             .unwrap()
@@ -368,7 +441,7 @@ impl TaskThreads {
             .insert(session.to_string(), tx);
     }
 
-    fn save(&self, store: &theseus_core::store::Store) {
+    pub(super) fn save(&self, store: &theseus_core::store::Store) {
         let list = self.all();
         if let Err(e) = store.put_meta(OPEN_KEY, &list) {
             tracing::warn!(error = %format!("{e:#}"), "the open task threads were not saved");
@@ -379,7 +452,7 @@ impl TaskThreads {
 impl Shared {
     /// The class a thread of the parent's task is bound with: the parent's
     /// privacy, guild and ceiling, read now.
-    fn bound_place(&self, p: &Parent, thread: u64, name: &str) -> BoundPlace {
+    pub(super) fn bound_place(&self, p: &Parent, thread: u64, name: &str) -> BoundPlace {
         let rule = &self.core.runner.place_rule;
         let class = rule.class(&self.core.cfg, Some(&p.target));
         let bits = self.place_bits.get(&p.key);
@@ -396,7 +469,7 @@ impl Shared {
     /// The thread's lane, its bound place and where its task's posts go, from
     /// what the list keeps: the part of a thread that must stand before
     /// anything is posted to it (`stored` says what class to bind).
-    fn task_lane(self: &Arc<Self>, m: &Made, label: &str, bound: BoundPlace) {
+    pub(super) fn task_lane(self: &Arc<Self>, m: &Made, label: &str, bound: BoundPlace) {
         let target = format!("discord:channel:{}", m.thread);
         if self.lane(&target).is_none() {
             let parent_target = format!("discord:channel:{}", m.parent);
@@ -422,7 +495,15 @@ impl Shared {
     /// finished leaves after its grace.
     pub(super) fn revive_task_threads(self: &Arc<Self>) {
         self.task_threads.load(&self.core.store);
+        let now = theseus_protocol::now_unix_ms();
         for m in self.task_threads.all() {
+            // A channel closed long ago has nothing more to be posted to it.
+            let closed = m
+                .ended_ms
+                .is_some_and(|e| now.saturating_sub(e) > GRACE.as_millis() as u64);
+            if m.kind == PlaceKind::Channel && closed {
+                continue;
+            }
             let bound = BoundPlace {
                 target: format!("discord:channel:{}", m.thread),
                 name: m.name.clone(),
@@ -436,11 +517,12 @@ impl Shared {
                 self.retire_later(m.task.clone());
             }
         }
+        self.sweep_task_channels();
     }
 
     /// The thread place of the task, running: the actor that renders the
     /// task's session in its thread and takes the thread's messages.
-    fn start_task_place(
+    pub(super) fn start_task_place(
         self: &Arc<Self>,
         m: &Made,
         p: &Parent,
@@ -509,6 +591,7 @@ impl Shared {
                     task: v.id.clone(),
                     session,
                     thread,
+                    kind: PlaceKind::Thread,
                     parent: p.channel,
                     parent_session: p.session.clone(),
                     name,
@@ -566,8 +649,11 @@ impl Shared {
 
     /// The task ended: the thread's one rename, and its place goes after the
     /// grace. The thread archives itself after its day of quiet.
-    async fn finish_task_thread(self: &Arc<Self>, m: Made, mark: Mark, title: String) {
-        let name = task_name(mark, &m.task, &title);
+    async fn finish_task_thread(self: &Arc<Self>, m: Made, mark: Mark, v: WorkView) {
+        if m.kind == PlaceKind::Channel {
+            return self.finish_task_channel(m, mark, v).await;
+        }
+        let name = task_name(mark, &m.task, &v.title);
         if name != m.name {
             if let Err(e) = self.guild_thread_set(m.thread, None, Some(&name)).await {
                 self.board
@@ -584,7 +670,7 @@ impl Shared {
     }
 
     /// The place and the lane of a finished task, after `GRACE`.
-    fn retire_later(self: &Arc<Self>, task: String) {
+    pub(super) fn retire_later(self: &Arc<Self>, task: String) {
         let s = self.clone();
         tokio::spawn(async move {
             let stopped = s.core.outbox.stopped();
@@ -599,27 +685,11 @@ impl Shared {
 
     /// The thread's place, routes, lane and listing go.
     pub(super) async fn retire_task_thread(self: &Arc<Self>, task: &str) {
-        let Some(m) = self.task_threads.drop_made(task) else {
+        let Some(m) = self.task_threads.retire_row(task) else {
             return;
         };
         self.task_threads.save(&self.core.store);
-        let target = format!("discord:channel:{}", m.thread);
-        let place = {
-            let mut r = self.routes.lock().unwrap();
-            r.users.remove(&m.thread);
-            r.mention_only.remove(&m.thread);
-            r.by_channel.remove(&m.thread)
-        };
-        if let Some(tx) = place {
-            let _ = tx.send(PlaceMsg::Unbind);
-        }
-        {
-            let lanes = self.lanes.lock().unwrap();
-            if let Some(lane) = lanes.get(&target) {
-                self.retired.lock().unwrap().insert(target.clone());
-                let _ = lane.send(LaneMsg::Wake);
-            }
-        }
+        self.forget_thread_place(&m);
         self.core.outbox.place_unbound(&m.session);
         let _ = self
             .rpc
@@ -632,8 +702,28 @@ impl Shared {
             .await;
     }
 
+    /// A thread's place, routes and lane go (its row and its session's posts
+    /// are the caller's).
+    pub(super) fn forget_thread_place(&self, m: &Made) {
+        let target = format!("discord:channel:{}", m.thread);
+        let place = {
+            let mut r = self.routes.lock().unwrap();
+            r.users.remove(&m.thread);
+            r.mention_only.remove(&m.thread);
+            r.by_channel.remove(&m.thread)
+        };
+        if let Some(tx) = place {
+            let _ = tx.send(PlaceMsg::Unbind);
+        }
+        let lanes = self.lanes.lock().unwrap();
+        if let Some(lane) = lanes.get(&target) {
+            self.retired.lock().unwrap().insert(target.clone());
+            let _ = lane.send(LaneMsg::Wake);
+        }
+    }
+
     /// A message for the place of the channel `channel`, if one runs.
-    fn tell_channel(&self, channel: u64, m: PlaceMsg) {
+    pub(super) fn tell_channel(&self, channel: u64, m: PlaceMsg) {
         let tx = self
             .routes
             .lock()
@@ -648,7 +738,7 @@ impl Shared {
 }
 
 /// A title for a line of the channel: one line, short.
-fn clip(title: &str) -> String {
+pub(super) fn clip(title: &str) -> String {
     let one = title.split_whitespace().collect::<Vec<_>>().join(" ");
     let short: String = one.chars().take(120).collect();
     if short.is_empty() {
@@ -664,13 +754,16 @@ impl Place {
     fn parent_of_tasks(&self) -> Option<Parent> {
         let channel = self.channel?.get();
         let s = &self.shared;
-        let wants = self.kind == "channel"
+        let threads = self.kind == "channel"
             && s.task_threads.enabled(channel)
             && !s.task_threads.is_thread(channel)
-            && s.threads.slug_of(channel).is_none()
+            && s.threads.slug_of(channel).is_none();
+        // A DM has no threads, but its tasks may have channels.
+        let wants = (threads || (self.kind == "dm" && s.channels_wanted(&self.target)))
             && !self.session_id.is_empty();
         wants.then(|| Parent {
             channel,
+            threads,
             key: self.key.clone(),
             target: self.target.clone(),
             label: self.label.clone(),
@@ -688,19 +781,32 @@ impl Place {
         };
         let s = &self.shared;
         s.task_threads.load(&s.core.store);
+        let channels = s.channels_wanted(&p.target);
         for v in s.tasks.all_of(&self.session_id) {
             let s = s.clone();
             let p = p.clone();
-            match s.task_threads.next(&v) {
+            let why = if channels { s.channel_why(&v) } else { None };
+            if channels && why.is_none() {
+                self.promote_later(&v);
+            }
+            match s.task_threads.next(&v, why, p.threads) {
                 Next::Nothing => {}
                 Next::Create => {
                     tokio::spawn(async move { s.make_task_thread(p, v).await });
+                }
+                Next::Channel(why) => {
+                    s.task_threads.chan.begin(&v.id);
+                    tokio::spawn(async move { s.make_task_channel(p, v, why).await });
+                }
+                Next::Promote(m, why) => {
+                    s.task_threads.chan.begin(&v.id);
+                    tokio::spawn(async move { s.promote_task_thread(p, m, v, why).await });
                 }
                 Next::Revive(m) => {
                     tokio::spawn(async move { s.revive_task_thread(p, m).await });
                 }
                 Next::Finish(m, mark) => {
-                    tokio::spawn(async move { s.finish_task_thread(m, mark, v.title).await });
+                    tokio::spawn(async move { s.finish_task_thread(m, mark, v).await });
                 }
             }
         }
@@ -850,6 +956,7 @@ mod tests {
             task: task.into(),
             session: format!("ses_{task}"),
             thread,
+            kind: PlaceKind::Thread,
             parent: 223_456_789_012_345_678,
             parent_session: "ses_parent".into(),
             name: task_name(Mark::Running, task, "Chart the reef"),
@@ -906,23 +1013,36 @@ mod tests {
         );
         // Working, with no place yet: the place is started again.
         assert!(
-            matches!(t.next(&task("exe_reef", "running")), Next::Revive(m) if m.thread == thread)
+            matches!(t.next(&task("exe_reef", "running"), None, true), Next::Revive(m) if m.thread == thread)
         );
-        assert_eq!(t.next(&task("exe_reef", "running")), Next::Nothing, "once");
+        assert_eq!(
+            t.next(&task("exe_reef", "running"), None, true),
+            Next::Nothing,
+            "once"
+        );
         t.settle("exe_reef");
         // Over meanwhile: the one rename, with its mark; then nothing.
         assert!(matches!(
-            t.next(&task("exe_reef", "failed")),
+            t.next(&task("exe_reef", "failed"), None, true),
             Next::Finish(_, Mark::Failed)
         ));
         t.update("exe_reef", |m| m.ended_ms = Some(1));
         t.settle("exe_reef");
-        assert_eq!(t.next(&task("exe_reef", "failed")), Next::Nothing);
+        assert_eq!(
+            t.next(&task("exe_reef", "failed"), None, true),
+            Next::Nothing
+        );
         // A new task gets a thread, an old one over with none gets none.
-        assert_eq!(t.next(&task("exe_new", "running")), Next::Create);
-        assert_eq!(t.next(&task("exe_old", "done")), Next::Nothing);
+        assert_eq!(
+            t.next(&task("exe_new", "running"), None, true),
+            Next::Create
+        );
+        assert_eq!(t.next(&task("exe_old", "done"), None, true), Next::Nothing);
         // A failed create waits before it is tried again.
         t.failed("exe_new");
-        assert_eq!(t.next(&task("exe_new", "running")), Next::Nothing);
+        assert_eq!(
+            t.next(&task("exe_new", "running"), None, true),
+            Next::Nothing
+        );
     }
 }

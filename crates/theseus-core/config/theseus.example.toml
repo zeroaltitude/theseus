@@ -767,6 +767,10 @@ silent = []                             # categories of message that post withou
                                         # never ping
 ping_window_secs = 0                    # at most one ping per place in this many seconds (a place may set its own); 0 is off
 live_board = true                       # the task board: one pinned message that follows your tasks, edited and never posted anew (so it never pings); false, or a bot that cannot send Components V2, keeps the plain-text board
+task_channels = true                    # a private text channel for each task of 2+ plan steps, or started `expect = long`, or still working after the minutes below, in a category the bot makes (`⚙️ Theseus tasks`); you steer the task there. Needs exactly one `private = true` guild in the bindings file and the bot's Manage Channels and Manage Roles (the bot says so in your DM when it lacks them); without them tasks go on as threads and the Follow mirror
+task_channel_after_minutes = 10         # a task still working this long after it began gets its channel
+task_channel_cap = 25                   # at most this many task channels open at once; past it a task goes on as before
+task_channel_keep_days = 14             # a finished task's channel moves to `⚙️ Theseus tasks · done`, read-only, and is deleted this many days after it ended
 status_line = true                      # the bot's status reads counts only, `🔴 1 needs you · ⚙️ 3 running`, and is cleared when nothing works or waits; everyone who can see the bot sees it
 # A turn's reply, a confirm card and how it closed, and the notices you must see
 # are posts in the outbox, written when they happen and sent once when Discord

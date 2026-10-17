@@ -61,6 +61,7 @@ fn task(n: usize) -> theseus_protocol::work::WorkView {
         why: None,
         report: None,
         woke: None,
+        expect: None,
         flagged: false,
         dismissed: false,
         retry_of: None,

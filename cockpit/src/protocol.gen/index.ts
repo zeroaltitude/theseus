@@ -153,6 +153,7 @@ export type * from './ExecutionStopResult';
 export type * from './ExecutionView';
 export type * from './ExecutionsWatchParams';
 export type * from './ExecutionsWatchResult';
+export type * from './Expect';
 export type * from './ExplainCondition';
 export type * from './ExplainLayer';
 export type * from './ExtendHandsInfo';

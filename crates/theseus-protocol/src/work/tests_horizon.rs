@@ -53,6 +53,7 @@ fn view(kind: WorkKind, state: WorkState) -> WorkView {
         why: None,
         report: None,
         woke: None,
+        expect: None,
         flagged: false,
         purpose: None,
         next_at_ms: None,

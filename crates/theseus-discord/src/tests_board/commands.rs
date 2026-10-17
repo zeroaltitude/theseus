@@ -675,7 +675,7 @@ async fn new_task_opens_a_modal_and_starts_a_task_homed_here() {
         .iter()
         .map(|c| c["component"]["custom_id"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(ids, ["brief", "budget", "report"]);
+    assert_eq!(ids, ["brief", "budget", "report", "expect"]);
     // The board's own button opens the same modal.
     let board = boards(&r, ANA_DM).remove(0);
     let btn = r.press(&board.id, "➕ New task", (ANA, "ana"));
@@ -686,7 +686,11 @@ async fn new_task_opens_a_modal_and_starts_a_task_homed_here() {
             &ana(),
             "nt:",
             &[("brief", SURVEY)],
-            &[("budget", &["5"]), ("report", &["board"])],
+            &[
+                ("budget", &["5"]),
+                ("report", &["board"]),
+                ("expect", &["long"]),
+            ],
             None,
         )
         .unwrap();
@@ -699,6 +703,13 @@ async fn new_task_opens_a_modal_and_starts_a_task_homed_here() {
         )
     });
     assert!(held(&r, &session).is_none(), "no quote, no hold");
+    // The modal's "long" reached the task (theseus-bh3t.1).
+    let expect = r
+        .core
+        .store
+        .get_meta::<theseus_protocol::task_start::Expect>(&theseus_core::task::expect_key(&session))
+        .unwrap();
+    assert_eq!(expect, Some(theseus_protocol::task_start::Expect::Long));
     r.until("the board shows it", || {
         boards(&r, ANA_DM)
             .first()

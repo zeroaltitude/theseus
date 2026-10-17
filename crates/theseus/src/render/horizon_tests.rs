@@ -49,6 +49,7 @@ fn view(id: &str, kind: WorkKind, title: &str, state: WorkState, level: Level) -
         why: None,
         report: None,
         woke: None,
+        expect: None,
         flagged: false,
         purpose: None,
         next_at_ms: None,

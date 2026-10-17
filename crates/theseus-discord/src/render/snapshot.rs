@@ -232,6 +232,7 @@ mod tests {
             woke: None,
             below: None,
             why: None,
+            expect: None,
             flagged: false,
             dismissed: false,
             retry_of: None,

@@ -30,7 +30,16 @@ use crate::bindings::{snowflake, Bindings};
 /// what its health, its `discord.bound` row, and its spend limit read. The
 /// bindings file read live replaces them (`replace`, theseus-ocwt).
 #[derive(Default)]
-pub(crate) struct PlaceBits(std::sync::Mutex<HashMap<String, Bits>>);
+pub(crate) struct PlaceBits(
+    std::sync::Mutex<HashMap<String, Bits>>,
+    std::sync::Mutex<Option<u64>>,
+);
+
+/// The permissions the invite asks for: `326686067792` is the six it asked
+/// for before (`117824`) plus Manage Channels (1<<4), Manage Roles (1<<28),
+/// Manage Threads (1<<34), Create Public Threads (1<<35) and Send Messages in
+/// Threads (1<<38). Task channels (theseus-bh3t.1) need the first two.
+pub(super) const INVITE_PERMISSIONS: u64 = 326_686_067_792;
 
 #[derive(Clone, Default)]
 pub(crate) struct Bits {
@@ -40,12 +49,31 @@ pub(crate) struct Bits {
 
 impl PlaceBits {
     pub(crate) fn new(b: &Bindings) -> Self {
-        Self(std::sync::Mutex::new(Self::of(b)))
+        Self(
+            std::sync::Mutex::new(Self::of(b)),
+            std::sync::Mutex::new(Self::trusted_of(b)),
+        )
+    }
+
+    /// The one guild the file trusts; none when it trusts none or several.
+    fn trusted_of(b: &Bindings) -> Option<u64> {
+        let trusted = b.trusted();
+        let mut ids = trusted.iter();
+        match (ids.next(), ids.next()) {
+            (Some(id), None) => id.parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The guild task channels are made in (theseus-bh3t.1).
+    pub(crate) fn trusted_guild(&self) -> Option<u64> {
+        *self.1.lock().unwrap()
     }
 
     /// The file `b`'s, in place of what was read before.
     pub(crate) fn replace(&self, b: &Bindings) {
         *self.0.lock().unwrap() = Self::of(b);
+        *self.1.lock().unwrap() = Self::trusted_of(b);
     }
 
     fn of(b: &Bindings) -> HashMap<String, Bits> {
@@ -190,7 +218,7 @@ impl Shared {
         }
         let named: Vec<String> = missing.iter().map(ToString::to_string).collect();
         Some(format!(
-            "the bot is not in guild {} yet; invite it: https://discord.com/oauth2/authorize?client_id={app}&scope=bot+applications.commands&permissions=117824",
+            "the bot is not in guild {} yet; invite it: https://discord.com/oauth2/authorize?client_id={app}&scope=bot+applications.commands&permissions={INVITE_PERMISSIONS}",
             named.join(", ")
         ))
     }

@@ -58,6 +58,16 @@ impl Category {
     ];
 }
 
+pub(super) fn default_task_channel_after_minutes() -> u64 {
+    10
+}
+pub(super) fn default_task_channel_cap() -> u64 {
+    25
+}
+pub(super) fn default_task_channel_keep_days() -> u64 {
+    14
+}
+
 impl Default for DiscordConfig {
     fn default() -> Self {
         Self {
@@ -69,6 +79,10 @@ impl Default for DiscordConfig {
             silent: Vec::new(),
             ping_window_secs: 0,
             live_board: true,
+            task_channels: true,
+            task_channel_after_minutes: default_task_channel_after_minutes(),
+            task_channel_cap: default_task_channel_cap(),
+            task_channel_keep_days: default_task_channel_keep_days(),
             status_line: true,
             rest_proxy: None,
             gateway_proxy: None,
