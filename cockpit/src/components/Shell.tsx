@@ -18,6 +18,7 @@ import { cn, short, usd, clock, stamp } from '@/lib/format'
 import { ledgerKind, partTone, stateTone, toneHex } from '@/lib/taxonomy'
 import { LiveDot, Spark } from './ui'
 import { Coin } from './brass'
+import { DesktopNotices } from './DesktopNotices'
 import { HeartbeatBar } from './Heartbeat'
 import { useFlow } from '@/lib/flow'
 import { useAsOf } from '@/lib/timemachine'
@@ -134,22 +135,10 @@ function useStir() {
   useEffect(() => { stir.current?.poke() }, [status])
 }
 
-/** Opt-in desktop notices: each approval that starts waiting is announced once, while this page is open. */
-function useApprovalNotices(confirms: ConfirmRequest[] | undefined) {
+/** Opt-in desktop notices (theseus-go4ig): the switch; `DesktopNotices` does the telling, through the notification
+ *  policy, for questions, failures, a set reminder and a flagged or long finish. */
+function useNoticeSwitch() {
   const [on, setOn] = useState(() => localStorage.getItem('cockpit.notify') === 'on' && typeof Notification !== 'undefined' && Notification.permission === 'granted')
-  const seen = useRef<Set<string> | null>(null)
-  useEffect(() => {
-    if (!confirms) return
-    const ids = new Set(confirms.map((c) => c.correlation_id))
-    if (seen.current && on && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      for (const c of confirms) {
-        if (!seen.current.has(c.correlation_id)) {
-          new Notification(`Theseus: ${c.tool} waits for you`, { body: c.reason, tag: c.correlation_id })
-        }
-      }
-    }
-    seen.current = ids
-  }, [confirms, on])
   const toggle = async () => {
     if (on) { setOn(false); localStorage.setItem('cockpit.notify', 'off'); return }
     if (typeof Notification === 'undefined') { window.alert('This browser has no desktop notifications.'); return }
@@ -164,7 +153,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
   // Approvals waiting, from every view: the Actions item carries the count, and pulses while anything waits.
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 2000)
   const waiting = cl?.confirms.length ?? 0
-  const notify = useApprovalNotices(cl?.confirms)
+  const notify = useNoticeSwitch()
   // The accordion (theseus-onxwh): the groups as the operator left them, and the group of every view this page has
   // been in, open unless folded since. Only the operator's own presses are kept in the browser.
   const loc = useLocation()
@@ -182,6 +171,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
   }
   return (
     <nav className="brass-rail relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-1 py-3 [@media(max-height:860px)]:gap-0.5 [@media(max-height:860px)]:py-2">
+      {notify.on && <DesktopNotices />}
       <div className="mb-3 flex flex-col items-center [@media(max-height:860px)]:mb-1.5">
         <div className="relative" title="Theseus">
           <Coin size={42} className="drop-shadow-[0_0_10px_rgba(214,165,72,0.35)]" />
@@ -239,7 +229,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
       </div>
       <div className="mt-auto flex flex-col items-center gap-2">
         <ModeToggle />
-        <button onClick={notify.toggle} title={notify.on ? 'Desktop notices for approvals: on' : 'Desktop notices for approvals: off'}
+        <button onClick={notify.toggle} title={notify.on ? 'Desktop notices for questions, failures, reminders and finishes: on' : 'Desktop notices: off'}
           className={cn('rounded-lg p-2 hover:bg-white/5', notify.on ? 'text-wait' : 'text-ink-faint hover:text-ink')}>
           {notify.on ? <BellRing size={17} /> : <BellOff size={17} />}
         </button>
