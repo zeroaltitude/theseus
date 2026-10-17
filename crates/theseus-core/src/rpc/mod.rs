@@ -1412,6 +1412,8 @@ impl Parts {
     /// words (theseus-7m7w.2), and most tests are not about that.
     pub fn for_tests(mut cfg: Config, provider: Arc<dyn Provider>, store: Store) -> Self {
         cfg.tools.defer.enabled = false;
+        // No posted digest in a test unless it asks (theseus-ss36w).
+        cfg.discord.digest_at = vec![];
         let mut providers = BTreeMap::new();
         providers.insert(cfg.model.provider.clone(), provider);
         Self {

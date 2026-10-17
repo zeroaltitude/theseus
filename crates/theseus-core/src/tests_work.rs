@@ -298,6 +298,8 @@ impl Scene {
                 .tools
                 .insert("fs.write".into(), crate::policy::Posture::Approve);
             c.policy.tools.remove("proc.run");
+            // The driver's tick posts no digest of its own here.
+            c.discord.digest_at = vec![];
         });
         *r.model.hold.lock().unwrap() = Some("CHILD".into());
         // A stand-in for the daemon's drain, which takes a background job's end.

@@ -27,6 +27,8 @@ const DAY_MS: u64 = 86_400_000;
 #[derive(Default)]
 pub struct State {
     day: Mutex<Option<String>>,
+    /// The digest post's (theseus-ss36w).
+    pub digest: super::digest::State,
 }
 
 impl Core {

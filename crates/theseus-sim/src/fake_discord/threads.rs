@@ -208,7 +208,7 @@ impl FakeDiscord {
         reply(stream, 200, &forum_json(id, &tags))
     }
 
-    fn next_big(&self) -> u64 {
+    pub(super) fn next_big(&self) -> u64 {
         let mut st = self.state.lock().unwrap();
         st.next_big = st.next_big.max(FIRST_ID) + 1;
         st.next_big

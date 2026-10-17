@@ -116,6 +116,8 @@ impl Core {
         self.watch_tick();
         // The day's morning note, when the persona's initiative lets one (theseus-slvl.9).
         self.post_morning_if_due();
+        // The 08:00 and 18:00 digest, when something happened (theseus-ss36w).
+        self.post_digest_if_due();
     }
 
     /// The due scan's notice pass: every notice wake that is due, in any

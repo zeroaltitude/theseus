@@ -356,7 +356,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when it did not; no row for a reply that promises nothing, so a plain turn writes nothing here. **Verdicts**: `initiative.rate`
   (`initiative/rate.rs`, `judge_act(Act::Session)`: the owner from a private place; the CLI refuses it in a job) writes
   `initiative.rated`, the last verdict on an id standing; Discord's 👍/👎 on a reply or a note calls it. `initiative.week`
-  (`initiative/week.rs`) is the measure `theseus persona` shows. Tests: `tests_initiative.rs`, `initiative::promise::tests`,
+  (`initiative/week.rs`) is the measure `theseus persona` shows. **The posted digest** (theseus-ss36w; `initiative/digest.rs`): at each `[discord] digest_at` slot (`"08:00"`, `"18:00"` by
+  default; `[]` off) the driver's tick (`post_digest_if_due`, one lock and a comparison until a slot's first ask) begins one
+  `work.digest` read since the last digest (META `discord.digest.last`) as the owner's surface and posts it as kind
+  `digest` to the owner's DM, only when it has lines; the slot is claimed in memory, marked in META
+  `discord.digest.<date>.<HHMM>` in the post's frame (or alone when nothing happened), so a restart posts none twice. `digest`
+  is in `pacer::UNPROMPTED`: the slot waits, unclaimed, while the window is closed, within its local day (`due` is pure:
+  the latest slot today that has come and is later than the last claimed). Tests: `tests_work_digest.rs`, `digest::tests`.
+  Tests: `tests_initiative.rs`, `initiative::promise::tests`,
   `initiative::lines::tests`, the protocol's `tests_notices.rs`.
 - **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v1`; no store
   format: new META key `standing.capture` and new ledger kinds): the owner's words become standing records without a

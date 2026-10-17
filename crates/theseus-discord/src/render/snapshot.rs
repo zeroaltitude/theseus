@@ -16,6 +16,7 @@ use super::board_v2::{
 };
 use super::clip;
 use super::v2::{button, container, row, section, select, separator, text, validate, Look};
+use crate::runtime::emoji::state;
 
 /// `tb:refresh:<show>`.
 pub const REFRESH: &str = "tb:refresh:";
@@ -76,7 +77,10 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
     let [cn, cw, cd] = caps;
     if !needs.is_empty() {
         inner.push(separator());
-        inner.push(text("**🔴 Needs you**"));
+        inner.push(text(format!(
+            "**{} Needs you**",
+            state(WorkState::NeedsYou)
+        )));
         for v in needs.iter().take(cn) {
             inner.push(section(
                 vec![text(format!(
@@ -91,13 +95,13 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
     }
     if !working.is_empty() {
         inner.push(separator());
-        let mut lines = vec!["**⚙️ Now**".to_string()];
+        let mut lines = vec![format!("**{} Now**", state(WorkState::Running))];
         lines.extend(working.iter().rev().take(cw).map(working_line));
         inner.push(text(lines.join("\n")));
     }
     if !done.is_empty() {
         inner.push(separator());
-        let mut lines = vec!["**✅ Done**".to_string()];
+        let mut lines = vec![format!("**{} Done**", state(WorkState::Done))];
         lines.extend(done.iter().take(cd).map(done_line));
         inner.push(text(lines.join("\n")));
     }

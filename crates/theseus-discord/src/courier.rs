@@ -23,6 +23,7 @@
 
 mod ask;
 mod board;
+mod catchup;
 mod held;
 mod persona;
 mod thread;
@@ -319,6 +320,8 @@ pub(crate) struct Lane {
     signing: persona::Signing,
     /// Components V2: the board's pace and the needs-you cards' pings (theseus-2j2ka).
     pub v2: v2::State,
+    /// The outage this lane is coming back from (theseus-ss36w).
+    catchup: catchup::State,
 }
 
 impl Lane {
@@ -359,6 +362,7 @@ impl Lane {
             pin_refused: false,
             signing: Default::default(),
             v2: v2::State::default(),
+            catchup: catchup::State::default(),
         }
     }
 
@@ -556,6 +560,15 @@ impl Lane {
     /// the daemon is stopping: then no post is dispatched, and each waits for
     /// the next start (theseus-pfv).
     async fn deliver_posts(&mut self) -> bool {
+        // Back from an outage: what was written in it folds into one message.
+        if self.catchup.pending() {
+            if let Err(e) = self.catch_up().await {
+                if !self.shared.core.outbox.stopping() {
+                    self.away(&e);
+                }
+                return false;
+            }
+        }
         while !self.shared.core.outbox.stopping() {
             // Its place is no longer bound: no post is begun (theseus-ocwt).
             if self.shared.is_retired(&self.target) {
@@ -578,6 +591,7 @@ impl Lane {
                     if e.unsure {
                         self.unsure.insert(a.correlation_id.clone());
                     }
+                    self.catchup.begin(a.planned_at_ms);
                     self.away(&e);
                     return false;
                 }
@@ -859,6 +873,7 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
             | "self_narrow_red" | "initiative" | "standing_card" => self.jev_post(a, &body).await,
+            "digest" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1970,6 +1985,8 @@ fn mcp_note(body: &Value) -> String {
 
 #[cfg(test)]
 mod tests_bound;
+#[cfg(test)]
+mod tests_catchup;
 #[cfg(test)]
 mod tests_v2;
 

@@ -20,7 +20,8 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use theseus_protocol::{
-    digest_summary, method, now_unix_ms, DiscordOrigin, WorkDigestParams, WorkDigestResult,
+    digest_summary, digest_text, method, now_unix_ms, DiscordOrigin, WorkDigestParams,
+    WorkDigestResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_model::application::command::{Command, CommandType};
@@ -81,38 +82,7 @@ pub(super) fn command() -> Command {
 /// waits, within Discord's limit (the oldest lines that do not fit are left
 /// out and counted).
 pub(super) fn text(res: &WorkDigestResult, since_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
-    let header = match digest_summary(&res.lines, since_ms, hm) {
-        Some(s) => s,
-        None if since_ms > 0 => format!("◆ nothing since {}", hm(since_ms)),
-        None => "◆ nothing".to_string(),
-    };
-    let tail: Vec<String> = res
-        .questions
-        .iter()
-        .map(|q| format!("● waiting: {}?", q.prompt.trim_end_matches('?')))
-        .collect();
-    let lines: Vec<String> = res
-        .lines
-        .iter()
-        .map(|l| format!("• {} {}", hm(l.at_ms), l.words))
-        .collect();
-    let fixed = header.len() + tail.iter().map(|t| t.len() + 1).sum::<usize>() + 40;
-    let mut used = fixed;
-    let mut from = lines.len();
-    for (k, l) in lines.iter().enumerate().rev() {
-        if used + l.len() + 1 > LIMIT {
-            break;
-        }
-        used += l.len() + 1;
-        from = k;
-    }
-    let mut out = vec![header];
-    if from > 0 {
-        out.push(format!("… and {from} earlier"));
-    }
-    out.extend(lines[from..].iter().cloned());
-    out.extend(tail);
-    out.join("\n")
+    digest_text(res, since_ms, hm, LIMIT)
 }
 
 /// Whether a DM last active at `was_ms` (0: not seen in this process) is

@@ -248,6 +248,51 @@ pub fn digest_summary(
     Some(format!("◆ {}{since}", parts.join(", ")))
 }
 
+/// A digest as one message: the summary, each line with its time, and what
+/// waits, within `limit` characters (the oldest lines that do not fit are
+/// counted, not shown). `since_ms` is when the surface last looked; `hm`
+/// writes a time of day. The words of Discord's `/digest` and of its posted
+/// digest (theseus-ss36w).
+pub fn digest_text(
+    res: &WorkDigestResult,
+    since_ms: u64,
+    hm: &dyn Fn(u64) -> String,
+    limit: usize,
+) -> String {
+    let header = match digest_summary(&res.lines, since_ms, hm) {
+        Some(s) => s,
+        None if since_ms > 0 => format!("◆ nothing since {}", hm(since_ms)),
+        None => "◆ nothing".to_string(),
+    };
+    let tail: Vec<String> = res
+        .questions
+        .iter()
+        .map(|q| format!("● waiting: {}?", q.prompt.trim_end_matches('?')))
+        .collect();
+    let lines: Vec<String> = res
+        .lines
+        .iter()
+        .map(|l| format!("• {} {}", hm(l.at_ms), l.words))
+        .collect();
+    let fixed = header.len() + tail.iter().map(|t| t.len() + 1).sum::<usize>() + 40;
+    let mut used = fixed;
+    let mut from = lines.len();
+    for (k, l) in lines.iter().enumerate().rev() {
+        if used + l.len() + 1 > limit {
+            break;
+        }
+        used += l.len() + 1;
+        from = k;
+    }
+    let mut out = vec![header];
+    if from > 0 {
+        out.push(format!("… and {from} earlier"));
+    }
+    out.extend(lines[from..].iter().cloned());
+    out.extend(tail);
+    out.join("\n")
+}
+
 #[cfg(test)]
 #[path = "tests_work_digest.rs"]
 mod tests;
