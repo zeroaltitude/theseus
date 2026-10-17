@@ -161,6 +161,15 @@ new lines, the dock again, in synchronized-output mode 2026).
   `task.cancel`, `/stop [--tasks]` is Esc's stop (`keep_jobs`) and with `--tasks` (or `all`) also cancels the conversation's tasks
   (refused in a job). An Interrupt notice (`work.notice` through `notices::deliver`) rings the bell once (`Effect::Bell`); the
   status line's `◐ N tasks` is the board's count once it is live. Tests: `chat/tests_tasks.rs`, `chat/tests_ask.rs`.
+  Gaps closed (theseus-xock5): a footer row carries what its task has spent (`$1.20`, a column of its own that is absent when no
+  row has spent anything; the tree has none); `/tasks` lists a routine, a watch and a project as rows (`routine · next Fri 09:00`,
+  `watch · …`, `project · …`) that count as no task; and the chat reads the machine's seen file (`Cfg::seen_path`, `chat/welcome.rs`):
+  a chat that opens after an absence of a minute or more, or whose connection comes back after one, asks `work.digest` since the last
+  look and tells one line under the banner (`◆ 2 reported since 14:02 · theseus digest`; nothing on a first start, whose first
+  board is the look); the look is written when the digest lands and on leaving. A notice's `Viewer` takes `seen` from the file's
+  displayed position of the work (a question shown by another client does not ring here) and `away_ms` from the quiet of this
+  terminal and of the machine's last look. The chat never writes a displayed mark itself: its own told line would silence its own
+  bell. Tests: `chat/tests_welcome.rs`.
 
 - **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
   plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in
