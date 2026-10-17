@@ -765,6 +765,8 @@ impl Place {
             self.target.clone(),
         );
         let (author, text, message) = (format!("discord:{}", m.author), m.text.clone(), m.message);
+        // The core judges the owner from the place they spoke in (theseus-slmj1).
+        let origin = m.origin();
         let pending: Vec<Pending> = m.files.into_iter().collect();
         tokio::spawn(async move {
             let mut attachments = Vec::new();
@@ -780,6 +782,10 @@ impl Place {
                     author: Some(author.clone()),
                     attachments: attachments.clone(),
                     reply_to: Some(message.to_string()),
+                    speaking: Some(theseus_protocol::threads::Speaking {
+                        discord: origin,
+                        answer_at: None,
+                    }),
                     ..Default::default()
                 };
                 let r = rpc

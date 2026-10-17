@@ -469,6 +469,14 @@ async fn the_owners_message_joins_a_running_task_and_a_guests_is_redirected() {
         "the guest's message did not go to the running task"
     );
     open_gate(&r);
+    // The core took the owner's message as the owner's (the origin rides
+    // `speaking`): the frame that ends the task counts it, and the report
+    // says the owner joined (theseus-slmj1).
+    let key = theseus_core::task::joined_key(&task);
+    until(&r, "the task ends and counts the owner's message", || {
+        r.core.store.get_meta::<u32>(&key).unwrap() == Some(1)
+    })
+    .await;
 }
 
 /// A message for a task that has ended goes to the conversation, quoting the
