@@ -22,7 +22,7 @@
 
 mod horizon;
 mod state;
-mod wire;
+pub(crate) mod wire;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

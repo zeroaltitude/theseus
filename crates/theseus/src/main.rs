@@ -30,6 +30,7 @@ mod harness;
 mod herdr;
 mod herdr_answer;
 mod herdr_keys;
+mod herdr_main;
 mod herdr_setup;
 mod herdr_slots;
 mod herdr_sync;

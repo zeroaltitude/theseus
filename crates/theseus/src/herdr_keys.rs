@@ -18,7 +18,7 @@ use crate::herdr;
 pub const PLUGIN_ID: &str = "theseus";
 
 /// The plugin's popup panes, by the name the manifest gives each.
-pub const POPUPS: [&str; 5] = ["answer", "tui", "stop", "history", "new"];
+pub const POPUPS: [&str; 6] = ["answer", "tui", "stop", "history", "new", "inspect"];
 
 /// The pattern of the links a click may open: three paths and an id of the characters an id has.
 /// The manifest's link handler carries the same pattern (a test ties the two).
@@ -241,7 +241,7 @@ pub async fn stop(
 }
 
 /// herdr's socket: the one named, else `$HERDR_SOCKET_PATH`, else herdr's own.
-fn herdr_socket_or_default(named: Option<PathBuf>) -> Result<PathBuf> {
+pub fn herdr_socket_or_default(named: Option<PathBuf>) -> Result<PathBuf> {
     match named {
         Some(p) => Ok(p),
         None => crate::herdr_sync::default_socket(),
@@ -282,12 +282,40 @@ pub fn clean_id(s: &str) -> Option<String> {
     ok.then(|| s.to_string())
 }
 
+/// The session `prefix+i` inspects: the task the focused pane shows (its `task` kind and `session`
+/// tokens). A pane of anything else has nothing to inspect.
+pub fn inspect_for(tokens: &Value) -> Option<String> {
+    (tokens["kind"].as_str() == Some("task"))
+        .then(|| tokens["session"].as_str().and_then(clean_id))
+        .flatten()
+}
+
+async fn inspect_target(socket: &Path, pane: Option<&str>) -> Result<String> {
+    let Some(pane) = pane else {
+        bail!("inspect needs the focused pane (--pane): it shows the task to read");
+    };
+    let v = herdr::request(
+        socket,
+        "theseus:keys:pane",
+        "pane.get",
+        json!({ "pane_id": pane }),
+    )
+    .await?;
+    let tokens = v.pointer("/pane/tokens").cloned().unwrap_or(Value::Null);
+    inspect_for(&tokens)
+        .ok_or_else(|| anyhow!("pane {pane} does not show a task: nothing to inspect"))
+}
+
 /// `theseus herdr popup NAME`: open one of the plugin's popups.
 pub async fn popup(name: &str, env: PopupEnv, herdr_socket: Option<PathBuf>) -> Result<()> {
     if !POPUPS.contains(&name) {
         bail!("no popup named `{name}`: one of {}", POPUPS.join(", "));
     }
     let socket = herdr_socket_or_default(herdr_socket)?;
+    let mut env = env;
+    if name == "inspect" {
+        env.session = Some(inspect_target(&socket, env.pane.as_deref()).await?);
+    }
     herdr::request(
         &socket,
         "theseus:keys:popup",
@@ -377,6 +405,7 @@ pub async fn run_own(socket: &str, cmd: &crate::herdr_sync::HerdrCmd) -> Result<
             )
             .await
         }
+        C::Main { herdr_socket } => crate::herdr_main::run(socket, herdr_socket.clone()).await,
         C::Plugin => {
             for l in plugin_lines(&std::env::current_exe()?) {
                 println!("{l}");

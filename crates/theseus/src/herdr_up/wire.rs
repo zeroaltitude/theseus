@@ -18,6 +18,9 @@ use crate::herdr_sync::WORKSPACE;
 /// The kind token of the follower's own pane.
 pub const BOARD_KIND: &str = "board";
 
+/// The kind token of the `main` tab's pane (`herdr_main`).
+pub const MAIN_KIND: &str = "main";
+
 /// herdr's socket, and how many requests went to it.
 pub struct Herdr {
     pub socket: PathBuf,

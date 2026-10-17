@@ -95,6 +95,12 @@ pub enum HerdrCmd {
         #[arg(long, value_name = "PATH")]
         herdr_socket: Option<PathBuf>,
     },
+    /// Focus the `main` tab, the conversation a task came from (made the first time).
+    Main {
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+    },
     /// Where the herdr plugin is, and the one command that links it.
     Plugin,
     /// Print the herdr config Theseus is built for; with `--config FILE`, list what FILE lacks.
@@ -103,7 +109,7 @@ pub enum HerdrCmd {
         #[arg(long, value_name = "FILE")]
         config: Option<PathBuf>,
     },
-    /// Open one of the plugin's popups (answer, tui, stop, history, new). The plugin's actions run it.
+    /// Open one of the plugin's popups (answer, tui, stop, history, new, inspect). The plugin's actions run it.
     Popup {
         name: String,
         #[arg(long, value_name = "PANE")]
@@ -137,6 +143,7 @@ impl HerdrCmd {
                 | Self::Plugin
                 | Self::Setup { .. }
                 | Self::Popup { .. }
+                | Self::Main { .. }
                 | Self::Link { .. }
         )
     }
