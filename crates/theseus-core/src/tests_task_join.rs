@@ -224,6 +224,15 @@ async fn a_message_during_the_last_call_parks_the_task_and_the_next_turn_reports
         Some("Done, one more thing included."),
         "that turn's message is the report, not the first's"
     );
+    // The message that woke it is one the owner joined with (the report's line).
+    assert_eq!(
+        r.core
+            .store
+            .get_meta::<u32>(&crate::task::joined_key(&task.session_id))
+            .unwrap(),
+        Some(1),
+        "the turn the owner's message began counts"
+    );
     // Rule 3: it stays ended.
     let late = say(&r.core, &task.session_id, "and another", true)
         .await
