@@ -115,3 +115,49 @@ fn the_thread_question_offers_fifty_at_most() {
     assert_eq!(ids(&q.question).len(), LIVE_THREADS + 2);
     assert!(prepared.state.tokens <= p.state_cap_tokens);
 }
+
+/// `classify.v3` is `classify.v2` and exactly one question, `offer_task`, which
+/// decides nothing (theseus-bh3t.5): every other question, its wording and its
+/// bars, is v2's word for word, with and without live threads.
+#[test]
+fn classify_v3_is_classify_v2_and_an_offer_question() {
+    let (v2, v3) = (
+        by_name("classify.v2").unwrap(),
+        by_name("classify.v3").unwrap(),
+    );
+    assert_eq!((v3.id.as_str(), v3.version), ("classify", 3));
+    assert_eq!(v2.rollback, v3.rollback);
+    assert_eq!(v2.point, v3.point);
+    assert_eq!(v2.builder, v3.builder);
+    for threads in [vec![], vec![thread("t1", "Moon"), thread("t2", "Tides")]] {
+        let mut i = input();
+        i.live_threads = threads;
+        let a = prepare(&v2, &Input::Inbound(i.clone()), &NoScrub).unwrap();
+        let b = prepare(&v3, &Input::Inbound(i), &NoScrub).unwrap();
+        assert_eq!(a.state.json, b.state.json);
+        let (qa, qb) = (v2.ask(&a.dynamic), v3.ask(&b.dynamic));
+        let extra: Vec<&str> = qb
+            .iter()
+            .filter(|q| !qa.iter().any(|x| x.id == q.id))
+            .map(|q| q.id.as_str())
+            .collect();
+        assert_eq!(extra, ["offer_task"]);
+        assert_eq!(qa.len() + 1, qb.len());
+        for x in &qa {
+            let y = qb.iter().find(|y| y.id == x.id).unwrap();
+            assert_eq!((&x.question, x.thresholds), (&y.question, y.thresholds));
+        }
+        let offer = qb.iter().find(|q| q.id == "offer_task").unwrap();
+        assert!(
+            !v3.questions
+                .iter()
+                .find(|q| q.id == "offer_task")
+                .unwrap()
+                .decides
+        );
+        assert_eq!(
+            (offer.thresholds.act, offer.thresholds.confirm),
+            (0.90, 0.60)
+        );
+    }
+}

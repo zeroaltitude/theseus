@@ -374,7 +374,7 @@ impl Place {
             What::Quiet(arg) => self.quiet(&i, arg.as_deref().unwrap_or("1h")).await,
             What::Answer(q) => s.answer_view(&i, q.as_deref()).await,
             What::NewTask(quote) => {
-                s.respond_modal(&i, &start_task::modal(quote.as_deref()))
+                s.respond_modal(&i, &start_task::modal(quote.as_deref(), None))
                     .await;
             }
             What::NewTaskSubmit(sub) => self.start_task(&i, &who, sub).await,
@@ -390,7 +390,7 @@ impl Place {
     async fn task_named(&self, i: &Interaction, name: &str) {
         let s = &self.shared;
         if name.trim() == snapshot::NEW {
-            s.respond_modal(i, &start_task::modal(None)).await;
+            s.respond_modal(i, &start_task::modal(None, None)).await;
             return;
         }
         match s.tasks.find_task(&self.session_id, name) {
@@ -479,8 +479,12 @@ impl Place {
             s.open_answer_modal(&p.i, q, option).await;
             return true;
         }
+        if let Some(turn) = id.strip_prefix(start_task::OFFER) {
+            self.offer_press(&p.i, turn).await;
+            return true;
+        }
         if id == super::start_task::NEW_BUTTON {
-            s.respond_modal(&p.i, &start_task::modal(None)).await;
+            s.respond_modal(&p.i, &start_task::modal(None, None)).await;
             return true;
         }
         if let Some(show) = id.strip_prefix(snapshot::REFRESH) {

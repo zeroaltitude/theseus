@@ -16,7 +16,7 @@ const PICK_SITE: &str = "Pick-site: pick a survey site";
 const SURVEY: &str = "Survey-north: survey the north pier";
 const FAILS: &str = "Fail-chart: chart that fails";
 
-fn ana() -> Sender<'static> {
+pub(super) fn ana() -> Sender<'static> {
     Sender {
         user: ANA,
         name: "ana",
@@ -33,21 +33,21 @@ fn cy_in_lab() -> Sender<'static> {
 }
 
 /// What the binding answered the interaction with first.
-fn first_reply(r: &Rig, iid: &str) -> Option<Reply> {
+pub(super) fn first_reply(r: &Rig, iid: &str) -> Option<Reply> {
     r.fake
         .replies()
         .into_iter()
         .find(|x| x.interaction.as_deref() == Some(iid) && x.kind == "callback")
 }
 
-async fn answered(r: &Rig, iid: &str) -> Reply {
+pub(super) async fn answered(r: &Rig, iid: &str) -> Reply {
     r.until("the binding answers", || first_reply(r, iid).is_some())
         .await;
     first_reply(r, iid).unwrap()
 }
 
 /// Every text the binding said to the interaction, in order.
-fn said(r: &Rig, iid: &str) -> String {
+pub(super) fn said(r: &Rig, iid: &str) -> String {
     r.fake
         .replies()
         .into_iter()
@@ -630,7 +630,7 @@ async fn a_modal_answer_from_someone_who_may_not_counts_for_nothing_and_tells_th
     );
 }
 
-async fn survey_rig() -> Rig {
+pub(super) async fn survey_rig() -> Rig {
     let r = Rig::start_tweaked(
         |_, _| {
             model(
@@ -655,7 +655,7 @@ async fn survey_rig() -> Rig {
 }
 
 /// The session a started task opened, from its row.
-fn started(r: &Rig, brief_word: &str) -> Option<String> {
+pub(super) fn started(r: &Rig, brief_word: &str) -> Option<String> {
     r.ledger("task.started_by_owner")
         .into_iter()
         .find(|row| row.to_string().contains(brief_word))

@@ -198,6 +198,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     **Starting tasks** (`tb:new` on the board, `/task name:new`, and the message command "Make this a task"): one modal (brief, budget $1/$2/$5/$10,
     report here or silently to the board; a message made a task brings its text as an editable `quote` field) whose submit is `task.start`
     as the presser, homed in this place's session; `quotes` hold the new session as outside text. A shared place is told where to start it.
+    **A reply that offers a task** (theseus-bh3t.5): the core's reply post carries `offer {brief}` when Jev found the owner's message to be
+    work for later; in a private place the reply's last message gets `➕ Make this a task` (`tb:offer:<turn>`, on the sources' row,
+    `Buttons::Sources`' third field), and the brief waits in `Tasks.offers` (64, in memory). The owner's press opens the same
+    modal with the brief filled (`start_task::modal(quote, brief)`, custom id `nt:<turn>`; after a restart it opens empty); a guest's is
+    told "Only the owner can start a task here." A submit that started a task edits the button off the reply. Tests: `tests_board/offer.rs`.
     Tests: `tests_board/commands.rs` (the fake gateway's `slash`, `autocomplete`, `message_command`, `submit_modal` and `pick_in_reply`, in
     `theseus_sim::fake_discord::commands`).
   - **The needs-you card** (`render/card_v2.rs`): today's approval card, its words kept (`render::card`), as one V2 box

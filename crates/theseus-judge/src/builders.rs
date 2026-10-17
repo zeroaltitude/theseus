@@ -1087,6 +1087,7 @@ mod tests {
             "security.v3",
             "classify.v1",
             "classify.v2",
+            "classify.v3",
             "route.v5",
             "continue.v1",
             "categorize.v1",
@@ -1145,6 +1146,8 @@ mod tests {
         let cp = crate::pack::by_name("classify.v1").unwrap();
         let (_, c2) = prepared("classify.v2");
         assert_eq!(c.state.json, c2.state.json, "classify.v2");
+        let (_, c3) = prepared("classify.v3");
+        assert_eq!(c.state.json, c3.state.json, "classify.v3");
         for route in [
             "route.v1",
             "route.v2",

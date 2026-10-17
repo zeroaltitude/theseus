@@ -27,6 +27,7 @@ use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 use theseus_sim::fake_discord::DEFAULT_GUILD;
 
 mod commands;
+mod offer;
 
 const ASK: &str = "START: run this as a background task, please";
 const QUOTE: &str = "run this as a background task, please";

@@ -8,6 +8,15 @@
 //! text, as web text does. The submit is `task.start` as the presser, homed in
 //! this place's session; the core judges it, so a shared place is refused and
 //! told where to start one instead.
+//!
+//! A reply to a message that described work for later offers it too
+//! (theseus-bh3t.5): `➕ Make this a task` (`tb:offer:<turn>`) opens the same
+//! modal with the message as the brief; the briefs wait in `Offers`, 64 of
+//! them, in memory, so after a restart the modal opens empty. The submit drops
+//! the button from the reply.
+
+use std::collections::VecDeque;
+use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
@@ -15,6 +24,8 @@ use twilight_model::application::interaction::modal::{
     ModalInteractionComponent, ModalInteractionData,
 };
 use twilight_model::application::interaction::Interaction;
+use twilight_model::channel::message::component::{Button, ButtonStyle};
+use twilight_model::channel::message::Component;
 
 use super::{origin_of, Place};
 
@@ -30,6 +41,44 @@ const BUDGET: &str = "budget";
 const REPORT: &str = "report";
 /// Discord's text input limit.
 const INPUT_MAX: usize = 4000;
+/// A reply's offer button: this, then the turn.
+pub(super) const OFFER: &str = "tb:offer:";
+/// How many replies' briefs wait for their button's press.
+const OFFERS_KEPT: usize = 64;
+
+/// The briefs of the replies that offered a task, by turn.
+#[derive(Default)]
+pub(crate) struct Offers(Mutex<VecDeque<(String, String)>>);
+
+impl Offers {
+    pub(crate) fn keep(&self, turn: &str, brief: &str) {
+        let mut q = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        q.retain(|(t, _)| t != turn);
+        if q.len() == OFFERS_KEPT {
+            q.pop_front();
+        }
+        q.push_back((turn.to_string(), brief.to_string()));
+    }
+
+    fn brief(&self, turn: &str) -> Option<String> {
+        let q = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        q.iter().find(|(t, _)| t == turn).map(|(_, b)| b.clone())
+    }
+}
+
+/// The button under a reply that offers to make its message a task.
+pub(super) fn offer_button(turn: &str) -> Component {
+    Component::Button(Button {
+        id: None,
+        custom_id: Some(format!("{OFFER}{turn}")),
+        disabled: false,
+        emoji: None,
+        label: Some("➕ Make this a task".into()),
+        style: ButtonStyle::Primary,
+        url: None,
+        sku_id: None,
+    })
+}
 
 fn label(label: &str, description: Option<&str>, component: Value) -> Value {
     let mut v = json!({"type": 18, "label": label, "component": component});
@@ -48,14 +97,15 @@ fn pick(id: &str, options: &[(&str, &str)], default: &str) -> Value {
            "max_values": 1, "required": true})
 }
 
-/// The new-task modal; `quote` is a message's text, offered as a quote.
-pub(super) fn modal(quote: Option<&str>) -> Value {
-    let mut components = vec![label(
-        "What should the task do?",
-        None,
-        json!({"type": 4, "custom_id": BRIEF, "style": 2, "required": true,
-               "max_length": INPUT_MAX}),
-    )];
+/// The new-task modal; `quote` is a message's text, offered as a quote, and
+/// `brief` fills the first field (the core titles the task from its first line).
+pub(super) fn modal(quote: Option<&str>, brief: Option<&str>) -> Value {
+    let mut input = json!({"type": 4, "custom_id": BRIEF, "style": 2, "required": true,
+                           "max_length": INPUT_MAX});
+    if let Some(b) = brief {
+        input["value"] = json!(crate::render::clip(b, INPUT_MAX));
+    }
+    let mut components = vec![label("What should the task do?", None, input)];
     if let Some(q) = quote {
         components.push(label(
             "The message (read as outside text)",
@@ -95,6 +145,8 @@ pub(crate) struct Submit {
     pub(super) quote: String,
     pub(super) budget: Option<f64>,
     pub(super) board: bool,
+    /// The reply whose offer opened the modal (its turn).
+    pub(super) offer: Option<String>,
 }
 
 impl Submit {
@@ -120,7 +172,14 @@ impl Submit {
                 _ => {}
             }
         }
-        let mut s = Submit::default();
+        let mut s = Submit {
+            offer: m
+                .custom_id
+                .strip_prefix(MODAL)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string),
+            ..Default::default()
+        };
         m.components.iter().for_each(|c| walk(c, &mut s));
         s
     }
@@ -204,6 +263,48 @@ impl Place {
             Err(e) => format!("⚠️ It did not start: {e}"),
         };
         s.tell(i, line).await;
+        if sub.offer.is_some() {
+            self.drop_offer(i).await;
+        }
+    }
+
+    /// The offer's button was pressed: the modal, with the message as the brief.
+    pub(super) async fn offer_press(&self, i: &Interaction, turn: &str) {
+        let s = &self.shared;
+        let me = i.author().map(|u| format!("discord:{}", u.id.get()));
+        let owners = s.core.runner.place_rule.owners(&s.core.cfg);
+        if !me.is_some_and(|me| owners.contains(&me)) {
+            s.tell(i, "Only the owner can start a task here.".into())
+                .await;
+            return;
+        }
+        let mut m = modal(None, s.tasks.offers.brief(turn).as_deref());
+        m["data"]["custom_id"] = json!(format!("{MODAL}{turn}"));
+        s.respond_modal(i, &m).await;
+    }
+
+    /// A task started from an offer: its reply loses the button (one edit).
+    async fn drop_offer(&self, i: &Interaction) {
+        let Some(msg) = &i.message else { return };
+        let rows: Vec<Component> = msg
+            .components
+            .iter()
+            .filter_map(|c| match c {
+                Component::ActionRow(r) => {
+                    let mut r = r.clone();
+                    r.components.retain(|b| {
+                        !matches!(b, Component::Button(b)
+                            if b.custom_id.as_deref().is_some_and(|id| id.starts_with(OFFER)))
+                    });
+                    (!r.components.is_empty()).then_some(Component::ActionRow(r))
+                }
+                other => Some(other.clone()),
+            })
+            .collect();
+        let edit = self.shared.http.update_message(msg.channel_id, msg.id);
+        if let Err(e) = edit.components(Some(&rows)).await {
+            self.shared.board.error("offer edit", None, e);
+        }
     }
 }
 
@@ -213,7 +314,7 @@ mod tests {
 
     #[test]
     fn the_modal_has_a_brief_a_budget_select_and_a_report_select() {
-        let m = modal(None);
+        let m = modal(None, None);
         let parts = m["data"]["components"].as_array().unwrap();
         let ids: Vec<&str> = parts
             .iter()
@@ -227,7 +328,7 @@ mod tests {
 
     #[test]
     fn a_message_made_a_task_brings_its_text_as_an_editable_quote() {
-        let m = modal(Some("the log says the reef sensor died"));
+        let m = modal(Some("the log says the reef sensor died"), None);
         let parts = m["data"]["components"].as_array().unwrap();
         assert_eq!(parts.len(), 4);
         assert_eq!(parts[1]["component"]["custom_id"], "quote");

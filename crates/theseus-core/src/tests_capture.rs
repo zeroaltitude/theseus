@@ -161,7 +161,7 @@ async fn a_sure_preference_is_kept_with_a_notice_and_an_undo_revokes_it() {
     let with = asked_directive(&jev);
     assert_eq!(with.len(), 1);
     let ids: Vec<&String> = with[0]["questions"].as_object().unwrap().keys().collect();
-    assert!(ids.iter().any(|i| *i == "classify.v2/kind"), "{ids:?}");
+    assert!(ids.iter().any(|i| *i == "classify.v3/kind"), "{ids:?}");
     assert_eq!(
         jev.connections(),
         2,

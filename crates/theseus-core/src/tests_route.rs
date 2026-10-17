@@ -1,5 +1,5 @@
 //! Routing (M5 25e; `crate::routing`, `turn::route_step`): `route.v1` at
-//! `inbound`, live, in a request of its own beside `classify.v2` and
+//! `inbound`, live, in a request of its own beside `classify.v3` and
 //! `role.v1`'s (theseus-ddbi; `tests_route_wait`), and
 //! the turn it moves, against the fake Jev, with the profiles on two fake
 //! providers (`anthropic` and `zai`), so each request shows where it went.
@@ -267,7 +267,7 @@ async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
         .iter()
         .map(|s| s.body["questions"].clone())
         .collect();
-    for id in ["classify.v2/kind", "role.v1/role", "route.v5/mode"] {
+    for id in ["classify.v3/kind", "role.v1/role", "route.v5/mode"] {
         let n = asked.iter().filter(|q| q.get(id).is_some()).count();
         assert_eq!(n, 1, "{id}: {asked:?}");
     }

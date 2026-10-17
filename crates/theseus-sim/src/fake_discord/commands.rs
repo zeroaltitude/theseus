@@ -160,6 +160,42 @@ impl FakeDiscord {
         selects: &[(&str, &[&str])],
         upload: Option<&Upload<'_>>,
     ) -> Result<String, String> {
+        self.submit(from, None, custom_id, texts, selects, upload)
+    }
+
+    /// `submit_modal` for a modal opened from a button on the message `message`
+    /// (its id), which the interaction then carries, as Discord sends it.
+    pub fn submit_modal_from(
+        &self,
+        from: &Sender<'_>,
+        message: &str,
+        custom_id: &str,
+        texts: &[(&str, &str)],
+        selects: &[(&str, &[&str])],
+    ) -> Result<String, String> {
+        self.submit(from, Some(message), custom_id, texts, selects, None)
+    }
+
+    fn submit(
+        &self,
+        from: &Sender<'_>,
+        message: Option<&str>,
+        custom_id: &str,
+        texts: &[(&str, &str)],
+        selects: &[(&str, &[&str])],
+        upload: Option<&Upload<'_>>,
+    ) -> Result<String, String> {
+        let opened_from = match message {
+            None => None,
+            Some(id) => {
+                let st = self.state.lock().unwrap();
+                let m = st.messages.iter().find(|m| m.id == id);
+                let m = m.ok_or_else(|| format!("no message {id}"))?;
+                let mut j = super::message_json(m);
+                j["components"] = m.components_json.clone();
+                Some(j)
+            }
+        };
         let mut labels: Vec<Value> = Vec::new();
         let mut n = 0;
         let mut next = || {
@@ -204,6 +240,9 @@ impl FakeDiscord {
             d["type"] = json!(5);
             if let Some(o) = d.as_object_mut() {
                 o.remove("message");
+            }
+            if let Some(m) = &opened_from {
+                d["message"] = m.clone();
             }
             d["data"] = data;
             d

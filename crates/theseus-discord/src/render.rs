@@ -76,8 +76,9 @@ pub enum Buttons {
     Standing(String, String, bool),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
-    /// A reply's cited sources, for the session whose recall gave them.
-    Sources(String, Vec<cite::Source>),
+    /// A reply's cited sources, for the session whose recall gave them, and the turn whose
+    /// message it offers to make a task (theseus-bh3t.5).
+    Sources(String, Vec<cite::Source>, Option<String>),
     /// Remove every component.
     Clear,
     /// Components V2 (theseus-2j2ka): the write's `content` is the components as JSON,

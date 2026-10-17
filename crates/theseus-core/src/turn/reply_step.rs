@@ -56,6 +56,9 @@ impl TurnRunner {
         if !reports.is_empty() {
             body["reports"] = json!(reports);
         }
+        if let Some(brief) = self.offer_for(t, result, &target) {
+            body["offer"] = json!({"brief": brief});
+        }
         let (post, records) =
             self.outbox
                 .stage(t.tc.session_id, t.tc.execution_id, &target, body)?;
@@ -64,6 +67,31 @@ impl TurnRunner {
         }
         t.tc.posts.lock().unwrap().push(post);
         Ok(())
+    }
+
+    /// The brief of the task this reply offers (theseus-bh3t.5): `classify.v3`
+    /// found the owner's message to be work for later, at the act bar, and
+    /// the batch had landed by now. Not on a trivial or quick turn, a task's
+    /// turn, a message not alone with the owner, or a turn that made a task
+    /// itself.
+    fn offer_for(&self, t: &Turn<'_>, result: &TurnSubmitResult, target: &str) -> Option<String> {
+        let detour = matches!(
+            result.route.as_ref().and_then(|r| r.mode.as_deref()),
+            Some("trivial" | "quick")
+        );
+        if detour || t.tc.task.is_some() || !crate::capture::owner_alone(t.tc.class, Some(target)) {
+            return None;
+        }
+        let brief = self.judge.take_offer(t.tc.turn_id)?;
+        let nodes = t.tc.store.transcript(t.tc.session_id).ok()?;
+        let made = nodes.iter().any(|(_, n)| {
+            n.turn_id.as_deref() == Some(t.tc.turn_id)
+                && matches!(&n.body, Body::AssistantMessage { blocks, .. }
+                    if crate::provider::tool_uses_in(blocks)
+                        .iter()
+                        .any(|u| matches!(u.name.as_str(), "task_create" | "task.create")))
+        });
+        (!made).then_some(brief)
     }
 
     /// The wakes and reports an earlier attempt took, which this turn answers
