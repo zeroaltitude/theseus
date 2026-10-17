@@ -128,6 +128,12 @@ build.
   tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
   `task.list` again (`bindPush`).
+- A task's page (theseus-jm46q): on `/session/<task>` the deck shows `src/components/TaskHeader.tsx` above its own header
+  (title, state, doing and forecast from the work board's view of the task, cost, Stop as `task.cancel`, `← back to` the
+  parent conversation, and the inspector for the latest turn). The Composer joins a running task (its text is a
+  `turn.submit` to the task's session, which the task reads at its next step); for an ended one it sends to the parent
+  with the shared redirect line. Pure half `src/lib/taskpage.ts` (`joinable` and `taskRedirectLine` are
+  `theseus_protocol::joinable` and `task_redirect_line` in TypeScript; keep their words identical), `test/taskpage.test.ts`.
 - `src/components/ConfirmCard.tsx` draws its buttons from the question's own `options` and hides them when it says
   `may_answer: false` (pure parts: `src/lib/answers.ts`, `test/answers.test.ts`); every answer is `work.answer`.
 - `src/components/Budgets.tsx` (Money's Budgets panel; its pure parts are `src/lib/budgets.ts`): `budget.list`'s tree,
