@@ -1054,7 +1054,9 @@ mod tests {
         // GLM 5.3's cache read is dearer than Sonnet's: with no output, never.
         assert_eq!(break_even_turns(sonnet, glm53, 30_000, 0), None);
         let n = break_even_turns(sonnet, glm53, 30_000, 1_000).unwrap();
-        assert!((10.5..11.5).contains(&n), "{n}");
+        // Sonnet 5.5's cache reads are $0.10 (not $0.20), so the dearer GLM
+        // reads take longer to pay back: about 52.5 turns.
+        assert!((52.0..53.0).contains(&n), "{n}");
         // Opus is dearer than Sonnet on every rate: it never pays back in money.
         assert_eq!(break_even_turns(sonnet, opus, 30_000, 1_000), None);
         // From Opus to GLM 5.3, output pays for it in about three turns.

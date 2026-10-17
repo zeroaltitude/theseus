@@ -185,14 +185,25 @@ async fn the_recorded_digest_is_the_request_sent_with_its_effort() {
     assert_eq!(recorded, sent_digests);
 }
 
-/// A model that takes no effort (GLM 5.3) gets none: the answer is recorded,
-/// `no_effort`, and the request carries no `output_config`.
+/// A model whose row takes no effort (GLM 5.3 here, with its row's `effort`
+/// turned off by the config) gets none: the answer is recorded, `no_effort`,
+/// and the request carries no `output_config`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_model_without_effort_ignores_it() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     effort(&jev, "high", 0.95);
-    let r = rig(Some(&jev), 1, glm_placements);
+    let no_effort = |c: &mut crate::Config| {
+        glm_placements(c);
+        c.catalog.insert(
+            "glm-5.3".into(),
+            crate::catalog::CatalogRow {
+                effort: Some(false),
+                ..Default::default()
+            },
+        );
+    };
+    let r = rig(Some(&jev), 1, no_effort);
     let res = turn(&r.core, None, "Rename these twelve call sites.", None).await;
     assert_eq!(res.profile, "glm53");
     let req = &r.zai.requests()[0];

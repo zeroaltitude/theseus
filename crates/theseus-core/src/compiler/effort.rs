@@ -35,7 +35,7 @@
 use serde_json::{json, Value};
 
 use super::RequestSpec;
-use crate::catalog::CatalogEntry;
+use crate::catalog::{CatalogEntry, ThinkingMode};
 use crate::config::Effort;
 use crate::provider::ProviderRequest;
 
@@ -83,11 +83,24 @@ pub fn without_messages(req: &mut ProviderRequest) {
 }
 
 /// A request's `output_config`: its effort, for a model whose catalog row
-/// takes effort (route.v3 sets it after the first compile, theseus-qe3v).
+/// takes effort (route.v3 sets it after the first compile, theseus-qe3v). A
+/// model that thinks implicitly (GLM, DeepSeek) documents three levels, low,
+/// high and max, so the wire carries only those: medium and xhigh go as high,
+/// as DeepSeek maps them itself.
 pub fn output_config(entry: Option<&CatalogEntry>, effort: Option<Effort>) -> Option<Value> {
+    let implicit = entry.is_some_and(|e| e.thinking == ThinkingMode::Implicit);
     match (entry.map(|e| e.effort), effort) {
+        (Some(true), Some(e)) if implicit => Some(json!({"effort": three_levels(e)})),
         (Some(true), Some(e)) => Some(json!({"effort": e})),
         _ => None,
+    }
+}
+
+/// The nearest of low, high and max a three-level model documents.
+fn three_levels(e: Effort) -> Effort {
+    match e {
+        Effort::Low | Effort::Max => e,
+        Effort::Medium | Effort::High | Effort::Xhigh => Effort::High,
     }
 }
 

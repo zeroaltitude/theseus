@@ -153,6 +153,25 @@ provider = "zai"
 model = "glm-5.3"
 max_loops = 40
 
+# DeepSeek, a China-origin model: it drafts routine code, and a Claude profile always
+# reviews and fixes the draft. Add its key first (the commented deepseek_api_key under
+# the secrets table), then un-comment this block and the deepseek provider. It thinks
+# without being asked and takes three effort levels: low, high and max.
+# [profiles.dsflash]                    # drafts routine code; a Claude profile always reviews it
+# provider = "deepseek"
+# model = "deepseek-flash"              # a floating alias: DeepSeek-V4.1-Flash-1017 since 2026-10-17
+# effort = "high"
+#
+# [profiles.dsflashmax]                 # a draft at max effort, for deep_coding's draft when the operator turns it on
+# provider = "deepseek"
+# model = "deepseek-flash"
+# effort = "max"
+#
+# [profiles.dspro]                      # catalogued; in no mode list
+# provider = "deepseek"
+# model = "deepseek-v4-pro"
+# effort = "high"
+
 # Claude Haiku 5.5: $0.10 in and $0.50 out per million tokens up to a 100,000-token
 # prompt, 5x above it (`theseus catalog` lists both). At its default effort it thinks
 # before a short answer (text began 3 to 4.5 s in, the lane's probe of 2026-10-07); at
@@ -250,6 +269,13 @@ kind = "anthropic_messages"             # the only wire protocol today
 # stream_idle_secs = 60
 # total_secs = 600
 
+# DeepSeek's Anthropic-compatible endpoint. Add its key to the secrets table before un-commenting.
+# [providers.deepseek]
+# api_base = "https://api.deepseek.com/anthropic"
+# api_key_secret = "deepseek_api_key"
+# kind = "anthropic_messages"
+# origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
+
 # ---------------------------------------------------------------- secrets
 # name → where its value comes from. The vault is the recommended source.
 # Each placeholder below names what to put there: make one item per secret in
@@ -275,6 +301,7 @@ kind = "anthropic_messages"             # the only wire protocol today
 [secrets]
 anthropic_api_key = "op://<your vault>/<Anthropic API key item>/notesPlain"
 zai_api_key = "op://<your vault>/<Z.ai API key item>/notesPlain"
+# deepseek_api_key = "op://<your vault>/<DeepSeek API key item>/notesPlain"   # the deepseek provider's key: add the item first
 jev_api_key = "op://<your vault>/<Jev API key item>/notesPlain"
 github_token = "op://<your vault>/<GitHub token item>/notesPlain"
 aws_access_key_id = "op://<your vault>/<AWS key item>/notesPlain#AWS_ACCESS_KEY_ID"

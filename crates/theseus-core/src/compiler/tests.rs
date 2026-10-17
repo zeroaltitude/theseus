@@ -303,7 +303,9 @@ fn a_thinking_block_goes_back_only_to_the_provider_that_wrote_it() {
 
 #[test]
 fn late_results_render_as_text_and_missing_results_are_repaired() {
-    let sp = spec("glm-5.3-flash", "");
+    let mut sp = spec("glm-5.3-flash", "");
+    // No effort asked, none sent: GLM's row takes one (theseus-a1wvq.1).
+    sp.effort = None;
     let nodes = vec![
         (1, Node::user("s", None, "web", "build it")),
         (
@@ -329,7 +331,10 @@ fn late_results_render_as_text_and_missing_results_are_repaired() {
         ),
     ];
     let c = run(&nodes, None, &sp, 6);
-    assert!(c.request.thinking.is_none(), "GLM takes no thinking param");
+    assert!(
+        c.request.thinking.is_none(),
+        "GLM thinks implicitly: no thinking param"
+    );
     assert!(c.request.output_config.is_none());
     assert!(c.request.system.is_empty());
     let m = &c.request.messages;
@@ -1242,4 +1247,64 @@ fn a_glm_conversation_is_not_rung_early() {
     let c = run_in(&counted, Some(&first.compilation), &glm, 3, window);
     assert_eq!(c.estimate.method, EstimateMethod::Counted);
     assert!(!c.new_compilation, "{:?}", c.estimate);
+}
+
+/// GLM and DeepSeek think without being asked (theseus-a1wvq.1): their rows
+/// say `Implicit`, the request carries no `thinking` field whatever the
+/// display, and an effort a row takes goes as one of the three levels the
+/// endpoints document (medium and xhigh as high, DeepSeek's own mapping).
+#[test]
+fn glm_rows_think_implicitly_and_take_three_effort_levels() {
+    let catalog = Catalog::builtin();
+    for id in [
+        "glm-5.3",
+        "glm-5.2",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
+        "deepseek-flash",
+        "deepseek-v4-pro",
+    ] {
+        let e = catalog.get(id).unwrap();
+        assert_eq!(
+            (e.thinking, e.effort),
+            (ThinkingMode::Implicit, true),
+            "{id}"
+        );
+    }
+    for (asked, sent) in [
+        (Effort::Low, "low"),
+        (Effort::Medium, "high"),
+        (Effort::High, "high"),
+        (Effort::Xhigh, "high"),
+        (Effort::Max, "max"),
+    ] {
+        let mut sp = spec("glm-5.3-flash", "sys");
+        sp.effort = Some(asked);
+        let c = run(&[(1, Node::user("s", None, "cli", "hi"))], None, &sp, 1);
+        assert_eq!(
+            c.request.output_config.unwrap()["effort"],
+            sent,
+            "{asked:?}"
+        );
+    }
+    // Claude's levels go as asked.
+    let mut sp = spec("claude-opus-5", "sys");
+    sp.effort = Some(Effort::Xhigh);
+    let c = run(&[(1, Node::user("s", None, "cli", "hi"))], None, &sp, 1);
+    assert_eq!(c.request.output_config.unwrap()["effort"], "xhigh");
+}
+
+#[test]
+fn implicit_thinking_sends_no_thinking_field() {
+    for (model, display) in [
+        ("deepseek-flash", ThinkingDisplay::Summarized),
+        ("deepseek-v4-pro", ThinkingDisplay::Omitted),
+        ("glm-5.3", ThinkingDisplay::Updates),
+    ] {
+        let mut sp = spec(model, "sys");
+        sp.thinking_display = display;
+        let c = run(&[(1, Node::user("s", None, "cli", "hi"))], None, &sp, 1);
+        assert!(c.request.thinking.is_none(), "{model}");
+        assert!(c.request.betas.is_empty(), "{model}: {:?}", c.request.betas);
+    }
 }

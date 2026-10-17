@@ -6,7 +6,7 @@
 //!
 //! Sources for the built-in rows: the Claude API reference (Anthropic models;
 //! cache writes at 1.25 × input for the 5-minute TTL and 2 × for the 1-hour
-//! one) and OpenClaw's model catalog (GLM).
+//! one), docs.z.ai (GLM) and api-docs.deepseek.com (DeepSeek), read 2026-10-17.
 //! OpenClaw lists Sonnet 5 at 3/15 and Haiku 4.5 at 0.8/4 with an 8,192-token
 //! output cap; the reference says 2/10 and 1/5 with 64K, and the reference wins.
 //! Sonnet 5.5 (released 2026-09-28) comes from the Anthropic Models API (window
@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-10-07.1";
+pub const BUILTIN_VERSION: &str = "2026-10-17.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -57,6 +57,89 @@ pub enum ThinkingMode {
     Always,
     /// Only `{type: "enabled", budget_tokens}` (Haiku 4.5); Theseus leaves it off.
     Budget,
+    /// The model thinks without being asked; Theseus sends no `thinking`
+    /// field (GLM always thinks, DeepSeek thinks by default). Its thinking
+    /// blocks come back like any model's.
+    Implicit,
+}
+
+/// Where a model was made (theseus-a1wvq): the owner's data rule reads it.
+/// A model of `cn` or `unknown` origin is restricted: it sees only a request
+/// cleared as open. Named `ModelOrigin` because `crate::node::Origin` exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelOrigin {
+    Us,
+    Eu,
+    Cn,
+    #[default]
+    Unknown,
+}
+
+impl ModelOrigin {
+    pub fn restricted(self) -> bool {
+        matches!(self, ModelOrigin::Cn | ModelOrigin::Unknown)
+    }
+}
+
+/// Hosts of China-origin endpoints: the host or any subdomain of it.
+const CN_HOSTS: [&str; 3] = ["deepseek.com", "z.ai", "bigmodel.cn"];
+
+/// A model's origin, first match wins (theseus-a1wvq): a China-origin
+/// endpoint, whatever model id it is asked for (DeepSeek's Anthropic endpoint
+/// serves any `claude*` id with a DeepSeek model); a China-origin family on
+/// any host (OpenRouter, Bedrock, self-hosted weights); the catalog row's `cn`;
+/// on Anthropic's first party or a loopback host, the row's origin; any other
+/// host, what the provider vouches for, else `Unknown`. A row's `us` never
+/// vouches for a host it was not served from.
+pub fn origin_of(
+    api_base: &str,
+    vouched: Option<ModelOrigin>,
+    model: &str,
+    entry: Option<&CatalogEntry>,
+) -> ModelOrigin {
+    if is_cn_endpoint(api_base) {
+        return ModelOrigin::Cn;
+    }
+    let host = host_of(api_base);
+    let id = model.to_ascii_lowercase();
+    let family = id.rsplit('/').next().unwrap_or(&id);
+    if id.contains("deepseek")
+        || family.starts_with("glm")
+        || id.contains("z-ai")
+        || id.contains("zai-org")
+    {
+        return ModelOrigin::Cn;
+    }
+    let row = entry.map_or(ModelOrigin::Unknown, |e| e.origin);
+    if row == ModelOrigin::Cn {
+        return ModelOrigin::Cn;
+    }
+    if host == "api.anthropic.com" || matches!(host.as_str(), "127.0.0.1" | "::1" | "localhost") {
+        return row;
+    }
+    vouched.unwrap_or(ModelOrigin::Unknown)
+}
+
+/// Whether a URL's host is a China-origin endpoint or a subdomain of one.
+pub fn is_cn_endpoint(api_base: &str) -> bool {
+    let host = host_of(api_base);
+    CN_HOSTS
+        .iter()
+        .any(|h| host == *h || host.strip_suffix(h).is_some_and(|p| p.ends_with('.')))
+}
+
+/// The lowercased host of a URL: no scheme, userinfo, port, path, or the
+/// brackets of an IPv6 literal.
+fn host_of(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let auth = auth.rsplit('@').next().unwrap_or(auth);
+    let host = match auth.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => auth.split(':').next().unwrap_or(""),
+    };
+    host.trim_end_matches('.').to_ascii_lowercase()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,6 +200,9 @@ pub struct CatalogEntry {
     /// How densely the model's tokenizer reads a request (theseus-f5hf).
     #[serde(default)]
     pub bytes_per_token: TokenRates,
+    /// Where the model was made; `unknown` (restricted) unless a row says.
+    #[serde(default)]
+    pub origin: ModelOrigin,
 }
 
 fn yes() -> bool {
@@ -205,6 +291,10 @@ impl TokenRates {
             Self::CLAUDE_OLD
         } else if model.starts_with("glm-") {
             Self::GLM
+        } else if model.starts_with("deepseek-") {
+            // Unmeasured: Claude's densest rates over-estimate, the safe
+            // side for the keel. A probe of DeepSeek's own count is owed.
+            Self::CLAUDE
         } else {
             Self::CLAUDE
         }
@@ -395,6 +485,10 @@ pub struct CatalogRow {
     /// Omitted on a new model: its family's figures ([`TokenRates::of`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytes_per_token: Option<TokenRates>,
+    /// Omitted on a new model: `unknown`, which is restricted. A built-in
+    /// `cn` row's cannot be loosened (`Config::validate`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<ModelOrigin>,
 }
 
 impl CatalogRow {
@@ -462,6 +556,7 @@ impl CatalogRow {
                     tool_search: false,
                     source: String::new(),
                     bytes_per_token: TokenRates::default(),
+                    origin: ModelOrigin::Unknown,
                 }
             }
         };
@@ -489,6 +584,7 @@ impl CatalogRow {
             tool_search: r.tool_search.unwrap_or(entry.tool_search),
             source: r.source.unwrap_or_else(|| "config".into()),
             bytes_per_token: r.bytes_per_token.unwrap_or(entry.bytes_per_token),
+            origin: r.origin.unwrap_or(entry.origin),
         })
     }
 }
@@ -532,6 +628,7 @@ fn claude(
         tool_search: true,
         source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
         bytes_per_token: TokenRates::CLAUDE,
+        origin: ModelOrigin::Us,
     }
 }
 
@@ -555,8 +652,9 @@ fn glm(
         cache_write_1h_per_mtok: cache_write,
         long_prompt: None,
         caches: true,
-        thinking: ThinkingMode::None,
-        effort: false,
+        // GLM always thinks, and `thinking: disabled` fails (docs.z.ai).
+        thinking: ThinkingMode::Implicit,
+        effort: true,
         refusal_fallbacks: false,
         refusal_fallback_model: None,
         cache_min_tokens: 0,
@@ -565,9 +663,64 @@ fn glm(
         // GLM reads a PDF's text (theseus-c9l6).
         pdf: false,
         tool_search: false,
-        source: "OpenClaw model catalog (models.providers.zai), 2026-09".into(),
+        source: "docs.z.ai pricing and model pages, 2026-10-17".into(),
         bytes_per_token: TokenRates::GLM,
+        origin: ModelOrigin::Cn,
     }
+}
+
+/// A DeepSeek model on its Anthropic-compatible endpoint (api-docs.deepseek.com,
+/// 2026-10-17). Prices are the peak rates (off-peak is half): the catalog has
+/// no time of day, and peak is the safe direction. Caching is automatic, a
+/// miss is billed at the input rate, and `cache_control` is ignored. The
+/// endpoint takes no document blocks.
+fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str) -> CatalogEntry {
+    CatalogEntry {
+        provider: "deepseek".into(),
+        context_window: 1_000_000,
+        max_output_tokens: 384_000,
+        input_per_mtok: input,
+        output_per_mtok: output,
+        cache_read_per_mtok: cache_read,
+        cache_write_per_mtok: input,
+        cache_write_1h_per_mtok: input,
+        long_prompt: None,
+        caches: true,
+        thinking: ThinkingMode::Implicit,
+        effort: true,
+        refusal_fallbacks: false,
+        refusal_fallback_model: None,
+        cache_min_tokens: 0,
+        vision,
+        pdf: false,
+        tool_search: false,
+        source: format!(
+            "api-docs.deepseek.com pricing and Anthropic API pages, 2026-10-17; peak rates \
+             (off-peak is half); {served}"
+        ),
+        bytes_per_token: TokenRates::of("deepseek-"),
+        origin: ModelOrigin::Cn,
+    }
+}
+
+/// DeepSeek's two rows. `deepseek-flash` floats: DeepSeek-V4.1-Flash-1017
+/// since 2026-10-17.
+fn deepseek_rows(e: &mut BTreeMap<String, CatalogEntry>) {
+    e.insert(
+        "deepseek-flash".into(),
+        deepseek(
+            0.30,
+            1.20,
+            0.006,
+            true,
+            "`deepseek-flash` is a floating alias, served by DeepSeek-V4.1-Flash-1017 since \
+             2026-10-17",
+        ),
+    );
+    e.insert(
+        "deepseek-v4-pro".into(),
+        deepseek(1.32, 3.96, 0.044, false, "served by DeepSeek-V4-Pro-0813"),
+    );
 }
 
 impl Catalog {
@@ -601,9 +754,11 @@ impl Catalog {
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
-                source: "Anthropic Models API and pricing page, 2026-09-28".into(),
+                source: "Anthropic Models API and pricing page, 2026-09-28; cache reads $0.10 \
+                         since Haiku 5.5's launch (Anthropic's Haiku 5.5 page, 2026-10-10)"
+                    .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
-                ..claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 512)
+                ..claude(m, 128_000, 2.0, 10.0, 0.10, 2.50, Adaptive, false, 512)
             },
         );
         e.insert(
@@ -660,12 +815,13 @@ impl Catalog {
         );
         e.insert(
             "glm-5.3-flash".into(),
-            glm(1_048_576, 131_072, 0.15, 0.50, 0.03, 0.0),
+            glm(1_048_576, 131_072, 0.15, 0.50, 0.03, 0.15),
         );
         e.insert(
             "glm-5.3-flashx".into(),
-            glm(1_048_576, 131_072, 0.37, 1.25, 0.075, 0.0),
+            glm(1_048_576, 131_072, 0.37, 1.25, 0.075, 0.37),
         );
+        deepseek_rows(&mut e);
         Self {
             version: BUILTIN_VERSION.into(),
             entries: e,
@@ -886,10 +1042,10 @@ mod tests {
             cache_creation_input_tokens: 1_000_000,
             ..Default::default()
         };
-        // Sonnet 5 and Sonnet 5.5: 2 + 10 + 0.20 + 2.50
-        for id in ["claude-sonnet-5", "claude-sonnet-5-5"] {
+        // Sonnet 5: 2 + 10 + 0.20 + 2.50; Sonnet 5.5's cache reads are $0.10.
+        for (id, usd) in [("claude-sonnet-5", 14.70), ("claude-sonnet-5-5", 14.60)] {
             let s = c.cost_usd(id, &u).unwrap();
-            assert!((s - 14.70).abs() < 1e-9, "{id}: {s}");
+            assert!((s - usd).abs() < 1e-9, "{id}: {s}");
         }
         let s55 = c.get("claude-sonnet-5-5").unwrap();
         assert_eq!(
@@ -954,7 +1110,7 @@ mod tests {
             .filter(|(_, e)| !e.vision)
             .map(|(id, _)| id.as_str())
             .collect();
-        assert_eq!(blind, vec!["glm-5.2", "glm-5.3"]);
+        assert_eq!(blind, vec!["deepseek-v4-pro", "glm-5.2", "glm-5.3"]);
         assert!(c.get("glm-5.3-flash").unwrap().vision);
         // 1920×1080 fits Sonnet 5.5's 2,576 px: 69 × 39 tiles of 28 px.
         assert_eq!(image_tokens("claude-sonnet-5-5", 1920, 1080), 2_691);
@@ -1154,7 +1310,7 @@ mod tests {
     }
 
     /// One call's reservation and settlement in micro-dollars, by hand from
-    /// the catalog (theseus-0sg). Sonnet 5.5: $2 in, $10 out, $0.20 cache
+    /// the catalog (theseus-0sg). Sonnet 5.5: $2 in, $10 out, $0.10 cache
     /// read, $2.50 cache write per million tokens, so a price per million
     /// tokens is micro-dollars per token.
     #[test]
@@ -1164,7 +1320,7 @@ mod tests {
         // estimate at $2: 1,280,000 + 88,000 µ$ = $1.368.
         assert_eq!(s55.reserve_micros(128_000, 44_000), 1_368_000);
         // Settle: 1,200 in at $2, 900 out at $10, 40,000 cache reads at
-        // $0.20, 3,000 cache writes at $2.50: 2,400 + 9,000 + 8,000 + 7,500.
+        // $0.10, 3,000 cache writes at $2.50: 2,400 + 9,000 + 4,000 + 7,500.
         let u = Usage {
             input_tokens: 1_200,
             output_tokens: 900,
@@ -1172,8 +1328,8 @@ mod tests {
             cache_creation_input_tokens: 3_000,
             ..Default::default()
         };
-        assert_eq!(s55.cost_micros(&u), 26_900);
-        assert!((s55.cost_usd(&u) - 0.0269).abs() < 1e-12);
+        assert_eq!(s55.cost_micros(&u), 22_900);
+        assert!((s55.cost_usd(&u) - 0.0229).abs() < 1e-12);
         // A cache read weighs a fiftieth of an output token, not the same.
         let reads = Usage {
             cache_read_input_tokens: 1_000_000,
@@ -1185,7 +1341,7 @@ mod tests {
         };
         assert_eq!(
             (s55.cost_micros(&reads), s55.cost_micros(&outs)),
-            (200_000, 10_000_000)
+            (100_000, 10_000_000)
         );
         // Fractions of a micro-dollar round up, once per call: 7 GLM-5.3
         // Flash cache reads at $0.03 are 0.21 µ$, so 1.
@@ -1293,13 +1449,195 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-10-07.1");
-        // Sonnet 5.5's cache read stays at the pricing table's 0.20 until a
-        // bill says otherwise (its docs disagree).
+        assert_eq!(c.version, "2026-10-17.1");
+        // Sonnet 5.5's cache read fell to $0.10 on Haiku 5.5's launch day.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
-            0.20
+            0.10
         );
+    }
+
+    /// Every built-in row says where its model was made (theseus-a1wvq.1):
+    /// Claude's `us`, GLM's and DeepSeek's `cn`; none is `unknown`.
+    #[test]
+    fn every_builtin_row_names_its_origin_and_glm_and_deepseek_are_cn() {
+        let c = Catalog::builtin();
+        for (id, e) in &c.entries {
+            let want = match e.provider.as_str() {
+                "anthropic" => ModelOrigin::Us,
+                "zai" | "deepseek" => ModelOrigin::Cn,
+                other => panic!("{id}: provider {other} has no origin rule"),
+            };
+            assert_eq!(e.origin, want, "{id}");
+            assert_eq!(e.origin.restricted(), want == ModelOrigin::Cn, "{id}");
+        }
+        assert!(ModelOrigin::Unknown.restricted() && !ModelOrigin::Eu.restricted());
+        assert_eq!(ModelOrigin::default(), ModelOrigin::Unknown);
+    }
+
+    /// A new model's row without `origin` is unknown, so restricted; the
+    /// operator may say `us` or `eu`; a word that is none of the four fails.
+    #[test]
+    fn a_config_model_without_origin_is_unknown_and_restricted() {
+        let row = |origin: Option<ModelOrigin>| CatalogRow {
+            provider: Some("anthropic".into()),
+            context_window: Some(200_000),
+            max_output_tokens: Some(64_000),
+            input_per_mtok: Some(1.0),
+            output_per_mtok: Some(5.0),
+            cache_read_per_mtok: Some(0.1),
+            cache_write_per_mtok: Some(1.25),
+            origin,
+            ..Default::default()
+        };
+        let c = Catalog::with_overrides(&BTreeMap::from([
+            ("acme-1".to_string(), row(None)),
+            ("acme-2".to_string(), row(Some(ModelOrigin::Eu))),
+        ]));
+        assert_eq!(c.get("acme-1").unwrap().origin, ModelOrigin::Unknown);
+        assert!(c.get("acme-1").unwrap().origin.restricted());
+        assert_eq!(c.get("acme-2").unwrap().origin, ModelOrigin::Eu);
+        // A table over a built-in row keeps its origin unless it names one.
+        let over = CatalogRow {
+            input_per_mtok: Some(3.0),
+            ..Default::default()
+        };
+        let c = Catalog::with_overrides(&BTreeMap::from([("glm-5.3".to_string(), over)]));
+        assert_eq!(c.get("glm-5.3").unwrap().origin, ModelOrigin::Cn);
+        let bad: Result<CatalogRow, _> = toml::from_str("origin = \"china\"");
+        assert!(bad.is_err());
+        let good: CatalogRow = toml::from_str("origin = \"eu\"").unwrap();
+        assert_eq!(good.origin, Some(ModelOrigin::Eu));
+    }
+
+    /// Origin is judged by the endpoint and the family as well as by the row
+    /// (the owner, 2026-10-17): DeepSeek's Anthropic endpoint serves any
+    /// `claude*` id with a DeepSeek model, so the id proves nothing there.
+    #[test]
+    fn a_china_endpoint_or_family_is_cn_whatever_the_model_id_says() {
+        use ModelOrigin::*;
+        let c = Catalog::builtin();
+        let of = |base: &str, vouched: Option<ModelOrigin>, model: &str| {
+            origin_of(base, vouched, model, c.get(model))
+        };
+        let sonnet = "claude-sonnet-5-5";
+        assert_eq!(of("https://api.deepseek.com/anthropic", None, sonnet), Cn);
+        assert_eq!(
+            of("https://api.deepseek.com/anthropic", Some(Us), sonnet),
+            Cn
+        );
+        assert_eq!(of("https://api.z.ai/api/anthropic", None, sonnet), Cn);
+        assert_eq!(
+            of("https://open.bigmodel.cn/api/anthropic", None, sonnet),
+            Cn
+        );
+        assert_eq!(of("https://DEEPSEEK.com./x", None, sonnet), Cn);
+        assert_eq!(of("https://u:p@api.z.ai:443/x", None, sonnet), Cn);
+        // The family, on any host.
+        assert_eq!(
+            of(
+                "https://proxy.example.com",
+                None,
+                "deepseek/deepseek-v4-flash"
+            ),
+            Cn
+        );
+        assert_eq!(
+            of("https://proxy.example.com", Some(Us), "z-ai/glm-5.3"),
+            Cn
+        );
+        assert_eq!(
+            of("https://proxy.example.com", Some(Us), "zai-org/GLM-5.3"),
+            Cn
+        );
+        assert_eq!(
+            of("https://api.z.ai/api/anthropic", None, "glm-5.3-flash"),
+            Cn
+        );
+        assert_eq!(of("http://localhost:9", None, "glm-5.3-flash"), Cn);
+        // Anthropic's first party and loopback: the row's origin.
+        assert_eq!(of("https://api.anthropic.com", None, sonnet), Us);
+        assert_eq!(of("http://127.0.0.1:8080", None, sonnet), Us);
+        assert_eq!(of("http://[::1]:8080", None, sonnet), Us);
+        assert_eq!(of("http://localhost:8080", None, sonnet), Us);
+        // A model the catalog lacks is unknown even there.
+        assert_eq!(
+            of("https://api.anthropic.com", None, "claude-future-9"),
+            Unknown
+        );
+        // Any other host: the provider's word, else unknown; a row's `us`
+        // never vouches for a host.
+        assert_eq!(of("https://proxy.example.com", None, sonnet), Unknown);
+        assert_eq!(of("https://proxy.example.com", Some(Us), sonnet), Us);
+        assert_eq!(of("https://proxy.example.com", Some(Eu), sonnet), Eu);
+        // A look-alike is not a subdomain.
+        assert_eq!(of("https://notdeepseek.com", None, sonnet), Unknown);
+        assert_eq!(
+            of("https://deepseek.com.evil.example", None, sonnet),
+            Unknown
+        );
+    }
+
+    /// DeepSeek's two rows, priced as its pricing page says at peak rates
+    /// (theseus-a1wvq.1), and the rows' shape: no PDF, thinking implicit.
+    #[test]
+    fn deepseek_rows_are_priced_as_research_says() {
+        let c = Catalog::builtin();
+        let f = c.get("deepseek-flash").unwrap();
+        let p = c.get("deepseek-v4-pro").unwrap();
+        let prices = |e: &CatalogEntry| {
+            (
+                e.input_per_mtok,
+                e.output_per_mtok,
+                e.cache_read_per_mtok,
+                e.cache_write_per_mtok,
+                e.cache_write_1h_per_mtok,
+            )
+        };
+        assert_eq!(prices(f), (0.30, 1.20, 0.006, 0.30, 0.30));
+        assert_eq!(prices(p), (1.32, 3.96, 0.044, 1.32, 1.32));
+        for e in [f, p] {
+            assert_eq!(e.provider, "deepseek");
+            assert_eq!(
+                (e.context_window, e.max_output_tokens),
+                (1_000_000, 384_000)
+            );
+            assert_eq!(
+                (e.caches, e.thinking, e.effort),
+                (true, ThinkingMode::Implicit, true)
+            );
+            assert!(!e.pdf && !e.tool_search && !e.refusal_fallbacks);
+            assert_eq!(e.origin, ModelOrigin::Cn);
+            assert_eq!(e.bytes_per_token, TokenRates::CLAUDE);
+        }
+        assert!(f.vision && !p.vision);
+        assert!(f.source.contains("V4.1-Flash-1017") && p.source.contains("V4-Pro-0813"));
+        assert_eq!(TokenRates::of("deepseek-flash"), TokenRates::CLAUDE);
+    }
+
+    /// The GLM rows' cache writes are priced at their input (no premium, a
+    /// write is billed as uncached input), flash and flashx included.
+    #[test]
+    fn glm_cache_writes_are_priced_at_input() {
+        let c = Catalog::builtin();
+        for id in ["glm-5.3", "glm-5.2", "glm-5.3-flash", "glm-5.3-flashx"] {
+            let e = c.get(id).unwrap();
+            assert_eq!(e.cache_write_per_mtok, e.input_per_mtok, "{id}");
+            assert!(e.source.contains("docs.z.ai"), "{id}");
+        }
+    }
+
+    /// Anthropic halved Sonnet 5.5's cache reads on Haiku 5.5's launch day
+    /// (its Haiku 5.5 page, read 2026-10-10); Sonnet 5's are unchanged.
+    #[test]
+    fn sonnet_5_5_cache_reads_are_ten_cents() {
+        let c = Catalog::builtin();
+        assert_eq!(
+            c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
+            0.10
+        );
+        assert_eq!(c.get("claude-sonnet-5").unwrap().cache_read_per_mtok, 0.20);
+        assert!(c.get("claude-sonnet-5-5").unwrap().source.contains("$0.10"));
     }
 
     /// The long tier (theseus-3okf): at 100,000 prompt tokens every class

@@ -957,6 +957,12 @@ pub struct ProviderConfig {
     pub kind: ProviderKind,
     #[serde(default)]
     pub timeouts: Option<crate::provider::Timeouts>,
+    /// The operator's word for where this host's models come from, for a
+    /// host Theseus does not know (a company proxy to Anthropic). Without
+    /// it an unknown host is `unknown`, which is restricted; on a China-origin
+    /// host only `cn` is accepted.
+    #[serde(default)]
+    pub origin: Option<crate::catalog::ModelOrigin>,
 }
 
 /// A provider's wire protocol. Only the Anthropic Messages API exists today.
@@ -1364,6 +1370,16 @@ impl Config {
                     p.api_key_secret
                 );
             }
+            if p.origin
+                .is_some_and(|o| o != crate::catalog::ModelOrigin::Cn)
+                && crate::catalog::is_cn_endpoint(&p.api_base)
+            {
+                anyhow::bail!(
+                    "providers.{name}.origin: {} is a China-origin endpoint, so its origin can only be \
+                     \"cn\"",
+                    p.api_base
+                );
+            }
         }
         if !self.all_providers().contains_key(&self.model.provider) {
             anyhow::bail!(
@@ -1627,6 +1643,17 @@ impl Config {
                     );
                 }
             }
+            if row
+                .origin
+                .is_some_and(|o| o != crate::catalog::ModelOrigin::Cn)
+                && builtin
+                    .get(id)
+                    .is_some_and(|b| b.origin == crate::catalog::ModelOrigin::Cn)
+            {
+                anyhow::bail!(
+                    "catalog.\"{id}\".origin: a China-origin model's origin is not configurable"
+                );
+            }
             if let Err(missing) = row.over(builtin.get(id)) {
                 anyhow::bail!(
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",
@@ -1706,6 +1733,7 @@ impl Config {
                 api_key_secret: m.api_key_secret.clone(),
                 kind: ProviderKind::AnthropicMessages,
                 timeouts: None,
+                origin: None,
             });
         cfg.resolved = Resolved {
             profiles,
@@ -1806,6 +1834,23 @@ impl Config {
 
     /// Every provider by name, with the implicit `anthropic` one synthesized
     /// from `[model]` unless `[providers.anthropic]` overrides it.
+    /// A profile's model origin (theseus-a1wvq): its provider's endpoint, its
+    /// model and the catalog's row for it, by [`crate::catalog::origin_of`].
+    /// A profile or provider that does not resolve is `unknown`.
+    pub fn profile_origin(
+        &self,
+        profile: &str,
+        catalog: &crate::catalog::Catalog,
+    ) -> crate::catalog::ModelOrigin {
+        let Some(p) = self.all_profiles().get(profile) else {
+            return crate::catalog::ModelOrigin::Unknown;
+        };
+        let Some(prov) = self.all_providers().get(&p.provider) else {
+            return crate::catalog::ModelOrigin::Unknown;
+        };
+        crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
+    }
+
     pub fn all_providers(&self) -> &BTreeMap<String, ProviderConfig> {
         &self.resolved.providers
     }
