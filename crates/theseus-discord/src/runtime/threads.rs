@@ -766,9 +766,12 @@ impl Place {
             // The conversation that started the task takes the message, with
             // the task named.
             let said = format!(
-                "[Written in the thread of the task “{}” (…{}), and {why}] {text}",
-                made.name,
-                board_v2::short(&made.task),
+                "{}{text}",
+                theseus_protocol::work::task_redirect_line(
+                    &made.name,
+                    board_v2::short(&made.task),
+                    &why
+                ),
             );
             let to_parent = TurnSubmitParams {
                 session_id: Some(made.parent_session.clone()),

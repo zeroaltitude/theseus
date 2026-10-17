@@ -1043,7 +1043,14 @@ impl Core {
             &session.session_id,
             Some((conn.client.to_string(), conn.tx.clone())),
         )
-        .from_surface(self.surface_of(conn.surface, p.via.as_deref(), &session.session_id));
+        .from_surface(self.surface_of(conn.surface, p.via.as_deref(), &session.session_id))
+        .from_owner(self.owner_input(
+            &p,
+            &conn.answerer(
+                p.author.clone(),
+                p.speaking.as_ref().map(|s| s.discord.clone()),
+            ),
+        ));
         let voice = p.surface.as_deref() == Some("voice");
         let result = self
             .runner

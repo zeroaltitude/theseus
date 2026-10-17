@@ -31,6 +31,13 @@
 //!   wake's turn continues it; the turn that would wait with no wake left
 //!   ends it, and it reports then, once. Its cancel drops its wakes in the
 //!   cancel's frame, so none fires after.
+//! - **Joining** (theseus-slmj1). The owner's typed input to a running task is
+//!   a steer (`turn/join_step.rs`): it joins the task at its next loop
+//!   boundary. A message that comes during the task's last call parks the task
+//!   on input instead of reporting, and that turn's message is the report. A
+//!   task that ended stays ended (`execution_complete`); each surface sends the
+//!   message to the mainline with `task_redirect_line`. The report's node ends
+//!   `(you joined: 2 messages)` when the owner did.
 //! - **The report's wake** (W1, theseus-lji). With `wake_parent: true`, the
 //!   report also starts that turn: the frame that ends the task queues the
 //!   parent, as a due wake does, unless the task was cancelled. The turn runs
@@ -952,6 +959,22 @@ pub struct Report {
     pub external: Option<theseus_protocol::ExternalText>,
     /// A check's basis, as its line (M5 28a): shown beside its report.
     pub check: Option<String>,
+    /// The messages the owner joined it with (theseus-slmj1): the parent's
+    /// node says its brief was changed by its owner.
+    pub joined: u32,
+}
+
+/// The META key of the count of messages the owner joined a task with.
+pub fn joined_key(task_session: &str) -> String {
+    format!("task.joined.{task_session}")
+}
+
+/// The record that holds the count, written in the frame that ends the task;
+/// none for a task the owner did not join.
+pub fn joined_record(task_session: &str, n: u32) -> anyhow::Result<Option<NewRecord>> {
+    (n > 0)
+        .then(|| NewRecord::json(kinds::META, Some(&joined_key(task_session)), &n))
+        .transpose()
 }
 
 /// Whether a task's turn that would end it parks instead (37b): its
@@ -1004,6 +1027,7 @@ impl Report {
             target: None,
             external: None,
             check: None,
+            joined: 0,
         }
     }
 
@@ -1069,6 +1093,10 @@ impl Report {
             out.push_str("\n\n");
             out.push_str(&t);
         }
+        if self.joined > 0 {
+            let n = narrative::count(u64::from(self.joined), "message", "messages");
+            out.push_str(&format!("\n\n(you joined: {n})"));
+        }
         out
     }
 }
@@ -1097,10 +1125,14 @@ pub fn load_report(
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
     let external = rec.as_ref().and_then(|r| r.external.clone());
     let check = check_line(rec.as_ref());
+    let joined = store
+        .get_meta::<u32>(&joined_key(&e.session_id))?
+        .unwrap_or(0);
     Ok(Some(Report {
         target,
         external,
         check,
+        joined,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
     }))
 }

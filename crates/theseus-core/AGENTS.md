@@ -53,8 +53,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   turn running does not wait for the turn to end. The running turn opens a `Steer` for its session
   (`toolrun/waits/steer.rs`, held in `JobWaits::steers`, which the terminals share; `turn.rs` opens it once admitted and
   `finish`es it with the turn's result), and the queued input offers itself to it before it waits in the admission queue
-  (`turn/steer_step.rs`, `steered`: only `Class::Person` input, no MCP prompt; a wake, a continuation and a task's turn
-  queue as before). The signal is O(1) and polls nothing: an atomic count per steer and one over all sessions, and a
+  (`turn/steer_step.rs`, `steered`: only `Class::Person` input, no MCP prompt, and the owner's input to a task
+  (`EventSink::owner`, from `Core::owner_input`: the owner in a private place, never a job's or a prompt's; theseus-slmj1,
+  `turn/join_step.rs`: a task with the owner's message offered and not taken parks on input instead of reporting, and its
+  report ends `(you joined: N messages)`, the count in memory and, from the frame that ends the task, the META record
+  `task.joined.<session>`); a wake, a continuation and anyone else's input to a task queue as before). The signal is O(1) and polls nothing: an atomic count per steer and one over all sessions, and a
   `Notify`. Waits yield to it with no stop to the job and a result that says the job still runs and a message arrived,
   its meta `{"interrupted_by": "message"}` with the job's handle: `job_wait` (`jobs_tools.rs`), the turn's own foreground
   wait (`wait_in_turn` and a batch's, which go to the background as when their bound passes, but only once the command

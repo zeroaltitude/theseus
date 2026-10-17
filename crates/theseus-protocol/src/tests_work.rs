@@ -460,3 +460,29 @@ fn a_failure_draws_retry_dismiss_and_details_and_nothing_once_dismissed() {
     }];
     assert!(ids(&WorkView::from_execution(&asking)).is_empty());
 }
+
+/// A task is joinable while its session takes input, and not once it has ended;
+/// the redirect line is the words Discord has always used.
+#[test]
+fn a_task_is_joinable_until_it_ends_and_the_redirect_line_is_one_wording() {
+    use WorkState::*;
+    for (state, joinable_now) in [
+        (Running, true),
+        (Queued, true),
+        (Waiting, true),
+        (NeedsYou, true),
+        (Ready, false),
+        (Done, false),
+        (Failed, false),
+        (Cancelled, false),
+        (Expired, false),
+        (Unknown, false),
+    ] {
+        let v = view(WorkKind::Task, state, None);
+        assert_eq!(joinable(&v), joinable_now, "{state:?}");
+    }
+    assert_eq!(
+        task_redirect_line("Sound the north channel", "a1b2c3", "the task is over"),
+        "[Written to the task “Sound the north channel” (…a1b2c3), and the task is over] "
+    );
+}
