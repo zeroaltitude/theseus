@@ -797,3 +797,6 @@ async fn a_task_waiting_on_a_card_has_the_card_in_its_thread_and_takes_a_message
         "the conversation did not hear what the task took"
     );
 }
+
+#[path = "tests_task_react.rs"]
+mod react;

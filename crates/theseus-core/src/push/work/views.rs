@@ -125,6 +125,7 @@ impl WorkBoard {
         v.progress = super::progress::said_only(ei.said.as_deref(), 0);
         v.report = self.report_of(ei, &v);
         v.flagged = ei.flagged;
+        v.paused = ei.paused;
         v.ended_at_ms = v.state.ended().then_some(ei.x.at_ms);
         Some(v)
     }

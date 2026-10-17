@@ -129,6 +129,8 @@ pub struct Steers {
     /// The messages each task took from the owner, until it ends
     /// (theseus-slmj1): its report says it was joined.
     joined: Mutex<std::collections::HashMap<String, u32>>,
+    /// The tasks the owner holds (`task.pause`).
+    pub pauses: super::pause::Pauses,
 }
 
 /// A running turn's hold on its steer: it closes when dropped.

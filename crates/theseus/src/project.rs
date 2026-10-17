@@ -151,6 +151,7 @@ async fn attach(conn: &mut Conn, json: bool, session: String, id: Option<String>
             ProjectAttachParams {
                 session,
                 project: id,
+                ..Default::default()
             },
         )
         .await?;

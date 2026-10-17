@@ -407,15 +407,20 @@ impl Shared {
 
     /// A quiet notice in `channel`'s place: the lane writes it, in order with
     /// the place's other posts, and it pings no one.
-    pub(super) fn say_pointer(&self, channel: u64, text: String, from: &str) {
-        self.say_to(&format!("discord:channel:{channel}"), text, from);
+    pub(super) fn say_pointer(&self, channel: u64, text: String, from: &str) -> Option<String> {
+        self.say_to(&format!("discord:channel:{channel}"), text, from)
     }
 
     /// A quiet notice in the place `target` (a channel's, a thread's, a DM's).
-    pub(super) fn say_to(&self, target: &str, text: String, from: &str) {
+    /// The post's id, whose message lands under the key `note:<id>`.
+    pub(super) fn say_to(&self, target: &str, text: String, from: &str) -> Option<String> {
         let body = json!({"kind": "notice", "text": text, "quiet": true});
-        if let Err(e) = self.core.outbox.post(from, "", target, body) {
-            self.board.error("post pointer", None, format!("{e:#}"));
+        match self.core.outbox.post(from, "", target, body) {
+            Ok(a) => Some(a.correlation_id),
+            Err(e) => {
+                self.board.error("post pointer", None, format!("{e:#}"));
+                None
+            }
         }
     }
 

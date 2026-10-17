@@ -101,6 +101,7 @@ mod start_task;
 mod steer;
 mod succession;
 mod task_cmds;
+mod task_react;
 mod tasks;
 pub(crate) mod threads;
 mod typing;

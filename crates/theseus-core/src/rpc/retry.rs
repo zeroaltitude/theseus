@@ -108,7 +108,7 @@ impl Core {
 
     /// A fact's context for a core act outside a turn: the session's
     /// watchers hear it, and the narrative says it.
-    fn rec_for<'a>(&'a self, session: &'a str) -> fact::Rec<'a> {
+    pub(super) fn rec_for<'a>(&'a self, session: &'a str) -> fact::Rec<'a> {
         fact::Rec {
             narrator: &self.narrator,
             session: Some(session),

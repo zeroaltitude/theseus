@@ -586,6 +586,7 @@ async fn an_attached_conversation_keeps_the_slice_through_three_compactions() {
         &theseus_protocol::projects::ProjectAttachParams {
             session: attached.clone(),
             project: Some(project.clone()),
+            ..Default::default()
         },
         "the CLI",
     )

@@ -1762,6 +1762,10 @@ impl TurnRunner {
                 Self::stopped(t, &by);
                 break;
             }
+            // A task the owner holds parks here (`task.pause`).
+            if self.paused_at(t) {
+                break;
+            }
             // A hands group over the session's budget asks as a model call does.
             if let Some(o) = self.tools.hands_over_budget(t.tc.execution_id) {
                 self.ask_budget(t, session, o.needed, o.available, o.spent, o.limit)?;

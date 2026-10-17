@@ -525,6 +525,9 @@ fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) 
         ),
         // A task that has taken no turn is a deferred one, not asleep
         // between turns (theseus-rcgph).
+        Some(WaitingOn::DueAt { at_ms }) if *at_ms >= crate::task_pause::PAUSED_AT_MS => {
+            (Level::Working, "⏸ paused by you".into())
+        }
         Some(WaitingOn::DueAt { at_ms }) if view.kind == SessionKind::Task && view.turns == 0 => {
             (Level::Working, format!("▷ starts {}", hm(*at_ms)))
         }

@@ -330,7 +330,9 @@ impl WorkBoard {
     /// A deferred task asleep until its start: its time.
     pub(super) fn decorate_exec(v: &mut WorkView, ei: &ExecIn) {
         if let Some(WaitingOn::DueAt { at_ms }) = &ei.x.waiting_on {
-            v.next_at_ms = Some(*at_ms);
+            if *at_ms < theseus_protocol::task_pause::PAUSED_AT_MS {
+                v.next_at_ms = Some(*at_ms);
+            }
         }
     }
 
@@ -396,7 +398,10 @@ impl WorkBoard {
                 }
             }
             if let Some(WaitingOn::DueAt { at_ms }) = &ei.x.waiting_on {
-                if (p.from_ms..p.to_ms).contains(at_ms) && ei.kind == WorkKind::Task {
+                if (p.from_ms..p.to_ms).contains(at_ms)
+                    && *at_ms < theseus_protocol::task_pause::PAUSED_AT_MS
+                    && ei.kind == WorkKind::Task
+                {
                     starts.push(AgendaLine {
                         at_ms: *at_ms,
                         id: ei.x.execution_id.clone(),

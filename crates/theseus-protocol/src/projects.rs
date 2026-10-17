@@ -183,6 +183,14 @@ pub struct ProjectAttachParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub project: Option<String>,
+    /// Who asked, and from where, for the Discord binding (a reaction on a task's message makes
+    /// a project, theseus-bh3t.2): the core judges them as it does `project.create`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 #[cfg_attr(test, derive(ts_rs::TS))]

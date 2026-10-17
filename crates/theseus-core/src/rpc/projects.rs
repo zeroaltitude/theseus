@@ -65,7 +65,7 @@ impl Core {
             method::PROJECT_LIST => route(params, |p| self.project_list(&p)),
             method::PROJECT_SHOW => route(params, |p| self.project_show(&p)),
             _ => route(params, |p: ProjectAttachParams| {
-                let who = conn.answerer(None, None);
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.project_attach(&p, who)
             }),
         }
