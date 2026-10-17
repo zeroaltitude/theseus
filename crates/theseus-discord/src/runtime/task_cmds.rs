@@ -24,8 +24,11 @@ use twilight_model::application::interaction::application_command::{
 };
 use twilight_model::application::interaction::{Interaction, InteractionData, InteractionType};
 use twilight_model::http::interaction::{InteractionResponseData, InteractionResponseType};
-use twilight_util::builder::command::{CommandBuilder, StringBuilder};
+use twilight_model::id::marker::UserMarker;
+use twilight_model::id::Id;
+use twilight_util::builder::command::{CommandBuilder, StringBuilder, UserBuilder};
 
+use super::war_room::Guest;
 use super::{answer_cmd, follow, start_task};
 use super::{Place, PlaceMsg, Shared};
 use crate::render::snapshot::{self, Parts, Show};
@@ -50,6 +53,8 @@ pub(crate) struct TaskCmd {
 pub(super) enum What {
     Tasks(Show),
     Task(String),
+    /// `share:` or `unshare:` (None: both were given).
+    Share(String, Option<Guest>),
     Quiet(Option<String>),
     Answer(Option<String>),
     NewTask(Option<String>),
@@ -89,6 +94,14 @@ pub(super) fn commands() -> Vec<Command> {
                 .required(true)
                 .autocomplete(true),
         )
+        .option(
+            UserBuilder::new(
+                "share",
+                "Bring a guest in to watch and comment (owner only)",
+            )
+            .required(false),
+        )
+        .option(UserBuilder::new("unshare", "Take a guest out").required(false))
         .build(),
         CommandBuilder::new(
             "answer",
@@ -125,6 +138,14 @@ pub(super) fn commands() -> Vec<Command> {
 fn opt(c: &CommandData, name: &str) -> Option<String> {
     c.options.iter().find_map(|o| match (&*o.name, &o.value) {
         (n, CommandOptionValue::String(s)) if n == name => Some(s.clone()),
+        _ => None,
+    })
+}
+
+/// A user option's id.
+fn user_opt(c: &CommandData, name: &str) -> Option<Id<UserMarker>> {
+    c.options.iter().find_map(|o| match (&*o.name, &o.value) {
+        (n, CommandOptionValue::User(u)) if n == name => Some(*u),
         _ => None,
     })
 }
@@ -217,7 +238,15 @@ impl Shared {
                         .and_then(|s| Show::parse(&s))
                         .unwrap_or_default(),
                 )),
-                "task" => send(What::Task(opt(c, "name").unwrap_or_default())),
+                "task" => {
+                    let name = opt(c, "name").unwrap_or_default();
+                    match (user_opt(c, "share"), user_opt(c, "unshare")) {
+                        (None, None) => send(What::Task(name)),
+                        (Some(u), None) => send(What::Share(name, Some(Guest::Add(u)))),
+                        (None, Some(u)) => send(What::Share(name, Some(Guest::Remove(u)))),
+                        _ => send(What::Share(name, None)),
+                    }
+                }
                 "quiet" => send(What::Quiet(opt(c, "for"))),
                 "answer" => send(What::Answer(opt(c, "question"))),
                 MAKE_TASK => send(What::NewTask(Some(
@@ -355,6 +384,7 @@ impl Place {
         let name = match &what {
             What::Tasks(_) => "tasks",
             What::Task(_) => "task",
+            What::Share(..) => "task share",
             What::Quiet(_) => "quiet",
             What::Answer(_) => "answer",
             What::NewTask(_) | What::NewTaskSubmit(_) => "task new",
@@ -371,6 +401,7 @@ impl Place {
                 s.respond_v2(&i, 4, &comps, true).await;
             }
             What::Task(name) => self.task_named(&i, &name).await,
+            What::Share(name, g) => self.share_task(&i, &name, g).await,
             What::Quiet(arg) => self.quiet(&i, arg.as_deref().unwrap_or("1h")).await,
             What::Answer(q) => s.answer_view(&i, q.as_deref()).await,
             What::NewTask(quote) => {

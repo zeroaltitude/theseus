@@ -708,7 +708,7 @@ impl Place {
 
     /// A message in the task's thread: an operator message to the task
     /// (see [`Place::join_task`] for where it goes).
-    pub(super) fn task_message(&mut self, m: Inbound) {
+    pub(super) fn task_message(&mut self, mut m: Inbound) {
         let Some(made) = self.shared.task_threads.made_in(m.channel.get()) else {
             return;
         };
@@ -717,6 +717,9 @@ impl Place {
             .tasks
             .view(&made.task)
             .map_or_else(|| made.name.clone(), |v| clip(&v.title));
+        if self.comment_on(&mut m, &made, &title) {
+            return;
+        }
         let to = Joined {
             task: made.task,
             session: made.session,
@@ -747,13 +750,7 @@ impl Place {
             row,
         );
         let _ = self.lane.send(LaneMsg::Author(m.author_id));
-        let owner = self
-            .shared
-            .core
-            .runner
-            .place_rule
-            .owners(&self.shared.core.cfg)
-            .contains(&format!("discord:{}", m.author_id));
+        let owner = self.shared.is_owner(m.author_id);
         let running = self
             .shared
             .tasks

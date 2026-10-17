@@ -1001,7 +1001,7 @@ pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
 
 /// A task's report (DD7), as one message: the task by its short id and
 /// title, how it ended, its last message (clipped to fit), and what it spent.
-pub fn report(body: &Value, said: Option<&str>) -> String {
+pub fn report(body: &Value, said: Option<&str>, guests: usize) -> String {
     let short = body["short"].as_str().unwrap_or("?");
     let title = body["title"]
         .as_str()
@@ -1045,8 +1045,12 @@ pub fn report(body: &Value, said: Option<&str>) -> String {
     } else {
         format!("{} min {} s", secs as u64 / 60, secs as u64 % 60)
     };
+    let guest = match guests {
+        0 => String::new(),
+        n => format!(" · {n} guest comment{}", if n == 1 { "" } else { "s" }),
+    };
     let facts = format!(
-        "-# {turns} turn{} · {} of {} · {took}",
+        "-# {turns} turn{} · {} of {} · {took}{guest}",
         if turns == 1 { "" } else { "s" },
         dollars(body["spent_usd"].as_f64().unwrap_or(0.0)),
         dollars(body["limit_usd"].as_f64().unwrap_or(0.0)),
@@ -2640,18 +2644,19 @@ mod tests {
                    "outcome": outcome, "reason": reason, "spent_usd": 0.0123, "limit_usd": 2.5,
                    "turns": 3, "elapsed_ms": 64_000})
         };
-        let done = report(&body("complete", None), Some("The gate passed."));
+        let done = report(&body("complete", None), Some("The gate passed."), 0);
         assert_eq!(
             done,
             "📋 **Task `a1b2c3` finished** · Run the gate\nThe gate passed.\n\
              -# 3 turns · $0.0123 of $2.50 · 1 min 4 s"
         );
-        let long = report(&body("complete", None), Some(&"word ".repeat(2_000)));
+        let long = report(&body("complete", None), Some(&"word ".repeat(2_000)), 0);
         assert!(long.chars().count() <= DISCORD_LIMIT, "{}", long.len());
         assert!(long.ends_with("-# 3 turns · $0.0123 of $2.50 · 1 min 4 s"));
         let stopped = report(
             &body("cancelled", Some("cancelled by discord:zeroaltitude")),
             None,
+            0,
         );
         assert!(
             stopped.starts_with(
@@ -2659,7 +2664,7 @@ mod tests {
             ),
             "{stopped}"
         );
-        let failed = report(&body("failed", Some("provider_overloaded (529)")), None);
+        let failed = report(&body("failed", Some("provider_overloaded (529)")), None, 0);
         assert!(
             failed.starts_with("⚠️ **Task `a1b2c3` failed** · Run the gate: provider_overloaded"),
             "{failed}"
@@ -2669,7 +2674,7 @@ mod tests {
         checked["check"] =
             json!("🔍 check of task d4e5f6 · independent (excluded ses_…d4e5f6, glm-4.6)");
         assert_eq!(
-            report(&checked, Some("It holds.")),
+            report(&checked, Some("It holds."), 0),
             "📋 **Task `a1b2c3` finished** · Run the gate\n\
              -# 🔍 check of task d4e5f6 · independent (excluded ses_…d4e5f6, glm-4.6)\nIt holds.\n\
              -# 3 turns · $0.0123 of $2.50 · 1 min 4 s"

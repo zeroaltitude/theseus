@@ -78,9 +78,26 @@ impl FakeDiscord {
         command: &str,
         options: &[(&str, &str)],
     ) -> Result<String, String> {
+        self.slash_with(from, command, options, &[])
+    }
+
+    /// `/<command> key:value… who:@user…`: string options, then user options
+    /// (type 6, a user's id).
+    pub fn slash_with(
+        &self,
+        from: &Sender<'_>,
+        command: &str,
+        options: &[(&str, &str)],
+        users: &[(&str, u64)],
+    ) -> Result<String, String> {
         let options: Vec<Value> = options
             .iter()
             .map(|(k, v)| json!({"name": k, "type": 3, "value": v}))
+            .chain(
+                users
+                    .iter()
+                    .map(|(k, u)| json!({"name": k, "type": 6, "value": u.to_string()})),
+            )
             .collect();
         let data =
             json!({"id": "1000000000000000004", "name": command, "type": 1, "options": options});

@@ -1284,7 +1284,10 @@ impl Lane {
         if routine.is_some() {
             self.shared.tasks_future_dirty();
         }
-        let content = routine.unwrap_or_else(|| render::report(body, said.as_deref()));
+        let guests = body["task"]
+            .as_str()
+            .map_or(0, |s| self.shared.comments_on_session(s));
+        let content = routine.unwrap_or_else(|| render::report(body, said.as_deref(), guests));
         let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
         let ping = self.pings(policy::of_report(body));
         Ok(Plan {

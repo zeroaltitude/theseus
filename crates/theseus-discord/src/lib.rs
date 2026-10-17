@@ -49,6 +49,8 @@ mod tests_silent;
 mod tests_task_threads;
 #[cfg(test)]
 mod tests_typing;
+#[cfg(test)]
+mod tests_war_room;
 pub mod viewers;
 
 pub use bindings::{Bindings, EXAMPLE_BINDINGS};
