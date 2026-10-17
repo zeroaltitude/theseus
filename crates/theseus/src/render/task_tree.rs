@@ -16,9 +16,11 @@
 use std::collections::HashMap;
 
 use theseus_protocol::notices::name_of;
+use theseus_protocol::usd;
 use theseus_protocol::work::{DoingKind, Question, QuestionKind, WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
 
+use super::time::fmt_starts;
 use super::{Line, Tag};
 
 /// A title is cut no shorter than this before the activity gives way.
@@ -68,6 +70,16 @@ pub fn name(v: &WorkView) -> String {
     } else {
         t.to_string()
     }
+}
+
+/// Whether the list has a row for this kind: a task, and what waits on a
+/// time or a condition (a routine, a watch, a project), which are no task
+/// and count as none.
+fn listed(k: WorkKind) -> bool {
+    matches!(
+        k,
+        WorkKind::Task | WorkKind::Routine | WorkKind::Watch | WorkKind::Project
+    )
 }
 
 /// The counts of the footer.
@@ -199,6 +211,9 @@ pub fn activity(v: &WorkView, kids: &[&WorkView], now_ms: u64, clock: fn(u64) ->
         }
         return format!("asks: {}", first_line(&q.prompt));
     }
+    if let Some(w) = ahead(v, now_ms) {
+        return w;
+    }
     match v.state {
         WorkState::Done => {
             return match v.report.as_ref().and_then(|r| r.first_line.as_deref()) {
@@ -253,6 +268,23 @@ pub fn activity(v: &WorkView, kids: &[&WorkView], now_ms: u64, clock: fn(u64) ->
         s.push_str(&format!(" · {plan}"));
     }
     s
+}
+
+/// What a routine, a watch or a project waits for: `routine · next Fri
+/// 09:00`, `watch · paused`; none for any other kind.
+fn ahead(v: &WorkView, now_ms: u64) -> Option<String> {
+    let what = match v.kind {
+        WorkKind::Routine => "routine",
+        WorkKind::Watch => "watch",
+        WorkKind::Project => "project",
+        _ => return None,
+    };
+    let when = match (v.paused, v.next_at_ms) {
+        (true, _) => "paused".to_string(),
+        (false, Some(t)) => format!("next {}", fmt_starts(t, now_ms)),
+        _ => v.attention.label.clone(),
+    };
+    Some(format!("{what} · {when}"))
 }
 
 /// When a view began, else when it came to its state.
@@ -352,7 +384,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
     let idx = Index::new(views);
     let mut roots: Vec<&WorkView> = views
         .iter()
-        .filter(|v| idx.is_root(v) && matches!(v.kind, WorkKind::Conversation | WorkKind::Task))
+        .filter(|v| idx.is_root(v) && (v.kind == WorkKind::Conversation || listed(v.kind)))
         .collect();
     roots.sort_by_key(|v| (v.attention.level.rank(), v.state_since_ms, v.id.clone()));
 
@@ -361,7 +393,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
     let mut groups: Vec<(Option<Row>, Vec<Row>)> = Vec::new();
     for r in &roots {
         let mut rows = Vec::new();
-        if r.kind == WorkKind::Task {
+        if listed(r.kind) {
             push_task(&idx, r, 0, &mut rows);
             groups.push((None, rows));
             continue;
@@ -370,7 +402,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
             .under(r)
             .iter()
             .copied()
-            .filter(|k| k.kind == WorkKind::Task)
+            .filter(|k| listed(k.kind))
             .collect();
         // What needs you first, the longest waiting first; a task's own
         // tasks stay under it.
@@ -395,7 +427,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
         if let Some(h) = h.as_ref().filter(|h| h.asks.is_some()) {
             counts.add(h.v, true);
         }
-        for row in rows {
+        for row in rows.iter().filter(|r| r.v.kind == WorkKind::Task) {
             counts.add(row.v, row.asks.is_some());
         }
     }
@@ -415,7 +447,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
     }
     let cells: Vec<Cells> = all
         .iter()
-        .map(|(r, _)| Cells::of(r, now_ms, self::clock))
+        .map(|(r, _)| Cells::of(r, now_ms, self::clock, false))
         .collect();
     let layout = Layout::of(&all, &cells, width);
     for ((row, header), cell) in all.iter().zip(&cells) {
@@ -459,16 +491,24 @@ struct Cells {
     id: String,
     title: String,
     elapsed: String,
+    /// What it has spent: blank in the tree, shown in the footer.
+    cost: String,
     activity: String,
 }
 
 impl Cells {
-    fn of(r: &Row, now_ms: u64, clock: fn(u64) -> String) -> Self {
+    fn of(r: &Row, now_ms: u64, clock: fn(u64) -> String, with_cost: bool) -> Self {
         let sid = r.v.session_id.as_deref().unwrap_or(&r.v.id);
+        let spent = r.v.cost.map_or(0.0, |c| c.spent_usd);
         Cells {
             id: short_id(sid),
             title: name(r.v),
             elapsed: elapsed(r.v, now_ms, clock),
+            cost: if with_cost && spent > 0.0 {
+                usd(spent)
+            } else {
+                String::new()
+            },
             activity: activity(r.v, r.kids, now_ms, clock),
         }
     }
@@ -478,6 +518,8 @@ impl Cells {
 struct Layout {
     title_w: usize,
     elapsed_w: usize,
+    /// 0 when no row shows a cost: the column is then absent.
+    cost_w: usize,
     activity_w: usize,
 }
 
@@ -485,6 +527,7 @@ impl Layout {
     fn of(rows: &[(&Row, bool)], cells: &[Cells], width: usize) -> Self {
         let widest = |f: &dyn Fn(&Cells) -> usize| cells.iter().map(f).max().unwrap_or(0);
         let elapsed_w = widest(&|c| c.elapsed.chars().count());
+        let cost_w = widest(&|c| c.cost.chars().count());
         let mut title_w = widest(&|c| c.title.chars().count());
         let mut activity_w = widest(&|c| c.activity.chars().count()).min(ACTIVITY_MAX);
         let prefix = rows
@@ -492,8 +535,9 @@ impl Layout {
             .map(|(r, _)| r.indent + 2 + 6 + 2)
             .max()
             .unwrap_or(10);
-        // title, two spaces, elapsed, two spaces, activity.
-        let room = width.saturating_sub(prefix + 2 + elapsed_w + 2);
+        // title, two spaces, elapsed, two spaces, [cost, two spaces,] activity.
+        let cost_room = if cost_w > 0 { cost_w + 2 } else { 0 };
+        let room = width.saturating_sub(prefix + 2 + elapsed_w + 2 + cost_room);
         if title_w + activity_w > room {
             // The titles give way first, down to a floor.
             title_w = title_w.min(room.saturating_sub(activity_w).max(TITLE_FLOOR));
@@ -506,6 +550,7 @@ impl Layout {
         Layout {
             title_w,
             elapsed_w,
+            cost_w,
             activity_w,
         }
     }
@@ -524,8 +569,13 @@ impl Layout {
             // you or work, where a task has its time and its doing.
             format!("{lead}{mark} {}  {title}", c.id)
         } else {
+            let cost = if self.cost_w > 0 {
+                format!("{:>cw$}  ", c.cost, cw = self.cost_w)
+            } else {
+                String::new()
+            };
             format!(
-                "{lead}{mark} {}  {title:<tw$}  {:>ew$}  {}",
+                "{lead}{mark} {}  {title:<tw$}  {:>ew$}  {cost}{}",
                 c.id,
                 c.elapsed,
                 cut(&c.activity, self.activity_w),
@@ -580,7 +630,10 @@ pub fn footer(views: &[WorkView], now_ms: u64, width: usize, max: usize) -> Foot
     let more = all.len().saturating_sub(max);
     all.truncate(max);
     let shown: Vec<(&Row, bool)> = all.iter().map(|r| (r, false)).collect();
-    let cells: Vec<Cells> = all.iter().map(|r| Cells::of(r, now_ms, coarse)).collect();
+    let cells: Vec<Cells> = all
+        .iter()
+        .map(|r| Cells::of(r, now_ms, coarse, true))
+        .collect();
     let layout = Layout::of(&shown, &cells, width);
     let rows = shown
         .iter()

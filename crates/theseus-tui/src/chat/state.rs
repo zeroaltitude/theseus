@@ -50,6 +50,8 @@ pub struct Cfg {
     /// This directory's messages, oldest first.
     pub history: Vec<String>,
     pub history_path: Option<PathBuf>,
+    /// The machine's seen file (theseus-xock5); none keeps the chat apart from it.
+    pub seen_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +98,8 @@ pub enum Purpose {
     /// `session.mode`: read when the conversation opens, set by Shift+Tab
     /// (theseus-lyxy).
     Mode,
+    /// `work.digest` since the last look (theseus-xock5).
+    Welcome,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +116,8 @@ pub enum Effect {
     SaveHistory(Vec<String>),
     /// A ping for an Interrupt: the terminal's bell.
     Bell,
+    /// The operator looked at the board at this position and time: the seen file.
+    Look(PathBuf, u64, u64),
     Quit,
 }
 
@@ -194,6 +200,12 @@ pub struct Chat {
     pub(super) rewound: Option<String>,
     pub menu: usize,
     pub(super) started_ms: u64,
+    /// The digest line, held until the banner has printed.
+    pub(super) welcome: Option<String>,
+    /// When the connection was lost, while it is.
+    offline_at: Option<u64>,
+    /// The last key or paste, for how long the operator has been away.
+    pub(super) last_input_ms: u64,
 }
 
 /// The banner waits for the daemon's words: the model, and the newest
@@ -251,6 +263,9 @@ impl Chat {
             rewound: None,
             menu: 0,
             started_ms: now_ms,
+            welcome: None,
+            offline_at: None,
+            last_input_ms: now_ms,
         }
     }
 
@@ -300,7 +315,11 @@ impl Chat {
             if was_offline {
                 self.flash("reconnected");
             }
-            return vec![
+            let away = self
+                .offline_at
+                .take()
+                .map_or(0, |at| now_ms.saturating_sub(at));
+            let mut out = vec![
                 call(
                     method::SESSION_WATCH,
                     json!({ "session_id": sid }),
@@ -308,9 +327,12 @@ impl Chat {
                 ),
                 Self::watch_work(&sid),
             ];
+            out.extend(self.reconnect_call(away));
+            return out;
         }
         self.started_ms = now_ms;
         let mut out = vec![call(method::HEALTH, Value::Null, Purpose::Health)];
+        out.extend(self.welcome_call());
         match self.cfg.resume.clone() {
             None if self.cfg.start != Start::New => out.extend(self.start_listing()),
             None => {
@@ -337,6 +359,7 @@ impl Chat {
     pub fn disconnected(&mut self) {
         if !self.offline {
             self.offline = true;
+            self.offline_at = Some(self.now_ms);
             self.say_plain(Sty::Yellow, "connection to theseusd lost; reconnecting…");
         }
     }
@@ -408,6 +431,7 @@ impl Chat {
         for l in banner::lines(&facts) {
             self.say(&l);
         }
+        self.print_welcome();
     }
 
     pub(super) fn banner_ready(&mut self) {
@@ -431,6 +455,7 @@ impl Chat {
             return self.picker_paste(text);
         }
         self.quit_armed = false;
+        self.last_input_ms = self.now_ms;
         self.editor.paste(text);
         self.menu = 0;
         self.typing()
@@ -440,6 +465,7 @@ impl Chat {
         let Some(action) = keys::map(k) else {
             return Vec::new();
         };
+        self.last_input_ms = self.now_ms;
         if self.picker.is_some() {
             return self.picker_key(action);
         }

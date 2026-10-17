@@ -40,6 +40,7 @@ mod stop;
 mod style;
 mod tasks;
 mod usage;
+mod welcome;
 
 #[cfg(test)]
 mod tests;
@@ -55,6 +56,8 @@ mod tests_rewind;
 mod tests_tasks;
 #[cfg(test)]
 mod tests_usage;
+#[cfg(test)]
+mod tests_welcome;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;
@@ -110,6 +113,7 @@ pub async fn run(args: Args) -> Result<()> {
         color: style::color_wanted(),
         history,
         history_path,
+        seen_path: theseus_client::seen::Seen::default_path(),
     };
     let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut chat = Chat::new(cfg, crate::now_ms());

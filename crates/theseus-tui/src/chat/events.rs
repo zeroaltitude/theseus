@@ -94,10 +94,10 @@ impl Chat {
                 Vec::new()
             }
             Purpose::WorkWatch => {
-                if let Ok(r) = serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
-                    self.work_snapshot(r);
+                match serde_json::from_value::<theseus_protocol::WorkWatchResult>(v) {
+                    Ok(r) => self.work_snapshot(r),
+                    Err(_) => Vec::new(),
                 }
-                Vec::new()
             }
             Purpose::TaskAnswer { who, option } => {
                 self.task_answered(&who, &option);
@@ -124,6 +124,7 @@ impl Chat {
                 }
                 Vec::new()
             }
+            Purpose::Welcome => self.welcome_said(v),
             Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
             Purpose::RewindPoints => self.rewind_points(v),
             Purpose::RewindRestore(going) => self.rewind_restored(going, v),
@@ -133,7 +134,8 @@ impl Chat {
 
     fn failed(&mut self, purpose: Purpose, e: &RpcError) -> Vec<Effect> {
         match purpose {
-            Purpose::Typing => Vec::new(),
+            // An older daemon has no digest, and the chat says nothing of it.
+            Purpose::Typing | Purpose::Welcome => Vec::new(),
             Purpose::Health => {
                 self.banner_ready();
                 Vec::new()

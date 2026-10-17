@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::json;
 use theseus_client::render::task_tree::{self, Event as TaskEvent};
 use theseus_client::render::Tag;
-use theseus_protocol::notices::{self, Notice, Urgency, Viewer, Why};
+use theseus_protocol::notices::{self, Notice, Urgency, Why};
 use theseus_protocol::work::{AnswerOption, QuestionKind, WorkKind, WorkView};
 use theseus_protocol::{method, WorkChanged, WorkWatchResult};
 
@@ -52,6 +52,9 @@ pub(super) struct Board {
     pub told: HashSet<String>,
     /// When the footer next changes by itself.
     pub repaint_at: Option<u64>,
+    /// The last board position this chat applied: the digest after a lost
+    /// connection starts after it.
+    pub position: u64,
 }
 
 impl Board {
@@ -87,18 +90,31 @@ impl Chat {
 
     /// The snapshot: the board as it stands. No line is printed for what
     /// already runs; a question that already waits is told once.
-    pub(super) fn work_snapshot(&mut self, r: WorkWatchResult) {
+    pub(super) fn work_snapshot(&mut self, r: WorkWatchResult) -> Vec<Effect> {
         self.board.live = true;
+        self.board.position = r.position;
         self.board.views = r.views.into_iter().map(|v| (v.id.clone(), v)).collect();
         let waiting: Vec<TaskQ> = self.task_questions();
         for p in waiting {
             self.tell_question(&p);
         }
         self.board_changed();
+        // A first start has no look to tell from: this board is it.
+        let first = self
+            .cfg
+            .seen_path
+            .as_deref()
+            .is_some_and(|p| theseus_client::seen::looked(p).position == 0);
+        if first {
+            self.look(r.position)
+        } else {
+            Vec::new()
+        }
     }
 
     /// A frame's changes, by the position rule.
     pub(super) fn work_changed(&mut self, c: WorkChanged) {
+        self.board.position = self.board.position.max(c.position);
         for v in c.views {
             let prev = self.board.views.get(&v.id);
             if prev.is_some_and(|p| p.position >= v.position) {
@@ -133,14 +149,7 @@ impl Chat {
     /// task's own events were printed from its views; the rest are printed
     /// here, as the notice says them.
     pub(super) fn work_notice(&mut self, n: &Notice) -> Vec<Effect> {
-        let viewer = Viewer {
-            focused: self.session.clone(),
-            seen: 0,
-            away_ms: 0,
-            quiet: false,
-            sound: true,
-        };
-        let delivery = notices::deliver(n, &viewer);
+        let delivery = notices::deliver(n, &self.viewer(n));
         if delivery == notices::Delivery::Nothing {
             return Vec::new();
         }

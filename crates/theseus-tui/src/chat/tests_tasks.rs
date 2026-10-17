@@ -373,6 +373,58 @@ async fn tasks_and_ctrl_t_draw_the_tree_in_place() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_footer_row_says_what_its_task_has_spent() {
+    let mut spending = task(1, "Buoy survey", 3);
+    spending.cost = Some(theseus_protocol::work::Cost {
+        spent_usd: 0.31,
+        limit_usd: 5.0,
+        turn_usd: None,
+    });
+    let mut r = ready(
+        100,
+        30,
+        &[conversation(), spending, task(2, "Tide tables", 4)],
+    )
+    .await;
+    r.shows("◐ tasks · 2 working").await;
+    let screen = r.screen();
+    let spent = screen.iter().find(|l| l.contains("Buoy survey")).unwrap();
+    assert!(spent.contains("$0.31"), "{spent}");
+    // A task that has spent nothing has no figure, and the tree has none either.
+    let idle = screen.iter().find(|l| l.contains("Tide tables")).unwrap();
+    assert!(!idle.contains('$'), "{idle}");
+    r.type_text("/tasks").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("2 working").await;
+    assert_eq!(r.text().matches("$0.31").count(), 1, "{}", r.text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn tasks_lists_a_routine_a_watch_and_a_project_beside_the_tasks() {
+    let routine = view(json!({
+        "id": "exe_rout", "kind": "routine", "session_id": "ses_rout9d0939", "parent": null,
+        "title": "Morning tide check", "state": "waiting", "paused": true,
+        "attention": {"level": "idle", "label": "paused", "since_ms": T0}
+    }));
+    let mut r = ready(
+        100,
+        30,
+        &[conversation(), task(1, "Buoy survey", 3), routine],
+    )
+    .await;
+    r.type_text("/tasks").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("routine · paused").await;
+    assert!(
+        r.text().contains("9d0939  Morning tide check"),
+        "{}",
+        r.text()
+    );
+    // And it is no task: the footer counts the one task that works.
+    assert!(r.text().contains("◐ tasks · 1 working"), "{}", r.text());
+}
+
+#[tokio::test(start_paused = true)]
 async fn cancel_and_stop_are_one_call_each() {
     let mut r = ready(100, 30, &[conversation(), task(1, "Buoy survey", 3)]).await;
     r.type_text("/cancel abc1f").await;

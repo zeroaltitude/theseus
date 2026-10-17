@@ -301,3 +301,64 @@ fn a_failed_task_names_retry_and_dismiss() {
         "{lines:#?}"
     );
 }
+
+fn spent(views: &mut [WorkView], id: &str, usd: f64) {
+    let v = views.iter_mut().find(|v| v.id == id).unwrap();
+    v.cost = Some(theseus_protocol::work::Cost {
+        spent_usd: usd,
+        limit_usd: 5.0,
+        turn_usd: None,
+    });
+}
+
+#[test]
+fn the_footer_shows_what_a_running_task_has_spent_and_the_tree_does_not() {
+    let mut views = regatta();
+    spent(&mut views, "exe_buoy", 1.2);
+    spent(&mut views, "exe_tide", 0.0042);
+    let f = footer(&views, NOW, 100, 5);
+    golden("footer_cost_100.txt", &text(&f.rows));
+    // The tree's columns are the ones it always had.
+    let tree_lines = tree(&views, NOW, 120, 0);
+    assert!(tree_lines.iter().all(|l| !l.text.contains('$')));
+}
+
+#[test]
+fn a_routine_a_watch_and_a_project_are_rows_but_no_task() {
+    let mut views = regatta();
+    let before = text(&tree(&views, NOW, 120, 0));
+    views.push(view(json!({
+        "id": "exe_rout", "kind": "routine", "session_id": "ses_rout9d0939", "parent": null,
+        "title": "Morning tide check", "state": "waiting", "paused": true,
+        "attention": {"level": "idle", "label": "paused", "since_ms": NOW - 5_000}
+    })));
+    views.push(view(json!({
+        "id": "exe_watch", "kind": "watch", "session_id": "ses_watchc0ffee", "parent": null,
+        "title": "Harbour gate open", "state": "waiting", "next_at_ms": NOW + 600_000,
+        "attention": {"level": "idle", "label": "checking every 5m", "since_ms": NOW - 5_000}
+    })));
+    views.push(view(json!({
+        "id": "exe_proj", "kind": "project", "session_id": "ses_projfeed01", "parent": null,
+        "title": "Refit the hull", "state": "running",
+        "attention": {"level": "idle", "label": "2 of 7 milestones", "since_ms": NOW - 5_000}
+    })));
+    let lines = tree(&views, NOW, 120, 0);
+    let all = text(&lines);
+    for (id, what) in [
+        ("9d0939  Morning tide check", "routine · paused"),
+        ("c0ffee  Harbour gate open", "watch · next "),
+        ("feed01  Refit the hull", "project · 2 of 7 milestones"),
+    ] {
+        let row = lines
+            .iter()
+            .find(|l| l.text.contains(id))
+            .unwrap_or_else(|| panic!("{id}:\n{all}"));
+        assert!(row.text.contains(what), "{}", row.text);
+    }
+    // They are no tasks: the footer's counts are the tasks' alone.
+    assert_eq!(
+        lines.last().unwrap().text,
+        before.lines().last().unwrap(),
+        "{all}"
+    );
+}
