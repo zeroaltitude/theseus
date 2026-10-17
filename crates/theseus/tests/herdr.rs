@@ -767,6 +767,8 @@ fn an_unlabelled_session_is_titled_once_it_has_a_title() {
     w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
+    // A conversation's pane has no task header.
+    assert!(!err.contains("⚙ task"), "{err}");
     let asked = d
         .requests()
         .iter()
@@ -808,6 +810,11 @@ fn a_task_is_named_by_its_title_not_its_label() {
     w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
+    // A task's pane says whose it is and the keys that leave it (theseus-m638c).
+    assert!(
+        err.contains("── ⚙ task q7f3k2 · prefix+m main · prefix+i inspect ──"),
+        "{err}"
+    );
 }
 
 /// `--no-herdr`, inside a pane: herdr hears nothing, and the watch is the
