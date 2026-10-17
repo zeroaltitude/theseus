@@ -364,3 +364,118 @@ async fn told_nothing_naming_a_private_one(core: &Arc<Core>, private: &str, from
         assert!(none.lines.is_empty(), "{:?}", none.lines);
     }
 }
+
+// ------------------------------------------------------------ the digest post
+
+/// The digest posts of the operator's lane, in order.
+fn digest_posts(core: &Core) -> Vec<serde_json::Value> {
+    core.outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "digest")
+        .map(|a| crate::outbox::body_of(a).clone())
+        .collect()
+}
+
+/// A scene whose digest slot is always due and whose owner's DM is bound.
+async fn digest_scene() -> Scene {
+    let s = Scene::new().await;
+    s.r.core
+        .initiative
+        .digest
+        .slots
+        .lock()
+        .unwrap()
+        .replace(vec![(0, 0)]);
+    s.r.core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:271828182845904523".into(),
+        name: "DM @wren".into(),
+        ..Default::default()
+    }]);
+    s
+}
+
+/// A slot with lines posts one message worded as `/digest` words it and
+/// marks itself, so a second ask, even after a restart forgot the claim,
+/// posts nothing; the next window starts at the mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_slot_with_lines_posts_once_and_never_twice_across_a_restart() {
+    let (told, _) = told().await;
+    let c = told.r.core.clone();
+    c.initiative
+        .digest
+        .slots
+        .lock()
+        .unwrap()
+        .replace(vec![(0, 0)]);
+    c.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:271828182845904523".into(),
+        name: "DM @wren".into(),
+        ..Default::default()
+    }]);
+    let now = theseus_protocol::now_unix_ms();
+    // The scene's own driver ticks too: whichever begins the slot, one posts.
+    c.digest_tick(now);
+    assert!(!c.digest_tick(now), "claimed in memory");
+    until("the digest post", || !digest_posts(&c).is_empty()).await;
+    let posts = digest_posts(&c);
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    let text = posts[0]["text"].as_str().unwrap();
+    assert!(text.starts_with("◆ "), "{text}");
+    assert!(text.contains("reported"), "{text}");
+    assert!(
+        c.store
+            .get_meta::<u64>("discord.digest.last")
+            .unwrap()
+            .is_some(),
+        "the next window's start"
+    );
+    // A restart forgets the claim and reads the mark.
+    *c.initiative.digest.claimed.lock().unwrap() = None;
+    assert!(!c.digest_tick(now + 1), "marked: never twice");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(digest_posts(&c).len(), 1);
+}
+
+/// A slot with nothing to say posts nothing, and is marked, so it is not read
+/// again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_slot_with_no_lines_posts_nothing_and_is_marked() {
+    let s = digest_scene().await;
+    let c = &s.r.core;
+    c.digest_tick(theseus_protocol::now_unix_ms());
+    until("the slot's mark", || {
+        c.store
+            .get_meta::<u64>("discord.digest.last")
+            .unwrap()
+            .is_some()
+    })
+    .await;
+    assert!(digest_posts(c).is_empty(), "nothing happened");
+}
+
+/// While the pacer's window is closed (the morning note just went) the slot
+/// waits unclaimed, and posts when the window opens.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_slot_waits_behind_a_just_written_unprompted_post() {
+    let (told, _) = told().await;
+    let c = told.r.core.clone();
+    c.initiative
+        .digest
+        .slots
+        .lock()
+        .unwrap()
+        .replace(vec![(0, 0)]);
+    c.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:271828182845904523".into(),
+        name: "DM @wren".into(),
+        ..Default::default()
+    }]);
+    let now = theseus_protocol::now_unix_ms();
+    c.outbox.pacer.took(now);
+    assert!(!c.digest_tick(now + 1_000), "the window is closed");
+    assert!(c.initiative.digest.claimed.lock().unwrap().is_none());
+    let window = 1000 * c.cfg.notify.unprompted_pace_secs;
+    assert!(c.digest_tick(now + window), "the window opened");
+    until("the digest post", || !digest_posts(&c).is_empty()).await;
+}

@@ -19,7 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// The outbox post kinds the pacer covers. A kind here is one nobody asked
 /// for; a reply, a card, a settle and a reminder the owner set are not.
 /// `initiative`: the morning note and the consolidation finding (theseus-slvl.9).
-pub const UNPROMPTED: &[&str] = &["needs_you", "initiative"];
+/// `digest`: the posted digest of what happened (theseus-ss36w).
+pub const UNPROMPTED: &[&str] = &["needs_you", "initiative", "digest"];
 
 /// When the last covered post was written.
 #[derive(Debug, Default)]
