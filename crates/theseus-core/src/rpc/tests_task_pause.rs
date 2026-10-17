@@ -147,6 +147,42 @@ async fn a_held_task_parks_at_its_next_loop_never_reports_and_resume_goes_on() {
     assert!(!r.core.push.work_all().remove(&task.id).unwrap().paused);
 }
 
+/// A resume that raced the park (the hold let go while the turn was parking,
+/// so nothing woke it) leaves the task parked on the hold with no hold left:
+/// a resume then still wakes it, and it reports.
+#[tokio::test]
+async fn a_resume_wakes_a_task_parked_on_a_hold_already_let_go() {
+    let mut r = rig_with_a_task();
+    r.core.push.ensure(&r.core).await.unwrap();
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    r.entered.recv().await.unwrap();
+    r.core.task_hold(&task.id, true, &cli()).unwrap();
+    r.model.gate.add_permits(1);
+    until("the task parks", || {
+        exec(&r.core, &task.id).state == ExecState::Waiting
+    })
+    .await;
+    // The race: the hold is let go, and no wake was written.
+    r.core
+        .runner
+        .tools
+        .job_waits
+        .steers
+        .pauses
+        .set(&task.session_id, false);
+    assert!(!r.core.runner.task_paused(&task.session_id));
+    r.model.gate.add_permits(1);
+    let back = r.core.task_hold(&task.id, false, &cli()).unwrap();
+    assert!(back.changed, "the parked task is woken: {back:?}");
+    until("the task completes", || {
+        exec(&r.core, &task.id).state == ExecState::Complete
+    })
+    .await;
+    assert_eq!(posts(&r.core, "report").len(), 1);
+}
+
 #[tokio::test]
 async fn only_the_owner_holds_and_an_ended_task_cannot_be() {
     let mut r = rig_with_a_task();

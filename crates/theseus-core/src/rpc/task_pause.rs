@@ -112,7 +112,14 @@ impl Core {
             paused: on,
             changed,
         };
-        if self.runner.task_paused(&e.session_id) == on {
+        // Parked on the hold: a resume wakes it even when the hold is already
+        // gone (a resume that raced the park found it still running).
+        let parked = e.state == ExecState::Waiting
+            && e.wake
+                == Some(theseus_kernel::Wake::DueAt {
+                    at_ms: theseus_protocol::task_pause::PAUSED_AT_MS,
+                });
+        if self.runner.task_paused(&e.session_id) == on && (on || !parked) {
             return Ok(done(false));
         }
         let by = who.label.as_str();
@@ -140,10 +147,7 @@ impl Core {
             )?,
         };
         let mut records = vec![meta, row];
-        let parked = Some(theseus_kernel::Wake::DueAt {
-            at_ms: theseus_protocol::task_pause::PAUSED_AT_MS,
-        });
-        let wake = !on && e.state == ExecState::Waiting && e.wake == parked;
+        let wake = !on && parked;
         if wake {
             records
                 .push(Node::relayed(&e.session_id, None, Origin::Operator, by, RESUMED).record()?);

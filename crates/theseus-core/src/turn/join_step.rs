@@ -70,7 +70,9 @@ impl TurnRunner {
                 }
             }
             TurnEnd::Wait { wake: Wake::Input } if is_task => {
-                if *again || stop == "max_loops" {
+                // A turn the hold stopped (`paused_at`) whose hold was let go
+                // before here goes on, as a loop cap's does.
+                if *again || stop == "max_loops" || stop == "paused" {
                     *again = true;
                     wait
                 } else if crate::task::parks_on_wake(kernel, execution_id)
