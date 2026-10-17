@@ -1236,7 +1236,7 @@ async fn stop_and_cancel_each_ask_for_a_second_key() {
     rig.shows("stopped session ses_dm0001's work").await;
     // A task: `s` says how it ends; `c c` cancels it.
     rig.press(&[KeyCode::Char('j'), KeyCode::Enter]).await;
-    rig.shows("ses …tide01").await;
+    rig.shows("task tide01 of DM").await;
     rig.press(&[KeyCode::Char('s')]).await;
     assert!(rig.screen()[23].contains("a task is not stopped but cancelled"));
     rig.press(&[KeyCode::Char('c'), KeyCode::Char('c')]).await;

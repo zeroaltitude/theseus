@@ -750,6 +750,20 @@ fn state_of(state: &str, waiting_on: Option<&WaitingOn>, outstanding: u32) -> Wo
     }
 }
 
+/// Whether the owner can join a task: its session takes input while the task is queued, running,
+/// waiting, or blocked on a question (`NeedsYou`, which the work view words for blocked too).
+pub fn joinable(v: &WorkView) -> bool {
+    matches!(
+        v.state,
+        WorkState::Running | WorkState::Queued | WorkState::Waiting | WorkState::NeedsYou
+    )
+}
+
+/// The one line every surface prints when a message for an ended task goes to the mainline instead.
+pub fn task_redirect_line(title: &str, short: &str, why: &str) -> String {
+    format!("[Written to the task “{title}” (…{short}), and {why}] ")
+}
+
 impl WorkView {
     /// A reference to this work, as a notice names it.
     pub fn work_ref(&self) -> WorkRef {

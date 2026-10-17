@@ -119,6 +119,14 @@ pub enum Purpose {
     /// `session.mode`: the focused conversation's mode, read when it is
     /// focused and set by Shift+Tab (theseus-lyxy).
     Mode(String),
+    /// `turn.submit` to a task, with the text: refused because the task ended as it left, it goes to
+    /// the task's parent instead (theseus-mu0e6).
+    SubmitTask {
+        task: String,
+        text: String,
+    },
+    /// `turn.inspect` for the session's newest turn, from `I` (theseus-mu0e6).
+    Inspect(String),
 }
 
 /// What the loop does for the app.
@@ -777,10 +785,7 @@ impl App {
         }
         let v = match result {
             Ok(v) => v,
-            Err(e) => {
-                self.failed(&purpose, &e);
-                return Vec::new();
-            }
+            Err(e) => return self.request_failed(&purpose, &e),
         };
         match purpose {
             Purpose::Snapshot => return self.snapshot_read(v),
@@ -856,7 +861,10 @@ impl App {
             }
             // A turn's answer comes at its end; its events said the rest.
             // The turn's sources, when its reply cited any (theseus-ejdk).
-            Purpose::Submit(sid) => return self.submitted(&sid, v),
+            Purpose::Submit(sid) | Purpose::SubmitTask { task: sid, .. } => {
+                return self.submitted(&sid, v)
+            }
+            Purpose::Inspect(sid) => self.inspected(&sid, v),
             Purpose::Standing(sid) => self.standing_read(&sid, v),
             Purpose::Health => self.health_read(v),
             Purpose::Threads => return self.threads_listed(v),
@@ -927,7 +935,7 @@ impl App {
     }
 
     /// A request that failed: say so where the operator looks.
-    fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
+    pub(crate) fn failed(&mut self, purpose: &Purpose, e: &RpcError) {
         // A notice, whose daemon may not know it (an older one): nothing to say.
         if matches!(
             purpose,
@@ -979,7 +987,8 @@ impl App {
             }
             Purpose::History(_) | Purpose::Node { .. } => method::SESSION_HISTORY,
             Purpose::Watch => method::SESSION_WATCH,
-            Purpose::Submit(_) => method::TURN_SUBMIT,
+            Purpose::Submit(_) | Purpose::SubmitTask { .. } => method::TURN_SUBMIT,
+            Purpose::Inspect(_) => method::TURN_INSPECT,
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::NewTask => method::TASK_START,
@@ -1002,14 +1011,18 @@ impl App {
             Purpose::Mode(_) => method::SESSION_MODE,
         };
         let text = format!("{what}: {}", e.message);
-        if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
+        if let Purpose::Submit(sid)
+        | Purpose::SubmitTask { task: sid, .. }
+        | Purpose::Stop(sid)
+        | Purpose::Cancel(sid) = purpose
+        {
             self.note(sid, Tag::Bad, &format!("✗ {text}"));
         }
         self.flash = Some((Tag::Bad, text));
     }
 
     /// A line of the TUI's own in a session's pane, if it is in focus.
-    fn note(&mut self, sid: &str, tag: Tag, text: &str) {
+    pub(crate) fn note(&mut self, sid: &str, tag: Tag, text: &str) {
         if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
             d.note(tag, text);
         }
@@ -1194,7 +1207,14 @@ impl App {
             KeyCode::Char('q') => return vec![Effect::Quit],
             KeyCode::Char('?') => self.mode = Mode::Help,
             KeyCode::Char('L') => return self.open_self(),
-            KeyCode::Char('p') => return self.standing_key(),
+            // In a task, `p` and Backspace go back to the conversation that started it (theseus-mu0e6).
+            KeyCode::Backspace => {
+                if let Some(out) = self.parent_key() {
+                    return out;
+                }
+            }
+            KeyCode::Char('p') => return self.parent_key().unwrap_or_else(|| self.standing_key()),
+            KeyCode::Char('I') => return self.inspect_key(),
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
             KeyCode::Enter => {
@@ -1313,7 +1333,7 @@ impl App {
 
     /// The session the keys act on: the one in focus, if its pane is on
     /// screen; else the footer says how to open one.
-    fn on_screen(&mut self) -> Option<String> {
+    pub(crate) fn on_screen(&mut self) -> Option<String> {
         match self.shown() {
             Some(sid) => Some(sid.to_string()),
             None => {
@@ -1604,12 +1624,17 @@ impl App {
                 if text.is_empty() {
                     return Vec::new();
                 }
+                // A task that has reported takes no more: the message goes to main (theseus-mu0e6).
+                if self.ended_task(&sid).is_some() {
+                    return self.send_to_main(&sid, &text, "the task has reported");
+                }
                 self.input.clear();
                 self.mode = Mode::Normal;
                 if let Some(d) = self.detail.as_mut() {
                     d.sent(&text);
                     d.scroll = 0;
                 }
+                self.steer_said(&sid);
                 // On the profile the session's last turn ran on, carried and
                 // not chosen, as `watch --interactive` sends it: without it the
                 // daemon's live profile took the turn, another model without a
@@ -1620,7 +1645,11 @@ impl App {
                     params["profile"] = json!(profile);
                     params["carried"] = json!(true);
                 }
-                return vec![call(method::TURN_SUBMIT, params, Purpose::Submit(sid))];
+                let purpose = match self.task_parent(&sid) {
+                    Some(_) => Purpose::SubmitTask { task: sid, text },
+                    None => Purpose::Submit(sid),
+                };
+                return vec![call(method::TURN_SUBMIT, params, purpose)];
             }
             _ => {}
         }

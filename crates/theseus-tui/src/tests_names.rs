@@ -191,7 +191,7 @@ async fn enter_after_a_filter_opens_the_row_shown() {
     rig.press(&[KeyCode::Char('/')]).await;
     rig.type_text("quay").await;
     rig.press(&[KeyCode::Enter, KeyCode::Enter]).await;
-    rig.shows("ses …tide01").await;
+    rig.shows("task tide01 of DM").await;
     assert_eq!(
         rig.runner.app.shown(),
         Some("ses_tide01"),

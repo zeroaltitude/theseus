@@ -84,6 +84,13 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   line a record (id, kind, scope, text) that any key closes. Nothing polls; an older daemon's refusal says nothing.
   Tests: `src/tests_standing.rs`.
 
+- `src/task_return.rs` (theseus-mu0e6): inspect, join and return for a task's pane. A task's header is a breadcrumb (`task a1b2c3 of
+  <parent> · p parent · I inspector`); `p` or Backspace focuses the parent conversation (in a conversation `p` is still the standing
+  records' key); `I` asks `turn.inspect` for the pane's newest turn (`Detail::turn`) and prints the link; the input line's prompt says
+  `task a1b2c3 reads it at its next step>` and a sent line adds `↪ the task reads this at its next step`. A message for a task that has
+  reported (`ended_task`, by `theseus_protocol::work::joinable`), or one the daemon refuses because the task ended as it left
+  (`Purpose::SubmitTask`), goes to the parent with `task_redirect_line`, and the pane follows it. Tests: `src/tests_task_return.rs`.
+
 ## The chat (theseus-cyha)
 
 `theseus-tui chat [SESSION]` is a second mode of this binary: an inline conversation in the current directory, which

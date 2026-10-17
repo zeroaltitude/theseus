@@ -539,7 +539,11 @@ fn follow_pane(app: &App, f: &crate::follow::Follow, area: Rect, buf: &mut Buffe
 
 /// `ses …a1b2c3 · DM · glm-5.3-flash · ◐ turn 4`.
 fn detail_header(app: &App, sid: &str) -> String {
-    let mut parts = vec![format!("ses …{}", short(sid)), app.board.name(sid)];
+    // A task says whose it is and the way back (theseus-mu0e6).
+    let mut parts = match app.breadcrumb(sid) {
+        Some(crumb) => vec![crumb, app.board.name(sid)],
+        None => vec![format!("ses …{}", short(sid)), app.board.name(sid)],
+    };
     if let Some(m) = app.board.info(sid).and_then(|s| s.model.clone()) {
         parts.push(m);
     }
@@ -695,9 +699,10 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
         Mode::SelfView => app.self_keys(),
         _ => "[l] self  [?] help  [q] quit ",
     };
+    let prompt = app.input_prompt();
     let typed = match &app.mode {
         Mode::Filter => Some(("/", app.filter.as_str())),
-        Mode::Input => Some(("> ", app.input.as_str())),
+        Mode::Input => Some((prompt.as_str(), app.input.as_str())),
         Mode::Note(_) => Some(("decline, with a note (enter: none)> ", app.note.as_str())),
         Mode::NewTask(_) => Some((
             "new task: the brief (enter starts it)> ",
@@ -773,7 +778,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 26] = [
+    const KEYS: [&str; 27] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -794,7 +799,8 @@ fn help(area: Rect, buf: &mut Buffer) {
         " T          the threads on the board: enter folds or opens; esc leaves",
         " r d o      on a failed row: retry (a task) / dismiss / open it",
         " L          what Theseus changed about itself (esc closes)",
-        " p          the standing records that hold in the open session",
+        " p          the standing records that hold in the open session; in a task, back to its parent (⌫ too)",
+        " I          the open session's newest turn in the inspector: its link",
         " H          the Horizon (reminders, routines, watches): j k move, z snooze, p pause, r run now, x cancel",
         " ?          this help",
         " q          quit (ctrl-c from anywhere)",
