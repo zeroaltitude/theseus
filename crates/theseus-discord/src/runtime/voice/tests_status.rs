@@ -117,9 +117,16 @@ fn question(id: &str) -> WorkView {
 
 fn start(core: &Arc<Core>, put: &Arc<Record>, told: &Arc<AtomicU32>) -> Handle {
     let told = Arc::clone(told);
-    Handle::start(Arc::clone(core), put.clone(), LOUNGE, 1, move |_| {
-        told.fetch_add(1, Ordering::SeqCst);
-    })
+    Handle::start(
+        Arc::clone(core),
+        Some(put.clone()),
+        None,
+        LOUNGE,
+        1,
+        move |_| {
+            told.fetch_add(1, Ordering::SeqCst);
+        },
+    )
 }
 
 fn bare_core() -> (tempfile::TempDir, Arc<Core>) {
@@ -236,9 +243,16 @@ async fn the_status_reaches_discords_route_and_clears_at_the_leave() {
     let rest = Rest::new(base, "fake-token-not-a-secret".into()).unwrap();
     let told = Arc::new(AtomicU32::new(0));
     let t2 = Arc::clone(&told);
-    let handle = Handle::start(Arc::clone(&core), Arc::new(rest), LOUNGE, 1, move |_| {
-        t2.fetch_add(1, Ordering::SeqCst);
-    });
+    let handle = Handle::start(
+        Arc::clone(&core),
+        Some(Arc::new(rest)),
+        None,
+        LOUNGE,
+        1,
+        move |_| {
+            t2.fetch_add(1, Ordering::SeqCst);
+        },
+    );
     watching(&core).await;
     // Three tasks, one asking, inside the debounce: one write of all of it.
     publish(&core, tasks(3), &[]);
@@ -273,10 +287,17 @@ async fn the_status_reaches_discords_route_and_clears_at_the_leave() {
     fake.refuse_voice_status(true);
     let rest = Rest::new(format!("http://{}/api/v10", fake.addr), "t".into()).unwrap();
     let t3 = Arc::clone(&told);
-    let handle = Handle::start(Arc::clone(&core), Arc::new(rest), LOUNGE, 2, move |why| {
-        assert!(why.contains("Set Voice Channel Status"), "{why}");
-        t3.fetch_add(1, Ordering::SeqCst);
-    });
+    let handle = Handle::start(
+        Arc::clone(&core),
+        Some(Arc::new(rest)),
+        None,
+        LOUNGE,
+        2,
+        move |why| {
+            assert!(why.contains("Set Voice Channel Status"), "{why}");
+            t3.fetch_add(1, Ordering::SeqCst);
+        },
+    );
     let refused = async {
         while told.load(Ordering::SeqCst) == 0 {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -335,7 +356,7 @@ async fn with_board(dir: &std::path::Path, private: bool) -> super::tests_heard:
         }]);
     }
     let put = Arc::new(Record::default());
-    let h = Handle::start(Arc::clone(&core), put, LOUNGE, 1, |_| {});
+    let h = Handle::start(Arc::clone(&core), Some(put), None, LOUNGE, 1, |_| {});
     watching(&core).await;
     let mut views = tasks(3);
     views.push(question("act_q1"));

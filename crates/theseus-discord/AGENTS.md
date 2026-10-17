@@ -370,6 +370,16 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `runtime/voice/tests_status.rs` (the pace on tokio's paused clock, the fake Discord's REST route and its 403), and
   `voice_status.rs`'s own.
 
+- **A task's question and report in the call** (theseus-bh3t.3, `runtime/voice/tasks.rs`; `[voice] speak_tasks`, on): fed by the voice
+  status's one work watch (`voice_status::Handle.tasks`; the watch runs when the status or `speak_tasks` is on, and `Handle.board`
+  says whether the status is written and the board's line told). A new question of a task and a task's end are one `Command::Report`
+  each (title and a sentence or two, no code, links, paths or tool lines, 220 characters), said once (a set of 256), never what was
+  there at the join, nothing in a shared voice place or about a task of a shared place, and no end of a task that reports to the voice
+  place's own session (`voice_heard` speaks that turn). The last question said is pending 5 minutes: `voice_turn` first asks
+  `voice_answered`, and an owner's whole utterance of "approve", "deny", "the second one" or "stop it" (`matched`) is `work.answer` /
+  `task.cancel` as the speaker with the voice channel's ids (the core judges; a refusal is "I can't take that here." and the core's
+  words in text), posts the transcript line, and makes no turn. A bare "yes" is the engine's backchannel, so the question asks for
+  "approve". Tests: `runtime/voice/tests_tasks.rs`.
 - **The call's voice and greeting** (theseus-slvl.7, `runtime/voice.rs`): each sentence is made in the voice of the persona in
   play for the voice place's session (`Core::voice_of`, asked at every `Metered::synthesize`, so a persona change mid-call
   is heard at the next sentence with no reconnect; `[voice] tts_voice` when the persona has none), and the sentence's

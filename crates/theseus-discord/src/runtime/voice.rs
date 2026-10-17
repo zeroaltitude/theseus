@@ -61,6 +61,7 @@ use crate::bindings::Bindings;
 
 mod deaf;
 mod notes;
+pub(super) mod tasks;
 #[cfg(test)]
 mod tests_deaf;
 #[cfg(test)]
@@ -71,6 +72,8 @@ mod tests_persona;
 mod tests_reply;
 #[cfg(test)]
 mod tests_status;
+#[cfg(test)]
+mod tests_tasks;
 
 use notes::Notes;
 
@@ -515,7 +518,7 @@ impl Place {
             dropped: None,
             notes: Notes::default(),
             stopped: false,
-            status: self.start_status(&place, channel, serial),
+            status: self.start_status(&place, channel, serial, &handle.commands),
         });
         update(shared, |s| {
             s.state = "joined".into();
@@ -584,6 +587,9 @@ impl Place {
     /// A turn of utterances from this place's call: now, or after the turn
     /// in flight, a typed message's included.
     pub(super) fn voice_turn(&mut self, t: VoiceTurn) {
+        if self.voice_answered(&t) {
+            return;
+        }
         if self.inflight {
             if let Some(c) = self.shared.voice.call.lock().unwrap().as_mut() {
                 c.waiting.push_back(t);
@@ -717,33 +723,50 @@ impl Place {
             return None;
         }
         let call = self.shared.voice.call.lock().unwrap();
-        let tally = &call
+        let status = call
             .as_ref()
             .filter(|c| c.serial == serial)?
             .status
-            .as_ref()?
-            .tally;
+            .as_ref()
+            .filter(|s| s.board)?;
+        let tally = &status.tally;
         let line = tally.lock().unwrap().spoken();
         Some(format!("[The board: {line}]"))
     }
 
-    /// The channel's status for a call that just joined, when it is on:
-    /// `[voice] status`, or this channel's `voice_status`.
+    /// The watch of the work board for a call that just joined, when the
+    /// channel's status is on (`[voice] status`, or this channel's
+    /// `voice_status`) or tasks are spoken (`[voice] speak_tasks`).
     fn start_status(
         &self,
         place: &VoicePlace,
         channel: u64,
         serial: u64,
+        commands: &mpsc::UnboundedSender<Command>,
     ) -> Option<voice_status::Handle> {
         let shared = &self.shared;
-        if !place.status.unwrap_or(shared.voice.cfg.status) {
+        let put = place
+            .status
+            .unwrap_or(shared.voice.cfg.status)
+            .then(|| voice_status::Rest::of(&shared.core))
+            .flatten()
+            .map(|r| Arc::new(r) as Arc<dyn voice_status::Put>);
+        let tasks = shared.voice.cfg.speak_tasks.then(|| {
+            let now = theseus_protocol::now_unix_ms();
+            Arc::new(Mutex::new(tasks::Tasks::new(
+                commands.clone(),
+                channel,
+                now,
+            )))
+        });
+        if put.is_none() && tasks.is_none() {
             return None;
         }
-        let put = voice_status::Rest::of(&shared.core)?;
         let told = Arc::clone(shared);
         Some(voice_status::Handle::start(
             Arc::clone(&shared.core),
-            Arc::new(put),
+            put,
+            tasks,
             channel,
             serial,
             move |why| update(&told, |s| s.last_error = Some(why)),

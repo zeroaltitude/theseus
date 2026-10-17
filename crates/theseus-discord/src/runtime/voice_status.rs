@@ -35,6 +35,8 @@ use theseus_protocol::{notify, Message, WorkChanged};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use super::voice::tasks::Tasks;
+
 /// A burst of changes is one write.
 pub(super) const DEBOUNCE: Duration = Duration::from_secs(2);
 /// At most one write in this long.
@@ -336,33 +338,42 @@ impl Put for Rest {
 pub(super) struct Handle {
     /// The open tasks and questions, for the spoken line.
     pub(super) tally: Arc<Mutex<Tally>>,
+    /// The call's status is written, and the board's line is told.
+    pub(super) board: bool,
+    /// What the call says of the tasks, and waits to be answered on.
+    pub(super) tasks: Option<Arc<Mutex<Tasks>>>,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Handle {
-    /// Watch the board and keep `channel`'s status for the call. `told` is
-    /// called once, with a sentence, when Discord refuses the permission.
+    /// Watch the board and keep `channel`'s status for the call, when there
+    /// is a `put`; `tasks` hears the same watch. `told` is called once, with
+    /// a sentence, when Discord refuses the permission.
     pub(super) fn start(
         core: Arc<Core>,
-        put: Arc<dyn Put>,
+        put: Option<Arc<dyn Put>>,
+        tasks: Option<Arc<Mutex<Tasks>>>,
         channel: u64,
         serial: u64,
         told: impl Fn(String) + Send + 'static,
     ) -> Self {
         let tally = Arc::new(Mutex::new(Tally::default()));
         let (stop, stopped) = oneshot::channel();
-        let task = tokio::spawn(run(
+        let board = put.is_some();
+        let watching = Watching {
             core,
             put,
             channel,
-            format!("discord-voice-status-{serial}"),
-            Arc::clone(&tally),
-            stopped,
-            told,
-        ));
+            conn: format!("discord-voice-status-{serial}"),
+            tally: Arc::clone(&tally),
+            tasks: tasks.clone(),
+        };
+        let task = tokio::spawn(run(watching, stopped, told));
         Self {
             tally,
+            board,
+            tasks,
             stop: Some(stop),
             task,
         }
@@ -379,21 +390,32 @@ impl Handle {
     }
 }
 
-/// The counts in, the writes out, until the call ends or the daemon stops.
-async fn run(
+/// What one call's watch of the board feeds.
+struct Watching {
     core: Arc<Core>,
-    put: Arc<dyn Put>,
+    /// Where the status goes; none when only tasks are spoken.
+    put: Option<Arc<dyn Put>>,
     channel: u64,
     conn: String,
     tally: Arc<Mutex<Tally>>,
-    mut stop: oneshot::Receiver<()>,
-    told: impl Fn(String),
-) {
+    tasks: Option<Arc<Mutex<Tasks>>>,
+}
+
+/// The counts in, the writes out, until the call ends or the daemon stops.
+async fn run(w: Watching, mut stop: oneshot::Receiver<()>, told: impl Fn(String)) {
+    let Watching {
+        core,
+        put,
+        channel,
+        conn,
+        tally,
+        tasks,
+    } = w;
     let (tx, mut feed) = mpsc::unbounded_channel::<Message>();
-    let watched = watch(&core, &conn, tx, &tally).await;
+    let watched = watch(&core, &conn, tx, (&*tally, tasks.as_deref())).await;
     let mut pacer = Pacer::default();
     let mut refused = false;
-    if watched {
+    if watched && put.is_some() {
         pacer.want(tally.lock().unwrap().counts().status(), Instant::now());
     }
     loop {
@@ -401,13 +423,13 @@ async fn run(
         tokio::select! {
             m = feed.recv(), if watched => {
                 let Some(m) = m else { break };
-                if changed(&m, &tally) {
+                if changed(&m, (&*tally, tasks.as_deref()), &core) && put.is_some() {
                     let text = tally.lock().unwrap().counts().status();
                     pacer.want(text, Instant::now());
                 }
             }
             () = async { tokio::time::sleep_until(due.unwrap()).await }, if due.is_some() && !refused => {
-                let Some(text) = pacer.take() else { continue };
+                let (Some(text), Some(put)) = (pacer.take(), &put) else { continue };
                 let text = clip(&text, STATUS_MAX);
                 match put.put(channel, &text).await {
                     Ok(()) => pacer.tried(true, Instant::now()),
@@ -430,11 +452,9 @@ async fn run(
         }
     }
     core.bus.unwatch_work(&conn);
-    if !refused {
-        // Only a status that was set is cleared: nothing to undo otherwise.
-        if pacer.written.is_some() {
-            let _ = tokio::time::timeout(CLEAR_WAIT, put.put(channel, "")).await;
-        }
+    // Only a status that was set is cleared: nothing to undo otherwise.
+    if let (false, true, Some(put)) = (refused, pacer.written.is_some(), &put) {
+        let _ = tokio::time::timeout(CLEAR_WAIT, put.put(channel, "")).await;
     }
 }
 
@@ -444,7 +464,7 @@ async fn watch(
     core: &Arc<Core>,
     conn: &str,
     tx: mpsc::UnboundedSender<Message>,
-    tally: &Mutex<Tally>,
+    (tally, tasks): (&Mutex<Tally>, Option<&Mutex<Tasks>>),
 ) -> bool {
     if let Err(e) = core.push.ensure(core).await {
         tracing::warn!(error = %e, "discord: voice status cannot read the work board");
@@ -455,11 +475,19 @@ async fn watch(
     // Every root that works or needs you, with its open subtree.
     let (_, views, _) = core.push.work_snapshot(0, &scope);
     tally.lock().unwrap().seed(&views);
+    if let Some(tasks) = tasks {
+        tasks.lock().unwrap().seed(&views);
+    }
     true
 }
 
-/// A `work.changed` applied to the map: true when a count moved.
-fn changed(m: &Message, tally: &Mutex<Tally>) -> bool {
+/// A `work.changed` applied to the map, and heard by the tasks: true when a
+/// count moved.
+fn changed(
+    m: &Message,
+    (tally, tasks): (&Mutex<Tally>, Option<&Mutex<Tasks>>),
+    core: &Core,
+) -> bool {
     let Message::Notification(n) = m else {
         return false;
     };
@@ -473,6 +501,9 @@ fn changed(m: &Message, tally: &Mutex<Tally>) -> bool {
     let mut moved = false;
     for v in &c.views {
         moved |= t.apply(v);
+        if let Some(tasks) = tasks {
+            tasks.lock().unwrap().see(core, v);
+        }
     }
     for id in &c.gone {
         moved |= t.drop_id(id);
