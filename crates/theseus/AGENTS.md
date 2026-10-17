@@ -37,8 +37,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   with the commands under an ask or a failure) and each notice not already told by one. `theseus tasks forecast` is
   `tasks_forecast.rs`. `theseus work` stays the board (`work.rs`: threads, the job ids `peek` and `attach` take); the
   words of `tasks` are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. Tests inside it and
-  `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in `tests/golden_tree/`, `THESEUS_GOLDEN=write`),
-  `tests/tasks_cli.rs` (the binary against a scripted daemon).
+  `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in `tests/golden_tree/`, `THESEUS_GOLDEN=write`; `footer_cost_100.txt`),
+  `tests/tasks_cli.rs` (the binary against a scripted daemon). A routine, a watch and a project are rows of the tree
+  (`routine · next Fri 09:00`) and no task in its counts; the chat's footer (`footer`, not `tree`) adds a cost column
+  (theseus-xock5).
 - `src/task_lines.rs` (theseus-mnd9g): the line mode's task lines. `theseus chat --plain`, a pipe in or out, or `TERM=dumb` runs
   `watch --interactive` (`chat_cmd::line_mode`: a new conversation in this directory when no SESSION is named), which also
   watches the conversation's tree (`work.watch {roots: [sid], interactive: true}`) and prints the task events to stderr
