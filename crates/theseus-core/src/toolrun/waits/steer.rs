@@ -126,6 +126,9 @@ impl Taken {
 pub struct Steers {
     open: Mutex<std::collections::HashMap<String, Arc<Steer>>>,
     total: Arc<AtomicUsize>,
+    /// The messages each task took from the owner, until it ends
+    /// (theseus-slmj1): its report says it was joined.
+    joined: Mutex<std::collections::HashMap<String, u32>>,
 }
 
 /// A running turn's hold on its steer: it closes when dropped.
@@ -168,6 +171,31 @@ impl Steers {
     /// The steer of `session`'s running turn, if it has one.
     pub fn get(&self, session: &str) -> Option<Arc<Steer>> {
         self.open.lock().unwrap().get(session).cloned()
+    }
+
+    /// `session`, a task, took `n` more messages from the owner.
+    pub fn join(&self, session: &str, n: u32) {
+        *self
+            .joined
+            .lock()
+            .unwrap()
+            .entry(session.to_string())
+            .or_default() += n;
+    }
+
+    /// The messages the task `session` has taken from the owner.
+    pub fn joined(&self, session: &str) -> u32 {
+        self.joined
+            .lock()
+            .unwrap()
+            .get(session)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// The task ended and its count was written.
+    pub fn unjoin(&self, session: &str) {
+        self.joined.lock().unwrap().remove(session);
     }
 
     /// What a wait of `session`'s turn yields to.

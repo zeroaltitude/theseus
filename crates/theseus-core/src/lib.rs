@@ -480,6 +480,8 @@ mod tests_task_claims;
 #[cfg(test)]
 mod tests_task_graph;
 #[cfg(test)]
+mod tests_task_join;
+#[cfg(test)]
 mod tests_task_layers;
 #[cfg(test)]
 mod tests_task_start;

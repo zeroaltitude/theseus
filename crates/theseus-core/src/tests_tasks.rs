@@ -627,7 +627,7 @@ async fn a_cancel_stops_the_task_and_reports_once() {
 // ---------------------------------------------------------------- the report's wake (W1, theseus-lji)
 
 /// The ledger's rows of one kind, oldest first.
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()

@@ -121,6 +121,19 @@ impl WorkState {
     }
 }
 
+/// Whether the owner can join a task (its session takes input): running, queued, waiting or blocked.
+pub fn joinable(v: &WorkView) -> bool {
+    matches!(
+        v.state,
+        WorkState::Running | WorkState::Queued | WorkState::Waiting | WorkState::NeedsYou
+    )
+}
+
+/// The one line every surface prints when a message for an ended task goes to the mainline instead.
+pub fn task_redirect_line(title: &str, short: &str, why: &str) -> String {
+    format!("[Written to the task “{title}” (…{short}), and {why}] ")
+}
+
 /// One piece of work as every surface shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

@@ -40,6 +40,7 @@ mod mcp;
 mod memory;
 mod methods;
 mod modes;
+mod owner_input;
 pub(crate) use methods::ledger_tags;
 mod agenda;
 mod capture;

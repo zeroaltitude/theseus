@@ -76,6 +76,7 @@ mod end_step;
 mod fallback_step;
 mod fill_step;
 mod inbound_step;
+mod join_step;
 mod later_step;
 mod noop_step;
 pub mod nudge_step;
@@ -1157,6 +1158,7 @@ impl TurnRunner {
             .job_waits
             .steers
             .open(&req.session.session_id, self.cfg.kernel.steer_queued);
+        self.note_owner_turn(&req, class);
         let f0 = frames_written_here();
         // A `/stop` that landed after this input arrived and before its turn
         // held the execution (theseus-hmwv) found no turn to mark: it waited
@@ -1245,6 +1247,8 @@ impl TurnRunner {
             };
             let report = crate::task::Report::new(e, task_title.clone(), last);
             let mut records = closing.records(e, report.node.as_deref())?;
+            let joined = self.tools.job_waits.steers.joined(&e.session_id);
+            records.extend(crate::task::joined_record(&e.session_id, joined)?);
             let Some(target) = task.target_for(&frames.store, &report) else {
                 return Ok(records);
             };
@@ -1318,6 +1322,7 @@ impl TurnRunner {
             };
         let rec = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
         if session_ended {
+            self.tools.job_waits.steers.unjoin(&failure_sink.session_id);
             let by = crate::term::BY_SESSION_END;
             self.tools
                 .terms
@@ -3248,21 +3253,13 @@ impl TurnRunner {
         // with results its model has not read (late ones, or a turn stopped at
         // its loop cap) takes another turn instead: no one else will wake it.
         // One with a wake pending parks on it, and the wake's turn goes on (37b).
-        let end = match end {
-            TurnEnd::Wait { wake: Wake::Input } if is_task => {
-                if again || stop == "max_loops" {
-                    again = true;
-                    TurnEnd::Wait { wake: Wake::Input }
-                } else if crate::task::parks_on_wake(t.tc.kernel, t.tc.execution_id) {
-                    TurnEnd::Wait { wake: Wake::Input }
-                } else {
-                    TurnEnd::Complete {
-                        reason: "reported".into(),
-                    }
-                }
-            }
-            end => end,
-        };
+        let end = self.task_end(
+            (t.tc.kernel, t.tc.execution_id, t.tc.session_id),
+            end,
+            is_task,
+            &mut again,
+            &stop,
+        );
         Ok((result, end, again, hold))
     }
 

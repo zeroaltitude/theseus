@@ -21,8 +21,10 @@
 //!   call is never cut), and one that comes during the turn's last call
 //!   (no tool calls) runs as the next turn, as before.
 //!
-//! Only a person's typed input is offered: a wake, a continuation, a task's
-//! turn and a job's completion queue as they did. Nothing is matched in the
+//! Only a person's typed input is offered: a wake, a continuation and a job's
+//! completion queue as they did, and so does a task's turn, unless its input is
+//! the owner's (`EventSink::owner`): the owner joins a running task through
+//! the same offer (theseus-slmj1; `join_step.rs`). Nothing is matched in the
 //! words: "cancel it" reaches the model, which calls `job_stop`.
 
 use super::admission::Class;
@@ -39,7 +41,10 @@ impl TurnRunner {
         class: Class,
         arrived: Instant,
     ) -> Option<Result<TurnSubmitResult>> {
-        let text = req.input.as_ref().filter(|_| class == Class::Person)?;
+        // A person's typed input, or the owner's into a task (theseus-slmj1):
+        // anyone else's queues as it did.
+        let steerable = class == Class::Person || (class == Class::Task && req.sink.owner);
+        let text = req.input.as_ref().filter(|_| steerable)?;
         if req.prompt.is_some() {
             return None;
         }
@@ -113,6 +118,9 @@ impl TurnRunner {
         t.tc.store.append(&records)?;
         t.announce_fact(&fact);
         taken.written(&steer);
+        if t.tc.task.is_some() {
+            steers.join(sid, u32::try_from(nodes.len()).unwrap_or(u32::MAX));
+        }
         for (node, author) in &nodes {
             t.tc.node_written(node);
             self.inbound_point(t, node, author, true);

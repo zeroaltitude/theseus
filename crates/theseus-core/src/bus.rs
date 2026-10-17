@@ -346,6 +346,10 @@ pub struct EventSink {
     /// The code of the surface the requester wrote from
     /// (`surface::code_of`), which the turn's input node records.
     pub surface: Option<String>,
+    /// The input came from the owner, in a private place, and not from a
+    /// job (`Core::owner_input`): a task takes it as a steer
+    /// (theseus-slmj1).
+    pub owner: bool,
 }
 
 impl EventSink {
@@ -355,7 +359,14 @@ impl EventSink {
             bus,
             session_id: session_id.to_string(),
             surface: None,
+            owner: false,
         }
+    }
+
+    /// The sink of the owner's own input (theseus-slmj1).
+    pub fn from_owner(mut self, owner: bool) -> Self {
+        self.owner = owner;
+        self
     }
 
     /// The sink of a requester who wrote from `surface`.
