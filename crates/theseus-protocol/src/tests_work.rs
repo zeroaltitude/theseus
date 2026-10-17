@@ -460,3 +460,27 @@ fn a_failure_draws_retry_dismiss_and_details_and_nothing_once_dismissed() {
     }];
     assert!(ids(&WorkView::from_execution(&asking)).is_empty());
 }
+
+#[test]
+fn a_task_is_joinable_while_it_can_take_input_and_the_redirect_line_is_one_wording() {
+    for (state, joinable_now) in [
+        (WorkState::Running, true),
+        (WorkState::Queued, true),
+        (WorkState::Waiting, true),
+        (WorkState::NeedsYou, true),
+        (WorkState::Done, false),
+        (WorkState::Failed, false),
+        (WorkState::Cancelled, false),
+        (WorkState::Ready, false),
+    ] {
+        assert_eq!(
+            joinable(&view(WorkKind::Task, state, None)),
+            joinable_now,
+            "{state:?}"
+        );
+    }
+    assert_eq!(
+        task_redirect_line("Sound the north channel", "a1b2c3", "the task is over"),
+        "[Written to the task “Sound the north channel” (…a1b2c3), and the task is over] "
+    );
+}
