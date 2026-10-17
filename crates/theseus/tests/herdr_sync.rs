@@ -191,10 +191,26 @@ impl Model {
     }
 }
 
+#[path = "support/herdr_schema.rs"]
+mod herdr_schema;
+
+/// A fake herdr that refuses, as herdr's own schema does, a request of a shape herdr does not take
+/// (`support/herdr_schema.rs`), and notes it: the test fails when it is dropped with any noted.
+/// Its results are a model's simplified answers and are not checked.
 struct FakeHerdr {
     sock: PathBuf,
     model: Arc<Mutex<Model>>,
     got: Arc<Mutex<Vec<Value>>>,
+    bad: Arc<Mutex<Vec<String>>>,
+}
+
+impl Drop for FakeHerdr {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            let bad = self.bad.lock().unwrap();
+            assert!(bad.is_empty(), "herdr's schema refused: {bad:#?}");
+        }
+    }
 }
 
 impl FakeHerdr {
@@ -203,7 +219,9 @@ impl FakeHerdr {
         let listener = UnixListener::bind(&sock).unwrap();
         let model = Arc::new(Mutex::new(model));
         let got = Arc::new(Mutex::new(Vec::new()));
-        let (m, g) = (model.clone(), got.clone());
+        let bad = Arc::new(Mutex::new(Vec::new()));
+        let (m, g, b) = (model.clone(), got.clone(), bad.clone());
+        let schema = herdr_schema::Schema::load();
         std::thread::spawn(move || {
             for s in listener.incoming() {
                 let Ok(s) = s else { break };
@@ -212,19 +230,26 @@ impl FakeHerdr {
                     continue;
                 }
                 let req: Value = serde_json::from_str(&line).unwrap();
-                let out = match m
-                    .lock()
-                    .unwrap()
-                    .answer(req["method"].as_str().unwrap(), &req["params"])
-                {
-                    Ok(r) => json!({"id": req["id"], "result": r}),
-                    Err(e) => json!({"id": req["id"], "error": e}),
+                let method = req["method"].as_str().unwrap();
+                let out = if let Err(e) = schema.check_request(method, &req["params"]) {
+                    b.lock().unwrap().push(format!("{method}: {e}"));
+                    json!({"id": req["id"], "error": {"code": "invalid_request", "message": e}})
+                } else {
+                    match m.lock().unwrap().answer(method, &req["params"]) {
+                        Ok(r) => json!({"id": req["id"], "result": r}),
+                        Err(e) => json!({"id": req["id"], "error": e}),
+                    }
                 };
                 g.lock().unwrap().push(req);
                 let _ = writeln!(&s, "{out}");
             }
         });
-        Self { sock, model, got }
+        Self {
+            sock,
+            model,
+            got,
+            bad,
+        }
     }
 
     /// The requests since the last take.

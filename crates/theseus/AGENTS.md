@@ -325,17 +325,24 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   call changes. Tests: `tests/herdr.rs` (a fake herdr and a scripted daemon, `Restarting` for a restart),
   `tests/herdr_sync.rs`.
 - `src/herdr_up.rs`, `src/herdr_up/state.rs`, `src/herdr_up/wire.rs` (theseus-fuw5d): `theseus herdr up [--follow] [--boot] [--pin S]
-  [--finished-grace SECS] [--herdr-socket P]`. `up` lays out herdr's `theseus` workspace (one `layout.apply`, a tab per task whose
-  pane's argv is `theseus watch <sid> --interactive`, nothing typed into a shell) and exits; run again it sends only reads.
-  `--follow` (and `--boot`, which first closes the workspace's panes with no `kind` token) makes the `board` tab, whose pane runs
-  `up --follow --here`, and exits; `--here` is the follower: one `work.watch` connection and one herdr `events.subscribe`
+  [--finished-grace SECS] [--herdr-socket P]`. `up` lays out herdr's `theseus` workspace (a `layout.apply` for each tab, herdr's makes one tab a call: a tab per task whose
+  pane's argv is `theseus watch <sid> --interactive`, nothing typed into a shell; a new workspace's blank shell tab is replaced by
+  the first, through `tab_id`) and exits; run again it sends only reads. `--follow` (and `--boot`, which first closes the
+  workspace's panes with no `kind` token) makes the workspace and, whatever tasks there are (none included), its `main` tab (`theseus
+  chat`, the home conversation) and its `board` tab (`up --follow --here`) unless their `kind` tokens are there, and exits (theseus-6ifz1:
+  a herdr that started idle had no follower, so a task started later got no tab); `--here` is the follower: one `work.watch` connection and one herdr `events.subscribe`
   (`pane.exited`, `tab.focused`, `pane.focused`), reconnecting to both, one `notification.show` when the daemon is lost and one
   when it is back, the Space row's counts (`workspace.report_metadata`) and `agent.view.set`. `state.rs` is pure (every method takes
   `now`): a task wants a tab while it needs you, works, waits or ended unseen (a conversation only while it needs you, a pinned
   session always); a cancelled task's closes at once, a finished one's a grace (600 s) after its tab or pane was focused; one
   deadline timer, none while nothing awaits. A task already finished at the first read gets a tab only if it ended within the
-  grace. `wire.rs` builds each herdr request in one function: the shapes of `layout.apply`, `events.subscribe`,
-  `workspace.report_metadata` and `agent.view.set` follow the design and were not checked against herdr's schema. `sync` is
+  grace. `wire.rs` builds each herdr request in one function (`tab_params`, `workspace_params`, `pane_tokens_params`,
+  `counts_params`, `view_params`, `subscribe_params`) and opens a tab (`Herdr::open_tab`: `workspace.list` or `workspace.create`,
+  `layout.apply`, then `pane.report_metadata` for the tokens, which `layout.apply` does not take). **herdr's `herdr api schema --json`
+  is the contract**: `tests/fixtures/herdr-0.9.1-api-schema.json` is a snapshot of it, `tests/support/herdr_schema.rs` a checker
+  (stricter than herdr: a key the schema does not name is refused), `src/herdr_contract_tests.rs` checks every builder and every
+  method name the code uses, and every fake herdr in `tests/herdr*.rs` refuses a request the schema refuses and fails its test when
+  dropped with any noted. An invented shape once passed the old fake and failed live (theseus-6ifz1). `sync` is
   unchanged but for pins: `--pin` writes a `pinned` token on the pane, and a later sync keeps it. The Space row also carries
   `since ↺N` (`work.digest` from the machine's seen position, read only, own answers not counted; read on every connect, after
   `events.lost` and when a task ends), `next ⏰HH:MM` (the next reminder) and `routines 🔁N` (due now), the last two from

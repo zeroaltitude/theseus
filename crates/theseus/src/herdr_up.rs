@@ -5,8 +5,9 @@
 //! with one `work.watch` connection to the daemon and one `events.subscribe` to
 //! herdr. `--boot` (herdr's startup hook) first closes what a herdr restart left, the
 //! panes whose `kind` token is gone, then follows. Run from anywhere but the board
-//! tab, `--follow` makes the board tab (its pane runs `up --follow --here`) and
-//! exits; `--here` is the follower itself.
+//! tab, `--follow` makes the workspace with its `main` tab (`theseus chat`) and its `board`
+//! tab (its pane runs `up --follow --here`), whatever tasks there are, and exits; `--here` is
+//! the follower itself (theseus-6ifz1).
 //!
 //! A tab runs `theseus watch <session> --interactive` as the pane's argv, so nothing
 //! is typed into a shell. The rules of which tab exists and when it closes are
@@ -40,7 +41,7 @@ use theseus_protocol::{
 use tokio::time::Instant;
 
 use self::state::{Act, Counts, Follower, PaneRow};
-use self::wire::{Events, Herdr, TabSpec, BOARD_KIND};
+use self::wire::{Events, Herdr, Space, TabSpec, BOARD_KIND, MAIN_KIND};
 use crate::herdr;
 use crate::herdr_sync::{default_socket, resolve_pins, WORKSPACE};
 
@@ -78,7 +79,7 @@ struct Ctx {
     exe: PathBuf,
     socket: String,
     h: Herdr,
-    workspace_id: Option<String>,
+    space: Space,
     json: bool,
 }
 
@@ -98,7 +99,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: UpArgs) -> Re
         exe: std::env::current_exe().context("finding this theseus binary")?,
         socket,
         h: Herdr::new(herdr_socket),
-        workspace_id: None,
+        space: Space::default(),
         json,
     };
     let follow = a.follow || a.boot;
@@ -110,7 +111,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: UpArgs) -> Re
         );
     }
     if follow && !a.here {
-        return board_tab(&mut ctx).await;
+        return base_tabs(&mut ctx).await;
     }
     let grace = Duration::from_secs(a.finished_grace);
     let mut f = Follower::new(grace);
@@ -130,14 +131,14 @@ fn say(ctx: &Ctx, line: &str) {
 /// The panes of the `theseus` workspace, and the workspace's id.
 async fn panes_of(ctx: &mut Ctx) -> Result<Vec<Value>> {
     let w = ctx.h.call("workspace.list", json!({})).await?;
-    ctx.workspace_id = w["workspaces"]
+    ctx.space.workspace_id = w["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
         .find(|w| w["label"] == WORKSPACE)
         .and_then(|w| w["workspace_id"].as_str())
         .map(str::to_string);
-    let Some(ws) = ctx.workspace_id.clone() else {
+    let Some(ws) = ctx.space.workspace_id.clone() else {
         return Ok(Vec::new());
     };
     let p = ctx.h.call("pane.list", json!({})).await?;
@@ -167,27 +168,39 @@ async fn boot_close(ctx: &mut Ctx) -> Result<usize> {
     Ok(n)
 }
 
-/// Make the board tab unless there is one, and say where the follower runs.
-async fn board_tab(ctx: &mut Ctx) -> Result<()> {
-    let have = panes_of(ctx)
-        .await?
-        .iter()
-        .any(|p| p["tokens"]["kind"] == BOARD_KIND);
-    if have {
+/// Make the `main` and `board` tabs unless herdr has them (the workspace too, when it has
+/// none), whatever tasks there are, so a task that starts later finds the follower running
+/// and its tab made. Then say where the follower runs.
+async fn base_tabs(ctx: &mut Ctx) -> Result<()> {
+    let have = panes_of(ctx).await?;
+    let has = |kind: &str| have.iter().any(|p| p["tokens"]["kind"] == kind);
+    let missing: Vec<TabSpec> = [(MAIN_KIND, TabSpec::main()), (BOARD_KIND, TabSpec::board())]
+        .into_iter()
+        .filter_map(|(kind, spec)| (!has(kind)).then_some(spec))
+        .collect();
+    if missing.is_empty() {
         say(
             ctx,
-            "the board tab is there: its follower keeps herdr in step",
+            "the main and board tabs are there: the board's follower keeps herdr in step",
         );
-        return Ok(());
     }
-    ctx.h
-        .call("layout.apply", wire::board_params(&ctx.exe, &ctx.socket))
-        .await?;
-    say(
-        ctx,
-        "made the board tab: it follows the tasks and keeps herdr in step",
-    );
+    for spec in &missing {
+        open_tab(ctx, spec, false).await?;
+        say(
+            ctx,
+            &match spec.kind {
+                MAIN_KIND => "made the main tab: the home conversation".to_string(),
+                _ => "made the board tab: it follows the tasks and keeps herdr in step".to_string(),
+            },
+        );
+    }
     Ok(())
+}
+
+/// One tab, made through `layout.apply`, with its tokens.
+async fn open_tab(ctx: &mut Ctx, spec: &TabSpec, focus: bool) -> Result<state::Tab> {
+    let at = (ctx.exe.as_path(), ctx.socket.as_str());
+    ctx.h.open_tab(&mut ctx.space, at, spec, focus).await
 }
 
 /// Pins from `--pin`, as sessions the follower keeps a tab for.
@@ -299,29 +312,17 @@ fn spec_of(f: &Follower, sid: &str) -> TabSpec {
     }
 }
 
-/// Do the plan: open what is missing in one `layout.apply`, close what is due. The
+/// Do the plan: open what is missing, a `layout.apply` for each tab, close what is due. The
 /// lines say what was done.
 async fn execute(ctx: &mut Ctx, f: &mut Follower, now: Instant) -> Result<Vec<String>> {
     let mut lines = Vec::new();
     for act in f.plan(now) {
         match act {
             Act::Open(sids) => {
-                let specs: Vec<TabSpec> = sids.iter().map(|s| spec_of(f, s)).collect();
-                let params = wire::tabs_params(&ctx.exe, &ctx.socket, &specs);
-                let answer = ctx.h.call("layout.apply", params).await?;
-                if let Some(ws) = answer["workspace"]["workspace_id"].as_str() {
-                    ctx.workspace_id = Some(ws.to_string());
-                }
-                let made = wire::made_tabs(&answer);
-                for ((spec, tab), sid) in specs.iter().zip(made).zip(&sids) {
-                    // The pane's tokens by id too, so a layout that ignores them is mended.
-                    let _ = ctx
-                        .h
-                        .call(
-                            "pane.report_metadata",
-                            wire::pane_tokens_params(&tab.pane_id, spec),
-                        )
-                        .await;
+                // herdr's `layout.apply` makes one tab a call.
+                for sid in &sids {
+                    let spec = spec_of(f, sid);
+                    let tab = open_tab(ctx, &spec, false).await?;
                     lines.push(format!("opened a tab for {} ({sid})", spec.label));
                     f.opened(sid, tab, now);
                 }
@@ -364,7 +365,7 @@ struct Link {
     /// The daemon was lost and said so; the next connect says it is back.
     lost_said: bool,
     sent: Option<Counts>,
-    view_set: Option<String>,
+    view_set: bool,
     /// A task ended since the digest was read: read it again.
     digest_stale: bool,
 }
@@ -379,7 +380,7 @@ async fn follow_loop(mut ctx: Ctx, mut f: Follower) -> Result<()> {
         events: None,
         lost_said: false,
         sent: None,
-        view_set: None,
+        view_set: false,
         digest_stale: false,
     };
     let mut wait = RETRY_FROM;
@@ -463,12 +464,12 @@ async fn settle(ctx: &mut Ctx, f: &mut Follower, link: &mut Link) {
         Ok(lines) => lines.iter().for_each(|l| println!("· {l}")),
         Err(e) => eprintln!("theseus: herdr: {e:#}; laid out again at the next change"),
     }
-    let Some(ws) = ctx.workspace_id.clone() else {
+    let Some(ws) = ctx.space.workspace_id.clone() else {
         return;
     };
-    if link.view_set.as_deref() != Some(&ws) {
-        let _ = ctx.h.call("agent.view.set", wire::view_params(&ws)).await;
-        link.view_set = Some(ws.clone());
+    if !link.view_set {
+        let _ = ctx.h.call("agent.view.set", wire::view_params()).await;
+        link.view_set = true;
     }
     if std::mem::take(&mut link.digest_stale) {
         f.since = since_looked(&ctx.socket).await;

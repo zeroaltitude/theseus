@@ -189,17 +189,11 @@ pub fn agent_name(session_id: &str, label: Option<&str>) -> String {
 }
 
 /// `pane.report_agent`'s params: the short name as the agent, the attention
-/// label as the message, and the state's label worded once.
-pub fn report_params(
-    pane_id: &str,
-    agent: &str,
-    state: &str,
-    message: &str,
-    labels: &Value,
-    seq: u64,
-) -> Value {
-    json!({"pane_id": pane_id, "source": SOURCE, "agent": agent, "display_agent": fit(agent),
-           "state": state, "message": fit(message), "state_labels": labels, "seq": seq})
+/// label as the message. herdr's report takes no display name and no state
+/// labels; those ride `pane.report_metadata` (`Meta`).
+pub fn report_params(pane_id: &str, agent: &str, state: &str, message: &str, seq: u64) -> Value {
+    json!({"pane_id": pane_id, "source": SOURCE, "agent": agent,
+           "state": state, "message": fit(message), "seq": seq})
 }
 
 /// `notification.show`'s params: the session's name, the notice's line, and
@@ -223,6 +217,8 @@ pub struct Meta {
     pub title: Option<String>,
     pub agent: String,
     pub tokens: Map<String, Value>,
+    /// The state's label, worded once: `{"working": "sending your message"}`.
+    pub labels: Value,
 }
 
 impl Meta {
@@ -237,6 +233,9 @@ impl Meta {
         });
         if let Some(t) = self.title.as_deref().map(fit).filter(|t| !t.is_empty()) {
             p["title"] = json!(t);
+        }
+        if self.labels.as_object().is_some_and(|l| !l.is_empty()) {
+            p["state_labels"] = self.labels.clone();
         }
         p
     }
@@ -586,7 +585,6 @@ impl Reporter {
                     &sent.agent,
                     sent.state,
                     &sent.message,
-                    &sent.labels,
                     next_seq(),
                 ),
             );
@@ -609,6 +607,7 @@ impl Reporter {
             title: self.named().map(|_| s.title.clone()),
             agent: s.agent.clone(),
             tokens: s.token_map(),
+            labels: s.state_labels(),
         };
         if self.meta.as_ref() != Some(&meta) {
             self.push(
@@ -959,6 +958,7 @@ mod tests {
             title: Some("x".repeat(120)),
             agent: "Tide notes".into(),
             tokens,
+            labels: json!({"working": "writing"}),
         };
         let p = m.params("w1:p2", 7);
         assert_eq!(p["title"].as_str().unwrap().chars().count(), 80);
