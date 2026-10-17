@@ -34,6 +34,8 @@ mod tests_board;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
+mod tests_default_forum;
+#[cfg(test)]
 mod tests_gateway;
 #[cfg(test)]
 mod tests_live;

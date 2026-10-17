@@ -56,6 +56,7 @@ use serde_json::{json, Value};
 
 pub mod commands;
 mod events;
+mod forums;
 mod threads;
 
 pub use events::{FakeEvent, GUILD_EVENT_LIMIT};
@@ -569,6 +570,8 @@ struct State {
     forum_tags: BTreeMap<u64, Vec<threads::FakeTag>>,
     /// Listing or making a webhook answers 403.
     refuse_webhooks: bool,
+    /// Forums made and refused (`forums.rs`, theseus-bh3t.6).
+    forum_rules: forums::Forums,
     /// The last big id given a thread or a webhook.
     next_big: u64,
 }
@@ -1218,6 +1221,8 @@ impl FakeDiscord {
                     ),
                 }
             }
+            ("GET", ["guilds", g, "channels"]) => self.guild_channels(stream, g),
+            ("POST", ["guilds", g, "channels"]) => self.forum_create(stream, g, &body),
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
             ("POST", ["channels", c, "threads"]) => self.thread_create(stream, c, &body),
             ("PATCH", ["channels", c]) => self.thread_update(stream, c, &body),

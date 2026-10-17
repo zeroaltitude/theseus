@@ -674,6 +674,10 @@ impl Place {
             PlaceMsg::Inbound(i) if self.shared.task_threads.is_thread(i.channel.get()) => {
                 self.task_message(i);
             }
+            // An index card in the default forum starts nothing.
+            PlaceMsg::Inbound(i) if self.shared.task_posts.index_of(i.channel.get()).is_some() => {
+                self.index_pointer(&i);
+            }
             // A reply to a Follow mirror of a task that has a session joins it.
             PlaceMsg::Inbound(i) if self.mirrors_a_task(&i) => self.task_reply(i),
             // A task's thread is the task's own conversation: `/new` would

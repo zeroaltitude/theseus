@@ -208,7 +208,7 @@ impl FakeDiscord {
         reply(stream, 200, &forum_json(id, &tags))
     }
 
-    fn next_big(&self) -> u64 {
+    pub(super) fn next_big(&self) -> u64 {
         let mut st = self.state.lock().unwrap();
         st.next_big = st.next_big.max(FIRST_ID) + 1;
         st.next_big
@@ -345,6 +345,9 @@ impl FakeDiscord {
         body: &Value,
     ) -> std::io::Result<()> {
         let path = format!("/channels/{id}");
+        if let Some((status, out)) = self.forum_patch(id, body) {
+            return reply(stream, status, &out);
+        }
         // A forum itself: its available tags, whole, as Discord takes them
         // (a tag without an id is new).
         if body["applied_tags"].is_array()

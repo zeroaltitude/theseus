@@ -17,10 +17,10 @@ use theseus_sim::fake_discord::{FakeThread, Guild, Msg, DEFAULT_GUILD};
 use crate::runtime::threads::{task_name, Mark};
 use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 
-const ASK: &str = "START: run this as a background task, please";
-const QUOTE: &str = "run this as a background task, please";
-const REEF: &str = "Reef-chart: chart the reef";
-const BUOY: &str = "Buoy-paint: paint the buoy";
+pub(crate) const ASK: &str = "START: run this as a background task, please";
+pub(crate) const QUOTE: &str = "run this as a background task, please";
+pub(crate) const REEF: &str = "Reef-chart: chart the reef";
+pub(crate) const BUOY: &str = "Buoy-paint: paint the buoy";
 
 /// One provider for the parent and its tasks: the session it is asked for is
 /// found by what its first message holds.
@@ -52,7 +52,7 @@ impl Provider for Switch {
     }
 }
 
-fn start(briefs: &[&str]) -> Scripted {
+pub(crate) fn start(briefs: &[&str]) -> Scripted {
     let calls: Vec<(String, Value)> = briefs
         .iter()
         .enumerate()
@@ -71,7 +71,7 @@ fn start(briefs: &[&str]) -> Scripted {
 }
 
 /// A wait as long as a loaded machine needs.
-async fn until(r: &Rig, what: &str, f: impl Fn() -> bool) {
+pub(crate) async fn until(r: &Rig, what: &str, f: impl Fn() -> bool) {
     let t0 = std::time::Instant::now();
     while !f() {
         assert!(
@@ -87,7 +87,7 @@ async fn until(r: &Rig, what: &str, f: impl Fn() -> bool) {
 /// The task's first step: a program that runs until the test lets it go (it
 /// makes the file `go`), so the task is working, with its thread made, for
 /// as long as the test needs, however loaded the machine.
-fn gate(dir: &Path) -> Scripted {
+pub(crate) fn gate(dir: &Path) -> Scripted {
     let go = dir.join("go");
     Scripted::tools(
         "",
@@ -100,12 +100,12 @@ fn gate(dir: &Path) -> Scripted {
 }
 
 /// Let the gated task go.
-fn open_gate(r: &Rig) {
+pub(crate) fn open_gate(r: &Rig) {
     std::fs::write(r.dir.path().join("go"), "").unwrap();
 }
 
 /// The thread's place runs: the task's posts go there.
-async fn bound(r: &Rig, thread: u64) {
+pub(crate) async fn bound(r: &Rig, thread: u64) {
     let target = format!("discord:channel:{thread}");
     until(r, "the task's place runs in its thread", || {
         r.core.outbox.target(&task_session(r)).as_deref() == Some(target.as_str())
@@ -116,7 +116,7 @@ async fn bound(r: &Rig, thread: u64) {
 }
 
 /// A task that runs a program for a few seconds and says `last`.
-fn sleeps(secs: u32, last: &str) -> Vec<Scripted> {
+pub(crate) fn sleeps(secs: u32, last: &str) -> Vec<Scripted> {
     vec![
         Scripted::tools(
             "",
@@ -130,7 +130,10 @@ fn sleeps(secs: u32, last: &str) -> Vec<Scripted> {
     ]
 }
 
-fn model(parent: Vec<Scripted>, kids: Vec<(&'static str, Vec<Scripted>)>) -> Arc<dyn Provider> {
+pub(crate) fn model(
+    parent: Vec<Scripted>,
+    kids: Vec<(&'static str, Vec<Scripted>)>,
+) -> Arc<dyn Provider> {
     Arc::new(Switch {
         parent: FakeProvider::scripted(parent),
         kids: kids
@@ -156,7 +159,7 @@ fn bindings(private: bool, extra: &str) -> String {
     )
 }
 
-fn tweak(c: &mut theseus_core::Config) {
+pub(crate) fn tweak(c: &mut theseus_core::Config) {
     c.policy.tools.insert("proc.run".into(), Posture::Open);
     c.discord.edit_interval_ms = 250;
 }
@@ -294,11 +297,11 @@ async fn a_task_in_a_guild_channel_gets_a_thread_where_its_stream_lands_and_one_
 }
 
 /// A task that only answers (a shared place's tasks run no program).
-fn answers(last: &str) -> Vec<Scripted> {
+pub(crate) fn answers(last: &str) -> Vec<Scripted> {
     vec![Scripted::text(last)]
 }
 
-const FORUM: u64 = 900_000_000_000_000_030;
+pub(crate) const FORUM: u64 = 900_000_000_000_000_030;
 
 fn guild_with_forum() -> Guild {
     guild().channel(FORUM, "tasks")
@@ -407,7 +410,7 @@ async fn a_message_in_a_task_thread_reaches_the_task_or_its_conversation_and_is_
 }
 
 /// What a session's nodes hold, as text.
-fn held(r: &Rig, sid: &str) -> Vec<String> {
+pub(crate) fn held(r: &Rig, sid: &str) -> Vec<String> {
     r.core
         .store
         .session_nodes(sid)
@@ -521,7 +524,7 @@ async fn the_owners_message_for_an_ended_task_goes_to_the_conversation_with_the_
 }
 
 /// The task session: the one the work model calls a task.
-fn task_session(r: &Rig) -> String {
+pub(crate) fn task_session(r: &Rig) -> String {
     r.core
         .kernel
         .tasks(None)
@@ -533,7 +536,7 @@ fn task_session(r: &Rig) -> String {
 }
 
 /// The session `#lab` runs on.
-fn parent_session(r: &Rig) -> String {
+pub(crate) fn parent_session(r: &Rig) -> String {
     r.core
         .outbox
         .place_session(&format!("channel:{LAB}"))

@@ -775,6 +775,14 @@ status_line = true                      # the bot's status reads counts only, `ð
 # reaches Discord:
 # rest_proxy = "127.0.0.1:9447"         # REST at http://<this>/api/v10
 # gateway_proxy = "ws://127.0.0.1:9448" # the gateway's websocket
+# One private forum in your guild is the home of every task, a post each (the complete index of
+# your tasks): a task from the DM or a private channel works in its post, and any other task's
+# post is a card linking where it works, with its state as a tag. It acts only when the bindings
+# file trusts exactly one guild (`private = true`). It is found by the id it was made with, else
+# by `forum_channel` (an id, or a name), else made, visible to you and the bot alone; the bot
+# needs Manage Channels and Manage Roles there. A refusal turns it off for the run, said once.
+forum = true
+forum_channel = "theseus"               # a forum's Discord id (15-21 digits), or its name
 # A channel the bindings file names (private) can run as a thread's place: its
 # messages go to that thread's session, as /thread bind does from Discord.
 # [[discord.thread]]

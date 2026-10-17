@@ -72,10 +72,32 @@ impl Default for DiscordConfig {
             status_line: true,
             rest_proxy: None,
             gateway_proxy: None,
+            forum: true,
+            forum_channel: default_forum_channel(),
             thread: Vec::new(),
             calendar: Default::default(),
         }
     }
+}
+
+/// The default forum's name (theseus-bh3t.6).
+pub fn default_forum_channel() -> String {
+    "theseus".into()
+}
+
+/// `[discord] forum_channel`: a Discord id (15 to 21 digits) or a name of 1 to
+/// 100 characters with no `#`.
+pub fn validate_forum_channel(v: &str) -> anyhow::Result<()> {
+    let digits = v.bytes().all(|c| c.is_ascii_digit());
+    let id = (15..=21).contains(&v.len()) && digits;
+    let name = !v.is_empty() && v.chars().count() <= 100 && !v.contains('#');
+    if !id && !name {
+        anyhow::bail!(
+            "discord.forum_channel {v:?} is neither a Discord id (15-21 digits) nor a name \
+             (1-100 characters, no `#`)"
+        );
+    }
+    Ok(())
 }
 
 /// `[[discord.thread]]` (theseus-sjzm): the channel `channel` (an id the
