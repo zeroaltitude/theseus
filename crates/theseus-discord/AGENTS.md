@@ -116,6 +116,29 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   unprompted post and uses no pacer. `runtime.rs` is at its ceiling: the typing event goes through `Place::typed`, the
   command is registered beside `/why`'s, and `/digest`'s interaction follows `/why`'s in the chain (`why.rs`).
   Tests: `runtime/tests_digest.rs`.
+- **App emojis, the posted digest and the catch-up** (theseus-ss36w; the owner's target: always in the loop on status, with
+  the chat as lively as before and the digest and the catch-up single messages).
+  - **The bot's own emojis** (`runtime/emoji.rs`; art in `assets/emoji/`, made by `make.py`, standard library only, committed):
+    a spinning `theseus_working` and a pulsing `theseus_needs_you` (GIF), `theseus_done`, `theseus_failed`, `theseus_sleeping`
+    and `theseus_job` (PNG), 128x128 and far under Discord's 256 KB. After READY (`emoji::on_ready`, one call in
+    `runtime.rs`, the work in a task) the application's emojis are listed (`GET /applications/{id}/emojis`), the missing ones
+    added (so one deleted is added again at the next READY), and the table and META `discord.app_emojis` are what the list
+    says; the kept ids draw from READY until the list answers; a list that fails clears the table. **Every site that draws a
+    state asks one function**, `emoji::state(WorkState)` or `emoji::job()`, which gives the application's emoji or the Unicode
+    glyph it always drew (`⚙️ 🔴 ✅ ❌ 💤 🔧`; `⛔ ⌛` have no art), so a render with the emojis off, or before they are
+    known, is byte for byte the old one. Select-option and button labels stay Unicode (Discord draws no custom emoji in
+    them). The table is the process's: run tests under nextest, as the gate does, so a test that fills it never shares a
+    process with a golden. `[discord] app_emojis = false` never starts it. The stand-in's routes are
+    `theseus_sim::fake_discord::emojis` (`app_emojis()`, `refuse_app_emojis`, `drop_app_emoji`, a 256 KB check).
+  - **The posted digest** is the core's (`theseus-core`'s `initiative/digest.rs`, kind `digest`, in `pacer::UNPROMPTED`); the
+    courier posts it to the owner's DM as it posts a Jev notice (`jev_post`), in `/digest`'s words (`theseus_protocol::digest_text`).
+  - **The catch-up** (`courier/catchup.rs`, `Lane::catch_up`): a lane that comes back from `away()` with three or more
+    waiting posts that would be silent (a report, a turn's failure or a plain notice whose category is silent in the
+    place) and were written since the first post that met the outage, sends one silent message ("While Discord was
+    unreachable (14:02–14:19): 2 tasks reported, 1 failed: …"), each folded post settled with its id (`folded_into`).
+    Never folded: a card, a needs-you question, a settle, a reply (so the owner's answer, owed or not), a reminder, a
+    Jev notice, a post that may have landed (`unsure`). The fold's key is its oldest post's, the posts are dispatched
+    before it and settled after it, newest first. Tests: `courier/tests_catchup.rs`.
 - **A message sent while a turn runs** (theseus-qu1lc, `runtime/steer.rs`): with the core's `[kernel] steer_queued` on
   (the default), a place whose turn is in flight sends the new message as a `turn.submit` at once instead of holding it
   in `queued`. The core's running turn takes it in at its next loop (or, if that turn ends first, runs it as the next
