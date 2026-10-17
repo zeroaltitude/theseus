@@ -352,6 +352,9 @@ struct Inner {
     /// arithmetic counts positions (the chain has its own tests).
     #[cfg(test)]
     chain_off: std::sync::atomic::AtomicBool,
+    /// Says the state has dropped, which is the index's close (theseus-q0re4). Last, so it is
+    /// dropped last.
+    closed: crate::leak::CloseMark,
 }
 
 /// Where a build of the index's shape is (`WalStore::build_shape`).
@@ -1158,6 +1161,13 @@ fn open_phases(index_open_ms: f64, replay_from: std::time::Instant, replayed: u6
     );
 }
 
+impl WalStore {
+    /// What `leak::wait_closed` waits on: the signal the store's state gives as it drops.
+    pub(crate) fn close_gate(&self) -> Arc<crate::leak::Gate> {
+        self.inner.closed.gate()
+    }
+}
+
 impl Drop for WalStore {
     /// Closing the queue ends the writer once it has answered what it holds.
     /// Nothing else is queued: an appender holds the store until its answer.
@@ -1298,6 +1308,7 @@ impl Inner {
             chain: Mutex::new(chain_writer::ChainState::default()),
             #[cfg(test)]
             chain_off: std::sync::atomic::AtomicBool::new(false),
+            closed: crate::leak::CloseMark::default(),
         };
         store.verified = match store.index.meta(&VERIFIED_KEYS)?[..] {
             [Some(segment), Some(offset), Some(first), Some(position), Some(full_at)] => {

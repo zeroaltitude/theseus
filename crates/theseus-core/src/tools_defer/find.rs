@@ -208,7 +208,7 @@ mod tests {
         vec![
             h(
                 "aws_call",
-                "Make any AWS operation: a read, a write, or a run.",
+                "Make any AWS operation, S3 buckets too: a read, a write, or a run.",
             ),
             h("aws_s3_list", "List the objects of a bucket."),
             h("term_open", "Open a terminal running a program."),
@@ -219,8 +219,10 @@ mod tests {
     #[test]
     fn the_best_matching_family_comes_first_with_its_tools() {
         let m = matches("list my aws bucket", &hidden());
-        assert_eq!(m[0].0, "aws");
-        assert_eq!(m[0].1.len(), 2);
+        // The family that holds the bucket tools, then the generic one (theseus-3msy0).
+        assert_eq!(m[0].0, "aws-s3");
+        assert_eq!(m[1].0, "aws");
+        assert_eq!(m[0].1.len() + m[1].1.len(), 2);
         let m = matches("open a terminal", &hidden());
         assert_eq!(m[0].0, "terminals");
         assert!(matches("zzz", &hidden()).is_empty());
@@ -229,8 +231,8 @@ mod tests {
     #[test]
     fn an_answer_says_when_the_tools_load_and_asks_for_the_family() {
         let (text, fams, tools) = answer("s3 bucket", &hidden());
-        assert_eq!(fams, ["aws"]);
-        assert_eq!(tools, ["aws_call", "aws_s3_list"]);
+        assert_eq!(fams, ["aws-s3", "aws"]);
+        assert_eq!(tools, ["aws_s3_list", "aws_call"]);
         assert!(text.contains("next compaction"), "{text}");
         assert!(text.contains("aws_s3_list"));
     }

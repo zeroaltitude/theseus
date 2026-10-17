@@ -15,16 +15,29 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
-- `src/work.rs` (theseus-hkx30): `theseus work`, the work board as a tree (`work.watch`), and `--watch`, a line for each
-  `work.changed` view and each `work.notice`, reading again after `events.lost`. Minimal on purpose: `cli-tasks` builds
-  the real tree on the same wire. Tests inside it. The `Theseus` root (the daemon's own jobs, theseus-jn17m) is a line of
-  its own with its jobs under it: `◐ Importing Claude Code history · batch 41 of 120 · 3:12` (`work_system::line`), a
-  failed job `✗`. `theseus status` (long form only) asks `work.watch` for `system` alone and puts `⚙ importing 41/120`
-  after the time on its first line; `--short` and `--json` ask nothing more. `theseus index rebuild` is the owner's act
-  (`OPERATORS`); the three importers number their batches (`import::Numbered`).
-  Since theseus-5i8i it groups the board by thread (`board_lines`: a header per live thread, needs you first, then its open
-  tasks, questions and wakes; then what is in no thread as the tree it was; `--flat`, or a board with no thread, prints
-  today's tree), and `--watch` prints a line for each thread group that changes.
+- `src/work.rs` (theseus-hkx30, theseus-6kgp8): the work board's lines, and `WorkArgs`: **`theseus work` is an alias of
+  `theseus tasks --watch`** (`WorkArgs::into_tasks`; it keeps the connection and no longer exits, `--watch` is
+  accepted and ignored, `--limit` and `--flat` pass through). `view_line` is a board view as one line (its glyph,
+  title, attention label, progress, a running job's time, `›` its last line), `change_line` a `--watch` change
+  (`@12 job c0ffee running …`), `notice_line`, `thread_change_line` and `thread_section` (`Threads: 2 live, 1 need
+  you`, a header for each live thread, a seal recommendation, its open tasks, questions and wakes, needs you first);
+  `tree_lines` is the old board tree, kept for the daemon's own work and the schedules. The `Theseus` root (the
+  daemon's own jobs, theseus-jn17m) is a line of its own with its jobs under it: `◐ Importing Claude Code history ·
+  batch 41 of 120 · 3:12` (`work_system::line`), a failed job `✗`. `theseus status` (long form only) asks `work.watch`
+  for `system` alone and puts `⚙ importing 41/120` after the time on its first line; `--short` and `--json` ask
+  nothing more. `theseus index rebuild` is the owner's act (`OPERATORS`); the three importers number their batches
+  (`import::Numbered`).
+- `src/board.rs` (theseus-6kgp8): what `theseus tasks` prints beyond the task tree, so no line of the old work board is
+  lost. `lines` is the snapshot: the thread view first (`thread_section`, as `work` grouped the board by thread since
+  theseus-5i8i; `--flat`, or a board with no thread, has none), then `Other:` and the task tree of what is in no
+  thread, then `Jobs (theseus peek JOB · theseus attach JOB):` (each job's last six characters, the id `peek` and
+  `attach` take, with its time and last line), then the daemon's own work, routines, watches, projects and wakes as
+  `work.rs` drew them. `Follow` is `--watch`: `words` returns the lines of one notification (so it is testable;
+  `show` prints them): a task event for a task or conversation, a change line for a job, wake, routine, watch,
+  project or the daemon's work (applied by (position, time): a job's last line is sampled between frames,
+  theseus-e1hu4), a thread's change, `@N ID left the board` for a listed view that goes, and a notice a task event did
+  not already tell. Tests inside it (the thread groups moved here from `work.rs`) and `tests/tasks_cli.rs`
+  (`work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids`: the binary's `work` against a scripted daemon).
 - `src/chat_cmd.rs` (theseus-cyha, theseus-6yka): bare `theseus` on a terminal (no argument; stdin and stdout both terminals) and `theseus chat [SESSION | -c | -r]` exec `theseus-tui chat [SESSION] [-c | -r]` as `tui` execs the board (`theseus chat` on a pipe, with `--plain`, or under `TERM=dumb` is line mode instead, theseus-mnd9g); `theseus -c` and `theseus -r` (the whole command line, on a terminal) are the same as `chat -c` and `chat -r`: continue this directory's last conversation, or pick one. A pipe, a script or any other argument keeps clap's usage text and exit 2. Tests: `tests/chat.rs` (a pseudo-terminal, a stand-in `theseus-tui`).
 - `src/tasks_tree.rs` (theseus-mnd9g): `theseus tasks`. One `work.watch {limit: 20}` read draws the tree
   (`render/task_tree.rs`): a conversation, then one line for each task under it (mark `● ◐ ✗ ✓`, the short id of its
@@ -35,8 +48,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   watch at S; `--watch` keeps the connection, tells the daemon a person is looking (`interactive: true`; a plain `tasks`
   says false) and prints a line for each task event (`task_tree::events`: started, asks, reported, failed, cancelled,
   with the commands under an ask or a failure) and each notice not already told by one. `theseus tasks forecast` is
-  `tasks_forecast.rs`. `theseus work` stays the board (`work.rs`: threads, the job ids `peek` and `attach` take); the
-  words of `tasks` are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. Tests inside it and
+  `tasks_forecast.rs`. `theseus work` is `tasks --watch` (theseus-6kgp8); the board's threads, job ids and the daemon's
+  own work are drawn by `board.rs`; the words of `tasks` are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. Tests inside it and
   `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in `tests/golden_tree/`, `THESEUS_GOLDEN=write`),
   `tests/tasks_cli.rs` (the binary against a scripted daemon).
 - `src/task_lines.rs` (theseus-mnd9g): the line mode's task lines. `theseus chat --plain`, a pipe in or out, or `TERM=dumb` runs
@@ -58,9 +71,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   whole (`act_…`) or by a unique end of at least four characters among the work board's jobs. Ctrl-C detaches
   (`action.unfollow`) and never stops the job; an `events.lost` naming the job's stream says so, peeks again and
   follows from there; a closed connection exits 1. `board` is the one arm of `run` for `work`, `peek` and `attach`
-  (`run` sits at clippy's 100 lines). `theseus work` and `status` word a running job's time as
+  (`run` sits at clippy's 100 lines). `theseus tasks` (and its alias `work`) and `status` word a running job's time as
   `theseus_protocol::job_follow::job_words` does (`job 0:05 of usual 0:31`), and a view's `last_line` follows it
-  (`›`); `work --watch` applies a view by (position, time), since a sample of a job's last line has its frame's
+  (`›`); `tasks --watch` applies a view by (position, time), since a sample of a job's last line has its frame's
   position and a later time. `status`'s long form makes one more read, `work.watch`, for the jobs' times. Tests: inside
   `jobout.rs` (a scripted daemon over a duplex: order, the end, a detach that asks nothing that stops the job).
   the real tree on the same wire. Tests inside it.

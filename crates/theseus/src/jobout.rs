@@ -1,6 +1,6 @@
 //! `theseus peek` and `theseus attach` (theseus-e1hu4): a running job's
 //! output, once and live. Both name the job as a work view does (`act_…`, or a
-//! unique end of it of at least four characters, as `theseus work` prints).
+//! unique end of it of at least four characters, as `theseus tasks` prints).
 //!
 //! - `peek` is one `work.peek`: the size of the output and its last lines.
 //! - `attach` peeks, then follows (`action.output`) from where the peek
@@ -67,7 +67,7 @@ fn one_job(given: &str, views: &[WorkView]) -> Result<String> {
         .collect();
     match found.as_slice() {
         [one] => Ok(one.id.clone()),
-        [] => bail!("no job on the work board ends with {given:?} (`theseus work` lists them)"),
+        [] => bail!("no job on the work board ends with {given:?} (`theseus tasks` lists them)"),
         many => bail!(
             "{given:?} ends {} jobs: {}",
             many.len(),
@@ -124,7 +124,7 @@ fn bytes(n: u64) -> String {
 /// the CLI's `run`, which stays within clippy's length that way.
 pub async fn board(conn: &mut Conn, json: bool, cmd: crate::Cmd) -> Result<()> {
     match cmd {
-        crate::Cmd::Work(a) => crate::work::run(conn, json, a).await,
+        crate::Cmd::Work(a) => crate::tasks_tree::run(conn, json, a.into_tasks()).await,
         crate::Cmd::Peek(a) => peek(conn, json, a).await,
         crate::Cmd::Attach(a) => attach(conn, json, a).await,
         _ => unreachable!("routed by `run`"),

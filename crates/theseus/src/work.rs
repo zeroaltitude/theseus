@@ -1,30 +1,20 @@
-//! `theseus work` (theseus-hkx30): the daemon's work board as a tree. A
-//! conversation at the top, its tasks, plan steps, jobs, questions and wakes
-//! below it, each with what it needs from you or is doing. `--watch` keeps the
-//! connection and prints a line for each `work.changed` view and each
-//! `work.notice`, driven by the push.
-//!
-//! This is the minimal reader the board shipped with (`cli-tasks` builds the
-//! real tree on it): it uses `work.watch` and nothing else, so it is the
-//! second client of the wire as well as a way to see the board.
+//! The work board's lines (theseus-hkx30): a conversation at the top, its tasks, plan steps, jobs, questions and
+//! wakes below it, each with what it needs from you or is doing. `theseus work` is an alias of `theseus tasks
+//! --watch` (theseus-6kgp8): `WorkArgs` are its arguments, and `board.rs` draws the board with these lines for what
+//! the task tree does not draw (threads, jobs, the daemon's own work, routines, watches, projects, wakes).
 
 use std::collections::BTreeMap;
 
-use anyhow::Result;
 use clap::Args;
-use serde_json::Value;
-use theseus_client::Conn;
 use theseus_protocol::notices::Notice;
 use theseus_protocol::work::{WorkKind, WorkView};
-use theseus_protocol::{
-    group_threads, method, notify, Event, Level, Message, ThreadGroup, WorkWatchParams,
-    WorkWatchResult,
-};
+use theseus_protocol::{Level, ThreadGroup};
+
+use crate::tasks_tree::TasksArgs;
 
 #[derive(Args, Debug)]
 pub struct WorkArgs {
-    /// Keep the connection: print a line for each change of the board and each notice the
-    /// notification policy makes, until Ctrl-C.
+    /// Accepted and ignored: `work` always keeps the connection, as `tasks --watch` does.
     #[arg(long)]
     watch: bool,
     /// How many of the conversations that need no one are listed besides those that need you or
@@ -36,157 +26,29 @@ pub struct WorkArgs {
     flat: bool,
 }
 
-/// Run `theseus work`.
-pub async fn run(conn: &mut Conn, json: bool, a: WorkArgs) -> Result<()> {
-    let mut early: Vec<(String, Value)> = Vec::new();
-    let params = WorkWatchParams {
-        limit: Some(a.limit.unwrap_or(20)),
-        roots: None,
-        // A person is looking at it, but only while it watches.
-        interactive: Some(a.watch),
-    };
-    let v = conn
-        .call(method::WORK_WATCH, serde_json::to_value(params)?, |m, p| {
-            early.push((m.to_string(), p.clone()))
-        })
-        .await?;
-    let snap: WorkWatchResult = serde_json::from_value(v.clone())?;
-    if json {
-        println!("{}", serde_json::json!({"result": v}));
-    } else {
-        for l in board_lines(&snap, a.flat, now_ms(), width()) {
-            println!("{l}");
-        }
-        if snap.views.is_empty() {
-            println!("nothing is going on");
+impl WorkArgs {
+    /// `theseus work` is `theseus tasks --watch` (theseus-6kgp8).
+    pub fn into_tasks(self) -> TasksArgs {
+        TasksArgs {
+            watch: true,
+            limit: self.limit,
+            flat: self.flat,
+            ..TasksArgs::default()
         }
     }
-    if !a.watch {
-        let _ = conn
-            .call(method::WORK_UNWATCH, serde_json::json!({}), |_, _| {})
-            .await;
-        return Ok(());
-    }
-    eprintln!(
-        "watching the work board: {} of {} roots at position {} (Ctrl-C to stop)",
-        snap.views.iter().filter(|v| v.parent.is_none()).count(),
-        snap.total,
-        snap.position
-    );
-    let mut last: Seen = snap
-        .views
-        .iter()
-        .map(|v| (v.id.clone(), stamp(v)))
-        .collect();
-    let mut groups: BTreeMap<String, ThreadGroup> = snap
-        .threads
-        .iter()
-        .map(|g| (g.slug.clone(), g.clone()))
-        .collect();
-    for (m, p) in early {
-        show(&m, &p, json, &mut last, &mut groups)?;
-    }
-    while let Some(msg) = conn.next().await? {
-        let Message::Notification(n) = msg else {
-            continue;
-        };
-        if n.method == notify::EVENTS_LOST {
-            // Fell behind: the snapshot again, then on.
-            let v = conn
-                .call(
-                    method::WORK_WATCH,
-                    serde_json::to_value(WorkWatchParams {
-                        limit: Some(a.limit.unwrap_or(20)),
-                        roots: None,
-                        interactive: Some(true),
-                    })?,
-                    |_, _| {},
-                )
-                .await?;
-            let snap: WorkWatchResult = serde_json::from_value(v)?;
-            if !json {
-                println!(
-                    "-- events were lost; the board again at position {} --",
-                    snap.position
-                );
-                for l in board_lines(&snap, a.flat, now_ms(), width()) {
-                    println!("{l}");
-                }
-            }
-            groups = snap
-                .threads
-                .iter()
-                .map(|g| (g.slug.clone(), g.clone()))
-                .collect();
-            last = snap
-                .views
-                .iter()
-                .map(|v| (v.id.clone(), stamp(v)))
-                .collect();
-            continue;
-        }
-        show(&n.method, &n.params, json, &mut last, &mut groups)?;
-    }
-    Ok(())
-}
-
-/// One notification, printed: each view newer than the last printed for its
-/// id, each id that left, each notice.
-fn show(
-    m: &str,
-    p: &Value,
-    json: bool,
-    last: &mut Seen,
-    groups: &mut BTreeMap<String, ThreadGroup>,
-) -> Result<()> {
-    if json {
-        if m == notify::WORK_CHANGED || m == notify::WORK_NOTICE {
-            println!("{}", serde_json::json!({"method": m, "params": p}));
-        }
-        return Ok(());
-    }
-    match Event::from_notification(m, p)? {
-        Some(Event::WorkChanged(c)) => {
-            for v in &c.views {
-                let seen = last.entry(v.id.clone()).or_default();
-                if stamp(v) > *seen {
-                    *seen = stamp(v);
-                    println!("{}", change_line(v, now_ms()));
-                }
-            }
-            for id in &c.gone {
-                last.remove(id);
-                println!("@{} {id} left the board", c.position);
-            }
-            for g in &c.threads {
-                let before = groups.get(&g.slug).cloned();
-                let mut next = before.clone().unwrap_or_else(|| g.clone());
-                if before.is_some() {
-                    next.merge(g.clone());
-                }
-                if before.as_ref() != Some(&next) {
-                    println!("@{} {}", c.position, thread_change_line(&next));
-                }
-                groups.insert(g.slug.clone(), next);
-            }
-        }
-        Some(Event::WorkNotice(n)) => println!("{}", notice_line(&n)),
-        _ => {}
-    }
-    Ok(())
 }
 
 /// What a client has applied of a view: its position, then its time. A job's
 /// last line is sampled between frames, so a newer sample has the same
 /// position and a later time (theseus-e1hu4); a snapshot older than a sample
 /// then never takes its place.
-type Seen = BTreeMap<String, (u64, u64)>;
+pub(crate) type Seen = BTreeMap<String, (u64, u64)>;
 
-fn stamp(v: &WorkView) -> (u64, u64) {
+pub(crate) fn stamp(v: &WorkView) -> (u64, u64) {
     (v.position, v.at_ms)
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     theseus_protocol::now_unix_ms()
 }
 
@@ -316,7 +178,7 @@ pub(crate) fn notice_line(n: &Notice) -> String {
 }
 
 /// A thread's change, as `--watch` prints it.
-fn thread_change_line(g: &ThreadGroup) -> String {
+pub(crate) fn thread_change_line(g: &ThreadGroup) -> String {
     let lock = if g.sealed { "🔒 " } else { "" };
     let seal = match &g.seal_pending {
         Some(why) => format!("  ● seal recommended: {why}"),
@@ -330,27 +192,13 @@ fn thread_change_line(g: &ThreadGroup) -> String {
     )
 }
 
-/// The terminal's width: `COLUMNS` when the shell exports it, else 100.
-fn width() -> usize {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|c| c.parse().ok())
-        .filter(|w| *w >= 20)
-        .unwrap_or(100)
-}
-
-/// The snapshot as `theseus work` prints it: a group for each live thread,
-/// its open tasks, questions and wakes under it (needs you first), then
-/// what is in no thread as the tree it always was; `flat`, or a board with no
-/// thread on it, prints that tree alone.
-pub fn board_lines(snap: &WorkWatchResult, flat: bool, now_ms: u64, width: usize) -> Vec<String> {
-    if flat || snap.threads.is_empty() {
-        return tree_lines(&snap.views, now_ms);
-    }
-    let g = group_threads(&snap.views, &snap.threads);
-    if g.threads.is_empty() {
-        return tree_lines(&snap.views, now_ms);
-    }
+/// The threads of a grouped board: `Threads: 2 live, 1 need you`, then a header for each, a
+/// seal recommendation, and its items.
+pub(crate) fn thread_section(
+    g: &theseus_protocol::Grouped,
+    now_ms: u64,
+    width: usize,
+) -> Vec<String> {
     let mut out = vec![format!(
         "Threads: {} live, {} need you",
         g.threads.len(),
@@ -370,15 +218,6 @@ pub fn board_lines(snap: &WorkWatchResult, flat: bool, now_ms: u64, width: usize
         for v in &t.items {
             out.push(format!("  {}", view_line(v, now_ms)));
         }
-    }
-    let loose: Vec<WorkView> = g.loose.iter().map(|v| (*v).clone()).collect();
-    if !loose.is_empty() {
-        out.push("Other:".to_string());
-        out.extend(
-            tree_lines(&loose, now_ms)
-                .into_iter()
-                .map(|l| format!("  {l}")),
-        );
     }
     out
 }
@@ -422,6 +261,7 @@ fn push_tree(
 mod tests {
     use super::*;
     use serde_json::json;
+    use serde_json::Value;
 
     fn view(v: Value) -> WorkView {
         let mut base = json!({
@@ -477,120 +317,6 @@ mod tests {
                 "○ Quiet one  ready",
             ]
         );
-    }
-
-    fn group(slug: &str, title: &str) -> ThreadGroup {
-        serde_json::from_value(json!({
-            "slug": slug, "title": title, "state": "active", "session_id": format!("ses_{slug}"),
-            "last_active_ms": 1_000_000 - 120_000, "context_tokens": 41000, "today_usd": 1.2
-        }))
-        .unwrap()
-    }
-
-    /// Two threads, each with a task and a question, and one conversation in none.
-    fn threaded() -> WorkWatchResult {
-        let t = |id: &str, kind: &str, parent: &str, thread: &str, level: &str, label: &str| {
-            view(
-                json!({"id": id, "kind": kind, "parent": parent, "root": parent, "title": id,
-                "thread": thread, "started_at_ms": 3,
-                "state": if level == "needs_you" { "needs_you" } else { "running" },
-                "attention": {"level": level, "label": label, "since_ms": 3}}),
-            )
-        };
-        let head = |id: &str, thread: &str| {
-            view(
-                json!({"id": id, "title": thread, "thread": thread, "state": "ready", "at_ms": 1_000_000 - 60_000,
-                "attention": {"level": "ready", "label": "ready", "since_ms": 1}}),
-            )
-        };
-        WorkWatchResult {
-            position: 9,
-            views: vec![
-                head("exe_pr", "pr-round"),
-                t(
-                    "exe_pr_t", "task", "exe_pr", "pr-round", "working", "turn 2",
-                ),
-                t(
-                    "act_pr_q",
-                    "question",
-                    "exe_pr",
-                    "pr-round",
-                    "needs_you",
-                    "confirm fs.write",
-                ),
-                head("exe_tides", "tides"),
-                t(
-                    "exe_tides_t",
-                    "task",
-                    "exe_tides",
-                    "tides",
-                    "working",
-                    "turn 1",
-                ),
-                t(
-                    "act_tides_q",
-                    "question",
-                    "exe_tides",
-                    "tides",
-                    "needs_you",
-                    "confirm proc.run",
-                ),
-                view(json!({"id": "exe_dm", "title": "The DM", "state": "ready",
-                    "attention": {"level": "ready", "label": "ready", "since_ms": 1}})),
-            ],
-            total: 3,
-            threads: vec![group("pr-round", "PR round"), group("tides", "Tides")],
-        }
-    }
-
-    /// `theseus work` puts each thread's open work under its header, then what is in no
-    /// thread as it always was; `--flat` and a board with no thread print today's list.
-    #[test]
-    fn the_board_groups_by_thread_and_flat_is_todays_list() {
-        let snap = threaded();
-        let lines = board_lines(&snap, false, 1_000_000, 100);
-        assert_eq!(
-            lines,
-            vec![
-                "Threads: 2 live, 2 need you",
-                "PR round · active · 1m ago · warm · 41k ctx · $1.20 today  ● 1 need you",
-                "  ● act_pr_q  confirm fs.write",
-                "  ◐ exe_pr_t  turn 2",
-                "Tides · active · 1m ago · warm · 41k ctx · $1.20 today  ● 1 need you",
-                "  ● act_tides_q  confirm proc.run",
-                "  ◐ exe_tides_t  turn 1",
-                "Other:",
-                "  ○ The DM  ready",
-            ]
-        );
-        let flat = board_lines(&snap, true, 1_000_000, 100);
-        assert_eq!(flat, tree_lines(&snap.views, 1_000_000));
-        let mut none = snap;
-        none.threads.clear();
-        assert_eq!(
-            board_lines(&none, false, 1_000_000, 100),
-            tree_lines(&none.views, 1_000_000)
-        );
-    }
-
-    /// At 40 columns the header gives up its details, never the title or the count.
-    #[test]
-    fn a_narrow_board_keeps_the_title_and_the_count() {
-        let lines = board_lines(&threaded(), false, 1_000_000, 40);
-        assert_eq!(lines[1], "PR round · active  ● 1 need you");
-        assert_eq!(lines[4], "Tides · active · 1m ago  ● 1 need you");
-    }
-
-    /// A sealed thread's header begins with its lock; a pending seal is a line that needs you.
-    #[test]
-    fn a_sealed_thread_has_its_lock_and_a_pending_seal_its_line() {
-        let mut snap = threaded();
-        snap.threads[0].sealed = true;
-        snap.threads[1].seal_pending = Some("the notes are private".into());
-        let lines = board_lines(&snap, false, 1_000_000, 100);
-        assert!(lines[1].starts_with("🔒 PR round"), "{}", lines[1]);
-        assert_eq!(lines[0], "Threads: 2 live, 3 need you");
-        assert!(lines.contains(&"  ● seal recommended: the notes are private".to_string()));
     }
 
     /// The daemon's own work (theseus-jn17m): the root closed over its count,

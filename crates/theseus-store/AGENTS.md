@@ -124,7 +124,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   wherever it ran. A stop's checkpoint (`checkpoint_for_close`) is durable by
   itself (theseus-8ub95): it used to count on redb's close, which never comes when a handle outlives the runtime, and
   the next start replayed from the periodic checkpoint. `leak::holders` says after the runtime drops how many
-  handles are left (the daemon warns). Only a durable checkpoint advances `durable_to`. A store a stop checkpointed takes the stop's
+  handles are left (the daemon warns), and `leak::wait_closed(bound)` waits for the close itself: the store's state ends
+  with a mark (`CloseMark`) whose drop wakes it, so the daemon waits after the runtime's drop for a thread that was
+  mid-unit holding the core through an upgraded `Weak`, instead of racing it (theseus-q0re4; `tests/leak.rs`). Only a durable checkpoint advances `durable_to`. A store a stop checkpointed takes the stop's
   last checkpoint again as it closes (`WalStore`'s drop, once the writer has answered every frame), free when
   nothing came since: a frame a writer the stop never waited for appended after it is checkpointed, not replayed,
   and no writer is left by then (theseus-fts6). A store no stop checkpointed takes none at its close.

@@ -1,6 +1,6 @@
 //! Threads on the work board against a real daemon (theseus-5i8i): two threads,
 //! each with a task that runs and a question that waits, as `work.watch`
-//! stamps and groups them, and as the real `theseus work` draws them: a group
+//! stamps and groups them, and as the real `theseus tasks` draws them: a group
 //! each with its question and its task under it, `--flat` as before, a paused
 //! thread out of the needs-you count, and a surface that reads no private text
 //! told of none.
@@ -200,6 +200,8 @@ impl Rig {
                 .arg(self.path("sock"))
                 .args(args)
                 .env_remove("THESEUS_SESSION")
+                // A wide screen: `tasks` gives the activity column up first when the width is short.
+                .env("COLUMNS", "200")
                 .output()
                 .expect("running theseus")
         })
@@ -228,7 +230,7 @@ fn ask_in(r: &Rig, slug: &str, prompt: &str) -> Value {
 }
 
 fn work_text(r: &Rig, args: &[&str]) -> String {
-    let mut a = vec!["work"];
+    let mut a = vec!["tasks"];
     a.extend_from_slice(args);
     let out = r.cli(&a).expect("theseus beside theseusd");
     String::from_utf8_lossy(&out.stdout).into_owned()
@@ -290,7 +292,7 @@ fn the_board_groups_two_threads_and_the_cli_draws_them() {
 
     // The CLI: a group each, its question and its task under it; two need you.
     let text = work_text(&r, &[]);
-    eprintln!("theseus work:\n{text}");
+    eprintln!("theseus tasks:\n{text}");
     assert!(text.starts_with("Threads: 2 live, 2 need you"), "{text}");
     for title in ["Tides survey", "Moon charts"] {
         assert!(text.contains(title), "{text}");

@@ -50,9 +50,29 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "language servers: definitions, references, diagnostics, renames",
     ),
     ("channels", "post to and read other places and channels"),
+    // The AWS tools are five families, by use (theseus-3msy0): the whole set is 6,869
+    // tokens, more than any place can add, and a message that names one tool needs only
+    // that tool's family (each is at most 1,300 tokens; `aws::tests` holds the cap).
     (
         "aws",
-        "AWS: the account's calls, stacks, hands, costs and buckets",
+        "AWS: any API call, the API catalog, and who the account is",
+    ),
+    ("aws-s3", "AWS S3: list, read and write buckets and objects"),
+    (
+        "aws-logs",
+        "AWS CloudWatch Logs: Insights queries and recent log lines",
+    ),
+    (
+        "aws-review",
+        "AWS account review: what Theseus made, what it cost, and CloudTrail's event history",
+    ),
+    (
+        "aws-stacks",
+        "AWS CloudFormation stacks: plan, apply, status and delete",
+    ),
+    (
+        "aws-hands",
+        "AWS hands: run a command as hands on Lambda or Fargate",
     ),
     (
         "ask",
@@ -99,13 +119,25 @@ pub fn of_wire(wire: &str) -> String {
             "term" => "terminals",
             "lsp" => "code",
             "channel" => "channels",
-            "aws" => "aws",
+            "aws" => aws_family(wire),
             "extend" => "extensions",
             "self" => "self",
             _ => OTHER,
         },
     };
     family.to_string()
+}
+
+/// The family of an AWS tool, by use: the generic call, the catalog and the identity are `aws`.
+fn aws_family(wire: &str) -> &'static str {
+    match wire {
+        w if w.starts_with("aws_s3_") => "aws-s3",
+        w if w.starts_with("aws_logs_") => "aws-logs",
+        "aws_inventory" | "aws_cost" | "aws_trail" => "aws-review",
+        w if w.starts_with("aws_stack_") => "aws-stacks",
+        w if w.starts_with("aws_hands_") => "aws-hands",
+        _ => "aws",
+    }
 }
 
 /// The summary line of a family: the table's, an MCP server's, or none.
@@ -194,7 +226,7 @@ impl PlaceKind {
 
     /// The families this kind of place loads before the ledger says
     /// anything, beyond `[tools.defer] always_loaded` (committed: the
-    /// role's needs, never a harness's or a benchmark's). `aws`, the
+    /// role's needs, never a harness's or a benchmark's). The `aws` families, the
     /// extensions, `self` and the MCP servers are deferred everywhere until a
     /// place's own use loads them.
     pub fn defaults(self) -> &'static [&'static str] {
@@ -260,6 +292,17 @@ mod tests {
             ("lsp_definition", "code"),
             ("channel_post", "channels"),
             ("aws_call", "aws"),
+            ("aws_describe", "aws"),
+            ("aws_whoami", "aws"),
+            ("aws_s3_list", "aws-s3"),
+            ("aws_s3_put", "aws-s3"),
+            ("aws_logs_tail", "aws-logs"),
+            ("aws_cost", "aws-review"),
+            ("aws_trail", "aws-review"),
+            ("aws_inventory", "aws-review"),
+            ("aws_stack_plan", "aws-stacks"),
+            ("aws_stack_delete", "aws-stacks"),
+            ("aws_hands_run", "aws-hands"),
             ("extend_propose", "extensions"),
             ("self_propose_change", "self"),
             ("mcp__docs__search", "mcp:docs"),

@@ -45,14 +45,20 @@ const PLAIN: &[&str] = &[
 pub fn named(ask: &str, hidden: &[HiddenTool]) -> Vec<String> {
     let said: BTreeSet<String> = tokens(ask).into_iter().collect();
     let mut score: std::collections::BTreeMap<&str, u32> = Default::default();
+    let mut name_counted: BTreeSet<&str> = BTreeSet::new();
     for h in hidden {
         let own = h.family.strip_prefix("mcp:").unwrap_or(&h.family);
+        // A family named by several words (`aws-logs`) is said when each word is.
         let name_says = !PLAIN.contains(&own)
             && own.len() >= 3
-            && (said.contains(own) || said.contains(own.trim_end_matches('s')));
+            && own
+                .split('-')
+                .all(|w| said.contains(w) || said.contains(w.trim_end_matches('s')));
         let wire: Vec<String> = tokens(h.wire.strip_prefix("mcp__").unwrap_or(&h.wire));
         let tool_says = wire.len() >= 2 && wire.iter().all(|w| said.contains(w));
-        let by = u32::from(name_says) + 2 * u32::from(tool_says);
+        // The name's point is the family's, once, however many tools it holds.
+        let by = u32::from(name_says && name_counted.insert(h.family.as_str()))
+            + 2 * u32::from(tool_says);
         if by > 0 {
             *score.entry(h.family.as_str()).or_default() += by;
         }
@@ -140,6 +146,36 @@ mod tests {
         assert!(named("make a plan for the code", &plan).is_empty());
         assert_eq!(named("plan present the steps", &plan), ["plan"]);
         assert!(named("", &hidden()).is_empty());
+    }
+
+    /// The AWS tools are five families (theseus-3msy0): a tool named whole loads its own family first,
+    /// and a family's own word with `aws` loads it; saying only `AWS` loads the generic one.
+    #[test]
+    fn an_aws_tool_or_a_part_of_aws_names_its_own_family() {
+        let aws: Vec<HiddenTool> = [
+            "aws_call",
+            "aws_whoami",
+            "aws_s3_list",
+            "aws_logs_tail",
+            "aws_stack_plan",
+            "aws_cost",
+            "aws_hands_run",
+        ]
+        .into_iter()
+        .map(h)
+        .collect();
+        assert_eq!(
+            named("read aws_logs_tail for the api group", &aws)[0],
+            "aws-logs"
+        );
+        assert_eq!(named("plan it with aws_stack_plan", &aws)[0], "aws-stacks");
+        assert_eq!(named("run aws_hands_run twice", &aws)[0], "aws-hands");
+        assert_eq!(named("aws_cost for this month", &aws)[0], "aws-review");
+        assert_eq!(named("who am I on AWS?", &aws), ["aws"]);
+        // (`aws_s3_list`'s words are all said: its family leads.)
+        assert_eq!(named("list my AWS s3 bucket", &aws), ["aws-s3", "aws"]);
+        assert_eq!(named("show the stacks on aws", &aws), ["aws", "aws-stacks"]);
+        assert!(named("open the s3 file", &aws).is_empty());
     }
 
     #[test]
