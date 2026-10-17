@@ -39,6 +39,21 @@ write = "notify"
 "git.log" = "open"
 "text.diff" = "open"
 
+[profiles.dsflash]
+effort = "high"
+model = "deepseek-flash"
+provider = "deepseek"
+
+[profiles.dsflashmax]
+effort = "max"
+model = "deepseek-flash"
+provider = "deepseek"
+
+[profiles.dspro]
+effort = "high"
+model = "deepseek-v4-pro"
+provider = "deepseek"
+
 [profiles.glm]
 model = "glm-5.3-flash"
 provider = "zai"
@@ -48,6 +63,10 @@ cache_ttl = "5m"
 model = "claude-sonnet-5-5"
 cache_ttl = "1h"
 effort = "medium"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com/anthropic"
+api_key_secret = "deepseek_api_key"
 
 [providers.zai]
 api_base = "https://api.z.ai/api/anthropic"
@@ -59,6 +78,7 @@ aws_access_key_id = "env:THESEUS_TEST_KEY"
 aws_secret_access_key = "env:THESEUS_TEST_KEY"
 brave_api_key = "env:THESEUS_TEST_KEY"
 deepgram_api_key = "env:THESEUS_TEST_KEY"
+deepseek_api_key = "env:THESEUS_TEST_KEY"
 discord_bot_token = "env:THESEUS_TEST_KEY"
 github_token = "env:THESEUS_TEST_KEY"
 jev_api_key = "env:THESEUS_TEST_KEY"

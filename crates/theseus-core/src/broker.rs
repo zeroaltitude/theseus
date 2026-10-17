@@ -773,7 +773,12 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
     // The template's [voice], un-commented, names Deepgram's key: a provider's.
     assert_eq!(
         h.providers,
-        ["anthropic_api_key", "deepgram_api_key", "zai_api_key"]
+        [
+            "anthropic_api_key",
+            "deepgram_api_key",
+            "deepseek_api_key",
+            "zai_api_key"
+        ]
     );
     for name in h.aws.iter().chain(&h.providers) {
         assert!(!broker.may_hand_out(name), "a job may be handed {name}");
@@ -784,7 +789,7 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
         h.line(),
         "broker: a job may be handed 1 secret (github_token); harness-only: the AWS keys \
          (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
-         deepgram_api_key, zai_api_key); jobs get short-lived AWS sessions, never the key (aws)"
+         deepgram_api_key, deepseek_api_key, zai_api_key); jobs get short-lived AWS sessions, never the key (aws)"
     );
 }
 

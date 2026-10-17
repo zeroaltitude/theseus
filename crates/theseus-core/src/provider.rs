@@ -1576,6 +1576,29 @@ mod tests {
         assert_eq!(out.usage.cache_read_input_tokens, 4);
     }
 
+    /// DeepSeek streams `: keep-alive` comment lines while it waits
+    /// (theseus-a1wvq.1): a line without `data:` says nothing.
+    #[test]
+    fn sse_keep_alive_comments_are_skipped() {
+        let (out, deltas, err) = run(&[
+            ": keep-alive",
+            r#"data: {"type":"message_start","message":{"model":"deepseek-flash","usage":{"input_tokens":3}}}"#,
+            ": keep-alive",
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            ":",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#,
+            ": keep-alive",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ]);
+        assert!(err.is_none());
+        assert_eq!(deltas, vec!["Hi"]);
+        assert_eq!(out.model, "deepseek-flash");
+        assert_eq!(out.stop_reason.as_deref(), Some("end_turn"));
+        assert_eq!(out.usage.output_tokens, 1);
+    }
+
     #[test]
     fn assembles_tool_use_input_from_partial_json() {
         let (out, _, err) = run(&[

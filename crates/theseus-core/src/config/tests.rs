@@ -1229,3 +1229,109 @@ fn walk(v: &toml::Value, path: &str, key: &str, f: &mut dyn FnMut(&str, &str)) {
         _ => f(path, key),
     }
 }
+
+/// A config table cannot loosen a built-in China-origin row's origin
+/// (theseus-a1wvq.1), whatever its other fields; tightening is accepted, and
+/// the same word `cn` again is.
+#[test]
+fn a_config_table_cannot_loosen_a_builtin_cn_origin() {
+    use crate::catalog::{CatalogRow, ModelOrigin};
+    let with = |id: &str, origin: ModelOrigin| {
+        let mut cfg = Config::example();
+        cfg.catalog.insert(
+            id.into(),
+            CatalogRow {
+                origin: Some(origin),
+                ..Default::default()
+            },
+        );
+        cfg.validate()
+    };
+    for id in [
+        "glm-5.3",
+        "glm-5.3-flash",
+        "deepseek-flash",
+        "deepseek-v4-pro",
+    ] {
+        for loose in [ModelOrigin::Us, ModelOrigin::Eu, ModelOrigin::Unknown] {
+            let e = format!("{:#}", with(id, loose).unwrap_err());
+            assert!(
+                e.contains(&format!("catalog.\"{id}\".origin"))
+                    && e.contains("a China-origin model's origin is not configurable"),
+                "{id} {loose:?}: {e}"
+            );
+        }
+        with(id, ModelOrigin::Cn).unwrap();
+    }
+    // Tightening a Claude row is allowed.
+    with("claude-sonnet-5-5", ModelOrigin::Cn).unwrap();
+    with("claude-sonnet-5-5", ModelOrigin::Unknown).unwrap();
+    // A word that is none of the four fails the load.
+    let toml = format!(
+        "{}\n[catalog.\"glm-5.3\"]\norigin = \"china\"\n",
+        Config::EXAMPLE_TOML
+    );
+    assert!(Config::from_toml(&toml).is_err());
+}
+
+/// A provider's own word never makes a China-origin host anything but `cn`
+/// (theseus-a1wvq.1), and `profile_origin` reads the host, the family and
+/// the row together.
+#[test]
+fn a_provider_cannot_vouch_for_a_china_endpoint() {
+    use crate::catalog::ModelOrigin;
+    let mut cfg = Config::example();
+    cfg.providers.insert(
+        "dsproxy".into(),
+        ProviderConfig {
+            api_base: "https://api.deepseek.com/anthropic".into(),
+            api_key_secret: "zai_api_key".into(),
+            kind: ProviderKind::AnthropicMessages,
+            timeouts: None,
+            origin: Some(ModelOrigin::Us),
+        },
+    );
+    let e = format!("{:#}", cfg.validate().unwrap_err());
+    assert!(
+        e.contains("providers.dsproxy.origin") && e.contains("China-origin endpoint"),
+        "{e}"
+    );
+    cfg.providers.get_mut("dsproxy").unwrap().origin = Some(ModelOrigin::Cn);
+    cfg.validate().unwrap();
+    // An unknown host takes the operator's word.
+    cfg.providers.insert(
+        "acme".into(),
+        ProviderConfig {
+            api_base: "https://llm.acme.example/anthropic".into(),
+            api_key_secret: "zai_api_key".into(),
+            kind: ProviderKind::AnthropicMessages,
+            timeouts: None,
+            origin: Some(ModelOrigin::Us),
+        },
+    );
+    cfg.validate().unwrap();
+}
+
+#[test]
+fn a_profiles_origin_reads_its_provider_its_model_and_the_catalog() {
+    use crate::catalog::{Catalog, ModelOrigin};
+    let toml = format!(
+        "{}\n[profiles.disguised]\nprovider = \"zai\"\nmodel = \"claude-sonnet-5-5\"\n\
+         [profiles.proxied]\nprovider = \"acme\"\nmodel = \"claude-sonnet-5-5\"\n\
+         [profiles.vouched]\nprovider = \"acmeus\"\nmodel = \"claude-sonnet-5-5\"\n\
+         [providers.acme]\napi_base = \"https://llm.acme.example/anthropic\"\n\
+         api_key_secret = \"zai_api_key\"\n\
+         [providers.acmeus]\napi_base = \"https://llm.acme.example/anthropic\"\n\
+         api_key_secret = \"zai_api_key\"\norigin = \"us\"\n",
+        Config::EXAMPLE_TOML
+    );
+    let cfg = Config::from_toml(&toml).unwrap();
+    let catalog = Catalog::builtin();
+    let o = |p: &str| cfg.profile_origin(p, &catalog);
+    assert_eq!(o("sonnet"), ModelOrigin::Us);
+    assert_eq!(o("glm"), ModelOrigin::Cn);
+    assert_eq!(o("disguised"), ModelOrigin::Cn);
+    assert_eq!(o("proxied"), ModelOrigin::Unknown);
+    assert_eq!(o("vouched"), ModelOrigin::Us);
+    assert_eq!(o("nonesuch"), ModelOrigin::Unknown);
+}
