@@ -410,6 +410,13 @@ enum Cmd {
         /// Pick a conversation to continue, searched as you type (`theseus -r`).
         #[arg(short = 'r', long, conflicts_with = "session")]
         resume: bool,
+        /// Open a task joined (an id, or a unique end of one), with its conversation behind it:
+        /// Esc or /back goes there.
+        #[arg(long, value_name = "ID", conflicts_with_all = ["session", "cont", "resume"])]
+        task: Option<String>,
+        /// With --task: read-only, no input to the task.
+        #[arg(long, requires = "task")]
+        inspect: bool,
         /// Line mode, as `watch --interactive` with the tasks' events as lines: no footer and no
         /// one-key answers. A pipe, or `TERM=dumb`, is line mode too.
         #[arg(long)]

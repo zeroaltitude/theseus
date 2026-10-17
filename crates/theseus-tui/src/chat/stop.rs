@@ -22,6 +22,11 @@ impl Chat {
             self.menu = 0;
             return Vec::new();
         }
+        if self.view.is_some() {
+            // In a task's view Esc never stops anything (`/stop` does, asking
+            // once): on an empty line it goes back to the conversation.
+            return self.view_escape();
+        }
         if self.live.turn.is_some() {
             return self.stop_turn(false);
         }
@@ -51,6 +56,9 @@ impl Chat {
     /// cancels the conversation's tasks, an owner's act that a job's shell
     /// may not do (`theseus stop --tasks`).
     pub(super) fn stop_cmd(&mut self, args: &str) -> Vec<Effect> {
+        if let Some(effects) = self.view_stop(args) {
+            return effects;
+        }
         let tasks = matches!(args.trim(), "--tasks" | "all");
         if !tasks && !args.trim().is_empty() {
             self.flash("/stop · /stop --tasks also cancels its tasks");

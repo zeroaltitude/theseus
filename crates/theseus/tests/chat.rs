@@ -143,6 +143,30 @@ fn dash_c_and_dash_r_reopen_and_pick_in_the_chat() {
 }
 
 #[test]
+fn chat_task_opens_a_task_joined_and_inspect_reads_it() {
+    let (bin, empty) = (scratch(), scratch());
+    let cli = cli_in(bin.path());
+    stand_in(bin.path());
+    let want =
+        |rest: &str| format!("arg [--socket]\narg [~/.theseus/theseus.sock]\narg [chat]\n{rest}");
+    let (code, out) = on_a_terminal(&cli, empty.path(), &["chat", "--task", "a1b2c3"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out, want("arg [--task]\narg [a1b2c3]\n"));
+    let (code, out) = on_a_terminal(
+        &cli,
+        empty.path(),
+        &["chat", "--task", "a1b2c3", "--inspect"],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out, want("arg [--task]\narg [a1b2c3]\narg [--inspect]\n"));
+    // A session beside a task, or `--inspect` alone, are usage errors.
+    let (code, _) = on_a_terminal(&cli, empty.path(), &["chat", "x1y2z3", "--task", "a1b2c3"]);
+    assert_eq!(code, 2);
+    let (code, _) = on_a_terminal(&cli, empty.path(), &["chat", "--inspect"]);
+    assert_eq!(code, 2);
+}
+
+#[test]
 fn a_pipe_keeps_the_usage_text_and_exit_2() {
     let (bin, empty) = (scratch(), scratch());
     let cli = cli_in(bin.path());

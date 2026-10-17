@@ -99,6 +99,7 @@ impl Chat {
             self.tell_question(&p);
         }
         self.board_changed();
+        self.viewed_changed();
         // A first start has no look to tell from: this board is it.
         let first = self
             .cfg
@@ -143,6 +144,7 @@ impl Chat {
             self.board.views.remove(&id);
         }
         self.board_changed();
+        self.viewed_changed();
     }
 
     /// A notice from the daemon's policy: a ping rings once. The words of a

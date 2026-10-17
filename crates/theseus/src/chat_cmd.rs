@@ -29,7 +29,7 @@ pub fn bare() -> Option<i32> {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_SOCKET.to_string());
-    Some(match chat(&socket, false, None, start) {
+    Some(match chat(&socket, false, None, start, None) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("theseus: {e:#}");
@@ -72,13 +72,16 @@ pub fn exec_tui(cmd: &crate::Cmd, socket: &str, spawn: bool) -> Option<Result<()
             cont,
             resume,
             plain,
+            task,
+            inspect,
         } if !line_mode_wanted(*plain) => {
             let start = match (cont, resume) {
                 (true, _) => Some(Start::Continue),
                 (_, true) => Some(Start::Pick),
                 _ => None,
             };
-            Some(chat(socket, spawn, session.as_deref(), start))
+            let task = task.as_deref().map(|id| (id, *inspect));
+            Some(chat(socket, spawn, session.as_deref(), start, task))
         }
         _ => None,
     }
@@ -99,10 +102,19 @@ fn line_mode_wanted(plain: bool) -> bool {
 pub async fn line_mode(cli: crate::Cli) -> Result<()> {
     let mut conn = crate::connect(&cli).await?;
     let conn = &mut conn;
-    let crate::Cmd::Chat { session, .. } = cli.cmd else {
+    let crate::Cmd::Chat {
+        session,
+        task,
+        inspect,
+        ..
+    } = cli.cmd
+    else {
         unreachable!("main sends only the chat here")
     };
-    let sid = match session {
+    // A task is its own session: `--task` names it as `watch` does, and
+    // `--inspect` only follows it, with no input line.
+    let watch_input = !inspect;
+    let sid = match session.or(task) {
         Some(s) => s,
         None => {
             let dir = std::env::current_dir()?;
@@ -116,17 +128,29 @@ pub async fn line_mode(cli: crate::Cli) -> Result<()> {
             info.session_id
         }
     };
-    crate::interactive::watch(conn, cli.json, Some(sid), false, true, true).await
+    crate::interactive::watch(conn, cli.json, Some(sid), false, watch_input, true).await
 }
 
-/// Exec `theseus-tui chat [SESSION] [-c | -r]` over `socket`.
-pub fn chat(socket: &str, spawn: bool, session: Option<&str>, start: Option<Start>) -> Result<()> {
+/// Exec `theseus-tui chat [SESSION] [-c | -r] [--task ID [--inspect]]` over `socket`.
+pub fn chat(
+    socket: &str,
+    spawn: bool,
+    session: Option<&str>,
+    start: Option<Start>,
+    task: Option<(&str, bool)>,
+) -> Result<()> {
     let mut args = vec!["chat".to_string()];
     args.extend(session.map(String::from));
     match start {
         Some(Start::Continue) => args.push("-c".to_string()),
         Some(Start::Pick) => args.push("-r".to_string()),
         None => {}
+    }
+    if let Some((id, inspect)) = task {
+        args.extend(["--task".to_string(), id.to_string()]);
+        if inspect {
+            args.push("--inspect".to_string());
+        }
     }
     cmd::tui(socket, spawn, &args)
 }

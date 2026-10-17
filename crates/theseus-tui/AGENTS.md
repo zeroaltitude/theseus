@@ -164,7 +164,7 @@ new lines, the dock again, in synchronized-output mode 2026).
   (a task's title says who asks), and the same keys (`keys::ASK_KEYS`) answer either: `y`, `n` then an optional note, `t`, `v`, and
   `1`..`6` an `ask` question's choices (text for any other question). The conversation's own comes first, then the tasks',
   oldest asked first; Tab with the line empty gives the keys back after Esc, else moves them to the next question
-  (`AskState::focus`). Esc is chat-ask's: back to typing. `/tasks` and ctrl-t draw the tree in place, `/cancel ID` is
+  (`AskState::focus`). Esc is chat-ask's: back to typing. `/tasks` draws the tree in place (ctrl-t is the picker, below), `/cancel ID` is
   `task.cancel`, `/stop [--tasks]` is Esc's stop (`keep_jobs`) and with `--tasks` (or `all`) also cancels the conversation's tasks
   (refused in a job). An Interrupt notice (`work.notice` through `notices::deliver`) rings the bell once (`Effect::Bell`); the
   status line's `◐ N tasks` is the board's count once it is live. Tests: `chat/tests_tasks.rs`, `chat/tests_ask.rs`.
@@ -177,6 +177,21 @@ new lines, the dock again, in synchronized-output mode 2026).
   displayed position of the work (a question shown by another client does not ring here) and `away_ms` from the quiet of this
   terminal and of the machine's last look. The chat never writes a displayed mark itself: its own told line would silence its own
   bell. Tests: `chat/tests_welcome.rs`.
+
+- **Inspect, join, return** (theseus-rrkb7; `chat/task_view.rs`, `chat/task_picker.rs`): ctrl-t opens the task picker in the
+  dock (↑↓, Enter inspects, `j` joins, `c` twice cancels, `a` gives the keys to the task's question, Esc closes; `/tasks` still
+  prints the tree), `/task [ID]`, `/join ID`, `/back`, `/inspect [ID]`, `/follow`. A shown task is a view, never stored: `Chat::session` becomes the
+  task's (so its history, turns and calls come through the conversation's code, `session.history` then `session.watch`), the
+  conversation's own state waits in the view's `Stash` and its events are only counted (`Away`), and the shared viewer's `focused` is the
+  task's session. **Inspect** is read-only (`j` join, `i` the inspector's link, `f` `task.retry` once it has ended, on an empty line);
+  **join** sends each line as `turn.submit {session_id: <task's>}` at once, never queued (the daemon steers it), the prompt reads `1abc1f ›`.
+  Esc on an empty line, or `/back`, restores the stash, reads the conversation again and says `── back in main · 1abc1f still running · main: 1 reply
+  while you were away ──`; in a task's view Esc never stops anything and `/stop` cancels the task after asking once. A task that ends while
+  shown is told once (`🏁`), the prompt becomes `main ›`, and a line typed goes to the conversation behind `task_redirect_line` (the one
+  line every surface says); a line the daemon refuses as `execution_*` or not found (it ended after the view last heard) is redirected the
+  same way, never lost. `theseus chat --task ID [--inspect]` (`Cfg::task`) lists the sessions, finds the task and its `parent_session_id`
+  (the conversation to go back to), and opens the view without replaying the conversation first. Header clocks are `coarse` minutes
+  (`view_repaint_at` is the one deadline). Tests: `chat/tests_task_view.rs` (golden `tests/golden/chat_task_view_100.txt`).
 
 - **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
   plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in

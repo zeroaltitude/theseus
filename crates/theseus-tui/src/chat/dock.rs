@@ -7,7 +7,6 @@
 //! [`ABOVE_INPUT`] (cli-tasks puts its task rows there) and a [`Segment`] to
 //! [`status_segments`]; the dock composes them and knows no row's content.
 
-use super::editor::PREFIX;
 use super::live::{elapsed, spinner};
 use super::state::Chat;
 use super::style::{one, span, Line, Sty};
@@ -23,9 +22,11 @@ pub type DockRows = fn(&Chat, &DockCtx) -> Vec<Line>;
 
 /// Every provider, top row first.
 pub const ABOVE_INPUT: &[DockRows] = &[
+    super::task_view::header_rows,
     turn_rows,
     tool_rows,
     super::footer::footer_rows,
+    super::task_picker::rows,
     super::ask::rows,
     super::queue::rows,
     super::rewind::rows,
@@ -187,7 +188,7 @@ pub fn build(chat: &Chat) -> Dock {
         rows.extend(provider(chat, &ctx));
     }
     let above = rows.len();
-    if chat.answering() {
+    if chat.answering() || chat.task_picker.is_some() {
         // The question stands in the input's place; the cursor rests on its keys.
         rows.push(status_line(chat, width));
         return Dock {
@@ -201,7 +202,9 @@ pub fn build(chat: &Chat) -> Dock {
     let below = menu.len().min(6) + 1;
     let height = usize::from(chat.height);
     let allow = height.saturating_sub(above + below + 1).max(1);
-    let layout = chat.editor.layout(width);
+    let prompt = chat.prompt();
+    let pad = prompt.chars().count();
+    let layout = chat.editor.layout(chat.input_width());
     let (mut first, mut shown) = (0, layout.rows.len());
     if shown > allow {
         // Keep the cursor's row in view, the tail of a long message.
@@ -210,15 +213,15 @@ pub fn build(chat: &Chat) -> Dock {
     }
     for (i, r) in layout.rows.iter().enumerate().skip(first).take(shown) {
         let lead = if i == 0 {
-            span(Sty::Cyan, "› ")
+            span(Sty::Cyan, prompt.clone())
         } else {
-            span(Sty::Plain, "  ")
+            span(Sty::Plain, " ".repeat(pad))
         };
         rows.push(vec![lead, span(Sty::Plain, r.text.clone())]);
     }
     let cursor = (
         above + layout.cursor.0.saturating_sub(first),
-        PREFIX + layout.cursor.1,
+        pad + layout.cursor.1,
     );
 
     for (i, c) in menu.iter().take(6).enumerate() {

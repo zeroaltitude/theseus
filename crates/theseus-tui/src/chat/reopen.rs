@@ -16,7 +16,7 @@ use super::style::Sty;
 /// Turns replayed on reopening; the rest are folded into one line.
 pub const REPLAY_TURNS: usize = 30;
 /// Nodes asked for to find them: a turn with tools is many nodes.
-const REPLAY_NODES: usize = 500;
+pub(super) const REPLAY_NODES: usize = 500;
 /// Sessions asked for when looking for the last here, and for the picker.
 const CONTINUE_N: usize = 50;
 const PICK_N: usize = 200;
