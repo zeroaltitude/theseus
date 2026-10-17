@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { composerPlan, joinable, taskContext, taskRedirectLine, viewOfTask } from '../src/lib/taskpage.ts'
+import { composerPlan, joinable, taskContext, taskIsOver, taskRedirectLine, viewOfTask } from '../src/lib/taskpage.ts'
 
 const task = { session_id: 'ses_task0000000000a1b2c3', kind: 'task', parent_session_id: 'ses_main0000000000d4e5f6', title: 'Sound the north channel', label: null, execution_state: 'running' } as never
 const talk = { session_id: 'ses_main0000000000d4e5f6', kind: 'conversation', title: 'Main', label: null, execution_state: 'idle' } as never
@@ -39,7 +39,7 @@ test('a running task\'s composer posts to the task, as typed', () => {
 test('an ended task\'s composer posts to the parent with the shared line', () => {
   const p = composerPlan('ses_task0000000000a1b2c3', taskContext(task, { state: 'done' }), 'one more thing')
   assert.equal(p.sessionId, 'ses_main0000000000d4e5f6')
-  assert.equal(p.input, taskRedirectLine('Sound the north channel', 'a1b2c3', 'the task has reported, so this goes to main') + 'one more thing')
+  assert.equal(p.input, taskRedirectLine('Sound the north channel', 'a1b2c3', 'the task is over') + 'one more thing')
   assert.match(p.input, /^\[Written to the task “Sound the north channel” \(…a1b2c3\), and /)
   assert.match(p.placeholder ?? '', /Send to main about this task/)
 })
@@ -53,4 +53,11 @@ test('a task session is found among the board\'s views', () => {
   const views = { a: v('a', 'conversation', 'ses_x'), b: v('b', 'task', 'ses_task0000000000a1b2c3') }
   assert.equal(viewOfTask(views, 'ses_task0000000000a1b2c3')?.id, 'b')
   assert.equal(viewOfTask(views, 'ses_x'), undefined)
+})
+
+test('a message that raced the task\'s end is read as the task being over', () => {
+  assert.equal(taskIsOver({ code: -32002, data: undefined }), true)
+  assert.equal(taskIsOver({ code: -32000, data: { class: 'execution_complete' } }), true)
+  assert.equal(taskIsOver({ code: -32000, data: { class: 'provider_overloaded' } }), false)
+  assert.equal(taskIsOver({ code: -1 }), false)
 })

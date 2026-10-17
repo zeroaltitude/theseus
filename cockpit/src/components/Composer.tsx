@@ -10,7 +10,7 @@ import { addDraft, dropDraft, failDraft } from '@/lib/drafts'
 import { cn } from '@/lib/format'
 import { PromptPicker } from '@/components/PromptPicker'
 import { RouteFooter } from '@/components/RouteFooter'
-import { composerPlan, type TaskContext } from '@/lib/taskpage'
+import { composerPlan, taskIsOver, type TaskContext } from '@/lib/taskpage'
 
 /** A draft deck's composer (theseus-emqx): no session yet; the first send opens it (`session.open`, with the draft's
  *  label), hands its id to `onOpened`, and goes on as any send. */
@@ -50,6 +50,13 @@ export function Composer({ sessionId, busy, draft: drafting, task }: { sessionId
     call<TurnResult>('turn.submit', { session_id: sessionId, input, profile: profile || undefined })
       .then((r) => { dropDraft(draft); setLast(r) })
       .catch((e: any) => {
+        // A message that raced the task's end goes to the mainline, behind the shared line: never lost.
+        if (task && !task.ended && sessionId === task.taskSession && taskIsOver(e ?? {})) {
+          dropDraft(draft)
+          const plan = composerPlan(sessionId, { ...task, ended: true }, input)
+          submit(plan.sessionId, plan.input)
+          return
+        }
         const data = e?.data as ProviderErrorData | undefined
         // Never admitted (no turn): the draft says why, where it was.
         if (!data?.turn_id) { failDraft(draft, e?.message ?? String(e)); return }

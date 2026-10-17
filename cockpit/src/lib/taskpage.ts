@@ -11,6 +11,16 @@ export function joinable(v: Pick<WorkView, 'state'>): boolean {
   return v.state === 'running' || v.state === 'queued' || v.state === 'waiting' || v.state === 'needs_you'
 }
 
+/** The reason the redirect line gives for an ended task: every surface's words. */
+export const TASK_OVER = 'the task is over'
+
+/** A `turn.submit` to a task refused because the task ended first (its end and the message raced): not found, or an
+ *  `execution_*` class, as the TUI and Discord read it. The message then goes to the mainline. */
+export function taskIsOver(e: { code?: number; data?: unknown }): boolean {
+  const cls = (e.data as { class?: unknown } | undefined)?.class
+  return e.code === -32002 || (typeof cls === 'string' && cls.startsWith('execution_'))
+}
+
 /** `theseus_protocol::task_redirect_line`: the one line a message for an ended task carries to the mainline. */
 export function taskRedirectLine(title: string, shortId: string, why: string): string {
   return `[Written to the task “${title}” (…${shortId}), and ${why}] `
@@ -36,7 +46,7 @@ export function composerPlan(sessionId: string, t: TaskContext | null, input: st
   if (!t.ended) return { sessionId, input, placeholder: 'Message this task; it reads it at its next step… (Enter to send, Shift+Enter for a new line)' }
   return {
     sessionId: t.parent,
-    input: taskRedirectLine(t.title, t.taskSession.slice(-6), 'the task has reported, so this goes to main') + input,
+    input: taskRedirectLine(t.title, t.taskSession.slice(-6), TASK_OVER) + input,
     placeholder: 'Send to main about this task… (the task has reported; Enter to send)',
   }
 }
