@@ -84,7 +84,12 @@ fn unset_fields_are_not_written_back() {
     let (cfg, _) = Config::parse(&doc("[personas.p]\nfiles = [\"~/p.md\"]")).unwrap();
     let shown = toml::to_string_pretty(&cfg).unwrap();
     for k in ["emoji", "card", "tts_voice", "avatar", "initiative"] {
-        assert!(!shown.contains(k), "{k}: {shown}");
+        // A key, not a word of another key (`[discord] app_emojis`).
+        let key = format!("{k} =");
+        assert!(
+            !shown.lines().any(|l| l.trim_start().starts_with(&key)),
+            "{k}: {shown}"
+        );
     }
 }
 

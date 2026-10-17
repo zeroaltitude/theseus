@@ -11,6 +11,7 @@ use super::board_v2::{ago, short};
 use super::card_v2;
 use super::clip;
 use super::v2::{button, container, row, separator, text, Look};
+use crate::runtime::emoji::state;
 
 /// `tb:stop:<id>`: Stop, which asks again.
 pub const STOP: &str = "tb:stop:";
@@ -52,18 +53,22 @@ pub fn failure_row(v: &WorkView, named: bool) -> Option<Value> {
     (!buttons.is_empty()).then(|| row(buttons))
 }
 
-fn state_words(v: &WorkView) -> &'static str {
-    match v.state {
-        WorkState::Queued => "⏳ queued",
-        WorkState::Running => "⚙️ running",
-        WorkState::Waiting => "⚙️ waiting on its calls",
-        WorkState::NeedsYou => "🔴 needs you",
-        WorkState::Ready => "ready",
-        WorkState::Done => "✅ done",
-        WorkState::Failed => "❌ failed",
-        WorkState::Cancelled => "⛔ cancelled",
-        WorkState::Expired => "⌛ expired",
-        WorkState::Unknown => "working",
+fn state_words(v: &WorkView) -> String {
+    let (word, mark) = match v.state {
+        WorkState::Queued => ("queued", Some("⏳".to_string())),
+        WorkState::Running => ("running", Some(state(v.state))),
+        WorkState::Waiting => ("waiting on its calls", Some(state(v.state))),
+        WorkState::NeedsYou => ("needs you", Some(state(v.state))),
+        WorkState::Ready => ("ready", Some(state(v.state))),
+        WorkState::Done => ("done", Some(state(v.state))),
+        WorkState::Failed => ("failed", Some(state(v.state))),
+        WorkState::Cancelled => ("cancelled", Some(state(v.state))),
+        WorkState::Expired => ("expired", Some(state(v.state))),
+        WorkState::Unknown => ("working", None),
+    };
+    match mark {
+        Some(m) => format!("{m} {word}"),
+        None => word.to_string(),
     }
 }
 
@@ -176,7 +181,11 @@ fn body(v: &WorkView, calls: &[String]) -> Vec<Value> {
             .take(3)
             .map(|c| format!("`{}`", clip(&c.replace('`', "'"), 90)))
             .collect();
-        inner.push(text(format!("**Last calls**\n{}", lines.join("\n"))));
+        inner.push(text(format!(
+            "**{} Last calls**\n{}",
+            crate::runtime::emoji::job(),
+            lines.join("\n")
+        )));
     }
     if let Some(r) = v.report.as_ref() {
         let said = r

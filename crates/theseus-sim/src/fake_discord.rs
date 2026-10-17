@@ -55,9 +55,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub mod commands;
+mod emojis;
 mod events;
 mod threads;
 
+pub use emojis::FakeEmoji;
 pub use events::{FakeEvent, GUILD_EVENT_LIMIT};
 pub use threads::{FakeHook, FakeTag, FakeThread};
 
@@ -565,6 +567,8 @@ struct State {
     next_event: u64,
     event_limit: Option<usize>,
     refuse_events: bool,
+    /// The application's emojis (`emojis.rs`).
+    emojis: emojis::Emojis,
     /// Each forum's available tags (theseus-i3do6).
     forum_tags: BTreeMap<u64, Vec<threads::FakeTag>>,
     /// Listing or making a webhook answers 403.
@@ -1228,6 +1232,9 @@ impl FakeDiscord {
             }
             ("PATCH", ["webhooks", id, token, "messages", m]) if self.is_hook(id) => {
                 self.hook_edit(stream, (id, token, m), &body)
+            }
+            (_, ["applications", _, "emojis", rest @ ..]) => {
+                self.emoji_route(stream, (&method, route), rest.first().copied(), &body)
             }
             (_, ["guilds", g, "scheduled-events"]) => {
                 self.event_route(stream, &method, route, (g, None), &body)

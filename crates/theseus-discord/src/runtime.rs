@@ -108,6 +108,7 @@ mod typing;
 pub(crate) use succession::open_at_bind;
 pub(crate) mod calendar;
 mod digest;
+pub(crate) mod emoji;
 #[cfg(test)]
 mod tests_held;
 #[cfg(test)]
@@ -514,6 +515,7 @@ async fn event_loop(
                 );
                 tracing::info!(bot = %me.name, "discord gateway ready");
                 presence::on_ready(shared, &shard);
+                emoji::on_ready(shared, r.application.id);
                 calendar::ready(&mut calendar, shared, cfg, bindings);
                 // Back: whatever waited goes now (the lanes back off alone).
                 shared.wake_lanes();
@@ -2707,6 +2709,8 @@ pub(crate) mod tests {
         tweak: impl FnOnce(&mut theseus_core::Config),
     ) -> Arc<Core> {
         let mut cfg = theseus_core::Config::example();
+        cfg.discord.digest_at = vec![];
+        cfg.discord.app_emojis = false;
         cfg.server.state_dir = dir.to_string_lossy().into_owned();
         let work = dir.join("work");
         std::fs::create_dir_all(&work).unwrap();

@@ -7,10 +7,11 @@
 //! A closed card is the same box with its settled line and no buttons.
 
 use serde_json::Value;
-use theseus_protocol::work::AnswerOption;
+use theseus_protocol::work::{AnswerOption, WorkState};
 
 use super::board_v2::short;
 use super::v2::{container, text};
+use crate::runtime::emoji::state;
 
 /// A button's `custom_id` prefix.
 pub const PREFIX: &str = "wa:";
@@ -52,9 +53,9 @@ pub fn closed(content: &str) -> Vec<Value> {
 /// them came inside the ping window; with none, that they were answered.
 pub fn summary(open: usize) -> Vec<Value> {
     match open {
-        0 => closed("✅ The questions that needed you are answered."),
-        1 => vec![container(Some(RED), vec![text("🔴 **1 question needs you** — it is on the card above, or answer it with `theseus answer`.")])],
-        n => vec![container(Some(RED), vec![text(format!("🔴 **{n} questions need you** — they are on the cards above, or answer them with `theseus answer`."))])],
+        0 => closed(&format!("{} The questions that needed you are answered.", state(WorkState::Done))),
+        1 => vec![container(Some(RED), vec![text(format!("{} **1 question needs you** — it is on the card above, or answer it with `theseus answer`.", state(WorkState::NeedsYou)))])],
+        n => vec![container(Some(RED), vec![text(format!("{} **{n} questions need you** — they are on the cards above, or answer them with `theseus answer`.", state(WorkState::NeedsYou)))])],
     }
 }
 

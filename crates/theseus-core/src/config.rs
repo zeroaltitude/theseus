@@ -304,6 +304,14 @@ pub struct DiscordConfig {
     /// (`🔴 1 needs you · ⚙️ 3 running`); everyone who can see the bot sees it.
     #[serde(default = "default_true")]
     pub status_line: bool,
+    /// Task states drawn with the bot's own animated emojis, uploaded once;
+    /// off, or while Discord refuses them, the Unicode ones (theseus-ss36w).
+    #[serde(default = "default_true")]
+    pub app_emojis: bool,
+    /// The local times of day (`"HH:MM"`) a digest of what happened is posted
+    /// to the owner's DM, only when something did; empty is none.
+    #[serde(default = "discord::default_digest_at")]
+    pub digest_at: Vec<String>,
     /// A local stand-in for Discord's REST API, `host:port` over plain http
     /// (twilight's proxy base): tests and scratch daemons only, so that no
     /// request and no token leaves the machine (theseus-q4v).
@@ -1463,6 +1471,7 @@ impl Config {
         self.watches.validate()?;
         self.initiative.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;
+        discord::digest_slots(&self.discord.digest_at)?;
         self.discord.calendar.validate()?;
         self.route.validate()?;
         self.prefix.validate()?;

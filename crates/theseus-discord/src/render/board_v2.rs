@@ -32,6 +32,7 @@ use theseus_protocol::work::{WorkState, WorkView};
 use super::clip;
 use super::horizon::{self, FutureParts};
 use super::v2::{button, container, row, section, select, separator, text, validate, Look};
+use crate::runtime::emoji::state;
 
 /// A button's `custom_id` prefix: every control of the board starts with it.
 pub const PREFIX: &str = "tb:";
@@ -89,13 +90,16 @@ pub struct Parts<'a> {
 pub fn headline(needs: usize, running: usize, done: usize) -> String {
     let mut parts = Vec::new();
     if needs > 0 {
-        parts.push(format!("🔴 {needs} needs you"));
+        parts.push(format!("{} {needs} needs you", state(WorkState::NeedsYou)));
     }
     if running > 0 {
-        parts.push(format!("⚙️ {running} running"));
+        parts.push(format!("{} {running} running", state(WorkState::Running)));
     }
     if done > 0 {
-        parts.push(format!("✅ {done} done since you looked"));
+        parts.push(format!(
+            "{} {done} done since you looked",
+            state(WorkState::Done)
+        ));
     }
     if parts.is_empty() {
         "all clear".into()
@@ -131,7 +135,12 @@ pub(super) fn ask_line(v: &WorkView) -> String {
 
 /// What a working task is doing: its doing's label, its turn, its spend.
 pub(super) fn working_line(v: &WorkView) -> String {
-    let mut bits = vec![format!("⚙️ **{}** `…{}`", title_of(v), short(&v.id))];
+    let mut bits = vec![format!(
+        "{} **{}** `…{}`",
+        state(WorkState::Running),
+        title_of(v),
+        short(&v.id)
+    )];
     let label = v
         .doing
         .as_ref()
@@ -167,10 +176,10 @@ pub(super) fn working_line(v: &WorkView) -> String {
 pub(super) fn done_line(v: &WorkView) -> String {
     let at = v.ended_at_ms.unwrap_or(v.state_since_ms);
     let (mark, word) = match v.state {
-        WorkState::Failed => ("❌", "failed"),
-        WorkState::Cancelled => ("⛔", "cancelled"),
-        WorkState::Expired => ("⌛", "expired"),
-        _ => ("✅", "done"),
+        WorkState::Failed => (state(WorkState::Failed), "failed"),
+        WorkState::Cancelled => (state(WorkState::Cancelled), "cancelled"),
+        WorkState::Expired => (state(WorkState::Expired), "expired"),
+        _ => (state(WorkState::Done), "done"),
     };
     let mut s = format!(
         "{mark} **{}** `…{}` · {word} {}",
@@ -250,7 +259,10 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     ))];
     if !p.needs.is_empty() {
         inner.push(separator());
-        inner.push(text("**🔴 Needs you**"));
+        inner.push(text(format!(
+            "**{} Needs you**",
+            state(WorkState::NeedsYou)
+        )));
         for v in p.needs.iter().take(cn) {
             inner.push(section(
                 vec![text(format!(
@@ -270,7 +282,7 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     if !p.working.is_empty() {
         inner.push(separator());
         // The newest first; the oldest fold.
-        let mut lines = vec!["**⚙️ Now**".to_string()];
+        let mut lines = vec![format!("**{} Now**", state(WorkState::Running))];
         lines.extend(
             p.working
                 .iter()
@@ -285,7 +297,7 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     }
     if !p.done.is_empty() {
         inner.push(separator());
-        let mut lines = vec!["**✅ Done, not yet seen**".to_string()];
+        let mut lines = vec![format!("**{} Done, not yet seen**", state(WorkState::Done))];
         lines.extend(
             p.done
                 .iter()

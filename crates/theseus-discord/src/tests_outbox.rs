@@ -37,6 +37,8 @@ fn core_at(
     tweak: impl FnOnce(&mut Config),
 ) -> Arc<Core> {
     let mut cfg = Config::example();
+    cfg.discord.digest_at = vec![];
+    cfg.discord.app_emojis = false;
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     let work = dir.join("work");
     std::fs::create_dir_all(&work).unwrap();

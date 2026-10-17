@@ -58,6 +58,26 @@ impl Category {
     ];
 }
 
+/// `[discord] digest_at`'s default: eight in the morning and six in the evening.
+pub fn default_digest_at() -> Vec<String> {
+    vec!["08:00".into(), "18:00".into()]
+}
+
+/// `digest_at` as (hour, minute) pairs, each `HH:MM` on a 24-hour clock.
+pub fn digest_slots(at: &[String]) -> anyhow::Result<Vec<(u32, u32)>> {
+    at.iter()
+        .map(|t| {
+            let hm = t
+                .split_once(':')
+                .and_then(|(h, m)| Some((h.parse::<u32>().ok()?, m.parse::<u32>().ok()?)));
+            match hm {
+                Some((h, m)) if h < 24 && m < 60 && t.len() == 5 => Ok((h, m)),
+                _ => anyhow::bail!("[discord] digest_at: {t:?} is not a time like \"08:00\""),
+            }
+        })
+        .collect()
+}
+
 impl Default for DiscordConfig {
     fn default() -> Self {
         Self {
@@ -70,6 +90,8 @@ impl Default for DiscordConfig {
             ping_window_secs: 0,
             live_board: true,
             status_line: true,
+            app_emojis: true,
+            digest_at: default_digest_at(),
             rest_proxy: None,
             gateway_proxy: None,
             thread: Vec::new(),
