@@ -334,6 +334,8 @@ mod tests_money;
 #[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
+mod tests_offer;
+#[cfg(test)]
 mod tests_one_turn;
 #[cfg(test)]
 mod tests_ontology;

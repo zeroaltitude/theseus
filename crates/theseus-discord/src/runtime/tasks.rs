@@ -79,6 +79,8 @@ pub(crate) struct Tasks {
     quiet: Mutex<HashMap<String, u64>>,
     /// The future (theseus-j90w2): the board's Coming up, Routines and Projects.
     pub(super) future: super::horizon::Future,
+    /// The briefs of the replies that offered to make a task (theseus-bh3t.5).
+    pub(crate) offers: super::start_task::Offers,
 }
 
 impl Default for Tasks {
@@ -92,6 +94,7 @@ impl Default for Tasks {
             resend: Notify::new(),
             quiet: Mutex::default(),
             future: Default::default(),
+            offers: Default::default(),
         }
     }
 }

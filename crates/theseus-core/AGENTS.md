@@ -377,6 +377,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`not`); an undo is `standing.revoke`, which labels the judgment `wrong capture` (`capture_undone`; three in a day roll
   the pack back, and a label finds its pack in the `standing.captured` row while the sink has not written the judgment).
   `[standing] capture = false` stops all of it. Tests: `tests_capture.rs`, `capture::tests`.
+- **The task offer** (theseus-bh3t.5; no store change: a field on the reply's outbox post): `classify.v3` is `classify.v2` word for
+  word and one question, `offer_task` ("work to be done later, in more than one step, that the person has not asked to start
+  now"), which decides nothing and rides the one inbound request. When it answers yes at the act bar in a judgment that acts
+  (`inbound::offer_answer`), the batch notes the turn and the first 1,000 characters of the message (`JudgeService::note_offer`,
+  64 kept in memory); the reply's post takes them (`turn/reply_step.rs::offer_for`) as `"offer": {"brief"}` when the turn was no
+  trivial or quick detour, no task's, in the owner's DM (`capture::owner_alone`), and made no `task_create`. It never waits for
+  the judge: a batch that has not landed by the reply costs the reply nothing. Discord turns it into a button
+  (`runtime/start_task.rs`). Judging the reply's own text is a point of its own, not built. Tests: `tests_offer.rs`.
 - **Threads** (theseus-nhew; store format 33; `threads.rs`, `rpc/threads.rs`, `fact/thread.rs`, `config/threads.rs`): a thread is
   a durable record bound to a virtual place `thread:<slug>`, so it reuses what a place has. The record is
   `theseus_protocol::threads::ThreadInfo` as a META key `thread:<slug>` (an edit writes the key again, in one frame with

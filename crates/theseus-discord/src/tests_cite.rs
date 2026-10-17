@@ -29,7 +29,7 @@ fn bindings() -> String {
 const OAK: &str = "We chose oak for the new pier.";
 const LIGHTS: &str = "The pier lights are green.\nThey blink at dusk.";
 
-fn assistant(core: &Core, session: &str, text: &str) -> String {
+pub(crate) fn assistant(core: &Core, session: &str, text: &str) -> String {
     let n = Node::assistant(
         session,
         "turn_cite",
@@ -53,7 +53,12 @@ fn assistant(core: &Core, session: &str, text: &str) -> String {
     n.id
 }
 
-fn reply_body(turn: &str, node: &str, session: &str, cites: Vec<Citation>) -> serde_json::Value {
+pub(crate) fn reply_body(
+    turn: &str,
+    node: &str,
+    session: &str,
+    cites: Vec<Citation>,
+) -> serde_json::Value {
     let result = json!({"session_id": session, "turn_id": turn, "loops": 1, "output": "",
         "stop_reason": "end_turn", "model": "glm-x", "provider": "zed", "profile": "quick",
         "usage": {"input_tokens": 1, "output_tokens": 1}, "elapsed_ms": 1000, "tool_calls": 0,

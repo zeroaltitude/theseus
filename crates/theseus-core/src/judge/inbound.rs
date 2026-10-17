@@ -43,12 +43,19 @@ use crate::node::{Body, Node, Origin};
 use crate::places::PlaceClass;
 use crate::trace::Trace;
 
-/// CLASSIFY (§2.4), at `inbound`: `classify.v2` since theseus-rha2, v1's
-/// questions and the `thread` question, which names the live thread a message
-/// is about; `classify.v1` stays embedded for its history.
-pub const CLASSIFY_PACK: &str = "classify.v2";
-/// The question of `classify.v2` that names a thread.
+/// CLASSIFY (§2.4), at `inbound`: `classify.v3` since theseus-bh3t.5, v2's
+/// questions and the `offer_task` question, which finds work described for
+/// later; v2 added the `thread` question (theseus-rha2). `classify.v1` and
+/// `v2` stay embedded for their history.
+pub const CLASSIFY_PACK: &str = "classify.v3";
+/// The question of `classify` that names a thread.
 pub const THREAD_QUESTION: &str = "thread";
+/// The question of `classify.v3` that finds work to offer as a task.
+pub const OFFER_QUESTION: &str = "offer_task";
+/// How many turns' offers wait for their reply, and how much of the message
+/// the offered brief keeps.
+const OFFERS_KEPT: usize = 64;
+const OFFER_BRIEF_CHARS: usize = 1_000;
 /// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v1`.
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
@@ -168,7 +175,7 @@ pub struct Inbound {
     pub turn_id: String,
     /// The input's node, which the state reads back with the session's.
     pub node_id: String,
-    /// The input's text, read here only to tell a slash command.
+    /// The input's text: it tells a slash command, and is an offer's brief.
     pub text: String,
     /// Where it came in (`cli`, `web`, `discord_dm`, …) and the place
     /// rule's answer for it, as [`place_kind`] says it.
@@ -778,6 +785,36 @@ pub fn thread_answer(j: &theseus_judge::Judgment) -> Option<ThreadAnswered> {
     })
 }
 
+/// Whether `classify.v3` found the message to be work for later, at the act
+/// bar, in a judgment that acts (a shadow one offers nothing).
+pub fn offer_answer(j: &theseus_judge::Judgment) -> bool {
+    j.pack == CLASSIFY_PACK
+        && j.actionable()
+        && j.mode != theseus_judge::Mode::Shadow
+        && j.answer(OFFER_QUESTION).is_some_and(|a| a.band.acts_true())
+}
+
+impl JudgeService {
+    /// The batch found `turn`'s message offerable: its reply may carry the
+    /// chip. Bounded; the oldest goes first.
+    fn note_offer(&self, turn: &str, text: &str) {
+        let brief: String = text.chars().take(OFFER_BRIEF_CHARS).collect();
+        let mut offers = self.offers.lock().unwrap_or_else(|e| e.into_inner());
+        if offers.len() == OFFERS_KEPT {
+            offers.pop_front();
+        }
+        offers.push_back((turn.to_string(), brief));
+    }
+
+    /// The brief of `turn`'s offer, taken, when the batch had landed by the
+    /// time the reply was written (it never waits).
+    pub fn take_offer(&self, turn: &str) -> Option<String> {
+        let mut offers = self.offers.lock().unwrap_or_else(|e| e.into_inner());
+        let at = offers.iter().position(|(t, _)| t == turn)?;
+        offers.remove(at).map(|(_, brief)| brief)
+    }
+}
+
 /// The urgency of a request whose asks run in `modes`: live when one acts
 /// (canary or live), so it waits for a permit rather than being shed.
 fn urgency_of(modes: impl Iterator<Item = PackMode>, total_secs: u64) -> Urgency {
@@ -788,12 +825,17 @@ fn urgency_of(modes: impl Iterator<Item = PackMode>, total_secs: u64) -> Urgency
     }
 }
 
-/// The thread answer goes to the router the moment the batch lands.
+/// The thread answer goes to the router the moment the batch lands, and an
+/// offer is noted for the reply.
 async fn hand_thread_answer(
     batch: impl std::future::Future<Output = Vec<theseus_judge::Judgment>>,
     thread: Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
+    offer: (&Weak<JudgeService>, &str, &str),
 ) -> Vec<theseus_judge::Judgment> {
     let judgments = batch.await;
+    if let (true, Some(svc)) = (judgments.iter().any(offer_answer), offer.0.upgrade()) {
+        svc.note_offer(offer.1, offer.2);
+    }
     if let Some(tx) = thread {
         if let Some(a) = judgments.iter().find_map(thread_answer) {
             let _ = tx.send(a);
@@ -847,7 +889,7 @@ async fn judge_inbound(
             .map(|(_, _, m)| *m),
         total,
     );
-    let turn = msg.turn_id.clone();
+    let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
     let session = msg.session_id.clone();
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
@@ -900,7 +942,7 @@ async fn judge_inbound(
         };
         built.judge.judge(point).await
     };
-    let rest = hand_thread_answer(rest, thread);
+    let rest = hand_thread_answer(rest, thread, (&me, &turn, &brief));
     let (mut judgments, rest) = futures_util::future::join(routed, rest).await;
     judgments.extend(rest);
     seal_of(&me, &session, &judgments);

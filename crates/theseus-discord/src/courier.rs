@@ -936,12 +936,26 @@ impl Lane {
             .collect();
         // The sources the reply cites open from a row under its last message
         // (theseus-ejdk).
+        let mut srcs = Vec::new();
         if let Some(r) = &result {
             let (_, order) = render::cite::marked(&texts, &r.cites);
-            let srcs = render::cite::sources(&order, |d| self.source_link(d));
-            if let (Some(last), false) = (writes.last_mut(), srcs.is_empty()) {
-                last.buttons = Buttons::Sources(r.session_id.clone(), srcs);
-            }
+            srcs = render::cite::sources(&order, |d| self.source_link(d));
+        }
+        // A reply to a message that described work for later offers to make it a
+        // task, in a private place (theseus-bh3t.5).
+        let offer = body["offer"]["brief"]
+            .as_str()
+            .filter(|_| self.shared.is_private(&self.target));
+        if let Some(brief) = offer {
+            self.shared.tasks.offers.keep(&turn_id, brief);
+        }
+        if let (Some(last), false) = (writes.last_mut(), srcs.is_empty() && offer.is_none()) {
+            let session = result.as_ref().map(|r| r.session_id.clone());
+            last.buttons = Buttons::Sources(
+                session.unwrap_or_default(),
+                srcs,
+                offer.map(|_| turn_id.clone()),
+            );
         }
         Plan {
             writes,
@@ -1611,7 +1625,9 @@ impl Lane {
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
-            Buttons::Sources(session, srcs) => crate::runtime::source_buttons(session, srcs),
+            Buttons::Sources(session, srcs, offer) => {
+                crate::runtime::source_buttons(session, srcs, offer.as_deref())
+            }
             Buttons::Clear | Buttons::Keep | Buttons::V2 => vec![],
         };
         if !comps.is_empty() {
@@ -1680,7 +1696,11 @@ impl Lane {
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
             }
-            Buttons::Sources(session, srcs) => Some(crate::runtime::source_buttons(session, srcs)),
+            Buttons::Sources(session, srcs, offer) => Some(crate::runtime::source_buttons(
+                session,
+                srcs,
+                offer.as_deref(),
+            )),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep | Buttons::V2 => None,
         };

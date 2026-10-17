@@ -23,9 +23,15 @@ use crate::render::cite::{excerpt_text, Source};
 const PREFIX: &str = "src:";
 
 /// The row under a reply: a link button where the source's message can be
-/// named, else "Show source". At most `MAX_SOURCES`, one row.
-pub(crate) fn source_buttons(session: &str, sources: &[Source]) -> Vec<Component> {
-    let components: Vec<Component> = sources
+/// named, else "Show source". At most `MAX_SOURCES`, one row; the offer's
+/// "Make this a task" button (`offer`: its turn) joins it, or is a row of its own
+/// when the sources fill it (theseus-bh3t.5).
+pub(crate) fn source_buttons(
+    session: &str,
+    sources: &[Source],
+    offer: Option<&str>,
+) -> Vec<Component> {
+    let mut components: Vec<Component> = sources
         .iter()
         .map(|s| {
             let (label, custom_id, url, style) = match &s.link {
@@ -54,13 +60,24 @@ pub(crate) fn source_buttons(session: &str, sources: &[Source]) -> Vec<Component
             })
         })
         .collect();
-    if components.is_empty() {
-        return Vec::new();
+    let mut rows = Vec::new();
+    if let Some(turn) = offer {
+        if components.len() == 5 {
+            rows.push(components.split_off(0));
+        }
+        components.push(super::start_task::offer_button(turn));
     }
-    vec![Component::ActionRow(ActionRow {
-        id: None,
-        components,
-    })]
+    if !components.is_empty() {
+        rows.push(components);
+    }
+    rows.into_iter()
+        .map(|components| {
+            Component::ActionRow(ActionRow {
+                id: None,
+                components,
+            })
+        })
+        .collect()
 }
 
 /// The session and handle a "Show source" button names.
@@ -138,6 +155,7 @@ mod tests {
                     link: None,
                 },
             ],
+            None,
         );
         let v = serde_json::to_value(&row).unwrap();
         let b = &v[0]["components"];
@@ -149,9 +167,29 @@ mod tests {
         assert_eq!(b[1]["label"], "Show source [2]");
         assert_eq!(b[1]["style"], 2);
         assert_eq!(b[1]["custom_id"], "src:ses_1:m:d4e5f6");
-        assert!(source_buttons("ses_1", &[]).is_empty());
+        assert!(source_buttons("ses_1", &[], None).is_empty());
         assert_eq!(parse("src:ses_1:m:d4e5f6"), Some(("ses_1", "m:d4e5f6")));
         assert_eq!(parse("src:ses_1:d4e5f6"), None);
         assert_eq!(parse("confirm:approve:act_1"), None);
+    }
+
+    /// The offer's button joins the sources' row, or a row of its own when they fill it.
+    #[test]
+    fn the_offer_button_joins_the_row_or_makes_its_own() {
+        let source = |n| Source {
+            number: n,
+            handle: format!("m:a1b2c{n}"),
+            link: None,
+        };
+        let one =
+            serde_json::to_value(source_buttons("ses_1", &[source(1)], Some("turn_9"))).unwrap();
+        assert_eq!(one.as_array().unwrap().len(), 1);
+        assert_eq!(one[0]["components"][1]["custom_id"], "tb:offer:turn_9");
+        let lone = serde_json::to_value(source_buttons("ses_1", &[], Some("turn_9"))).unwrap();
+        assert_eq!(lone[0]["components"].as_array().unwrap().len(), 1);
+        let full: Vec<Source> = (1..=5).map(source).collect();
+        let two = serde_json::to_value(source_buttons("ses_1", &full, Some("turn_9"))).unwrap();
+        assert_eq!(two.as_array().unwrap().len(), 2);
+        assert_eq!(two[1]["components"][0]["label"], "➕ Make this a task");
     }
 }

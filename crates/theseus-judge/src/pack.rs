@@ -42,7 +42,8 @@ use crate::learn::RollbackRule;
 /// with a `quick` mode (theseus-3okf), `route.v3`, which asks the reply's
 /// effort beside v2's mode (theseus-qe3v), `route.v4`, which adds a
 /// `review` mode to v3's (theseus-p8dy), and `classify.v2`, which adds the
-/// `thread` question to v1's (theseus-rha2), and `route.v5`, which adds the
+/// `thread` question to v1's (theseus-rha2), `classify.v3`, which adds the
+/// `offer_task` question to v2's (theseus-bh3t.5), `route.v5`, which adds the
 /// `persona` and `seal` questions to v4's (theseus-c1uz), and `route.v6`, which
 /// adds the `data` question to v5's (theseus-a1wvq.2).
 pub const EMBEDDED: &[(&str, &str)] = &[
@@ -53,6 +54,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("security.v3", include_str!("../packs/security.v3.toml")),
     ("classify.v1", include_str!("../packs/classify.v1.toml")),
     ("classify.v2", include_str!("../packs/classify.v2.toml")),
+    ("classify.v3", include_str!("../packs/classify.v3.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("directive.v1", include_str!("../packs/directive.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
@@ -1219,6 +1221,21 @@ mod tests {
                 ],
             ),
             (
+                "classify.v3",
+                &[
+                    "Inbound Inbound Conversation ThreadRoute",
+                    "addressed_task Choice from Tasks + [none] only_when Tasks",
+                    "fragment Noul",
+                    "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
+                    "mentions_other_conversation Noul",
+                    "offer_task Noul",
+                    "should_promote Noul decides",
+                    "thread Choice decides from Threads + [new_thread home] only_when Threads",
+                    "wants_fresh_look Noul",
+                    "rollback [labels_per_day]",
+                ],
+            ),
+            (
                 "role.v1",
                 &[
                     "Inbound Inbound CurrentRole RoleHint",
@@ -1412,6 +1429,11 @@ mod tests {
             }]
         );
         assert_eq!(
+            rules("classify.v3"),
+            rules("classify.v2"),
+            "classify.v3 keeps v2's rules"
+        );
+        assert_eq!(
             rules("directive.v1"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong capture".into(),
@@ -1436,9 +1458,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            23,
+            24,
             "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3, v4, v5 and v6, citation.v1, people.v1, people_seen.v1, classify.v2, compare.v1 and directive.v1"
+             v3, v4, v5 and v6, citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1 and directive.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

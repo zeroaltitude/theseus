@@ -192,6 +192,9 @@ pub struct JudgeService {
     /// another profile within 10 minutes after it is `route.v1`'s ladder
     /// event (26a's `pins_per_day`). In memory, as `late` is.
     routed: Mutex<std::collections::HashMap<String, (u64, String)>>,
+    /// Turns whose message `classify.v3` found to be deferrable work, each
+    /// with its brief, until the turn's reply takes it (theseus-bh3t.5).
+    offers: Mutex<std::collections::VecDeque<(String, String)>>,
     /// The owner's corrections of routing, and the live layer (theseus-q31l).
     pub corrections: crate::correction::Corrections,
     /// A test's judge in Jev's place for the rerank (a channel for Jev).
@@ -271,6 +274,7 @@ impl JudgeService {
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
             routed: Mutex::default(),
+            offers: Mutex::default(),
             corrections: Default::default(),
             #[cfg(test)]
             rerank_judge: OnceLock::new(),
