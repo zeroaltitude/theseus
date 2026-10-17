@@ -13,7 +13,7 @@ use theseus_sim::fake_discord::{Guild, DEFAULT_GUILD};
 use twilight_model::guild::Permissions;
 use twilight_model::id::Id;
 
-use crate::runtime::threads::Made;
+use crate::runtime::threads::{Made, PlaceKind};
 use crate::runtime::war_room::Guest;
 use crate::tests_gateway::{Rig, ANA, BEN, CY, LAB};
 use crate::tests_task_threads::{
@@ -302,6 +302,7 @@ async fn sharing_a_channel_sets_a_member_overwrite_and_unshare_deletes_it() {
         task: "exe_reef".into(),
         session: "ses_reef".into(),
         thread: WAR,
+        kind: PlaceKind::Channel,
         parent: LAB,
         parent_session: "ses_parent".into(),
         name: "reef".into(),
