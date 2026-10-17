@@ -174,6 +174,19 @@ async fn j_joins_from_the_picker_and_a_line_goes_to_the_tasks_session() {
     r.shows("↪ the task reads this at its next step").await;
 }
 
+/// Joined, the line is for typing: a message that starts with an inspect
+/// key (`f`, `i`, `j`) is the message, never the command.
+#[tokio::test(start_paused = true)]
+async fn a_joined_line_that_starts_with_an_inspect_key_is_the_message() {
+    let mut r = ready(false).await;
+    joined(&mut r).await;
+    r.type_text("fix the jib first").await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    assert_eq!(submits(&r)[0]["input"], "fix the jib first");
+    assert!(r.daemon.asked("task.retry").is_empty());
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_line_to_a_joined_task_is_sent_while_its_turn_runs_never_queued() {
     let mut r = ready(false).await;
