@@ -38,8 +38,8 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "inspect",
-        help: "the last turn in the cockpit: flame graph, requests, thinking",
-        run: inspect,
+        help: "/inspect [ID]: the last turn in the cockpit, or a task's view, read-only",
+        run: |chat, args| chat.inspect_cmd(args),
     },
     Command {
         name: "quit",
@@ -63,6 +63,26 @@ pub const COMMANDS: &[Command] = &[
         name: "stop",
         help: "stop the turn (as esc does); /stop --tasks cancels its tasks too",
         run: |chat, args| chat.stop_cmd(args),
+    },
+    Command {
+        name: "task",
+        help: "/task [ID]: look at a task (ctrl+t picks one); esc or /back returns",
+        run: |chat, args| chat.task_cmd(args, false),
+    },
+    Command {
+        name: "join",
+        help: "/join ID: talk to a running task; esc or /back returns to main",
+        run: |chat, args| chat.task_cmd(args, true),
+    },
+    Command {
+        name: "back",
+        help: "go back to the conversation from a task",
+        run: |chat, _| chat.return_main(),
+    },
+    Command {
+        name: "follow",
+        help: "in an ended task's view: a linked follow-up task (task.retry)",
+        run: |chat, _| chat.follow_up(),
     },
     // Debug builds only: the test that proves the terminal comes back after a
     // panic needs one to happen.
@@ -109,15 +129,6 @@ fn help(chat: &mut Chat, _args: &str) -> Vec<Effect> {
         chat.say_plain(super::style::Sty::Dim, &l);
     }
     chat.gap();
-    Vec::new()
-}
-
-fn inspect(chat: &mut Chat, _args: &str) -> Vec<Effect> {
-    let line = match &chat.last_inspect {
-        Some(u) => format!("  inspect {u}"),
-        None => "  no turn has ended here yet".to_string(),
-    };
-    chat.say_plain(super::style::Sty::Dim, &line);
     Vec::new()
 }
 

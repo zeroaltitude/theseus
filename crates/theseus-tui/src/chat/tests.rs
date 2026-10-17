@@ -96,6 +96,7 @@ pub fn cfg(history_path: std::path::PathBuf) -> Cfg {
         color: false,
         history: Vec::new(),
         history_path: Some(history_path),
+        task: None,
     }
 }
 

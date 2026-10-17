@@ -13,7 +13,7 @@ use theseus_protocol::{Event, WorkChanged};
 use super::tests::{script, Rig, SID, T0};
 use crate::tests::Script;
 
-fn view(v: Value) -> WorkView {
+pub(super) fn view(v: Value) -> WorkView {
     let mut base = json!({
         "id": "exe_1", "kind": "task", "position": 9, "at_ms": T0, "root": "exe_conv",
         "parent": "exe_conv", "title": "", "state": "running",
@@ -27,7 +27,7 @@ fn view(v: Value) -> WorkView {
     serde_json::from_value(base).unwrap()
 }
 
-fn conversation() -> WorkView {
+pub(super) fn conversation() -> WorkView {
     view(json!({
         "id": "exe_conv", "kind": "conversation", "session_id": SID, "parent": null,
         "root": "exe_conv", "title": "Regatta prep", "state": "waiting", "position": 1,
@@ -36,7 +36,7 @@ fn conversation() -> WorkView {
     }))
 }
 
-fn task(n: usize, title: &str, position: u64) -> WorkView {
+pub(super) fn task(n: usize, title: &str, position: u64) -> WorkView {
     view(json!({
         "id": format!("exe_t{n}"), "session_id": format!("ses_task{n}abc{n}f"),
         "title": title, "position": position
@@ -59,7 +59,7 @@ fn options(ask: bool) -> Value {
 }
 
 /// Paint log asks to write a file (or, with `ask`, which hull colour).
-fn asking(position: u64, ask: bool) -> WorkView {
+pub(super) fn asking(position: u64, ask: bool) -> WorkView {
     let (kind, prompt) = if ask {
         ("ask", "which hull colour?")
     } else {
@@ -79,7 +79,7 @@ fn asking(position: u64, ask: bool) -> WorkView {
     }))
 }
 
-fn board(views: &[WorkView]) -> Value {
+pub(super) fn board(views: &[WorkView]) -> Value {
     json!({"position": 5, "views": views, "total": 1})
 }
 
@@ -98,7 +98,7 @@ fn script_with(snapshot: Value) -> Script {
     })
 }
 
-fn push(r: &Rig, position: u64, views: Vec<WorkView>) {
+pub(super) fn push(r: &Rig, position: u64, views: Vec<WorkView>) {
     r.tell(Event::WorkChanged(WorkChanged {
         position,
         at_ms: T0,

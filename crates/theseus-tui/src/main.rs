@@ -94,12 +94,14 @@ use theseus_client::seen::Seen;
 const USAGE: &str = "theseus-tui: every session of a running theseusd, in one terminal
 
 usage: theseus-tui [--socket PATH] [--notify HOW]
-       theseus-tui [--socket PATH] chat [SESSION | -c | -r]
+       theseus-tui [--socket PATH] chat [SESSION | -c | -r | --task ID [--inspect]]
 
   chat [SESSION]  an inline conversation in this directory (a new one, or SESSION's);
                   `theseus` and `theseus chat` run it
   chat -c         continue this directory's last conversation (`theseus -c`)
   chat -r         pick a conversation to continue, searched as you type (`theseus -r`)
+  chat --task ID  open a task joined, with its conversation behind it (esc goes back);
+                  with --inspect, read-only
   --socket PATH   the daemon's Unix socket (default: $THESEUS_SOCKET, else ~/.theseus/theseus.sock)
   --notify HOW    how a notice (needs you, finished) reaches you: auto (the default: a Windows
                   toast under WSL, OSC 9 in a terminal that has it, else the bell), toast, bell,
@@ -120,6 +122,8 @@ struct Args {
     chat: Option<Option<String>>,
     /// `chat -c` and `chat -r`: the last conversation here, or a pick.
     start: chat::Start,
+    /// `chat --task ID [--inspect]`: a task's id, and whether to join it.
+    task: Option<(String, bool)>,
 }
 
 impl Args {
@@ -131,6 +135,8 @@ impl Args {
         let mut notify = None;
         let mut chat: Option<Option<String>> = None;
         let mut start = chat::Start::New;
+        let mut task: Option<String> = None;
+        let mut inspect = false;
         let how = |v: Option<&str>| {
             v.and_then(Delivery::parse)
                 .ok_or_else(|| anyhow::anyhow!("--notify takes {}\n\n{USAGE}", Delivery::NAMES))
@@ -153,6 +159,11 @@ impl Args {
                 "chat" if chat.is_none() => chat = Some(None),
                 "-c" | "--continue" if chat.is_some() => start = chat::Start::Continue,
                 "-r" | "--resume" if chat.is_some() => start = chat::Start::Pick,
+                "--task" if chat.is_some() => match args.next() {
+                    Some(id) => task = Some(id),
+                    None => bail!("--task needs a task's id\n\n{USAGE}"),
+                },
+                "--inspect" if chat.is_some() => inspect = true,
                 other if matches!(chat, Some(None)) && !other.starts_with('-') => {
                     chat = Some(Some(other.to_string()));
                 }
@@ -167,11 +178,15 @@ impl Args {
                 }
             }
         }
+        if inspect && task.is_none() {
+            bail!("--inspect goes with --task ID\n\n{USAGE}");
+        }
         Ok(Some(Self {
             socket,
             notify,
             chat,
             start,
+            task: task.map(|id| (id, !inspect)),
         }))
     }
 }
@@ -188,6 +203,7 @@ fn main() -> Result<()> {
             socket: args.socket,
             resume,
             start: args.start,
+            task: args.task,
         };
         return rt.block_on(chat::run(chat));
     }
@@ -281,4 +297,29 @@ fn now_ms() -> u64 {
 /// CLI show is written (theseus-0n1v).
 fn local_hm(unix_ms: u64) -> String {
     theseus_client::render::time::fmt_hm(unix_ms)
+}
+
+#[cfg(test)]
+mod args_tests {
+    use super::Args;
+
+    fn parse(words: &[&str]) -> anyhow::Result<Option<Args>> {
+        Args::parse(words.iter().map(|w| (*w).to_string()))
+    }
+
+    #[test]
+    fn chat_task_joins_and_with_inspect_only_reads() {
+        let a = parse(&["chat", "--task", "a1b2c3"]).unwrap().unwrap();
+        assert_eq!(a.task, Some(("a1b2c3".to_string(), true)));
+        let a = parse(&["chat", "--task", "a1b2c3", "--inspect"])
+            .unwrap()
+            .unwrap();
+        assert_eq!(a.task, Some(("a1b2c3".to_string(), false)));
+        assert!(parse(&["chat"]).unwrap().unwrap().task.is_none());
+        assert!(
+            parse(&["chat", "--inspect"]).is_err(),
+            "--inspect needs --task"
+        );
+        assert!(parse(&["chat", "--task"]).is_err(), "--task needs an id");
+    }
 }

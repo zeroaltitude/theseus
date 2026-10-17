@@ -1,0 +1,15 @@
+── ⚙ task 1abc1f · Sound the north channel · running <1m ── j join · i inspector · Esc back to main
+◐ tasks · 1 working
+◐ 1abc1f  Sound the north channel  <1m  model <1m
+1abc1f (read-only) ›
+ask (shift+tab) · ~/work/harbour-tides · $0.00 · ◐ 1 task
+
+── ⚙ task 1abc1f · Sound the north channel · running <1m ── joined · /inspect · Esc back to main
+◐ tasks · 1 working
+◐ 1abc1f  Sound the north channel  <1m  model <1m
+1abc1f ›
+ask (shift+tab) · ~/work/harbour-tides · $0.00 · ◐ 1 task
+
+── ⚙ task 1abc1f · Sound the north… · reported <1m ── type to tell main · /follow · Esc back to main
+main ›
+ask (shift+tab) · ~/work/harbour-tides · $0.00

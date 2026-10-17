@@ -95,6 +95,7 @@ impl Chat {
             self.tell_question(&p);
         }
         self.board_changed();
+        self.viewed_changed();
     }
 
     /// A frame's changes, by the position rule.
@@ -127,6 +128,7 @@ impl Chat {
             self.board.views.remove(&id);
         }
         self.board_changed();
+        self.viewed_changed();
     }
 
     /// A notice from the daemon's policy: a ping rings once. The words of a

@@ -99,14 +99,6 @@ impl Chat {
                 }
                 Vec::new()
             }
-            Purpose::TaskAnswer { who, option } => {
-                self.task_answered(&who, &option);
-                Vec::new()
-            }
-            Purpose::Cancel(id) => {
-                self.say_plain(Sty::Dim, &format!("  cancelled {id}"));
-                Vec::new()
-            }
             Purpose::Context => {
                 self.say_context(v);
                 Vec::new()
@@ -125,6 +117,12 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
+            p @ (Purpose::ListTask { .. }
+            | Purpose::TaskAnswer { .. }
+            | Purpose::Cancel(_)
+            | Purpose::TaskSubmit { .. }
+            | Purpose::TaskInspect
+            | Purpose::FollowUp) => self.answered_view(p, v),
             Purpose::RewindPoints => self.rewind_points(v),
             Purpose::RewindRestore(going) => self.rewind_restored(going, v),
             Purpose::RewindFork(going) => self.rewind_forked(going, v),
@@ -143,7 +141,7 @@ impl Chat {
                 self.banner_ready();
                 Vec::new()
             }
-            Purpose::Open | Purpose::ListResume(_) => {
+            Purpose::Open | Purpose::ListResume(_) | Purpose::ListTask { .. } => {
                 self.fatal(&format!("could not open a conversation: {}", e.message))
             }
             Purpose::ListContinue => {
@@ -174,6 +172,11 @@ impl Chat {
             }
             Purpose::Stop => {
                 self.say_words(Sty::Red, &format!("✗ could not stop: {}", e.message));
+                Vec::new()
+            }
+            Purpose::TaskSubmit { text } => self.task_submit_refused(&text, e),
+            Purpose::TaskInspect | Purpose::FollowUp => {
+                self.say_words(Sty::Red, &format!("✗ refused: {}", e.message));
                 Vec::new()
             }
             Purpose::Answer | Purpose::TaskAnswer { .. } => {
@@ -218,7 +221,7 @@ impl Chat {
     }
 
     /// Say what is wrong and leave.
-    fn fatal(&mut self, text: &str) -> Vec<Effect> {
+    pub(super) fn fatal(&mut self, text: &str) -> Vec<Effect> {
         self.print_banner();
         self.say_words(Sty::Red, text);
         vec![Effect::Quit]
@@ -277,17 +280,21 @@ impl Chat {
     /// A resumed conversation's recent turns, then what waits on you: the
     /// last [`REPLAY_TURNS`] turns through the transcript's own lines, the
     /// older ones one line that says how many (theseus-6yka).
-    fn history(&mut self, _sid: &str, h: &SessionHistoryResult) {
+    fn history(&mut self, sid: &str, h: &SessionHistoryResult) {
         self.print_banner();
         let (from, folded) = super::reopen::window(h, super::reopen::REPLAY_TURNS);
-        self.say_plain(
-            Sty::Dim,
-            &format!(
-                "resumed · {} turns · {}",
-                h.session.turns,
-                h.session.title.as_deref().unwrap_or("untitled")
-            ),
-        );
+        self.note_last_turn(sid, h.nodes.iter().rev().find_map(|n| n.turn_id.clone()));
+        let title = h.session.title.as_deref().unwrap_or("");
+        let head = self
+            .task_head(sid, h.session.turns, title)
+            .unwrap_or_else(|| {
+                format!(
+                    "resumed · {} turns · {}",
+                    h.session.turns,
+                    if title.is_empty() { "untitled" } else { title }
+                )
+            });
+        self.say_plain(Sty::Dim, &head);
         self.earlier = None;
         if folded > 0 {
             self.earlier = h.nodes.get(from).map(|n| n.position);
@@ -315,6 +322,7 @@ impl Chat {
                 self.ask(q.clone());
             }
         }
+        self.say_back();
     }
 
     /// One stored node, as the transcript shows it.
@@ -386,6 +394,7 @@ impl Chat {
             Ok(None) | Err(_) => return Vec::new(),
         };
         let mut effects = Vec::new();
+        self.note_away(&event);
         match event {
             Event::TurnStarted(t) if self.ours(&t.session_id) => {
                 if self.mine.len() > KEPT {

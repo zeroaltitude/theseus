@@ -38,6 +38,8 @@ mod screen;
 mod state;
 mod stop;
 mod style;
+mod task_picker;
+mod task_view;
 mod tasks;
 mod usage;
 
@@ -51,6 +53,8 @@ mod tests_mode;
 mod tests_reopen;
 #[cfg(test)]
 mod tests_rewind;
+#[cfg(test)]
+mod tests_task_view;
 #[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]
@@ -70,6 +74,8 @@ pub struct Args {
     pub resume: Option<String>,
     /// With none named: a new conversation, the last here, or a pick.
     pub start: Start,
+    /// `--task ID [--inspect]`: a task's view, joined unless inspecting.
+    pub task: Option<(String, bool)>,
 }
 
 /// Run the chat on the terminal in front of us.
@@ -107,6 +113,7 @@ pub async fn run(args: Args) -> Result<()> {
         dir: dir_text,
         resume: args.resume,
         start: args.start,
+        task: args.task,
         color: style::color_wanted(),
         history,
         history_path,

@@ -50,6 +50,9 @@ pub struct Cfg {
     /// This directory's messages, oldest first.
     pub history: Vec<String>,
     pub history_path: Option<PathBuf>,
+    /// `--task ID [--inspect]`: open a task's view, joined unless inspecting
+    /// (theseus-rrkb7).
+    pub task: Option<(String, bool)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +99,20 @@ pub enum Purpose {
     /// `session.mode`: read when the conversation opens, set by Shift+Tab
     /// (theseus-lyxy).
     Mode,
+    /// `chat --task ID`: every session, to find the task and its parent.
+    ListTask {
+        given: String,
+        join: bool,
+    },
+    /// A line sent to the task joined: kept, to go to the mainline if the
+    /// task has ended.
+    TaskSubmit {
+        text: String,
+    },
+    /// `turn.inspect` for the task's last turn: its link.
+    TaskInspect,
+    /// `f` on an ended task: `task.retry`.
+    FollowUp,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +211,13 @@ pub struct Chat {
     pub(super) rewound: Option<String>,
     pub menu: usize,
     pub(super) started_ms: u64,
+    /// A task inspected or joined (theseus-rrkb7): the session is the task's,
+    /// and the conversation's own state waits in the view's stash.
+    pub(super) view: Option<super::task_view::TaskView>,
+    /// The task picker (ctrl-t).
+    pub(super) task_picker: Option<super::task_picker::Picker>,
+    /// What the replay of the conversation we came back to adds.
+    pub(super) back: Option<super::task_view::Back>,
 }
 
 /// The banner waits for the daemon's words: the model, and the newest
@@ -251,6 +275,9 @@ impl Chat {
             rewound: None,
             menu: 0,
             started_ms: now_ms,
+            view: None,
+            task_picker: None,
+            back: None,
         }
     }
 
@@ -300,18 +327,35 @@ impl Chat {
             if was_offline {
                 self.flash("reconnected");
             }
-            return vec![
+            let main = self.main_session().unwrap_or_else(|| sid.clone());
+            let mut out = vec![
                 call(
                     method::SESSION_WATCH,
                     json!({ "session_id": sid }),
                     Purpose::Watch,
                 ),
-                Self::watch_work(&sid),
+                Self::watch_work(&main),
             ];
+            if main != sid {
+                out.push(call(
+                    method::SESSION_WATCH,
+                    json!({ "session_id": main }),
+                    Purpose::Watch,
+                ));
+            }
+            return out;
         }
         self.started_ms = now_ms;
         let mut out = vec![call(method::HEALTH, Value::Null, Purpose::Health)];
         match self.cfg.resume.clone() {
+            None if self.cfg.task.is_some() => {
+                let (given, join) = self.cfg.task.clone().unwrap_or_default();
+                out.push(call(
+                    method::SESSION_LIST,
+                    Value::Null,
+                    Purpose::ListTask { given, join },
+                ));
+            }
             None if self.cfg.start != Start::New => out.extend(self.start_listing()),
             None => {
                 out.push(call(
@@ -358,6 +402,7 @@ impl Chat {
         // The footer's clocks turn over on the minute, a question's
         // countdown each second: nothing else wakes the chat for the board.
         at.extend(self.board.repaint_at);
+        at.extend(self.view_repaint_at());
         at.into_iter().min()
     }
 
@@ -376,7 +421,7 @@ impl Chat {
             self.notice = None;
         }
         let board = self.board_tick();
-        self.live.active() || self.notice.is_some() || board
+        self.live.active() || self.notice.is_some() || board || self.view.is_some()
     }
 
     pub(super) fn print_banner(&mut self) {
@@ -449,13 +494,17 @@ impl Chat {
         if !matches!(action, Action::Escape) {
             self.esc_armed = false;
         }
+        if self.task_picker.is_some() {
+            return self.task_picker_key(action);
+        }
         if self.rewind_picker.is_some() {
             return self.rewind_key(action);
         }
-        // A question waits and the line is empty: one key answers it.
+        // A question waits and the line is empty: one key answers it; a task
+        // only looked at takes its own keys.
         if self.editor.is_empty() {
             if let Action::Insert(c) = action {
-                if let Some(effects) = self.question_key(c) {
+                if let Some(effects) = self.question_key(c).or_else(|| self.view_key(c)) {
                     return effects;
                 }
             }
@@ -464,7 +513,7 @@ impl Chat {
     }
 
     fn act(&mut self, action: Action) -> Vec<Effect> {
-        let w = usize::from(self.width);
+        let w = self.input_width();
         match action {
             Action::Insert('?') if self.editor.is_empty() => {
                 self.help();
@@ -547,7 +596,7 @@ impl Chat {
                     self.flash("nothing pasted here");
                 }
             }
-            Action::Tasks => self.show_tasks(),
+            Action::Tasks => return self.open_task_picker(),
             Action::Interrupt => return self.interrupt(),
             Action::EndOfInput => {
                 if self.editor.is_empty() {
@@ -576,7 +625,7 @@ impl Chat {
 
     /// Leave, saying the conversation goes on.
     pub fn leave(&mut self) -> Vec<Effect> {
-        if let Some(sid) = self.session.clone() {
+        if let Some(sid) = self.main_session() {
             let end: String = sid
                 .chars()
                 .rev()
@@ -643,6 +692,7 @@ impl Chat {
             return Vec::new();
         }
         self.menu = 0;
+        self.view_line(trimmed);
         if let Some(rest) = trimmed.strip_prefix('/') {
             let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
             if let Some(effects) = commands::run(self, name, args.trim()) {
@@ -654,6 +704,9 @@ impl Chat {
                 self.flash(format!("no command /{name} · / lists them"));
                 return Vec::new();
             }
+        }
+        if let Some(effects) = self.view_submit(&taken) {
+            return effects;
         }
         let mut effects = vec![Effect::SaveHistory(self.editor.history().to_vec())];
         if self.must_queue() {
@@ -705,6 +758,10 @@ impl Chat {
     /// Shift+Tab: the next mode, asked of the daemon, which says whether it
     /// counts; its notification then sets the status line.
     fn cycle_mode(&mut self) -> Vec<Effect> {
+        if self.view.is_some() {
+            self.flash("the mode is the conversation's · esc goes back to main");
+            return Vec::new();
+        }
         let Some(sid) = self.session.clone() else {
             self.flash("open a conversation first");
             return Vec::new();
