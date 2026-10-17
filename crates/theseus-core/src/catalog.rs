@@ -1555,6 +1555,13 @@ mod tests {
             Cn
         );
         assert_eq!(of("http://localhost:9", None, "glm-5.3-flash"), Cn);
+        // A GLM the catalog does not know, behind a host that vouches `us`:
+        // the family alone says where it was made.
+        assert_eq!(of("https://proxy.example.com", Some(Us), "glm-6"), Cn);
+        assert_eq!(
+            of("https://proxy.example.com", Some(Us), "acme/GLM-6-Air"),
+            Cn
+        );
         // Anthropic's first party and loopback: the row's origin.
         assert_eq!(of("https://api.anthropic.com", None, sonnet), Us);
         assert_eq!(of("http://127.0.0.1:8080", None, sonnet), Us);
