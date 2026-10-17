@@ -28,14 +28,16 @@
 //!   lane (`revive_task_threads`, from `start_lanes`), and the place itself
 //!   starts at the first sync after the work model is read.
 //! - **A message in the thread** is an operator message to the task
-//!   (`Place::task_message`): `turn.submit` on the task's session, under the
-//!   kernel's rule for it (`turn.rs`): a task that waits or is blocked is woken
-//!   by the input; one that has ended refuses it (`execution_*`); one that
-//!   runs would queue it behind its turn (a task's turn is no person's, so the
-//!   steer, which joins a running turn, does not take it), and refuse it when
-//!   that turn ends the task: so a running task's message is not sent to it but
-//!   at once to the conversation that started the task, quoting the task,
-//!   as is a refused one, and the thread says so.
+//!   (`Place::task_message`, then `Place::join_task`, which the DM's reply to a
+//!   Follow mirror shares, theseus-esxyb): `turn.submit` on the task's session.
+//!   The owner's goes to the task whatever it is doing (the core steers it into
+//!   a running task at its next step). A guest's goes there only while the
+//!   kernel's rule takes it (a task that waits or is blocked is woken); while the
+//!   task runs it would queue behind the turn, and be refused when that turn ends
+//!   the task, so it goes at once to the conversation that started the task, as
+//!   does any message the task refuses once it is over (`execution_*`). Both
+//!   carry the shared redirect line (`task_redirect_line`), and the thread says
+//!   so. The thread's first line links back to the channel.
 //! - **Pace.** A create and a rename each cost one request; a task's changes
 //!   cost none (the sync only reads the model). A failed create backs off
 //!   `RETRY` and the task goes on in the channel as before.
@@ -530,6 +532,10 @@ impl Shared {
                     self.board
                         .error("task thread", Some(&m.session), format!("{e:#}"));
                 }
+                // The thread's first line links back to the channel, the
+                // mainline; Discord's own navigation does the rest.
+                let back = format!("-# ↩ back to <#{}>", p.channel);
+                self.say_pointer(thread, back, &m.session);
                 // One quiet line in the channel, linking it.
                 let line = format!("🧵 <#{thread}> · {}", clip(&v.title));
                 self.say_pointer(p.channel, line, &p.session);
@@ -700,36 +706,63 @@ impl Place {
         }
     }
 
-    /// A message in the task's thread: an operator message to the task. The
-    /// kernel's rule (see the module doc) decides whether the task takes it;
-    /// if not it goes to the conversation that started the task, quoting it.
+    /// A message in the task's thread: an operator message to the task
+    /// (see [`Place::join_task`] for where it goes).
     pub(super) fn task_message(&mut self, m: Inbound) {
-        self.last_activity_ms = theseus_protocol::now_unix_ms();
-        self.shared.core.binding_ledger(
-            theseus_protocol::LedgerKind::DiscordMessageIn,
-            Some(&self.session_id),
-            json!({"place": self.label, "author": m.author, "chars": m.text.chars().count(),
-                   "message_id": m.message.to_string(), "task_thread": true}),
-        );
-        let _ = self.lane.send(LaneMsg::Author(m.author_id));
         let Some(made) = self.shared.task_threads.made_in(m.channel.get()) else {
             return;
         };
-        // A task whose turn is running takes no input now: the kernel would
-        // queue it behind the turn, and a task's turn that ends the task
-        // refuses what waited ("complete, not runnable"), long after it was
-        // said. So the conversation that started the task hears it at once.
-        let running = self.shared.tasks.view(&made.task).is_some_and(|v| {
-            matches!(
-                v.state,
-                theseus_protocol::work::WorkState::Running
-                    | theseus_protocol::work::WorkState::Queued
-            )
-        });
-        let (rpc, shared, thread) = (
+        let title = self
+            .shared
+            .tasks
+            .view(&made.task)
+            .map_or_else(|| made.name.clone(), |v| clip(&v.title));
+        let to = Joined {
+            task: made.task,
+            session: made.session,
+            parent_session: made.parent_session,
+            title,
+        };
+        self.join_task(m, to, "task_thread");
+    }
+
+    /// A message for a task, from where its owner reads it (its thread, or the
+    /// DM's mirror of it, `via` naming which in the ledger row). The owner's
+    /// goes to the task whatever it is doing: the core steers it into a
+    /// running task at its next step, and queues it for the next turn
+    /// otherwise. A guest's goes to the task only while it takes the message
+    /// as the kernel's rule has it (a waiting or blocked task is woken); while
+    /// the task runs, or once it is over (`execution_*`), the conversation
+    /// that started it hears it, with the shared redirect line, and the place
+    /// says so: a message is never lost.
+    pub(super) fn join_task(&mut self, m: Inbound, to: Joined, via: &str) {
+        self.last_activity_ms = theseus_protocol::now_unix_ms();
+        let mut row = json!({"place": self.label, "author": m.author,
+                             "chars": m.text.chars().count(),
+                             "message_id": m.message.to_string()});
+        row[via] = json!(true);
+        self.shared.core.binding_ledger(
+            theseus_protocol::LedgerKind::DiscordMessageIn,
+            Some(&self.session_id),
+            row,
+        );
+        let _ = self.lane.send(LaneMsg::Author(m.author_id));
+        let owner = self
+            .shared
+            .core
+            .runner
+            .place_rule
+            .owners(&self.shared.core.cfg)
+            .contains(&format!("discord:{}", m.author_id));
+        let running = self
+            .shared
+            .tasks
+            .view(&to.task)
+            .is_some_and(|v| matches!(v.state, WorkState::Running | WorkState::Queued));
+        let (rpc, shared, target) = (
             self.shared.rpc.clone(),
             self.shared.clone(),
-            m.channel.get(),
+            self.target.clone(),
         );
         let (author, text, message) = (format!("discord:{}", m.author), m.text.clone(), m.message);
         let pending: Vec<Pending> = m.files.into_iter().collect();
@@ -738,11 +771,11 @@ impl Place {
             for p in pending {
                 attachments.extend(p.wait().await);
             }
-            let why = if running {
+            let why = if running && !owner {
                 "the task is running".to_string()
             } else {
                 let to_task = TurnSubmitParams {
-                    session_id: Some(made.session.clone()),
+                    session_id: Some(to.session.clone()),
                     input: text.clone(),
                     author: Some(author.clone()),
                     attachments: attachments.clone(),
@@ -757,8 +790,8 @@ impl Place {
                 let ended = e.code == theseus_protocol::error_code::NOT_FOUND
                     || class.is_some_and(|c| c.starts_with("execution_"));
                 if !ended {
-                    // The task took it and the turn failed: the thread says so.
-                    shared.say_pointer(thread, format!("-# ⚠️ {}", e.message), &made.session);
+                    // The task took it and the turn failed: the place says so.
+                    shared.say_to(&target, format!("-# ⚠️ {}", e.message), &to.session);
                     return;
                 }
                 "the task is over".to_string()
@@ -768,13 +801,13 @@ impl Place {
             let said = format!(
                 "{}{text}",
                 theseus_protocol::work::task_redirect_line(
-                    &made.name,
-                    board_v2::short(&made.task),
+                    &to.title,
+                    board_v2::short(&to.task),
                     &why
-                ),
+                )
             );
             let to_parent = TurnSubmitParams {
-                session_id: Some(made.parent_session.clone()),
+                session_id: Some(to.parent_session.clone()),
                 input: said,
                 author: Some(author),
                 attachments,
@@ -787,9 +820,17 @@ impl Place {
                 Ok(_) => format!("-# ↪ {why}: sent to the conversation that started it"),
                 Err(e) => format!("-# ⚠️ nothing took it: {}", e.message),
             };
-            shared.say_pointer(thread, line, &made.session);
+            shared.say_to(&target, line, &to.session);
         });
     }
+}
+
+/// A task a message is for, and the conversation it returns to.
+pub(super) struct Joined {
+    pub task: String,
+    pub session: String,
+    pub parent_session: String,
+    pub title: String,
 }
 
 #[cfg(test)]

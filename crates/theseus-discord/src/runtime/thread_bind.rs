@@ -408,9 +408,13 @@ impl Shared {
     /// A quiet notice in `channel`'s place: the lane writes it, in order with
     /// the place's other posts, and it pings no one.
     pub(super) fn say_pointer(&self, channel: u64, text: String, from: &str) {
-        let target = format!("discord:channel:{channel}");
+        self.say_to(&format!("discord:channel:{channel}"), text, from);
+    }
+
+    /// A quiet notice in the place `target` (a channel's, a thread's, a DM's).
+    pub(super) fn say_to(&self, target: &str, text: String, from: &str) {
         let body = json!({"kind": "notice", "text": text, "quiet": true});
-        if let Err(e) = self.core.outbox.post(from, "", &target, body) {
+        if let Err(e) = self.core.outbox.post(from, "", target, body) {
             self.board.error("post pointer", None, format!("{e:#}"));
         }
     }
@@ -670,6 +674,8 @@ impl Place {
             PlaceMsg::Inbound(i) if self.shared.task_threads.is_thread(i.channel.get()) => {
                 self.task_message(i);
             }
+            // A reply to a Follow mirror of a task that has a session joins it.
+            PlaceMsg::Inbound(i) if self.mirrors_a_task(&i) => self.task_reply(i),
             // A task's thread is the task's own conversation: `/new` would
             // take it off the task (theseus-i3do6).
             PlaceMsg::Control {

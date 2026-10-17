@@ -32,6 +32,7 @@ fn message(text: &str) -> Inbound {
         guild: None,
         thread: None,
         reply_turn: None,
+        task: None,
     }
 }
 

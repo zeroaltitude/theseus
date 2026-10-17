@@ -12,6 +12,12 @@
 //! - **At most [`MAX_FOLLOWS`] a place.** Follow is the DM's stand-in for a
 //!   thread.
 //! - **Sealed** when the task ends: its report line, no more edits.
+//! - **A reply to the mirror joins the task** (theseus-esxyb): the mirror's
+//!   message id is kept (`Follows::note_mirror`, in memory, bounded), and a
+//!   message that replies to it is the owner's word to the task, under the
+//!   rule of a message in a task's thread (`Place::join_task`). The mirror's
+//!   footer says so; an ended task's reply goes to the conversation with the
+//!   shared redirect line. A message that is not a reply is the conversation's.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -26,6 +32,8 @@ use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 use twilight_model::id::marker::ChannelMarker;
 use twilight_model::id::Id;
 
+use super::inbound::Inbound;
+use super::threads::Joined;
 use super::Shared;
 use crate::render::board_v2::short;
 use crate::render::clip;
@@ -36,6 +44,8 @@ pub(super) const MAX_FOLLOWS: usize = 3;
 /// All of a place's follows together edit at most this often (so one follow
 /// edits no more than once in two seconds).
 pub(super) const PLACE_EVERY: Duration = Duration::from_millis(2400);
+/// The mirrors a reply can find.
+const MIRRORS: usize = 64;
 /// The tool lines kept, and the stream's tail.
 const LINES: usize = 8;
 const STREAM_CHARS: usize = 700;
@@ -45,6 +55,8 @@ const STREAM_CHARS: usize = 700;
 pub(crate) struct Follows {
     by_place: Mutex<HashMap<String, Vec<String>>>,
     last_edit: Mutex<HashMap<String, Instant>>,
+    /// The mirrors made, by message, with their tasks: the newest [`MIRRORS`].
+    mirrors: Mutex<VecDeque<(u64, String)>>,
 }
 
 impl Follows {
@@ -83,6 +95,23 @@ impl Follows {
             .unwrap()
             .get(target)
             .map_or(0, Vec::len)
+    }
+
+    /// `message` is the mirror of `task`.
+    pub(super) fn note_mirror(&self, message: u64, task: &str) {
+        let mut m = self.mirrors.lock().unwrap_or_else(|e| e.into_inner());
+        m.push_back((message, task.to_string()));
+        while m.len() > MIRRORS {
+            m.pop_front();
+        }
+    }
+
+    /// The task whose mirror `message` is.
+    pub(super) fn task_of(&self, message: u64) -> Option<String> {
+        let m = self.mirrors.lock().unwrap_or_else(|e| e.into_inner());
+        m.iter()
+            .find(|(x, _)| *x == message)
+            .map(|(_, t)| t.clone())
     }
 
     /// Whether a follow of `target` may edit now, taking the turn if so.
@@ -141,7 +170,7 @@ impl Mirror {
         }
         match end {
             Some(r) => t.push_str(&format!("\n{r}")),
-            None => t.push_str("\n-# following · sealed when it ends"),
+            None => t.push_str("\n-# following · reply here to talk to the task"),
         }
         clip(&t, 1900)
     }
@@ -168,6 +197,13 @@ pub(super) fn report_line(v: &WorkView) -> String {
 }
 
 impl Shared {
+    /// The task whose mirror a message replies to.
+    pub(super) fn reply_task_of(&self, m: &twilight_model::channel::Message) -> Option<String> {
+        let to = m.reference.as_ref().and_then(|r| r.message_id);
+        let to = to.or(m.referenced_message.as_ref().map(|r| r.id))?;
+        self.cmds.follows.task_of(to.get())
+    }
+
     /// Follow a task from the place `target`, in `channel`: a message that
     /// mirrors it. Why not, when it cannot be.
     pub(super) fn follow(
@@ -267,6 +303,9 @@ impl Shared {
                     Ok(resp) => {
                         if message.is_none() {
                             message = resp.model().await.ok().map(|m| m.id);
+                            if let Some(m) = message {
+                                self.cmds.follows.note_mirror(m.get(), task);
+                            }
                             self.cmds.follows.may_edit(target, Instant::now());
                         }
                         sent = text;
@@ -282,6 +321,31 @@ impl Shared {
                 break;
             }
         }
+    }
+}
+
+impl super::Place {
+    /// Whether `m` replies to the mirror of a task that has a session.
+    pub(super) fn mirrors_a_task(&self, m: &Inbound) -> bool {
+        m.task
+            .as_deref()
+            .and_then(|t| self.shared.tasks.view(t))
+            .is_some_and(|v| v.session_id.is_some())
+    }
+
+    /// A reply to a task's mirror: the owner's word to the task, which must
+    /// still have a session (the arm that calls this checks).
+    pub(super) fn task_reply(&mut self, m: Inbound) {
+        let Some(v) = m.task.as_deref().and_then(|t| self.shared.tasks.view(t)) else {
+            return;
+        };
+        let to = Joined {
+            session: v.session_id.clone().unwrap_or_default(),
+            title: clip(v.title.trim(), 80),
+            task: v.id,
+            parent_session: self.session_id.clone(),
+        };
+        self.join_task(m, to, "task_reply");
     }
 }
 
