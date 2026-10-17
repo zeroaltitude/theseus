@@ -312,7 +312,6 @@ async fn in_a_shared_channel_a_tap_on_a_tasks_thread_does_nothing() {
     })
     .await;
     let first = r.posted(t.id)[0].id.clone();
-    until(&r, "the task ended", || state(&r) == "complete").await;
     react(&r, ANA, t.id, &first, PAUSE);
     react(&r, ANA, t.id, &first, STOP);
     quiet().await;
