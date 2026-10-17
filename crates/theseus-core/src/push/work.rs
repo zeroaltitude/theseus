@@ -150,6 +150,8 @@ struct ExecIn {
     flagged: bool,
     /// The task was started expecting to run long (theseus-bh3t.1).
     expect: Option<theseus_protocol::task_start::Expect>,
+    /// The owner holds this task (`task.pause`).
+    paused: bool,
 }
 
 /// An action the board shows: a question, or a job.
@@ -607,6 +609,16 @@ impl WorkBoard {
                         self.early.push_back(r.clone());
                     }
                 }
+                "task.paused" | "task.resumed" => {
+                    let on = r.kind == "task.paused";
+                    if let Some(id) = r.session_id.as_deref().and_then(|s| self.exec_of(s)) {
+                        let id = id.to_string();
+                        if let Some(e) = self.execs.get_mut(&id) {
+                            e.paused = on;
+                            d.execs.insert(id);
+                        }
+                    }
+                }
                 "wake.fired" => {
                     self.take_horizon_row(r, d);
                     self.take_fired(r, d);
@@ -1019,7 +1031,8 @@ impl WorkBoard {
         // A task asleep for a deferred start has not begun to run.
         let asleep = matches!(
             x.waiting_on,
-            Some(theseus_protocol::WaitingOn::DueAt { .. })
+            Some(theseus_protocol::WaitingOn::DueAt { at_ms })
+                if at_ms < theseus_protocol::task_pause::PAUSED_AT_MS
         );
         let ran_from = if asleep { 0 } else { e.created_at_ms };
         self.execs.insert(
@@ -1054,6 +1067,7 @@ impl WorkBoard {
                     .get_meta(&crate::task::expect_key(&e.session_id))
                     .ok()
                     .flatten(),
+                paused: e.kind == SessionKind::Task && core.runner.task_paused(&e.session_id),
             },
         );
         self.ensure_forecast(core, &e.id);

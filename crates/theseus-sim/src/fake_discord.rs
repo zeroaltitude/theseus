@@ -58,6 +58,7 @@ mod channels;
 pub mod commands;
 mod events;
 mod overwrites;
+mod reactions;
 mod threads;
 
 pub use channels::FakeChannel;
@@ -520,6 +521,8 @@ pub struct Seen {
 
 #[derive(Default)]
 struct State {
+    /// The bot's reactions, by message, in the order added (`reactions`).
+    reactions: BTreeMap<String, Vec<String>>,
     mode: Option<Mode>,
     messages: Vec<Msg>,
     seen: Vec<Seen>,
@@ -1263,6 +1266,12 @@ impl FakeDiscord {
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
             ("PUT", ["channels", c, "messages", "pins", m]) => self.pin(stream, c, m),
+            ("PUT", ["channels", c, "messages", m, "reactions", e, "@me"]) => {
+                self.reaction_put(stream, (c, m), e)
+            }
+            ("DELETE", ["channels", c, "messages", m, "reactions", e, "@me"]) => {
+                self.reaction_delete(stream, (c, m), e)
+            }
             ("PUT", ["channels", c, "voice-status"]) => self.voice_status(stream, c, &body),
             ("GET", ["channels", c, "messages", "pins"]) => self.pins(stream, route, c),
             _ => {

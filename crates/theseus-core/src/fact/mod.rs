@@ -92,6 +92,7 @@ pub mod start;
 pub mod steer;
 pub mod synthesis;
 pub mod task_graph;
+pub mod task_pause;
 pub mod task_start;
 pub mod term;
 pub mod thread;
@@ -495,6 +496,8 @@ facts![
     extend::ExtendRevoked<'static>,
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
+    task_pause::TaskPaused<'static>,
+    task_pause::TaskResumed<'static>,
     rsi::SelfHalted<'static>,
     rsi::SelfResumed<'static>,
     rsi_budget::BudgetReserved<'static>,

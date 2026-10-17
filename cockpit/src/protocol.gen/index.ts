@@ -634,6 +634,8 @@ export type * from './TaskKind';
 export type * from './TaskListParams';
 export type * from './TaskListResult';
 export type * from './TaskOrigin';
+export type * from './TaskPauseParams';
+export type * from './TaskPauseResult';
 export type * from './TaskProposal';
 export type * from './TaskRecord';
 export type * from './TaskRef';

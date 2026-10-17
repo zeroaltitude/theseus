@@ -11,6 +11,9 @@
 //!   be refused as "complete"; so the turn parks on input, the message wakes it
 //!   (`WokenByInput`), and that turn's last message is the report. One atomic
 //!   load, read only at the end of a task's turn.
+//! - **Parking on the owner's hold** (`paused_at`, `task.pause`): at a loop
+//!   boundary a held task's turn ends waiting on input, and `task_end` keeps
+//!   that wait, so it parks and never reports until `task.resume` wakes it.
 //! - **The count** (`join`, `joined`): the messages the task took from the
 //!   owner, in memory by session. The frame that ends the task writes it as
 //!   the META record `task::joined_key` (no store format change), and the
@@ -25,6 +28,16 @@ impl TurnRunner {
     pub(super) fn owner_waits(&self, session_id: &str) -> bool {
         let steers = &self.tools.job_waits.steers;
         steers.any() && steers.get(session_id).is_some_and(|s| s.pending())
+    }
+
+    /// The loop boundary of a task the owner holds: the turn ends here, waiting
+    /// on input (`task_end` keeps the wait). One atomic load while none is held.
+    pub(super) fn paused_at(&self, t: &mut Turn<'_>) -> bool {
+        let held = t.tc.task.is_some() && self.task_paused(t.tc.session_id);
+        if held {
+            t.stop_reason = "paused".into();
+        }
+        held
     }
 
     /// A task's turn that the owner's input began is a message it took.
@@ -47,6 +60,15 @@ impl TurnRunner {
     ) -> TurnEnd {
         let wait = TurnEnd::Wait { wake: Wake::Input };
         match end {
+            // The owner holds the task (`task.pause`): it parks, never reports.
+            TurnEnd::Wait { wake: Wake::Input } if is_task && self.task_paused(session_id) => {
+                *again = false;
+                TurnEnd::Wait {
+                    wake: Wake::DueAt {
+                        at_ms: theseus_protocol::task_pause::PAUSED_AT_MS,
+                    },
+                }
+            }
             TurnEnd::Wait { wake: Wake::Input } if is_task => {
                 if *again || stop == "max_loops" {
                     *again = true;

@@ -241,7 +241,7 @@ impl Shared {
         Ok(())
     }
 
-    async fn run_follow(&self, target: &str, channel: u64, task: &str, session: &str) {
+    async fn run_follow(self: &Arc<Self>, target: &str, channel: u64, task: &str, session: &str) {
         let (rpc, mut notes) = RpcClient::connect(
             self.core.clone(),
             Client::new("discord-follow", Surface::Discord),
@@ -311,6 +311,7 @@ impl Shared {
                             message = resp.model().await.ok().map(|m| m.id);
                             if let Some(m) = message {
                                 self.cmds.follows.note_mirror(m.get(), task);
+                                self.add_controls(channel.get(), m.get(), task.to_string());
                             }
                             self.cmds.follows.may_edit(target, Instant::now());
                         }

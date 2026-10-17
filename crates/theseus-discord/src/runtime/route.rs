@@ -35,6 +35,8 @@ pub(crate) struct Replies(
     /// The turns that ran in a thread and carried its tag in the DM, with
     /// the thread's slug (theseus-sjzm).
     Mutex<VecDeque<(String, String)>>,
+    /// A task's messages that are no turn's reply (theseus-bh3t.2).
+    super::task_react::TaskMsgs,
 );
 
 impl Replies {
@@ -70,6 +72,11 @@ impl Replies {
         let turn = self.turn(message)?;
         let t = self.1.lock().unwrap_or_else(|e| e.into_inner());
         t.iter().find(|(x, _)| *x == turn).map(|(_, s)| s.clone())
+    }
+
+    /// The messages that carry a task, for a reaction to find.
+    pub(crate) fn tasks(&self) -> &super::task_react::TaskMsgs {
+        &self.2
     }
 
     /// The turn whose reply `message` is.
@@ -149,7 +156,7 @@ pub(crate) fn routed(r: &theseus_protocol::TurnSubmitResult) -> Option<String> {
 }
 
 /// The place a reaction came from, as the bindings name it.
-fn place_of(r: &GatewayReaction) -> String {
+pub(super) fn place_of(r: &GatewayReaction) -> String {
     match r.guild_id {
         None => format!("discord:dm:{}", r.user_id),
         Some(_) => format!("discord:channel:{}", r.channel_id),
@@ -164,8 +171,11 @@ pub(crate) async fn reacted(shared: std::sync::Arc<Shared>, r: GatewayReaction) 
 impl Shared {
     /// A reaction on one of this process's replies: ⬆️ or ⬇️ corrects the
     /// turn's routing, as the reactor, from where they reacted.
-    pub(crate) async fn on_reaction(&self, r: GatewayReaction) {
+    pub(crate) async fn on_reaction(self: &std::sync::Arc<Self>, r: GatewayReaction) {
         if r.user_id.get() == self.bot_id() {
+            return;
+        }
+        if self.task_reaction(&r).await {
             return;
         }
         let Some(turn) = self.replies.turn(r.message_id.get()) else {

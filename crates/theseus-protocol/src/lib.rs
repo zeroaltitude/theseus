@@ -82,6 +82,7 @@ pub mod standing;
 pub mod standing_proposals;
 mod submit;
 pub mod surface;
+pub mod task_pause;
 pub mod task_start;
 pub mod tasks;
 pub mod term;
@@ -267,7 +268,7 @@ pub mod method {
         /// Tasks (DD7): the child sessions conversations started, with state and spend.
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
-        TASK_CANCEL = "task.cancel",
+        TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
         /// One task record (39a, `tasks::TaskGetParams`). A read.
         TASK_GET = "task.get",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).

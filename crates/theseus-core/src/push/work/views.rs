@@ -127,6 +127,7 @@ impl WorkBoard {
         v.report = self.report_of(ei, &v);
         v.flagged = ei.flagged;
         v.expect = ei.expect;
+        v.paused = ei.paused;
         v.ended_at_ms = v.state.ended().then_some(ei.x.at_ms);
         Some(v)
     }

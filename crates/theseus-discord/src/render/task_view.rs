@@ -54,6 +54,9 @@ pub fn failure_row(v: &WorkView, named: bool) -> Option<Value> {
 }
 
 fn state_words(v: &WorkView) -> &'static str {
+    if v.paused && !v.state.ended() {
+        return "⏸ paused";
+    }
     match v.state {
         WorkState::Queued => "⏳ queued",
         WorkState::Running => "⚙️ running",

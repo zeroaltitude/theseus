@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
+pub mod pause;
 pub mod steer;
 use steer::Steers;
 

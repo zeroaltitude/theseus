@@ -618,7 +618,10 @@ impl Shared {
                 // The thread's first line links back to the channel, the
                 // mainline; Discord's own navigation does the rest.
                 let back = format!("-# ↩ back to <#{}>", p.channel);
-                self.say_pointer(thread, back, &m.session);
+                // Its message carries the task's controls (theseus-bh3t.2).
+                if let Some(post) = self.say_pointer(thread, back, &m.session) {
+                    self.replies.tasks().expect(format!("note:{post}"), &v.id);
+                }
                 // One quiet line in the channel, linking it.
                 let line = format!("🧵 <#{thread}> · {}", clip(&v.title));
                 self.say_pointer(p.channel, line, &p.session);
