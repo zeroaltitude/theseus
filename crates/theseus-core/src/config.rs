@@ -339,6 +339,14 @@ pub struct DiscordConfig {
     /// Discord's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway_proxy: Option<String>,
+    /// One private forum in the trusted guild that is the home of every task:
+    /// a post each (theseus-bh3t.6). Off: no forum is read, made or posted to.
+    #[serde(default = "default_true")]
+    pub forum: bool,
+    /// The forum, by Discord id (15 to 21 digits) or by name; made when no
+    /// forum of that name exists.
+    #[serde(default = "discord::default_forum_channel")]
+    pub forum_channel: String,
     /// `[[discord.thread]]`: a channel the bindings file names, run as a
     /// thread's place (theseus-sjzm); none by default.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1507,6 +1515,7 @@ impl Config {
         discord::ThreadBind::validate_all(&self.discord.thread)?;
         discord::digest_slots(&self.discord.digest_at)?;
         self.discord.calendar.validate()?;
+        discord::validate_forum_channel(&self.discord.forum_channel)?;
         self.route.validate()?;
         self.prefix.validate()?;
         self.notify.validate()?;

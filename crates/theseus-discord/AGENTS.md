@@ -362,6 +362,21 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   line counts them (`render::report`'s `guests`). Guest text reaches no session, board line, digest or ledger row (the row has `chars`).
   A shared place's thread keeps `join_task`'s guest rule (redirect to the conversation). Tests: `tests_war_room.rs`; the stand-in's
   `PUT/DELETE` overwrites and thread members are `fake_discord/overwrites.rs`, and `slash_with` sends USER options.
+- **The default forum** (theseus-bh3t.6, `runtime/default_forum.rs`; `[discord] forum`, on, and `forum_channel`, `theseus`, an id or a
+  name): one private forum in the owner's guild, the complete index of tasks. It acts only when the bindings trust exactly one guild.
+  `Shared::ensure_forum`, at the start and at each READY, finds it (the META record `discord.default_forum`, kept while `forum_channel` is
+  what it was resolved from, so a renamed forum is still the forum; else a configured id, which must be a forum of the guild; else
+  the first forum of that name) or makes it: type 15, `@everyone` denied View Channel, each owner and the bot allowed (`OWNER_BITS`,
+  `BOT_BITS`), the four state tags. A 403, or an id that is no forum, turns it off for the run with one quiet line to the owner
+  (`to_operator`); a network failure is tried again. The state is a `watch` (`Stand`): a task that would be homed waits at most 30 s for it.
+  **Every task gets one post**, made only by the forum worker (`forum.rs`). `home_of(forum_homed, is_channel_place)` says where a new task
+  works: `Post` (the DM's and a private channel's tasks: the post is a row of `TaskThreads` as a thread is, so steering, `/new`'s refusal,
+  the end's rename and a restart work unchanged; `TaskPosts::make` asks the worker for it), `Thread` (a shared channel's) or `None`.
+  Anything but `Post` gets an **index card** from the worker (its card links `TaskThreads::url_of`, its tag follows the state to the
+  end, its channel is routed to the place that told of the task so that `index_of` can answer a message there with one quiet line and
+  start nothing). `TaskPosts::moved` is the seam for a task promoted to a channel of its own. Activity threads are untouched
+  (`[threads] discord_channel` alone). A tag edit carries `archived: false`. Tests: `tests_default_forum.rs`, the fake's
+  `fake_discord/forums.rs` (`refuse_forum`, `forums_made`, `rename_forum`, `archive_thread`), and `forum.rs`'s.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.

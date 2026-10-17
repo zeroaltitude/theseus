@@ -56,6 +56,7 @@ use twilight_model::channel::thread::AutoArchiveDuration;
 use twilight_model::id::marker::ChannelMarker;
 use twilight_model::id::Id;
 
+use super::default_forum::Home;
 use super::inbound::{Inbound, Pending};
 use super::task_channels::{Chan, Why};
 use super::{show, Place, PlaceMsg, Shared};
@@ -142,6 +143,10 @@ pub(super) struct Parent {
     pub session: String,
     pub users: Vec<u64>,
     pub show: show::Show,
+    /// The default forum homes this place's tasks (theseus-bh3t.6).
+    pub homed: bool,
+    /// The place's mailbox, to tell it its board changed.
+    pub tx: mpsc::UnboundedSender<PlaceMsg>,
 }
 
 /// How a task's thread stands: the mark its name carries.
@@ -575,16 +580,28 @@ impl Shared {
             return;
         };
         let name = task_name(Mark::of(v.state), &v.id, &v.title);
+        // The default forum may still be found; a task goes on without it
+        // when it is not (theseus-bh3t.6).
+        let homed = p.homed && self.task_posts.default.settled().await;
+        let home = super::default_forum::home_of(homed, p.threads);
+        if home == Home::None {
+            self.task_threads.settle(&v.id);
+            return;
+        }
         // The task's events are heard from now: they wait in the place's
         // mailbox while the thread is made (live progress is best effort, but
         // a task's first lines are the ones worth keeping).
         let mailbox = mpsc::unbounded_channel();
         self.task_threads.running(&session, mailbox.0.clone());
         self.watch(&session).await;
-        match self
-            .guild_thread_create(p.channel, &name, "", ARCHIVE)
-            .await
-        {
+        let created = match home {
+            Home::Post => self.task_posts.make(v.clone()).await,
+            _ => {
+                self.guild_thread_create(p.channel, &name, "", ARCHIVE)
+                    .await
+            }
+        };
+        match created {
             Ok((thread, guild)) => {
                 let bound = self.bound_place(&p, thread, &name);
                 let m = Made {
@@ -617,17 +634,20 @@ impl Shared {
                 }
                 // The thread's first line links back to the channel, the
                 // mainline; Discord's own navigation does the rest.
-                let back = format!("-# ↩ back to <#{}>", p.channel);
+                let back = match p.threads {
+                    true => format!("-# ↩ back to <#{}>", p.channel),
+                    false => "-# ↩ from the DM".to_string(),
+                };
                 // Its message carries the task's controls (theseus-bh3t.2).
                 if let Some(post) = self.say_pointer(thread, back, &m.session) {
                     self.replies.tasks().expect(format!("note:{post}"), &v.id);
                 }
-                // One quiet line in the channel, linking it.
+                // One quiet line in the channel (or the DM), linking it.
                 let line = format!("🧵 <#{thread}> · {}", clip(&v.title));
-                self.say_pointer(p.channel, line, &p.session);
+                self.say_to(&p.target, line, &p.session);
                 self.task_threads.settle(&v.id);
                 // The task may have ended while the thread was made.
-                self.tell_channel(p.channel, PlaceMsg::Tasks);
+                let _ = p.tx.send(PlaceMsg::Tasks);
             }
             Err(e) => {
                 self.board
@@ -755,16 +775,19 @@ impl Place {
     /// The parts of this place a thread of its task is made from, if it is a
     /// guild channel that wants task threads (and no thread itself).
     fn parent_of_tasks(&self) -> Option<Parent> {
-        let channel = self.channel?.get();
+        let channel = self.channel.map_or(0, |c| c.get());
         let s = &self.shared;
         let threads = self.kind == "channel"
             && s.task_threads.enabled(channel)
             && !s.task_threads.is_thread(channel)
             && s.threads.slug_of(channel).is_none();
-        // A DM has no threads, but its tasks may have channels.
-        let wants = (threads || (self.kind == "dm" && s.channels_wanted(&self.target)))
+        let homed = self.forum_homes();
+        // A DM has no threads, but its tasks may have channels, and posts.
+        let wants = (threads || homed || (self.kind == "dm" && s.channels_wanted(&self.target)))
             && !self.session_id.is_empty();
         wants.then(|| Parent {
+            homed,
+            tx: self.tx.clone(),
             channel,
             threads,
             key: self.key.clone(),

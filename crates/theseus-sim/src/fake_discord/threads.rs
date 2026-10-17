@@ -345,6 +345,9 @@ impl FakeDiscord {
         body: &Value,
     ) -> std::io::Result<()> {
         let path = format!("/channels/{id}");
+        if let Some((status, out)) = self.forum_patch(id, body) {
+            return reply(stream, status, &out);
+        }
         // A forum itself: its available tags, whole, as Discord takes them
         // (a tag without an id is new).
         if body["applied_tags"].is_array()

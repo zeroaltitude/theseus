@@ -58,6 +58,7 @@ mod channels;
 pub mod commands;
 mod emojis;
 mod events;
+mod forums;
 mod overwrites;
 mod reactions;
 mod threads;
@@ -581,6 +582,8 @@ struct State {
     refuse_webhooks: bool,
     /// A thread's members the bot added (`PUT /channels/<t>/thread-members/<u>`).
     thread_members: BTreeMap<u64, std::collections::BTreeSet<u64>>,
+    /// Forums made and refused (`forums.rs`, theseus-bh3t.6).
+    forum_rules: forums::Forums,
     /// The last big id given a thread or a webhook.
     next_big: u64,
     /// The channels and categories the bot made, and 403 for them (`channels.rs`).
@@ -1216,6 +1219,7 @@ impl FakeDiscord {
         }
         match (method.as_str(), segs.as_slice()) {
             ("GET", ["attachments", ..]) => self.attachment(stream, route),
+            ("GET", ["guilds", g, "channels"]) => self.guild_channels(stream, g),
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
             ("POST", ["channels", c, "threads"]) => self.thread_create(stream, c, &body),
             ("PATCH", ["channels", c]) => self.channel_patch(stream, c, &body),

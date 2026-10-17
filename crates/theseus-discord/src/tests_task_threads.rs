@@ -18,7 +18,7 @@ use crate::runtime::threads::{task_name, Mark};
 use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 
 pub(crate) const ASK: &str = "START: run this as a background task, please";
-const QUOTE: &str = "run this as a background task, please";
+pub(crate) const QUOTE: &str = "run this as a background task, please";
 pub(crate) const REEF: &str = "Reef-chart: chart the reef";
 pub(crate) const BUOY: &str = "Buoy-paint: paint the buoy";
 
@@ -301,7 +301,7 @@ pub(crate) fn answers(last: &str) -> Vec<Scripted> {
     vec![Scripted::text(last)]
 }
 
-const FORUM: u64 = 900_000_000_000_000_030;
+pub(crate) const FORUM: u64 = 900_000_000_000_000_030;
 
 fn guild_with_forum() -> Guild {
     guild().channel(FORUM, "tasks")

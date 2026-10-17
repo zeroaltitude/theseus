@@ -94,6 +94,12 @@ impl FakeGateway {
         self.inner.0.lock().unwrap().st.clone()
     }
 
+    /// A second READY on the current connection, as the binding sees one after
+    /// a reconnect (theseus-bh3t.6).
+    pub fn ready_again(&self) -> bool {
+        self.dispatch("READY", (self.ready)())
+    }
+
     /// Send event `t` with data `d` to the client that identified last.
     /// False when no client is connected that has identified.
     pub fn dispatch(&self, t: &str, d: Value) -> bool {

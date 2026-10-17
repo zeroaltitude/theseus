@@ -27,7 +27,7 @@
 //!   creation and when its task's last state is shown. A task's post is
 //!   found there; a task already over with no post gets none.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -37,11 +37,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use theseus_core::places::PlaceClass;
 use theseus_protocol::work::{WorkKind, WorkState, WorkView};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use twilight_http::request::Request;
 use twilight_http::routing::Route as HttpRoute;
 
+use super::default_forum::{DefaultForum, Home};
+use super::threads::{task_name, Mark};
 use super::{Place, Shared};
 use crate::bindings::Bindings;
 use crate::render::{board_v2, task_view, v2};
@@ -103,6 +105,8 @@ pub(crate) struct Forum {
     /// Only the owner can view it (the place rule: its channel's own word,
     /// else its guild's).
     pub private: bool,
+    /// The default forum (theseus-bh3t.6), not one the file binds.
+    pub default: bool,
 }
 
 /// Whether `forum` shows the tasks of a place of this class and guild: a
@@ -138,6 +142,9 @@ pub(crate) struct Post {
     /// more, for the board's link to it.
     #[serde(default)]
     pub ended_ms: Option<u64>,
+    /// Where the task works, when this post is only its index card.
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 /// How long a finished task's post stays in the list for its link (the board
@@ -153,15 +160,30 @@ pub(super) struct Seen {
     links: HashMap<String, String>,
     /// The place that told, which draws its board again when a post is made.
     home: Option<mpsc::UnboundedSender<super::PlaceMsg>>,
+    /// The tasks whose post in the default forum is their place: made on
+    /// request (`TaskPosts::make`), never by the worker's own sync.
+    homed: HashSet<String>,
+}
+
+/// A request for the post that is a task's place.
+struct Make {
+    view: WorkView,
+    reply: oneshot::Sender<anyhow::Result<(u64, Option<u64>)>>,
 }
 
 /// The binding's forums and posts, in `Shared`.
 #[derive(Default)]
 pub(crate) struct TaskPosts {
     tx: OnceLock<mpsc::UnboundedSender<Seen>>,
+    make_tx: OnceLock<mpsc::UnboundedSender<Make>>,
     forums: Mutex<Vec<Forum>>,
-    posts: Mutex<Vec<Post>>,
+    pub(super) posts: Mutex<Vec<Post>>,
     loaded: AtomicBool,
+    /// The default forum (theseus-bh3t.6), its own slot: a bindings reload
+    /// replaces `forums`.
+    pub(super) default: DefaultForum,
+    /// Where a task whose post was its place works now, by task.
+    moved: Mutex<HashMap<String, String>>,
 }
 
 impl TaskPosts {
@@ -175,14 +197,26 @@ impl TaskPosts {
                     channel: f.id.parse().ok()?,
                     guild: f.guild.clone(),
                     private: b.is_private(f),
+                    default: false,
                 })
             })
             .collect();
         *self.forums.lock().unwrap() = forums;
     }
 
+    /// The bound forums and the default one when it stands.
     fn forums(&self) -> Vec<Forum> {
-        self.forums.lock().unwrap().clone()
+        let mut forums = self.forums.lock().unwrap().clone();
+        if let Some(d) = self.default.forum() {
+            forums.retain(|f| f.channel != d.channel);
+            forums.push(d);
+        }
+        forums
+    }
+
+    /// Whether a forum stands or may soon: a place has tasks to tell it.
+    fn wants_tasks(&self) -> bool {
+        !self.forums.lock().unwrap().is_empty() || self.default.may_stand()
     }
 
     fn load(&self, store: &theseus_core::store::Store) {
@@ -207,14 +241,82 @@ impl TaskPosts {
         }
     }
 
-    /// The link to a task's post, if it has one.
+    /// The link to a task's post, if it has one (the default forum's first).
     pub(crate) fn url_of(&self, task: &str) -> Option<String> {
         let posts = self.posts.lock().unwrap();
-        let p = posts.iter().find(|p| p.task == task)?;
+        let default = self.default.forum().map(|f| f.channel);
+        let mut of = posts.iter().filter(|p| p.task == task);
+        let p = of
+            .clone()
+            .find(|p| Some(p.forum) == default)
+            .or(of.next())?;
         Some(format!(
             "https://discord.com/channels/{}/{}",
             p.guild, p.post
         ))
+    }
+}
+
+impl TaskPosts {
+    /// The post that is the task's place, made by the worker, the one maker
+    /// of posts: its id and its guild.
+    pub(crate) async fn make(&self, view: WorkView) -> anyhow::Result<(u64, Option<u64>)> {
+        let tx = self
+            .make_tx
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("no forum worker"))?;
+        let (reply, rx) = oneshot::channel();
+        tx.send(Make { view, reply })
+            .map_err(|_| anyhow::anyhow!("the forum worker has stopped"))?;
+        rx.await?
+    }
+
+    /// A task whose post was its place now works at `url`: the post stays
+    /// listed and live as the task's index card, its tag following the state.
+    #[cfg(test)] // task channels' promotion calls it at the join, and the cfg goes
+    pub(crate) fn moved(&self, task: &str, url: &str) {
+        self.moved
+            .lock()
+            .unwrap()
+            .insert(task.to_string(), url.to_string());
+        if let Some(tx) = self.tx.get() {
+            let _ = tx.send(Seen::nudge());
+        }
+    }
+
+    /// The worker keeps a post for the task.
+    #[cfg(test)] // task channels' promotion calls it at the join, and the cfg goes
+    pub(crate) fn owns(&self, task: &str) -> bool {
+        self.posts.lock().unwrap().iter().any(|p| p.task == task)
+    }
+
+    /// `channel` is a task's index card: where the task works ("" when it
+    /// has no other place). A card's messages start nothing.
+    pub(crate) fn index_of(&self, channel: u64) -> Option<String> {
+        let posts = self.posts.lock().unwrap();
+        let p = posts.iter().find(|p| p.post == channel)?;
+        p.link.clone().or(Some(String::new()))
+    }
+
+    /// Tell the worker to look again (the default forum came up).
+    pub(super) fn nudge(&self) {
+        if let Some(tx) = self.tx.get() {
+            let _ = tx.send(Seen::nudge());
+        }
+    }
+}
+
+impl Seen {
+    /// No tasks: the worker is woken to do what is due.
+    fn nudge() -> Self {
+        Self {
+            views: Vec::new(),
+            private: false,
+            guild: None,
+            links: HashMap::new(),
+            home: None,
+            homed: HashSet::new(),
+        }
     }
 }
 
@@ -225,6 +327,7 @@ struct Entry {
     guild: Option<String>,
     link: Option<String>,
     home: Option<mpsc::UnboundedSender<super::PlaceMsg>>,
+    homed: bool,
 }
 
 /// What the worker shows of one post.
@@ -274,9 +377,11 @@ impl Shared {
         self.task_posts.set_forums(b);
         self.task_posts.load(&self.core.store);
         let (tx, rx) = mpsc::unbounded_channel();
-        if self.task_posts.tx.set(tx).is_ok() {
-            tokio::spawn(run(self.clone(), rx));
+        let (make_tx, make_rx) = mpsc::unbounded_channel();
+        if self.task_posts.tx.set(tx).is_ok() && self.task_posts.make_tx.set(make_tx).is_ok() {
+            tokio::spawn(run(self.clone(), rx, make_rx));
         }
+        self.start_default_forum(b);
     }
 
     /// Where each task of the projection's parts has a thread or a post, for
@@ -304,7 +409,7 @@ impl Place {
         let Some(tx) = s.task_posts.tx.get() else {
             return;
         };
-        if s.task_posts.forums().is_empty() || self.session_id.is_empty() {
+        if !s.task_posts.wants_tasks() || self.session_id.is_empty() {
             return;
         }
         let views = s.tasks.all_of(&self.session_id);
@@ -320,19 +425,28 @@ impl Place {
             .iter()
             .filter_map(|v| Some((v.id.clone(), s.task_threads.url_of(&v.id)?)))
             .collect();
+        let homed = match self.home() {
+            Home::Post => views.iter().map(|v| v.id.clone()).collect(),
+            _ => HashSet::new(),
+        };
         let _ = tx.send(Seen {
             views,
             private: class == PlaceClass::Private,
             guild: s.place_bits.get(&self.key).guild,
             links,
             home: Some(self.tx.clone()),
+            homed,
         });
     }
 }
 
 /// The worker: each place's tasks as they change, and the waits for the
 /// edits that were held back, until the daemon stops.
-async fn run(shared: Arc<Shared>, mut rx: mpsc::UnboundedReceiver<Seen>) {
+async fn run(
+    shared: Arc<Shared>,
+    mut rx: mpsc::UnboundedReceiver<Seen>,
+    mut makes: mpsc::UnboundedReceiver<Make>,
+) {
     let core = shared.core.clone();
     let stopped = core.outbox.stopped();
     tokio::pin!(stopped);
@@ -360,6 +474,10 @@ async fn run(shared: Arc<Shared>, mut rx: mpsc::UnboundedReceiver<Seen>) {
                 Some(s) => w.see(s),
                 None => break,
             },
+            Some(m) = makes.recv() => {
+                let made = w.make_post(&m.view).await;
+                let _ = m.reply.send(made);
+            }
             () = sleep => {}
             () = &mut stopped => break,
         }
@@ -378,6 +496,7 @@ impl Worker {
                 continue;
             }
             let link = s.links.get(&v.id).cloned();
+            let homed = s.homed.contains(&v.id);
             self.entries.insert(
                 v.id.clone(),
                 Entry {
@@ -386,6 +505,7 @@ impl Worker {
                     guild: s.guild.clone(),
                     link,
                     home: s.home.clone(),
+                    homed,
                 },
             );
         }
@@ -459,28 +579,51 @@ impl Worker {
         Some(Some(Duration::ZERO))
     }
 
+    /// What the worker shows of the task `id` in `f`: its view, the link its
+    /// card carries, whether its post is its place (then it links nowhere),
+    /// and whether the post is an index card of the default forum. A task
+    /// that moved links where it works now (theseus-bh3t.6).
+    fn shown(&self, id: &str, f: &Forum) -> Option<(WorkView, Option<String>, bool, bool)> {
+        let e = self.entries.get(id)?;
+        let homed = e.homed && f.default;
+        let moved = self
+            .shared
+            .task_posts
+            .moved
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned();
+        let index = f.default && (!homed || moved.is_some());
+        let link = moved.or(e.link.clone().filter(|_| !homed));
+        Some((e.view.clone(), link, homed, index))
+    }
+
     /// One task in one forum: its post made, its card and tags brought up to
     /// date as far as the pace allows. How long the rest must wait, if any.
     async fn one(&mut self, id: &str, f: &Forum) -> Option<Duration> {
         let key = (id.to_string(), f.channel);
-        let (view, link) = {
-            let e = self.entries.get(id)?;
-            (e.view.clone(), e.link.clone())
-        };
+        let (view, link, homed, index) = self.shown(id, f)?;
         let ended = view.state.ended();
         let now = Instant::now();
         if !self.slots.contains_key(&key) {
+            // An index card made before its task's thread was: it gets its link.
+            if index {
+                self.reopen_for_link(&key, link.as_deref());
+            }
             // A post the last run made (the list has it): taken up again.
             if let Some(held) = self.adopt(&key) {
                 return held;
             }
-            if ended {
+            // A task's own post is made on request, not by this sync.
+            if ended || homed {
                 return None;
             }
             if let Some(t) = self.failed.get(&key).filter(|t| **t > now) {
                 return Some(*t - now);
             }
-            if let Err(e) = self.create(&key, f, &view, link.as_deref()).await {
+            let name = post_name(&view.id, &view.title);
+            if let Err(e) = self.create(&key, f, &view, link.as_deref(), name).await {
                 self.shared.board.error(
                     "task forum",
                     Some(&view.session_id.clone().unwrap_or_default()),
@@ -490,6 +633,9 @@ impl Worker {
                 return Some(RETRY);
             }
             self.failed.remove(&key);
+            if index {
+                self.keep_index(&key, link.as_deref(), id);
+            }
             return None;
         }
         let mut held: Option<Duration> = None;
@@ -498,6 +644,9 @@ impl Worker {
                 held = Some(held.map_or(d, |h| h.min(d)));
             }
         };
+        if index {
+            self.keep_index(&key, link.as_deref(), id);
+        }
         // The card.
         let card = self.card_of(&view, link.as_deref());
         let sent = digest(&serde_json::to_string(&card).unwrap_or_default());
@@ -559,6 +708,70 @@ impl Worker {
             .map(|j| j.title)
             .collect();
         task_view::post_card(view, &calls, link)
+    }
+
+    /// The post that is a task's place, in the default forum: the one the list
+    /// has (a restart), else made now. Its id and its guild.
+    async fn make_post(&mut self, view: &WorkView) -> anyhow::Result<(u64, Option<u64>)> {
+        let f = self
+            .shared
+            .task_posts
+            .default
+            .forum()
+            .ok_or_else(|| anyhow::anyhow!("the default forum is not standing"))?;
+        let key = (view.id.clone(), f.channel);
+        if !self.slots.contains_key(&key) && self.adopt(&key).is_none() {
+            let name = task_name(Mark::of(view.state), &view.id, &view.title);
+            self.create(&key, &f, view, None, name).await?;
+        }
+        let posts = self.shared.task_posts.posts.lock().unwrap();
+        let post = posts
+            .iter()
+            .find(|p| p.task == key.0 && p.forum == key.1)
+            .ok_or_else(|| anyhow::anyhow!("the task's post is gone"))?;
+        Ok((post.post, f.guild.parse().ok()))
+    }
+
+    /// A finished index card that never had its link, and has it now, is
+    /// worked once more so that its card shows it.
+    fn reopen_for_link(&self, key: &(String, u64), link: Option<&str>) {
+        if link.is_none() {
+            return;
+        }
+        let s = &self.shared;
+        let mut posts = s.task_posts.posts.lock().unwrap();
+        let stale = posts.iter_mut().find(|p| {
+            p.task == key.0 && p.forum == key.1 && p.ended_ms.is_some() && p.link.is_none()
+        });
+        if let Some(p) = stale {
+            p.ended_ms = None;
+        }
+    }
+
+    /// An index card in the default forum: where the task works is kept with
+    /// the post (a restart finds it), and a message in it is heard by the
+    /// place that told of the task, which answers with a pointer.
+    fn keep_index(&self, key: &(String, u64), link: Option<&str>, task: &str) {
+        let s = &self.shared;
+        let changed = {
+            let mut posts = s.task_posts.posts.lock().unwrap();
+            posts
+                .iter_mut()
+                .find(|p| p.task == key.0 && p.forum == key.1)
+                .is_some_and(|p| {
+                    let changed = p.link.as_deref() != link;
+                    p.link = link.map(str::to_string);
+                    changed
+                })
+        };
+        if changed {
+            s.task_posts.save(&s.core.store);
+        }
+        let post = self.slots.get(key).map(|slot| slot.post.post);
+        let home = self.entries.get(task).and_then(|e| e.home.clone());
+        if let (Some(post), Some(home)) = (post, home) {
+            s.route_index(post, home);
+        }
     }
 
     /// The forum's tag ids by state, the missing tags added once.
@@ -644,6 +857,7 @@ impl Worker {
         f: &Forum,
         view: &WorkView,
         link: Option<&str>,
+        name: String,
     ) -> anyhow::Result<()> {
         let want = Tag::of(view.state);
         let ids = self.tag_ids(f).await;
@@ -652,7 +866,7 @@ impl Worker {
         let mut message = v2::body(&card, true);
         message["allowed_mentions"] = json!({"parse": []});
         let mut body = json!({
-            "name": post_name(&view.id, &view.title),
+            "name": name,
             "auto_archive_duration": ARCHIVE_MINUTES,
             "message": message,
         });
@@ -682,6 +896,7 @@ impl Worker {
             guild: f.guild.clone(),
             created_ms: theseus_protocol::now_unix_ms(),
             ended_ms: None,
+            link: link.map(str::to_string),
         };
         let now = Instant::now();
         self.slots.insert(
@@ -746,7 +961,8 @@ impl Worker {
         let req = Request::builder(&HttpRoute::UpdateChannel {
             channel_id: slot.post.post,
         })
-        .json(&json!({"applied_tags": [id]}))
+        // Discord refuses a tag edit on an archived post unless it unarchives it.
+        .json(&json!({"applied_tags": [id], "archived": false}))
         .build();
         let sent = match req {
             Ok(r) => self.shared.http.request::<Value>(r).await.map(|_| ()),
@@ -774,6 +990,7 @@ mod tests {
             channel: 1,
             guild: "100000000000000001".into(),
             private,
+            default: false,
         }
     }
 
@@ -851,6 +1068,7 @@ mod tests {
             channel: FORUM,
             guild: DEFAULT_GUILD.to_string(),
             private: true,
+            default: false,
         }];
         let w = Worker {
             shared,
@@ -890,6 +1108,7 @@ mod tests {
                 guild: None,
                 links: HashMap::new(),
                 home: None,
+                homed: HashSet::new(),
             });
         };
         let posts = || {
@@ -946,6 +1165,70 @@ mod tests {
                 .is_some(),
             "a finished post stays in the list a day, for the board's link"
         );
+    }
+
+    /// A task whose post was its place and now works elsewhere keeps its post
+    /// as its index card: still listed, its card linking the new place, its
+    /// tag still following the state, and a message in it answered with the
+    /// pointer (theseus-bh3t.6).
+    #[tokio::test]
+    async fn a_moved_post_stays_listed_and_live_as_the_tasks_index_card() {
+        use crate::runtime::voice_status::tests::view;
+
+        const TASK: &str = "exe_01J000000000000000task01";
+        const OLD: &str = "https://discord.com/channels/1/10";
+        const NEW: &str = "https://discord.com/channels/1/20";
+        let (r, mut w) = worker_over_the_fake().await;
+        w.shared.task_posts.forums.lock().unwrap()[0].default = true;
+        let mut position = 0;
+        let mut tell = |w: &mut Worker, state: &str| {
+            position += 1;
+            let mut v = view(TASK, "task", state, "Chart the reef", None);
+            v.position = position;
+            w.see(Seen {
+                views: vec![v],
+                private: true,
+                guild: None,
+                links: HashMap::from([(TASK.to_string(), OLD.to_string())]),
+                home: None,
+                homed: HashSet::new(),
+            });
+        };
+        let post = || {
+            r.fake
+                .threads()
+                .into_iter()
+                .find(|t| t.parent == FORUM)
+                .unwrap()
+        };
+        let linked = |to: &str| {
+            r.fake.messages(post().id)[0]
+                .components_json
+                .to_string()
+                .contains(to)
+        };
+        let shared = w.shared.clone();
+        let posts = &shared.task_posts;
+        tell(&mut w, "running");
+        w.drive().await;
+        let id = post().id;
+        assert!(posts.owns(TASK) && linked(OLD));
+        assert_eq!(posts.index_of(id).as_deref(), Some(OLD));
+        assert_eq!(posts.index_of(id + 1), None, "only a post of ours");
+        // Moved: the card links the new place, though the place still tells the old.
+        posts.moved(TASK, NEW);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        tell(&mut w, "running");
+        w.drive().await;
+        assert!(linked(NEW) && !linked(OLD), "the card follows the move");
+        assert_eq!(posts.index_of(id).as_deref(), Some(NEW));
+        // Still live: the end writes its final tag.
+        tell(&mut w, "done");
+        w.drive().await;
+        let tags = r.fake.forum_tags(FORUM);
+        let done = tags.iter().find(|t| t.name == "done").unwrap().id.clone();
+        assert_eq!(post().tag_sets.last(), Some(&vec![done]));
+        assert!(posts.owns(TASK), "it stays listed a day after the end");
     }
 
     #[test]

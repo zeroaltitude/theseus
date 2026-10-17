@@ -63,6 +63,7 @@ pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_butto
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use seal::{buttons as seal_buttons, slug_of as seal_slug};
 pub(crate) use source::source_buttons;
+pub(crate) mod default_forum;
 mod extensions;
 mod forum;
 mod guild_thread;
@@ -519,6 +520,7 @@ async fn event_loop(
                 tracing::info!(bot = %me.name, "discord gateway ready");
                 presence::on_ready(shared, &shard);
                 emoji::on_ready(shared, r.application.id);
+                default_forum::ready(shared);
                 calendar::ready(&mut calendar, shared, cfg, bindings);
                 // Back: whatever waited goes now (the lanes back off alone).
                 shared.wake_lanes();
