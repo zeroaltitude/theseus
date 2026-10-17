@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_client::seen;
+use theseus_protocol::work::WorkView;
+use theseus_protocol::{Event, WorkChanged};
 
 use super::state::{Chat, Effect, Purpose};
 use super::tests::{cfg, script, Rig, SID, T0};
@@ -195,4 +197,37 @@ async fn the_operator_away_hears_the_conversations_own_question() {
     r.daemon.notify("work.notice", notice("asked", 41, own));
     r.settle().await;
     assert_eq!(r.written_since(mark).matches('\x07').count(), 1);
+}
+
+/// A question asked as a view of its own (an approval's) counts as seen by
+/// the mark of the task that asked it.
+#[tokio::test(start_paused = true)]
+async fn a_question_of_its_own_is_seen_by_its_tasks_mark() {
+    let (_dir, path) = seen_file();
+    shown(&path, "exe_paint", 800);
+    let mut r = rig(&path).await;
+    r.ready().await;
+    let q: WorkView = serde_json::from_value(json!({
+        "id": "act_q1", "kind": "question", "position": 701, "at_ms": T0, "root": "exe_conv",
+        "parent": "exe_paint", "title": "fs.write", "state": "needs_you",
+        "attention": {"level": "needs_you", "label": "confirm fs.write", "since_ms": T0},
+        "started_at_ms": T0, "state_since_ms": T0
+    }))
+    .unwrap();
+    r.tell(Event::WorkChanged(WorkChanged {
+        position: 701,
+        at_ms: T0,
+        views: vec![q],
+        gone: vec![],
+        threads: vec![],
+    }));
+    r.settle().await;
+    let mark = r.bytes();
+    let work = json!({"id": "act_q1", "kind": "question", "title": "fs.write"});
+    r.daemon.notify("work.notice", notice("asked", 750, work));
+    r.settle().await;
+    assert!(
+        !r.written_since(mark).contains('\x07'),
+        "a question its task showed rang"
+    );
 }
