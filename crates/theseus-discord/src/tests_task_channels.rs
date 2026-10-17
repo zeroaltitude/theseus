@@ -99,6 +99,8 @@ async fn rig(
             tweak(c);
             // A task plans its steps with `task_create`, a deferred tool.
             c.tools.defer.always_loaded.push("tasks".into());
+            // Channels alone: the default forum's own tests join the two.
+            c.discord.forum = false;
             more(c);
         },
     )

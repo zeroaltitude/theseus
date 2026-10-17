@@ -663,6 +663,13 @@ async fn a_refused_forum_falls_back_with_exactly_one_owner_line() {
     })
     .await;
     r.say((ANA, "ana"), None, ASK);
+    // One turn at a time: the model's answers are one script.
+    until(&r, "the DM's turn ends", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.starts_with("Started."))
+    })
+    .await;
     r.say((ANA, "ana"), Some(LAB), ASK);
     // Today's: the channel's task has its thread; the DM's has none.
     until(&r, "#lab's thread", || {
