@@ -1494,6 +1494,12 @@ dear_tier_max_tokens = 200000           # over this much context, sophisticated 
 # enabled = true                        # off: words are messages, and the layer steers nothing
 # similarity = 0.5                      # the share of content words a close message has in common
 # max_entries = 64                      # the layer's bound, the oldest out
+# Names Jev reads with each message (route.v6's `data` question, theseus-a1wvq): work you
+# name as open may go to a model provider outside your trust, and matter you name as private
+# never does. Names live here and nowhere else; a message is judged by what it carries.
+# [routing.data]
+# open_topics = []                      # e.g. an open-source project of yours
+# private_topics = []                   # e.g. your employer, a client
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

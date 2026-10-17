@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{Effort, PackMode};
 
+pub use super::routing_data::RoutingData;
+
 /// The profile name that means the usable profile cheapest for a short
 /// turn at catalog prices (reserved: no profile may take it).
 pub const CHEAPEST: &str = "cheapest";
@@ -65,6 +67,9 @@ pub struct RoutingConfig {
     /// The owner's corrections of routing (theseus-q31l).
     #[serde(default)]
     pub corrections: CorrectionsConfig,
+    /// The owner's data rule (theseus-a1wvq): the names Jev reads.
+    #[serde(default)]
+    pub data: RoutingData,
 }
 
 /// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
@@ -284,6 +289,7 @@ impl Default for RoutingConfig {
             dear_tier_max_tokens: dear_tier_max_tokens(),
             modes: RoutingModes::default(),
             corrections: CorrectionsConfig::default(),
+            data: RoutingData::default(),
         }
     }
 }

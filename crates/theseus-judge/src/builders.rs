@@ -258,6 +258,28 @@ pub struct InboundInput {
     /// The roles table, for `role.v1`'s options.
     #[serde(default)]
     pub roles: Vec<RoleInput>,
+    /// The operator's own names for open and private matter (`route.v6`'s
+    /// `data` question, theseus-a1wvq.2); left out of the state when both lists
+    /// are empty, so a state without names is byte for byte the one before.
+    #[serde(default, skip_serializing_if = "DataNames::is_empty")]
+    pub data_names: DataNames,
+}
+
+/// The topics the operator names as open (work that may go to any model
+/// provider) and as private (matter that never does); `[routing.data]`'s.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DataNames {
+    #[serde(default)]
+    pub open: Vec<String>,
+    #[serde(default)]
+    pub private: Vec<String>,
+}
+
+impl DataNames {
+    pub fn is_empty(&self) -> bool {
+        self.open.is_empty() && self.private.is_empty()
+    }
 }
 
 /// A candidate signal that fired, and its value in words.
@@ -815,6 +837,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     .cut_if("live_tasks", c.cut());
     let threads = &i.live_threads[..i.live_threads.len().min(LIVE_THREADS)];
     threads_state(&mut b, &c, cap, i, threads);
+    data_names_state(&mut b, &c, i);
     let in_thread = persona::state(&mut b, &c, cap, i);
     let role = i
         .current_role
@@ -868,6 +891,21 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
 }
 
+/// The operator's open and private names in the inbound state, when given.
+fn data_names_state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
+    if i.data_names.is_empty() {
+        return;
+    }
+    let names = |v: &[String]| -> Vec<String> {
+        v.iter().take(DATA_NAMES).map(|n| c.clip(n, 60)).collect()
+    };
+    b.scalar(
+        "data_names",
+        json!({"open": names(&i.data_names.open), "private": names(&i.data_names.private)}),
+    )
+    .cut_if("data_names", c.cut());
+}
+
 /// The live threads in the inbound state, when there are any.
 fn threads_state(
     b: &mut StateBuilder,
@@ -900,6 +938,9 @@ fn threads_state(
     )
     .cut_if("live_threads", c.cut());
 }
+
+/// The most names of each kind the state carries (`route.v6`'s `data_names`).
+pub const DATA_NAMES: usize = 30;
 
 /// The most working-set entities a thread's line names.
 pub const THREAD_ENTITIES: usize = 6;
@@ -1072,9 +1113,23 @@ mod tests {
 
     fn prepared(pack: &str) -> (Arc<Pack>, Prepared) {
         let p = by_name(pack).unwrap();
-        let input = Input::parse(p.builder, &fixture(&builder_name(p.builder))).unwrap();
-        let prepared = prepare(&p, &input, &NoScrub).unwrap();
-        (p, prepared)
+        prepared_from(&p, &fixture(&builder_name(p.builder)))
+    }
+
+    fn prepared_from(p: &Arc<Pack>, fixture: &str) -> (Arc<Pack>, Prepared) {
+        let input = Input::parse(p.builder, fixture).unwrap();
+        let prepared = prepare(p, &input, &NoScrub).unwrap();
+        (p.clone(), prepared)
+    }
+
+    /// The `inbound` fixture with the operator's names (made-up ones), which
+    /// backs route.v6's golden request.
+    fn names_fixture() -> String {
+        std::fs::read_to_string(format!(
+            "{}/fixtures/inputs/inbound.names.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
     }
 
     #[test]
@@ -1115,7 +1170,11 @@ mod tests {
     #[test]
     fn each_pack_asks_its_golden_request() {
         for p in embedded().as_ref().unwrap() {
-            let (_, prepared) = prepared(&p.name());
+            // route.v6 asks about the operator's names, so its golden has some.
+            let (_, prepared) = match p.name().as_str() {
+                "route.v6" => prepared_from(p, &names_fixture()),
+                name => prepared(name),
+            };
             let questions = p
                 .ask(&prepared.dynamic)
                 .into_iter()
@@ -1131,6 +1190,19 @@ mod tests {
                 &req.body(),
             );
         }
+    }
+
+    /// The names ride the `inbound` state only when the operator gave some
+    /// (theseus-a1wvq.2): without them the state is the one before, byte for byte.
+    #[test]
+    fn data_names_reach_the_state_only_when_given() {
+        let (_, plain) = prepared("route.v6");
+        assert!(plain.state.value().get("data_names").is_none());
+        let (_, named) = prepared_from(&by_name("route.v6").unwrap(), &names_fixture());
+        let v = named.state.value();
+        assert_eq!(v["data_names"]["open"], serde_json::json!(["Widgetco"]));
+        assert_eq!(v["data_names"]["private"], serde_json::json!(["Acme"]));
+        assert_ne!(plain.state.json, named.state.json);
     }
 
     #[test]
@@ -1151,6 +1223,7 @@ mod tests {
             "route.v3",
             "route.v4",
             "route.v5",
+            "route.v6",
             "directive.v1",
         ] {
             let (rp, ro) = prepared(route);
@@ -1400,6 +1473,7 @@ mod tests {
                     personas: Vec::new(),
                     speaker: None,
                     thread_now: None,
+                    data_names: DataNames::default(),
                     current_role: Some(big.clone()),
                     roles: (0..2_000)
                         .map(|i| RoleInput {

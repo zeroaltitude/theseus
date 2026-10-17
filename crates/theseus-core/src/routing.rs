@@ -49,7 +49,9 @@ use crate::catalog::CatalogEntry;
 use crate::config::routing::{is_detour, CHEAPEST};
 use crate::config::RoutingConfig;
 
+pub mod data;
 pub mod effort;
+pub use data::DataAnswer;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
 pub const SHORT_INPUT: u64 = 4_000;
@@ -165,6 +167,9 @@ pub struct Verdict {
     /// route.v5's answers (theseus-c1uz): which persona, and whether to seal.
     pub persona: Option<Box<crate::engage::PersonaAnswer>>,
     pub seal: Option<Box<crate::engage::SealAnswer>>,
+    /// route.v6's answer (theseus-a1wvq): may the message go to a model
+    /// provider outside the owner's trust. Nothing acts on it yet.
+    pub data: Option<Box<DataAnswer>>,
 }
 
 /// One configured profile, as routing weighs it.
@@ -616,6 +621,7 @@ mod tests {
             turn: "turn_1".into(),
             persona: None,
             seal: None,
+            data: None,
         }
     }
 
