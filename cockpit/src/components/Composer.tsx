@@ -10,12 +10,14 @@ import { addDraft, dropDraft, failDraft } from '@/lib/drafts'
 import { cn } from '@/lib/format'
 import { PromptPicker } from '@/components/PromptPicker'
 import { RouteFooter } from '@/components/RouteFooter'
+import { composerPlan, type TaskContext } from '@/lib/taskpage'
 
 /** A draft deck's composer (theseus-emqx): no session yet; the first send opens it (`session.open`, with the draft's
  *  label), hands its id to `onOpened`, and goes on as any send. */
 export interface DraftOf { label?: string; onOpened: (sessionId: string) => void }
 
-export function Composer({ sessionId, busy, draft: drafting }: { sessionId: string; busy: boolean; draft?: DraftOf }) {
+/** `task` on a task's page (theseus-jm46q): a running task is joined, an ended one sends to the mainline instead. */
+export function Composer({ sessionId, busy, draft: drafting, task }: { sessionId: string; busy: boolean; draft?: DraftOf; task?: TaskContext | null }) {
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
   const [text, setText] = useState('')
   const [profile, setProfile] = useState<string>('')
@@ -36,7 +38,8 @@ export function Composer({ sessionId, busy, draft: drafting }: { sessionId: stri
       setText('')
       return
     }
-    submit(sessionId, input)
+    const plan = composerPlan(sessionId, task ?? null, input)
+    submit(plan.sessionId, plan.input)
     setText('')
   }
   const submit = (sessionId: string, input: string) => {
@@ -67,7 +70,7 @@ export function Composer({ sessionId, busy, draft: drafting }: { sessionId: stri
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           rows={Math.min(6, Math.max(1, text.split('\n').length))}
-          placeholder={drafting ? 'Your first message opens the session… (Enter to send, Shift+Enter for a new line)' : busy ? 'a turn is running… (a message you send now reaches it at its next step)' : 'Continue this session… (Enter to send, Shift+Enter for a new line)'}
+          placeholder={task ? composerPlan(sessionId, task, '').placeholder ?? undefined : drafting ? 'Your first message opens the session… (Enter to send, Shift+Enter for a new line)' : busy ? 'a turn is running… (a message you send now reaches it at its next step)' : 'Continue this session… (Enter to send, Shift+Enter for a new line)'}
           className="min-h-9 flex-1 resize-none rounded-lg bg-white/[0.04] px-3 py-2 text-[13px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40"
         />
         <select value={profile} onChange={(e) => setProfile(e.target.value)} title="profile for this turn"

@@ -38,6 +38,9 @@ import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
+import { TaskHeader } from '@/components/TaskHeader'
+import { useThreadBoard } from '@/lib/threadwatch'
+import { taskContext, viewOfTask } from '@/lib/taskpage'
 import { RetireButton, SessionLinks, StateBadge } from '@/components/SessionLife'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
 import { TOKEN_LEGEND, contextTable, tokenMixTable } from '@/components/instrumentTables'
@@ -145,12 +148,18 @@ function SessionDeck({ id }: { id: string }) {
   const noticed = useMemo(() => noticesOf(rows, events), [rows, events])
 
   const s = hist?.session
+  // A task's page (theseus-jm46q): its work view from the board, and the conversation it returns to.
+  const board = useThreadBoard().board
+  const taskView = viewOfTask(board.views, id)
+  const task = s ? taskContext(s, taskView) : null
+  const { data: parentHist } = useRpc<SessionHistory>('session.history', { session_id: task?.parent ?? '', n: 1 }, 30_000, { enabled: !!task })
   const exec = el?.executions.find((e) => e.execution_id === s?.execution_id) ?? el?.executions.find((e) => e.session_id === id)
 
   if (!s || !hist || !nodes) return <Panel help={false} title="session" bodyClassName="h-64"><Empty>{isLoading ? 'reading the session…' : `no session ${short(id)}`}</Empty></Panel>
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
+      {task && <TaskHeader s={s} task={task} view={taskView} parentTitle={parentHist?.session.title || parentHist?.session.label || undefined} lastTurn={turns[turns.length - 1]?.turn_id} />}
       <Header s={s} exec={exec} onBack={() => nav('/fleet')} />
       {asOf !== null && <div className="num px-1 text-[11.5px] text-wait">as of {clock(asOf)}: the transcript and the rows beside it stop here; the header and the composer are the session now</div>}
       <Group orientation="horizontal" className="min-h-0 flex-1">
@@ -171,7 +180,7 @@ function SessionDeck({ id }: { id: string }) {
                   <AnimatePresence initial={false}>{asks.map((c) => <ConfirmCard key={c.correlation_id} c={c} here />)}</AnimatePresence>
                 </div>
               )}
-              {asOf === null && <Composer sessionId={id} busy={!!live || exec?.state === 'running' || exec?.state === 'queued'} />}
+              {asOf === null && <Composer sessionId={id} task={task} busy={!!live || exec?.state === 'running' || exec?.state === 'queued'} />}
             </div>
           </Panel>
         </RPanel>

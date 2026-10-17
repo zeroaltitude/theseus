@@ -460,3 +460,32 @@ fn a_failure_draws_retry_dismiss_and_details_and_nothing_once_dismissed() {
     }];
     assert!(ids(&WorkView::from_execution(&asking)).is_empty());
 }
+
+#[test]
+fn a_task_is_joinable_until_it_ends() {
+    use WorkState::*;
+    for (state, yes) in [
+        (Queued, true),
+        (Running, true),
+        (Waiting, true),
+        (NeedsYou, true),
+        (Done, false),
+        (Failed, false),
+        (Cancelled, false),
+        (Expired, false),
+    ] {
+        assert_eq!(
+            joinable(&view(WorkKind::Task, state, None)),
+            yes,
+            "{state:?}"
+        );
+    }
+}
+
+#[test]
+fn the_redirect_line_names_the_task_and_the_reason() {
+    assert_eq!(
+        task_redirect_line("Sound the channel", "a1b2c3", "the task is over"),
+        "[Written to the task “Sound the channel” (…a1b2c3), and the task is over] "
+    );
+}
