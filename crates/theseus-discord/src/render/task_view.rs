@@ -11,6 +11,7 @@ use super::board_v2::{ago, short};
 use super::card_v2;
 use super::clip;
 use super::v2::{button, container, row, separator, text, Look};
+use crate::runtime::war_room::Comments;
 
 /// `tb:stop:<id>`: Stop, which asks again.
 pub const STOP: &str = "tb:stop:";
@@ -73,6 +74,7 @@ pub fn detail(
     v: &WorkView,
     calls: &[String],
     question: Option<(&Question, &[AnswerOption])>,
+    comments: &Comments,
 ) -> Vec<Value> {
     let mut inner = body(v, calls);
     if let Some((q, options)) = question {
@@ -83,6 +85,10 @@ pub fn detail(
             ago(q.asked_at_ms.max(v.state_since_ms))
         )));
         inner.extend(card_v2::buttons(&q.id, options));
+    }
+    if comments.total > 0 {
+        inner.push(separator());
+        inner.push(text(comments_words(comments)));
     }
     if !v.state.ended() && v.kind == theseus_protocol::work::WorkKind::Task {
         inner.push(separator());
@@ -96,6 +102,21 @@ pub fn detail(
         inner.push(r);
     }
     vec![container(Some(0x3E_63_DD), inner)]
+}
+
+/// A guest's comments, the latest five (theseus-bh3t.4).
+fn comments_words(c: &Comments) -> String {
+    let lines: Vec<String> = c
+        .last
+        .iter()
+        .rev()
+        .take(5)
+        .map(|k| {
+            let said = clip(&k.text.split_whitespace().collect::<Vec<_>>().join(" "), 80);
+            format!("> **{}** · {}: {said}", clip(&k.name, 40), ago(k.at_ms))
+        })
+        .collect();
+    format!("**Comments** ({})\n{}", c.total, lines.join("\n"))
 }
 
 /// The task's card for its forum post (theseus-i3do6): the view's words
@@ -286,7 +307,7 @@ mod tests {
     #[test]
     fn a_running_task_shows_its_doing_plan_words_and_calls_and_a_stop_button() {
         let calls = vec!["cargo build".to_string(), "git diff".to_string()];
-        let c = detail(&task(), &calls, None);
+        let c = detail(&task(), &calls, None, &Comments::default());
         assert_eq!(validate(&c), Ok(()));
         let t = texts(&c).join("\n");
         assert!(t.contains("**Rename the modules** `…task01`"), "{t}");
@@ -310,7 +331,7 @@ mod tests {
     fn a_done_task_has_no_stop_and_the_second_question_has_two_answers() {
         let mut v = task();
         v.state = WorkState::Done;
-        assert!(custom_ids(&detail(&v, &[], None)).is_empty());
+        assert!(custom_ids(&detail(&v, &[], None, &Comments::default())).is_empty());
         let ids = custom_ids(&confirm_stop(&task()));
         assert_eq!(
             ids,

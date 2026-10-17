@@ -57,6 +57,7 @@ use serde_json::{json, Value};
 mod channels;
 pub mod commands;
 mod events;
+mod overwrites;
 mod threads;
 
 pub use channels::FakeChannel;
@@ -571,6 +572,8 @@ struct State {
     forum_tags: BTreeMap<u64, Vec<threads::FakeTag>>,
     /// Listing or making a webhook answers 403.
     refuse_webhooks: bool,
+    /// A thread's members the bot added (`PUT /channels/<t>/thread-members/<u>`).
+    thread_members: BTreeMap<u64, std::collections::BTreeSet<u64>>,
     /// The last big id given a thread or a webhook.
     next_big: u64,
     /// The channels and categories the bot made, and 403 for them (`channels.rs`).
@@ -1228,6 +1231,10 @@ impl FakeDiscord {
             ("PATCH", ["channels", c]) => self.channel_patch(stream, c, &body),
             ("DELETE", ["channels", c]) => self.channel_delete(stream, c),
             ("POST", ["guilds", g, "channels"]) => self.channel_create(stream, g, &body),
+            (_, ["channels", c, "permissions", id]) => {
+                self.overwrite_route(stream, &method, c, id, &body)
+            }
+            (_, ["channels", c, "thread-members", u]) => self.member_route(stream, &method, c, u),
             ("GET", ["channels", c, "webhooks"]) => self.hooks_read(stream, c),
             ("POST", ["channels", c, "webhooks"]) => self.hook_make(stream, c, &body),
             ("POST", ["webhooks", id, token]) if self.is_hook(id) => {

@@ -105,7 +105,7 @@ pub(crate) fn open_gate(r: &Rig) {
 }
 
 /// The thread's place runs: the task's posts go there.
-async fn bound(r: &Rig, thread: u64) {
+pub(crate) async fn bound(r: &Rig, thread: u64) {
     let target = format!("discord:channel:{thread}");
     until(r, "the task's place runs in its thread", || {
         r.core.outbox.target(&task_session(r)).as_deref() == Some(target.as_str())
@@ -151,7 +151,7 @@ pub(crate) fn guild() -> Guild {
 }
 
 /// `#lab` (private or shared, with `extra` keys) and ana's DM.
-fn bindings(private: bool, extra: &str) -> String {
+pub(crate) fn bindings(private: bool, extra: &str) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
          [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\", \"{CY}\"]\nmention_only = false\nprivate = {private}\n{extra}\
@@ -165,7 +165,7 @@ pub(crate) fn tweak(c: &mut theseus_core::Config) {
 }
 
 /// The threads the bot made in `#lab`.
-fn threads(r: &Rig) -> Vec<FakeThread> {
+pub(crate) fn threads(r: &Rig) -> Vec<FakeThread> {
     r.fake
         .threads()
         .into_iter()
@@ -182,7 +182,7 @@ pub(crate) fn said(r: &Rig, thread: u64) -> String {
         .join("\n")
 }
 
-async fn rig(
+pub(crate) async fn rig(
     parent: Vec<Scripted>,
     kids: impl FnOnce(&Path) -> Vec<(&'static str, Vec<Scripted>)>,
     private: bool,
@@ -329,7 +329,7 @@ fn posts(r: &Rig) -> Vec<FakeThread> {
 /// A task that writes outside the roots, so it waits on a card (behind the
 /// gate, so that its thread is made first: a card staged before the thread
 /// lands in the channel, as it did before threads).
-fn asks(dir: &Path, name: &str) -> Vec<Scripted> {
+pub(crate) fn asks(dir: &Path, name: &str) -> Vec<Scripted> {
     let path = dir.join("outside").join(name);
     vec![
         Scripted::tools(
@@ -345,7 +345,7 @@ fn asks(dir: &Path, name: &str) -> Vec<Scripted> {
 }
 
 #[tokio::test]
-async fn a_message_in_a_task_thread_reaches_the_task_or_its_conversation_and_is_never_lost() {
+async fn a_guests_message_in_a_private_task_thread_is_a_comment_and_is_never_lost() {
     let r = rig(
         vec![
             start(&[REEF]),
@@ -360,9 +360,9 @@ async fn a_message_in_a_task_thread_reaches_the_task_or_its_conversation_and_is_
     until(&r, "a thread for the task", || !threads(&r).is_empty()).await;
     let t = threads(&r).remove(0);
     bound(&r, t.id).await;
-    // cy is allowed in #lab; ben is not. The message in the thread is an
-    // operator message: it goes to the task while the kernel takes it, else
-    // to the conversation that started the task.
+    // cy is allowed in #lab; ben is not. cy is a guest in a private task's
+    // thread, so the message is a comment: no session reads it, the owner is
+    // told in the channel (theseus-bh3t.4).
     r.say((CY, "cy"), Some(t.id), "also chart the north reef");
     r.say((BEN, "ben"), Some(t.id), "ben is not allowed here");
     let task = task_session(&r);
@@ -378,21 +378,25 @@ async fn a_message_in_a_task_thread_reaches_the_task_or_its_conversation_and_is_
     };
     until(
         &r,
-        "the message was taken by the task or by its conversation",
+        "the owner is told of the comment in the channel",
         || {
-            held(&task)
-                .iter()
-                .any(|b| b.contains("also chart the north reef"))
-                || held(&parent)
-                    .iter()
-                    .any(|b| b.contains("also chart the north reef") && b.contains("Reef-chart"))
+            r.posted(LAB).iter().any(|m| {
+                m.content.contains("💬 cy on") && m.content.contains("also chart the north")
+            })
         },
     )
     .await;
-    until(&r, "the thread says where it went", || {
-        said(&r, t.id).contains("↪")
+    until(&r, "the thread says the task does not read it", || {
+        said(&r, t.id).contains("doesn't read guests' messages")
     })
     .await;
+    assert!(
+        !held(&task)
+            .iter()
+            .chain(held(&parent).iter())
+            .any(|b| b.contains("also chart the north reef")),
+        "no session read the comment"
+    );
     let rows = r.ledger("discord.message.in");
     assert!(
         rows.iter()
@@ -421,11 +425,11 @@ pub(crate) fn held(r: &Rig, sid: &str) -> Vec<String> {
 }
 
 /// The owner's message in a running task's thread goes to the task, not to
-/// the conversation that started it; a guest's still goes to the
-/// conversation, with the shared line; and the thread's first line links back
-/// to the channel (theseus-esxyb).
+/// the conversation that started it; a guest's is a comment, which no session
+/// reads (theseus-bh3t.4); and the thread's first line links back to the
+/// channel (theseus-esxyb).
 #[tokio::test]
-async fn the_owners_message_joins_a_running_task_and_a_guests_is_redirected() {
+async fn the_owners_message_joins_a_running_task_and_a_guests_is_a_comment() {
     let r = rig(
         vec![
             start(&[REEF]),
@@ -453,12 +457,20 @@ async fn the_owners_message_joins_a_running_task_and_a_guests_is_redirected() {
             .any(|b| b.contains("chart the north reef too"))
     })
     .await;
-    until(&r, "the guest's message reached the conversation", || {
-        held(&r, &parent)
+    // cy is a guest in a private task's thread: a comment, which no session
+    // reads (the redirect is a shared place's rule, in tests_war_room).
+    until(&r, "the guest's comment reached the owner", || {
+        r.posted(LAB)
             .iter()
-            .any(|b| b.contains("cy says hello to the reef") && b.contains("[Written to the task"))
+            .any(|m| m.content.contains("💬 cy on") && m.content.contains("cy says hello"))
     })
     .await;
+    assert!(
+        !held(&r, &parent)
+            .iter()
+            .any(|b| b.contains("cy says hello to the reef")),
+        "the guest's comment did not go to the conversation"
+    );
     assert!(
         !held(&r, &parent)
             .iter()

@@ -268,7 +268,12 @@ impl Place {
             .collect();
         let q = tasks.question_of(&v.id);
         let options = q.as_ref().map(answer_options);
-        task_view::detail(v, &calls, q.as_ref().zip(options.as_deref()))
+        task_view::detail(
+            v,
+            &calls,
+            q.as_ref().zip(options.as_deref()),
+            &self.shared.comments_of(&v.id),
+        )
     }
 
     /// Stop, sure: the same `task.cancel` as `/cancel`.

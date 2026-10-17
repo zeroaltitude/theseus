@@ -322,6 +322,18 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   category loses its oldest). A 403 turns channels off until the next start (the owner's DM gets one line naming Manage
   Channels and Manage Roles, with the invite link of `INVITE_PERMISSIONS`); the cap and any other failure leave the task as it
   was. Tests: `tests_task_channels.rs`, `runtime/task_channels.rs`'s timer test on the paused clock.
+- **The war room** (theseus-bh3t.4, `runtime/war_room.rs`): `/task name:<task> share:<@user>` or `unshare:<@user>` (two optional USER
+  options beside `name`; the owner's alone, from a private place, answered ephemerally) brings a guest into a private task's place to watch
+  and comment. A task with a text channel of its own gets a member overwrite (view, send, read history; unshare deletes it); a task thread
+  adds the guest as a thread member when they can already see its parent (`Shared::view`), else the share is refused, and an unshare says a
+  public thread stays visible to whoever sees its channel. The guests are META `discord.task_guests.<task>`. **A non-owner's message in a
+  private task's place is a comment** (`Place::comment_on`, from `task_message`, before `join_task`; `Made.private`): never a `turn.submit`,
+  a steer or a redirect, shared or not. It is kept in META `discord.task_comments.<task>` (a total and the last 50, text clipped to 500),
+  relayed once to the owner as a quiet notice in the parent place (`-# 💬 <name> on “<title>”: <80 chars> · <jump link>`), the guest's
+  first one is answered by one quiet line in the task's place, Details lists the last five (`task_view::detail`), and the report's facts
+  line counts them (`render::report`'s `guests`). Guest text reaches no session, board line, digest or ledger row (the row has `chars`).
+  A shared place's thread keeps `join_task`'s guest rule (redirect to the conversation). Tests: `tests_war_room.rs`; the stand-in's
+  `PUT/DELETE` overwrites and thread members are `fake_discord/overwrites.rs`, and `slash_with` sends USER options.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
