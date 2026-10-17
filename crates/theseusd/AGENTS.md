@@ -142,7 +142,10 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   registers the `shutdown` method's wake before serving, as `serve_socket` does: `notify_waiters` wakes only the
   waiters registered when it is called (theseus-yg1y). `THESEUS_TEST_HOLD_CORE_MS` (a debug build's plant, in both
   modes) holds the core past a stop's start, for `tests/versions.rs` and `tests/config_copy.rs`, and
-  `THESEUS_TEST_LATE_WRITE` (another) writes one record after the stop's last checkpoint (theseus-fts6). The tests'
+  `THESEUS_TEST_LATE_WRITE` (another) writes one record after the stop's last checkpoint (theseus-fts6), and
+  `THESEUS_TEST_HOLD_CORE_THREAD_MS` holds the core on a thread of the daemon's own, which the runtime's drop does not wait for
+  (`stdio::planted_thread_hold`): the stop waits for the store's close after the drop (`leak::wait_closed`, 2 s), so a thread
+  mid-unit at exit leaves no handle behind (theseus-q0re4; `stop_checkpoint.rs`). The tests'
   `--stdio` client is `tests/common/stdio.rs`, each answer awaited with a bound.
 - A stop or a restart that comes as the daemon begins to serve meets after_serving's startup work. A test that
   checks what the next start replays holds the stop until the daemon has settled: `config_copy.rs` holds the fake
