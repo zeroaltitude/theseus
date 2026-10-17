@@ -336,8 +336,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   deadline timer, none while nothing awaits. A task already finished at the first read gets a tab only if it ended within the
   grace. `wire.rs` builds each herdr request in one function: the shapes of `layout.apply`, `events.subscribe`,
   `workspace.report_metadata` and `agent.view.set` follow the design and were not checked against herdr's schema. `sync` is
-  unchanged but for pins: `--pin` writes a `pinned` token on the pane, and a later sync keeps it. Tests: `tests/herdr_up.rs`
-  (a scripted herdr and daemon), unit tests in `state.rs` and `wire.rs`.
+  unchanged but for pins: `--pin` writes a `pinned` token on the pane, and a later sync keeps it. The Space row also carries
+  `since ↺N` (`work.digest` from the machine's seen position, read only, own answers not counted; read on every connect, after
+  `events.lost` and when a task ends), `next ⏰HH:MM` (the next reminder) and `routines 🔁N` (due now), the last two from
+  `horizon.rs` over the board's wake and routine views (no tabs for them; one timer for the next routine due); each is an
+  empty token when there is nothing to say (theseus-peqbl). Tests: `tests/herdr_up.rs`
+  (a scripted herdr and daemon), unit tests in `state.rs`, `horizon.rs` and `wire.rs`.
 - `src/herdr_answer.rs`, `src/herdr_keys.rs`, `src/herdr_setup.rs` and `contrib/herdr/theseus/` (theseus-pkaq): the herdr plugin and what
   its keys run. `theseus herdr answer [--pane P | --oldest | CID]` is a line-mode card for a popup: `pick` chooses the question (the
   one named, else the focused pane's `$confirm` token, else the oldest), `keys` takes the keys from the question's own `options`

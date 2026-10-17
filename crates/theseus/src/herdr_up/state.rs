@@ -15,6 +15,8 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
+use super::horizon::Horizon;
+
 use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
 
@@ -101,6 +103,11 @@ pub struct Counts {
     pub working: usize,
     pub done: usize,
     pub spend_cents: u64,
+    /// What happened since the owner last looked (`work.digest`), 0 when nothing did.
+    pub since: u32,
+    /// When the next reminder falls due.
+    pub next_ms: Option<u64>,
+    pub routines_due: u32,
 }
 
 #[derive(Debug)]
@@ -110,6 +117,10 @@ pub struct Follower {
     pub grace: Duration,
     /// The tab (by id) the owner is looking at.
     focused: Option<String>,
+    /// The reminders and routines still to fire: counts on the Space row, no tabs.
+    horizon: Horizon,
+    /// The digest's count since the owner last looked.
+    pub since: u32,
 }
 
 /// What a view changes in the tracked tasks, for the board's log.
@@ -124,6 +135,8 @@ impl Follower {
             positions: HashMap::new(),
             grace,
             focused: None,
+            horizon: Horizon::default(),
+            since: 0,
         }
     }
 
@@ -139,6 +152,7 @@ impl Follower {
         now_ms: u64,
     ) -> Applied {
         let mut changed = Vec::new();
+        self.horizon.apply(views, gone, snapshot);
         for v in views {
             if !matches!(v.kind, WorkKind::Task | WorkKind::Conversation) {
                 continue;
@@ -398,9 +412,21 @@ impl Follower {
             .min()
     }
 
+    /// When a routine next becomes due, as an instant: the one timer the row's
+    /// horizon counts keep.
+    pub fn horizon_deadline(&self, now: Instant, now_ms: u64) -> Option<Instant> {
+        let at = self.horizon.next_due(now_ms)?;
+        Some(now + Duration::from_millis(at - now_ms))
+    }
+
     /// The Space row's counts.
-    pub fn counts(&self) -> Counts {
-        let mut c = Counts::default();
+    pub fn counts(&self, now_ms: u64) -> Counts {
+        let mut c = Counts {
+            since: self.since,
+            next_ms: self.horizon.next_reminder(),
+            routines_due: self.horizon.routines_due(now_ms),
+            ..Counts::default()
+        };
         let mut spend = 0.0;
         for t in self.tasks.values() {
             spend += t.spent;
@@ -646,12 +672,13 @@ mod tests {
             0,
         );
         assert_eq!(
-            f.counts(),
+            f.counts(0),
             Counts {
                 needs: 1,
                 working: 1,
                 done: 1,
-                spend_cents: 123
+                spend_cents: 123,
+                ..Counts::default()
             }
         );
     }

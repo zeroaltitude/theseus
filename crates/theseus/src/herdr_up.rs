@@ -13,9 +13,14 @@
 //! `state.rs`'s; herdr's request shapes are `wire.rs`'s. The follower sets no timer
 //! while nothing awaits closing, and one deadline otherwise.
 //!
+//! The Space row also says what happened since the owner last looked (`work.digest`
+//! from the machine's seen position, read on every connect and when a task ends) and
+//! the horizon's two numbers, the next reminder and the routines due. They get no tabs.
+//!
 //! A session is pinned (`--pin`) by a `pinned` token on its pane, so a later `up`
 //! keeps and restarts its tab (theseus-d5oc).
 
+mod horizon;
 mod state;
 mod wire;
 
@@ -26,11 +31,11 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde_json::{json, Value};
-use theseus_client::Conn;
+use theseus_client::{seen, Conn};
 use theseus_protocol::work::{WorkKind, WorkState};
 use theseus_protocol::{
-    method, notify, Event, Message, SessionKind, SessionListResult, WorkWatchParams,
-    WorkWatchResult,
+    method, notify, DigestKind, Event, Message, SessionKind, SessionListResult, WorkDigestParams,
+    WorkDigestResult, WorkWatchParams, WorkWatchResult,
 };
 use tokio::time::Instant;
 
@@ -225,6 +230,44 @@ async fn snapshot(conn: &mut Conn) -> Result<(WorkWatchResult, Vec<(String, Valu
     Ok((serde_json::from_value(v)?, early))
 }
 
+/// How many things happened since the owner last looked at the board on this machine:
+/// the digest's lines after the seen position, bar the owner's own answers. Read only
+/// (the look is not recorded), on a connection of its own so the watch's notifications
+/// are not read past. 0 on a first start, and when the daemon does not answer.
+async fn since_looked(socket: &str) -> u32 {
+    let looked = seen::Seen::default_path()
+        .as_deref()
+        .map(seen::looked)
+        .unwrap_or_default();
+    if looked.position == 0 {
+        return 0;
+    }
+    let ask = async {
+        let mut conn = Conn::socket(socket).await?;
+        let params = WorkDigestParams {
+            since: Some(looked.position),
+            ..Default::default()
+        };
+        let v = conn
+            .call(
+                method::WORK_DIGEST,
+                serde_json::to_value(params)?,
+                |_, _| {},
+            )
+            .await?;
+        anyhow::Ok(serde_json::from_value::<WorkDigestResult>(v)?)
+    };
+    match tokio::time::timeout(Duration::from_secs(2), ask).await {
+        Ok(Ok(res)) => res
+            .lines
+            .iter()
+            .filter(|l| l.kind != DigestKind::Answered)
+            .map(|l| l.count)
+            .sum(),
+        _ => 0,
+    }
+}
+
 /// Herdr's tabs read into the follower.
 async fn refresh(ctx: &mut Ctx, f: &mut Follower, now: Instant) -> Result<()> {
     let rows: Vec<PaneRow> = panes_of(ctx)
@@ -322,6 +365,8 @@ struct Link {
     lost_said: bool,
     sent: Option<Counts>,
     view_set: Option<String>,
+    /// A task ended since the digest was read: read it again.
+    digest_stale: bool,
 }
 
 const RETRY_FROM: Duration = Duration::from_millis(250);
@@ -335,13 +380,14 @@ async fn follow_loop(mut ctx: Ctx, mut f: Follower) -> Result<()> {
         lost_said: false,
         sent: None,
         view_set: None,
+        digest_stale: false,
     };
     let mut wait = RETRY_FROM;
     loop {
         connect_both(&mut ctx, &mut f, &mut link).await;
         settle(&mut ctx, &mut f, &mut link).await;
         let away = link.daemon.is_none() || link.events.is_none();
-        let deadline = f.deadline();
+        let deadline = deadline_of(&f);
         tokio::select! {
             m = next_daemon(&mut link.daemon) => daemon_said(&mut ctx, &mut f, &mut link, m).await,
             e = next_event(&mut link.events) => herdr_said(&mut ctx, &mut f, &mut link, e).await,
@@ -353,6 +399,15 @@ async fn follow_loop(mut ctx: Ctx, mut f: Follower) -> Result<()> {
             wait = RETRY_FROM;
         }
     }
+}
+
+/// The one timer the follower keeps: a tab's close or reopen, or a routine coming due.
+fn deadline_of(f: &Follower) -> Option<Instant> {
+    let now = Instant::now();
+    [f.deadline(), f.horizon_deadline(now, herdr::now_ms())]
+        .into_iter()
+        .flatten()
+        .min()
 }
 
 /// The pane this process runs in is the board's: a token says so, for a later boot.
@@ -373,6 +428,7 @@ async fn connect_both(ctx: &mut Ctx, f: &mut Follower, link: &mut Link) {
                 f.apply(&snap.views, &[], true, now, herdr::now_ms());
                 f.forget_missing(&snap.views);
                 apply_early(f, &early, now);
+                f.since = since_looked(&ctx.socket).await;
                 print_board(f);
                 if link.lost_said {
                     link.lost_said = false;
@@ -414,7 +470,10 @@ async fn settle(ctx: &mut Ctx, f: &mut Follower, link: &mut Link) {
         let _ = ctx.h.call("agent.view.set", wire::view_params(&ws)).await;
         link.view_set = Some(ws.clone());
     }
-    let counts = f.counts();
+    if std::mem::take(&mut link.digest_stale) {
+        f.since = since_looked(&ctx.socket).await;
+    }
+    let counts = f.counts(herdr::now_ms());
     if link.sent.as_ref() != Some(&counts) {
         let _ = ctx
             .h
@@ -467,6 +526,7 @@ async fn daemon_said(ctx: &mut Ctx, f: &mut Follower, link: &mut Link, m: Result
                     f.apply(&snap.views, &[], true, now, herdr::now_ms());
                     f.forget_missing(&snap.views);
                     apply_early(f, &early, now);
+                    f.since = since_looked(&ctx.socket).await;
                     print_board(f);
                 }
             }
@@ -478,6 +538,7 @@ async fn daemon_said(ctx: &mut Ctx, f: &mut Follower, link: &mut Link, m: Result
                 for v in &applied.changed {
                     println!("{}", crate::work::change_line(v, herdr::now_ms()));
                 }
+                link.digest_stale |= applied.changed.iter().any(|v| v.state.ended());
             }
         }
         Ok(Some(_)) => {}

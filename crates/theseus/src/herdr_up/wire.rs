@@ -107,12 +107,29 @@ pub fn pane_tokens_params(pane_id: &str, t: &TabSpec) -> Value {
            "tokens": tokens_of(t), "seq": herdr::next_seq()})
 }
 
-/// The Space row: `needs ●2`, `working ◐5`, `done ◆1`, `spend $1.24`.
+/// The Space row: `needs ●2`, `working ◐5`, `done ◆1`, `spend $1.24`, and the
+/// horizon's: `since ↺3` (what happened since you looked), `next ⏰16:52` (the next
+/// reminder) and `routines 🔁2` (due now). The three are empty when there is nothing
+/// to say, so a token herdr kept from before is cleared.
 pub fn counts_params(workspace_id: &str, c: &Counts) -> Value {
+    let since = if c.since > 0 {
+        format!("↺{}", c.since)
+    } else {
+        String::new()
+    };
+    let next = c.next_ms.map_or_else(String::new, |ms| {
+        format!("⏰{}", crate::status::local_hm(ms))
+    });
+    let routines = if c.routines_due > 0 {
+        format!("🔁{}", c.routines_due)
+    } else {
+        String::new()
+    };
     json!({"workspace_id": workspace_id, "source": SOURCE, "seq": herdr::next_seq(),
            "tokens": {"needs": format!("●{}", c.needs), "working": format!("◐{}", c.working),
                       "done": format!("◆{}", c.done),
-                      "spend": format!("${}.{:02}", c.spend_cents / 100, c.spend_cents % 100)}})
+                      "spend": format!("${}.{:02}", c.spend_cents / 100, c.spend_cents % 100),
+                      "since": since, "next": next, "routines": routines}})
 }
 
 /// Needs-you first in herdr's agent view.
@@ -220,11 +237,27 @@ mod tests {
                 working: 5,
                 done: 1,
                 spend_cents: 124,
+                since: 3,
+                next_ms: Some(0),
+                routines_due: 2,
             },
         );
         assert_eq!(p["tokens"]["needs"], "●2");
         assert_eq!(p["tokens"]["working"], "◐5");
         assert_eq!(p["tokens"]["done"], "◆1");
         assert_eq!(p["tokens"]["spend"], "$1.24");
+        assert_eq!(p["tokens"]["since"], "↺3");
+        assert_eq!(
+            p["tokens"]["next"],
+            format!("⏰{}", crate::status::local_hm(0))
+        );
+        assert_eq!(p["tokens"]["routines"], "🔁2");
+        let quiet = counts_params("w1", &Counts::default());
+        for k in ["since", "next", "routines"] {
+            assert_eq!(
+                quiet["tokens"][k], "",
+                "{k} is cleared when there is nothing"
+            );
+        }
     }
 }

@@ -204,6 +204,8 @@ struct FakeDaemon {
     subs: Arc<Mutex<Vec<UnixStream>>>,
     down: Arc<AtomicBool>,
     pos: Arc<Mutex<u64>>,
+    /// The digest's lines `work.digest` answers with.
+    digest: Arc<Mutex<Vec<Value>>>,
 }
 
 fn view(id: &str, sid: &str, kind: &str, state: &str, level: &str, pos: u64) -> Value {
@@ -220,14 +222,15 @@ impl FakeDaemon {
         let views = Arc::new(Mutex::new(views));
         let subs: Arc<Mutex<Vec<UnixStream>>> = Arc::new(Mutex::new(Vec::new()));
         let down = Arc::new(AtomicBool::new(false));
-        let (v, s, d) = (views.clone(), subs.clone(), down.clone());
+        let digest: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let (v, s, d, dg) = (views.clone(), subs.clone(), down.clone(), digest.clone());
         std::thread::spawn(move || {
             for c in listener.incoming() {
                 let Ok(c) = c else { break };
                 if d.load(Ordering::SeqCst) {
                     continue;
                 }
-                let (v, s) = (v.clone(), s.clone());
+                let (v, s, dg) = (v.clone(), s.clone(), dg.clone());
                 std::thread::spawn(move || {
                     for line in BufReader::new(&c).lines() {
                         let Ok(line) = line else { break };
@@ -238,6 +241,12 @@ impl FakeDaemon {
                                 let views = v.lock().unwrap().clone();
                                 json!({"position": 1, "views": views, "total": views.len()})
                             }
+                            Some("work.digest") => json!({
+                                "from": req["params"]["since"], "to": 99,
+                                "lines": dg.lock().unwrap().clone(), "from_ledger": false,
+                                "now": {"needs_you": 0, "working": 0, "done": 0, "failed": 0,
+                                        "total": 0},
+                                "questions": []}),
                             Some("session.list") => json!({"sessions": [
                                 {"session_id": "ses_pinned1", "kind": "conversation",
                                  "label": "Tide notes", "created_at_unix_ms": 1, "turns": 1}]}),
@@ -258,6 +267,7 @@ impl FakeDaemon {
             subs,
             down,
             pos: Arc::new(Mutex::new(10)),
+            digest,
         }
     }
 
@@ -302,6 +312,7 @@ fn theseus(daemon: &Path, herdr: &Path) -> Command {
         .arg(daemon)
         .args(["herdr", "up", "--herdr-socket"])
         .arg(herdr)
+        .env("XDG_STATE_HOME", daemon.parent().unwrap().join("state"))
         .env_remove("THESEUS_SOCKET")
         .env_remove("HERDR_ENV")
         .env_remove("HERDR_PANE_ID")
@@ -690,4 +701,67 @@ fn a_lost_daemon_is_one_notice_and_its_return_another() {
         1,
         "nothing laid out again"
     );
+}
+
+/// A digest line: one thing that happened (`kind`) under the daemon's board.
+fn digest_line(kind: &str, n: u64) -> Value {
+    json!({"at_ms": n, "kind": kind, "words": format!("{kind} {n}"), "count": 1,
+           "work": {"id": format!("exe_{n}"), "kind": "task", "title": format!("job {n}")}})
+}
+
+/// The Space row's tokens as the last `workspace.report_metadata` left them.
+fn space_row(herdr: &FakeHerdr) -> serde_json::Map<String, Value> {
+    herdr
+        .requests("workspace.report_metadata")
+        .last()
+        .map(|r| {
+            r["params"]["tokens"]
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .unwrap_or_default()
+}
+
+/// The Space row says what happened since the owner last looked (the digest from the
+/// seen position, not counting the owner's own answers) and the horizon's two numbers:
+/// the next reminder and the routines due. It says it again after the daemon was away
+/// and things happened meanwhile, and a reminder or a routine gets no tab.
+#[test]
+fn the_space_row_carries_the_digest_and_the_horizon_after_a_disconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen_file = dir.path().join("state/theseus/seen.json");
+    theseus_client::seen::record_looked(&seen_file, 7, 1).unwrap();
+    let herdr = FakeHerdr::start(dir.path(), Model::default());
+    let mut views = three_tasks();
+    let mut reminder = view("wake_1", "", "wake", "waiting", "idle", 1);
+    reminder["purpose"] = json!("remind");
+    reminder["next_at_ms"] = json!(4_000_000_000_000u64);
+    let mut routine = view("rtn_1", "ses_rtn001", "routine", "waiting", "idle", 1);
+    routine["next_at_ms"] = json!(1);
+    views.extend([reminder, routine]);
+    let daemon = FakeDaemon::start(dir.path(), views);
+    let _f = follow(&daemon.sock, &herdr.sock, &[]);
+    until(10, "the Space row", || !space_row(&herdr).is_empty());
+    let row = space_row(&herdr);
+    assert_eq!(row["since"], "", "nothing happened since the owner looked");
+    assert_eq!(row["routines"], "🔁1", "the routine's time has come");
+    assert!(row["next"].as_str().unwrap().starts_with('⏰'), "{row:?}");
+    assert_eq!(herdr.requests("layout.apply").len(), 1);
+    let tabs = tabs_in(&herdr.requests("layout.apply")[0]);
+    assert_eq!(tabs.len(), 3, "the horizon's kinds get no tab");
+
+    daemon.go_down();
+    until(10, "the loss notice", || {
+        herdr.requests("notification.show").len() == 1
+    });
+    *daemon.digest.lock().unwrap() = vec![
+        digest_line("reported", 1),
+        digest_line("failed", 2),
+        digest_line("answered", 3),
+    ];
+    daemon.come_back();
+    until(10, "the digest on the Space row", || {
+        space_row(&herdr).get("since").and_then(Value::as_str) == Some("↺2")
+    });
 }
