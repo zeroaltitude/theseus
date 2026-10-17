@@ -233,5 +233,9 @@ async fn the_hold_survives_a_restart() {
         "read back from the key"
     );
     assert!(!again.runner.task_paused("ses_someone_else"));
+    // The board of the restarted core reads the hold back too.
+    again.push.ensure(&again).await.unwrap();
+    let w = again.push.work_all().remove(&task.id).unwrap();
+    assert!(w.paused, "the restarted board marks it: {w:?}");
     r.model.gate.add_permits(1);
 }
