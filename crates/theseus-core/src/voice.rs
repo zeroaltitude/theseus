@@ -62,6 +62,11 @@ pub struct VoiceConfig {
     /// `{name}` is the persona's name. Empty: nothing is said.
     #[serde(default = "default_greeting")]
     pub greeting: String,
+    /// In a call in a private place, a task's new question and its end are
+    /// said at the next pause, and "approve" or "stop it" answers
+    /// (theseus-bh3t.3).
+    #[serde(default = "default_status")]
+    pub speak_tasks: bool,
 }
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
@@ -106,6 +111,7 @@ impl Default for VoiceConfig {
             deaf_after_secs: default_deaf_after_secs(),
             status: default_status(),
             greeting: default_greeting(),
+            speak_tasks: default_status(),
         }
     }
 }

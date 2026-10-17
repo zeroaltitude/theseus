@@ -846,6 +846,9 @@ max_events = 10                         # at most this many events stand at once
 #                                       # ("🎧 Theseus · ⚙️ 3 tasks · 🔴 1 needs you"), counts alone, cleared at leave;
 #                                       # a bound voice channel may say voice_status = false. Needs the bot to have
 #                                       # the Set Voice Channel Status permission (a 403 is said once in health)
+# speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
+#                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"
+#                                       # answers the question as you (the core judges it as it judges a button)
 
 # ---------------------------------------------------------------- web
 # The localhost web UI, the cockpit, at /. Loopback only; a non-loopback
