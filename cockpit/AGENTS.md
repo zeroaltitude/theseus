@@ -111,7 +111,7 @@ build.
   `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
   `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over
   `route.corrections`). Their words are `src/lib/routefooter.ts` (`test/routefooter.test.ts`).
-- Desktop notices (theseus-go4ig): the Shell's bell turns on `src/components/DesktopNotices.tsx`, which reads the work board (`work.watch`, held only while it is on) and `wake.noticed` through `src/lib/notices.ts`, a pure port of `theseus_protocol::notices`'s table for what the page can see (a question and its reminder, a failure or block, a flagged or long finish, a task's report, an answer's retraction, a set reminder) and its `deliver` (the session on screen is no ping). A progress change is no notice. Test: `test/notices.test.ts`. Keep it in step with the Rust table.
+- Desktop notices (theseus-go4ig): the Shell's bell turns on `src/components/DesktopNotices.tsx`, which holds the page's `work.watch` (only while it is on) and shows the daemon's `work.notice` pushes (the notification policy is the daemon's, `theseus_protocol::notices::policy`, as for the chat and the TUI) and a set reminder's `wake.noticed`, through `src/lib/notices.ts`: a port of `deliver` (the session on screen is no ping) and of the reminder's notice. Never port the policy's table here. Test: `test/notices.test.ts`.
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions
