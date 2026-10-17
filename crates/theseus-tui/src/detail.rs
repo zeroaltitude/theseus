@@ -73,6 +73,8 @@ pub struct Detail {
     /// `session.mode`'s answer and its notifications.
     pub mode: SessionMode,
     pub plan: Vec<PlanItem>,
+    /// The newest turn the pane has seen, for `I` (theseus-mu0e6).
+    pub turn: Option<String>,
 }
 
 impl Detail {
@@ -140,6 +142,9 @@ impl Detail {
     /// what came after (a reply that streamed while it was read), or at the
     /// end when nothing marked it.
     pub fn node(&mut self, n: &NodeInfo) {
+        if let Some(t) = &n.turn_id {
+            self.turn = Some(t.clone());
+        }
         let at = self.places.iter().position(|(id, _)| *id == n.node_id);
         let place = at.and_then(|i| self.places[i].1);
         let Some(p) = place.filter(|p| *p < self.lines.len()) else {
@@ -226,6 +231,9 @@ impl Detail {
         };
         if !ours {
             return;
+        }
+        if let Some(t) = e.turn_id() {
+            self.turn = Some(t.to_string());
         }
         if let Event::SessionMode(m) = e {
             self.set_mode(m.mode, &m.plan);

@@ -21,6 +21,7 @@ mod run;
 mod selfview;
 mod standing;
 mod styled;
+mod task_return;
 mod term;
 mod threads;
 mod ui;
@@ -72,6 +73,8 @@ mod tests_stop_all;
 mod tests_sync;
 #[cfg(test)]
 mod tests_system;
+#[cfg(test)]
+mod tests_task_return;
 #[cfg(test)]
 mod tests_threads;
 #[cfg(test)]

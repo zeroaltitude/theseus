@@ -364,3 +364,23 @@ fn a_dismissed_failure_reads_the_same_on_the_push_and_the_work_view() {
         Level::Working
     );
 }
+
+/// The owner can join a task while it works or waits on a question, and not
+/// once it has ended; the redirect line is the one Discord has always said.
+#[test]
+fn a_task_is_joinable_until_it_ends() {
+    let joinable_in = |state: &str| {
+        let x = exec(SessionKind::Task, state, None, vec![], 0, None, None, None);
+        super::joinable(&WorkView::from_execution(&x))
+    };
+    for state in ["queued", "running", "waiting", "blocked"] {
+        assert!(joinable_in(state), "{state} takes input");
+    }
+    for state in ["complete", "failed", "cancelled"] {
+        assert!(!joinable_in(state), "{state} has ended");
+    }
+    assert_eq!(
+        super::task_redirect_line("Sound the north channel", "a1b2c3", "the task is over"),
+        "[Written to the task “Sound the north channel” (…a1b2c3), and the task is over] "
+    );
+}
