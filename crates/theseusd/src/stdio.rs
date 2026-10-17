@@ -95,3 +95,28 @@ pub fn planted_hold<T: Send + Sync + 'static>(core: &std::sync::Arc<T>) {
     #[cfg(not(debug_assertions))]
     let _ = core;
 }
+
+/// A thread outside the runtime that holds the core through a unit of work and
+/// is still mid-unit when the runtime is dropped (theseus-q0re4): the plant of
+/// what a `Weak<Core>` upgrade on a tender's thread does under load. The core
+/// is let go `THESEUS_TEST_HOLD_CORE_THREAD_MS` after the stop has begun, long
+/// after the runtime's drop, which does not wait for a thread of its own.
+/// A release build has no such plant.
+pub fn planted_thread_hold<T: Send + Sync + 'static>(core: &std::sync::Arc<T>) {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("THESEUS_TEST_HOLD_CORE_THREAD_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        let core = core.clone();
+        std::thread::spawn(move || {
+            while !theseus_core::startup::stop_has_begun() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            std::thread::sleep(Duration::from_millis(ms));
+            drop(core);
+        });
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = core;
+}

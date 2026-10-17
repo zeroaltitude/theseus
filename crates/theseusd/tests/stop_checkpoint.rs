@@ -58,7 +58,15 @@ fn wait_exit(s: &mut Served) {
 
 #[test]
 fn a_clean_stop_with_every_service_on_leaves_nothing_to_replay() {
-    stop_and_reopen(false);
+    stop_and_reopen(false, None);
+}
+
+/// A thread of its own that holds the core through a unit of work, still mid-unit when the runtime
+/// is dropped (theseus-q0re4: nine store handles 2.5 ms after the drop, once under load), is
+/// waited for: the stop ends when the unit does, the store closes, and nothing is named a leak.
+#[test]
+fn a_thread_mid_unit_at_the_runtime_drop_is_waited_for_and_the_store_closes() {
+    stop_and_reopen(false, Some(400));
 }
 
 /// A handle on the store that is never dropped keeps redb from closing; the
@@ -66,14 +74,18 @@ fn a_clean_stop_with_every_service_on_leaves_nothing_to_replay() {
 /// and the log names the leak.
 #[test]
 fn a_handle_that_outlives_the_runtime_costs_the_next_start_no_replay() {
-    stop_and_reopen(true);
+    stop_and_reopen(true, None);
 }
 
-fn stop_and_reopen(leak: bool) {
+/// `held_ms`: a thread of the daemon's own holds the core that long after the stop begins.
+fn stop_and_reopen(leak: bool, held_ms: Option<u64>) {
     let hook = move |c: &mut std::process::Command| {
         c.env("STOP_CP_KEY", KEY);
         if leak {
             c.env("THESEUS_TEST_LEAK_STORE", "1");
+        }
+        if let Some(ms) = held_ms {
+            c.env("THESEUS_TEST_HOLD_CORE_THREAD_MS", ms.to_string());
         }
     };
     let mut s = Served::start_with(|_| {}, services_on, hook);
@@ -94,6 +106,13 @@ fn stop_and_reopen(leak: bool) {
     }
     s.call("shutdown", Value::Null).unwrap();
     wait_exit(&mut s);
+    if held_ms.is_some() {
+        assert!(
+            !s.log().contains("outlived the runtime"),
+            "the stop did not wait for the thread:\n{}",
+            s.log()
+        );
+    }
     // The store as the stop left it, started again.
     let state = s.path("state/store");
     let second = Served::start_with(

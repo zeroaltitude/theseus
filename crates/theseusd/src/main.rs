@@ -277,6 +277,12 @@ fn main() -> Result<()> {
     // run.
     drop(rt);
     stop_phase("runtime dropped");
+    // A thread outside the runtime that upgrades a `Weak` to the core for a
+    // unit of work can be mid-unit now, and holds the store until the unit
+    // ends (theseus-q0re4: nine handles, 2.5 ms after the drop, under load).
+    // The stop waits for the store's close itself, bounded, instead of racing
+    // that thread: it returns at once when nothing holds the store.
+    theseus_store::leak::wait_closed(STORE_CLOSE_WAIT);
     let held = theseus_store::leak::holders();
     if held > 0 {
         // The stop's checkpoint is durable by itself, so the next start still
@@ -600,6 +606,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         stop.as_mut().enable();
         tokio::spawn(after_serving(core.clone(), keep, None, state_dir, mode));
         stdio::planted_hold(&core);
+        stdio::planted_thread_hold(&core);
         let (stdin, stdout) = stdio::pipes()?.into_split();
         // The one client is whoever holds the pipes: the parent that spawned
         // this daemon.
@@ -638,6 +645,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     // connection per state dir, whose bindings file names its places.
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
     stdio::planted_hold(&core);
+    stdio::planted_thread_hold(&core);
     let served = serve_socket(core.clone(), socket_path, signals, after_bind).await;
     stop_phase("serving loop ended");
     // The index tender gets SIGTERM and is never waited for (§9), unless this
@@ -653,6 +661,11 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     served?;
     Ok(exit(&core))
 }
+
+/// How long a stopping daemon waits, after its runtime is dropped, for a thread
+/// that holds the store to let go. A unit of work on such a thread is short;
+/// a holder past this is a leak, named in the log.
+const STORE_CLOSE_WAIT: Duration = Duration::from_secs(2);
 
 /// How long a stopping daemon waits for telemetry's last batch.
 const TELEMETRY_FLUSH: Duration = Duration::from_secs(1);
