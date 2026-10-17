@@ -46,6 +46,8 @@ mod tests_show;
 #[cfg(test)]
 mod tests_silent;
 #[cfg(test)]
+mod tests_task_channels;
+#[cfg(test)]
 mod tests_task_threads;
 #[cfg(test)]
 mod tests_typing;

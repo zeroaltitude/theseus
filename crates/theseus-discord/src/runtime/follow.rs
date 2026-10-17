@@ -132,6 +132,8 @@ impl Follows {
 pub(super) struct Mirror {
     pub(super) lines: VecDeque<String>,
     pub(super) stream: String,
+    /// The task's channel, when it has one (theseus-bh3t.1).
+    pub(super) channel: Option<u64>,
 }
 
 impl Mirror {
@@ -158,6 +160,9 @@ impl Mirror {
             clip(v.title.trim(), 80),
             short(&v.id)
         );
+        if let Some(c) = self.channel {
+            t.push_str(&format!("\n-# in <#{c}>"));
+        }
         for l in &self.lines {
             t.push_str(&format!("\n`{}`", clip(&l.replace('`', "'"), 100)));
         }
@@ -277,6 +282,7 @@ impl Shared {
                 break;
             };
             let ended = view.state.ended();
+            mirror.channel = self.task_threads.channel_of(task);
             let text = mirror.text(&view, ended.then(|| report_line(&view)).as_deref());
             let due = ended
                 || (dirty
@@ -428,5 +434,18 @@ mod tests {
         assert_eq!(m.lines.front().unwrap(), "fs.read file4");
         m.said(&"x".repeat(2000));
         assert_eq!(m.stream.chars().count(), STREAM_CHARS);
+    }
+
+    #[test]
+    fn a_task_with_a_channel_says_so_under_its_head() {
+        let mut m = Mirror::default();
+        let v =
+            crate::runtime::task_channels::work_view("exe_01J0000000000000000a1b2c3", "running");
+        assert!(!m.text(&v, None).contains("-# in <#"));
+        m.channel = Some(900_000_000_000_500_002);
+        let text = m.text(&v, None);
+        let (head, rest) = text.split_once('\n').unwrap();
+        assert!(head.contains("a1b2c3"), "{head}");
+        assert!(rest.starts_with("-# in <#900000000000500002>"), "{text}");
     }
 }

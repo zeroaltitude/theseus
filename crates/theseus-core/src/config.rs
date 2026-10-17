@@ -301,6 +301,23 @@ pub struct DiscordConfig {
     /// that cannot send V2, the plain-text board of the task records.
     #[serde(default = "default_true")]
     pub live_board: bool,
+    /// A private text channel for each multi-step or long task, under a
+    /// category the bot makes in the one guild the bindings file trusts
+    /// (theseus-bh3t.1); a task's steering happens there. With no trusted
+    /// guild, or more than one, nothing is made.
+    #[serde(default = "default_true")]
+    pub task_channels: bool,
+    /// A working task with no channel yet gets one this many minutes after it
+    /// began.
+    #[serde(default = "discord::default_task_channel_after_minutes")]
+    pub task_channel_after_minutes: u64,
+    /// At most this many task channels open at once; a task past it goes on
+    /// as it did before channels.
+    #[serde(default = "discord::default_task_channel_cap")]
+    pub task_channel_cap: u64,
+    /// A finished task's channel is deleted this many days after it ended.
+    #[serde(default = "discord::default_task_channel_keep_days")]
+    pub task_channel_keep_days: u64,
     /// The bot's presence reads the counts of what needs you and what runs
     /// (`🔴 1 needs you · ⚙️ 3 running`); everyone who can see the bot sees it.
     #[serde(default = "default_true")]

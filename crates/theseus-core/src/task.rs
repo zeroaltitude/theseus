@@ -112,6 +112,9 @@ struct Input {
     /// Tell the owner when it is done: its finish pings (theseus-j7cje).
     #[serde(default)]
     notify_done: bool,
+    /// Its expected length (theseus-bh3t.1).
+    #[serde(default)]
+    expect: Option<theseus_protocol::task_start::Expect>,
     /// The messages that define the work (M5 27).
     #[serde(default)]
     arrangement: Option<crate::arrangement::Input>,
@@ -274,6 +277,7 @@ impl Tool for TaskCreate {
                     "type": "boolean",
                     "description": "Its finish notifies the owner, wherever they are (default: false)."
                 },
+                "expect": {"type": "string", "enum": ["short", "long"], "description": "long: likely over 10 minutes"},
                 "arrangement": {
                     "type": "object",
                     "description": "The messages of this conversation that define the work, quoted exactly; the task reads each whole, verbatim, after the brief.",
@@ -673,6 +677,7 @@ pub fn create<'a>(
             }
             records.push(crate::task_graph::record(&graph)?);
             records.push(created_row.clone());
+            records.extend(expect_record(&task.session_id, i.expect)?);
             if let Some(due) = start {
                 let d = crate::task_start::Deferred {
                     set_at_ms: now,
@@ -967,6 +972,24 @@ pub struct Report {
 /// The META key of the count of messages the owner joined a task with.
 pub fn joined_key(task_session: &str) -> String {
     format!("task.joined.{task_session}")
+}
+
+/// The META key of a task's expected length (theseus-bh3t.1): a key, not a
+/// field of its session record, so no store format.
+pub fn expect_key(task_session: &str) -> String {
+    format!("task.expect.{task_session}")
+}
+
+/// The record that holds a `long` expectation, written in the frame that
+/// opens the task; none for a short one, the default.
+pub fn expect_record(
+    task_session: &str,
+    expect: Option<theseus_protocol::task_start::Expect>,
+) -> anyhow::Result<Option<NewRecord>> {
+    use theseus_protocol::task_start::Expect;
+    (expect == Some(Expect::Long))
+        .then(|| NewRecord::json(kinds::META, Some(&expect_key(task_session)), &Expect::Long))
+        .transpose()
 }
 
 /// The record that holds the count, written in the frame that ends the task;

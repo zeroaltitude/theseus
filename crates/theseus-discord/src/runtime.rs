@@ -100,6 +100,7 @@ mod horizon_cmds;
 mod start_task;
 mod steer;
 mod succession;
+pub(crate) mod task_channels;
 mod task_cmds;
 mod tasks;
 pub(crate) mod threads;
@@ -1950,6 +1951,7 @@ impl Place {
             }
             PlaceMsg::Event(e) => {
                 let e = *e;
+                self.adopt_turn(&e);
                 if self.thread_ask_card(&e) {
                     return; // the router's question (theseus-rha2): its card, apart from the stream
                 }

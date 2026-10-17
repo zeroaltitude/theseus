@@ -3,6 +3,7 @@ import type { Attention } from "./Attention";
 import type { Cost } from "./Cost";
 import type { Doing } from "./Doing";
 import type { Eta } from "./Eta";
+import type { Expect } from "./Expect";
 import type { Progress } from "./Progress";
 import type { ProjectView } from "./ProjectView";
 import type { Question } from "./Question";
@@ -105,6 +106,10 @@ report?: WorkReport,
  * turns` even when the level did not change.
  */
 woke?: Woke, 
+/**
+ * A task: expected to run long (`task.create { expect }`, theseus-bh3t.1).
+ */
+expect?: Expect, 
 /**
  * The owner asked to hear when it is done ("tell me when it's done").
  */

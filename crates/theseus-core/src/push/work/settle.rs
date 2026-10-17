@@ -39,6 +39,7 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.report == b.report
         && a.woke == b.woke
         && a.flagged == b.flagged
+        && a.expect == b.expect
         && a.dismissed == b.dismissed
         && a.retry_of == b.retry_of
         && a.thread == b.thread

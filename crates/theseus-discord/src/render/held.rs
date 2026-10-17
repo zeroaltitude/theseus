@@ -24,6 +24,11 @@ impl Renderer {
         self.turns.iter().map(|t| t.turn_id.clone()).collect()
     }
 
+    /// The renderer has seen turn `turn_id` start.
+    pub fn knows(&self, turn_id: &str) -> bool {
+        self.turns.iter().any(|t| t.turn_id == turn_id)
+    }
+
     /// Drop the turns past `RECENT_TURNS`, oldest first, with their keys.
     pub(super) fn drop_past_recent(&mut self) {
         let mut dropped = vec![];

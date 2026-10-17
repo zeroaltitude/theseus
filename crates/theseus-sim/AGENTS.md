@@ -137,6 +137,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     gets), runs and edits a webhook's messages (`Msg::hook` is the name, `author` the webhook's id), types a reply
     (`say_reply`) and a slash command (`command`, in a thread under a `parent`).
     gives it a guild for the viewer check (theseus-ck0k).
+    Since theseus-bh3t.1 (`src/fake_discord/channels.rs`) it makes guild channels and categories (`POST /guilds/<g>/channels`),
+    changes (`PATCH /channels/<id>`, a made channel's name, parent, topic and overwrites; any other goes to the thread routes) and
+    deletes them (`DELETE`), keeps Discord's 50 to a category, and answers 403 to all three under `refuse_channels`.
     It holds Components V2 messages to Discord's own rules (theseus-2j2ka; `v2_refusal`, written apart from the binding's
     validator): at most 40 components (boxes, sections and accessories counted), 4,000 characters of text, no
     `content` beside `IS_COMPONENTS_V2`, unique `custom_id`s, V2 types only with the flag, the flag not removable on an

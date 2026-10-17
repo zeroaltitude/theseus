@@ -140,6 +140,7 @@ impl Core {
             now,
             common: &common,
             available: parent.budget.available(),
+            expect: p.expect,
         };
         let opened =
             self.kernel
@@ -279,6 +280,7 @@ struct Draft<'a> {
     now: u64,
     common: &'a Common<'a>,
     available: theseus_kernel::Micros,
+    expect: Option<theseus_protocol::task_start::Expect>,
 }
 
 impl Core {
@@ -336,6 +338,7 @@ impl Core {
         }
         records.push(crate::task_graph::record(d.graph)?);
         records.push(d.created_row.clone());
+        records.extend(crate::task::expect_record(&task.session_id, d.expect)?);
         if let Some(due) = d.start {
             let times = crate::task_start::Deferred {
                 set_at_ms: d.now,

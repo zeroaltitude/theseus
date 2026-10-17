@@ -446,6 +446,7 @@ mod tests {
             why: None,
             report: None,
             woke: None,
+            expect: None,
             flagged: false,
             dismissed: false,
             retry_of: None,

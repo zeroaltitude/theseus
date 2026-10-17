@@ -306,6 +306,22 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     `PATCH` rename, so 40 requests a day; the worst minute (ten tasks started in it) is ten of each create and notice, and the
     transitions cost no request on the thread side. On the forum side a post is written at most 30 times a minute (its card), so
     200 transitions are at most 200 card edits in that minute and 10 tag edits over 5 minutes.
+- **A channel per task** (theseus-bh3t.1; the owner, 2026-10-17; `runtime/task_channels.rs`, `tests_task_channels.rs`, the fake's
+  `fake_discord/channels.rs`). A task whose place is private (the DM, or a channel bound private) gets a private text channel
+  under the bot's `⚙️ Theseus tasks` category in the one guild the bindings file trusts (`private = true`; none or several:
+  nothing changes) when `qualifies` says so: a plan of two steps or more, `expect = long` (`task.create`'s and the new-task
+  modal's "Expected"; a META key `task.expect.<session>`, no store format), or still working `task_channel_after_minutes`
+  after it began (one `sleep` a task from `Place::promote_later`, which sends the place its next sync and marks the task due; no
+  periodic timer). A task in a shared channel keeps its public thread, because its guests are there. The channel is a row of
+  `TaskThreads` like a thread (`Made.kind` is `Channel`; `Made.thread` holds the channel's id), so `task_message`, `join_task`
+  and the board's links work unchanged: the owner's message there steers the task. The parent gets one quiet line
+  (`📺 <#channel> · title`), the Follow mirror `-# in <#channel>`; a task that had a thread is moved (the thread says `moved
+  to`, is archived and its place goes after `GRACE`, the session's posts rebound to the channel). At the end the report is
+  said in the channel and one PATCH moves it under `⚙️ Theseus tasks · done`, names it `✅`/`❌` and denies the owner Send
+  Messages; a sweep at the start and once a day deletes channels that ended `task_channel_keep_days` ago (a full done
+  category loses its oldest). A 403 turns channels off until the next start (the owner's DM gets one line naming Manage
+  Channels and Manage Roles, with the invite link of `INVITE_PERMISSIONS`); the cap and any other failure leave the task as it
+  was. Tests: `tests_task_channels.rs`, `runtime/task_channels.rs`'s timer test on the paused clock.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.

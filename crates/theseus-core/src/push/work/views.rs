@@ -63,6 +63,7 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         why: None,
         report: None,
         woke: None,
+        expect: None,
         flagged: false,
         dismissed: false,
         retry_of: None,
@@ -125,6 +126,7 @@ impl WorkBoard {
         v.progress = super::progress::said_only(ei.said.as_deref(), 0);
         v.report = self.report_of(ei, &v);
         v.flagged = ei.flagged;
+        v.expect = ei.expect;
         v.ended_at_ms = v.state.ended().then_some(ei.x.at_ms);
         Some(v)
     }

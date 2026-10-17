@@ -10,7 +10,7 @@
 //! told where to start one instead.
 
 use serde_json::{json, Value};
-use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
+use theseus_protocol::task_start::{Expect, ReportTo, TaskStartParams, TaskStartResult};
 use twilight_model::application::interaction::modal::{
     ModalInteractionComponent, ModalInteractionData,
 };
@@ -28,6 +28,7 @@ const BRIEF: &str = "brief";
 const QUOTE: &str = "quote";
 const BUDGET: &str = "budget";
 const REPORT: &str = "report";
+const EXPECT: &str = "expect";
 /// Discord's text input limit.
 const INPUT_MAX: usize = 4000;
 
@@ -85,6 +86,15 @@ pub(super) fn modal(quote: Option<&str>) -> Value {
             "home",
         ),
     ));
+    components.push(label(
+        "Expected",
+        None,
+        pick(
+            EXPECT,
+            &[("short", "short"), ("long (over 10 min)", "long")],
+            "short",
+        ),
+    ));
     json!({"type": 9, "data": {"custom_id": MODAL, "title": "New task", "components": components}})
 }
 
@@ -95,6 +105,8 @@ pub(crate) struct Submit {
     pub(super) quote: String,
     pub(super) budget: Option<f64>,
     pub(super) board: bool,
+    /// The task is expected to take over ten minutes (theseus-bh3t.1).
+    pub(super) long: bool,
 }
 
 impl Submit {
@@ -113,6 +125,9 @@ impl Submit {
                 }
                 ModalInteractionComponent::StringSelect(v) if v.custom_id == BUDGET => {
                     s.budget = v.values.first().and_then(|v| v.parse().ok())
+                }
+                ModalInteractionComponent::StringSelect(v) if v.custom_id == EXPECT => {
+                    s.long = v.values.first().is_some_and(|v| v == "long")
                 }
                 ModalInteractionComponent::StringSelect(v) if v.custom_id == REPORT => {
                     s.board = v.values.first().is_some_and(|v| v == "board")
@@ -144,6 +159,7 @@ impl Submit {
             } else {
                 ReportTo::Home
             }),
+            expect: self.long.then_some(Expect::Long),
             author: Some(who.to_string()),
             discord: origin_of(
                 i.author().map(|u| u.id.get()),
@@ -212,14 +228,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_modal_has_a_brief_a_budget_select_and_a_report_select() {
+    fn the_modal_has_a_brief_a_budget_select_a_report_select_and_an_expected_select() {
         let m = modal(None);
         let parts = m["data"]["components"].as_array().unwrap();
         let ids: Vec<&str> = parts
             .iter()
             .map(|p| p["component"]["custom_id"].as_str().unwrap())
             .collect();
-        assert_eq!(ids, ["brief", "budget", "report"]);
+        assert_eq!(ids, ["brief", "budget", "report", "expect"]);
         let budget = &parts[1]["component"]["options"];
         assert_eq!(budget.as_array().unwrap().len(), 4);
         assert_eq!(budget[1]["default"], true, "$2 is the default");
@@ -229,7 +245,7 @@ mod tests {
     fn a_message_made_a_task_brings_its_text_as_an_editable_quote() {
         let m = modal(Some("the log says the reef sensor died"));
         let parts = m["data"]["components"].as_array().unwrap();
-        assert_eq!(parts.len(), 4);
+        assert_eq!(parts.len(), 5, "a modal holds five");
         assert_eq!(parts[1]["component"]["custom_id"], "quote");
         assert_eq!(
             parts[1]["component"]["value"],

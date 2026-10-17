@@ -148,6 +148,8 @@ struct ExecIn {
     /// The owner asked to hear when this task is done (`task.create
     /// { notify_done }`, theseus-j7cje).
     flagged: bool,
+    /// The task was started expecting to run long (theseus-bh3t.1).
+    expect: Option<theseus_protocol::task_start::Expect>,
 }
 
 /// An action the board shows: a question, or a job.
@@ -1047,6 +1049,11 @@ impl WorkBoard {
                     .as_ref()
                     .and_then(|r| r.task.as_ref())
                     .is_some_and(|t| t.notify_done),
+                expect: core
+                    .store
+                    .get_meta(&crate::task::expect_key(&e.session_id))
+                    .ok()
+                    .flatten(),
             },
         );
         self.ensure_forecast(core, &e.id);

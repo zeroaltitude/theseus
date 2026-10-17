@@ -54,10 +54,12 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod channels;
 pub mod commands;
 mod events;
 mod threads;
 
+pub use channels::FakeChannel;
 pub use events::{FakeEvent, GUILD_EVENT_LIMIT};
 pub use threads::{FakeHook, FakeTag, FakeThread};
 
@@ -571,6 +573,9 @@ struct State {
     refuse_webhooks: bool,
     /// The last big id given a thread or a webhook.
     next_big: u64,
+    /// The channels and categories the bot made, and 403 for them (`channels.rs`).
+    channels: BTreeMap<u64, FakeChannel>,
+    refuse_channels: bool,
 }
 
 pub struct FakeDiscord {
@@ -1220,7 +1225,9 @@ impl FakeDiscord {
             }
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
             ("POST", ["channels", c, "threads"]) => self.thread_create(stream, c, &body),
-            ("PATCH", ["channels", c]) => self.thread_update(stream, c, &body),
+            ("PATCH", ["channels", c]) => self.channel_patch(stream, c, &body),
+            ("DELETE", ["channels", c]) => self.channel_delete(stream, c),
+            ("POST", ["guilds", g, "channels"]) => self.channel_create(stream, g, &body),
             ("GET", ["channels", c, "webhooks"]) => self.hooks_read(stream, c),
             ("POST", ["channels", c, "webhooks"]) => self.hook_make(stream, c, &body),
             ("POST", ["webhooks", id, token]) if self.is_hook(id) => {
@@ -1641,6 +1648,9 @@ impl FakeDiscord {
             let forum = st.forums.contains(&c);
             match (&st.guild, st.dms.contains_key(&c), st.threads.get(&c)) {
                 (_, _, Some(t)) => Some(threads::thread_json(t)),
+                _ if st.channels.get(&c).is_some_and(|ch| !ch.deleted) => {
+                    st.channels.get(&c).map(channels::channel_json)
+                }
                 (_, true, _) => Some(json!({"id": id, "type": 1})),
                 (Some(g), false, None) => g.channels.iter().find(|ch| ch.id == c).map(|ch| {
                     let mut j = channel_json(g.id, ch);
