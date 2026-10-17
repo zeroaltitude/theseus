@@ -1859,8 +1859,6 @@ impl Config {
         self.personas.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 
-    /// Every provider by name, with the implicit `anthropic` one synthesized
-    /// from `[model]` unless `[providers.anthropic]` overrides it.
     /// A profile's model origin (theseus-a1wvq): its provider's endpoint, its
     /// model and the catalog's row for it, by [`crate::catalog::origin_of`].
     /// A profile or provider that does not resolve is `unknown`.
@@ -1878,6 +1876,8 @@ impl Config {
         crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
     }
 
+    /// Every provider by name, with the implicit `anthropic` one synthesized
+    /// from `[model]` unless `[providers.anthropic]` overrides it.
     pub fn all_providers(&self) -> &BTreeMap<String, ProviderConfig> {
         &self.resolved.providers
     }
