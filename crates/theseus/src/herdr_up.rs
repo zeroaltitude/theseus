@@ -17,7 +17,7 @@
 //! keeps and restarts its tab (theseus-d5oc).
 
 mod state;
-mod wire;
+pub(crate) mod wire;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

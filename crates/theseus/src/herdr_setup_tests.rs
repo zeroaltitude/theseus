@@ -147,3 +147,32 @@ fn the_manifest_the_snippet_and_the_code_agree() {
         assert_eq!(c.len(), 3);
     }
 }
+
+/// prefix+i's popup reads the task from the environment the key put there, and opens the chat
+/// inspecting it; prefix+m runs the command that focuses the main tab.
+#[test]
+fn the_inspect_popup_and_the_main_key_run_their_commands() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contrib/herdr/theseus/herdr-plugin.toml");
+    let m: toml::Table = std::fs::read_to_string(path).unwrap().parse().unwrap();
+    let command = |list: &str, id: &str| {
+        m[list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"].as_str() == Some(id))
+            .unwrap()["command"][2]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        command("panes", "inspect"),
+        "theseus chat --task \"$THESEUS_SESSION_ARG\" --inspect; sleep 1"
+    );
+    assert!(command("actions", "inspect").contains("herdr popup inspect"));
+    assert_eq!(command("actions", "main"), "exec theseus herdr main");
+    let keys: Vec<_> = KEYS.iter().map(|k| (k.key, k.action)).collect();
+    assert!(keys.contains(&("prefix+m", "theseus.main")));
+    assert!(keys.contains(&("prefix+i", "theseus.inspect")));
+}

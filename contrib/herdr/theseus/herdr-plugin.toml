@@ -50,6 +50,18 @@ description = "Start a task from a line of words, with no model turn"
 command = ["sh", "-c", "exec theseus herdr popup new"]
 
 [[actions]]
+id = "main"
+title = "Theseus: main"
+description = "Back to the main conversation: focus its tab, made the first time"
+command = ["sh", "-c", "exec theseus herdr main"]
+
+[[actions]]
+id = "inspect"
+title = "Theseus: inspect"
+description = "Read the focused task's transcript and live stream, without joining it"
+command = ["sh", "-c", 'exec theseus herdr popup inspect ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+
+[[actions]]
 id = "open-link"
 title = "Theseus: open a link"
 description = "What a click on a theseus:// link under a question opens (the card; never an answer)"
@@ -88,6 +100,14 @@ placement = "popup"
 width = "92%"
 height = "90%"
 command = ["sh", "-c", 'theseus history "$THESEUS_SESSION_ARG" | ${PAGER:-less -R}']
+
+[[panes]]
+id = "inspect"
+title = "Theseus: inspect"
+placement = "popup"
+width = "92%"
+height = "90%"
+command = ["sh", "-c", 'theseus chat --task "$THESEUS_SESSION_ARG" --inspect; sleep 1']
 
 [[panes]]
 id = "new"

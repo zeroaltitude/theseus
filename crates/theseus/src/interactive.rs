@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use theseus_client::{render, resolve, CallError, Conn};
 use theseus_protocol::{
     method, notify, ConfirmRequest, Event, Id, Message, Notification, Response, SessionInfo,
-    SessionListResult, SessionWaitResult,
+    SessionKind, SessionListResult, SessionWaitResult,
 };
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -222,6 +222,10 @@ pub async fn watch(
         None => None,
     };
     let (turns, kind) = (info.turns, info.kind);
+    let header = (pane.is_some() && kind == SessionKind::Task).then(|| {
+        let tail = &sid[sid.len().saturating_sub(6)..];
+        crate::herdr_main::task_header(tail, parent.as_deref())
+    });
     let facts = (
         info.model.clone().or(info.profile.clone()),
         info.created_at_unix_ms,
@@ -255,6 +259,9 @@ pub async fn watch(
     };
     if let Some(r) = &mut w.reporter {
         r.set_facts(facts.0, facts.1, parent);
+    }
+    if let Some(h) = header {
+        eprintln!("{h}");
     }
     eprintln!("watching {sid} (Ctrl-C to stop)");
     if let Some(r) = &w.reporter {

@@ -200,3 +200,19 @@ fn plugin_says_where_it_is_and_how_to_link_it() {
         .join("herdr-plugin.toml")
         .is_file());
 }
+
+/// prefix+i reads the focused pane's task, and nothing else's.
+#[test]
+fn inspect_takes_a_tasks_session_and_no_other_pane() {
+    let task = json!({"kind": "task", "session": "ses_task9f2", "task": "9f2"});
+    assert_eq!(inspect_for(&task).as_deref(), Some("ses_task9f2"));
+    assert_eq!(
+        inspect_for(&json!({"kind": "conversation", "session": "ses_c"})),
+        None
+    );
+    assert_eq!(inspect_for(&json!({"kind": "main"})), None);
+    assert_eq!(
+        inspect_for(&json!({"kind": "task", "session": "a b;rm"})),
+        None
+    );
+}

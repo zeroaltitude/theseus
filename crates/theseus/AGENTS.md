@@ -337,6 +337,11 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `popup`, `link`) run before `main`'s connect (`HerdrCmd::is_own`). The manifest, the snippet, the link pattern and the reporter's
   tokens are tied by one test (`herdr_setup_tests.rs`). The operator's guide is `docs/herdr.md`. Tests: the three `*_tests.rs`
   files and `tests/herdr_answer.rs` (a scripted daemon and a fake herdr).
+- `src/herdr_main.rs` (theseus-m638c): `theseus herdr main` (prefix+m) focuses the workspace's `main` tab (kind token `main`, argv
+  `theseus --socket S chat`), making it the first time and never twice; `task_header` is the line a task's pane prints (the parent
+  and the two keys, read from `herdr_setup::KEYS`). prefix+i is `herdr popup inspect --pane P`: `inspect_for` takes the focused
+  task pane's session, and the popup runs `theseus chat --task S --inspect` (the chat flags are another row's). Tests:
+  `tests/herdr_main.rs`, the unit tests in both files.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.
