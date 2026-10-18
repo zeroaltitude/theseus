@@ -1,4 +1,4 @@
-$ theseus index status
+$ theseus memory index status
 --- requests
 index.status
 --- stdout

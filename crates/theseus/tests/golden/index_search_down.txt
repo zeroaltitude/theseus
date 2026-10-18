@@ -1,4 +1,4 @@
-$ theseus index search port 7433
+$ theseus memory index search port 7433
 --- requests
 index.query
 --- stdout

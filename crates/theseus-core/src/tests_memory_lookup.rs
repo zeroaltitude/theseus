@@ -689,7 +689,7 @@ fn the_description_and_schema_say_when_and_how() {
     for words in [
         "said, done or worked on before",
         "instead of the theseus CLI",
-        "theseus index search",
+        "theseus memory index search",
         "\"March 2026\"",
         "session reads one session's messages",
         "several calls in one response run at once",
@@ -721,11 +721,18 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
             }
             let last = last_user(req);
             let argv = match last.contains("long") {
-                true => json!(["./theseus", "index", "search", "--long", "March 2026"]),
+                true => json!([
+                    "./theseus",
+                    "memory",
+                    "index",
+                    "search",
+                    "--long",
+                    "March 2026"
+                ]),
                 false => json!([
                     "bash",
                     "-c",
-                    "./theseus index search -k 20 --json 'March 2026' | head -5"
+                    "./theseus memory index search -k 20 --json 'March 2026' | head -5"
                 ]),
             };
             Scripted::tools("Searching.", &[("s1", "proc_run", json!({ "argv": argv }))])
@@ -734,7 +741,7 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
     let cli = r.root.join("theseus");
     std::fs::write(
         &cli,
-        "#!/bin/sh\nif [ \"$4\" = \"March 2026\" ]; then seq 1 3000; fi\necho \"searched: $*\"\n",
+        "#!/bin/sh\nif [ \"$5\" = \"March 2026\" ]; then seq 1 3000; fi\necho \"searched: $*\"\n",
     )
     .unwrap();
     let mut p = std::fs::metadata(&cli).unwrap().permissions();
@@ -750,7 +757,7 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
     let want = r#"[native: memory_lookup {"when":"March 2026"} does this in-process"#;
     let got = result_of(&r.core, &dm, "s1");
     assert!(
-        got.contains("searched: index search -k 20 --json March 2026"),
+        got.contains("searched: memory index search -k 20 --json March 2026"),
         "{got}"
     );
     assert!(

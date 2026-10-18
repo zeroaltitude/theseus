@@ -12,4 +12,4 @@ Recurring · 30 days
 Waiting on the world
   👁 c3d4e5  PR 123 merged?  gh pr view 123 → equals MERGED · last OPEN at 06:13 · 611 checks · gives up Thu 07:13
 
-theseus remind WHEN NOTE · snooze ID [WHEN] · done ID · pause ID · resume ID · cancel ID · routine run|pause|resume ID · watches rm ID
+theseus remind WHEN NOTE · wake snooze ID [WHEN] · answer ID done · wake pause ID · wake resume ID · cancel ID · routine run|pause|resume ID · watch-for rm ID

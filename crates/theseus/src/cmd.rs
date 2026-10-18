@@ -1016,7 +1016,7 @@ pub async fn health(conn: &mut Conn, json: bool) -> Result<()> {
     })
 }
 
-/// `theseus index status` and `theseus index search` (roadmap row 51): the
+/// `theseus memory index status` and `theseus memory index search` (roadmap row 51): the
 /// core answers each by asking its index tender.
 pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
     use theseus_protocol::index::{IndexHealth, IndexQueryParams, IndexQueryResult};
@@ -1075,6 +1075,7 @@ pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
         MemoryRecallsParams, MemoryRecallsResult, MemorySearchParams, RecallManifest,
     };
     match cmd {
+        MemoryCmd::Index { cmd } => index(conn, json, cmd).await,
         MemoryCmd::Consolidate { dry_run } => {
             let p = MemoryConsolidateParams {
                 dry_run: Some(dry_run),
@@ -1481,7 +1482,7 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
     })
 }
 
-/// `theseus wakes`.
+/// `theseus wake`.
 pub async fn wakes(conn: &mut Conn, json: bool, session: Option<String>) -> Result<()> {
     let v = conn
         .request(

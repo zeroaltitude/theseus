@@ -1,7 +1,8 @@
-//! `theseus route report [--week]` and `theseus turn replay …` (own-benchmark,
-//! theseus-pw1q.12): which model your own turns need, and one past turn's
-//! first request (or, with `--whole`, the whole turn) sent to another profile. The report reads rows; the replay
-//! spends money and is the owner's (refused inside a job, `client::OPERATORS`).
+//! `theseus model bench [--week]` and `theseus model replay …` (own-benchmark,
+//! theseus-pw1q.12), with `model prefix` and `model catalog`: which model your own turns need, and
+//! one past turn's first request (or, with `--whole`, the whole turn) sent to another profile. The
+//! report reads rows; the replay spends money and is the owner's (refused inside a job,
+//! `client::OPERATORS`).
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -14,21 +15,18 @@ use theseus_protocol::own_bench::{
 
 use crate::cmd::output;
 
+/// `theseus model …`: the commands about models and their cost.
 #[derive(Subcommand, Debug)]
-pub enum RouteCmd {
+pub enum ModelCmd {
     /// Per (model, effort) cell of your own turns: the turns and their spend, the turns replayed
     /// one rung down the routing table and what `compare.v1` made of them, the turns you checked,
     /// and the dollars moving the cell down would have saved at the stated confidence; and the
     /// replays' cost against `[route_bench] replay_day_usd`.
-    Report {
+    Bench {
         /// The last seven days (the default is today).
         #[arg(long)]
         week: bool,
     },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum TurnCmd {
     /// Rebuild a past turn's first request byte for byte, send it to another profile with no tool
     /// run, and judge its reply against the original's (`compare.v1`). Writes one `turn.replayed`
     /// row and nothing else. Refused when the request cannot be rebuilt, naming the part.
@@ -48,63 +46,28 @@ pub enum TurnCmd {
         no_compare: bool,
         /// Run the whole turn, tools and all, on a scratch copy of its directory: programs in L1
         /// with their writes discarded, tools that would reach you or the world answered with a
-        /// recorded stub (the row names each), under `[route_bench] whole_loops|whole_seconds|whole_usd`.
-        /// The replies are judged and the tests, the paths changed and the exit codes compared; a
-        /// confident match becomes a machine label for routing's learning (train split only).
-        /// Refused when the turn's directory cannot be put back as it was.
+        /// recorded stub (the row names each), under `[route_bench] whole_loops|whole_seconds|
+        /// whole_usd`. The replies are judged and the tests, the paths changed and the exit codes
+        /// compared; a confident match becomes a machine label for routing's learning (train
+        /// split only). Refused when the turn's directory cannot be put back as it was.
         #[arg(long)]
         whole: bool,
     },
-}
-
-/// The two commands, flattened into the CLI's own.
-#[derive(Subcommand, Debug)]
-pub enum OwnBench {
-    /// Your own benchmark (theseus-pw1q.12): which model your own turns need, measured by
-    /// replaying them one rung down the routing table.
-    #[command(hide = true)]
-    Route {
-        #[command(subcommand)]
-        cmd: RouteCmd,
+    /// The prefix library: its picks, the cache writes they saved, and the false fits with their
+    /// scores.
+    Prefix {
+        /// The newest picks read, at most (2,000).
+        #[arg(long)]
+        limit: Option<u32>,
     },
-    /// A past turn: `turn replay SESSION TURN -P PROFILE`, its first request rebuilt byte for byte
-    /// and sent to another profile (yours alone; refused inside a job).
-    #[command(hide = true)]
-    Turn {
-        #[command(subcommand)]
-        cmd: TurnCmd,
-    },
+    /// The model catalog: context windows, output limits, prices per million tokens.
+    Catalog,
 }
 
-pub async fn run(conn: &mut Conn, json: bool, cmd: OwnBench) -> Result<()> {
+pub async fn run(conn: &mut Conn, json: bool, cmd: ModelCmd) -> Result<()> {
     match cmd {
-        OwnBench::Route { cmd } => route(conn, json, cmd).await,
-        OwnBench::Turn { cmd } => turn(conn, json, cmd).await,
-    }
-}
-
-async fn route(conn: &mut Conn, json: bool, cmd: RouteCmd) -> Result<()> {
-    match cmd {
-        RouteCmd::Report { week } => {
-            let p = RouteReportParams {
-                week: week.then_some(true),
-            };
-            let v = conn
-                .request(method::ROUTE_REPORT, serde_json::to_value(&p)?)
-                .await?;
-            output(json, v, |r: RouteReportResult| {
-                for l in report_lines(&r) {
-                    println!("{l}");
-                }
-                Ok(())
-            })
-        }
-    }
-}
-
-async fn turn(conn: &mut Conn, json: bool, cmd: TurnCmd) -> Result<()> {
-    match cmd {
-        TurnCmd::Replay {
+        ModelCmd::Bench { week } => bench(conn, json, week).await,
+        ModelCmd::Replay {
             session,
             turn,
             profile,
@@ -120,15 +83,38 @@ async fn turn(conn: &mut Conn, json: bool, cmd: TurnCmd) -> Result<()> {
                 scope: whole.then(|| "whole_turn".to_string()),
                 compare: no_compare.then_some(false),
             };
-            let v = conn
-                .request(method::TURN_REPLAY, serde_json::to_value(&p)?)
-                .await?;
-            output(json, v, |r: TurnReplayResult| {
-                for l in replay_lines(&r) {
-                    println!("{l}");
-                }
-                Ok(())
-            })
+            replay(conn, json, p).await
         }
+        ModelCmd::Prefix { limit } => {
+            crate::prefix_cmd::run(conn, json, crate::prefix_cmd::PrefixCmd::Report { limit }).await
+        }
+        ModelCmd::Catalog => crate::cmd::catalog(conn, json).await,
     }
+}
+
+async fn bench(conn: &mut Conn, json: bool, week: bool) -> Result<()> {
+    let p = RouteReportParams {
+        week: week.then_some(true),
+    };
+    let v = conn
+        .request(method::ROUTE_REPORT, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: RouteReportResult| {
+        for l in report_lines(&r) {
+            println!("{l}");
+        }
+        Ok(())
+    })
+}
+
+async fn replay(conn: &mut Conn, json: bool, p: TurnReplayParams) -> Result<()> {
+    let v = conn
+        .request(method::TURN_REPLAY, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: TurnReplayResult| {
+        for l in replay_lines(&r) {
+            println!("{l}");
+        }
+        Ok(())
+    })
 }

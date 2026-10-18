@@ -297,8 +297,8 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
 pub const OPERATORS: [(&str, &str); 82] = [
-    (method::VOICE_AUDITION, "theseus voice audition"),
-    (method::INITIATIVE_RATE, "theseus notices rate"),
+    (method::VOICE_AUDITION, "theseus persona voice audition"),
+    (method::INITIATIVE_RATE, "theseus persona rate"),
     (method::STANDING_KEEP, "theseus standing keep"),
     (method::STANDING_DISMISS, "theseus standing dismiss"),
     (method::PERSONA_IMPORT, "theseus persona import"),
@@ -335,7 +335,7 @@ pub const OPERATORS: [(&str, &str); 82] = [
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::FACT_RETRACT, "theseus retract"),
     (method::MEMORY_CONSOLIDATE, "theseus memory consolidate"),
-    (method::INDEX_REBUILD, "theseus index rebuild"),
+    (method::INDEX_REBUILD, "theseus memory index rebuild"),
     (method::JUDGE_LABEL, "theseus judge label"),
     (method::ROUTE_CORRECT, "theseus judge correct"),
     (method::EXTENSION_REVOKE, "theseus extend revoke"),
@@ -343,7 +343,7 @@ pub const OPERATORS: [(&str, &str); 82] = [
     (method::JUDGE_AUDIT, "theseus judge audit"),
     (method::JUDGE_BACKFILL, "theseus judge backfill"),
     (method::JUDGE_LEARN, "theseus judge learn"),
-    (method::TURN_REPLAY, "theseus turn replay"),
+    (method::TURN_REPLAY, "theseus model replay"),
     (method::PACK_PROMOTE, "theseus packs promote"),
     (method::PACK_ROLLBACK, "theseus packs rollback"),
     (method::IMPORT_EPISODES, "theseus import"),
@@ -364,7 +364,7 @@ pub const OPERATORS: [(&str, &str); 82] = [
     (method::STANDING_ANSWER, "theseus standing answer"),
     (method::SELF_DROP, "theseus self drop"),
     (method::SELF_MOVE, "theseus self move"),
-    (method::WATCH_CREATE, "theseus watches add"),
+    (method::WATCH_CREATE, "theseus watch-for add"),
     (method::SELF_NARROW, "theseus self narrow"),
     (method::THREAD_NEW, "theseus thread new"),
     (method::THREAD_EDIT, "theseus thread edit"),

@@ -31,7 +31,7 @@
 //!   watch is asked about once, at its creation, with the command shown, and
 //!   nothing can change it afterwards), or the owner's `watch.create`
 //!   (`rpc/watch.rs`: the owner typed the command, so no card stands in front
-//!   of it); `theseus watches add|list|rm`.
+//!   of it); `theseus watch-for add|list|rm`.
 
 pub mod board;
 pub mod check;

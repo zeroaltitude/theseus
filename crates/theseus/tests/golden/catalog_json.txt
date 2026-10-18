@@ -1,4 +1,4 @@
-$ theseus --json catalog
+$ theseus --json model catalog
 --- requests
 catalog.list
 --- stdout

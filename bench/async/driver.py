@@ -509,7 +509,7 @@ class Theseus:
         while (left := deadline - clock()) > 0:
             rounds += 1
             execs = _json((await env.exec(f"{self.cli} executions", timeout_sec=30)).stdout) or {}
-            wakes = _json((await env.exec(f"{self.cli} wakes", timeout_sec=30)).stdout) or {}
+            wakes = _json((await env.exec(f"{self.cli} wake", timeout_sec=30)).stdout) or {}
             live = [e for e in execs.get("executions", []) if busy(e)]
             pending = wakes.get("wakes", [])
             if not live and not pending:

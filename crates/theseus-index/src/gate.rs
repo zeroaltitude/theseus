@@ -29,7 +29,7 @@ pub const LOOK_EVERY: Duration = Duration::from_secs(1);
 
 /// The longest a query waits for its turn when its caller never goes: a
 /// recall's deadline is 250 ms and its caller closes the connection at it, so
-/// this is for a caller that sets none (`theseus index search`).
+/// this is for a caller that sets none (`theseus memory index search`).
 pub const MAX_WAIT: Duration = Duration::from_secs(1);
 
 /// How often a waiting query asks whether its caller has gone.

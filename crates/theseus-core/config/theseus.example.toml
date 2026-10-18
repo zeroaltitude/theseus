@@ -850,7 +850,7 @@ max_events = 10                         # at most this many events stand at once
 # stt_model = "nova-3"                  # speech to text
 # language = "en-US"
 # tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model; a persona's own tts_voice wins while it is in play
-#                                       # (`theseus voice` shows the one in play, `theseus voice audition` lets you hear several)
+#                                       # (`theseus persona voice` shows the one in play, `theseus persona voice audition` lets you hear several)
 # api_base = "https://api.deepgram.com" # tests and scratch daemons: a local stand-in
 # deaf_after_secs = 10                  # a call that hears no listed speaker this long after joining rejoins once
 # greeting = "{name} here. Go ahead."   # said first when /join succeeds, in the persona's voice ({name} is its name); "" says nothing
@@ -1081,7 +1081,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # speak as the session's persona already; a message the daemon starts on its
 # own (the morning note, a consolidation finding) is one short model call that
 # carries the persona's file and your standing orders, off every turn's path.
-# A 👍 or 👎 on such a message (`theseus notices rate`) is recorded, and
+# A 👍 or 👎 on such a message (`theseus persona rate`) is recorded, and
 # `theseus persona` shows the week's promises kept and verdicts.
 # [initiative]
 # profile = "haiku"                       # the profile whose model writes them (a cheap one); unset: the live profile
@@ -1121,7 +1121,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # run_deadline_secs = 900                 # how long a run's question outside its grant waits before the run ends blocked
 
 # ---------------------------------------------------------------- watches
-# Waiting on the world with no model (theseus-f2r2b): `theseus watches add "PR 123
+# Waiting on the world with no model (theseus-f2r2b): `theseus watch-for add "PR 123
 # merged" --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED'`, or
 # the model's `watch` tool. A check (a command in L1, a fetch, a file) runs on a
 # timer until its condition holds, then the owner is told (or the conversation gets
@@ -1137,14 +1137,14 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # Your own benchmark (own-benchmark, theseus-pw1q.12). Nightly, paced by
 # pressure, a few of your recent turns per (model, effort) cell are rebuilt
 # byte for byte, sent one rung down the routing table (`[routing.classes.*]`),
-# and judged by compare.v1 against the reply they got; `theseus route report`
+# and judged by compare.v1 against the reply they got; `theseus model bench`
 # says per cell what matched and what moving it would have saved. Never a
 # shared place's turn, and never one that would send a sealed thread's, a
 # veiled recall's or an attachment's bytes to another provider. It moves no
 # routing: a pack that would climbs the ladder on its frozen holdout.
 # [route_bench]
 # replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
-# whole_loops = 24                        # a whole-turn replay (`theseus turn replay --whole`) makes at most this many model calls
+# whole_loops = 24                        # a whole-turn replay (`theseus model replay --whole`) makes at most this many model calls
 # whole_seconds = 300                     # ... runs at most this long
 # whole_usd = 0.5                         # ... spends at most this much on the model
 # whole_tree_mb = 256                     # ... copies at most this much of the turn's directory to scratch
@@ -1159,7 +1159,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # never under a warm session. A header that covers at least confirm of the fresh
 # layer is reused and what it lacks goes after the cached prefix; below confirm
 # a new header is minted only when its expected reuse pays for rewriting the
-# warm coarser one. `theseus prefix report` shows the picks and false fits.
+# warm coarser one. `theseus model prefix` shows the picks and false fits.
 # [prefix]
 # enabled = true                          # false: every session renders its own layers, as before the library
 # max_bytes = 10485760                    # the library's resident size; past it the header read least recently retires

@@ -1,6 +1,6 @@
 //! A pending wake on the wire (DD8, theseus-cff; moved out of lib.rs at
 //! theseus-lherl): `WakeInfo`, which `wake.list`, health, `/wakes` and
-//! `theseus wakes` show.
+//! `theseus wake` show.
 
 use serde::{Deserialize, Serialize};
 

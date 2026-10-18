@@ -2212,7 +2212,7 @@ mod tests {
     use super::*;
     use theseus_protocol::notify;
 
-    /// `theseus wakes` and health's wakes line (DD8).
+    /// `theseus wake` and health's wakes line (DD8).
     /// A task's pill takes the place of its state and what it waits on
     /// (theseus-in3); a daemon that sends none keeps the old words.
     #[test]

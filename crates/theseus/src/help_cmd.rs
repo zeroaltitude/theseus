@@ -12,7 +12,7 @@ use crate::Cli;
 #[cfg(test)]
 pub const EVERYDAY: [&str; 19] = [
     "ask", "chat", "tui", "history", "watch", "status", "tasks", "answer", "stop", "agenda",
-    "digest", "remind", "routine", "wakes", "project", "thread", "places", "profile", "health",
+    "digest", "remind", "routine", "wake", "project", "thread", "places", "profile", "health",
 ];
 
 /// What one line of `help all` says of a command: its about's first sentence, without its parentheses, cut at a

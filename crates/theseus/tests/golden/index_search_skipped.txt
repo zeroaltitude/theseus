@@ -1,4 +1,4 @@
-$ theseus index search nothing like it
+$ theseus memory index search nothing like it
 --- requests
 index.query
 --- stdout

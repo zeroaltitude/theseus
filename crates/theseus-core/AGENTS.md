@@ -157,7 +157,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     fits), then reuse at `[prefix] confirm`, below it mint only when `p(reuse) × reads × delta > warm coarser`, else
     the coarser header (`prefix/fit.rs`'s module doc is the rule). What the header lacks heads the session's block
     (`prefix::applied`, in `compile_with`), and the manifest's `prefix` names the header, so an append replays the
-    same bytes from memory (`Library::replay`). Each pick is a `prefix.picked` row; `prefix.report` (`theseus prefix
+    same bytes from memory (`Library::replay`). Each pick is a `prefix.picked` row; `prefix.report` (`theseus model prefix
     report`) joins them with the turn's cache read and what went wrong after (a correction, a re-ask): a reuse below
     `act` that went wrong is a false fit. `[prefix] enabled = false` renders each session's own layers. A session's
     and a place's standing records are the session's block's, not the header's (`standing::Block::local`), so layer
@@ -1400,7 +1400,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     search of that session alone) and a span's listing of the harness's own sessions before the imported episodes.
     Read, Async, SafeToRepeat; private places only, checked by the gate and again by the tool; personal and
     partner-confidential text veiled. Its description names the CLI commands it replaces and when to use it: the
-    owner's DM once answered a question about a past month with four `proc_run`s of `theseus index search` while
+    owner's DM once answered a question about a past month with four `proc_run`s of `theseus memory index search` while
     this tool was offered (the context held the CLI from before the tool existed). A `proc_run` of the daemon's own
     CLI for what it answers ends with a `[native: memory_lookup {…} …]` line, after the cap (`native.rs`,
     `ResultNode.hint`); the CLI still runs, since running it may be the work. Tests: `tests_memory_lookup.rs`,
@@ -1942,7 +1942,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   once at every posture with the command shown (`task_graph::tools::authority_for` leaves the watch's alone), and
   nothing edits a watch afterwards (`wake.move`, `wake.snooze` and `wake.pause` refuse one); not in a task. The owner's
   `watch.create` and `watch.list` (`rpc/watch.rs`; `Act::Watch`, the owner from a private place, refused inside a job)
-  and `theseus watches add|list|rm`. The commitments block lists a watch as `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`
+  and `theseus watch-for add|list|rm`. The commitments block lists a watch as `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`
   from its last frame's state. `[watch_for] default_every|min_every|max_days` (`config/watches.rs`). A `run` check needs
   L1, so a root daemon's refuses it (theseus-pv6i) and the watch fails with that reason. Tests: `watch/tests_watch.rs`
   (a real core: a file met within an interval, twenty unchanged checks write no frame, a planted secret scrubbed,
@@ -2048,7 +2048,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     so a guidance edit or a changed context file is a new blob. A compilation from before format 34 has none, and a
     replay says so. Blobs follow the blobs' own rules (nothing sweeps them but a person).
   - **`turn.replay { session, turn, profile, effort?, scope?, compare? }`** (`own_bench/replay.rs`, the owner's run:
-    `judge_act(Act::JudgeRun)`, in the CLI's `OPERATORS`; `theseus turn replay`). `rebuild_first` (`rebuild.rs`) renders
+    `judge_act(Act::JudgeRun)`, in the CLI's `OPERATORS`; `theseus model replay`). `rebuild_first` (`rebuild.rs`) renders
     the turn's first request again from its compilation, the blobs, the tools (their digest against the manifest's) and
     the nodes before its first answer, trying the profile's effort and then each level, and accepts it only when its
     digest is the one the answer recorded (`request_digest`, taken before the recall, standing, task and wake views
@@ -2076,7 +2076,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     replays and the ones `compare.v1` called same or better at `MATCH_BAR` (0.8), the turns whose routing the owner
     corrected (`route.corrected`), the one-sided Wilson floor at 90% of the match rate, the replays' cost against the
     originals', and `movable = spend × floor × (1 − cost ratio)`; the replays' cost today against the cap. The
-    cockpit's Benchmarks view has a "Your work" panel over it; `theseus route report [--week]`.
+    cockpit's Benchmarks view has a "Your work" panel over it; `theseus model bench [--week]`.
   Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
   `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
   `report::tests`, `rung::tests`.

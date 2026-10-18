@@ -1,4 +1,4 @@
-//! `theseus voice …` (theseus-slvl.7): the speaking voice. `voice` shows the
+//! `theseus persona voice …` (theseus-slvl.7): the speaking voice. `voice` shows the
 //! voice a call speaks in now and where it comes from; `voice audition` makes
 //! the persona's greeting (or your words) in several Aura voices, writes each
 //! to a WAV file, and prints the paths and what the run cost, so you pick by
@@ -123,7 +123,8 @@ pub fn show_lines(r: &VoiceShowResult) -> Vec<String> {
         ),
     ];
     out.push(
-        "pick by ear: `theseus voice audition`, then `theseus persona edit --voice ID`".into(),
+        "pick by ear: `theseus persona voice audition`, then `theseus persona edit --voice ID`"
+            .into(),
     );
     out
 }
@@ -262,6 +263,9 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        assert!(e.starts_with("theseus voice audition refused:"), "{e}");
+        assert!(
+            e.starts_with("theseus persona voice audition refused:"),
+            "{e}"
+        );
     }
 }

@@ -30,7 +30,7 @@
 //!   approval in a session holding external text, where a one-shot one keeps
 //!   its posture (T1b): set once under a page's influence, it would run every
 //!   day (`repeats`, read by the gate).
-//! - **Seeing and stopping.** `wake.list` and `wake.cancel`, `theseus wakes`
+//! - **Seeing and stopping.** `wake.list` and `wake.cancel`, `theseus wake`
 //!   and `theseus cancel`, Discord's `/wakes` and `/cancel`, health, and the
 //!   Observatory.
 //! - **The model's own** (theseus-lherl). Its pending wakes are the commitments

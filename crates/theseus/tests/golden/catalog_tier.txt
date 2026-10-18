@@ -1,4 +1,4 @@
-$ theseus catalog
+$ theseus model catalog
 --- requests
 catalog.list
 --- stdout

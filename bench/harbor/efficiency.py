@@ -69,7 +69,7 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
 # are LiteLLM's, the table Harbor prices Codex's tokens from (a cache write at
 # 1.25 times an input, as Codex 0.161 reports writes). The other Claude models
 # are the ones the routed arm's Jev may send a message to (theseus-eo3h): their
-# rows are Theseus's model catalog's (`theseus catalog`: crates/theseus-core/src/
+# rows are Theseus's model catalog's (`theseus model catalog`: crates/theseus-core/src/
 # catalog.rs, `Catalog::builtin`), so the as-shipped arm's dollars are on the
 # same table as every other arm's. Haiku 5.5's are its base tier: the catalog
 # bills 5 times these above a 100,000-token prompt, which this table does not.

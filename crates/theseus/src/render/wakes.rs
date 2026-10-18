@@ -1,4 +1,4 @@
-//! The pending wakes, as `theseus wakes` and health's `wakes:` line show them
+//! The pending wakes, as `theseus wake` and health's `wakes:` line show them
 //! (DD8; moved out of render.rs at theseus-lherl).
 
 use theseus_protocol::WakeInfo;
@@ -86,8 +86,8 @@ pub fn noticed_lines(n: &theseus_protocol::WakeNoticed) -> Vec<String> {
         .answers
         .iter()
         .map(|a| match &a.when {
-            Some(w) => format!("{}: theseus snooze {} \"{w}\"", a.label, n.wake_id),
-            None => format!("{}: theseus done {}", a.label, n.wake_id),
+            Some(w) => format!("{}: theseus answer {} snooze \"{w}\"", a.label, n.wake_id),
+            None => format!("{}: theseus answer {} done", a.label, n.wake_id),
         })
         .collect();
     out.push(format!("      {}", answers.join(" · ")));
@@ -103,7 +103,7 @@ fn span_of(ms: u64) -> String {
     }
 }
 
-/// One pending wake, as `theseus wakes` lists it (DD8): its short id, when
+/// One pending wake, as `theseus wake` lists it (DD8): its short id, when
 /// it is due, how often (`once`, or a series' span, weekdays and end, and the
 /// occurrence due, `every 1d on mon,fri #4`; 37a), its session, or the task
 /// that set it (`task a1b2c3`; 37b), and its state, and its title.
@@ -133,7 +133,7 @@ pub fn wakes_line(wakes: &[WakeInfo], now_ms: u64) -> Option<String> {
     let next = wakes.iter().min_by_key(|w| w.due_at_ms)?;
     let title: String = title_of(next, 60).chars().take(60).collect();
     Some(format!(
-        "wakes: {} pending · next {} {} ({}): {title} · theseus wakes, theseus cancel <id>",
+        "wakes: {} pending · next {} {} ({}): {title} · theseus wake, theseus cancel <id>",
         wakes.len(),
         next.short,
         next.due_local,
@@ -202,9 +202,9 @@ mod tests {
         );
         assert_eq!(
             lines[1],
-            "      Done: theseus done wak_0199aaaa3f9a1c · Snooze 10 min: theseus snooze \
-             wak_0199aaaa3f9a1c \"10m\" · Snooze 1 h: theseus snooze wak_0199aaaa3f9a1c \"1h\" · \
-             Tomorrow 9:00: theseus snooze wak_0199aaaa3f9a1c \"tomorrow 9:00\""
+            "      Done: theseus answer wak_0199aaaa3f9a1c done · Snooze 10 min: theseus answer \
+             wak_0199aaaa3f9a1c snooze \"10m\" · Snooze 1 h: theseus answer wak_0199aaaa3f9a1c snooze \"1h\" · \
+             Tomorrow 9:00: theseus answer wak_0199aaaa3f9a1c snooze \"tomorrow 9:00\""
         );
     }
 
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(
             wakes_line(&[later, w], 1_000_000).unwrap(),
             "wakes: 2 pending · next 3f9a1c 2026-09-30 13:15:00 -07:00 (in 9m): check the build · \
-             theseus wakes, theseus cancel <id>"
+             theseus wake, theseus cancel <id>"
         );
     }
 
@@ -271,6 +271,6 @@ mod tests {
         );
         assert!(wakes_line(&[w], 1_000_000)
             .unwrap()
-            .contains("): evening haiku · theseus wakes"));
+            .contains("): evening haiku · theseus wake"));
     }
 }

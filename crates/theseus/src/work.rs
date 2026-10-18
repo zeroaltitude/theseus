@@ -1,42 +1,12 @@
 //! The work board's lines (theseus-hkx30): a conversation at the top, its tasks, plan steps, jobs, questions and
-//! wakes below it, each with what it needs from you or is doing. `theseus work` is an alias of `theseus tasks
-//! --watch` (theseus-6kgp8): `WorkArgs` are its arguments, and `board.rs` draws the board with these lines for what
-//! the task tree does not draw (threads, jobs, the daemon's own work, routines, watches, projects, wakes).
+//! wakes below it, each with what it needs from you or is doing. `board.rs` draws the board of `theseus tasks
+//! --watch` with these lines for what the task tree does not draw (threads, jobs, the daemon's own work, routines, watches, projects, wakes).
 
 use std::collections::BTreeMap;
 
-use clap::Args;
 use theseus_protocol::notices::Notice;
 use theseus_protocol::work::{WorkKind, WorkView};
 use theseus_protocol::{Level, ThreadGroup};
-
-use crate::tasks_tree::TasksArgs;
-
-#[derive(Args, Debug)]
-pub struct WorkArgs {
-    /// Accepted and ignored: `work` always keeps the connection, as `tasks --watch` does.
-    #[arg(long)]
-    watch: bool,
-    /// How many of the conversations that need no one are listed besides those that need you or
-    /// work (the most recent first). Default 20.
-    #[arg(long)]
-    limit: Option<u32>,
-    /// The board as one list of conversations, as before the threads: no group a thread.
-    #[arg(long)]
-    flat: bool,
-}
-
-impl WorkArgs {
-    /// `theseus work` is `theseus tasks --watch` (theseus-6kgp8).
-    pub fn into_tasks(self) -> TasksArgs {
-        TasksArgs {
-            watch: true,
-            limit: self.limit,
-            flat: self.flat,
-            ..TasksArgs::default()
-        }
-    }
-}
 
 /// What a client has applied of a view: its position, then its time. A job's
 /// last line is sampled between frames, so a newer sample has the same

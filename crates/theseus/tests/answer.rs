@@ -124,3 +124,56 @@ fn an_answer_is_refused_inside_a_job() {
     assert!(said.contains("theseus answer refused"), "{said}");
     assert!(said.contains("Run it from your own shell."), "{said}");
 }
+
+/// A fired reminder is snoozed with `answer ID snooze WHEN` (the old `theseus snooze`): one
+/// `wake.snooze`, a whole wake id marking it as fired, and the time as typed.
+#[test]
+fn a_snooze_is_answered_with_its_time() {
+    let (dir, sock, daemon) = one_request(json!({"wake": {}}));
+    let out = theseus(
+        &sock,
+        dir.path(),
+        &["--json", "answer", "wak_0199aaaa3f9a1c", "snooze", "1h"],
+    );
+    let req = daemon.join().unwrap();
+    assert_eq!(req["method"], "wake.snooze", "{req}");
+    assert_eq!(req["params"]["wake"], "wak_0199aaaa3f9a1c");
+    assert_eq!(req["params"]["when"], "1h");
+    assert_eq!(req["params"]["fired"], true);
+    assert_eq!(out.status.code(), Some(0), "{:?}", out);
+}
+
+/// The retired spellings (`snooze_1h`, `tomorrow_9`) and a time on any other answer are refused
+/// before anything is sent, saying the one spelling.
+#[test]
+fn the_old_snooze_options_and_a_stray_time_are_refused_before_anything_is_sent() {
+    for (args, says) in [
+        (
+            vec!["answer", "wak_0199aaaa3f9a1c", "snooze_1h"],
+            "theseus answer wak_0199aaaa3f9a1c snooze 1h",
+        ),
+        (
+            vec!["answer", "wak_0199aaaa3f9a1c", "tomorrow_9"],
+            "snooze tomorrow 9:00",
+        ),
+        (
+            vec!["answer", "act_0c7e527d2a", "approve", "1h"],
+            "a time goes with `snooze` alone",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("sock");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            let mut sent = String::new();
+            BufReader::new(&s).read_line(&mut sent).unwrap();
+            sent
+        });
+        let out = theseus(&sock, dir.path(), &args);
+        assert_eq!(daemon.join().unwrap(), "", "{args:?} sent a request");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains(says), "{args:?}: {said}");
+        assert_eq!(out.status.code(), Some(1), "{said}");
+    }
+}

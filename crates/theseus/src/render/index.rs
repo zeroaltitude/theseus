@@ -1,13 +1,13 @@
 //! The index's lines (roadmap row 51): a tender as the children line and
-//! `theseus index status` say it, health's `index:` line, `theseus index
-//! status`, and `theseus index search`'s hits. Apart from `render.rs`, whose
+//! `theseus memory index status` say it, health's `index:` line, `theseus index
+//! status`, and `theseus memory index search`'s hits. Apart from `render.rs`, whose
 //! length the shape budget caps (`scripts/long-files.txt`).
 
 use super::{fmt_bytes, plural, push, Line, Tag};
 
 /// `index tender running (pid 4242, 1 restart)`, `index tender in backoff
 /// (exit 1, next wait 2 s, 3 restarts)`: a tender, as the children line and
-/// `theseus index status` say it (roadmap row 51).
+/// `theseus memory index status` say it (roadmap row 51).
 pub fn tender_words(t: &theseus_protocol::TenderStatus) -> String {
     let mut parts = Vec::new();
     if let Some(pid) = t.pid {
@@ -30,7 +30,7 @@ pub fn tender_words(t: &theseus_protocol::TenderStatus) -> String {
     format!("{} tender {state} ({})", t.name, parts.join(", "))
 }
 
-/// Health's `index:` line, and `theseus index status`'s first (roadmap row
+/// Health's `index:` line, and `theseus memory index status`'s first (roadmap row
 /// 51): its state, what answers, what it holds, and how far behind the WAL it
 /// is; or why there is none.
 pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
@@ -95,7 +95,7 @@ fn gate_words(g: &theseus_protocol::index::IndexQueryGate) -> String {
     )
 }
 
-/// `theseus index status` (roadmap row 51): the index, its tender, its
+/// `theseus memory index status` (roadmap row 51): the index, its tender, its
 /// cursor and counts, and its vectors.
 pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line> {
     let mut out = Vec::new();
@@ -162,7 +162,7 @@ pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line>
     out
 }
 
-/// `theseus index search` (roadmap row 51): a line on the search, then each
+/// `theseus memory index search` (roadmap row 51): a line on the search, then each
 /// hit, its node and where it is, its sources' ranks, and its text, cut at
 /// 160 characters on one line.
 pub fn index_hits_lines(q: &str, r: &theseus_protocol::index::IndexQueryResult) -> Vec<Line> {

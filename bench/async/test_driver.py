@@ -292,7 +292,7 @@ class ClaudeStdin(unittest.TestCase):
 # job running. The daemon answers `health` only once it is up, after
 # STANDIN_START_S, and exits at `shutdown` or once its directory is gone.
 # `ask` records its message; `wait --after` on the busy session is the job's
-# completion (its continuation), after STANDIN_JOB_S, or its --timeout first; `wakes` lists one wake
+# completion (its continuation), after STANDIN_JOB_S, or its --timeout first; `wake` lists one wake
 # due STANDIN_WAKE_S after the first look (1 s) until it is due. Its state
 # is read and written under a lock: the CLI and the daemon run at once.
 STANDIN_THESEUS = r"""#!/usr/bin/env python3
@@ -337,7 +337,7 @@ elif cmd == "ask":
     change(ask)
     print(json.dumps({"stop_reason": "no_tool_calls"}))
 elif cmd == "executions": print(json.dumps({"executions": [view(s)]}))
-elif cmd == "wakes":
+elif cmd == "wake":
     s = change(lambda s: s.setdefault("wake_due", time.time() + float(os.environ.get("STANDIN_WAKE_S", "1"))))
     due = s["wake_due"]
     print(json.dumps({"wakes": [{"wake_id": "wak_1", "session_id": "ses_invented", "due_at_ms": int(due * 1000)}] if time.time() < due else []}))

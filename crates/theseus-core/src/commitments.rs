@@ -189,7 +189,7 @@ pub fn render_with(
         all.len()
     );
     // A closing line costs a few tokens: keep room for it.
-    let more = |n: usize| format!("(and {n} more: wake.list, or `theseus wakes`, shows them all.)");
+    let more = |n: usize| format!("(and {n} more: wake.list, or `theseus wake`, shows them all.)");
     let mut lines: Vec<String> = Vec::new();
     let mut used = tokens(&head);
     for (i, l) in all.iter().enumerate() {

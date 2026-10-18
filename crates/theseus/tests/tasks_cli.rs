@@ -1,4 +1,4 @@
-//! `theseus tasks` and `theseus work` (theseus-mnd9g), the real binary against
+//! `theseus tasks` and `theseus tasks --watch` (theseus-mnd9g), the real binary against
 //! a scripted daemon on a Unix socket: one `work.watch` read draws the tree,
 //! `--graph` and `--json` keep the task list's own, `--watch` and `work` tell
 //! the daemon a person is looking and print a line for each task event.
@@ -267,7 +267,7 @@ fn watch_says_each_task_event_and_is_a_screen() {
     assert!(tree < out.find("started:").unwrap(), "{out}");
 }
 
-/// `theseus work` is `theseus tasks --watch` (theseus-6kgp8): it keeps the connection, tells the daemon a
+/// `theseus tasks --watch` (the old `theseus work`, theseus-6kgp8): it keeps the connection, tells the daemon a
 /// person is looking, and prints what the work board showed: the thread's group, the job's id for `peek`
 /// and `attach`, a line for the job's change and the thread's.
 #[test]
@@ -295,7 +295,11 @@ fn work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids() {
         n["params"]["threads"] = json!([moved]);
         n
     };
-    let (out, _, asked) = run(&["work"], vec![("work.watch", snap)], vec![after]);
+    let (out, _, asked) = run(
+        &["tasks", "--watch"],
+        vec![("work.watch", snap)],
+        vec![after],
+    );
     let read = asked.iter().find(|(m, _)| m == "work.watch").unwrap();
     assert_eq!(
         read.1["interactive"],

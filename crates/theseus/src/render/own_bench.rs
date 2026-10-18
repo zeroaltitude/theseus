@@ -1,4 +1,4 @@
-//! `theseus route report` and `theseus turn replay` in words (own-benchmark,
+//! `theseus model bench` and `theseus model replay` in words (own-benchmark,
 //! theseus-pw1q.12): pure functions of the daemon's answers.
 
 use theseus_protocol::own_bench::{RouteReportResult, TurnReplayResult};

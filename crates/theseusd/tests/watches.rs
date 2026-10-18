@@ -1,11 +1,11 @@
 //! Watches with the real `theseusd` and the real `theseus` CLI (theseus-f2r2b):
-//! `theseus watches add` makes a check that runs with no model until its
+//! `theseus watch-for add` makes a check that runs with no model until its
 //! condition holds. A file that already says MERGED is met by the first look
 //! (the driver's tick, within a second or two): the owner is told, the watch
 //! is gone, the ledger holds `watch.checked`-free `watch.met`, and no turn or
-//! model call happened. A watch the owner ends with `watches rm` is not
+//! model call happened. A watch the owner ends with `watch-for rm` is not
 //! checked again, and a job's shell is refused before anything is sent.
-//! (The maintainer's live check, `watches add --every 1m` and a file written
+//! (The maintainer's live check, `watch-for add --every 1m` and a file written
 //! three minutes later, is this scenario with the interval waited out.)
 
 mod common;
@@ -157,7 +157,7 @@ fn a_file_that_says_merged_is_met_by_the_first_look_with_no_model_and_a_job_may_
     let (ok, out) = r.cli(
         Some("ses_job"),
         &[
-            "watches",
+            "watch-for",
             "add",
             "PR 123 merged?",
             "--file",
@@ -166,13 +166,13 @@ fn a_file_that_says_merged_is_met_by_the_first_look_with_no_model_and_a_job_may_
             "equals MERGED",
         ],
     );
-    assert!(!ok && out.contains("theseus watches add"), "{out}");
-    let (_, listed) = r.cli(None, &["watches"]);
+    assert!(!ok && out.contains("theseus watch-for add"), "{out}");
+    let (_, listed) = r.cli(None, &["watch-for"]);
     assert!(listed.contains("no open watches"), "{listed}");
     // The owner's own: the file is not there, and it is only watched.
     let args = |until: &'static str| {
         vec![
-            "watches",
+            "watch-for",
             "add",
             "PR 123 merged?",
             "--file",
@@ -191,7 +191,7 @@ fn a_file_that_says_merged_is_met_by_the_first_look_with_no_model_and_a_job_may_
             .unwrap_or(0)
             >= 1
     });
-    let (_, listed) = r.cli(None, &["watches"]);
+    let (_, listed) = r.cli(None, &["watch-for"]);
     assert!(
         listed.contains("PR 123 merged?") && listed.contains("equals MERGED"),
         "{listed}"
@@ -201,9 +201,9 @@ fn a_file_that_says_merged_is_met_by_the_first_look_with_no_model_and_a_job_may_
         .as_str()
         .unwrap()
         .to_string();
-    let (ok, out) = r.cli(None, &["watches", "rm", &id]);
+    let (ok, out) = r.cli(None, &["watch-for", "rm", &id]);
     assert!(ok, "{out}");
-    let (_, listed) = r.cli(None, &["watches"]);
+    let (_, listed) = r.cli(None, &["watch-for"]);
     assert!(listed.contains("no open watches"), "{listed}");
     // A file that already says MERGED: the first look meets it.
     std::fs::write(&file, "MERGED\n").unwrap();
@@ -220,7 +220,7 @@ fn a_file_that_says_merged_is_met_by_the_first_look_with_no_model_and_a_job_may_
             .starts_with("👁 PR 123 merged → MERGED (after "),
         "{met:?}"
     );
-    let (_, listed) = r.cli(None, &["watches"]);
+    let (_, listed) = r.cli(None, &["watch-for"]);
     assert!(listed.contains("no open watches"), "{listed}");
     // No model, no turn: nothing in the ledger says either happened.
     let ran: Vec<String> = r

@@ -1,4 +1,4 @@
-//! Watches as `theseus watches` lists them (theseus-f2r2b): one line each,
+//! Watches as `theseus watch-for` lists them (theseus-f2r2b): one line each,
 //! what it looks at, its condition, how often, what it last saw, and when it
 //! gives up. Pure: the caller passes the clock.
 

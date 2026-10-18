@@ -1,4 +1,4 @@
-//! `theseus notices …` (theseus-slvl.9): what Theseus said first. `notices
+//! `theseus persona rate` (theseus-slvl.9): what Theseus said first. `persona
 //! rate up|down [ID]` is the owner's verdict on a message it sent unprompted
 //! (a wake's or a task's reply, or a note it wrote itself), one
 //! `initiative.rate` call; with no ID, the latest one. The week's totals are
@@ -6,34 +6,20 @@
 //! inside a job.
 
 use anyhow::Result;
-use clap::Subcommand;
 use theseus_client::Conn;
 use theseus_protocol::initiative::{InitiativeRateParams, InitiativeRateResult};
 use theseus_protocol::method;
 
 use crate::cmd::output;
 
-#[derive(Subcommand, Debug)]
-pub enum NoticesCmd {
-    /// A 👍 (`up`) or 👎 (`down`) on a message Theseus sent first: the latest, or the one `ID`
-    /// names (the turn id of a wake's or a task's reply, or the id a note it wrote itself has).
-    Rate {
-        /// `up` or `down`.
-        #[arg(value_parser = ["up", "down"])]
-        verdict: String,
-        id: Option<String>,
-        /// The session it was said in.
-        #[arg(long, short, value_name = "SESSION")]
-        session: Option<String>,
-    },
-}
-
-pub async fn run(conn: &mut Conn, json: bool, cmd: NoticesCmd) -> Result<()> {
-    let NoticesCmd::Rate {
-        verdict,
-        id,
-        session,
-    } = cmd;
+/// `theseus persona rate up|down [ID]`: one `initiative.rate`.
+pub async fn rate(
+    conn: &mut Conn,
+    json: bool,
+    verdict: String,
+    id: Option<String>,
+    session: Option<String>,
+) -> Result<()> {
     let p = InitiativeRateParams {
         session_id: session,
         turn_id: id,

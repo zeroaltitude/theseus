@@ -48,7 +48,7 @@ pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
     }
     if wakes.len() > 10 {
         lines.push(format!(
-            "-# and {} later; `theseus wakes` lists them all",
+            "-# and {} later; `theseus wake` lists them all",
             wakes.len() - 10
         ));
     }

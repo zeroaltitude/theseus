@@ -222,13 +222,20 @@ enum Cmd {
     /// the compile left out and why, and the gate's posture for each tool the turn called and
     /// the layer that set it. TURN is a turn's id, or a unique start or end of one (four
     /// characters at least); it defaults to the session's last. A read: nothing is recompiled
-    /// or written. --json prints what the daemon answered.
+    /// or written. --json prints what the daemon answered. `--short` is how full the context is
+    /// instead: the session's last compiled request against the model's window, a line for each
+    /// kind of part with its tokens and a bar, and the free space; its argument is the SESSION
+    /// (default the most recently active).
     #[command(hide = true)]
     Why {
+        /// A turn (a session with `--short`).
         turn: Option<String>,
         /// The session; defaults to the most recently active, as `history` does.
-        #[arg(long, value_name = "SESSION")]
+        #[arg(long, value_name = "SESSION", conflicts_with = "short")]
         session: Option<String>,
+        /// The context's fill, not the turn's reasons.
+        #[arg(long)]
+        short: bool,
     },
     /// What the next request holds, counted part by part down to each tool: the system's blocks
     /// and sections, every tool's description, schema and total with its use (calls planned in the
@@ -245,14 +252,6 @@ enum Cmd {
         #[arg(long)]
         exact: bool,
     },
-    /// How full the context is: the session's last compiled request against the model's
-    /// window, a line for each kind of part (system and persona, tools, context files, recalled,
-    /// conversation) with its tokens and a bar, and the free space. The short form of `why`,
-    /// which names every part and the rule that put it there. SESSION defaults to the most
-    /// recently active. A read: nothing is recompiled or written. --json prints what the daemon
-    /// answered.
-    #[command(hide = true)]
-    Context { session: Option<String> },
     /// Open a turn in the cockpit's inspector: its flame graph, each loop's request
     /// and thinking, each tool call. `theseus open turn [TURN]`: TURN is a turn's id, or a unique
     /// start or end of one (four characters at least); it defaults to the session's last. Prints
@@ -459,9 +458,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: AwsCmd,
     },
-    /// The model catalog: context windows, output limits, prices per million tokens.
-    #[command(hide = true)]
-    Catalog,
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
     #[command(display_order = 19)]
     Health,
@@ -508,16 +504,16 @@ enum Cmd {
         cmd: task_start::TaskCmd,
     },
     /// Wakes: the turns conversations asked for at a time with wake.at that have not run yet,
-    /// soonest first, with session, due time, and note.
+    /// soonest first, with session, due time, and note. `wake list` is the same; `wake pause|resume|
+    /// snooze|cancel ID` act on one (a reminder that fired is answered with `answer ID done|snooze`).
     #[command(display_order = 14)]
-    Wakes {
-        /// Only this session's wakes.
-        #[arg(long, short)]
-        session: Option<String>,
+    Wake {
+        #[command(subcommand)]
+        cmd: Option<remind::WakeCmd>,
     },
-    /// Cancel a pending wake, so nothing fires; or stop a task and its jobs, as `executions
-    /// cancel` does, and its place hears it once. ID is its id or its last six characters, as
-    /// `theseus wakes` and `theseus tasks` show it.
+    /// Cancel a task and its jobs, or a pending wake, by what its id names (its last six characters
+    /// are enough, as `theseus tasks` and `theseus wake` show it); `wake cancel ID` is the same for a
+    /// wake. `stop SESSION` stops a conversation.
     #[command(hide = true)]
     Cancel {
         #[arg(value_name = "ID")]
@@ -525,51 +521,17 @@ enum Cmd {
     },
     /// Remind the owner: WHEN and what to say, with no model turn. It is posted as it is when it
     /// is due, in the Discord DM when one is bound and to every surface that watches, with Done
-    /// and Snooze (`theseus snooze`). With no `--session` it lives in your Home conversation.
+    /// and Snooze (`theseus answer ID snooze`). With no `--session` it lives in your Home conversation.
     #[command(display_order = 12)]
     Remind(remind::RemindArgs),
-    /// Move a wake or a reminder that fired to WHEN (10 minutes by default): `theseus snooze
-    /// 3f9a1c 1h`, `theseus snooze wak_… tomorrow 9:00` (a reminder that fired is named by its
-    /// whole id, as its notice carries it).
-    #[command(hide = true)]
-    Snooze {
-        #[arg(value_name = "ID")]
-        wake: String,
-        /// `10m`, `1h`, `tomorrow 9:00`, `fri 9:00`.
-        when: Option<String>,
-    },
-    /// Hold a wake: a series keeps its place and passes its occurrences over (`--until WHEN`
-    /// moves it past that time instead). `theseus resume` lets it go on.
-    #[command(hide = true)]
-    Pause {
-        #[arg(value_name = "ID")]
-        wake: String,
-        #[arg(long)]
-        until: Option<String>,
-    },
-    /// Let a paused wake go on: a series at its next occurrence, numbered by its place.
-    #[command(hide = true)]
-    Resume {
-        #[arg(value_name = "ID")]
-        wake: String,
-    },
-    /// A reminder that fired was seen and is settled.
-    #[command(hide = true)]
-    Done {
-        #[arg(value_name = "ID")]
-        wake: String,
-    },
     /// What needs you, what works, and what failed, in one screen: a header of counts and a row
     /// for each task (what it asks, and the command that answers). `--short` is a line for a
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
     #[command(display_order = 6)]
     Status(status::StatusArgs),
-    /// The work board, kept current: `tasks --watch`.
-    #[command(hide = true)]
-    Work(work::WorkArgs),
     /// A running job's last lines, once: its size and the last 20 lines (work.peek), scrubbed.
-    /// JOB is its id (`act_…`), or a unique end of it as `theseus tasks` (and its alias `work`) prints it.
+    /// JOB is its id (`act_…`), or a unique end of it as `theseus tasks` prints it.
     #[command(hide = true)]
     Peek(jobout::PeekArgs),
     /// Follow a running job's output live (action.output): its last lines, then each line as it is
@@ -675,14 +637,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: herdr_sync::HerdrCmd,
     },
-    /// The index: `index status` says how far the index tender has read the store and what
-    /// it holds; `index search <QUERY>` finds what was said, run, and read, by its words and
-    /// names (BM25, exact entities, and vectors once the model's files are installed).
-    #[command(hide = true)]
-    Index {
-        #[command(subcommand)]
-        cmd: IndexCmd,
-    },
     /// Recall: `memory search <QUERY>` runs recall's pipeline for a query, writing nothing;
     /// `memory recalled <SESSION>` shows what each of its turns would have recalled, in shadow.
     #[command(hide = true)]
@@ -739,28 +693,12 @@ enum Cmd {
     /// initiative, files with digest and edit time, the compiles that carried it, its places);
     /// `persona edit [NAME] [--name|--emoji|--card|--tts-voice|--avatar|--initiative VALUE]` sets
     /// short fields in the config file, or opens its file in $EDITOR; `persona history` lists
-    /// the `persona.changed` rows.
+    /// the `persona.changed` rows; `persona voice [audition]` is the speaking voice, and `persona rate
+    /// up|down [ID]` your 👍 or 👎 on the latest message Theseus sent first.
     #[command(hide = true)]
     Persona {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
-    },
-    /// The speaking voice: `voice` shows the voice a call speaks in and where it
-    /// comes from; `voice audition [--voices a,b,c] [--text WORDS] [--out DIR]` makes the
-    /// greeting in several voices as WAV files and prints their paths and the cost (a few cents;
-    /// yours alone). Pick with `persona edit --voice ID`.
-    #[command(hide = true)]
-    Voice {
-        #[command(subcommand)]
-        cmd: Option<voice_cmd::VoiceCmd>,
-    },
-    /// What Theseus said first: `notices rate up|down [ID]` is your 👍 or 👎 on
-    /// the latest message it sent unprompted, or the one ID names; the week's totals are in
-    /// `persona`. Yours alone (refused inside a job).
-    #[command(hide = true)]
-    Notices {
-        #[command(subcommand)]
-        cmd: notices_cmd::NoticesCmd,
     },
     /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
@@ -781,13 +719,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<card_cmd::CardCmd>,
     },
-    /// Watches: wait on the world with no model. `watches` lists them; `watches add
+    /// Watches: wait on the world with no model. `watch-for` lists them; `watch-for add
     /// TITLE --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED' [--every 5m]
     /// [--for 3d] [--then notice|turn|task]` checks on a timer until the condition holds, then tells
-    /// you; `watches rm ID` ends one. (`watch SESSION` is the session follower.) Adding one is yours
-    /// alone (refused inside a job).
-    #[command(hide = true)]
-    Watches {
+    /// you; `watch-for rm ID` ends one. Adding one is yours alone (refused inside a job).
+    #[command(hide = true, name = "watch-for")]
+    WatchFor {
         #[command(subcommand)]
         cmd: Option<watch_cmd::WatchesCmd>,
     },
@@ -808,15 +745,15 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<routine::RoutineCmd>,
     },
-    /// Your own benchmark: `route report [--week]`, and `turn replay`.
-    #[command(flatten)]
-    OwnBench(own_bench::OwnBench),
-    /// The prefix library: `prefix report`, its picks, the cache writes they saved,
-    /// and the false fits.
+    /// Models and what they cost: `model bench [--week]` is your own benchmark (which model your own
+    /// turns need, measured by replaying them one rung down the routing table), `model replay SESSION
+    /// TURN -P PROFILE` sends a past turn's first request to another profile (yours alone), `model
+    /// prefix` is the prefix library's picks and what they saved, and `model catalog` the models'
+    /// windows and prices.
     #[command(hide = true)]
-    Prefix {
+    Model {
         #[command(subcommand)]
-        cmd: prefix_cmd::PrefixCmd,
+        cmd: own_bench::ModelCmd,
     },
     /// Projects (also `projects`): long-term work with a goal, dated milestones that
     /// remind you, a weekly review, and a slice in every session attached to it. `project` lists
@@ -1149,7 +1086,7 @@ enum IndexCmd {
     /// process, and its vectors.
     Status,
     /// Drop the index and build it again from the WAL. The daemon watches it and writes its
-    /// start, progress and end, so `theseus work` and `theseus status` show it as the daemon's
+    /// start, progress and end, so `theseus tasks` and `theseus status` show it as the daemon's
     /// own work. The owner's act, from their own shell.
     Rebuild,
     /// The best chunks for QUERY, each with its node, session, WAL position, and the sources that
@@ -1172,6 +1109,13 @@ enum IndexCmd {
 
 #[derive(Subcommand, Debug)]
 enum MemoryCmd {
+    /// The index: `memory index status` says how far the index tender has read the store and what it
+    /// holds; `memory index search <QUERY>` finds what was said, run, and read, by its words and
+    /// names (BM25, exact entities, and vectors once the model's files are installed).
+    Index {
+        #[command(subcommand)]
+        cmd: IndexCmd,
+    },
     /// Recall's pipeline for QUERY, writing nothing: what the index offers, what the pack would
     /// admit with each source's rank, and why each other hit is dropped (its place first).
     Search {
@@ -1426,17 +1370,15 @@ async fn wait_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     wait_session_or_any(c, json, session, until, after, timeout).await
 }
 
-/// `theseus agenda`, `prefix`, `card`, `voice`, `digest` and `mode`: the horizon, the prefix library's report,
+/// `theseus agenda`, `card`, `digest` and `mode`: the horizon,
 /// the owner card's proposals, the speaking voice, what happened while you were away, and a conversation's mode.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Agenda(a) => agenda::run(c, json, a).await,
-        Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
         Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Voice { cmd } => voice_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Digest(a) => digest::run(c, json, a).await,
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
-        _ => unreachable!("only agenda, prefix, card, voice, digest and mode come here"),
+        _ => unreachable!("only agenda, card, digest and mode come here"),
     }
 }
 
@@ -1496,9 +1438,15 @@ async fn run(cli: Cli) -> Result<()> {
             before,
             full,
         } => cmd::history(c, json, session, (n, after, before), full).await,
-        Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
+        Cmd::Why {
+            turn,
+            session,
+            short,
+        } => match short {
+            true => why::context(c, json, turn).await,
+            false => why::why(c, json, session, turn).await,
+        },
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
-        Cmd::Context { session } => why::context(c, json, session).await,
         Cmd::Open { what } => open::open(c, json, what).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
@@ -1524,27 +1472,21 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
         Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
-        Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Remind(a) => remind::remind(c, json, a).await,
         Cmd::Answer(a) => answer::answer(c, json, a).await,
-        Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
-        Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
-        cmd @ (Cmd::Resume { .. } | Cmd::Done { .. }) => remind::settle(c, json, cmd).await,
+        Cmd::Wake { cmd } => remind::wake(c, json, cmd.unwrap_or_default()).await,
         Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
         cmd @ (Cmd::Dismiss { .. } | Cmd::Retry(_)) => retry::run(c, json, cmd).await,
         w @ Cmd::Wait { .. } => wait_cmd(c, json, w).await,
-        cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_) | Cmd::Mode(_)) => {
-            long_cmd(c, json, cmd).await
-        }
+        cmd @ (Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
+        cmd @ (Cmd::Agenda(_) | Cmd::Digest(_) | Cmd::Mode(_)) => long_cmd(c, json, cmd).await,
         Cmd::Help { .. }
         | Cmd::Status(_)
         | Cmd::Postmortem(_)
@@ -1552,11 +1494,10 @@ async fn run(cli: Cli) -> Result<()> {
         | Cmd::Chat { .. } => {
             unreachable!("above")
         }
-        cmd @ (Cmd::Card { .. } | Cmd::Voice { .. }) => long_cmd(c, json, cmd).await,
+        cmd @ Cmd::Card { .. } => long_cmd(c, json, cmd).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,
-        Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
         Cmd::Packs { cmd } => packs::run(c, json, cmd.unwrap_or(packs::PacksCmd::List)).await,
@@ -1565,12 +1506,11 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Notices { cmd } => notices_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
+        Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
-        Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
+        Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };

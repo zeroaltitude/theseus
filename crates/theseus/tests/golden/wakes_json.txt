@@ -1,4 +1,4 @@
-$ theseus --json wakes -s ses_q7f3k2
+$ theseus --json wake list -s ses_q7f3k2
 --- requests
 wake.list
 --- stdout

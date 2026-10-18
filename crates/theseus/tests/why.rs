@@ -286,3 +286,32 @@ fn json_prints_what_the_daemon_answered_and_every_request_is_a_read() {
     );
     golden("why_json", &got);
 }
+
+/// `theseus why --short SESSION` is the old `theseus context`: one `context.explain` for the
+/// session, no policy, route or node reads, and the context's fill in the short form's words.
+#[test]
+fn why_short_reads_the_contexts_fill_and_nothing_else() {
+    let got = run(
+        &["why", "--short", S],
+        vec![("context.explain", explain(T))],
+    );
+    assert!(
+        got.contains(&format!("context.explain {{\"session_id\":\"{S}\"}}")),
+        "{got}"
+    );
+    for read in ["policy.explain", "ledger.tail", "node.list", "session.list"] {
+        assert!(
+            !got.contains(read),
+            "`why --short` also asked {read}:\n{got}"
+        );
+    }
+    assert!(got.contains("11,450 of 200,000 tokens (5.7%)"), "{got}");
+    assert!(
+        got.contains("free space                   188,550"),
+        "{got}"
+    );
+    assert!(
+        !got.contains("routing:"),
+        "the reasons are `why` alone:\n{got}"
+    );
+}

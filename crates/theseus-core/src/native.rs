@@ -1,5 +1,5 @@
 //! The native tool a `proc.run` of the daemon's own CLI stands in for
-//! (theseus-8c8s): a job that runs `theseus index search`, `theseus memory
+//! (theseus-8c8s): a job that runs `theseus memory index search`, `theseus memory
 //! search`, `theseus history` or `theseus sessions` asks for what
 //! `memory.lookup` answers in-process, and its result ends with a line that
 //! says so, with the call that does it.
@@ -14,7 +14,7 @@
 //!   split on its quotes and operators, in every step of a batch. The first
 //!   `theseus` whose subcommand a native tool answers names the line; a
 //!   query held in a shell variable gives the call's shape with no value.
-//! - **What it maps.** `index search` and `memory search` to `words` (to
+//! - **What it maps.** `memory index search` and `memory search` to `words` (to
 //!   `when` when the query is a time, as "March 2026" is); `history` and
 //!   `rpc session.history` to `session`; `sessions` and `sessions list` and
 //!   `rpc import.sessions` to a span's listing. Nothing else has a native
@@ -98,7 +98,10 @@ fn native_call(rest: &[String], now_ms: u64) -> Option<String> {
     const SHAPE: &str = "…";
     let (sub, args) = positional.split_first()?;
     let fields: Vec<(&str, String)> = match (*sub, args) {
-        ("index" | "memory", [verb, query @ ..]) if *verb == "search" => {
+        ("memory", [verb, query @ ..]) if *verb == "search" => {
+            words_or_when(&query.join(" "), now_ms)
+        }
+        ("memory", [index, verb, query @ ..]) if *index == "index" && *verb == "search" => {
             words_or_when(&query.join(" "), now_ms)
         }
         ("history", args) => vec![("session", args.first().map_or(SHAPE, |s| s).to_string())],
@@ -207,6 +210,7 @@ mod tests {
     fn a_search_of_the_index_names_the_native_call() {
         let h = of(&[
             "theseus",
+            "memory",
             "index",
             "search",
             "-k",
@@ -227,7 +231,7 @@ mod tests {
         let h = of(&[
             "bash",
             "-c",
-            "theseus index search -k 20 --json 'tide parser' 2>/dev/null | python3 -c 'x'",
+            "theseus memory index search -k 20 --json 'tide parser' 2>/dev/null | python3 -c 'x'",
         ])
         .unwrap();
         assert!(h.contains(r#"{"words":"tide parser"}"#), "{h}");
@@ -235,10 +239,10 @@ mod tests {
 
     #[test]
     fn a_query_that_is_a_time_goes_to_when() {
-        let h = of(&["theseus", "index", "search", "March 2026"]).unwrap();
+        let h = of(&["theseus", "memory", "index", "search", "March 2026"]).unwrap();
         assert!(h.contains(r#"{"when":"March 2026"}"#), "{h}");
         let h = of(&[
-            "theseus", "index", "search", "kelp", "notes", "in", "March", "2026",
+            "theseus", "memory", "index", "search", "kelp", "notes", "in", "March", "2026",
         ])
         .unwrap();
         assert!(h.contains(r#"{"words":"kelp notes"#), "{h}");
@@ -251,13 +255,18 @@ mod tests {
     #[test]
     fn help_a_loop_and_a_batch_get_the_line_too() {
         // The DM's first call read the CLI's help: the line names the call.
-        let h = of(&["bash", "-c", "theseus index search --help 2>&1 | head -30"]).unwrap();
+        let h = of(&[
+            "bash",
+            "-c",
+            "theseus memory index search --help 2>&1 | head -30",
+        ])
+        .unwrap();
         assert!(h.contains(r#"{"words":"…","when":"…"}"#), "{h}");
         // A loop over queries in a variable: the shape, no value.
         let h = of(&[
             "bash",
             "-c",
-            "for q in a b; do theseus index search -k 25 --json \"$q\"; done",
+            "for q in a b; do theseus memory index search -k 25 --json \"$q\"; done",
         ])
         .unwrap();
         assert!(h.contains(r#"{"words":"…","when":"…"}"#), "{h}");
@@ -291,12 +300,12 @@ mod tests {
     fn what_no_native_tool_answers_gets_no_line() {
         for argv in [
             &["theseus", "ledger", "-n", "5"][..],
-            &["theseus", "index", "status"],
+            &["theseus", "memory", "index", "status"],
             &["theseus", "sessions", "retire", "ses_1"],
             &["theseus", "ontology", "proposals"],
             &["cargo", "test", "-p", "theseus"],
             &["bash", "-c", "echo theseus; ls"],
-            &["git", "log", "--grep", "theseus index search"],
+            &["git", "log", "--grep", "theseus memory index search"],
         ] {
             assert_eq!(of(argv), None, "{argv:?}");
         }

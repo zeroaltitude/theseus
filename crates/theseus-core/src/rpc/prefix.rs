@@ -1,5 +1,5 @@
 //! `prefix.report` (theseus-rr15): the prefix library's picks, their cache
-//! reads and the false fits (`prefix::report`), for `theseus prefix report`.
+//! reads and the false fits (`prefix::report`), for `theseus model prefix`.
 //! A read for the owner, from a surface that reads private text: the picks
 //! name sessions and turns. It writes nothing and takes no lock.
 
