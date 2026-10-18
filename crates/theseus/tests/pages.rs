@@ -222,7 +222,7 @@ fn sessions_before_and_n_page_back_and_all_asks_for_every_session() {
 }
 
 #[test]
-fn executions_pages_the_same_way() {
+fn sessions_state_pages_the_same_way() {
     let page = |older: Option<u64>| {
         let mut v = json!({"executions": [execution("exe_q7f3k2", S)]});
         if let Some(o) = older {
@@ -230,7 +230,7 @@ fn executions_pages_the_same_way() {
         }
         vec![("execution.list", vec![v])]
     };
-    let r = run(&["executions"], page(Some(42)));
+    let r = run(&["sessions", "--state"], page(Some(42)));
     assert_eq!(
         params_of(&r, "execution.list"),
         vec![json!({"n": 50})],
@@ -238,11 +238,11 @@ fn executions_pages_the_same_way() {
         r.stderr
     );
     assert!(
-        r.stdout.contains("theseus executions --before 42"),
+        r.stdout.contains("theseus sessions --state --before 42"),
         "{}",
         r.stdout
     );
-    let r = run(&["executions", "--before", "42"], page(None));
+    let r = run(&["sessions", "--state", "--before", "42"], page(None));
     assert_eq!(
         params_of(&r, "execution.list"),
         vec![json!({"n": 50, "before": 42})]

@@ -120,6 +120,12 @@ async fn a_budget_questions_options_reset_it_or_decline_it() {
     let done = cli_answer(&r, &q.correlation_id, "decline").await.unwrap();
     assert_eq!(done["option"], "decline");
     assert!(done.get("resumes").is_none(), "nothing resumes: {done}");
+    assert!(
+        done["detail"]
+            .as_str()
+            .is_some_and(|d| d.ends_with("keeps waiting on its budget; a new message asks again")),
+        "{done}"
+    );
     assert_eq!(confirm_rows(&r)[0]["option"], "decline");
 
     let r = over_limit_rig();
@@ -399,4 +405,20 @@ async fn a_real_questions_end_answers_it() {
         .await
         .unwrap();
     assert_eq!(done["question_id"], corr.as_str());
+}
+
+/// The session or the execution a question waits in names it too, whole or by
+/// its end (`theseus confirm` took these).
+#[tokio::test]
+async fn a_questions_session_or_execution_answers_it() {
+    let r = rig(write_script());
+    let (session, _, corr) = waiting_write(&r).await;
+    let done = cli_answer(&r, &session[session.len() - 6..], "decline")
+        .await
+        .unwrap();
+    assert_eq!(done["question_id"], corr.as_str(), "{done}");
+    let r = rig(write_script());
+    let (_, exec, corr) = waiting_write(&r).await;
+    let done = cli_answer(&r, &exec, "decline").await.unwrap();
+    assert_eq!(done["question_id"], corr.as_str(), "{done}");
 }

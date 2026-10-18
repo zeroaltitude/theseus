@@ -1,0 +1,7 @@
+$ theseus --json answer act_k4 approve --no-wait
+--- requests
+work.answer
+--- stdout
+{"option":"approve","question_id":"act_k4","resumes":{"id":"exe_q7f3k2","kind":"conversation","session_id":"ses_q7f3k2"}}
+--- stderr
+--- exit 0

@@ -2,7 +2,7 @@
 //! build wires with its rung, share and why, its rollback rules, and its
 //! last `pack.mode` rows; `promote` and `rollback` move one, the owner's
 //! acts (refused inside a job, `client::OPERATORS`). A security pack's
-//! promotion is a card: `theseus confirm <id> --approve` answers it.
+//! promotion is a card: `theseus answer <id> approve` answers it.
 
 use anyhow::{bail, Result};
 use clap::Subcommand;

@@ -1,5 +1,5 @@
-//! One id resolver for the commands that name a session, an execution or a
-//! question (theseus-0n1v): `confirm`, `history`, `watch`, `stop`, `cancel`,
+//! One id resolver for the commands that name a session or an execution
+//! (theseus-0n1v): `history`, `watch`, `stop`, `cancel`,
 //! `wait` and `explain`. An id is named whole, or by a unique end of it of at
 //! least four characters, as `theseus tasks` and the terminal UI show them
 //! (`…a1b2c3`). A task's ids share their tail (`act_X` opens `exe_X` in
@@ -11,10 +11,9 @@
 //! name that needs the executions reads them a page at a time.)
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::{json, Value};
+use serde_json::json;
 use theseus_protocol::{
-    method, ConfirmListResult, ExecutionInfo, ExecutionListParams, ExecutionListResult,
-    SessionListResult,
+    method, ExecutionInfo, ExecutionListParams, ExecutionListResult, SessionListResult,
 };
 
 use crate::client::Conn;
@@ -159,36 +158,6 @@ pub async fn existing_session(conn: &mut Conn, given: &str) -> Result<String> {
     long_enough(given, "session")?;
     let execs = executions(conn).await?;
     Ok(session_of(given, &execs)?[0].session_id.clone())
-}
-
-/// The question `given` names: its correlation id whole, with no read (the
-/// daemon refuses an unknown one); else, from what waits, the one question
-/// whose correlation id, session or execution `given` names.
-pub async fn question(conn: &mut Conn, given: &str) -> Result<String> {
-    let s = trimmed(given);
-    if whole(given) && !["ses_", "exe_"].iter().any(|p| s.starts_with(p)) {
-        return Ok(s.to_string());
-    }
-    long_enough(given, "question")?;
-    let waiting = serde_json::from_value::<ConfirmListResult>(
-        conn.request(method::CONFIRM_LIST, Value::Null).await?,
-    )?
-    .confirms;
-    Ok(pick(
-        given,
-        "question",
-        &waiting,
-        |c| {
-            vec![
-                c.correlation_id.as_str(),
-                c.session_id.as_str(),
-                c.execution_id.as_str(),
-            ]
-        },
-        |c| c.correlation_id.as_str(),
-    )?[0]
-        .correlation_id
-        .clone())
 }
 
 /// Refuse a name too short to be one, before anything is read or sent.

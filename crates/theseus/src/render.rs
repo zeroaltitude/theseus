@@ -438,14 +438,14 @@ fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
     push(
         out,
         Tag::Dim,
-        &format!("      approve: theseus confirm {}", c.correlation_id),
+        &format!("      approve: theseus answer {} approve", c.correlation_id),
     );
     if c.external_text.is_some() {
         push(
             out,
             Tag::Dim,
             &format!(
-                "      approve, and trust the session again: theseus confirm --trust {}",
+                "      approve, and trust the session again: theseus answer {} approve_trust",
                 c.correlation_id
             ),
         );
@@ -453,10 +453,7 @@ fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
     push(
         out,
         Tag::Dim,
-        &format!(
-            "      decline: theseus confirm --decline {}",
-            c.correlation_id
-        ),
+        &format!("      decline: theseus answer {} decline", c.correlation_id),
     );
 }
 
@@ -472,15 +469,12 @@ fn change_lines(out: &mut Vec<Line>, c: &ConfirmRequest) {
     push(
         out,
         Tag::Dim,
-        &format!("      accept: theseus confirm {}", c.correlation_id),
+        &format!("      accept: theseus answer {} accept", c.correlation_id),
     );
     push(
         out,
         Tag::Dim,
-        &format!(
-            "      decline: theseus confirm --decline {}",
-            c.correlation_id
-        ),
+        &format!("      decline: theseus answer {} decline", c.correlation_id),
     );
 }
 
@@ -490,7 +484,7 @@ fn budget_answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
         out,
         Tag::Dim,
         &format!(
-            "      reset and continue: theseus confirm {}",
+            "      reset and continue: theseus answer {} reset",
             c.correlation_id
         ),
     );
@@ -498,7 +492,7 @@ fn budget_answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
         out,
         Tag::Dim,
         &format!(
-            "      keep waiting: theseus confirm --decline {}",
+            "      keep waiting: theseus answer {} decline",
             c.correlation_id
         ),
     );
@@ -886,8 +880,8 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     out
 }
 
-/// A question that waits, as a list of them prints it (`confirm`, `history`,
-/// `executions explain`, `wait`): its first line (`Ask`), then how to answer
+/// A question that waits, as a list of them prints it (`answer`, `history`,
+/// `sessions explain`, `wait`): its first line (`Ask`), then how to answer
 /// it (`Dim`).
 pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
     let mut out = Vec::new();
@@ -1452,7 +1446,7 @@ pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> Line {
     let state = tasks::state_word(t, now_ms);
     let mut asks = match t.pending_confirms {
         0 => String::new(),
-        n => format!(" · {n} waiting for you (theseus confirm)"),
+        n => format!(" · {n} waiting for you (theseus answer)"),
     };
     // Its report starts its parent's next turn (W1).
     if t.wake_parent {
@@ -1495,7 +1489,7 @@ pub fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
         ));
     }
     if let Some(q) = &b.question {
-        s.push_str(&format!(" · at its limit: theseus confirm {q}"));
+        s.push_str(&format!(" · at its limit: theseus answer {q} reset"));
     }
     if !b.units_before.is_null() {
         s.push_str(&format!(
@@ -2011,7 +2005,7 @@ pub fn lost_line(l: &theseus_protocol::EventsLost) -> String {
     )
 }
 
-/// One execution in full, as `theseus executions explain` prints it: its
+/// One execution in full, as `theseus sessions explain` prints it: its
 /// pill, what it waits on, its pending wakes, its turns and calls, and its
 /// budget. Its first line is tagged with the pill's level, the rest `Plain`.
 pub fn explain_lines(
@@ -2172,7 +2166,7 @@ pub fn session_row(s: &SessionInfo) -> Line {
     )
 }
 
-/// One execution, as `theseus executions` lists it: its attention after its
+/// One execution, as `theseus sessions --state` lists it: its attention after its
 /// state, from a daemon that sends one (theseus-in3), and tagged with its
 /// level.
 pub fn execution_row(e: &theseus_protocol::ExecutionInfo) -> Line {
@@ -2961,10 +2955,13 @@ mod tests {
                     "  ? proc.run needs your confirmation: proc.run — approve".to_string()
                 ),
                 (Tag::Dim, "      input: {\"argv\":[\"tide\"]}".to_string()),
-                (Tag::Dim, "      approve: theseus confirm act_q".to_string()),
                 (
                     Tag::Dim,
-                    "      decline: theseus confirm --decline act_q".to_string()
+                    "      approve: theseus answer act_q approve".to_string()
+                ),
+                (
+                    Tag::Dim,
+                    "      decline: theseus answer act_q decline".to_string()
                 ),
             ]
         );
@@ -2992,8 +2989,8 @@ mod tests {
         assert_eq!(
             joined.join("\n"),
             "  ? proc.run waits for you in ses_a: the harbour's table\nand the river's\n      \
-             input: {\"argv\":[\"tide\"]}\n      approve: theseus confirm act_q\n      decline: \
-             theseus confirm --decline act_q"
+             input: {\"argv\":[\"tide\"]}\n      approve: theseus answer act_q approve\n      decline: \
+             theseus answer act_q decline"
         );
     }
 

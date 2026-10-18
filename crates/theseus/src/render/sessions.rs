@@ -62,9 +62,9 @@ pub fn nudge_line(r: &theseus_protocol::nudge::SessionNudgeResult) -> String {
     )
 }
 
-/// What ends a page of `theseus sessions` or `theseus executions` while older
+/// What ends a page of `theseus sessions` or `theseus sessions --state` while older
 /// ones remain: the command for the next page, and for the whole list.
-pub fn page_footer(noun: &str, older: Option<u64>) -> Vec<super::Line> {
+pub fn page_footer(noun: &str, command: &str, older: Option<u64>) -> Vec<super::Line> {
     let Some(p) = older else {
         return Vec::new();
     };
@@ -73,7 +73,7 @@ pub fn page_footer(noun: &str, older: Option<u64>) -> Vec<super::Line> {
         &mut out,
         super::Tag::Dim,
         &format!(
-            "── older {noun} before cursor {p}: theseus {noun} --before {p}  (--all lists every one)"
+            "── older {noun} before cursor {p}: theseus {command} --before {p}  (--all lists every one)"
         ),
     );
     out

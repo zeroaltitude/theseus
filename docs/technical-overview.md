@@ -159,13 +159,13 @@ transition is a ledger row (`action.planned`, `action.dispatched`, `action.succe
   reconcile, accept); a crash inside any of them is finished by the next startup.
 - **Budgets are hard limits** with reservations; unknown usage (an interrupted provider call) is
   held, never released; exhaustion is a terminal state.
-- **`/cancel`** is a deterministic control path: `theseus executions cancel <id>` never queues
+- **`/cancel`** is a deterministic control path (`execution.cancel`): it never queues
   behind admission, terminates the execution's wrapper processes by process group, and walks each
   action's cancel lifecycle (`requested → acknowledged → verified | unsupported | uncertain`).
 
 ```bash
-theseus executions                     # one line per execution: state, turns, outstanding, budget
-theseus executions cancel exe_…        # deterministic cancel
+theseus sessions --state               # one line per execution: state, turns, outstanding, budget
+theseus stop ses_…                     # halt what a session is doing; the conversation goes on
 theseus health                         # kernel line: accepting, turns held/ceiling, counts by state
 theseus ledger -n 20 -k action.succeeded
 theseus-sim kernel-sim --seed 1 --seeds 40 --steps 400   # the M2 exit test: seeded fault injection
@@ -209,8 +209,8 @@ call is priced in dollars (`theseus model catalog`; override or add rows with `[
 
 ```bash
 theseus ask "Run the tests in ~/projects/foo and fix what fails."   # tool activity on stderr
-theseus confirm                        # what is waiting for you, across sessions
-theseus confirm act_…                  # approve, then follow the turn it resumes (--deny to decline)
+theseus answer                         # what is waiting for you, across sessions
+theseus answer act_… approve           # approve, then follow the turn it resumes (decline to decline)
 theseus history [session]              # the transcript: messages, calls with gate decisions, results
 theseus watch [session]                # follow a session live, whoever drives it
 theseus ask -s ses_… "and now?"        # continue a session: its history is the context

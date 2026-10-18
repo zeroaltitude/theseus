@@ -427,13 +427,12 @@ enum Cmd {
         #[arg(long)]
         plain: bool,
     },
-    /// Answer a tool call waiting for your confirmation, or a session at its spend limit
-    /// (approve resets its spend to $0), then follow the turn it resumes.
-    /// Without an id, list everything waiting.
-    #[command(hide = true)]
-    Confirm(ConfirmArgs),
     /// Answer any question waiting for you, with one of its answers: a call, a spend limit, a
-    /// task change, an extension, a reminder. `theseus answer 7f3a approve`.
+    /// task change, an extension, a reminder. `theseus answer 7f3a approve`; alone, it lists what
+    /// waits.
+    ///
+    /// The turn an answer resumes is followed to its end (`--no-wait` returns once the answer is
+    /// recorded). Approving a spend limit resets its spend to $0.
     #[command(display_order = 8)]
     Answer(answer::AnswerArgs),
     /// The toollets: class, backend, what policy does with each, and calls so far.
@@ -461,7 +460,8 @@ enum Cmd {
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
     #[command(display_order = 19)]
     Health,
-    /// Sessions: list them with per-session token totals, or open one to continue across turns.
+    /// Sessions: list them with per-session token totals (`--state`: each one's execution, with its
+    /// state, turns, outstanding actions and budget), or open one to continue across turns.
     #[command(hide = true)]
     Sessions {
         #[command(flatten)]
@@ -474,14 +474,6 @@ enum Cmd {
     /// its parent with its carve, and the totals.
     #[command(hide = true)]
     Budgets,
-    /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
-    #[command(hide = true)]
-    Executions {
-        #[command(flatten)]
-        page: pages::PageArgs,
-        #[command(subcommand)]
-        cmd: Option<ExecutionsCmd>,
-    },
     /// Tasks (work.watch), one line each under its conversation: a mark, its short id, its title,
     /// how long it has run and what it is doing; under one that asks, the command that answers it;
     /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
@@ -674,7 +666,7 @@ enum Cmd {
         cmd: Option<mcp::McpCmd>,
     },
     /// Extensions: `extend list` shows each proposal with its state, its frozen
-    /// digest, its tools and tests, and the question `theseus confirm` answers, and each loaded
+    /// digest, its tools and tests, and the question `theseus answer` answers, and each loaded
     /// one; `extend revoke <NAME>` stops a loaded one and drops its tools.
     #[command(hide = true)]
     Extend {
@@ -817,30 +809,6 @@ struct AskArgs {
     /// comes, for at most this long (30m, 90s, 2h). 0 follows nothing.
     #[arg(long, value_name = "DURATION", default_value = follow::FOLLOW_FOR, value_parser = follow::parse_follow_for)]
     follow_for: std::time::Duration,
-}
-
-#[derive(Args, Debug)]
-struct ConfirmArgs {
-    /// The question: its correlation id, or a unique end of it, its session's or its
-    /// execution's (four characters at least, as `theseus tasks` shows a task's).
-    correlation_id: Option<String>,
-    /// Approve, which is what an answer does unless --decline says otherwise.
-    #[arg(long, conflicts_with = "decline")]
-    approve: bool,
-    /// Decline instead of approve (the model is told, and carries on without it; a
-    /// session at its limit keeps waiting, and its next message asks again).
-    #[arg(long, alias = "deny")]
-    decline: bool,
-    /// A note for the ledger and, on a decline, for the model.
-    #[arg(long)]
-    note: Option<String>,
-    /// Return as soon as the answer is recorded instead of following the resumed turn.
-    #[arg(long)]
-    no_wait: bool,
-    /// Approve, and trust the call's session again: it no longer holds external text, so
-    /// its later calls that act run at their postures (as `theseus policy trust` does).
-    #[arg(long, conflicts_with = "decline")]
-    trust: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1068,19 +1036,6 @@ enum AwsCmd {
 }
 
 #[derive(Subcommand, Debug)]
-enum ExecutionsCmd {
-    /// List the newest 50 executions with state, turns, outstanding actions, and budget
-    /// (default); `--before` pages back, `--all` lists every one.
-    List(pages::PageArgs),
-    /// Cancel an execution: deterministic control path, terminates its jobs.
-    Cancel { execution_id: String },
-    /// One execution in full: what it needs from you, what it waits on, its questions, its
-    /// budget, its pending wakes, and its session's last ledger rows. ID is an execution's or a
-    /// session's id, or at least the last four characters of either.
-    Explain { id: String },
-}
-
-#[derive(Subcommand, Debug)]
 enum IndexCmd {
     /// The index and its tender: state, nodes and chunks, how far behind the store it is, its
     /// process, and its vectors.
@@ -1259,6 +1214,10 @@ enum SessionsCmd {
     /// List the newest 50 sessions with turns and tokens in/out (default); `--before` pages
     /// back, `--all` lists every one.
     List(pages::PageArgs),
+    /// One session's execution in full: what it needs from you, what it waits on, its questions,
+    /// its budget, its pending wakes, and its last ledger rows. ID is an execution's or a
+    /// session's id, or at least the last four characters of either.
+    Explain { id: String },
     /// Open a session and print its id; pass it to `ask -s` to keep turns together.
     Open {
         /// Human label shown in listings.
@@ -1467,7 +1426,6 @@ async fn run(cli: Cli) -> Result<()> {
             no_herdr,
             ..
         } => interactive::watch(c, json, session, thinking, interactive, no_herdr).await,
-        Cmd::Confirm(a) => cmd::confirm(c, json, a).await,
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
@@ -1475,7 +1433,6 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
-        Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
         Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,

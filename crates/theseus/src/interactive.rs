@@ -29,7 +29,7 @@ use crate::print::{Mode, Printer};
 
 /// What answers and messages sent from the terminal carry as their author: the
 /// ledger names it. The answer counts as the CLI's (the `cli` channel), as
-/// `theseus confirm`'s does.
+/// `theseus answer`'s does.
 pub const AUTHOR: &str = "theseus watch";
 
 /// An answer to a question, as a line says it.

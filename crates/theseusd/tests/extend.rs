@@ -2,7 +2,7 @@
 //! Messages API that asks for the proposal, and the real fake MCP server
 //! (`theseus-sim fake-mcp`) as the proposed word counter: its tree is
 //! frozen, its frozen copy started in L1 through the `mcp-sandbox` role and
-//! tested, and the operator asked. `theseus confirm` from a job's shell
+//! tested, and the operator asked. `theseus answer` from a job's shell
 //! (`THESEUS_SESSION`) is refused and the question keeps waiting; from the
 //! operator's own, it acks: `extend.acked`, and it loads (43b): its tools
 //! run, a restart starts it after serving from its frozen copy, neither the
@@ -243,12 +243,12 @@ impl Rig {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
-    /// `theseus confirm <id>`, with `env` set: its status and output.
+    /// `theseus answer <id> ack`, with `env` set: its status and output.
     fn confirm(&self, id: &str, env: &[(&str, &str)]) -> (bool, String) {
         let out = Command::new(bin("theseus"))
             .arg("--socket")
             .arg(self.path("sock"))
-            .args(["confirm", id])
+            .args(["answer", id, "ack"])
             .env_remove("THESEUS_SESSION")
             .envs(env.iter().copied())
             // The CLI's seen file is the test's own, never the machine's (theseus-yus0).
@@ -372,7 +372,7 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
     );
     // Its role is reaped: no zombie is left of it.
     r.until("no zombie", |h| h["children"]["zombies"] == 0);
-    // The question, as `theseus confirm` lists it.
+    // The question, as `theseus answer` lists it.
     let asks = r.call("confirm.list", Value::Null).unwrap();
     let q = &asks["confirms"][0];
     assert_eq!(q["tool"], "extend.ack", "{asks}");
@@ -391,12 +391,12 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
         "{listed}"
     );
     assert!(
-        listed.contains(&format!("waiting: theseus confirm {id}")),
+        listed.contains(&format!("waiting: theseus answer {id} ack")),
         "{listed}"
     );
     // From a job's shell: refused, and it still waits.
     let (ok, said) = r.confirm(&id, &[("THESEUS_SESSION", sid.as_str())]);
-    assert!(!ok && said.contains("theseus confirm refused"), "{said}");
+    assert!(!ok && said.contains("theseus answer refused"), "{said}");
     assert!(r.ledger("extend.acked").is_empty());
     assert_eq!(
         r.call("confirm.list", Value::Null).unwrap()["confirms"]
@@ -408,7 +408,7 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
     // From the operator's own: acked.
     let (ok, said) = r.confirm(&id, &[]);
     assert!(ok, "{said}");
-    assert!(said.contains("nothing resumes"), "{said}");
+    assert!(said.contains(&format!("answered {id} · ack")), "{said}");
     assert_eq!(r.ledger("extend.acked")[0]["name"], "wordcount");
     assert!(
         r.extend_list().contains("  acked by "),

@@ -7,7 +7,7 @@ import type { PackModeRow } from "./PackModeRow";
 export type PackPromoteResult = { row?: PackModeRow, 
 /**
  * A security pack's card: its question's id, answered with
- * `action.confirm` (`theseus confirm <id> --approve`).
+ * `action.confirm` (`theseus answer <id> approve`).
  */
 question?: string, 
 /**

@@ -1,4 +1,4 @@
-$ theseus executions explain q7f3k2
+$ theseus sessions explain q7f3k2
 --- requests
 execution.list confirm.list wake.list ledger.tail
 --- stdout
@@ -10,9 +10,9 @@ budget $0.2500 of $100.00 (reserved $0.0100, held $0.0000)
 questions:
   ? fs.write waits for you in ses_q7f3k2: write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
-      approve: theseus confirm act_k4
-      approve, and trust the session again: theseus confirm --trust act_k4
-      decline: theseus confirm --decline act_k4
+      approve: theseus answer act_k4 approve
+      approve, and trust the session again: theseus answer act_k4 approve_trust
+      decline: theseus answer act_k4 decline
 last rows of its session:
     2040  23:26:40.123  execution.waiting                                      {"execution_id":"exe_q7f3k2","wake":{"on":"confirm"}}
 --- stderr

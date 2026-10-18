@@ -218,7 +218,7 @@ impl Rig {
             .as_str()
             .unwrap_or_else(|| panic!("approve asks: {res}\n{}", self.log()))
             .to_string();
-        let (ok, out) = self.cli(&["confirm", "--approve", &corr, "--no-wait"]);
+        let (ok, out) = self.cli(&["answer", &corr, "approve", "--no-wait"]);
         assert!(ok, "{out}");
         self.wait("the turn's end", || {
             self.model.requests().len() >= before + 2

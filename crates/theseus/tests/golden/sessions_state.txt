@@ -1,4 +1,4 @@
-$ theseus executions
+$ theseus sessions --state
 --- requests
 execution.list
 --- stdout

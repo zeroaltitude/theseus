@@ -279,7 +279,7 @@ fn an_incident_is_recorded_and_its_report_names_every_fact() {
     let first_q = questions[0]["correlation_id"].as_str().unwrap().to_string();
     // The owner answers the first from their own shell, a while after it was asked.
     std::thread::sleep(Duration::from_secs(4));
-    let said = r.cli(&["confirm", &first_q, "--approve", "--no-wait"]);
+    let said = r.cli(&["answer", &first_q, "approve", "--no-wait"]);
     assert!(
         said.status.success(),
         "{}",

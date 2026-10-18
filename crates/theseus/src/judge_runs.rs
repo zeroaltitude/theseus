@@ -196,7 +196,7 @@ pub fn proposal_lines(p: &JudgeProposal) -> Vec<String> {
     }
     if let Some(q) = &p.question {
         out.push(format!(
-            "  your card: theseus confirm {q} --approve (or --decline)"
+            "  your card: theseus answer {q} approve (or decline)"
         ));
     }
     if !p.diff.is_empty() {

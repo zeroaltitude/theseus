@@ -10,7 +10,7 @@
 //! - a wrong key gets 401 and one `mcp_server.refused` row; a foreign
 //!   `Origin` gets 403;
 //! - an acting call in its turn waits, under `notify` everywhere else, and
-//!   the operator's `theseus confirm` lets it run; the client then reads the
+//!   the operator's `theseus answer` lets it run; the client then reads the
 //!   reply;
 //! - a job's process that opens a session through MCP passes on its
 //!   session's hold of external text.
@@ -450,7 +450,7 @@ fn a_client_opens_a_conversation_sends_it_text_and_gets_the_reply() {
 /// An acting call in an MCP client's turn waits for the operator, though
 /// every other call here runs under `notify`: the send answers `running`
 /// past its wait, the call has not run, and `conversation_status` says what
-/// it waits on. The operator's `theseus confirm` lets it run, and the client
+/// it waits on. The operator's `theseus answer` lets it run, and the client
 /// then reads the reply.
 #[test]
 fn an_acting_call_waits_and_the_cli_approves_it() {
@@ -493,7 +493,7 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         .to_string();
     let why = pending.to_string();
     assert!(why.contains("an MCP client opened this session"), "{why}");
-    let answered = r.cli(&["confirm", "--approve", &id, "--no-wait"]);
+    let answered = r.cli(&["answer", &id, "approve", "--no-wait"]);
     assert!(
         answered.status.success(),
         "{}{}",
@@ -565,7 +565,7 @@ fn a_jobs_process_that_opens_a_session_through_mcp_passes_on_its_hold() {
         .as_str()
         .unwrap_or_else(|| panic!("the job waits: {parked}\n{}", r.log()))
         .to_string();
-    let answered = r.cli(&["confirm", "--approve", &id, "--no-wait"]);
+    let answered = r.cli(&["answer", &id, "approve", "--no-wait"]);
     assert!(answered.status.success(), "{answered:?}");
     let t0 = Instant::now();
     while !o.join("open.done").exists() {

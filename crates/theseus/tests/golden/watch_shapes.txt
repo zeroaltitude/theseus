@@ -15,8 +15,8 @@ watching ses_q7f3k2 (Ctrl-C to stop)
   ⎿ no such port
   ? proc.run needs your confirmation: proc.run — approve (enforcement = approve)
       input: {"argv":["tide","--port","lantern"]}
-      approve: theseus confirm act_m3
-      decline: theseus confirm --decline act_m3
+      approve: theseus answer act_m3 approve
+      decline: theseus answer act_m3 decline
   ! notified: web.search: search "lantern tide tables"
       (enforcement = notify) · should have asked: theseus policy tighten web.search
   🔒 proc.run already asks first: tightened by the CLI at 23:31:40.250

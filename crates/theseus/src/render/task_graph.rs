@@ -156,8 +156,8 @@ mod tests {
             [
                 "  ? Change the objective of tsk_0000reef (Chart the reef)? Before: chart the \
                  north edge After: chart the whole reef",
-                "      accept: theseus confirm act_0000reef",
-                "      decline: theseus confirm --decline act_0000reef",
+                "      accept: theseus answer act_0000reef accept",
+                "      decline: theseus answer act_0000reef decline",
             ]
         );
     }

@@ -13,19 +13,15 @@ use theseus_client::render::{self, Frame};
 use theseus_client::{outcome, resolve, CallError, Conn};
 use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
 use theseus_protocol::{
-    method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
-    Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
-    ProfileUseParams, SessionHistoryParams, SessionHistoryResult, SessionListParams,
-    SessionListResult, SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult,
-    TurnSubmitParams, TurnSubmitResult,
+    method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
+    LedgerTailResult, Message, ProfileListResult, ProfileUseParams, SessionHistoryParams,
+    SessionHistoryResult, SessionListParams, SessionListResult, SessionOpenParams,
+    SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
 };
 
 use crate::pages::PageArgs;
 use crate::print::{self, Mode, Printer};
-use crate::{
-    AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, JudgeCmd, MemoryCmd, PolicyCmd,
-    ProfileCmd, SessionsCmd,
-};
+use crate::{AskArgs, AwsCmd, IndexCmd, JudgeCmd, MemoryCmd, PolicyCmd, ProfileCmd, SessionsCmd};
 
 /// The nodes `theseus history` reads without `-n`, the newest of them: the
 /// daemon's own page past a cursor (theseus-7bee).
@@ -222,7 +218,7 @@ pub(crate) async fn stream_turn(
     }
     if let (Some(corr), false) = (&r.awaiting_confirm, json) {
         eprintln!(
-            "[parked: waiting for your answer on {corr} · `theseus confirm {corr}` or `--decline`; the turn resumes on its own]"
+            "[parked: waiting for your answer on {corr} · `theseus answer {corr} approve` or `decline`; the turn resumes on its own]"
         );
     }
     if trace && !json {
@@ -548,93 +544,12 @@ pub async fn watch_all(conn: &mut Conn, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// `theseus confirm`: everything waiting, or an answer, then the turn it
-/// resumes.
-pub async fn confirm(conn: &mut Conn, json: bool, a: ConfirmArgs) -> Result<()> {
-    let mut shown = Vec::new();
-    let done = confirm_shown(conn, json, a, &mut shown).await;
-    if done.is_ok() {
-        theseus_client::shown::shown(conn, &shown).await;
-    }
-    done
-}
-
-/// `confirm`, collecting into `shown` the sessions whose questions it listed
-/// or answered, for the seen file.
-async fn confirm_shown(
+/// Everything waiting for an answer, across sessions (`confirm.list`).
+pub(crate) async fn confirm_list(
     conn: &mut Conn,
     json: bool,
-    a: ConfirmArgs,
     shown: &mut Vec<String>,
 ) -> Result<()> {
-    let Some(given) = a.correlation_id else {
-        return confirm_list(conn, json, shown).await;
-    };
-    let correlation_id = resolve::question(conn, &given).await?;
-    let mode = if json { Mode::Json } else { Mode::Text };
-    let mut printer = Printer::new(mode, false);
-    let v = conn
-        .call(
-            method::ACTION_CONFIRM,
-            serde_json::to_value(ActionConfirmParams {
-                correlation_id,
-                approve: !a.decline,
-                note: a.note,
-                watch: !a.no_wait,
-                author: None,
-                discord: None,
-                trust: a.trust,
-                grant: None,
-            })?,
-            |m, p| printer.on(m, p),
-        )
-        .await?;
-    let r: ActionConfirmResult = serde_json::from_value(v.clone())?;
-    shown.push(r.session_id.clone());
-    if !r.resumes && r.approved {
-        // A proposed extension's ack (M7 43a): nothing loads, and no turn
-        // resumes.
-        return output(json, v, |r: ActionConfirmResult| {
-            println!(
-                "approved {} · session {} · nothing resumes: an extension's ack loads nothing \
-                 in this build",
-                r.correlation_id, r.session_id
-            );
-            Ok(())
-        });
-    }
-    if !r.resumes {
-        // A declined budget question: nothing resumes until a new message.
-        return output(json, v, |r: ActionConfirmResult| {
-            println!(
-                "declined {} · session {} keeps waiting on its budget; a new message asks again",
-                r.correlation_id, r.session_id
-            );
-            Ok(())
-        });
-    }
-    if a.no_wait {
-        return output(json, v, |r: ActionConfirmResult| {
-            println!(
-                "{} {} · session {}",
-                if r.approved { "approved" } else { "declined" },
-                r.correlation_id,
-                r.session_id
-            );
-            Ok(())
-        });
-    }
-    eprintln!(
-        "{} {} · following the resumed turn in {}",
-        if r.approved { "approved" } else { "declined" },
-        r.correlation_id,
-        r.session_id
-    );
-    follow_resumed(conn, json, &mut printer, &r.session_id).await
-}
-
-/// Everything waiting for an answer, across sessions (`confirm.list`).
-async fn confirm_list(conn: &mut Conn, json: bool, shown: &mut Vec<String>) -> Result<()> {
     let waiting = serde_json::from_value::<ConfirmListResult>(
         conn.request(method::CONFIRM_LIST, Value::Null).await?,
     )?
@@ -656,7 +571,7 @@ async fn confirm_list(conn: &mut Conn, json: bool, shown: &mut Vec<String>) -> R
 /// The turn an answer resumed: the server subscribed this connection before
 /// waking the execution, so read until the continuation turn ends, fails,
 /// or parks on another confirm, for 15 minutes at most.
-async fn follow_resumed(
+pub(crate) async fn follow_resumed(
     conn: &mut Conn,
     json: bool,
     printer: &mut Printer,
@@ -697,7 +612,7 @@ async fn follow_resumed(
                     }
                     crate::print::footer(&render::status_line(&t));
                     if let Some(c) = &t.awaiting_confirm {
-                        eprintln!("[parked again: `theseus confirm {c}` or `--decline`]");
+                        eprintln!("[parked again: `theseus answer {c} approve` or `decline`]");
                     }
                 }
                 return Ok(());
@@ -1160,6 +1075,7 @@ pub async fn sessions(
 ) -> Result<()> {
     match cmd.unwrap_or(SessionsCmd::List(page)) {
         SessionsCmd::List(page) => crate::pages::sessions(conn, json, &page).await,
+        SessionsCmd::Explain { id } => explain(conn, json, &id).await,
         SessionsCmd::Open { label } => {
             let v = conn
                 .request(
@@ -1230,47 +1146,7 @@ pub async fn sessions(
     }
 }
 
-/// `theseus executions`: list, or cancel one.
-pub async fn executions(
-    conn: &mut Conn,
-    json: bool,
-    page: PageArgs,
-    cmd: Option<ExecutionsCmd>,
-) -> Result<()> {
-    match cmd.unwrap_or(ExecutionsCmd::List(page)) {
-        ExecutionsCmd::List(page) => crate::pages::executions(conn, json, &page).await,
-        ExecutionsCmd::Explain { id } => explain(conn, json, &id).await,
-        ExecutionsCmd::Cancel { execution_id } => {
-            let v = conn
-                .request(
-                    method::EXECUTION_CANCEL,
-                    theseus_protocol::ExecutionCancelParams {
-                        execution_id,
-                        author: None,
-                    },
-                )
-                .await?;
-            output(json, v, |r: theseus_protocol::ExecutionCancelResult| {
-                println!(
-                    "{} {} · {} action(s) asked to stop{}",
-                    r.execution.execution_id,
-                    r.execution.state,
-                    r.cancelled_actions.len(),
-                    r.execution
-                        .ended_reason
-                        .map(|x| format!(" · {x}"))
-                        .unwrap_or_default()
-                );
-                for line in render::verdict_lines("cancelled", &r.verdicts) {
-                    println!("{line}");
-                }
-                Ok(())
-            })
-        }
-    }
-}
-
-/// `theseus executions explain ID` (theseus-in3): one execution in full,
+/// `theseus sessions explain ID` (theseus-in3): one execution in full,
 /// from four reads.
 async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
     resolve::long_enough(id, "session")?;

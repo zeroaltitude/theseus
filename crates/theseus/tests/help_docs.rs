@@ -105,7 +105,7 @@ fn the_cli_guide_names_every_top_level_command() {
     let guide =
         std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/cli.md")).unwrap();
     let top = top();
-    assert!(top.len() > 60, "found only {} commands", top.len());
+    assert!(top.len() >= 60, "found only {} commands", top.len());
     let missing: Vec<_> = top
         .iter()
         .filter(|(name, _)| !guide.contains(&format!("- **`{name}`**")))

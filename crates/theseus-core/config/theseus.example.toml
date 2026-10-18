@@ -408,7 +408,7 @@ max_connections = 0
 # (2x, 3x, ...), saying the spend so far and how to stop the work, and its
 # model calls go on; a call's reservation is still priced and recorded, never
 # refused for the limit. "ask": at the limit the session waits and asks you
-# (Discord, web UI, or `theseus confirm`) whether to reset its spend to $0 and
+# (Discord, web UI, or `theseus answer`) whether to reset its spend to $0 and
 # go on. A limit a place's ceiling or an MCP client names still asks, and so
 # does an AWS hands group. The session's lifetime cost keeps counting either way.
 # spend_limit_hard_multiple bounds a limit that notifies (theseus-jse4): at that
@@ -427,7 +427,7 @@ max_connections = 0
 # later call until local midnight. "stop" refuses every call past the
 # ceiling until local midnight. runaway_usd_per_10min is a burn-rate brake
 # on each session: one whose settled spend in the last ten minutes reaches it
-# pauses and asks you to resume (Discord, web UI, or `theseus confirm`); 0
+# pauses and asks you to resume (Discord, web UI, or `theseus answer`); 0
 # never. AWS spend is managed apart and still stops at its lines.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
@@ -570,7 +570,7 @@ hide_after_days = 14                    # a family loaded by default and unused 
 # named under [policy.tools] and [policy.mcp]:
 #   open      run
 #   notify    run, and post a notice (Discord, web UI, CLI, and a `tool.notified` ledger row)
-#   approve   wait for your Approve (Discord, web UI, or `theseus confirm`)
+#   approve   wait for your Approve (Discord, web UI, or `theseus answer`)
 # approve is the strongest: nothing is turned away without asking you.
 # Before any posture, in this order:
 #   1. the floor always waits for your approval, at every posture, even open,

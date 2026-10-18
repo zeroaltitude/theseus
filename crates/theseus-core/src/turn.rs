@@ -2467,7 +2467,7 @@ impl TurnRunner {
     /// The loop's call did not fit under the spend limit: ask the operator
     /// whether the spend may go back to $0 (theseus-0sg). The question goes
     /// where a tool approval goes (a `confirm.requested` to the session's
-    /// clients: its Discord place, the web UI, `theseus confirm`), and the
+    /// clients: its Discord place, the web UI, `theseus answer`), and the
     /// turn ends parked on it; the execution waits with the reason `budget`.
     fn ask_budget(
         &self,

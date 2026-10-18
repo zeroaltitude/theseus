@@ -326,6 +326,7 @@ def view(s): return {"execution_id": "exe_1", "session_id": "ses_invented", "sta
 if cmd == "health":
     if not os.path.exists(os.path.join(d, "daemon.env")): sys.exit(1)
     print("{}")
+elif cmd == "sessions" and "--state" in args: print(json.dumps({"executions": [view(s)]}))
 elif cmd == "sessions":
     change(lambda s: s.update(opened_at=time.monotonic()))
     print("ses_invented")
@@ -336,7 +337,6 @@ elif cmd == "ask":
         if len(s["asks"]) == 1: s["outstanding"] = 1
     change(ask)
     print(json.dumps({"stop_reason": "no_tool_calls"}))
-elif cmd == "executions": print(json.dumps({"executions": [view(s)]}))
 elif cmd == "wake":
     s = change(lambda s: s.setdefault("wake_due", time.time() + float(os.environ.get("STANDIN_WAKE_S", "1"))))
     due = s["wake_due"]

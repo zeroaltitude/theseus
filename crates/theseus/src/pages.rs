@@ -1,4 +1,4 @@
-//! `theseus sessions` and `theseus executions` print a page, not every one
+//! `theseus sessions` and `theseus sessions --state` print a page, not every one
 //! (theseus-7bee): the newest 50, a footer naming how to see more, `--before`
 //! to page back, and `--all` for the whole list as it always was. A store
 //! with a great many sessions costs the page, never every session.
@@ -30,6 +30,9 @@ pub struct PageArgs {
     /// How many rows a page holds (default 50, at most 1000).
     #[arg(short, long, value_name = "N")]
     pub n: Option<usize>,
+    /// Each session's execution instead: its state, turns, outstanding actions and budget.
+    #[arg(long)]
+    pub state: bool,
 }
 
 impl PageArgs {
@@ -40,6 +43,9 @@ impl PageArgs {
 
 /// `theseus sessions`: the newest page of sessions, or every one under `--all`.
 pub async fn sessions(conn: &mut Conn, json: bool, page: &PageArgs) -> Result<()> {
+    if page.state {
+        return executions(conn, json, page).await;
+    }
     let v = if page.all {
         conn.request(method::SESSION_LIST, Value::Null).await?
     } else {
@@ -56,15 +62,15 @@ pub async fn sessions(conn: &mut Conn, json: bool, page: &PageArgs) -> Result<()
         }
         print::lines(
             &mut std::io::stdout().lock(),
-            &render::sessions::page_footer("sessions", l.older),
+            &render::sessions::page_footer("sessions", "sessions", l.older),
         )?;
         Ok(())
     })
 }
 
-/// `theseus executions`: the newest page of executions, or every one under
-/// `--all`.
-pub async fn executions(conn: &mut Conn, json: bool, page: &PageArgs) -> Result<()> {
+/// `theseus sessions --state`: the newest page of executions, or every one
+/// under `--all`.
+async fn executions(conn: &mut Conn, json: bool, page: &PageArgs) -> Result<()> {
     let v = if page.all {
         conn.request(method::EXECUTION_LIST, Value::Null).await?
     } else {
@@ -84,7 +90,7 @@ pub async fn executions(conn: &mut Conn, json: bool, page: &PageArgs) -> Result<
         }
         print::lines(
             &mut std::io::stdout().lock(),
-            &render::sessions::page_footer("executions", l.older),
+            &render::sessions::page_footer("executions", "sessions --state", l.older),
         )?;
         Ok(())
     })

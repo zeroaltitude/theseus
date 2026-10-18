@@ -310,6 +310,8 @@ fn the_new_kinds_answers_name_methods_and_a_reminders_stay_four() {
         crate::method::ROUTINE_RUN_NOW
     );
     assert_eq!(watch_met_answers()[0].method, crate::method::WAKE_DONE);
+    // "Open" reads the project; the overdue milestone has no task.get any more.
+    assert_eq!(milestone_answers()[0].method, crate::method::PROJECT_SHOW);
 }
 
 #[test]

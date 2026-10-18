@@ -23,12 +23,12 @@ watching ses_q7f3k2 (Ctrl-C to stop)
   ⎿ declined by the operator
   ? fs.write needs your confirmation (FLOOR): write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
-      approve: theseus confirm act_k4
-      approve, and trust the session again: theseus confirm --trust act_k4
-      decline: theseus confirm --decline act_k4
+      approve: theseus answer act_k4 approve
+      approve, and trust the session again: theseus answer act_k4 approve_trust
+      decline: theseus answer act_k4 decline
   $ The session reached its $1.00 limit; the next call needs $0.02
-      reset and continue: theseus confirm act_b5
-      keep waiting: theseus confirm --decline act_b5
+      reset and continue: theseus answer act_b5 reset
+      keep waiting: theseus answer act_b5 decline
   ✓ approved act_k4 (by the CLI)
   ✗ declined act_b5 (by discord:ana)
   ✗ superseded act_k6 (a new message arrived before an answer)

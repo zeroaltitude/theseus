@@ -1726,7 +1726,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     past its `until_ms` reads free before that (`claim_at`, `shown`). A change's board is its home's place
     (`task_graph::home`). Tests: `tests_task_claims.rs`.
   - **The layer-1 question's change** (39b): `ConfirmRequest.change` (`tools::change_of`: the task, its title, the
-    field, before and after), worded once by `TaskChange::question` for the Discord card, `theseus confirm`, and
+    field, before and after), worded once by `TaskChange::question` for the Discord card, `theseus answer`, and
     the cockpit.
 - **Earned autonomy** (theseus-uttu, the killer-features plan's row R18): the loosening that comes from the record,
   proposed and never silent. `policy/earned/find.rs` is a pure function over ledger rows (`tool.confirm_requested`,

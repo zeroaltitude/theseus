@@ -3,7 +3,7 @@
 //! real `theseus` CLI. A stand-in for the Messages API asks for the tool
 //! calls. Every job here runs under `notify`, as the owner's posture has it, so
 //! nothing but the answer itself is in the way:
-//! - a job's `theseus confirm`, and its double-forked grandchild's, before and
+//! - a job's `theseus answer`, and its double-forked grandchild's, before and
 //!   after the job's main process has exited, are refused by the CLI, since
 //!   each carries the job's `THESEUS_SESSION`, and nothing reaches the
 //!   daemon; the wrapper lingers for the grandchild; the operator's own
@@ -292,21 +292,21 @@ impl Rig {
 
 /// How a job's script starts: `$T` is the CLI, `$S` the socket, `$O` where
 /// it writes, and `$id` the call waiting for the operator, as `theseus
-/// confirm` lists it.
+/// answer` lists it.
 const FIND_WAITING: &str = r#"T="$1"; S="$2"; O="$3"
 i=0; id=""
 while [ -z "$id" ] && [ "$i" -lt 1000 ]; do
-  id=$("$T" --socket "$S" --json confirm 2>/dev/null | grep -o 'act_[0-9a-f]*' | head -n 1)
+  id=$("$T" --socket "$S" --json answer 2>/dev/null | grep -o 'act_[0-9a-f]*' | head -n 1)
   [ -n "$id" ] || sleep 0.02
   i=$((i + 1))
 done
 "#;
 
-/// `theseus confirm --approve "$id"` into `$O/<name>`, its output then
+/// `theseus answer "$id" approve` into `$O/<name>`, its output then
 /// `exit=<status>`, then `$O/<name>.done`.
 fn approve_into(name: &str) -> String {
     format!(
-        "\"$T\" --socket \"$S\" confirm --approve \"$id\" --no-wait > \"$O/{name}\" 2>&1; \
+        "\"$T\" --socket \"$S\" answer \"$id\" approve --no-wait > \"$O/{name}\" 2>&1; \
          echo \"exit=$?\" >> \"$O/{name}\"; touch \"$O/{name}.done\"\n"
     )
 }
@@ -323,11 +323,11 @@ fn alive(pid: u32) -> bool {
 }
 
 /// The refusal a job's process gets from the CLI (theseus-zmgb): `theseus
-/// confirm` prints it, sends nothing, and exits 1.
+/// answer` prints it, sends nothing, and exits 1.
 fn assert_refused(out: &str, what: &str) {
     assert!(
         out.contains(
-            "theseus confirm refused: it is the operator's to run, and this shell is a Theseus \
+            "theseus answer refused: it is the operator's to run, and this shell is a Theseus \
              job's (THESEUS_SESSION=ses_"
         ) && out.contains("Run it from your own shell."),
         "{what}: {out}"
@@ -351,9 +351,9 @@ fn job_of(r: &Rig, res: &Value) -> Value {
         .clone()
 }
 
-/// A job runs `theseus confirm --approve <id>` for the call its own session
+/// A job runs `theseus answer <id> approve` for the call its own session
 /// waits on: the CLI refuses it, with the reason, sends nothing, and exits 1.
-/// So does its double-forked grandchild's (`setsid sh -c '… theseus confirm
+/// So does its double-forked grandchild's (`setsid sh -c '… theseus answer
 /// …' &`), once while the job's main process lives, and again after it has
 /// exited, when the grandchild has been reparented to the lingering wrapper.
 /// Health counts the wrapper that lingers. The operator's own answer counts,
@@ -421,7 +421,7 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
     // The job's own output, which its model reads, says why.
     let result = std::fs::read_to_string(r.path(&format!("state/spool/results/{job}.out")))
         .unwrap_or_default();
-    assert!(result.contains("theseus confirm refused"), "{result}");
+    assert!(result.contains("theseus answer refused"), "{result}");
     // The wrapper lingers for the grandchild, and health says so.
     let h = r.until("the lingering wrapper", |h| {
         h["kernel"]["lingering_wrappers"] == 1
@@ -441,14 +441,17 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
     );
 
     // The operator's own answer counts.
-    let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
+    let ok = r.cli(&["answer", &corr, "approve", "--no-wait"]);
     let said = String::from_utf8_lossy(&ok.stdout);
     assert!(
         ok.status.success(),
         "{said}{}",
         String::from_utf8_lossy(&ok.stderr)
     );
-    assert!(said.contains(&format!("approved {corr}")), "{said}");
+    assert!(
+        said.contains(&format!("answered {corr} · approve")),
+        "{said}"
+    );
     let written = r.wait("the approved write", || {
         std::fs::read_to_string(r.path("projects/written.txt")).ok()
     });
@@ -468,7 +471,7 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
 /// A job that kills its own wrapper (`kill -9 $PPID`) leaves what it started
 /// to the daemon, which is a child subreaper (theseus-z4b). Its double-forked
 /// grandchild is reparented to `theseusd`, not to init, and its `theseus
-/// confirm --approve` for the call its session waits on is refused by the
+/// answer <id> approve` for the call its session waits on is refused by the
 /// CLI, as the job's was: it still carries the job's marker. Nothing moves,
 /// and the operator's own answer still counts. The
 /// daemon reaps the wrapper the job killed, the job's main process when it
@@ -557,14 +560,14 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
         (&json!(true), &json!(0))
     );
 
-    let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
+    let ok = r.cli(&["answer", &corr, "approve", "--no-wait"]);
     let out = String::from_utf8_lossy(&ok.stdout);
     assert!(
         ok.status.success(),
         "{out}{}",
         String::from_utf8_lossy(&ok.stderr)
     );
-    assert!(out.contains(&format!("approved {corr}")), "{out}");
+    assert!(out.contains(&format!("answered {corr} · approve")), "{out}");
     let written = r.wait("the approved write", || {
         std::fs::read_to_string(r.path("projects/written.txt")).ok()
     });

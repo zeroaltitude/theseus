@@ -27,7 +27,7 @@
 //! 5. **The ack**: a question, a planned `extend.ack` action on the proposing
 //!    execution with its card, in the frame that writes the manifest, and
 //!    answered as every question is (`action.confirm`: Discord's buttons,
-//!    `theseus confirm`, the cockpit's card), judged by the place rule
+//!    `theseus answer`, the cockpit's card), judged by the place rule
 //!    (`judge_act`): the owner, from a private place. The CLI refuses it in a
 //!    job's shell (`THESEUS_SESSION`), and L1 has no route to the daemon. An
 //!    ack binds the question's confirm and writes `extend.acked`; a decline,

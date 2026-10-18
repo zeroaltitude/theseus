@@ -3,7 +3,7 @@
 /**
  * The layer-1 change a question asks (39b): the task, its title, the field,
  * and the field before and after; or abandoning it (`field` `abandon`, its
- * state before). The card on Discord, `theseus confirm`, and the cockpit
+ * state before). The card on Discord, `theseus answer`, and the cockpit
  * word it the one way (`question`).
  */
 export type TaskChange = { task: string, title: string, 

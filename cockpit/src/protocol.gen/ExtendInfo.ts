@@ -35,6 +35,6 @@ network: Array<string>,
  */
 error?: string, session_id: string, 
 /**
- * The question that asks the operator (`theseus confirm <it>`).
+ * The question that asks the operator (`theseus answer <it> ack`).
  */
 question?: string, proposed_at_ms: number, answered_by?: string, };

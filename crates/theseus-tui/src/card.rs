@@ -128,7 +128,7 @@ fn preview(c: &theseus_protocol::ConfirmRequest) -> Vec<(Tag, String)> {
         lines.truncate(PREVIEW_ROWS - 1);
         lines.push(render::Line::new(
             Tag::Dim,
-            format!("      … {more} more rows (theseus confirm shows them)"),
+            format!("      … {more} more rows (theseus answer shows them)"),
         ));
     }
     lines.into_iter().map(|l| (l.tag, l.text)).collect()

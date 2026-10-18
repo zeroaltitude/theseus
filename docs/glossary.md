@@ -41,7 +41,7 @@ names (see *mode*).
 ## E
 
 **execution**: the kernel's durable record of a session's work, with its state, turns, outstanding actions and budget
-(`crates/theseus-kernel/AGENTS.md`). One per session. `theseus executions` lists them.
+(`crates/theseus-kernel/AGENTS.md`). One per session. `theseus sessions --state` lists them.
 
 ## F
 

@@ -176,7 +176,7 @@ pub struct PackPromoteResult {
     #[cfg_attr(test, ts(optional))]
     pub row: Option<PackModeRow>,
     /// A security pack's card: its question's id, answered with
-    /// `action.confirm` (`theseus confirm <id> --approve`).
+    /// `action.confirm` (`theseus answer <id> approve`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub question: Option<String>,

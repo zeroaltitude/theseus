@@ -5,10 +5,10 @@ turn.submit
 --- stderr
   ? fs.write needs your confirmation (FLOOR): write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
-      approve: theseus confirm act_k4
-      approve, and trust the session again: theseus confirm --trust act_k4
-      decline: theseus confirm --decline act_k4
+      approve: theseus answer act_k4 approve
+      approve, and trust the session again: theseus answer act_k4 approve_trust
+      decline: theseus answer act_k4 decline
 [quick → zed/glm-x · 2 loop(s) · continuation · end_turn · tokens in 5230 out 212 cache r4096 w512 · 3021 ms · session ses_q7f3k2]
-[parked: waiting for your answer on act_k4 · `theseus confirm act_k4` or `--decline`; the turn resumes on its own]
+[parked: waiting for your answer on act_k4 · `theseus answer act_k4 approve` or `decline`; the turn resumes on its own]
 theseus: the turn is parked: a call waits for the operator's approval (exit 6)
 --- exit 6

@@ -256,7 +256,7 @@ pub struct Renderer {
 
 /// Where else an approval can be answered: the owner's own surfaces, the web
 /// UI on (`theseus_core::approval::elsewhere`).
-pub const ELSEWHERE: &str = "in the web UI or with `theseus confirm`";
+pub const ELSEWHERE: &str = "in the web UI or with `theseus answer`";
 
 impl Renderer {
     /// A place's renderer; `notice_embeds` is the `[discord]` setting.
@@ -2112,7 +2112,7 @@ mod tests {
     #[test]
     fn a_card_for_a_shared_place_goes_to_the_dm_with_a_note_here() {
         let route = to_dm("this channel is shared, and an answer counts only from a private place");
-        let c = card(&waiting_write(), &route, "with `theseus confirm`");
+        let c = card(&waiting_write(), &route, "with `theseus answer`");
         assert!(
             c.content
                 .starts_with("**Approve?** `proc.run` cargo test\nrun cargo test\n"),
@@ -2121,13 +2121,13 @@ mod tests {
         );
         assert!(
             c.content.ends_with(
-                "-# for #general · expires <t:1790000000:R> · you can also answer with `theseus confirm`"
+                "-# for #general · expires <t:1790000000:R> · you can also answer with `theseus answer`"
             ),
             "{}",
             c.content
         );
         assert_eq!(
-            card_note(&route, &c.line, "with `theseus confirm`").unwrap(),
+            card_note(&route, &c.line, "with `theseus answer`").unwrap(),
             "🔐 Approval for `proc.run` cargo test was asked in DM @zeroaltitude: this channel is shared, \
              and an answer counts only from a private place."
         );
@@ -2318,7 +2318,7 @@ mod tests {
         );
         assert!(
             c.content
-                .ends_with("You can also answer in the web UI or with `theseus confirm`."),
+                .ends_with("You can also answer in the web UI or with `theseus answer`."),
             "{}",
             c.content
         );
@@ -2337,8 +2337,8 @@ mod tests {
     fn with_no_owners_dm_the_place_gets_only_a_note() {
         for (elsewhere, tail) in [
             (
-                "in the web UI or with `theseus confirm`",
-                ": answer in the web UI or with `theseus confirm`.",
+                "in the web UI or with `theseus answer`",
+                ": answer in the web UI or with `theseus answer`.",
             ),
             ("", ", and no DM with an owner is bound here to answer it."),
         ] {
@@ -2377,7 +2377,7 @@ mod tests {
         };
         assert_eq!(
             text(ELSEWHERE),
-            "-# expires <t:1790000000:R> · you can also answer in the web UI or with `theseus confirm`"
+            "-# expires <t:1790000000:R> · you can also answer in the web UI or with `theseus answer`"
         );
         assert_eq!(
             text("in the web UI"),

@@ -356,7 +356,7 @@ impl Core {
             return Ok(PackPromoteResult {
                 row: None,
                 said: format!(
-                    "{}'s promotion to {} is the owner's card: `theseus confirm {q} --approve` \
+                    "{}'s promotion to {} is the owner's card: `theseus answer {q} approve` \
                      writes it. Nothing is written until then.{ahead}",
                     row.pack,
                     crate::fact::ladder::mode_words(&row.mode, row.share)

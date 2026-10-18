@@ -1,0 +1,7 @@
+$ theseus answer act_k4 approve --no-wait
+--- requests
+work.answer
+--- stdout
+answered act_k4 · approve · ses_q7f3k2 resumes
+--- stderr
+--- exit 0

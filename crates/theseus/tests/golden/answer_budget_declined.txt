@@ -1,0 +1,8 @@
+$ theseus answer act_b5 decline
+--- requests
+work.answer
+--- stdout
+answered act_b5 · decline
+ses_q7f3k2 keeps waiting on its budget; a new message asks again
+--- stderr
+--- exit 0

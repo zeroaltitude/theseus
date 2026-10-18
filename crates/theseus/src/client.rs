@@ -303,7 +303,7 @@ pub const OPERATORS: [(&str, &str); 82] = [
     (method::STANDING_DISMISS, "theseus standing dismiss"),
     (method::PERSONA_IMPORT, "theseus persona import"),
     (method::FILES_RESTORE, "theseus rewind"),
-    (method::ACTION_CONFIRM, "theseus confirm"),
+    (method::ACTION_CONFIRM, "theseus answer"),
     (method::WORK_ANSWER, "theseus answer"),
     (method::THREAD_ANSWER, "theseus thread answer"),
     (method::THREAD_MOVE, "theseus thread move"),

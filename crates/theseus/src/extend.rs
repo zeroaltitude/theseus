@@ -1,7 +1,7 @@
 //! `theseus extend list` (M7 43a, 43b): the loaded extensions, then the
 //! proposals, newest first, each with its state, its frozen digest, its
 //! tools and tests, and the question that asks the operator (`theseus
-//! confirm <id>`). `theseus extend revoke <name>` (43b) stops a loaded one,
+//! answer <id> ack`). `theseus extend revoke <name>` (43b) stops a loaded one,
 //! the operator's from their own shell.
 
 use anyhow::Result;
@@ -143,7 +143,7 @@ pub fn lines(e: &ExtendInfo) -> Vec<String> {
     }
     match (e.state.as_str(), &e.question, &e.answered_by) {
         ("proposed", Some(q), _) => {
-            out.push(format!("  waiting: theseus confirm {q} (or --decline)"))
+            out.push(format!("  waiting: theseus answer {q} ack (or decline)"))
         }
         (_, _, Some(by)) => out.push(format!("  {} by {by}", e.state)),
         _ => {}
@@ -177,7 +177,7 @@ mod tests {
                 "  Counts words.",
                 "  command: python3 server.py  (frozen at /state/extensions/wordcount/3f2a1c9e)",
                 "  tools: count",
-                "  waiting: theseus confirm act_q1 (or --decline)",
+                "  waiting: theseus answer act_q1 ack (or decline)",
             ]
         );
     }

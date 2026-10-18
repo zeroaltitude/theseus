@@ -1058,32 +1058,28 @@ fn history_with_no_sessions_says_so() {
 }
 
 #[test]
-fn confirm_lists_everything_waiting() {
+fn answer_lists_everything_waiting() {
     let list = json!({"confirms": [confirm_tool(), confirm_budget()]});
     golden(
-        "confirm_list",
-        &run(&["confirm"], vec![step("confirm.list", list.clone())]),
+        "answer_list",
+        &run(&["answer"], vec![step("confirm.list", list.clone())]),
     );
     golden(
-        "confirm_list_json",
-        &run(&["--json", "confirm"], vec![step("confirm.list", list)]),
+        "answer_list_json",
+        &run(&["--json", "answer"], vec![step("confirm.list", list)]),
     );
     golden(
-        "confirm_list_empty",
+        "answer_list_empty",
         &run(
-            &["confirm"],
+            &["answer"],
             vec![step("confirm.list", json!({"confirms": []}))],
         ),
     );
 }
 
 #[test]
-fn confirm_follows_the_resumed_turn() {
-    let mut s = step(
-        "action.confirm",
-        json!({"correlation_id": "act_k4", "approved": true,
-        "session_id": S, "execution_id": X, "resumes": true}),
-    );
+fn answer_follows_the_resumed_turn() {
+    let mut s = step("work.answer", resumed("act_k4", "approve_trust"));
     s.before = vec![note(
         "confirm.resolved",
         json!({"session_id": S,
@@ -1117,18 +1113,14 @@ fn confirm_follows_the_resumed_turn() {
         note("turn.ended", ended),
     ];
     golden(
-        "confirm_follow",
-        &run(&["confirm", "act_k4", "--trust"], vec![s]),
+        "answer_follow",
+        &run(&["answer", "act_k4", "approve_trust"], vec![s]),
     );
 }
 
 #[test]
-fn confirm_json_follows_to_the_turns_result() {
-    let mut s = step(
-        "action.confirm",
-        json!({"correlation_id": "act_k4", "approved": true,
-        "session_id": S, "execution_id": X, "resumes": true}),
-    );
+fn answer_json_follows_to_the_turns_result() {
+    let mut s = step("work.answer", resumed("act_k4", "approve"));
     s.after = vec![
         note(
             "model.delta",
@@ -1137,61 +1129,65 @@ fn confirm_json_follows_to_the_turns_result() {
         note("turn.ended", turn_result("Wrote it.")),
     ];
     golden(
-        "confirm_follow_json",
-        &run(&["--json", "confirm", "act_k4"], vec![s]),
+        "answer_follow_json",
+        &run(&["--json", "answer", "act_k4", "approve"], vec![s]),
     );
 }
 
 #[test]
-fn confirm_a_failed_resume_says_so() {
-    let mut s = step(
-        "action.confirm",
-        json!({"correlation_id": "act_k4", "approved": true,
-        "session_id": S, "execution_id": X}),
-    );
+fn answer_a_failed_resume_says_so() {
+    let mut s = step("work.answer", resumed("act_k4", "approve"));
     s.after = vec![note(
         "turn.failed",
         json!({"session_id": S, "turn_id": T,
         "execution_id": X, "continuation": true, "class": "auth",
         "error": "the key was refused", "then": "park"}),
     )];
-    golden("confirm_failed", &run(&["confirm", "act_k4"], vec![s]));
+    golden(
+        "answer_failed",
+        &run(&["answer", "act_k4", "approve"], vec![s]),
+    );
 }
 
 #[test]
-fn confirm_without_waiting_says_what_was_recorded() {
-    let answered = json!({"correlation_id": "act_k4", "approved": true, "session_id": S,
-        "execution_id": X, "resumes": true});
+fn answer_without_waiting_says_what_was_recorded() {
+    let answered = resumed("act_k4", "approve");
     golden(
-        "confirm_no_wait",
+        "answer_no_wait",
         &run(
-            &["confirm", "act_k4", "--no-wait"],
-            vec![step("action.confirm", answered.clone())],
+            &["answer", "act_k4", "approve", "--no-wait"],
+            vec![step("work.answer", answered.clone())],
         ),
     );
     golden(
-        "confirm_no_wait_json",
+        "answer_no_wait_json",
         &run(
-            &["--json", "confirm", "act_k4", "--no-wait"],
-            vec![step("action.confirm", answered)],
+            &["--json", "answer", "act_k4", "approve", "--no-wait"],
+            vec![step("work.answer", answered)],
         ),
     );
-    let budget = json!({"correlation_id": "act_b5", "approved": false, "session_id": S,
-        "execution_id": X, "resumes": false});
+    let budget = json!({"question_id": "act_b5", "option": "decline",
+        "detail": format!("{S} keeps waiting on its budget; a new message asks again")});
     golden(
-        "confirm_budget_declined",
+        "answer_budget_declined",
         &run(
-            &["confirm", "--decline", "act_b5"],
-            vec![step("action.confirm", budget.clone())],
+            &["answer", "act_b5", "decline"],
+            vec![step("work.answer", budget.clone())],
         ),
     );
     golden(
-        "confirm_budget_declined_json",
+        "answer_budget_declined_json",
         &run(
-            &["--json", "confirm", "--decline", "act_b5"],
-            vec![step("action.confirm", budget)],
+            &["--json", "answer", "act_b5", "decline"],
+            vec![step("work.answer", budget)],
         ),
     );
+}
+
+/// `work.answer`'s result for an answer that wakes the turn in `S`.
+fn resumed(question: &str, option: &str) -> Value {
+    json!({"question_id": question, "option": option,
+        "resumes": {"id": X, "kind": "conversation", "session_id": S}})
 }
 
 /// A canned `judge.prove` answer (invented data): its Markdown ends in a
@@ -1530,9 +1526,9 @@ fn wait_prints_what_it_reached_and_a_timeout_exits_4() {
     );
 }
 
-/// `theseus executions explain` (theseus-in3): one execution in full.
+/// `theseus sessions explain` (theseus-in3): one execution in full.
 #[test]
-fn executions_explain_prints_one_in_full() {
+fn sessions_explain_prints_one_in_full() {
     let mut e = execution(X, "waiting", None);
     e["waiting_on"] = json!({"on": "confirm", "confirm_id": "act_k4"});
     e["attention"] = json!({"level": "needs_you", "label": "confirm fs.write: write outside the roots (/w)", "since_ms": 1});
@@ -1540,9 +1536,9 @@ fn executions_explain_prints_one_in_full() {
         {"position": 2040, "at_unix_ms": 1_759_300_000_123u64, "kind": "execution.waiting",
          "session_id": S, "turn_id": null, "data": {"execution_id": X, "wake": {"on": "confirm"}}}]});
     golden(
-        "executions_explain",
+        "sessions_explain",
         &run(
-            &["executions", "explain", "q7f3k2"],
+            &["sessions", "explain", "q7f3k2"],
             vec![
                 step("execution.list", json!({"executions": [e]})),
                 step("confirm.list", json!({"confirms": [confirm_tool()]})),
@@ -1884,50 +1880,37 @@ fn sessions_and_executions_show_attention() {
     e["attention"] = needs;
     e["waiting_on"] = json!({"on": "confirm", "confirm_id": "act_k2"});
     golden(
-        "executions_attention",
+        "sessions_state_attention",
         &run(
-            &["executions"],
+            &["sessions", "--state"],
             vec![step("execution.list", json!({"executions": [e]}))],
         ),
     );
 }
 
 #[test]
-fn executions_list_and_cancel() {
+fn sessions_state_lists_the_executions() {
     let list = json!({"executions": [execution(X, "waiting", None),
         execution("exe_d0n3", "ended", Some("cancelled by the CLI"))]});
     golden(
-        "executions",
-        &run(&["executions"], vec![step("execution.list", list.clone())]),
+        "sessions_state",
+        &run(
+            &["sessions", "--state"],
+            vec![step("execution.list", list.clone())],
+        ),
     );
     golden(
-        "executions_json",
+        "sessions_state_json",
         &run(
-            &["--json", "executions", "list"],
+            &["--json", "sessions", "list", "--state"],
             vec![step("execution.list", list)],
         ),
     );
     golden(
-        "executions_empty",
+        "sessions_state_empty",
         &run(
-            &["executions"],
+            &["sessions", "--state"],
             vec![step("execution.list", json!({"executions": []}))],
-        ),
-    );
-    let cancelled = json!({"execution": execution(X, "ended", Some("cancelled by the CLI")),
-        "cancelled_actions": ["act_k2", "act_k3"]});
-    golden(
-        "executions_cancel",
-        &run(
-            &["executions", "cancel", X],
-            vec![step("execution.cancel", cancelled.clone())],
-        ),
-    );
-    golden(
-        "executions_cancel_json",
-        &run(
-            &["--json", "executions", "cancel", X],
-            vec![step("execution.cancel", cancelled)],
         ),
     );
 }
@@ -2145,15 +2128,15 @@ fn shutdown_prints_nothing_but_json_when_asked() {
 fn inside_a_job_the_operators_commands_are_refused_and_nothing_is_sent() {
     let job = Some("ses_job01");
     golden(
-        "confirm_inside_a_job",
-        &run_in(&["confirm", "--approve", "act_k4"], vec![], job),
+        "answer_inside_a_job",
+        &run_in(&["answer", "act_k4", "approve"], vec![], job),
     );
     golden(
         "untighten_inside_a_job",
         &run_in(&["policy", "untighten", "fs.edit"], vec![], job),
     );
     let listed = run_in(
-        &["confirm"],
+        &["answer"],
         vec![step("confirm.list", json!({"confirms": []}))],
         job,
     );
@@ -2394,12 +2377,13 @@ fn policy_explain_prints_each_place_and_a_tool_in_full() {
 }
 
 /// The one id resolver (theseus-0n1v), for each command that names a
-/// session or a question: a unique end of four characters or more, or the
-/// whole id; an ambiguous end refused, naming each; one under four
-/// characters refused before anything is sent; an unknown one refused, and
-/// `watch` of one exits 1 instead of watching nothing.
+/// session: a unique end of four characters or more, or the whole id; an
+/// ambiguous end refused, naming each; one under four characters refused
+/// before anything is sent; an unknown one refused, and `watch` of one exits 1
+/// instead of watching nothing. A question is named to the daemon as typed
+/// (`answer`), which resolves it.
 #[test]
-fn one_resolver_names_a_session_or_a_question_for_every_command() {
+fn one_resolver_names_a_session_for_every_command() {
     // A task's execution and session share their tail; two others share an
     // end with each other.
     let mut task = execution("exe_0c7e527d2a", "waiting", None);
@@ -2411,21 +2395,8 @@ fn one_resolver_names_a_session_or_a_question_for_every_command() {
     b["session_id"] = json!("ses_44dd4d4e5f6");
     let list = json!({"executions": [task.clone(), a, b]});
     let execs = || step("execution.list", list.clone());
-    let mut ask = confirm_tool();
-    ask["correlation_id"] = json!("act_0c7e527d2a");
-    ask["session_id"] = json!("ses_0c7e527d2a");
-    ask["execution_id"] = json!("exe_0c7e527d2a");
-    let mut other = confirm_budget();
-    other["correlation_id"] = json!("act_9f9f99e5f6");
-    other["session_id"] = json!("ses_22bb99e5f6");
-    let mut third = confirm_tool();
-    third["correlation_id"] = json!("act_7a7a4d4e5f6");
-    third["session_id"] = json!("ses_44dd4d4e5f6");
-    let asks = json!({"confirms": [ask, other, third]});
-    let waiting = || step("confirm.list", asks.clone());
-    let answered = json!({"correlation_id": "act_0c7e527d2a", "session_id": "ses_0c7e527d2a",
-        "execution_id": "exe_0c7e527d2a",
-        "approved": true, "resumes": true});
+    let answered = json!({"question_id": "act_0c7e527d2a", "option": "approve",
+        "resumes": {"id": "exe_0c7e527d2a", "kind": "task", "session_id": "ses_0c7e527d2a"}});
     let history = json!({"session": {"session_id": "ses_0c7e527d2a", "kind": "task",
         "label": "task", "title": "Survey the north quay", "created_at_unix_ms": 1_759_300_000_000u64,
         "turns": 1}, "nodes": [], "pending_confirms": []});
@@ -2443,9 +2414,10 @@ fn one_resolver_names_a_session_or_a_question_for_every_command() {
         &["watch", "…527d2a"],
         vec![execs(), step("session.watch", json!({}))],
     );
+    // The daemon names a question by its end, so the CLI sends what was typed.
     unique += &run(
-        &["confirm", "527d2a", "--no-wait"],
-        vec![waiting(), step("action.confirm", answered)],
+        &["answer", "527d2a", "approve", "--no-wait"],
+        vec![step("work.answer", answered)],
     );
     unique += &run(
         &["stop", "527d2a"],
@@ -2466,21 +2438,19 @@ fn one_resolver_names_a_session_or_a_question_for_every_command() {
         &["watch", "e5f6"],
         &["stop", "e5f6"],
         &["wait", "e5f6"],
-        &["executions", "explain", "e5f6"],
+        &["sessions", "explain", "e5f6"],
     ] {
         ambiguous += &run(args, vec![execs()]);
     }
-    ambiguous += &run(&["confirm", "e5f6"], vec![waiting()]);
     golden("resolve_ambiguous", &ambiguous);
     let mut short = String::new();
     for args in [
         &["history", "5f6"][..],
         &["watch", "5f6"],
-        &["confirm", "5f6"],
         &["stop", "5f6"],
         &["cancel", "5f6"],
         &["wait", "5f6"],
-        &["executions", "explain", "5f6"],
+        &["sessions", "explain", "5f6"],
     ] {
         short += &run(args, vec![]);
     }
@@ -2492,6 +2462,5 @@ fn one_resolver_names_a_session_or_a_question_for_every_command() {
         vec![step("session.list", json!({"sessions": []}))],
     );
     unknown += &run(&["history", "zzzz99"], vec![execs()]);
-    unknown += &run(&["confirm", "zzzz99"], vec![waiting()]);
     golden("resolve_unknown", &unknown);
 }

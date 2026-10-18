@@ -19,11 +19,11 @@ execution.list session.watch
 --- stderr
 watching ses_0c7e527d2a (Ctrl-C to stop)
 --- exit 0
-$ theseus confirm 527d2a --no-wait
+$ theseus answer 527d2a approve --no-wait
 --- requests
-confirm.list action.confirm
+work.answer
 --- stdout
-approved act_0c7e527d2a · session ses_0c7e527d2a
+answered act_0c7e527d2a · approve · ses_0c7e527d2a resumes
 --- stderr
 --- exit 0
 $ theseus stop 527d2a

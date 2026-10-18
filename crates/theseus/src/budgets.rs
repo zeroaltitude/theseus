@@ -172,7 +172,7 @@ fn row(out: &mut String, after: &mut Vec<String>, e: &BudgetRow, lead: &str) {
     }
     if let Some(q) = &e.question {
         after.push(format!(
-            "{} waits at its limit: its next call needs ${:.4} · theseus confirm {}",
+            "{} waits at its limit: its next call needs ${:.4} · theseus answer {} reset",
             render::short_id(&e.session_id),
             q.needs_usd,
             q.correlation_id

@@ -55,19 +55,16 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
   wait. `theseus wait SESSION --until blocked`; `wait --any`.
 - **`budgets`**: where the money is: each open session's limit and its source, spent, reserved, held and available, each
   task's carve, and the totals. `theseus budgets`.
-- **`sessions`**: list sessions with token totals, or open one to continue. `theseus sessions`; `sessions open`,
-  `recompile`, `retire`, `reopen`, `nudge`.
-- **`executions`**: one execution per session: state, turns, outstanding actions, budget. `theseus executions`;
-  `executions explain ID`, `executions cancel ID`. (Not folded yet: `sessions --state` is planned.)
+- **`sessions`**: list sessions with token totals, or open one to continue. `theseus sessions`; `sessions --state` lists
+  each session's execution instead (state, turns, outstanding actions, budget); `sessions explain ID` is one in full;
+  `sessions open`, `recompile`, `retire`, `reopen`, `nudge`.
 
 ## Answering what waits
 
-Several commands answer a question that waits for you; each takes the question's id and works on a different kind.
-
-- **`confirm`**: answer a tool call waiting for confirmation, or a session at its spend limit (approve resets its
-  spend to $0), then follow the turn it resumes. With no id, list everything waiting. `theseus confirm 7f3a --decline`.
-- **`answer`**: answer any question waiting for you with one of its own options: a call, a spend limit, a task change,
-  an extension, a reminder. `theseus answer 7f3a approve --note "ok"`.
+- **`answer`**: answer any question waiting for you with one of its own options: a call, a spend limit (approve
+  resets its spend to $0), a task change, an extension, a reminder; the turn it resumes is followed (`--no-wait`
+  returns once the answer is recorded). With no id, it lists everything waiting. `theseus answer 7f3a approve --note "ok"`;
+  `theseus answer 7f3a decline`; `theseus answer` alone lists.
 - **`dismiss`**: dismiss a failed task: it stops needing you on every surface and its record stays.
   `theseus dismiss ID`.
 - **`retry`**: try a failed task again: a new task from the same brief under the same parent, with no more budget than

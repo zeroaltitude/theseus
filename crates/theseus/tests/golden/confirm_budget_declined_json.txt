@@ -1,7 +1,0 @@
-$ theseus --json confirm --decline act_b5
---- requests
-action.confirm
---- stdout
-{"approved":false,"correlation_id":"act_b5","execution_id":"exe_q7f3k2","resumes":false,"session_id":"ses_q7f3k2"}
---- stderr
---- exit 0

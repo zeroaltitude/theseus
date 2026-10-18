@@ -19,10 +19,3 @@ execution.list
 --- stderr
 theseus: no session is named `zzzz99`
 --- exit 1
-$ theseus confirm zzzz99
---- requests
-confirm.list
---- stdout
---- stderr
-theseus: no question is named `zzzz99`
---- exit 1

@@ -1,0 +1,7 @@
+$ theseus --json answer act_b5 decline
+--- requests
+work.answer
+--- stdout
+{"detail":"ses_q7f3k2 keeps waiting on its budget; a new message asks again","option":"decline","question_id":"act_b5"}
+--- stderr
+--- exit 0

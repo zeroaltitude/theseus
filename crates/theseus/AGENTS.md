@@ -119,8 +119,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   a whole id or a unique end of at least four characters, and an end naming two questions is refused naming both. The
   option is one of the question's own (`approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or a reminder's
   `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`); a wrong one is refused with the right ones. `work.answer` is in
-  `client::OPERATORS`, so a job's shell is refused before anything is sent. `theseus confirm` stays for listing and for
-  following the turn an answer resumes (`action.confirm`: the same handlers). Tests: `tests/answer.rs`.
+  `client::OPERATORS`, so a job's shell is refused before anything is sent. With no id `theseus answer` lists what waits
+  (`confirm.list`), and an answer follows the turn it resumes (`work.answer {watch}`, then `cmd::follow_resumed`) unless
+  `--no-wait`. A question is also named by the session or the execution it waits in (`question_in`). Tests:
+  `tests/answer.rs`, `tests/golden.rs`'s `answer_*`.
 - `src/task_start.rs` (theseus-7oq0w): `theseus task start BRIEF [--title T] [--in SESSION] [--budget USD] [--profile P]
   [--at WHEN | --in-time SPAN] [--quote-file FILE]… [--report-to home|board]`, one `task.start` call with no model turn; it prints
   the task's short id and where to follow it. The times go to the daemon as typed (`start_when`, read in the daemon's zone, as
@@ -188,7 +190,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/seen.rs` and `src/shown.rs` (theseus-yus0): the machine's seen file (`$XDG_STATE_HOME/theseus/seen.json`) and
   the one call, `shown::shown(conn, sessions)`, by which a command records what it displayed: after its output,
   at the position `session.wait` gives (one answered at once per session, 450 bytes; a snapshot is 70 KB and misses a session past its 200), never failing the command (one line on stderr). `history` (to the end of
-  the session), `watch` (on Ctrl-C), and `confirm` call it; a watch the daemon closes records nothing, and a command inside a job (`THESEUS_SESSION`) records nothing: the agent's reading is not the operator's. Writes read the
+  the session), `watch` (on Ctrl-C), and `answer` call it; a watch the daemon closes records nothing, and a command inside a job (`THESEUS_SESSION`) records nothing: the agent's reading is not the operator's. Writes read the
   file again, merge by the greatest position under a lock file, and replace it atomically.
 - `src/follow.rs`: `ask` under `--spawn` follows what its turn left for later (theseus-mqxk): main.rs spawns
   `theseusd --stdio --one-shot SECS` for an `ask`, each turn's result names its `later` (jobs running, a result
@@ -297,7 +299,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   "…" in 3 ms, 1.4 KB`, then `not restored: …`), the marks `theseus history` of a fork prints around the inherited
   prefix (a node whose session is not the history's own), and the forks `theseus reach` lists. Tests:
   `tests/golden_fork.rs`; theseusd's `tests/fork.rs` runs it on a real daemon.
-- `src/pages.rs` (theseus-7bee): `theseus sessions` and `theseus executions` print the newest 50 (`session.list
+- `src/pages.rs` (theseus-7bee): `theseus sessions` and `theseus sessions --state` print the newest 50 (`session.list
   {n}`, `execution.list {n}`), a footer (`render/sessions.rs`'s `page_footer`) naming `--before CURSOR` and `--all`, which
   keeps the bare list. The CLI asks `session.list {n: 1}` where it wants the newest session (`cmd::NEWEST`, `watch
   --interactive`, `history` with no session) and `{ids}` where it wants one by id; it never asks for every session
@@ -372,8 +374,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.
-- `src/resolve.rs`: the one id resolver (theseus-0n1v) for `confirm`, `history`, `watch`, `stop`, `cancel`, `wait`
-  and `explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
+- `src/resolve.rs`: the one id resolver (theseus-0n1v) for `history`, `watch`, `stop`, `cancel`, `wait`
+  and `sessions explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.
 - `src/render/wakes.rs` (theseus-lherl): `theseus wake`' line (a wake's title, a series' weekdays and end) and health's
   `wakes:` line.
@@ -404,8 +406,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `theseus` beside its binary, which `cargo nextest run -p theseusd` does not rebuild: build `-p theseus` first.
 - `tests/connect.rs` covers how the CLI reaches a daemon (`--spawn`, and exit 3). `main` reads exit 3 from the
   error's text, which the library writes, so these tests hold the two together.
-- `tests/refusal.rs` covers a refused answer: `theseus confirm` prints the daemon's reason and exits 1.
-- `tests/seen.rs` and `tests/seen_commands.rs` cover what `history`, `watch`, and `confirm` record and when: after the
+- `tests/refusal.rs` covers a refused answer: `theseus answer` prints the daemon's reason and exits 1.
+- `tests/seen.rs` and `tests/seen_commands.rs` cover what `history`, `watch`, and `answer` record and when: after the
   output (stdout already holds the page when the snapshot is asked), not for a page back or one with more to come, on
   Ctrl-C for `watch` (exit 0), nothing in a job, and not failing when the file can't be written.
 - `tests/markdown_cli.rs` covers the markdown on a terminal: a pty draws the reply, and a pipe, `NO_COLOR`, `TERM=dumb`

@@ -26,7 +26,7 @@ echo "== web";     curl -sf -o /dev/null "http://127.0.0.1:${WEB_PORT:-7433}/" &
 echo "== telemetry"; "$BIN/theseus" health | grep -E "^telemetry"
 echo "== ledger";  "$BIN/theseus" ledger -n 3 -k provider.call | tail -1 | cut -c1-120
 echo "== kernel";  "$BIN/theseus" health | grep -E "^kernel"
-echo "== executions"; "$BIN/theseus" executions | head -3
+echo "== executions"; "$BIN/theseus" sessions --state | head -3
 echo "== actions"; "$BIN/theseus" ledger -n 2 -k action.succeeded | tail -1 | cut -c1-120
 echo "== tools";   "$BIN/theseus" tools 2>&1 | tail -1
 echo "== catalog"; "$BIN/theseus" catalog 2>/dev/null | awk 'NR>1 {n++} END {print n " models in the catalog"}'

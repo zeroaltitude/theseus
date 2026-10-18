@@ -205,7 +205,10 @@ impl Core {
         if s.contains('_') {
             return match self.kernel.action(s)? {
                 Some(a) => Ok(Target::Action(Box::new(a))),
-                None => Err(not_found(format!("no question is named `{given}`"))),
+                None => self
+                    .question_in(given)?
+                    .map(Target::Action)
+                    .ok_or_else(|| not_found(format!("no question is named `{given}`"))),
             };
         }
         // An end: among the open questions and the pending wakes.
@@ -216,7 +219,13 @@ impl Core {
             .map(|a| a.correlation_id.clone())
             .chain(wakes.iter().map(|(_, w)| w.id.clone()))
             .collect();
-        let name = pick(given, &names)?;
+        let name = match pick(given, &names) {
+            Ok(name) => name,
+            Err(e) if e.code == error_code::NOT_FOUND => {
+                return self.question_in(given)?.map(Target::Action).ok_or(e);
+            }
+            Err(e) => return Err(e),
+        };
         if let Some(a) = actions.into_iter().find(|a| &a.correlation_id == name) {
             return Ok(Target::Action(Box::new(a)));
         }
@@ -228,6 +237,37 @@ impl Core {
             execution_id: e.id,
             wake_id: w.id,
         })
+    }
+
+    /// The one open question waiting in the session or the execution `given`
+    /// names, whole or by a unique end of at least four characters: what
+    /// `theseus confirm` took beside a question's own id.
+    fn question_in(&self, given: &str) -> Result<Option<Box<Action>>, RpcFailure> {
+        let s = given.trim().trim_start_matches('…');
+        if s.chars().count() < SHORTEST {
+            return Ok(None);
+        }
+        let mut held: Vec<Action> = self
+            .kernel
+            .pending_confirms()?
+            .into_iter()
+            .filter(|a| {
+                [&a.session_id, &a.execution_id]
+                    .iter()
+                    .any(|id| id.ends_with(s))
+            })
+            .collect();
+        match held.len() {
+            0 | 1 => Ok(held.pop().map(Box::new)),
+            n => Err(invalid(format!(
+                "`{given}` names {n} questions ({}): give more of its id",
+                held.iter()
+                    .take(5)
+                    .map(|a| a.correlation_id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
+        }
     }
 
     /// A reminder by its whole id: pending, or fired and kept for a snooze.
@@ -320,11 +360,18 @@ impl Core {
         let resumes = done
             .resumes
             .then(|| self.work_ref_of(&done.execution_id, &done.session_id));
+        // A declined budget question resumes nothing: the session waits on it.
+        let detail = (kind == QuestionKind::Budget && !approve).then(|| {
+            format!(
+                "{} keeps waiting on its budget; a new message asks again",
+                done.session_id
+            )
+        });
         Ok(WorkAnswerResult {
             question_id: a.correlation_id.clone(),
             option: chosen.id.clone(),
             resumes,
-            detail: None,
+            detail,
         })
     }
 

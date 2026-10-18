@@ -145,7 +145,7 @@ fn the_long_form_has_a_header_and_a_row_for_each_task() {
     let want = "\
 theseus 06:26 · ● 1 needs you · ◐ 2 working · ✗ 1 failed · ⏰ 06:30
 ● 2a329e  Paint the south buoy red and log it.  confirm fs.write: write regatta/paint-log.md · 4:00
-         theseus confirm act_2a329e
+         theseus answer act_2a329e approve
 ✗ 5a877c  Read the tide gauge at the pier and…  failed 06:25: the provider refused the request (400)
 ◐ e527d2  (task)                                turn 5 · 2:14
 ◐ 87e9c6  Fetch Saturday's forecast for the h…  turn 2 · 0:31";

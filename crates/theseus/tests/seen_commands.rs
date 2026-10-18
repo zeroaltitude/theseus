@@ -1,4 +1,4 @@
-//! What `history`, `watch` and `confirm` record in the machine's seen file,
+//! What `history`, `watch` and `answer` record in the machine's seen file,
 //! and when (theseus-yus0): after their output and never before it, only
 //! when they showed the session's end, on Ctrl-C for `watch`, and nothing for
 //! a watch the daemon closed. Review tests beside `tests/seen.rs`.
@@ -220,12 +220,12 @@ fn a_watch_the_daemon_closes_records_nothing() {
 }
 
 #[test]
-fn confirm_records_the_sessions_it_listed_after_printing() {
+fn answer_records_the_sessions_it_listed_after_printing() {
     let confirm = json!({"correlation_id": "act_k4", "session_id": "ses_1", "execution_id": "exe_1",
         "tool": "fs.write", "input": {}, "reason": "outside the roots", "by": "operator",
         "requested_at_ms": 1u64, "expires_at_ms": 0u64});
     let mut r = rig(history_result(), json!({"confirms": [confirm]}), None);
-    let out = command(&r, &["confirm"]).output().unwrap();
+    let out = command(&r, &["answer"]).output().unwrap();
     assert!(out.status.success());
     r.join();
     assert_eq!(
@@ -240,9 +240,9 @@ fn confirm_records_the_sessions_it_listed_after_printing() {
 
 /// Nothing waiting, nothing listed, nothing asked.
 #[test]
-fn confirm_with_nothing_waiting_asks_for_no_snapshot() {
+fn answer_with_nothing_waiting_asks_for_no_snapshot() {
     let mut r = rig(history_result(), json!({"confirms": []}), None);
-    let out = command(&r, &["confirm"]).output().unwrap();
+    let out = command(&r, &["answer"]).output().unwrap();
     assert!(out.status.success());
     r.join();
     assert_eq!(r.asked(), ["confirm.list"]);

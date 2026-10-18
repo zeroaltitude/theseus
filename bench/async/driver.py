@@ -473,7 +473,7 @@ class Theseus:
         sock = shlex.quote(f"{self.state}/theseus.sock")
         pid = shlex.quote(f"{self.state}/theseusd.pid")
         return (
-            f"{self.cli} executions > {lg}/theseus-executions.json 2>> {lg}/theseus.log; "
+            f"{self.cli} sessions --state > {lg}/theseus-executions.json 2>> {lg}/theseus.log; "
             f"for x in $(tr ',' '\\n' < {lg}/theseus-executions.json "
             f"| sed -n 's/.*\"session_id\": *\"\\([^\"]*\\)\".*/\\1/p' | sort -u); "
             f"do {self.cli} stop \"$x\" > /dev/null 2>&1; done; "
@@ -508,7 +508,7 @@ class Theseus:
         rounds = 0
         while (left := deadline - clock()) > 0:
             rounds += 1
-            execs = _json((await env.exec(f"{self.cli} executions", timeout_sec=30)).stdout) or {}
+            execs = _json((await env.exec(f"{self.cli} sessions --state", timeout_sec=30)).stdout) or {}
             wakes = _json((await env.exec(f"{self.cli} wake", timeout_sec=30)).stdout) or {}
             live = [e for e in execs.get("executions", []) if busy(e)]
             pending = wakes.get("wakes", [])

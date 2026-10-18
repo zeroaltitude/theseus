@@ -38,7 +38,7 @@ pub struct ExtendInfo {
     #[cfg_attr(test, ts(optional))]
     pub error: Option<String>,
     pub session_id: String,
-    /// The question that asks the operator (`theseus confirm <it>`).
+    /// The question that asks the operator (`theseus answer <it> ack`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub question: Option<String>,

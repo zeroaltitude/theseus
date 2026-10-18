@@ -1,4 +1,4 @@
-$ theseus --json confirm
+$ theseus --json answer
 --- requests
 confirm.list
 --- stdout

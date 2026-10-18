@@ -1,8 +1,8 @@
 //! `theseus answer ID OPTION` (theseus-ds5os): one `work.answer` request with
 //! the id as it was typed (the daemon resolves a short end), the option and
-//! the note; the daemon's answer printed; a refusal or an ambiguous end
-//! printed with its reason and exit 1; and, inside a Theseus job, refused
-//! before anything is sent.
+//! the note; the daemon's answer printed, and the turn it resumes followed
+//! unless `--no-wait`; a refusal or an ambiguous end printed with its reason
+//! and exit 1; and, inside a Theseus job, refused before anything is sent.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -66,7 +66,7 @@ fn an_answer_sends_the_end_the_option_and_the_note() {
     assert_eq!(req["method"], "work.answer");
     assert_eq!(
         req["params"],
-        json!({"question_id": "27d2a", "option": "decline", "note": "not now"})
+        json!({"question_id": "27d2a", "option": "decline", "note": "not now", "watch": true})
     );
     let said = String::from_utf8_lossy(&out.stdout);
     assert_eq!(
@@ -84,11 +84,35 @@ fn an_answer_that_resumes_work_says_which() {
         "question_id": "act_0c7e527d2a", "option": "approve",
         "resumes": {"id": "exe_0c7e527d2a", "kind": "task", "session_id": "ses_0c7e527d2a", "title": ""}
     }));
-    let out = theseus(&sock, dir.path(), &["answer", "act_0c7e527d2a", "approve"]);
-    daemon.join().unwrap();
+    let out = theseus(
+        &sock,
+        dir.path(),
+        &["answer", "act_0c7e527d2a", "approve", "--no-wait"],
+    );
+    let req = daemon.join().unwrap();
+    assert!(req["params"].get("watch").is_none(), "{req}");
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
         "answered act_0c7e527d2a · approve · ses_0c7e527d2a resumes"
+    );
+}
+
+/// `answer` follows the turn it resumes (it asks the daemon to subscribe this
+/// connection before the turn wakes) unless `--no-wait`: the same behaviour
+/// `confirm` had. The scenarios in `golden.rs` hold the output.
+#[test]
+fn an_answer_that_resumes_work_follows_it() {
+    let (dir, sock, daemon) = one_request(json!({
+        "question_id": "act_0c7e527d2a", "option": "approve",
+        "resumes": {"id": "exe_0c7e527d2a", "kind": "task", "session_id": "ses_0c7e527d2a", "title": ""}
+    }));
+    let out = theseus(&sock, dir.path(), &["answer", "act_0c7e527d2a", "approve"]);
+    let req = daemon.join().unwrap();
+    assert_eq!(req["params"]["watch"], true, "{req}");
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        said.contains("following the resumed turn in ses_0c7e527d2a"),
+        "{said}"
     );
 }
 

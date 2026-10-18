@@ -205,7 +205,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
                     .map_or("-", |t| &t[t.len().saturating_sub(6)..]);
                 println!(
                     "routine {} tries now as run 0, task {task}; a call outside its grant asks \
-                     here (`theseus confirm`, `theseus tasks`); the series is as it was",
+                     here (`theseus answer`, `theseus tasks`); the series is as it was",
                     r.routine.short
                 );
                 Ok(())

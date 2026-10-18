@@ -185,9 +185,9 @@ impl Answerer {
 /// own surfaces, both private places (`web_on`: `[web] enabled`).
 pub fn elsewhere(web_on: bool) -> &'static str {
     if web_on {
-        "in the web UI or with `theseus confirm`"
+        "in the web UI or with `theseus answer`"
     } else {
-        "with `theseus confirm`"
+        "with `theseus answer`"
     }
 }
 

@@ -6,7 +6,7 @@ use theseus_protocol::ConfirmRequest;
 
 use super::{push, Line, Tag};
 
-/// The question's lines, for an event and for `theseus confirm`'s list.
+/// The question's lines, for an event and for `theseus answer`'s list.
 pub(super) fn lines(out: &mut Vec<Line>, c: &ConfirmRequest) {
     let ask = AskInput::parse(&c.input).ok();
     let question = ask.as_ref().map_or("a question", |a| a.question.as_str());

@@ -257,7 +257,7 @@ fn the_short_form_counts_and_the_long_form_lists() {
         lines[1].contains("confirm fs.write: write regatta/paint-log.md · 4:0"),
         "{out}"
     );
-    assert_eq!(lines[2], "         theseus confirm act_2a329e");
+    assert_eq!(lines[2], "         theseus answer act_2a329e approve");
     assert!(
         lines[3].starts_with("✗ 5a877c  Read the tide gauge at the pier.")
             && lines[3].ends_with("failed 23:26: the provider refused the request (400)"),

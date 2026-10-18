@@ -716,8 +716,9 @@ fn tail(
 /// execution explained.
 fn command(v: &ExecutionView) -> String {
     match v.pending.first() {
-        Some(p) => format!("theseus confirm {}", p.correlation_id),
-        None => format!("theseus executions explain {}", short_id(&v.session_id)),
+        Some(p) if p.budget => format!("theseus answer {} reset", p.correlation_id),
+        Some(p) => format!("theseus answer {} approve", p.correlation_id),
+        None => format!("theseus sessions explain {}", short_id(&v.session_id)),
     }
 }
 

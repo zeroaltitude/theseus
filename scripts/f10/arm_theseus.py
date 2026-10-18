@@ -225,7 +225,7 @@ class Theseus:
     def card(self, ctx, timeout=30):
         """Wait for the question: the confirm list has one."""
         def asked():
-            r = self.cli("--json", "confirm")
+            r = self.cli("--json", "answer")
             return r.returncode == 0 and '"id"' in r.stdout
         found = wait_until(asked, timeout, every=0.3)
         time.sleep(0.8)
