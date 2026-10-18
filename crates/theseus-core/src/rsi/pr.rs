@@ -57,8 +57,10 @@ pub const COMPLETE: &str = "<!-- REPORT COMPLETE -->";
 /// and where the self trees live.
 #[derive(Default)]
 pub struct Board {
-    core: OnceLock<Weak<Core>>,
-    state: PathBuf,
+    pub(super) core: OnceLock<Weak<Core>>,
+    pub(super) state: PathBuf,
+    /// The root task of a self session's tree, once found (`own_tree`).
+    pub(super) roots: Mutex<std::collections::HashMap<String, String>>,
     /// Added to every git call and the gate's (a test's hermetic git).
     env: Mutex<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1

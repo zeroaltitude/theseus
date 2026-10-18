@@ -450,3 +450,141 @@ async fn a_keel_finding_stops_at_the_owners_card_and_is_never_retried() {
 fn propose() -> Value {
     json!({"item": "trim-the-sails", "issue": "theseus-sail1", "why": "Trim the sails before the wind."})
 }
+
+/// A self task's own tree (theseus-pw1q.21.9), through the whole core with
+/// the state dir on the approve list, as a daemon's default has it: the self
+/// session's file tools work in the tree of its own task and nowhere else of
+/// the state dir. Each scenario is a self session of its own, with its task.
+mod own_tree {
+    use super::*;
+    use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
+
+    fn held(edit: impl FnOnce(&mut Config)) -> Rig {
+        rig_with(SelfMode::Act, None, |cfg| {
+            cfg.tools.approve_paths = vec![cfg.server.state_dir.clone()];
+            edit(cfg);
+        })
+    }
+
+    /// A self session, the task of that name it belongs to, and the task's tree.
+    fn task(r: &Rig, id: &str) -> (String, PathBuf) {
+        let sid = r.session("self");
+        let t = TaskRecord {
+            id: id.into(),
+            version: 1,
+            title: id.into(),
+            state: TaskState::InProgress,
+            session: Some(sid.clone()),
+            origin: TaskOrigin {
+                session: "self:backlog".into(),
+                principal: "self".into(),
+                ..Default::default()
+            },
+            ..TaskRecord::default()
+        };
+        r.core
+            .store
+            .append(&[crate::task_graph::record(&t).unwrap()])
+            .unwrap();
+        let tree = r.f.place.state.join("self").join("trees").join(id);
+        std::fs::create_dir_all(&tree).unwrap();
+        (sid, tree.canonicalize().unwrap())
+    }
+
+    /// Whether the session has a call waiting for the owner.
+    fn asked(r: &Rig, sid: &str) -> bool {
+        !r.core.pending_confirms(sid).unwrap().is_empty()
+    }
+
+    #[tokio::test]
+    async fn the_self_task_reads_and_writes_its_own_tree_without_asking() {
+        let r = held(|_| {});
+        let (sid, tree) = task(&r, "sails");
+        let file = tree.join("a.txt");
+        let input = json!({"path": file, "content": "trimmed\n"});
+        r.turn(&sid, "fs_write", input).await;
+        assert!(!asked(&r, &sid), "a write in its own tree");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "trimmed\n");
+        let said = r.turn(&sid, "fs_read", json!({"path": file})).await;
+        assert!(!asked(&r, &sid), "a read in its own tree");
+        assert!(said.contains("trimmed"), "{said}");
+    }
+
+    /// Planted reverts: each of these asks the owner, from a self session
+    /// that can work in its own tree.
+    #[tokio::test]
+    async fn nothing_else_is_open_to_it() {
+        let r = held(|_| {});
+        let state = r.f.place.state.canonicalize().unwrap();
+        let (_, other) = task(&r, "tides");
+        std::fs::write(other.join("theirs.txt"), "not yours\n").unwrap();
+        std::fs::write(state.join("notes.txt"), "the state dir\n").unwrap();
+        std::fs::create_dir_all(state.join("store")).unwrap();
+        std::fs::write(state.join("store/db"), "the store\n").unwrap();
+        for (i, (what, target)) in [
+            ("another task's tree", other.join("theirs.txt")),
+            ("the rest of the state dir", state.join("notes.txt")),
+            ("a link out to the state dir", state.join("notes.txt")),
+            ("a link out to the store", state.join("store/db")),
+            ("the store", state.join("store/db")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (sid, tree) = task(&r, &format!("sails{i}"));
+            let path = if what.starts_with("a link") {
+                std::os::unix::fs::symlink(&target, tree.join("link")).unwrap();
+                tree.join("link")
+            } else {
+                target
+            };
+            r.turn(&sid, "fs_read", json!({"path": path})).await;
+            assert!(asked(&r, &sid), "{what} waits for the owner");
+            let reason = &r.core.pending_confirms(&sid).unwrap()[0].reason;
+            assert!(reason.contains("fs.read — approve"), "{what}: {reason}");
+        }
+        // A write to the state dir's other files asks too.
+        let (sid, _) = task(&r, "sails-w");
+        let path = state.join("planted.txt");
+        r.turn(&sid, "fs_write", json!({"path": path, "content": "x"}))
+            .await;
+        assert!(asked(&r, &sid), "a write to the rest of the state dir");
+        assert!(!path.exists(), "and it did not run");
+    }
+
+    #[tokio::test]
+    async fn a_session_that_is_not_self_asks_in_the_tree_too() {
+        let r = held(|_| {});
+        let (_, tree) = task(&r, "sails");
+        std::fs::write(tree.join("a.txt"), "trimmed\n").unwrap();
+        let sid = r.session("operator");
+        r.turn(&sid, "fs_read", json!({"path": tree.join("a.txt")}))
+            .await;
+        assert!(asked(&r, &sid), "an operator's read of the tree");
+        // And a self session with no task of its own has no tree to work in.
+        let sid = r.session("self");
+        r.turn(&sid, "fs_read", json!({"path": tree.join("a.txt")}))
+            .await;
+        assert!(asked(&r, &sid), "a self session of no task");
+    }
+
+    /// The rule loosens file tools only: a command in the tree still asks
+    /// (its code runs in L1 or nowhere), and the sealed sets stay refused.
+    #[tokio::test]
+    async fn a_command_still_asks_and_the_sealed_sets_stay_refused() {
+        let sealed = tempfile::tempdir().unwrap();
+        let dir = sealed.path().canonicalize().unwrap();
+        std::fs::write(dir.join("set.json"), "sealed\n").unwrap();
+        let r = held(|cfg| cfg.self_improve.sealed.dir = Some(dir.display().to_string()));
+        let (sid, tree) = task(&r, "sails");
+        let input = json!({"argv": ["ls"], "cwd": tree});
+        r.turn(&sid, "proc_run", input).await;
+        assert!(asked(&r, &sid), "proc.run in the tree");
+        let (sid, _) = task(&r, "sails2");
+        let said = r
+            .turn(&sid, "fs_read", json!({"path": dir.join("set.json")}))
+            .await;
+        assert!(said.contains("Not run"), "{said}");
+        assert!(!said.contains("sealed\\n"), "{said}");
+    }
+}

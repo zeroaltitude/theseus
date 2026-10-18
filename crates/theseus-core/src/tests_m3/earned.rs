@@ -461,7 +461,7 @@ fn gated(
     let rt = &r.core.tools;
     let tool = rt.registry.get("proc.run").unwrap().clone();
     let plan = tool.plan(&input, &rt.ctx).unwrap();
-    let (d, bound) = crate::sandbox::unbrokered(rt, &*tool, &plan, &input, None);
+    let (d, bound) = crate::sandbox::unbrokered(rt, &*tool, &plan, &input, None, None);
     let after =
         crate::policy::earned::gate(rt, class, &*tool, &plan, &input, bound.l1(), d.clone());
     (d, after)

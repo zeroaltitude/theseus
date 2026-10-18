@@ -417,10 +417,24 @@ impl ToolPolicy {
         plan: &Plan,
         tightened: Option<Tightened<'_>>,
     ) -> Decision {
+        self.decide_in(tool, plan, tightened, None)
+    }
+
+    /// The same, for a call made inside `own`, a self task's own tree
+    /// (theseus-pw1q.21.9): what the approve list protects of the state dir
+    /// is open to the call there, and only there. Nothing else changes: the
+    /// floor, the roots, and every other path ask as they did.
+    pub fn decide_in(
+        &self,
+        tool: &dyn Tool,
+        plan: &Plan,
+        tightened: Option<Tightened<'_>>,
+        own: Option<&Path>,
+    ) -> Decision {
         let name = tool.name();
         let (resources, nargv, args) = self.view(plan);
         let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args) {
+        if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args, own) {
             return d;
         }
         // The allow list runs a command outright when its path arguments stay
@@ -503,9 +517,9 @@ impl ToolPolicy {
         resources: &[PathBuf],
         nargv: &[String],
         args: &[(String, PathBuf)],
+        own: Option<&Path>,
     ) -> Option<Decision> {
         let name = tool.name();
-        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
         // The floor: Theseus's own state and the vault, and an AWS
         // guardrail (AWS design §3.6), which asks at every posture.
         let guardrail = plan.aws.as_ref().and_then(|a| a.guardrail.clone());
@@ -527,8 +541,7 @@ impl ToolPolicy {
                 format!("{}: {name} — approve (layer 1: {what})", plan.summary),
             ));
         }
-        let access: Vec<Access> = plan.resources.iter().map(|r| r.access).collect();
-        if let Some(why) = self.listed(resources, &access, plan.url.as_deref(), argv, nargv, args) {
+        if let Some(why) = self.listed(plan, resources, nargv, args, own) {
             return Some(Decision::new(
                 Posture::Approve,
                 format!("{}: {name} — approve ({why})", plan.summary),
@@ -550,7 +563,7 @@ impl ToolPolicy {
     /// comes first. An earned grant (`earned`) loosens that alone.
     pub(crate) fn posture_only(&self, tool: &dyn Tool, plan: &Plan) -> bool {
         let (resources, nargv, args) = self.view(plan);
-        self.preempted(tool, plan, &resources, &nargv, &args)
+        self.preempted(tool, plan, &resources, &nargv, &args, None)
             .is_none()
     }
 
@@ -601,24 +614,33 @@ impl ToolPolicy {
     /// so asking for a file tool's write there guarded nothing and taught a
     /// model to write through the shell. The approve list and the floor
     /// still ask, for every tool.
+    ///
+    /// `own` is a self task's own tree (theseus-pw1q.21.9): a resource in it
+    /// is not held by an approve-list entry that holds the tree itself (the
+    /// state dir), and nothing else is loosened. An entry inside the tree
+    /// still asks.
     fn listed(
         &self,
+        plan: &Plan,
         resources: &[PathBuf],
-        access: &[Access],
-        url: Option<&str>,
-        argv: &[String],
         nargv: &[String],
         args: &[(String, PathBuf)],
+        own: Option<&Path>,
     ) -> Option<String> {
+        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
+        let access = plan.resources.iter().map(|r| r.access);
+        let held = |p: &Path, d: &Path| {
+            paths::within(p, d) && !own.is_some_and(|t| paths::within(p, t) && paths::within(t, d))
+        };
         for (p, a) in resources.iter().zip(access) {
-            if let Some(d) = self.approve_paths.iter().find(|d| paths::within(p, d)) {
+            if let Some(d) = self.approve_paths.iter().find(|d| held(p, d)) {
                 return Some(format!(
                     "{} is protected: {} is on the approve list",
                     p.display(),
                     d.display()
                 ));
             }
-            if *a != Access::Write && !self.within_roots(p) {
+            if a != Access::Write && !self.within_roots(p) {
                 let roots: Vec<String> =
                     self.roots.iter().map(|r| r.display().to_string()).collect();
                 return Some(format!(
@@ -633,7 +655,12 @@ impl ToolPolicy {
             }
         }
         let ask = self.private_addresses == crate::web::net::PrivateAddresses::Ask;
-        if let Some(why) = url.filter(|_| ask).and_then(crate::web::net::private_url) {
+        if let Some(why) = plan
+            .url
+            .as_deref()
+            .filter(|_| ask)
+            .and_then(crate::web::net::private_url)
+        {
             return Some(format!("{why}, and a private address waits for approval"));
         }
         if let Some(p) = self.approve_argv.iter().find(|p| prefix_match(nargv, p)) {
@@ -1149,6 +1176,95 @@ mod tests {
             out.reason,
             format!("the call: proc.run — approve (floor: argument `{store_arg}` is Theseus's own state or the 1Password token)")
         );
+    }
+
+    /// A self task's own tree (theseus-pw1q.21.9): the approve list's hold on
+    /// the state dir does not reach the one tree `own` names, and reaches
+    /// everything else of it, as it did.
+    #[test]
+    fn a_self_tasks_own_tree_is_open_and_nothing_else_of_the_state_dir() {
+        let (_d, root) = workspace();
+        let state = root.join("state");
+        let trees = state.join("self").join("trees");
+        let (mine, other) = (trees.join("mine"), trees.join("other"));
+        for d in [&mine, &other, &state.join("store")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(mine.join("a.rs"), "a").unwrap();
+        std::fs::write(state.join("notes.txt"), "n").unwrap();
+        // A link out of the tree, to the rest of the state dir and to the store.
+        std::os::unix::fs::symlink(state.join("notes.txt"), mine.join("to-notes")).unwrap();
+        std::os::unix::fs::symlink(state.join("store"), mine.join("to-store")).unwrap();
+        let p = ToolPolicy {
+            roots: vec![root.clone(), trees.clone()],
+            approve_paths: vec![state.clone()],
+            floor_paths: vec![state.join("store")],
+            ..policy(&root, Posture::Open)
+        };
+        let at = |path: PathBuf, access| plan(path, access, None);
+        let decide = |tool: &'static str, path: PathBuf, access, own: Option<&Path>| {
+            p.decide_in(&T(tool), &at(path, access), None, own)
+        };
+        let own = Some(mine.as_path());
+        for (tool, access) in [("fs.read", Access::Read), ("fs.write", Access::Write)] {
+            for file in ["a.rs", "new/deeper/b.rs"] {
+                let out = decide(tool, mine.join(file), access, own);
+                assert_eq!(out.posture, Posture::Open, "{tool} {file}: {}", out.reason);
+            }
+            // Planted reverts: each of these must still ask.
+            for (what, path, floor) in [
+                ("another tree", other.join("x"), false),
+                ("the trees dir", trees.clone(), false),
+                ("the rest of the state dir", state.join("notes.txt"), false),
+                ("a new file in the state dir", state.join("new.txt"), false),
+                ("the store", state.join("store/x"), true),
+                ("a link to the state dir", mine.join("to-notes"), false),
+                ("a link to the store", mine.join("to-store/x"), true),
+                ("a .. out of the tree", mine.join("../other/x"), false),
+                ("a .. out to the store", mine.join("../../../store/x"), true),
+            ] {
+                let out = decide(tool, path, access, own);
+                assert_eq!(
+                    out.posture,
+                    Posture::Approve,
+                    "{tool} {what}: {}",
+                    out.reason
+                );
+                assert_eq!(out.floor, floor, "{tool} {what}: {}", out.reason);
+            }
+            // A call with no own tree (a non-self principal's) asks in the tree too.
+            let out = decide(tool, mine.join("a.rs"), access, None);
+            assert_eq!(out.posture, Posture::Approve, "{tool}: {}", out.reason);
+            assert!(
+                out.reason.contains("is on the approve list"),
+                "{}",
+                out.reason
+            );
+            // Another task's tree is not mine, however its slug reads.
+            let out = decide(tool, mine.join("a.rs"), access, Some(other.as_path()));
+            assert_eq!(out.posture, Posture::Approve, "{tool}: {}", out.reason);
+        }
+        // An approve-list entry inside the tree still asks.
+        let mut inner = ToolPolicy {
+            approve_paths: vec![state, mine.join("keys")],
+            ..p.clone()
+        };
+        let out = inner.decide_in(
+            &T("fs.read"),
+            &at(mine.join("keys/k"), Access::Read),
+            None,
+            own,
+        );
+        assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
+        // The own tree is no way around the roots: a read outside them asks.
+        inner.roots = vec![root.join("elsewhere")];
+        let out = inner.decide_in(
+            &T("fs.read"),
+            &at(mine.join("a.rs"), Access::Read),
+            None,
+            own,
+        );
+        assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
     }
 
     #[test]

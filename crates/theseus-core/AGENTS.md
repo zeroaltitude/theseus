@@ -1028,7 +1028,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
   `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
   execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which
-  joins the workspace roots while `[self]` builds: `toolrun/guarded.rs`), the next commits, gates, writes the frozen
+  joins the workspace roots while `[self]` builds: `toolrun/guarded.rs`; the state dir's approve-list hold does not reach it for
+  the self session that owns it, theseus-pw1q.21.9: `rsi/own_tree.rs` names the one tree of the session's task, `toolrun/order.rs` passes it to
+  `ToolPolicy::decide_in` for `fs.*` calls only, and every other path, the floor and the sealed sets ask as before), the next commits, gates, writes the frozen
   report (`<state>/self/reports/<branch, / as ->.md`, 0444, ending `<!-- REPORT COMPLETE -->`), pushes a green branch
   when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
   a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.

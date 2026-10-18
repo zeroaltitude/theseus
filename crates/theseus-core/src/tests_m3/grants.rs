@@ -507,7 +507,7 @@ fn only_a_postures_ask_offers_a_grant() {
     let offered = |input: serde_json::Value, class: PlaceClass, external: bool| {
         let tool = rt.registry.get("proc.run").unwrap().clone();
         let plan = tool.plan(&input, &rt.ctx).unwrap();
-        let (d, bound) = crate::sandbox::unbrokered(rt, &*tool, &plan, &input, None);
+        let (d, bound) = crate::sandbox::unbrokered(rt, &*tool, &plan, &input, None, None);
         let asked = crate::policy::grants::Asked {
             approve: d.posture == Posture::Approve,
             reason: &d.reason,
