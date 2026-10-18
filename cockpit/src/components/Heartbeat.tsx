@@ -28,6 +28,8 @@ import { diskSummary } from '@/lib/disk'
 import { useTick } from '@/lib/hooks'
 import { useFlow } from '@/lib/flow'
 import { useWorld } from '@/lib/world'
+import { useThreadBoard } from '@/lib/threadwatch'
+import { workingCount } from '@/lib/taskboard'
 import { useAsOf, type World } from '@/lib/timemachine'
 import {
   binaryLamp, configLamp, discordLamp, diskLamp, healthSummary, kernelLamp, linkLamp, providerLamp, secretsLamp, webLamp,
@@ -94,6 +96,7 @@ function Heartbeat({ world }: { world: World | null }) {
           : <Readout label="up" then tone="fault" value="down then" title="the daemon was down at the moment the ship's log shows: a stop with no start after it" />
       ) : <Readout label="up" tone="live" value={h ? <Uptime secs={h.uptime_secs} at={dataUpdatedAt} /> : '—'} title="how long the daemon has been up" />}
       <Readout label="running" then={!!g} tone={running ? 'live' : 'idle'} value={String(running)} title="executions running" />
+      {!g && <TasksWorking />}
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {firstWaiting && (
           <button type="button" onClick={() => nav(`/session/${firstWaiting.session_id}`)}
@@ -112,6 +115,19 @@ function Heartbeat({ world }: { world: World | null }) {
         <Clock />
       </div>
     </header>
+  )
+}
+
+/** The tasks working now, from the work board: a task that waits on its own long command is not an execution running,
+ *  and is still working. Hidden at none; a press opens the Tasks page. */
+function TasksWorking() {
+  const n = workingCount(Object.values(useThreadBoard().board.views))
+  if (n === 0) return null
+  return (
+    <Link to="/tasks" data-testid="tasks-working" title="tasks running, waiting on their own commands, or paused; this opens the Tasks page" className="flex shrink-0 flex-col justify-center leading-none hover:brightness-125">
+      <span className="hdr-label">tasks</span>
+      <span className="mt-1 flex items-center gap-1.5"><LiveDot tone="live" size={5} /><span className="num text-[12.5px] text-ink">{n} task{n === 1 ? '' : 's'} working</span></span>
+    </Link>
   )
 }
 

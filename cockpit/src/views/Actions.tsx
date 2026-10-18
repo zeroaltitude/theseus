@@ -16,6 +16,7 @@ import { ago, cn, ms, short, stamp, usd, clock } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
 import { ConfirmCard, useAct } from '@/components/ConfirmCard'
+import { placeName } from '@/lib/taskboard'
 import { TaskGraphView, TaskTree } from '@/components/TaskGraph'
 import { ToolFamilies } from '@/components/ToolFamilies'
 
@@ -98,7 +99,10 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
   const shown = tasks.filter((t) => ended || alive(t))
   return (
     <Panel help="actions.tasks" title={<>Tasks · {tasks.filter(alive).length} alive{tasks.length ? ` of ${tasks.length}` : ''}</>} icon={<GitFork size={13} />} bodyClassName="max-h-[420px] overflow-auto p-2"
-      actions={tasks.some((t) => !alive(t)) ? <button onClick={() => setEnded((v) => !v)} className="text-[11px] text-ink-faint hover:text-ink">{ended ? 'hide ended' : 'show ended'}</button> : null}>
+      actions={<span className="flex items-center gap-3">
+        {tasks.some((t) => !alive(t)) && <button onClick={() => setEnded((v) => !v)} className="text-[11px] text-ink-faint hover:text-ink">{ended ? 'hide ended' : 'show ended'}</button>}
+        <Link to="/tasks" className="text-[11px] text-live hover:underline" data-testid="tasks-link">Tasks →</Link>
+      </span>}>
       {!shown.length && <Empty>{tasks.length ? 'no task alive' : 'no tasks yet'}</Empty>}
       {shown.map((t) => (
         <div key={t.task_id} className="border-b border-line/50 px-1.5 py-2 last:border-0">
@@ -114,7 +118,7 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
             <button onClick={() => nav(`/session/${t.parent_session_id}`)} className="hover:text-live">from {short(t.parent_session_id)}</button>
             <span className="text-money">{usd(t.spent_usd)} / {usd(t.limit_usd)}</span>
             <span>{t.turns} turns</span>
-            {t.target && <span>reports to {t.target}{t.wake_parent ? ' · wakes its parent' : ''}</span>}
+            {t.target && <span title={t.target}>reports to {placeName(t.target)}{t.wake_parent ? ' · wakes its parent' : ''}</span>}
             <span>{ago(t.updated_at_ms, now)}</span>
             {t.ended_reason && <span className="text-ink-dim">{t.ended_reason}</span>}
             {t.arrangement && (

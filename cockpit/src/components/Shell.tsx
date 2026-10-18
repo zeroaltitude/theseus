@@ -4,7 +4,7 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command, defaultFilter } from 'cmdk'
 import {
-  Activity, CalendarClock, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, Navigation, OctagonX, Pause, Radio,
+  Activity, CalendarClock, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, ListChecks, Navigation, OctagonX, Pause, Radio,
   GitBranch, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
@@ -36,6 +36,7 @@ const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
   { to: '/bridge', label: 'Bridge', icon: Gauge },
   { to: '/fleet', label: 'Fleet', icon: Layers },
+  { to: '/tasks', label: 'Tasks', icon: ListChecks },
   { to: '/threads', label: 'Threads', icon: GitBranch },
   { to: '/agenda', label: 'Agenda', icon: CalendarClock },
   { to: '/actions', label: 'Actions', icon: ShieldCheck },
@@ -57,7 +58,7 @@ type NavItemDef = (typeof NAV)[number]
 const NAV_KEY = 'cockpit.nav.groups'
 
 const GO: Record<string, string> = {
-  h: '/ship', d: '/agenda', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
+  h: '/ship', d: '/agenda', b: '/bridge', f: '/fleet', t: '/tasks', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
 }
 
 export function Shell() {

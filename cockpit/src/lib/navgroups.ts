@@ -6,7 +6,7 @@ export interface NavGroup { id: string; label: string; items: readonly string[] 
 /** Short labels: the rail is 68 px wide. Grouped by the question each answers: what is happening now, what Theseus knows, what it costs and how it chooses,
  *  what holds it back, how the machine is, and how it measures. The Ship leads the first and is the landing view. */
 export const NAV_GROUPS: readonly NavGroup[] = [
-  { id: 'live', label: 'Live', items: ['/ship', '/bridge', '/fleet', '/threads', '/agenda', '/actions'] },
+  { id: 'live', label: 'Live', items: ['/ship', '/bridge', '/fleet', '/tasks', '/threads', '/agenda', '/actions'] },
   { id: 'memory', label: 'Memory', items: ['/ontology', '/context', '/books'] },
   { id: 'money', label: 'Spend', items: ['/money', '/economics', '/judgment'] },
   { id: 'safety', label: 'Safety', items: ['/boundaries', '/policy'] },
