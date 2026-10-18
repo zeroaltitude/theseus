@@ -6,7 +6,7 @@
 //! `golden/progress_line.json`.
 
 use crate::usd;
-use crate::work::WorkView;
+use crate::work::{Cost, WorkView};
 
 const MIN_MS: f64 = 60_000.0;
 
@@ -50,16 +50,14 @@ fn time_words(v: &WorkView, now_ms: u64) -> Option<String> {
     Some(format!("~{} left", left(t)))
 }
 
-/// The line, or `None` when no part has data.
-pub fn progress_line(v: &WorkView, now_ms: u64) -> Option<String> {
+/// The line without `paused`: step, dollars and time left. A row that puts
+/// `paused` ahead of what the task is doing says this after it.
+pub fn progress_rest(v: &WorkView, now_ms: u64) -> Option<String> {
     let parts: Vec<String> = [
-        v.paused.then(|| "paused".to_string()),
         v.progress
             .as_ref()
             .and_then(|p| step_words(p.steps_done, p.steps_total)),
-        v.cost
-            .as_ref()
-            .map(|c| format!("{} of {}", usd(c.spent_usd), usd(c.limit_usd))),
+        v.cost.as_ref().map(cost_words),
         time_words(v, now_ms),
     ]
     .into_iter()
@@ -68,12 +66,26 @@ pub fn progress_line(v: &WorkView, now_ms: u64) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
+/// `$0.40 of $2`.
+pub fn cost_words(c: &Cost) -> String {
+    format!("{} of {}", usd(c.spent_usd), usd(c.limit_usd))
+}
+
+/// The line, or `None` when no part has data.
+pub fn progress_line(v: &WorkView, now_ms: u64) -> Option<String> {
+    match (v.paused, progress_rest(v, now_ms)) {
+        (true, Some(r)) => Some(format!("paused · {r}")),
+        (true, None) => Some("paused".to_string()),
+        (false, r) => r,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::forecast::WorkForecast;
     use crate::work::tests::view;
-    use crate::work::{Cost, Progress, WorkKind, WorkState};
+    use crate::work::{Progress, WorkKind, WorkState};
     use serde_json::Value;
 
     fn num(v: &Value, k: &str) -> f64 {
