@@ -57,7 +57,8 @@ case ${XDG_CONFIG_HOME:-} in
 /*) CONFIG_HOME=$XDG_CONFIG_HOME ;;
 *) CONFIG_HOME=$HOME/.config ;;
 esac
-INSTALLED=(theseusd theseus theseus-tui theseus-index) # scripts/build.sh --installed (theseus-sim is built, not installed)
+SHIPPED=(theseusd theseus theseus-tui theseus-sim theseus-index) # scripts/build.sh --shipped
+INSTALLED=(theseusd theseus theseus-tui theseus-index)          # scripts/build.sh --installed: theseus-sim is built, not installed
 DEFAULT_CONFIG_FILE=/etc/theseus/theseus.toml
 DRY=0
 BUILD=1
@@ -463,7 +464,7 @@ else
   dry && note "cargo builds what changed; a second run finds everything fresh"
 fi
 if ! dry; then
-  for b in "${INSTALLED[@]}"; do
+  for b in "${SHIPPED[@]}"; do
     [ -x "$TARGET/$b" ] || stop_here 1 "Not set up: $TARGET/$b is missing: build first (scripts/build.sh --profile release-thin)."
   done
 fi
