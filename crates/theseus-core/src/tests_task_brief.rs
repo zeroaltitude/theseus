@@ -107,6 +107,24 @@ async fn a_task_with_no_profile_runs_on_the_profile_its_briefs_class_picks() {
     assert!(d[0].get("follows").is_none());
 }
 
+/// review-fixes' floor holds for a brief too (the two rows' join): a brief
+/// that names a sensitive name never makes a profile of restricted origin the
+/// task's base; the class's next profile is, not the `[model]` default.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_brief_that_names_a_sensitive_name_skips_restricted_profiles() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "routine_coding", 0.95);
+    let r = rig_from(Some(&jev), "fable", |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()];
+        c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+    });
+    let brief = "Fix the typo in Examplecorp's quay notice.";
+    let (_, rec) = run(&r, &params(brief, None)).await;
+    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
+    assert!(r.zai.requests().is_empty());
+}
+
 /// A design brief from a cheap conversation goes up: the base is the class's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_design_brief_from_a_cheap_conversation_goes_to_opus() {

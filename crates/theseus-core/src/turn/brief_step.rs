@@ -70,7 +70,7 @@ impl TurnRunner {
                 threads: Vec::new(),
                 persona: self.persona_ctx(sid, class),
                 capture: false,
-                data_names: self.cfg.routing.data.names(),
+                data_names: self.cfg.routing.data.names(&self.cfg.privacy),
             },
         );
         t.route.brief = wait.is_some();
@@ -80,7 +80,7 @@ impl TurnRunner {
     /// The brief's verdict as the task's base: the class's first usable
     /// profile under the place's cap, at once (`routing::brief::brief_base`).
     pub(super) fn decide_brief(&self, t: &Turn<'_>, v: &Verdict) -> Decision {
-        let profiles = self.route_profiles();
+        let profiles = self.route_profiles(t.route.sensitive);
         let cap = Self::place_cap(t, &profiles);
         routing::brief::brief_base(
             &self.cfg.routing,
