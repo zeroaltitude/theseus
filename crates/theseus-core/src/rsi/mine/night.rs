@@ -81,7 +81,7 @@ impl Core {
     /// Fold what the cursor has not seen into the window, mine it, and, when
     /// `write`, keep it: one frame with the cursor, the days that changed, the
     /// vocabulary and the night's row.
-    fn mine_run(&self, now_ms: u64, write: bool) -> Result<Night> {
+    pub(crate) fn mine_run(&self, now_ms: u64, write: bool) -> Result<Night> {
         let p = self.cfg.self_improve.mint.params();
         let mut w = read::load(&self.store, now_ms, p.window_days)?;
         let fresh_key = w.cursor.key.is_empty();

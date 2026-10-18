@@ -28,6 +28,8 @@ use theseus_protocol::own_bench::WholeCall;
 use theseus_tools::{Tool, ToolCtx};
 
 use super::scratch::{remap, remap_json};
+use crate::flow::spec::Spec;
+use crate::rsi::mint::validate::walk::{walk, StepResult, Steps};
 use crate::toolrun::ToolRuntime;
 
 /// Tools that run on the copy.
@@ -98,6 +100,35 @@ pub struct Answer {
     pub is_error: bool,
 }
 
+/// A minted flow loaded for one replay arm (RSI loop 1, the A/B replay): the
+/// replayed model may call it, and it runs its steps through these hands, on
+/// the copy. Nothing is deployed: it exists in this replay alone.
+#[derive(Debug, Clone)]
+pub struct Minted {
+    pub spec: Arc<Spec>,
+    /// The tool's wire name, `flow__<name>`.
+    pub wire: String,
+}
+
+impl Minted {
+    pub fn new(spec: Spec) -> Self {
+        let wire = format!("{}{}", crate::flow::tool::WIRE_PREFIX, spec.name);
+        Self {
+            spec: Arc::new(spec),
+            wire,
+        }
+    }
+
+    /// The tool as a request lists it: the spec's own description and schema.
+    pub fn definition(&self) -> Value {
+        serde_json::json!({
+            "name": self.wire,
+            "description": self.spec.tool_description(),
+            "input_schema": self.spec.input_schema(),
+        })
+    }
+}
+
 pub struct Hands<'a> {
     pub rt: &'a ToolRuntime,
     pub orig: PathBuf,
@@ -111,6 +142,7 @@ pub struct Hands<'a> {
     pub calls: Vec<WholeCall>,
     pub ran: Vec<Ran>,
     pub changed: BTreeSet<String>,
+    minted: Option<Minted>,
 }
 
 impl<'a> Hands<'a> {
@@ -136,7 +168,14 @@ impl<'a> Hands<'a> {
             calls: Vec::new(),
             ran: Vec::new(),
             changed: BTreeSet::new(),
+            minted: None,
         }
+    }
+
+    /// Load a minted flow for this replay.
+    pub fn with_minted(mut self, minted: Option<Minted>) -> Self {
+        self.minted = minted;
+        self
     }
 
     fn ctx(&self) -> ToolCtx {
@@ -151,8 +190,25 @@ impl<'a> Hands<'a> {
         ctx
     }
 
-    /// Answers one call by the tool's wire name.
+    /// Answers one call by the tool's wire name: the minted flow's own steps
+    /// run through `call_plain`, the way any other call does.
     pub async fn call(&mut self, wire: &str, input: &Value) -> Answer {
+        let Some(m) = self.minted.clone().filter(|m| m.wire == wire) else {
+            return self.call_plain(wire, input).await;
+        };
+        let walked = walk(&m.spec, input, self).await;
+        let (text, is_error) = match walked {
+            Ok(w) => (w.text, false),
+            Err(e) => (format!("The flow did not start: {e}"), true),
+        };
+        self.note(wire, "ran", None);
+        Answer {
+            text: self.shown(&text),
+            is_error,
+        }
+    }
+
+    async fn call_plain(&mut self, wire: &str, input: &Value) -> Answer {
         let Some(tool) = self.rt.registry.by_wire(wire).cloned() else {
             self.note(wire, "refused", None);
             return Answer {
@@ -344,6 +400,46 @@ impl<'a> Hands<'a> {
         Answer {
             text,
             is_error: failed,
+        }
+    }
+}
+
+/// A program's result text as the flow engine reads it: what it printed,
+/// without the `$ argv` line and the `[exit N]` line these hands add.
+pub(super) fn printed(text: &str) -> String {
+    let body = text
+        .strip_prefix("$ ")
+        .and_then(|t| t.split_once('\n'))
+        .map_or(text, |(_, b)| b);
+    let body = body.trim_end();
+    match body.rsplit_once('\n') {
+        Some((head, last)) if last.starts_with("[exit ") || last.starts_with("[did not run") => {
+            head
+        }
+        _ if body.starts_with("[exit ") => "",
+        _ => body,
+    }
+    .to_string()
+}
+
+/// The flow's steps over these hands: the whole-turn replay's own way of
+/// running a call, on the copy, in L1 for a program.
+impl Steps for Hands<'_> {
+    async fn run(&mut self, _step: &str, tool: &str, args: &Value) -> StepResult {
+        let ran_before = self.ran.len();
+        let a = self.call_plain(&theseus_tools::wire_name(tool), args).await;
+        let exit = (tool == PROGRAM && self.ran.len() > ran_before)
+            .then(|| self.ran.last().and_then(|r| r.exit))
+            .flatten()
+            .map(i64::from);
+        StepResult {
+            ok: !a.is_error,
+            exit,
+            text: if tool == PROGRAM {
+                printed(&a.text)
+            } else {
+                a.text
+            },
         }
     }
 }

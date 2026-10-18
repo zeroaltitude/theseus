@@ -82,6 +82,7 @@ pub mod rsi_exams;
 pub mod rsi_graduate;
 pub mod rsi_join;
 pub mod rsi_mine;
+pub mod rsi_mint;
 pub mod rsi_narrow;
 pub mod rsi_pipeline;
 pub mod rsi_pr;
@@ -516,6 +517,7 @@ facts![
     rsi_backlog::BacklogDropped,
     rsi_graduate::GraduateProposed,
     rsi_mine::MineRan,
+    rsi_mint::MintValidated,
     rsi_pr::SelfBranchBuilt<'static>,
     rsi_exams::ExamCounted<'static>,
     rsi_exams::ExamRejected<'static>,

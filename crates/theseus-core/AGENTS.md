@@ -1127,6 +1127,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `pattern:<scope>:<digest>` (`backlog/read.rs::of_motif`, `Meta.pattern`, `rank::pattern_score`) and never starts it;
   `theseus self patterns` (`Core::self_patterns`, the owner's, works with the mode off) runs the same pass in memory and
   writes nothing. Tests: `rsi/mine/*/tests.rs`, `rpc/tests_self_patterns.rs`.
+  **From a motif to a checked tool** (theseus-pw1q.21.6; no store format change: one ledger kind, `self.mint.validated`;
+  `rsi/mint/`, `fact/rsi_mint.rs`; nothing is loaded, self-loaded or joined: deploying is the next step's). `spec.rs`: a
+  motif's skeleton as R6's flow spec (`flow_spec`, through `flow::spec`'s types), a constant kept only past the shape check
+  and the scrubber, else an input; where arms differ by what rerere did it adds a synthetic `git rerere status` step (the
+  runtime makes those classes only from that program). `kind.rs`: the rule, in order (flow when every step is an allowed
+  tool; an owner card, never a mint, for a tool that would need the network or a secret; Rust; MCP), under `[self.mint]
+  kinds`. `brief.rs`: the occurrences split by a keyed hash (META `self.mint.key`) into a build half the writer sees and a
+  check half at `<state>/self/mint/<name>/check/`; `brief` is given the build half alone and `isolated` asserts on its
+  bytes. The data rule (`data_rule`): a private motif is written and checked only on a profile whose **origin** is not
+  restricted (`Config::profile_origin`), never by name. `validate/`: `walk.rs` (a flow's engine over any runner of steps),
+  `fixtures.rs` (one fixture per arm, `GitFixtures`: a temp repository with an upstream, clean, known and unknown
+  conflicts, red tests; an arm no fixture builds fails by name), `dry.rs` (the dry replay: 3 instances, 90% reproduce,
+  0 deviations; remote steps stubbed with recorded results), `ab.rs` (arm A the recorded tool set, arm B plus the flow,
+  each arm reserved on `[self.budget]` and held to `[self.mint] usd`; 15% of tokens or time, 2 decisions removed, no loss of
+  success; a tool never called goes back to the backlog with that evidence). `run.rs` and `source.rs` are the daemon's
+  side: the writer's turn (its reply ends `MINT {json}`), the instances read from sessions (`own_bench/whole`'s
+  `scratch` and `undo`), `Hands` as the runner (`Steps for Hands`; arm B's `Minted` flow is listed in the replay's
+  request and run through the same hands). The start is `backlog/start.rs`'s `backlog_mint_start`, beside the fix start
+  with its own cap (`[self.mint] per_night`); a motif whose pending record exists is not started again. Tests:
+  `rsi/mint/tests.rs`, `validate/tests_*.rs`, `rpc/tests_self_mint.rs`, `own_bench/whole/tests_minted.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

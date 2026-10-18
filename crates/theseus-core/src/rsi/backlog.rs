@@ -56,6 +56,7 @@ mod tender;
 mod word;
 
 pub use read::{of_motif, Obs};
+pub(crate) use start::Settled;
 pub use word::BadItem;
 
 use std::collections::BTreeMap;
@@ -109,6 +110,9 @@ pub struct Started {
     pub session_id: String,
     /// The first turn's input.
     pub objective: String,
+    /// A minted tool's writer: the placeholder name its pending mint is kept
+    /// under (`rsi::mint::run`); `None` for a fix.
+    pub mint: Option<String>,
 }
 
 /// An item (a task) is open on the backlog while it waits its turn.
@@ -507,6 +511,7 @@ impl Core {
             false => cfg.backlog_starts as usize,
         };
         self.backlog_start(&mut w, starts, &mut night, None)?;
+        self.backlog_mint_start(&mut w, &mut night)?;
         self.backlog_write(&mut w)?;
         self.backlog_tell(&w, &night);
         Ok(night)

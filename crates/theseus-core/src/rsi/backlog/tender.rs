@@ -73,7 +73,12 @@ impl Core {
                             c.rsi.pipeline.kick();
                             for s in n.started {
                                 let c = c.clone();
-                                tokio::spawn(async move { c.backlog_run(s).await });
+                                tokio::spawn(async move {
+                                    match s.mint.clone() {
+                                        Some(placeholder) => c.mint_run(s, placeholder).await,
+                                        None => c.backlog_run(s).await,
+                                    }
+                                });
                             }
                         }
                         Err(e) => {

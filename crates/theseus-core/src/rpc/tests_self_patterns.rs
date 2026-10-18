@@ -26,11 +26,14 @@ use crate::session::SessionRecord;
 const DAY: u64 = 86_400_000;
 const OWNER: u64 = 271_828_182_845_904_523;
 
-fn core_with(mode: SelfMode, mine: bool) -> Arc<Core> {
+pub(super) fn core_with(mode: SelfMode, mine: bool) -> Arc<Core> {
     let base = test_core("the tide is out");
     let mut cfg = (*base.cfg).clone();
     cfg.self_improve.mode = mode;
     cfg.self_improve.mint.mine = mine;
+    // The miner's night alone starts nothing (the mint start has its own
+    // tests, `tests_self_mint`).
+    cfg.self_improve.mint.per_night = 0;
     cfg.self_improve.backlog_starts = 1;
     cfg.server.disk_warn_mb = 0;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
@@ -42,7 +45,7 @@ fn core_with(mode: SelfMode, mine: bool) -> Arc<Core> {
     .unwrap()
 }
 
-fn acting(mine: bool) -> Arc<Core> {
+pub(super) fn acting(mine: bool) -> Arc<Core> {
     let c = core_with(SelfMode::Act, mine);
     c.self_resume(&SelfResumeParams::default(), &Answerer::from("the CLI"))
         .unwrap();
@@ -50,7 +53,7 @@ fn acting(mine: bool) -> Arc<Core> {
 }
 
 /// An invented repository on disk: a `.git/config` with an origin.
-fn repo() -> PathBuf {
+pub(super) fn repo() -> PathBuf {
     let d = std::env::temp_dir().join(format!("theseus-mine-{}", crate::new_id("r")));
     std::fs::create_dir_all(d.join(".git")).unwrap();
     std::fs::write(
@@ -61,7 +64,7 @@ fn repo() -> PathBuf {
     d
 }
 
-fn session(c: &Core, dir: &std::path::Path) -> String {
+pub(super) fn session(c: &Core, dir: &std::path::Path) -> String {
     let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     rec.dir = Some(dir.display().to_string());
     c.store.put_session(&rec.session_id, &rec).unwrap();
@@ -69,7 +72,7 @@ fn session(c: &Core, dir: &std::path::Path) -> String {
 }
 
 /// One turn: an assistant answer and, for each call, its node and its result.
-fn turn(c: &Core, sid: &str, at_ms: u64, calls: &[(&str, Value, i64, &str)]) {
+pub(super) fn turn(c: &Core, sid: &str, at_ms: u64, calls: &[(&str, Value, i64, &str)]) {
     let tid = crate::new_id("trn");
     let mut a = Node::assistant(
         sid,
@@ -157,7 +160,7 @@ fn run(argv: &[&str]) -> (&'static str, Value) {
 
 /// The owner's flow, `n` times over `n` sessions on four days. `secret`
 /// rides one call's argv.
-fn seed(c: &Core, dir: &std::path::Path, now: u64, secret: Option<&str>) {
+pub(super) fn seed(c: &Core, dir: &std::path::Path, now: u64, secret: Option<&str>) {
     let test = ["cargo", "nextest", "run", "-p", "harbord"];
     for i in 0..6u64 {
         let sid = session(c, dir);
@@ -211,7 +214,7 @@ fn api_key() -> String {
 }
 
 /// Every META, LEDGER and TASK byte the store holds.
-fn stored_bytes(c: &Core) -> Vec<u8> {
+pub(super) fn stored_bytes(c: &Core) -> Vec<u8> {
     let mut all = Vec::new();
     for r in theseus_store::Store::scan(&**c.store.inner(), 0, None, usize::MAX).unwrap() {
         if matches!(r.kind, kinds::META | kinds::LEDGER | kinds::TASK) {
@@ -222,11 +225,11 @@ fn stored_bytes(c: &Core) -> Vec<u8> {
     all
 }
 
-fn frames(c: &Core) -> u64 {
+pub(super) fn frames(c: &Core) -> u64 {
     c.store.last_position()
 }
 
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     theseus_protocol::now_unix_ms() + 20 * 60_000
 }
 
