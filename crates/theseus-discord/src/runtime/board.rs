@@ -122,6 +122,7 @@ impl Place {
                 theseus_protocol::TaskListParams {
                     session_id: None,
                     target: Some(self.target.clone()),
+                    ..Default::default()
                 },
             )
             .await

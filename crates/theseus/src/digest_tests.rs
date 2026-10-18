@@ -75,6 +75,7 @@ fn result() -> WorkDigestResult {
             total: 8,
         },
         questions: vec![question()],
+        more: None,
     }
 }
 

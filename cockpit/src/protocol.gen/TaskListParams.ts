@@ -2,7 +2,8 @@
 
 /**
  * `task.list`: every task, the newest first, or only one session's, or
- * only those that report to one place.
+ * only those that report to one place. The filters below are all absent by
+ * default, so a call without them answers what it always did.
  */
 export type TaskListParams = { 
 /**
@@ -12,4 +13,27 @@ session_id?: string,
 /**
  * Only the tasks that report to this place (`discord:dm:<user>`).
  */
-target?: string, };
+target?: string, 
+/**
+ * Only the tasks that have ended (`true`) or have not (`false`).
+ */
+ended?: boolean, 
+/**
+ * Only the tasks that ended, or for an open one were updated, at or
+ * after this time (unix ms).
+ */
+since_ms?: number, 
+/**
+ * Words, in any case, that must all appear in a task's title, its
+ * objective (the brief) or its report's first line.
+ */
+query?: string, 
+/**
+ * One task, by its id or the end of it (at least four characters),
+ * with its children and its whole report.
+ */
+id?: string, 
+/**
+ * The newest this many.
+ */
+limit?: number, };

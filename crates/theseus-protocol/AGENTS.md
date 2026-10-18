@@ -211,6 +211,11 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   whose note begins `⚑` as a milestone's (`MILESTONE_MARK`, no clock icon), and `⚑ overdue` as `Why::Overdue`: an Interrupt with no sound.
 - `flow.rs` (theseus-pw1q.21.4): `FlowInfo` (a loaded flow, as `Core::flow_list` tells it) and `FlowHandback` (the state a flow
   hands the model). Not in the TypeScript: no cockpit reader yet.
+- `tasks.rs` also holds `task.list`'s params and result (moved out of lib.rs, theseus-ypnxt.1): the filters `ended`, `since_ms`,
+  `query`, `id` and `limit`, and `TaskListResult.details` (`TaskDetail`: the report's first line, whole report and hold),
+  absent from the bytes when no filter is set. `work_digest.rs`: a reported task's `DigestLine` carries its `report` and is
+  never folded without its title (`NAMED_MAX` told, the rest named together); `WorkDigestResult.more` (`DigestMore`) says where a
+  ledger read stopped.
 - `ts.rs`: the TypeScript export.
 
 ## The CLI's spellings and the wire (theseus-rwpbg.10)

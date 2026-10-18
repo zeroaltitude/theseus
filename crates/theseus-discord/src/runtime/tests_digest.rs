@@ -27,6 +27,7 @@ fn result(lines: Vec<theseus_protocol::DigestLine>) -> WorkDigestResult {
         from_ledger: false,
         now: Rollup::default(),
         questions: vec![],
+        more: None,
     }
 }
 

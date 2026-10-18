@@ -793,14 +793,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `remind_at`. `task.create { notify_done }` is stored on `TaskOf` (store format 34) and flags the task's work view, so the
   policy's report row interrupts. Tests: `tests_m3/ask.rs`, `tests_ask.rs` (a task asks, the CLI answers, it resumes), the
   Discord crate's `tests_gateway/ask.rs`, `notices::tests` for the flag.
+- **`task.list`'s filters** (theseus-ypnxt.1; `rpc/task_history.rs`): `ended`, `since_ms`, `query` (all words, any case, over
+  the title, the objective or else the brief, and the report's first line), `id` (one task by its id or the end of it, with its
+  children and whole report) and `limit` (the newest N) narrow the answer; with none set `task_list` answers exactly what it
+  did. `TaskListResult.details` carries, by task, the report's first line (for `ended`, `query` and `id`) and, for `id`, the
+  whole report and whether the task is held. The report is the node its record's `report:` evidence names (one point read),
+  else why it ended; it is read only when a filter asks. Tests: `rpc/tests_task_history.rs`.
 - **`work.digest`** (theseus-qkoi3; `rpc/digest.rs`, `push/work/digest.rs`): "since you last looked", in a few lines. Params
   `{since: position | since_ms, roots?: [session_id]}`, answer `{from, to, lines, from_ledger, now, questions}`; the
   protocol (`work_digest.rs`) words a `DigestLine` once (`digest_words`), folds bursts (three or more of one kind under
   one root within ten minutes of each other become one line, `fold_digest`) and words the summary line every surface prints
   (`digest_summary`). From the work board's notice ring when it reaches back to `since` (`notices_since` complete), plus
   the board's cancelled tasks (the policy gives a cancel no notice); else from the ledger by kind (`task.ended`,
-  `action.confirm_answered`, `execution.failed`, `wake.fired`, `tool.late_result`, the newest 2,000 rows) on the blocking
-  pool, and the answer says so. A time is turned into a position by the ledger index's first row at or after it. Both
+  `action.confirm_answered`, `execution.failed`, `wake.fired`, `tool.late_result`) over the whole window, a page of each kind
+  at a time from its start, to `HARD_ROWS` (20,000; past it the lines are whole up to the time the read reached and the result's
+  `more` says so, with the command that lists the rest) on the blocking pool, and the answer says so. A task that reported is
+  told by title with the first line of its report (`DigestLine.report`, `Core::report_text`, the one reader `task.list` uses
+  too): up to five under one root, then `📋 and N more: A, B`, never `N tasks reported`. A time is turned into a position by the ledger index's first row at or after it. Both
   sources make the same `Raw` lines, so a window told from either has the same kind, work and count (the test
   `the_ring_and_the_ledger_agree_on_the_same_window`); a job that ended well is no news in either. Seen stays the
   client's: the daemon keeps no position per surface, and writes no frame. The place rule is `work.watch`'s: a

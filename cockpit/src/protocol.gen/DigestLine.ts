@@ -10,4 +10,8 @@ export type DigestLine = { at_ms: number, kind: DigestKind, work: WorkRef, words
 /**
  * How many things the line stands for: 1 unless a burst was folded.
  */
-count: number, };
+count: number, 
+/**
+ * For a task that reported: the first line of its report, which `words` carries.
+ */
+report?: string, };

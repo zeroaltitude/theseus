@@ -36,7 +36,7 @@ pub(crate) struct Model {
     next: Next,
     pub(crate) requests: Mutex<Vec<ProviderRequest>>,
     /// A task's own turns answer with this.
-    report: String,
+    report: Mutex<String>,
     /// While set, a task's own turns wait before answering, so the task
     /// stays open (theseus-ext.10).
     pub(crate) hold_tasks: std::sync::atomic::AtomicBool,
@@ -80,7 +80,7 @@ impl Provider for Model {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             let answer = if task {
-                Scripted::text(&self.report)
+                Scripted::text(&self.report.lock().unwrap())
             } else if answers_a_call(req) {
                 Scripted::text("Done.")
             } else {
@@ -99,6 +99,13 @@ impl Provider for Model {
                 .stream_message(req, on_delta)
                 .await
         })
+    }
+}
+
+impl Model {
+    /// What the next tasks report.
+    pub(crate) fn report_with(&self, text: &str) {
+        *self.report.lock().unwrap() = text.into();
     }
 }
 
@@ -123,7 +130,7 @@ pub(crate) fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) ->
     let model = Arc::new(Model {
         next: next.clone(),
         requests: Mutex::default(),
-        report: "Charted every buoy in the outer harbour.".into(),
+        report: Mutex::new("Charted every buoy in the outer harbour.".into()),
         hold_tasks: std::sync::atomic::AtomicBool::new(false),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();

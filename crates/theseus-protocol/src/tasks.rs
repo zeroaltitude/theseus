@@ -302,6 +302,90 @@ fn or_none(s: &str) -> &str {
     }
 }
 
+/// `task.list`: every task, the newest first, or only one session's, or
+/// only those that report to one place. The filters below are all absent by
+/// default, so a call without them answers what it always did.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TaskListParams {
+    /// Only the tasks this session started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_id: Option<String>,
+    /// Only the tasks that report to this place (`discord:dm:<user>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub target: Option<String>,
+    /// Only the tasks that have ended (`true`) or have not (`false`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub ended: Option<bool>,
+    /// Only the tasks that ended, or for an open one were updated, at or
+    /// after this time (unix ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub since_ms: Option<u64>,
+    /// Words, in any case, that must all appear in a task's title, its
+    /// objective (the brief) or its report's first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub query: Option<String>,
+    /// One task, by its id or the end of it (at least four characters),
+    /// with its children and its whole report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub id: Option<String>,
+    /// The newest this many.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub limit: Option<u32>,
+}
+
+impl TaskListParams {
+    /// Whether any filter beyond the session and the place is set.
+    pub fn narrows(&self) -> bool {
+        self.ended.is_some()
+            || self.since_ms.is_some()
+            || self.query.is_some()
+            || self.id.is_some()
+            || self.limit.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TaskListResult {
+    pub tasks: Vec<crate::TaskInfo>,
+    /// The task records (39a), each task once: its graph, sessions' and plan items'.
+    #[serde(default)]
+    pub records: Vec<TaskRecord>,
+    /// What a narrowed read adds about the tasks it names, by task id: the
+    /// report's first line (for `ended`, `query` and `id`), and for `id`
+    /// the whole report and whether the task is held. Empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<TaskDetail>,
+}
+
+/// A task's report and hold, beside its `TaskInfo` (`task.list` with a filter).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TaskDetail {
+    /// Its session's id, as `TaskInfo.task_id`.
+    pub task_id: String,
+    /// The first line of its report; for a task that failed or was stopped,
+    /// why it ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub report_line: Option<String>,
+    /// The whole report (only when the read named the task by `id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub report: Option<String>,
+    /// Held by `task.pause` (only when the read named the task by `id`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
+}
+
 /// `task.changed`: a task's record after a change, with the verb that made
 /// it (`created`, `updated`, `split`, `closed`, `claimed`, `lease_expired`,
 /// `change_proposed`, `change_accepted`, `change_declined`, `change_expired`).

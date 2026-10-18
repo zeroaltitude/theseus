@@ -152,6 +152,7 @@ pub use sessions::{RetiredReason, SessionLink, SessionRetired, SessionState};
 pub use standing::*;
 pub use standing_proposals::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
+pub use tasks::{TaskDetail, TaskListParams, TaskListResult};
 pub use term::{TerminalInfo, TerminalLeft};
 pub use time::now_unix_ms;
 pub use toolinfo::{ToolInfo, ToolListResult};
@@ -1746,30 +1747,6 @@ pub struct TaskInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub check: Option<TaskCheck>,
-}
-
-/// `task.list`: every task, the newest first, or only one session's, or
-/// only those that report to one place.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct TaskListParams {
-    /// Only the tasks this session started.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub session_id: Option<String>,
-    /// Only the tasks that report to this place (`discord:dm:<user>`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub target: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct TaskListResult {
-    pub tasks: Vec<TaskInfo>,
-    /// The task records (39a), each task once: its graph, sessions' and plan items'.
-    #[serde(default)]
-    pub records: Vec<tasks::TaskRecord>,
 }
 
 /// `task.cancel`: stop a task and its jobs, as `execution.cancel` does; the
