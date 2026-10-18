@@ -18,11 +18,10 @@ fn the_owners_example_is_found_with_its_arms() {
     let mut l = Ledger::new();
     l.owners_example(REPO);
     let mined = found(&l);
-    let land = mined
-        .motifs
-        .iter()
-        .find(|m| m.steps.iter().any(|s| s.id == "merge"))
-        .expect("the land stretch is a motif");
+    // The land stretch is one motif, not a motif for each of its seeds.
+    let lands: Vec<_> = mined.motifs.iter().filter(|m| m.steps.iter().any(|s| s.id == "merge")).collect();
+    assert_eq!(lands.len(), 1, "{}", lands.len());
+    let land = lands[0];
     assert_eq!(
         land.support,
         Support {
