@@ -691,6 +691,7 @@ impl Shared {
                     .error("task thread", Some(&m.session), format!("{e:#}"));
             }
         }
+        self.end_guests(&m).await;
         self.task_threads.update(&m.task, |x| {
             x.name.clone_from(&name);
             x.ended_ms = Some(theseus_protocol::now_unix_ms());

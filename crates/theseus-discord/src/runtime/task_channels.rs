@@ -19,9 +19,16 @@
 //!   and no guest is added. The parent place gets one quiet line, the Follow
 //!   mirror `-# in <#channel>`.
 //! - **At the end** the report is posted in the channel; one PATCH moves it
-//!   under `⚙️ Theseus tasks · done`, names it `✅`/`❌`, and denies the owner
-//!   Send Messages. A sweep at the start and once a day deletes the channels
-//!   that ended `task_channel_keep_days` ago.
+//!   under `⚙️ Theseus tasks · done`, names it `✅`/`❌`, and replaces the
+//!   whole overwrite set (Discord's Modify Channel replaces, never merges):
+//!   every overwrite but `@everyone`'s View Channel deny, the operator's read
+//!   (view and history, no Send Messages) and the bot's own goes, so a war
+//!   room's guest and a role someone added by hand lose access. The guest
+//!   list (META `discord.task_guests.<task>`) is cleared, and a `share:` of
+//!   the ended task is refused (`war_room.rs`). A member with Administrator,
+//!   and the guild's owner, see every channel whatever the overwrites say:
+//!   Discord allows nothing narrower. A sweep at the start and once a day
+//!   deletes the channels that ended `task_channel_keep_days` ago.
 //! - **Fallbacks.** A 403 turns channels off until the next start (the owner
 //!   gets one DM line saying which permissions are missing) and the task goes
 //!   on as before; so does a task past `task_channel_cap` open channels, and
@@ -618,7 +625,7 @@ impl Shared {
         let guild = m.guild.unwrap_or_default();
         let closed = self.task_channel_close(&m, guild, &name).await;
         match closed {
-            Ok(()) => {}
+            Ok(()) => self.end_guests(&m).await,
             Err(Refused::Forbidden) => {
                 if self.task_threads.chan.refuse() {
                     let line = "-# I can't move task channels: grant the bot Manage Channels \

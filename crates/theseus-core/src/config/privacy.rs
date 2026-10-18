@@ -1,0 +1,43 @@
+//! `[privacy]` (theseus-oejh3): the one list of names whose matter never goes
+//! to a model of restricted origin. Route.v6's `data` question reads it as the
+//! private names, the pack-text check at start reads it, and a floor keeps a
+//! turn that names one off models whose origin is `cn` or `unknown`. The
+//! matcher is `theseus_judge::names`. Every key has a default, so an owner's
+//! config names none unless it differs.
+//!
+//! - `sensitive_names`: organisations, clients, projects and people, empty by
+//!   default. Matching is case-insensitive on whole words.
+
+use serde::{Deserialize, Serialize};
+use theseus_judge::names::Names;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrivacyConfig {
+    #[serde(default)]
+    pub sensitive_names: Vec<String>,
+}
+
+impl PrivacyConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The names, ready to match.
+    pub fn names(&self) -> Names {
+        Names::new(&self.sensitive_names)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_list_is_empty_by_default_and_parses() {
+        assert!(PrivacyConfig::default().names().is_empty());
+        let c: PrivacyConfig = toml::from_str("sensitive_names = [\"Acme\", \"Big Co\"]").unwrap();
+        assert_eq!(c.names().hits("big co and ACME"), ["Acme", "Big Co"]);
+        assert!(toml::from_str::<PrivacyConfig>("names = [\"x\"]").is_err());
+    }
+}

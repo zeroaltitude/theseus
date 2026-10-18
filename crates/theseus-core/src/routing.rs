@@ -129,6 +129,9 @@ pub enum Reason {
     /// Two agreeing verdicts moved the session back down to its base
     /// (theseus-p8dy).
     StepDown,
+    /// The message names a sensitive name and the turn's profile was of
+    /// restricted origin, so the `[model]` default runs (theseus-oejh3).
+    DataGate,
 }
 
 impl Reason {
@@ -148,6 +151,7 @@ impl Reason {
             Reason::Correction => "correction",
             Reason::ContextGuard => "context_guard",
             Reason::StepDown => "step_down",
+            Reason::DataGate => "data_gate",
         }
     }
 }

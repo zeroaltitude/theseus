@@ -38,6 +38,7 @@ pub mod context_parts;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
+pub mod data_gate;
 pub mod day_ceiling;
 pub mod disk;
 pub mod egress;
@@ -80,6 +81,7 @@ pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
 pub mod pacer;
+pub mod pack_names;
 pub mod parked;
 pub mod peer;
 pub mod persona;
@@ -251,6 +253,8 @@ mod tests_continuations;
 mod tests_continue;
 #[cfg(test)]
 mod tests_continue_slow;
+#[cfg(test)]
+mod tests_data_gate;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]

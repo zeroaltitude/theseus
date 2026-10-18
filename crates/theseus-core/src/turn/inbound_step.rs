@@ -104,7 +104,7 @@ impl TurnRunner {
                     threads: Vec::new(),
                     persona: self.persona_ctx(t.tc.session_id, class),
                     capture,
-                    data_names: self.cfg.routing.data.names(),
+                    data_names: self.cfg.routing.data.names(&self.cfg.privacy),
                 },
             ),
         };
@@ -113,6 +113,7 @@ impl TurnRunner {
         }
         let asked = wait.is_some();
         Self::route_asked(t, wait, route, images);
+        t.route.sensitive = self.sensitive_message(text);
         // The owner's correction, or the layer (theseus-q31l): a turn that
         // asked the route pack can be steered; any turn's words can label.
         self.correction_point(t, &node.id, text, author, place.as_deref(), route, asked);

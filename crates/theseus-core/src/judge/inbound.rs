@@ -715,7 +715,16 @@ struct Ready {
 /// was answered by the model the pack pins, and route.v3's `reply_effort`
 /// answer beside it, sure when its band reached the question's confirm bar
 /// (theseus-qe3v).
-pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing::Verdict> {
+///
+/// When the message names a sensitive name (`sensitive`), the `data` answer is
+/// `private` at confidence 1.0 in band `Act` whatever Jev said (theseus-oejh3):
+/// the later rows mint a pass only on `open`, so a hit fails closed. Jev's own
+/// answer stays in the judgment's record.
+pub fn verdict(
+    j: &theseus_judge::Judgment,
+    turn: &str,
+    sensitive: bool,
+) -> Option<crate::routing::Verdict> {
     use crate::routing::effort::{EffortAnswer, QUESTION};
     if !j.actionable() {
         return None;
@@ -743,14 +752,27 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         turn: turn.to_string(),
         persona: crate::engage::persona_answer(j).map(Box::new),
         seal: crate::engage::seal_answer(j).map(Box::new),
-        data: choice(crate::routing::data::QUESTION).map(|(choice, confidence, band)| {
-            Box::new(crate::routing::DataAnswer {
-                choice,
-                confidence,
-                band,
+        data: if sensitive {
+            Some(Box::new(crate::routing::DataAnswer::private_by_name()))
+        } else {
+            choice(crate::routing::data::QUESTION).map(|(choice, confidence, band)| {
+                Box::new(crate::routing::DataAnswer {
+                    choice,
+                    confidence,
+                    band,
+                })
             })
-        }),
+        },
     })
+}
+
+/// The message names one of the operator's sensitive names
+/// (`[privacy] sensitive_names`, the private names of Jev's state).
+pub fn names_hit(names: &DataNames, text: &str) -> bool {
+    !names.private.is_empty()
+        && !theseus_judge::names::Names::new(&names.private)
+            .hits(text)
+            .is_empty()
 }
 
 /// `classify.v2`'s `thread` answer from its judgment, when it was answered
@@ -855,6 +877,18 @@ fn seal_of(me: &Weak<JudgeService>, session: &str, judgments: &[theseus_judge::J
     }
 }
 
+/// The urgency of `route.v1`'s ask and of the batch beside it.
+fn urgencies(packs: &[(Arc<Pack>, String, PackMode)], total: u64) -> (Urgency, Urgency) {
+    let of = |route: bool| {
+        let modes = packs
+            .iter()
+            .filter(|(p, _, _)| (p.name() == ROUTE_PACK) == route)
+            .map(|(_, _, m)| *m);
+        urgency_of(modes, total)
+    };
+    (of(true), of(false))
+}
+
 /// One inbound decision point, in its own task: `route.v1`'s ask in a
 /// request of its own, and the other packs' asks batched into one, the two
 /// at once (theseus-ddbi). The verdict goes to the turn as its request
@@ -875,22 +909,9 @@ async fn judge_inbound(
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
     let total = svc.cfg.total_secs;
-    let route_urgency = urgency_of(
-        packs
-            .iter()
-            .filter(|(p, _, _)| p.name() == ROUTE_PACK)
-            .map(|(_, _, m)| *m),
-        total,
-    );
-    let rest_urgency = urgency_of(
-        packs
-            .iter()
-            .filter(|(p, _, _)| p.name() != ROUTE_PACK)
-            .map(|(_, _, m)| *m),
-        total,
-    );
+    let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
-    let session = msg.session_id.clone();
+    let (session, names) = (msg.session_id.clone(), msg.data_names.clone());
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
         .await
@@ -926,7 +947,9 @@ async fn judge_inbound(
         );
         if let Some(tx) = route {
             let _ = tx.send(Answered {
-                verdict: judgments.first().and_then(|j| verdict(j, &turn)),
+                verdict: judgments
+                    .first()
+                    .and_then(|j| verdict(j, &turn, names_hit(&names, &brief))),
                 at: tokio::time::Instant::now(),
             });
         }

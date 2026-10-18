@@ -36,6 +36,7 @@ mod outputs;
 pub(crate) mod people;
 pub mod persona;
 pub mod prefix;
+pub mod privacy;
 mod projects;
 pub(crate) mod route;
 mod routines;
@@ -167,6 +168,9 @@ pub struct Config {
     /// `[routing]`: Jev's model per interaction mode (M5 25e), in `config/routing.rs`.
     #[serde(default, skip_serializing_if = "RoutingConfig::is_default")]
     pub routing: RoutingConfig,
+    /// `[privacy]`: the one list of sensitive names (theseus-oejh3), `config/privacy.rs`.
+    #[serde(default, skip_serializing_if = "privacy::PrivacyConfig::is_default")]
+    pub privacy: privacy::PrivacyConfig,
     /// `[mcp.servers.<name>]`: the MCP servers whose tools turns are offered
     /// (M7 36b), in `config::mcp`.
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
@@ -1726,6 +1730,14 @@ impl Config {
         let secrets = cfg.secrets.clone();
         cfg.judge.resolve(&secrets);
         Ok(cfg)
+    }
+
+    /// A test's `[model]` served from a China-origin endpoint, after the
+    /// providers were resolved (theseus-oejh3).
+    #[cfg(test)]
+    pub(crate) fn serve_default_from_cn(&mut self) {
+        let p = self.resolved.providers.get_mut("anthropic");
+        p.expect("the implicit provider").api_base = "https://api.z.ai/api/anthropic".into();
     }
 
     /// Every profile by name, with the implicit `default` synthesized from

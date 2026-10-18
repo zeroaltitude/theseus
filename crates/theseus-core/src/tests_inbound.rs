@@ -275,7 +275,7 @@ async fn the_operators_names_ride_the_state_only_when_configured() {
     let r = rig_on(texts(1), Some(&jev), |c| {
         inbound_only(c);
         c.routing.data.open_topics = vec!["Widgetco".into()];
-        c.routing.data.private_topics = vec!["Acme".into()];
+        c.privacy.sensitive_names = vec!["Acme".into()];
     });
     turn(&r.core, None, "Summarise the Widgetco release notes.").await;
     until_inbound(&r.core.store, 1).await;

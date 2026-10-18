@@ -1514,11 +1514,22 @@ dear_tier_max_tokens = 200000           # over this much context, sophisticated 
 # similarity = 0.5                      # the share of content words a close message has in common
 # max_entries = 64                      # the layer's bound, the oldest out
 # Names Jev reads with each message (route.v6's `data` question, theseus-a1wvq): work you
-# name as open may go to a model provider outside your trust, and matter you name as private
-# never does. Names live here and nowhere else; a message is judged by what it carries.
+# name as open may go to a model provider outside your trust. Names live here and nowhere
+# else; a message is judged by what it carries. The private ones are `[privacy]` below.
 # [routing.data]
 # open_topics = []                      # e.g. an open-source project of yours
-# private_topics = []                   # e.g. your employer, a client
+
+# Sensitive names (theseus-oejh3): organisations, clients, projects and people whose matter
+# never goes to a model of restricted origin (`cn` or `unknown` in the catalog). A message
+# that names one is read by Jev as private, runs on a profile of unrestricted origin (or on
+# none: the turn then ends before any model call), and every request to a restricted model
+# is checked for the names again, so it fails closed. Matching is case-insensitive and on
+# whole words, a name of several words as a run of them: `Examplecorp` matches
+# "examplecorp's plan" and "EXAMPLECORP-internal" and not "examplecorpus". List each
+# spelling you mean, `BigCo` and `Big Co` separately. The list lives in your own config,
+# never in the repository; these are placeholders.
+# [privacy]
+# sensitive_names = ["Examplecorp", "Project Placeholder"]
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

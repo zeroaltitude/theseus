@@ -1274,6 +1274,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`judge/seal.rs`); Jev never seals. Known limits: the prior and the thread's answered-by history are in memory
     (lost at a restart; the prior then falls back to the session's own persona); the router's early inbound call
     (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
+  - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `data_gate.rs`, `turn/data_step.rs`, `pack_names.rs`): `[privacy]
+    sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
+    several words as a run of them). It is route.v6's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
+    `private_topics` key is refused), a message that hits one makes the verdict's `data` answer `private` at 1.0 in band `Act`
+    (`judge::inbound::verdict`), the route skips every profile of restricted origin for that turn (`route_profiles(true)`; none
+    left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint
+    refuses a request to a restricted model that holds one in any string of its system, messages or tools, before a byte is
+    sent (`data_gate::guard`, applied to every provider in `Core::build`; with the list empty nothing is wrapped). At start the
+    embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
+    naming pack and count, never a name). Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

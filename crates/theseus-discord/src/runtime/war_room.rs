@@ -7,6 +7,10 @@
 //!   thread adds the guest as a thread member, when they can already see the
 //!   thread's parent (a thread is as visible as its channel, and an add cannot
 //!   widen that). The guests are kept per task in META `discord.task_guests.<task>`.
+//! - **At the end** the place is the owner's alone: the channel's close replaces
+//!   every overwrite (`task_channels.rs`), a thread's guests are removed while
+//!   it is still open (`end_guests`; Discord keeps an archived thread's members
+//!   as they are), the list is cleared, and a `share:` is refused.
 //! - **A comment.** A non-owner's message in a private task's place is never a
 //!   `turn.submit`, a steer or a redirect, shared explicitly or not: it is kept
 //!   (META `discord.task_comments.<task>`, the last 50, with a running total),
@@ -25,7 +29,7 @@ use twilight_model::id::marker::UserMarker;
 use twilight_model::id::Id;
 
 use super::inbound::Inbound;
-use super::threads::Made;
+use super::threads::{Made, PlaceKind};
 use super::{Place, Shared};
 use crate::render::clip;
 use theseus_protocol::LedgerKind;
@@ -112,6 +116,33 @@ impl Shared {
         if let Err(e) = self.core.store.put_meta(key, value) {
             self.board.error("war room", None, e);
         }
+    }
+}
+
+impl Shared {
+    /// The task ended: its guests go. A channel's close has replaced every
+    /// overwrite (the caller says so by calling this), so the list is
+    /// cleared; a thread's guests are removed from it, which Discord allows
+    /// only while it is open, and one it refuses stays listed for `unshare:`.
+    pub(super) async fn end_guests(&self, made: &Made) {
+        let guests = self.guests_of(&made.task);
+        if guests.is_empty() {
+            return;
+        }
+        let mut left = Vec::new();
+        for g in guests {
+            if made.kind == PlaceKind::Thread {
+                let gone = self
+                    .http
+                    .remove_thread_member(Id::new(made.thread), Id::new(g))
+                    .await;
+                if let Err(e) = gone {
+                    self.board.error("war room", Some(&made.session), e);
+                    left.push(g);
+                }
+            }
+        }
+        self.keep(&guests_key(&made.task), &left);
     }
 }
 
@@ -205,6 +236,9 @@ impl Place {
         let Some(made) = s.task_threads.all().into_iter().find(|m| m.task == v.id) else {
             return "That task has no thread or channel to share yet.".into();
         };
+        if made.ended_ms.is_some() && matches!(guest, Guest::Add(_)) {
+            return "That task has ended; its place is yours alone.".into();
+        }
         match s.set_guest(&made, guest).await {
             Ok(line) | Err(line) => line,
         }

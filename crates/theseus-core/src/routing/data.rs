@@ -1,6 +1,7 @@
 //! route.v6's `data` question (theseus-a1wvq): may what the message carries go
 //! to a model provider outside the owner's trust? Read here, acted on by
-//! nothing yet.
+//! nothing yet; a message that names a sensitive name (`[privacy]
+//! sensitive_names`) is answered `private` by code (theseus-oejh3).
 
 use theseus_judge::band::Band;
 
@@ -15,4 +16,16 @@ pub struct DataAnswer {
     pub choice: String,
     pub confidence: f64,
     pub band: Band,
+}
+
+impl DataAnswer {
+    /// The answer a message that names a sensitive name gets, whatever Jev
+    /// said (theseus-oejh3): private, sure, at the act band.
+    pub fn private_by_name() -> Self {
+        Self {
+            choice: "private".into(),
+            confidence: 1.0,
+            band: Band::Act,
+        }
+    }
 }

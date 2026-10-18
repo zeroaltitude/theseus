@@ -82,6 +82,9 @@ pub(super) struct RouteState {
     pub(super) steer: Option<Steering>,
     /// The message's content words, for a correction to find it by.
     pub(super) words: Vec<String>,
+    /// The message names one of `[privacy] sensitive_names`: a profile of
+    /// restricted origin is unusable for the turn (`data_step.rs`).
+    pub(super) sensitive: bool,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -279,7 +282,10 @@ impl TurnRunner {
     /// Every configured profile, as routing weighs it: usable when its
     /// provider is built, its key settled (or not on the board), and its
     /// model priced.
-    pub(super) fn route_profiles(&self) -> routing::Profiles {
+    ///
+    /// With `sensitive`, a profile of restricted origin is unusable
+    /// (`data_gate`): routing then picks the next usable one (theseus-oejh3).
+    pub(super) fn route_profiles(&self, sensitive: bool) -> routing::Profiles {
         let states = self.secrets.states();
         self.cfg
             .all_profiles()
@@ -302,6 +308,8 @@ impl TurnRunner {
                     Some("key")
                 } else if entry.is_none() {
                     Some("unpriced")
+                } else if sensitive && self.restricted_profile(name) {
+                    Some("data_gate")
                 } else {
                     None
                 };
@@ -474,10 +482,10 @@ impl TurnRunner {
             session.last_turn_id.as_deref(),
             unreachable,
         );
-        let decision = match (&steering, &verdict, reason) {
-            (Some(s), _, _) => Some(self.decide_steer(t, session, s, compiled.est_tokens)),
-            (None, Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
-            _ => None,
+        let ask = (&steering, &verdict, reason);
+        let decision = match self.decide_floored(t, session, ask, compiled.est_tokens) {
+            Ok(d) => d,
+            Err(f) => return Ok(Err(f)),
         };
         t.route.effort = verdict.as_ref().and_then(|v| {
             let spent = (&*spec, compiled.est_tokens);
@@ -596,6 +604,23 @@ impl TurnRunner {
         }
     }
 
+    /// The decision the turn's verdict (or steer) makes, kept off restricted
+    /// profiles when the message names a sensitive name (theseus-oejh3).
+    fn decide_floored(
+        &self,
+        t: &Turn<'_>,
+        session: &SessionRecord,
+        (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
+        est_tokens: u64,
+    ) -> Result<Option<Decision>, Failure> {
+        let decision = match (steering, verdict, reason) {
+            (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
+            (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
+            _ => None,
+        };
+        self.data_floor(t, decision)
+    }
+
     /// The switch rule over the usable profiles, under the place's cap.
     fn decide_route(
         &self,
@@ -604,7 +629,7 @@ impl TurnRunner {
         v: &Verdict,
         est_tokens: u64,
     ) -> Decision {
-        let profiles = self.route_profiles();
+        let profiles = self.route_profiles(t.route.sensitive);
         let cap =
             t.tc.ceiling
                 .and_then(|c| c.profile.as_ref())

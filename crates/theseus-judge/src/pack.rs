@@ -865,6 +865,7 @@ pub fn by_name(name: &str) -> Option<Arc<Pack>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::names::hits;
 
     const GOOD: &str = include_str!("../packs/probe.v1.toml");
 
@@ -1526,42 +1527,19 @@ mod tests {
         assert!(v6.description.contains("outside the owner's trust"));
     }
 
-    /// The organisations the data rule keeps out of the public repository are
-    /// named here by digest, never in words (theseus-a1wvq.2): the SHA-256 of
-    /// each lowercased word of the pack text, and of each two-word span joined
-    /// by a hyphen, is checked against this list. The operator's names are added
-    /// by digest at the join; "acme-private" is a made-up one that proves the
-    /// mechanism.
-    const DENIED_DIGESTS: &[&str] =
-        &["69dbe55440dc6269f3739371f9267126d733e93d72b3c17dc0112d2009d7b62a"];
-
-    fn digest(text: &str) -> String {
-        use sha2::{Digest, Sha256};
-        hex::encode(Sha256::digest(text.as_bytes()))
-    }
-
-    /// The deny-listed digests that a pack's text hits, as the words that hit.
-    fn denied_in(text: &str, denied: &[&str]) -> Vec<String> {
-        let words: Vec<String> = text
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| !w.is_empty())
-            .map(str::to_lowercase)
-            .collect();
-        let spans = words.windows(2).map(|w| w.join("-"));
-        words
-            .iter()
-            .cloned()
-            .chain(spans)
-            .filter(|w| denied.contains(&digest(w).as_str()))
-            .collect()
-    }
-
+    /// No pack's text names an organisation. The real list is the operator's
+    /// `[privacy] sensitive_names`, which the repository never holds: the
+    /// daemon checks every embedded pack against it at start (`names::packs_naming`,
+    /// theseus-oejh3). Here the matcher runs over every pack against the
+    /// template's placeholder names, which must not hit, and the mechanism is
+    /// proved on a planted text.
     #[test]
     fn the_pack_text_names_no_organisation() {
-        let text = include_str!("../packs/route.v6.toml");
-        assert_eq!(denied_in(text, DENIED_DIGESTS), Vec::<String>::new());
-        // The mechanism catches a word and a two-word span.
-        let planted = format!("{text}\nAcme private plans, and Acme");
-        assert_eq!(denied_in(&planted, DENIED_DIGESTS), ["acme-private"]);
+        let placeholders = ["Examplecorp".to_string(), "Project Placeholder".to_string()];
+        for (name, text) in EMBEDDED {
+            assert_eq!(hits(text, &placeholders), Vec::<String>::new(), "{name}");
+        }
+        let planted = format!("{}\nExamplecorp private plans", EMBEDDED[0].1);
+        assert_eq!(hits(&planted, &placeholders), ["Examplecorp"]);
     }
 }

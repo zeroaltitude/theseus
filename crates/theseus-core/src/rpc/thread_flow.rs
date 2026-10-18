@@ -438,7 +438,7 @@ impl Core {
                 // The owner's own words: `directive.v1` rides this call, and
                 // the turn says where the message was written (`Early::said`).
                 capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
-                data_names: self.cfg.routing.data.names(),
+                data_names: self.cfg.routing.data.names(&self.cfg.privacy),
             });
             if let Some(mut e) = started {
                 if let Some(rx) = e.thread.take() {
