@@ -219,6 +219,21 @@ struct Write {
     ping: bool,
 }
 
+/// Whether `w` is a question waiting on the owner: a card with an answer's
+/// buttons, the needs-you post, a V2 question card, or the burst summary that
+/// says how many wait. The ping window does not hold these back.
+fn asks(w: &Write) -> bool {
+    matches!(
+        w.buttons,
+        Buttons::Confirm(_)
+            | Buttons::Ask(..)
+            | Buttons::ConfirmTrust(_)
+            | Buttons::ConfirmGrant(..)
+            | Buttons::Accept(_)
+    ) || w.key.starts_with("needs-you:")
+        || v2::question_of(&w.key).is_some()
+}
+
 /// `content`, after a mention of each of `users`: Discord notifies them,
 /// and only them, when `allowed_mentions.users` names the same (theseus-9j9).
 fn mentioning(users: &[u64], content: String) -> String {
@@ -1594,7 +1609,11 @@ impl Lane {
             }
             None => true,
         };
-        let ping = w.ping && paced && self.shared.pings.open(w.channel, now, window);
+        // A question that waits on the owner is no chat message: the window
+        // never holds it silent (a reply that used the window first would
+        // otherwise leave the question unheard, theseus-31pgz). A ping it
+        // makes still counts in the window, for the chat that follows.
+        let ping = w.ping && paced && (asks(w) || self.shared.pings.open(w.channel, now, window));
         let (m, landed) = match signed
             .as_ref()
             .and_then(|s| Some((s.hook.as_ref()?, &s.name)))

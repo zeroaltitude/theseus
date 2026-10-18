@@ -363,28 +363,97 @@ async fn every_card_notifies_by_default_and_cards_silences_them_all() {
     );
 }
 
-/// `ping_window_secs = 30` holds the place to one ping: of three cards
-/// inside 20 s the first pings, and the window holds the other two (each
-/// row says `held`), set daemon-wide or by the place's own binding. So that
-/// the cards are the place's first pings, its bind notice is silenced (a
-/// silent write takes no ping from the window) and it shows no tool lines.
+/// `ping_window_secs = 30` never holds a question back (theseus-31pgz): each
+/// of three cards inside 20 s pings, set daemon-wide or by the place's own
+/// binding, since a card is a question that waits on the owner. Its bind
+/// notice is silenced and it shows no tool lines, so the cards are the
+/// place's only creates.
 #[tokio::test]
-async fn a_window_of_30_s_lets_one_of_three_cards_ping() {
-    let once = Cards {
-        silent: vec![false, true, true],
-        ping: vec![true, false, false],
-        held: vec![false, true, true],
+async fn a_window_of_30_s_holds_no_card() {
+    let every = Cards {
+        silent: vec![false; 3],
+        ping: vec![true; 3],
+        held: vec![false; 3],
     };
     let daemon = Words {
         silent: vec![Category::Notices],
         window_secs: 30,
         lab: "show_tools = false\n",
     };
-    assert_eq!(three_cards(daemon).await, once);
+    assert_eq!(three_cards(daemon).await, every);
     let place = Words {
         silent: vec![Category::Notices],
         window_secs: 0,
         lab: "show_tools = false\nping_window_secs = 30\n",
     };
-    assert_eq!(three_cards(place).await, once, "the place's own window");
+    assert_eq!(three_cards(place).await, every, "the place's own window");
+}
+
+/// A chat message that used the window first never leaves a question silent:
+/// the bind notice pings and takes the window, the card that follows still
+/// pings, and the reply after the owner approves it is the message the window
+/// holds (silent, its row says `held`).
+#[tokio::test]
+async fn a_question_pings_though_a_chat_message_used_the_window_first() {
+    let r = rig(
+        Words {
+            window_secs: 30,
+            lab: "show_tools = false\n",
+            ..Words::default()
+        },
+        |dir| {
+            vec![
+                Scripted::tools(
+                    "",
+                    &[(
+                        "t1",
+                        "fs_write",
+                        serde_json::json!({"path": outside(dir, "a.txt").to_string_lossy(), "content": "a"}),
+                    )],
+                ),
+                Scripted::text("Written."),
+            ]
+        },
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "Write the tide file.");
+    let card = || r.posted(LAB).into_iter().find(|m| m.versions[0].contains("**Approve?**"));
+    r.until("the card", || card().is_some()).await;
+    let card = card().unwrap();
+    r.fake
+        .press(&Pressed {
+            message: &card.id,
+            button: "Approve",
+            user: ANA,
+            name: "ana",
+        })
+        .unwrap();
+    r.until("the reply", || {
+        r.posted(LAB).iter().any(|m| m.content.contains("Written."))
+    })
+    .await;
+    r.until("the rows", || {
+        [":p0", "confirm:"].iter().all(|t| {
+            r.ledger("discord.message.out")
+                .iter()
+                .any(|d| d["part"].as_str().is_some_and(|p| p.contains(t)))
+        })
+    })
+    .await;
+    assert!(!first(&r, "🔗").silent(), "the bind notice took the window");
+    let rows = r.ledger("discord.message.out");
+    let of = |t: &str| {
+        rows.iter()
+            .find(|d| d["part"].as_str().is_some_and(|p| p.contains(t)))
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        (card.silent(), of("confirm:")["ping"].clone(), of("confirm:")["held"].clone()),
+        (false, true.into(), false.into()),
+        "the question pings inside the window"
+    );
+    let reply = first(&r, "Written.");
+    assert!(reply.silent(), "chat is still held to the window");
+    assert_eq!(of(":p0")["held"], true);
 }
