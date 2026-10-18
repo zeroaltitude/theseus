@@ -26,7 +26,7 @@
 //! longest waiting first, the working and done lists their newest.
 
 use serde_json::Value;
-use theseus_protocol::usd;
+use theseus_protocol::work::progress_line::progress_rest;
 use theseus_protocol::work::{WorkState, WorkView};
 
 use super::clip;
@@ -133,14 +133,19 @@ pub(super) fn ask_line(v: &WorkView) -> String {
     format!("{what} · asked {}", ago(since))
 }
 
-/// What a working task is doing: its doing's label, its turn, its spend.
-pub(super) fn working_line(v: &WorkView) -> String {
-    let mut bits = vec![format!(
-        "{} **{}** `…{}`",
-        state(WorkState::Running),
-        title_of(v),
-        short(&v.id)
-    )];
+/// What a working task is doing: its doing's label, then the one progress
+/// line's step, spend and time left (theseus-ypnxt.2). A paused task shows
+/// `⏸️` and `paused` first. `turn N` stays only when there is no plan.
+pub(super) fn working_line(v: &WorkView, now_ms: u64) -> String {
+    let mark = if v.paused {
+        "⏸️".to_string()
+    } else {
+        state(WorkState::Running)
+    };
+    let mut bits = vec![format!("{mark} **{}** `…{}`", title_of(v), short(&v.id))];
+    if v.paused {
+        bits.push("paused".into());
+    }
     let label = v
         .doing
         .as_ref()
@@ -150,20 +155,15 @@ pub(super) fn working_line(v: &WorkView) -> String {
     if !label.is_empty() {
         bits.push(clip(&label, 60));
     }
+    let planned = v.progress.as_ref().is_some_and(|p| p.steps_total > 0);
     if let Some(d) = v
         .doing
         .as_ref()
-        .filter(|d| d.turn > 0 && !label.starts_with("turn "))
+        .filter(|d| d.turn > 0 && !label.starts_with("turn ") && !planned)
     {
         bits.push(format!("turn {}", d.turn));
     }
-    if let Some(c) = v.cost.filter(|c| c.spent_usd > 0.0 || c.limit_usd > 0.0) {
-        bits.push(if c.limit_usd > 0.0 {
-            format!("{} of {}", usd(c.spent_usd), usd(c.limit_usd))
-        } else {
-            usd(c.spent_usd)
-        });
-    }
+    bits.extend(progress_rest(v, now_ms));
     if v.state == WorkState::Queued {
         bits.push("queued".into());
     }
@@ -288,7 +288,7 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
                 .iter()
                 .rev()
                 .take(cw)
-                .map(|v| format!("{}{}", working_line(v), link_of(p, v))),
+                .map(|v| format!("{}{}", working_line(v, p.now_ms), link_of(p, v))),
         );
         if p.working.len() > cw {
             lines.push(more(p.working.len() - cw));
@@ -421,7 +421,7 @@ mod tests {
     use super::*;
     use crate::render::v2::{count, text_len, texts};
     use theseus_protocol::work::{
-        Cost, Doing, DoingKind, Question, QuestionKind, WorkKind, WorkRef,
+        Cost, Doing, DoingKind, Progress, Question, QuestionKind, WorkKind, WorkRef,
     };
     use theseus_protocol::{Attention, Level};
 
@@ -489,6 +489,24 @@ mod tests {
             limit_usd: 2.0,
             turn_usd: None,
         });
+        v
+    }
+
+    /// A working task with a plan and a forecast; `paused` stops it.
+    fn planned(n: usize, paused: bool) -> WorkView {
+        let mut v = working(n);
+        v.progress = Some(Progress {
+            steps_done: 2,
+            steps_total: 5,
+            current: None,
+            said: None,
+            at_ms: NOW,
+        });
+        v.forecast = serde_json::from_value(serde_json::json!({
+            "usd_p50": 1.0, "usd_p90": 2.0, "min_p50": 15.0, "min_p90": 30.0, "n": 4
+        }))
+        .ok();
+        v.paused = paused;
         v
     }
 
@@ -707,6 +725,12 @@ mod tests {
                 (200..206).map(|i| view(i, WorkState::Done)).collect(),
             ),
             ("needs you", vec![asking(1)], vec![], vec![]),
+            (
+                "planned and paused",
+                vec![],
+                vec![planned(1, false), planned(2, true)],
+                vec![],
+            ),
             (
                 "all done",
                 vec![],

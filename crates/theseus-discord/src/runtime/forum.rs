@@ -73,10 +73,21 @@ pub(crate) enum Tag {
     Running,
     Done,
     Failed,
+    /// The owner paused the task (theseus-ypnxt.2).
+    Paused,
+    /// It was cancelled or expired.
+    Stopped,
 }
 
 impl Tag {
-    pub(crate) const ALL: [Tag; 4] = [Tag::NeedsYou, Tag::Running, Tag::Done, Tag::Failed];
+    pub(crate) const ALL: [Tag; 6] = [
+        Tag::NeedsYou,
+        Tag::Running,
+        Tag::Done,
+        Tag::Failed,
+        Tag::Paused,
+        Tag::Stopped,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -84,14 +95,20 @@ impl Tag {
             Tag::Running => "running",
             Tag::Done => "done",
             Tag::Failed => "failed",
+            Tag::Paused => "paused",
+            Tag::Stopped => "stopped",
         }
     }
 
-    pub(crate) fn of(state: WorkState) -> Self {
-        match state {
+    /// The tag of a task's view: its state, but a paused task that has not
+    /// ended is `paused`, and a task stopped by hand or by time `stopped`.
+    pub(crate) fn of(view: &WorkView) -> Self {
+        match view.state {
             WorkState::NeedsYou => Tag::NeedsYou,
             WorkState::Done => Tag::Done,
-            WorkState::Failed | WorkState::Cancelled | WorkState::Expired => Tag::Failed,
+            WorkState::Failed => Tag::Failed,
+            WorkState::Cancelled | WorkState::Expired => Tag::Stopped,
+            _ if view.paused => Tag::Paused,
             _ => Tag::Running,
         }
     }
@@ -671,7 +688,7 @@ impl Worker {
             }
         }
         // The tags.
-        let want = Tag::of(view.state);
+        let want = Tag::of(&view);
         let slot = self.slots.get(&key)?;
         if slot.tag != Some(want) {
             match wait(slot.tag_at, self.every.tags, now, ended) {
@@ -863,7 +880,7 @@ impl Worker {
         link: Option<&str>,
         name: String,
     ) -> anyhow::Result<()> {
-        let want = Tag::of(view.state);
+        let want = Tag::of(view);
         let ids = self.tag_ids(f).await;
         let card = self.card_of(view, link);
         v2::validate(&card).map_err(|e| anyhow::anyhow!("the card does not fit: {e}"))?;
@@ -1088,6 +1105,106 @@ mod tests {
         (r, w)
     }
 
+    /// A paused task's post is tagged `paused` and has `running` back on
+    /// resume; a cancelled task's is `stopped`, a failed one's `failed`
+    /// (theseus-ypnxt.2).
+    #[tokio::test]
+    async fn a_paused_post_is_tagged_paused_and_a_cancelled_one_stopped() {
+        use crate::runtime::voice_status::tests::view;
+
+        let (r, mut w) = worker_over_the_fake().await;
+        let mut position = 0;
+        let mut tell = |w: &mut Worker, state: &str, paused: bool| {
+            position += 1;
+            let mut v = view(
+                "exe_01J000000000000000task01",
+                "task",
+                state,
+                "Chart the reef",
+                None,
+            );
+            v.position = position;
+            v.paused = paused;
+            w.see(Seen {
+                views: vec![v],
+                private: true,
+                guild: None,
+                links: HashMap::new(),
+                home: None,
+                homed: HashSet::new(),
+            });
+        };
+        let last = || {
+            r.fake
+                .threads()
+                .into_iter()
+                .find(|t| t.parent == FORUM)
+                .unwrap()
+                .tag_sets
+                .last()
+                .cloned()
+        };
+        let id_of = |n: &str| {
+            r.fake
+                .forum_tags(FORUM)
+                .iter()
+                .find(|t| t.name == n)
+                .unwrap()
+                .id
+                .clone()
+        };
+        tell(&mut w, "running", true);
+        w.drive().await;
+        assert_eq!(last(), Some(vec![id_of("paused")]));
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        tell(&mut w, "running", false);
+        w.drive().await;
+        assert_eq!(last(), Some(vec![id_of("running")]));
+        tell(&mut w, "cancelled", false);
+        w.drive().await;
+        assert_eq!(last(), Some(vec![id_of("stopped")]));
+    }
+
+    /// A forum made before the build holds four tags: it gains `paused` and
+    /// `stopped` on the first start that uses it, and a second worker adds
+    /// no more.
+    #[tokio::test]
+    async fn an_old_forum_gains_the_two_new_tags_once() {
+        let (r, w) = worker_over_the_fake().await;
+        r.fake
+            .seed_forum_tags(FORUM, &["needs you", "running", "done", "failed"]);
+        let patches = || {
+            r.fake
+                .seen()
+                .iter()
+                .filter(|s| s.outcome == "forum_tags")
+                .count()
+        };
+        let f = w.shared.task_posts.forums.lock().unwrap()[0].clone();
+        let got = w.read_tags(&f).await.unwrap();
+        assert!(got.contains_key(&Tag::Paused) && got.contains_key(&Tag::Stopped));
+        assert_eq!(patches(), 1);
+        w.read_tags(&f).await.unwrap();
+        assert_eq!(patches(), 1, "a forum that has them is not changed again");
+        let names: Vec<String> = r
+            .fake
+            .forum_tags(FORUM)
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "needs you",
+                "running",
+                "done",
+                "failed",
+                "paused",
+                "stopped"
+            ]
+        );
+    }
+
     /// A post's tags change at most once in the interval however fast the
     /// task's state moves, and end on its final state at once.
     #[tokio::test]
@@ -1239,7 +1356,17 @@ mod tests {
     fn a_state_has_one_tag_and_a_post_is_named_by_its_task() {
         use WorkState::*;
         let tags: Vec<&str> = [NeedsYou, Running, Waiting, Queued, Done, Failed, Cancelled]
-            .map(|s| Tag::of(s).name())
+            .map(|s| {
+                let mut v = crate::runtime::voice_status::tests::view(
+                    "exe_01J000000000000000task01",
+                    "task",
+                    "running",
+                    "Chart the reef",
+                    None,
+                );
+                v.state = s;
+                Tag::of(&v).name()
+            })
             .to_vec();
         assert_eq!(
             tags,
@@ -1250,7 +1377,7 @@ mod tests {
                 "running",
                 "done",
                 "failed",
-                "failed"
+                "stopped"
             ]
         );
         let name = post_name(

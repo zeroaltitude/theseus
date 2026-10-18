@@ -92,6 +92,14 @@ ids: tb:o:exe_01J00000000000000000000000 tb:o:exe_01J00000000000000000000001 tb:
 fs.write create projects/beta-summary.txt (40 B) · asked <t:1789999760:R>
 ids: tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:new tb:pick
 
+=== planned and paused: components=11 chars=261
+📋 **Tasks** · ⚙️ 2 running
+---
+**⚙️ Now**
+⏸️ **Task number 2** `…000002` · paused · fs.edit · step 3 of 5 · $0.42 of $2 · ~6 min left · since <t:1789999460:R>
+⚙️ **Task number 1** `…000001` · fs.edit · step 3 of 5 · $0.42 of $2 · ~6 min left · since <t:1789999460:R>
+ids: tb:clear tb:quiet tb:new tb:pick
+
 === all done: components=14 chars=273
 📋 **Tasks** · ✅ 3 done since you looked
 ---

@@ -96,7 +96,13 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
     if !working.is_empty() {
         inner.push(separator());
         let mut lines = vec![format!("**{} Now**", state(WorkState::Running))];
-        lines.extend(working.iter().rev().take(cw).map(working_line));
+        lines.extend(
+            working
+                .iter()
+                .rev()
+                .take(cw)
+                .map(|v| working_line(v, now_ms)),
+        );
         inner.push(text(lines.join("\n")));
     }
     if !done.is_empty() {
