@@ -5,6 +5,7 @@
 //! caller passes. The cockpit writes the same words in TypeScript from
 //! `golden/progress_line.json`.
 
+use crate::forecast::WorkForecast;
 use crate::usd;
 use crate::work::{Cost, WorkView};
 
@@ -36,11 +37,20 @@ fn left(minutes: f64) -> String {
 /// or the task has run longer than its p90. Nothing for an ended task, one
 /// with no known start, or a forecast made from no finished task.
 fn time_words(v: &WorkView, now_ms: u64) -> Option<String> {
-    let f = v.forecast.as_ref().filter(|f| f.n > 0)?;
-    if v.state.ended() || v.started_at_ms == 0 {
+    let f = v.forecast.as_ref()?;
+    if v.state.ended() {
         return None;
     }
-    let elapsed = now_ms.saturating_sub(v.started_at_ms) as f64 / MIN_MS;
+    time_left(f, v.started_at_ms, now_ms)
+}
+
+/// The same from the forecast and the start alone, for a row that keeps no
+/// whole view.
+pub fn time_left(f: &WorkForecast, started_at_ms: u64, now_ms: u64) -> Option<String> {
+    if f.n == 0 || started_at_ms == 0 {
+        return None;
+    }
+    let elapsed = now_ms.saturating_sub(started_at_ms) as f64 / MIN_MS;
     let to_p90 = f.min_p90 - elapsed;
     if f.past || to_p90 <= 0.0 {
         return Some("past its usual time".to_string());
@@ -83,7 +93,6 @@ pub fn progress_line(v: &WorkView, now_ms: u64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::forecast::WorkForecast;
     use crate::work::tests::view;
     use crate::work::{Progress, WorkKind, WorkState};
     use serde_json::Value;

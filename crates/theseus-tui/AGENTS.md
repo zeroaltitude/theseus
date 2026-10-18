@@ -36,8 +36,8 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
 - `src/work.rs` (theseus-k2vca): what `work.watch` says of each session (the position rule, the jobs under them) and
-  the words of a sidebar row: `job 2:14 of usual 2:40 · said`, `model 0:31`, `asks: …`, `failed 15:13: why`, the plan's
-  `3/5` first; the title is cut before the doing. `executions.watch` stays the board's feed (the questions, reminders
+  the words of a sidebar row: `job 2:14 of usual 2:40 · said`, `model 0:31`, `asks: …`, `failed 15:13: why`, `paused`
+  and the plan's `step 3 of 5` first, the time left last (theseus-ypnxt.2); the title is cut before the doing. `executions.watch` stays the board's feed (the questions, reminders
   and `confirm.resolved` ride it, not `work.watch`); this is the overlay that words the rows, and a daemon without
   `work.watch` leaves `live` false so rows say their labels as before. A row's words are used only when the work view's
   level equals the board's. A finished task's first report line shows under its row (`◆` until seen). The header
@@ -168,8 +168,8 @@ new lines, the dock again, in synchronized-output mode 2026).
   `task.cancel`, `/stop [--tasks]` is Esc's stop (`keep_jobs`) and with `--tasks` (or `all`) also cancels the conversation's tasks
   (refused in a job). An Interrupt notice (`work.notice` through `notices::deliver`) rings the bell once (`Effect::Bell`); the
   status line's `◐ N tasks` is the board's count once it is live. Tests: `chat/tests_tasks.rs`, `chat/tests_ask.rs`.
-  Gaps closed (theseus-xock5): a footer row carries what its task has spent (`$1.20`, a column of its own that is absent when no
-  row has spent anything; the tree has none); `/tasks` lists a routine, a watch and a project as rows (`routine · next Fri 09:00`,
+  Gaps closed (theseus-xock5): a footer row and a tree row end with the task's progress line (`paused · step 3 of 5 · $1.20 of $5 · ~6 min left`,
+  `theseus_protocol::work::progress_line`, theseus-ypnxt.2), and the task view's header carries it too; `/tasks` lists a routine, a watch and a project as rows (`routine · next Fri 09:00`,
   `watch · …`, `project · …`) that count as no task; and the chat reads the machine's seen file (`Cfg::seen_path`, `chat/welcome.rs`):
   a chat that opens after an absence of a minute or more, or whose connection comes back after one, asks `work.digest` since the last
   look and tells one line under the banner (`◆ 2 reported since 14:02 · theseus digest`; nothing on a first start, whose first
