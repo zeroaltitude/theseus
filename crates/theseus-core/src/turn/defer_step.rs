@@ -12,10 +12,12 @@ use std::collections::BTreeSet;
 use theseus_protocol::modes::SessionMode;
 
 use super::{Turn, TurnRunner};
+use crate::catalog::TokenRates;
 use crate::compiler::{Compiled, RequestSpec};
 use crate::fact::tools_defer::{ToolsMissed, ToolsSearched, ToolsUsed};
 use crate::provider::{ModelResponse, ToolUse};
-use crate::tools_defer::board::Miss;
+use crate::tools_defer::board::{Miss, Offer};
+use crate::tools_defer::fit::Fit;
 use crate::tools_defer::{self, scan, Deferral, Mechanism, PlaceKind};
 
 impl TurnRunner {
@@ -84,12 +86,33 @@ impl TurnRunner {
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();
-        let mut loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
+        // Learned families stay inside the place's budget (theseus-buz3h).
+        let rates = self
+            .catalog
+            .get(&spec.model)
+            .map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
+        let fit = Fit::of(kind, spec, rates, mechanism);
+        let offer = |extra: &BTreeSet<String>| {
+            board
+                .select(
+                    sid,
+                    kind,
+                    cfg,
+                    now,
+                    &Offer {
+                        known: &known,
+                        extra,
+                        fit: Some(&fit),
+                    },
+                )
+                .loaded()
+        };
+        let mut loaded = offer(&extra);
         if mechanism == Mechanism::Find {
-            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded);
+            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded, fit.system);
             if !wanted.is_empty() {
                 extra.extend(wanted);
-                loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
+                loaded = offer(&extra);
             }
         }
         Some(Deferral {

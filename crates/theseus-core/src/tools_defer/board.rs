@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use serde_json::Value;
 
 use super::family::{self, PlaceKind};
+use super::fit::Fit;
 use super::select::{self, Day, Selection, Stats};
 use super::Mechanism;
 use crate::config::defer::DeferConfig;
@@ -38,7 +39,8 @@ struct Convo {
     surfaced: BTreeSet<String>,
     /// Families a search asked for (the fallback's), loaded at the next boundary.
     wanted: BTreeSet<String>,
-    /// Families the conversation has called, or searched for.
+    /// Families the conversation has called, or searched for (a search is no use to the
+    /// counts, but a family it loaded is not an unused one).
     used: BTreeSet<String>,
     /// Families this turn called, until the turn's row.
     turn_called: BTreeSet<String>,
@@ -90,6 +92,14 @@ struct State {
     /// When this process counted its first turn: the rows from then on are
     /// counted live, so the read of the ledger skips them.
     live_since: Option<u64>,
+}
+
+/// What a request offers a selection: the families it has, the ones a message
+/// adds, and the budget the learned ones must fit (theseus-buz3h).
+pub struct Offer<'a> {
+    pub known: &'a BTreeSet<String>,
+    pub extra: &'a BTreeSet<String>,
+    pub fit: Option<&'a Fit>,
 }
 
 /// The board: shared by every turn, behind one lock held for a few map
@@ -150,18 +160,19 @@ impl Board {
 
     /// The selection for a place kind now: the committed defaults, the
     /// counts, and what the conversation asked for. `known` is the families
-    /// the request offers.
+    /// the request offers. With a `fit`, the learned families that would pass
+    /// the place's budget are deferred (theseus-buz3h).
     pub fn select(
         &self,
         session: &str,
         kind: PlaceKind,
         cfg: &DeferConfig,
         now_ms: u64,
-        known: &BTreeSet<String>,
-        extra: &BTreeSet<String>,
+        offer: &Offer<'_>,
     ) -> Selection {
+        let (known, fit) = (offer.known, offer.fit);
         let st = self.st();
-        let mut extra = extra.clone();
+        let mut extra = offer.extra.clone();
         if let Some(c) = st.convos.get(session) {
             extra.extend(c.wanted.iter().cloned());
         }
@@ -177,6 +188,9 @@ impl Board {
                     *w = select::Why::Wanted;
                 }
             }
+        }
+        if let Some(fit) = fit {
+            fit.demote(&mut sel);
         }
         sel
     }
@@ -314,7 +328,7 @@ impl Board {
             )
         };
         let searched: BTreeSet<String> = searches.iter().flat_map(|s| s.families.clone()).collect();
-        let used: BTreeSet<String> = called.union(&searched).cloned().collect();
+        let used = called.clone();
         let turn = TurnUse {
             kind,
             mechanism,
@@ -373,7 +387,7 @@ impl Board {
                 .unwrap_or_default()
         };
         let (called, searched) = (list("used"), list("searched"));
-        let used: BTreeSet<String> = called.union(&searched).cloned().collect();
+        let used = called.clone();
         let t = TurnUse {
             kind,
             mechanism: None,
@@ -589,6 +603,42 @@ mod tests {
         assert_eq!(live.stats(PlaceKind::Cli), back.stats(PlaceKind::Cli));
     }
 
+    /// A search surfaces a family; only a call counts as its use (theseus-buz3h): the ledger's
+    /// `tools.used` rows read back the same way.
+    #[test]
+    fn a_search_alone_is_not_use() {
+        let b = Board::default();
+        b.note_request(
+            "s",
+            PlaceKind::Cli,
+            Some(Mechanism::Search),
+            ["files".to_string()].into(),
+            vec![hidden("aws_call")],
+        );
+        b.searched("s", "aws account", &["aws_call".to_string()]);
+        let t = b.end_turn("s", PlaceKind::Cli, NOW);
+        assert_eq!((t.used.len(), t.searched), (0, vec!["aws".to_string()]));
+        let s = b.stats(PlaceKind::Cli);
+        assert!(s.sum_since(0, |d| &d.used).is_empty());
+        assert_eq!(s.sum_since(0, |d| &d.searched)["aws"], 1);
+        assert!(s.last_used.is_empty());
+        // The same from a row of the ledger.
+        let back = Board::default();
+        back.apply_used(
+            NOW,
+            &serde_json::json!({"place": "cli", "loaded": ["files"], "used": [],
+            "searched": ["aws"], "unused": []}),
+        );
+        assert!(back
+            .stats(PlaceKind::Cli)
+            .sum_since(0, |d| &d.used)
+            .is_empty());
+        // And a call is.
+        b.called("s", "aws_call");
+        b.end_turn("s", PlaceKind::Cli, NOW + 1);
+        assert_eq!(b.stats(PlaceKind::Cli).sum_since(0, |d| &d.used)["aws"], 1);
+    }
+
     #[test]
     fn a_fallback_search_asks_for_a_family_and_the_selection_loads_it() {
         let b = Board::default();
@@ -604,8 +654,11 @@ mod tests {
             PlaceKind::Cli,
             &DeferConfig::default(),
             NOW,
-            &known,
-            &BTreeSet::new(),
+            &Offer {
+                known: &known,
+                extra: &BTreeSet::new(),
+                fit: None,
+            },
         );
         assert!(sel.loaded().contains("aws"));
         assert_eq!(sel.families["aws"], select::Why::Wanted);
@@ -614,8 +667,11 @@ mod tests {
             PlaceKind::Cli,
             &DeferConfig::default(),
             NOW,
-            &known,
-            &BTreeSet::new(),
+            &Offer {
+                known: &known,
+                extra: &BTreeSet::new(),
+                fit: None,
+            },
         );
         assert!(
             !other.loaded().contains("aws"),

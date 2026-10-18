@@ -62,7 +62,9 @@ fn the_measure_is_the_censuss_own_total() {
 fn each_kind_of_place_is_counted_with_its_own_families() {
     let (core, _dir) = rig();
     let loaded = |p: &str| core.first_request(p).unwrap().loaded;
-    assert!(loaded("dm").contains(&"task_create".to_string()));
+    // The DM defers the tasks and keeps the reminders (theseus-rwpbg.3, T5).
+    assert!(!loaded("dm").contains(&"task_create".to_string()));
+    assert!(loaded("dm").contains(&"wake_at".to_string()));
     assert!(loaded("dm").contains(&"http_fetch".to_string()));
     assert!(!loaded("cli").contains(&"task_create".to_string()));
     assert!(!loaded("task").contains(&"memory_lookup".to_string()));

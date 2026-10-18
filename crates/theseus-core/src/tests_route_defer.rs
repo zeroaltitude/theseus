@@ -82,7 +82,7 @@ async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
 /// now: the message loads the one that holds the tool, and the request's tools stay within the cli's
 /// budget, as the rule for a named family counts them (`want::extra`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
+async fn a_detour_without_tool_search_holds_an_aws_family_to_the_budget() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     let (r, haiku) = rig_detouring_to(&jev, "aws_whoami", true);
@@ -98,21 +98,14 @@ async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
         (res.profile.as_str(), route.reason.as_str()),
         ("haiku", "detour")
     );
+    // The cli's request is 7,350 tokens of its 8,000 with the system counted (theseus-buz3h): the aws
+    // family (about 1,200) would pass it, so it stays deferred and the call is a miss that names
+    // `tools_find`. (The family that fits, `thread_read`, loads: the test above.)
     let first = &haiku.requests()[0];
     let names = offered(first);
-    assert!(names.contains(&"aws_whoami".to_string()), "{names:?}");
-    assert!(
-        !names
-            .iter()
-            .any(|n| n.starts_with("aws_s3_") || n == "aws_hands_run"),
-        "only the family that holds the tool loads: {names:?}"
-    );
+    assert!(!names.contains(&"aws_whoami".to_string()), "{names:?}");
     let tokens = crate::tools_defer::tools_bytes(&first.tools) * 10 / 24;
     let budget = crate::first_request::CLI_TASK_TOKENS;
-    assert!(
-        tokens <= budget,
-        "the request's tools are {tokens} tokens, over {budget}"
-    );
-    assert_eq!(res.tool_calls, 1, "the call reached the tool");
-    assert!(rows(&r.core, "tools.missed").is_empty());
+    assert!(tokens < budget, "the tools alone are {tokens} tokens");
+    assert_eq!(rows(&r.core, "tools.missed").len(), 1);
 }

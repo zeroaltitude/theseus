@@ -184,7 +184,7 @@ pub fn render_with(
         return None;
     }
     let head = format!(
-        "{HEAD}, {}: to change one, move it with wake.move or end it with wake.cancel, \
+        "{HEAD}, {}: to change one, move it with wake_move or end it with wake_cancel, \
          never set a second.]",
         all.len()
     );

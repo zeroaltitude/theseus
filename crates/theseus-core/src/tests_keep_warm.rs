@@ -478,3 +478,45 @@ async fn the_reads_prefix_holds_with_tools_deferred() {
         "the messages before the new one"
     );
 }
+
+/// Reads stop at the model's break-even (theseus-rwpbg.3, M3): a 1-hour write costs `write / read`
+/// reads, a read every 55 minutes, so past that many windows the reads cost more than the rewrite
+/// they avoid. Sonnet 5.5 (6 against 0.15 a million) breaks even at 36.7 hours, under a 72-hour window.
+#[tokio::test]
+async fn keep_warm_stops_at_break_even() {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, _fake) = build(dir.path(), one_hour(72));
+    let live = core.live_profile().0;
+    let entry = core.catalog.get("claude-sonnet-5-5").unwrap();
+    let cap = crate::keep_warm::break_even_hours(entry, 55.0).unwrap();
+    assert!((cap - 36.67).abs() < 0.01, "{cap}");
+    let sid = session(&core, SessionKind::Conversation, None);
+    tokio::time::pause();
+    turn(&core, &sid, "first").await;
+    tokio::time::advance(35 * 60 * MIN).await;
+    assert!(matches!(
+        core.runner.keep_warm_once(&sid, &live).await,
+        Outcome::Read { .. }
+    ));
+    tokio::time::advance(5 * 60 * MIN).await;
+    assert_eq!(
+        core.runner.keep_warm_once(&sid, &live).await,
+        Outcome::Forgotten("its window closed".into())
+    );
+}
+
+/// The caps per catalog model, printed for the report (`--nocapture`); a priced model has one.
+#[test]
+fn break_even_per_catalog_model() {
+    for (name, e) in &crate::catalog::Catalog::builtin().entries {
+        let cap = crate::keep_warm::break_even_hours(e, 55.0);
+        eprintln!(
+            "break-even {name}: {cap:?} h (read {}, write 1h {})",
+            e.cache_read_per_mtok, e.cache_write_1h_per_mtok
+        );
+        assert_eq!(
+            cap.is_some(),
+            e.cache_read_per_mtok > 0.0 && e.cache_write_1h_per_mtok > 0.0
+        );
+    }
+}

@@ -164,7 +164,7 @@ pub fn render_for(
     }
     let head = format!(
         "{HEAD} {open} open, {closed} closed. Edit it with \
-         task.update, task.split, and task.close, naming the version you read. On a task marked \
+         task_update, task_split, and task_close, naming the version you read. On a task marked \
          \"{OWNERS_MARK}\", an objective or acceptance change, or abandoning, waits for the \
          operator; on any other, it applies at once.]"
     );

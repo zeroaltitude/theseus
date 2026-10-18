@@ -311,7 +311,7 @@ impl Tool for WakeAt {
          as one wake, and a cancel ends it. In a task, a one-shot wake keeps the task waiting \
          for it instead of reporting, its turn continues the task, and the task reports once \
          it has no wake left; a task cannot set a repeating one. Your pending wakes are listed \
-         in the last block: to change one, move it (`wake.move`) or cancel it (`wake.cancel`), \
+         in the last block: to change one, move it (`wake_move`) or cancel it (`wake_cancel`), \
          never set a second."
     }
 

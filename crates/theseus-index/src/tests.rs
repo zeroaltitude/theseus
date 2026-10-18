@@ -953,3 +953,46 @@ fn a_reader_shares_the_engine_while_ingest_runs() {
     fn send<T: Send>() {}
     send::<Tender>();
 }
+
+/// A burst of frames (a turn's loop writes four within milliseconds) is one commit, one cursor write
+/// and one reader reload, not one each (theseus-rwpbg.3, W1); a search after the window finds every
+/// node, and the cursor is still written only after a commit.
+#[test]
+fn index_commits_coalesce_within_the_window() {
+    let rig = Rig::new();
+    rig.put(&[user("ses_1", "the first words")]);
+    let mut cfg = rig.cfg(&rig.index);
+    cfg.coalesce = Duration::from_millis(400);
+    let mut t = Tender::open(cfg).unwrap();
+    settle(&mut t);
+    let shared = t.shared();
+    let before = shared.status().commits;
+    let h = std::thread::spawn(move || t.run());
+    // Let the tender reach its wait, then write thirty frames over about a fifth of a second.
+    std::thread::sleep(Duration::from_millis(100));
+    for i in 0..30 {
+        rig.put(&[user("ses_1", &format!("burst marker{i}x"))]);
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while shared.status().nodes < 31 {
+        assert!(
+            Instant::now() < deadline,
+            "never indexed: {:?}",
+            shared.status()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let commits = shared.status().commits - before;
+    eprintln!("30 frames in a burst: {commits} commits");
+    assert!(commits <= 2, "{commits} commits for one burst");
+    for i in 0..30 {
+        let found = query(&shared, &format!("marker{i}x"));
+        assert_eq!(found.hits.len(), 1, "marker{i}x");
+    }
+    // The cursor on disk is the one a commit wrote: nothing past the index.
+    let saved: crate::state::Saved = crate::state::load(&rig.index.join("cursor.json")).unwrap();
+    assert_eq!(saved.cursor.position, shared.status().position);
+    shared.request_stop();
+    h.join().unwrap().unwrap();
+}

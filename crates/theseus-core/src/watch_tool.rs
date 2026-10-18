@@ -47,7 +47,7 @@ impl Tool for WatchTool {
          url, json?} or {kind:file, path}. `until`: `exit 0`, `equals X`, `contains X`, `matches \
          RE`, `changes`, `above N`, `below N`, `exists`. `then`: notice, turn, or task with a \
          `brief`. To wait for someone to answer, {kind:reply, place, from?, words?} (no `until`, no \
-         `every`: it is told of each message, and only notices). End one with `wake.cancel`."
+         `every`: it is told of each message, and only notices). End one with `wake_cancel`."
     }
 
     fn input_schema(&self) -> Value {
@@ -201,7 +201,7 @@ pub fn set(
     let text = if set.set {
         format!(
             "Watching \"{}\" (id {s}, {}): {} every {}, until {}, giving up at {until}; then {}. \
-             It looks first at once and costs no model call. Cancel it with `wake.cancel`.",
+             It looks first at once and costs no model call. Cancel it with `wake_cancel`.",
             spec.title,
             w.id,
             spec.check.target(),

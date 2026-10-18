@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use theseus_protocol::now_unix_ms;
 
 use anyhow::Context as _;
-use theseus_follow::{Cursor, FollowError, Kicker, Stop, Waker, WalFollower};
+use theseus_follow::{Cursor, FollowError, Kicker, Stop, Wake, Waker, WalFollower};
 use theseus_store::{kinds, wal, Record};
 
 use crate::engine::{self, Engine, Writer, SCHEMA_VERSION, SOURCES};
@@ -57,6 +57,11 @@ pub struct Config {
     pub batch_bytes: usize,
     /// The longest a caught-up tender sleeps without an event.
     pub backstop: Duration,
+    /// How long after a change to the WAL the tender waits before it reads (`run`): a turn's
+    /// frames land together, so one commit, one cursor write and one reader reload take the
+    /// lot (theseus-rwpbg.3, W1). 150 ms spans a loop's four frames and is under what a
+    /// person's next message can ask the index for.
+    pub coalesce: Duration,
     /// The vector side: off unless given a weights directory.
     pub vectors: VectorConfig,
     /// The fusion's weights by source, unless a query names its own.
@@ -70,6 +75,7 @@ impl Config {
             index_dir: index_dir.to_path_buf(),
             batch_bytes: 4 << 20,
             backstop: Duration::from_secs(60),
+            coalesce: Duration::from_millis(150),
             vectors: VectorConfig::off(),
             weights: Weights::default(),
         }
@@ -822,11 +828,31 @@ impl Tender {
                 }
             };
             if !more {
-                self.waker
+                let woke = self
+                    .waker
                     .wait(self.cfg.backstop)
                     .context("waiting on the WAL")?;
+                if woke == Wake::Changed {
+                    self.coalesce()?;
+                }
             }
         }
+    }
+
+    /// Let the writes that follow a change arrive before they are read: wait out the
+    /// coalescing window, which a kick (a stop, a rebuild) ends. The next step reads whatever
+    /// the window gathered, and a change after that read wakes the next wait again.
+    fn coalesce(&mut self) -> anyhow::Result<()> {
+        let end = Instant::now() + self.cfg.coalesce;
+        while let Some(left) = end
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+        {
+            if self.waker.wait(left).context("waiting on the WAL")? == Wake::Kicked {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn stalled(&self, e: &anyhow::Error) {

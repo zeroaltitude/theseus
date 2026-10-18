@@ -279,8 +279,11 @@ mod tests {
             family::PlaceKind::Cli,
             &crate::config::defer::DeferConfig::default(),
             0,
-            &known,
-            &Default::default(),
+            &crate::tools_defer::board::Offer {
+                known: &known,
+                extra: &Default::default(),
+                fit: None,
+            },
         );
         assert!(sel.loaded().contains("aws"));
         assert!(b.find("s", &json!({})).is_err());

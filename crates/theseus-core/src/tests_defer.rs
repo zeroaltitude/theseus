@@ -241,9 +241,9 @@ async fn the_loaded_set_holds_across_a_conversation_and_changes_where_it_recompi
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
     let first = tool_bytes(&r.requests()[0]);
-    assert!(deferred(&r.requests()[0], "term_open"));
-    // The ledger now shows terminals used in most turns of the CLI.
-    seed_use(&r.core, "cli", "terminals", 12);
+    assert!(deferred(&r.requests()[0], "project_attach"));
+    // The ledger now shows projects used in most turns of the CLI.
+    seed_use(&r.core, "cli", "projects", 12);
     say(&r.core, &sid, "hello again").await;
     say(&r.core, &sid, "and again").await;
     for q in r.requests() {
@@ -257,14 +257,14 @@ async fn the_loaded_set_holds_across_a_conversation_and_changes_where_it_recompi
     say_boundary(&r.core, &sid).await;
     let after = r.requests().pop().unwrap();
     assert!(
-        tool(&after, "term_open").is_some() && !deferred(&after, "term_open"),
+        tool(&after, "project_attach").is_some() && !deferred(&after, "project_attach"),
         "{:?}",
         offered(&after)
     );
     // A new conversation starts from the learned set.
     let fresh = session(&r.core, None);
     say(&r.core, &fresh, "hello").await;
-    assert!(!deferred(&r.requests().pop().unwrap(), "term_open"));
+    assert!(!deferred(&r.requests().pop().unwrap(), "project_attach"));
 }
 
 #[tokio::test]
@@ -400,19 +400,19 @@ async fn a_search_that_found_the_tool_lets_the_call_through_and_is_counted() {
 }
 
 #[tokio::test]
-async fn the_ledgers_searches_promote_a_family_the_next_conversation_loads() {
-    // The ledger shows the web searched for in most CLI turns: the selector
-    // loads it, without a hand-tuned list.
+async fn the_ledgers_calls_promote_a_family_the_next_conversation_loads() {
+    // The ledger shows threads called in most CLI turns: the selector
+    // loads it, without a hand-tuned list. (A search alone would not: theseus-buz3h.)
     let r = rig();
     for i in 0..12u64 {
         r.core.runner.tools.defer.apply_used(
             theseus_protocol::now_unix_ms() - 3 * 86_400_000 + i,
-            &json!({"place": "cli", "loaded": ["files"], "used": [], "searched": ["web"], "unused": []}),
+            &json!({"place": "cli", "loaded": ["files"], "used": ["threads"], "searched": [], "unused": []}),
         );
     }
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
-    assert!(!deferred(&r.requests()[0], "http_fetch"));
+    assert!(!deferred(&r.requests()[0], "thread_read"));
 }
 
 #[tokio::test]
@@ -636,21 +636,19 @@ fn rig_haiku() -> Rig {
 
 #[tokio::test]
 async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_message_names() {
+    // The cli's request is 7,350 tokens of its 8,000 with the system counted (theseus-buz3h), so the
+    // terminals (1,264 tokens) a message names do not fit there: they stay one `tools_find` away.
+    // `tests_route_defer` holds the family that does fit, loaded.
     let r = rig_haiku();
     let sid = session(&r.core, None);
-    let res = say(&r.core, &sid, "open a terminal and run true").await;
+    say(&r.core, &sid, "open a terminal and run true").await;
     let req = &r.requests()[0];
     assert!(
-        offered(req).contains(&"term_open".to_string()),
-        "{:?}",
+        !offered(req).contains(&"term_open".to_string())
+            && offered(req).contains(&"tools_find".to_string()),
+        "a family that would pass the place's budget is not added: {:?}",
         offered(req)
     );
-    assert_eq!(res.tool_calls, 1, "the call reached the tool");
-    assert!(rows(&r.core, "tools.missed").is_empty());
-    // The conversation's next turn holds the set still: no cache rewrite.
-    let first = tool_bytes(req);
-    say(&r.core, &sid, "and another terminal").await;
-    assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
 }
 
 /// install #30's live check (theseus-ezad2): asked "Call the thread_read tool once", Haiku on the owner's cli
