@@ -13,6 +13,7 @@ path = "src/bin/theseus-lsp-fake.rs"
 
 [dependencies]
 serde.workspace = true
+theseus-protocol.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

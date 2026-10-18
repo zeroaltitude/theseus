@@ -17,6 +17,7 @@
 //!   most [`PER_EPISODE`].
 
 use std::path::Path;
+use theseus_protocol::term::words::cut_marked;
 
 use anyhow::Result;
 
@@ -165,10 +166,7 @@ pub fn lines_of(text: &str) -> Vec<String> {
 
 fn cut(s: &str, max: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    match one.char_indices().nth(max) {
-        Some((at, _)) => format!("{}…", &one[..at]),
-        None => one,
-    }
+    cut_marked(&one, max)
 }
 
 /// Read the archive's evidence. A read for a job, off every turn: it walks

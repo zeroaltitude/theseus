@@ -17,6 +17,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use theseus_protocol::term::words;
 use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
@@ -267,17 +268,9 @@ fn entry(why: Row, count: u64, last: Value) -> LedgerRow {
 
 /// A request's header, as a ledger row keeps it: text, at most 200 characters.
 pub fn clip(v: Option<&[u8]>) -> Value {
-    match v {
-        None => Value::Null,
-        Some(b) => {
-            let s = String::from_utf8_lossy(b);
-            let mut out: String = s.chars().take(200).collect();
-            if s.chars().count() > 200 {
-                out.push('…');
-            }
-            Value::String(out)
-        }
-    }
+    v.map_or(Value::Null, |b| {
+        Value::String(words::clip(&String::from_utf8_lossy(b), 200))
+    })
 }
 
 #[cfg(test)]
@@ -453,7 +446,7 @@ mod tests {
                 .unwrap()
                 .chars()
                 .count(),
-            201
+            200
         );
         assert_eq!(clip(Some(&[0xff, b'a'])), "\u{fffd}a");
     }

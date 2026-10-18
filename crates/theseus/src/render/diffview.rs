@@ -6,6 +6,7 @@
 //! none on a pipe or under `NO_COLOR`); the TUI draws them its own way.
 
 use theseus_protocol::diff::{first_changed, rows, Kind, Row};
+use theseus_protocol::term::words::clip;
 use theseus_protocol::{ConfirmPreview, ConfirmRequest, ToolEnded};
 
 use super::{Line, Tag};
@@ -62,15 +63,6 @@ pub fn paint(line: &Line, colour: bool) -> String {
     format!("{base}{text}\x1b[0m")
 }
 
-fn clip(s: &str) -> String {
-    if s.chars().count() <= WIDTH {
-        return s.to_string();
-    }
-    let mut out: String = s.chars().take(WIDTH - 1).collect();
-    out.push('…');
-    out
-}
-
 /// A unified diff as rows: `file:line (+n −m)`, then each hunk's lines,
 /// numbered, the changed words marked. At most `DIFF_ROWS` rows, then a line
 /// saying how many more.
@@ -123,7 +115,10 @@ pub fn diff_lines(unified: &str, pad: &str) -> Vec<Line> {
             Kind::Removed => (Tag::Del, '-', r.old),
             Kind::Added => (Tag::Add, '+', r.new),
             Kind::Hunk => {
-                out.push(Line::new(Tag::Dim, format!("{pad}{}", clip(&r.text))));
+                out.push(Line::new(
+                    Tag::Dim,
+                    format!("{pad}{}", clip(&r.text, WIDTH)),
+                ));
                 continue;
             }
             Kind::Note => {
@@ -133,7 +128,7 @@ pub fn diff_lines(unified: &str, pad: &str) -> Vec<Line> {
             _ => (Tag::Plain, ' ', r.new),
         };
         let no = no.map(|n| n.to_string()).unwrap_or_default();
-        let text = marked(&clip(&r.text), &r.marks);
+        let text = marked(&clip(&r.text, WIDTH), &r.marks);
         out.push(Line::new(tag, format!("{pad}{no:>4} {sign} {text}")));
         shown += 1;
     }
@@ -162,7 +157,7 @@ pub fn preview_lines(c: &ConfirmRequest) -> Vec<Line> {
         _ => p
             .body
             .lines()
-            .map(|l| Line::new(Tag::Dim, format!("      {}", clip(l))))
+            .map(|l| Line::new(Tag::Dim, format!("      {}", clip(l, WIDTH))))
             .collect(),
     }
 }
@@ -212,7 +207,7 @@ pub fn ended_lines(t: &ToolEnded) -> Vec<Line> {
         .map(|(i, l)| {
             Line::new(
                 Tag::Dim,
-                format!("{}{}", if i == 0 { "  ⎿ " } else { "    " }, clip(l)),
+                format!("{}{}", if i == 0 { "  ⎿ " } else { "    " }, clip(l, WIDTH)),
             )
         })
         .collect();

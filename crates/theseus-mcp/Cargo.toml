@@ -33,6 +33,7 @@ required-features = ["server"]
 
 [dependencies]
 serde.workspace = true
+theseus-protocol.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

@@ -22,6 +22,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use theseus_protocol::time::civil_from_days;
 
 use anyhow::Result;
 use theseus_protocol::import::{
@@ -642,15 +643,7 @@ impl Wants {
 
 /// A month's key, `2026-03`, from unix ms (UTC).
 pub fn month_of(ms: u64) -> String {
-    // Howard Hinnant's civil_from_days.
-    let z = (ms / 86_400_000) as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
+    let (y, m, _) = civil_from_days((ms / 86_400_000) as i64);
     format!("{y:04}-{m:02}")
 }
 

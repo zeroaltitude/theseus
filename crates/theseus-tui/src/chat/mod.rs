@@ -123,7 +123,7 @@ pub async fn run(args: Args) -> Result<()> {
         seen_path: theseus_client::seen::Seen::default_path(),
     };
     let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
-    let mut chat = Chat::new(cfg, crate::now_ms());
+    let mut chat = Chat::new(cfg, theseus_protocol::now_unix_ms());
     chat.resized(w, h);
     chat.job_session = theseus_client::client::job_session();
 
@@ -139,7 +139,7 @@ pub async fn run(args: Args) -> Result<()> {
     });
     let signals = crate::ending_signals()?;
     let mut guard = guard::Guard::enter()?;
-    let mut runner = Runner::new(chat, Some(conn), connect, rx, crate::now_ms);
+    let mut runner = Runner::new(chat, Some(conn), connect, rx, theseus_protocol::now_unix_ms);
     runner.out = Box::new(std::io::stdout());
     runner.signals = Some(signals);
     let ran = runner.run().await;

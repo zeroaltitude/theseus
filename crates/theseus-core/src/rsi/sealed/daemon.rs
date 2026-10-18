@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use theseus_protocol::rsi::SealedState;
 
-use super::{ItemId, Runner, Scores, Sealed};
+use super::{ItemId, Sealed};
 use crate::fact::rsi_sealed::SelfExamCounted;
 use crate::rpc::Core;
 
@@ -39,14 +39,6 @@ impl Core {
         self.store.append(&[crate::fact::row(&fact, None, None)?])?;
         self.rec(None).announce(&fact);
         Ok(id)
-    }
-
-    /// Score `runner` against a sealed set: numbers and opaque ids only.
-    pub fn sealed_score(&self, set: &str, runner: &dyn Runner) -> Result<Scores> {
-        let sealed = self.sealed.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("[self] sealed_dir is not set: there is no sealed set")
-        })?;
-        Ok(sealed.score(set, runner)?)
     }
 
     /// Health's counts: present when a sealed dir is set.

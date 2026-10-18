@@ -45,6 +45,7 @@ pub mod index;
 pub mod initiative;
 pub mod inspect;
 pub mod job_follow;
+pub mod jsonrpc;
 pub mod judge;
 pub mod judge_runs;
 pub mod later;
@@ -92,6 +93,7 @@ pub mod thread_cache;
 pub mod thread_route;
 pub mod threads;
 pub mod threads_import;
+pub mod time;
 mod toolinfo;
 #[cfg(test)]
 mod ts;
@@ -150,6 +152,7 @@ pub use standing::*;
 pub use standing_proposals::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use term::{TerminalInfo, TerminalLeft};
+pub use time::now_unix_ms;
 pub use toolinfo::{ToolInfo, ToolListResult};
 pub use wakes::*;
 pub use watches::{
@@ -508,10 +511,11 @@ pub struct Notification {
     pub params: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RpcError {
     pub code: i64,
+    #[serde(default)]
     pub message: String,
     #[serde(default, skip_serializing_if = "Value::is_null")]
     #[cfg_attr(test, ts(type = "unknown"))]
@@ -2722,11 +2726,4 @@ pub struct NarrativeWatchResult {
     /// The most recent lines, oldest first; at most `capacity`.
     pub lines: Vec<NarrativeLine>,
     pub capacity: u32,
-}
-
-pub fn now_unix_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }

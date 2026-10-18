@@ -509,11 +509,6 @@ impl Push {
             .digest_read(since, scope, named, scrubber)
     }
 
-    /// The root (an execution id) of the tree a session's execution is in.
-    pub fn work_root_of_session(&self, session: &str) -> Option<String> {
-        self.work.lock().unwrap().root_of_session(session)
-    }
-
     /// The board as `executions.watch` answers it: its position, every view
     /// that needs you or works (needs you first, the longest waiting first),
     /// then the `limit` most recently active of the rest, and how many it

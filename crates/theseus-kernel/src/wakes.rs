@@ -39,6 +39,7 @@ use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
 use serde_json::json;
+use theseus_protocol::term::words::cut;
 use theseus_store::NewRecord;
 
 use crate::kernel::{exec_record, Kernel, KernelError, TurnGuard};
@@ -297,7 +298,7 @@ impl Kernel {
         sort(&mut e.wakes);
         e.updated_at_ms = now;
         let mut row = json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": due_at_ms,
-                       "in_ms": due_at_ms.saturating_sub(now), "note": clip(&wake.note),
+                       "in_ms": due_at_ms.saturating_sub(now), "note": cut(&wake.note, 200),
                        "by": by, "pending": e.wakes.len()});
         if !purpose.is_check() {
             row["purpose"] = json!(purpose.as_str());
@@ -639,11 +640,6 @@ impl Kernel {
 /// Soonest first, and by id at the same time.
 fn sort(wakes: &mut [PendingWake]) {
     wakes.sort_by(|a, b| (a.due_at_ms, &a.id).cmp(&(b.due_at_ms, &b.id)));
-}
-
-/// A note as a ledger row carries it: its first 200 characters.
-fn clip(note: &str) -> String {
-    note.chars().take(200).collect()
 }
 
 /// What a purpose's wakes are called together.

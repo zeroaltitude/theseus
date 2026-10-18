@@ -19,6 +19,7 @@
 use anyhow::Result;
 use serde_json::json;
 use std::sync::atomic::Ordering;
+use theseus_protocol::term::words::cut;
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
@@ -99,7 +100,7 @@ impl Kernel {
             let mut row = json!({"execution_id": e.id, "wake_id": f.wake.id,
                        "due_at_ms": f.wake.due_at_ms, "set_at_ms": f.wake.set_at_ms,
                        "late_ms": f.late_ms, "while_down": f.while_down, "notice": true,
-                       "purpose": f.wake.purpose.as_str(), "note": clip(&f.wake.note)});
+                       "purpose": f.wake.purpose.as_str(), "note": cut(&f.wake.note, 200)});
             if let Some(r) = &f.wake.repeat {
                 row["every"] = json!(r.every.to_string());
                 row["occurrence"] = json!(f.wake.occurrence);
@@ -457,11 +458,6 @@ fn wake_id_of(correlation_id: &str) -> String {
 
 fn sort(wakes: &mut [PendingWake]) {
     wakes.sort_by(|a, b| (a.due_at_ms, &a.id).cmp(&(b.due_at_ms, &b.id)));
-}
-
-/// A note as a ledger row carries it: its first 200 characters.
-fn clip(note: &str) -> String {
-    note.chars().take(200).collect()
 }
 
 /// A reminder's purpose and a notice's run: what the owner's `wake.create`

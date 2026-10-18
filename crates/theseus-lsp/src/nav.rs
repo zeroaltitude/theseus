@@ -109,25 +109,6 @@ impl Client {
             .collect())
     }
 
-    /// Whether the symbol at `pos` can be renamed, and its range; `None`
-    /// when the server says it cannot. A server without `prepareProvider`
-    /// answers `Ok(None)` here too.
-    pub async fn prepare_rename(&self, path: &Path, pos: Position) -> Result<Option<Value>, Error> {
-        let prepare = self
-            .capabilities()
-            .raw
-            .pointer("/renameProvider/prepareProvider")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if !prepare {
-            return Ok(None);
-        }
-        let v = self
-            .at("textDocument/prepareRename", path, pos, Value::Null)
-            .await?;
-        Ok((!v.is_null()).then_some(v))
-    }
-
     /// The edit that renames the symbol at `pos` to `new_name`, as the
     /// server proposes it. Never applied here.
     pub async fn rename(

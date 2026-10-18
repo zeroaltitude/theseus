@@ -160,18 +160,6 @@ impl FakeDiscord {
             .unwrap_or_default()
     }
 
-    /// Put tags on a forum before the binding looks (the owner made them).
-    pub fn set_forum_tags(&self, forum: u64, names: &[&str]) {
-        let tags: Vec<FakeTag> = names
-            .iter()
-            .map(|n| FakeTag {
-                id: self.next_big().to_string(),
-                name: (*n).to_string(),
-            })
-            .collect();
-        self.state.lock().unwrap().forum_tags.insert(forum, tags);
-    }
-
     /// `PATCH /channels/<forum>` with `available_tags`: Discord keeps at most
     /// 20, and a tag without an id is new.
     fn forum_tags_set(&self, stream: TcpStream, id: &str, body: &Value) -> std::io::Result<()> {

@@ -831,17 +831,6 @@ impl Client {
         self.shared().send(jsonrpc::notification(method, params));
     }
 
-    /// New settings: `workspace/configuration` answers from them, and the
-    /// server is told (`workspace/didChangeConfiguration`).
-    pub fn set_settings(&self, settings: Value) {
-        // The options are fixed at the start; the new settings ride along in
-        // the notification, which every server that pulls reads as "ask again".
-        self.notify(
-            "workspace/didChangeConfiguration",
-            json!({ "settings": settings }),
-        );
-    }
-
     /// Stop the server: `shutdown`, `exit`, and a kill if its stdout is still
     /// open after the grace.
     pub async fn stop(&self) -> Stopped {

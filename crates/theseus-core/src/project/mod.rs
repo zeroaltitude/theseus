@@ -70,13 +70,5 @@ pub fn project_of<'a>(tasks: &'a [TaskRecord], t: &'a TaskRecord) -> Option<&'a 
     None
 }
 
-/// The open projects, oldest first.
-pub fn open_projects(tasks: &[TaskRecord]) -> Vec<&TaskRecord> {
-    tasks
-        .iter()
-        .filter(|t| is_project(t) && !t.state.is_closed())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests;

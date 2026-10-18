@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
+use theseus_protocol::now_unix_ms;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -434,10 +435,6 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn now_ms() -> u64 {
-    theseus_protocol::now_unix_ms()
-}
-
 /// A root's short name in its log's file name.
 fn root_hash(root: &Path) -> String {
     hex::encode(&Sha256::digest(root.as_os_str().as_encoded_bytes())[..6])
@@ -643,7 +640,7 @@ impl Board {
 
     async fn start(self: &Arc<Self>, spec: &Spec, key: Key) -> Result<Arc<Live>, String> {
         let root = key.1.clone();
-        lock(&self.starting).insert(key.clone(), now_ms());
+        lock(&self.starting).insert(key.clone(), now_unix_ms());
         let started = tokio::time::Instant::now();
         let fail = |pid: Option<u32>, why: String| {
             lock(&self.starting).remove(&key);
@@ -653,7 +650,7 @@ impl Board {
                 pid,
                 why: &why,
             });
-            lock(&self.failed).insert(key.clone(), (now_ms(), why.clone()));
+            lock(&self.failed).insert(key.clone(), (now_unix_ms(), why.clone()));
             Err(format!(
                 "{} could not start on {}: {why}",
                 spec.name,
@@ -696,7 +693,7 @@ impl Board {
             pid,
             term: s.term,
             started,
-            since_ms: now_ms(),
+            since_ms: now_unix_ms(),
             ready_ms: Mutex::new(None),
             last_used: Mutex::new(tokio::time::Instant::now()),
             requests: AtomicU64::new(0),
@@ -727,7 +724,7 @@ impl Board {
             pid: l.pid,
             why,
         });
-        lock(&self.failed).insert(l.key.clone(), (now_ms(), why.to_string()));
+        lock(&self.failed).insert(l.key.clone(), (now_unix_ms(), why.to_string()));
     }
 
     /// Off the board, if it is still the one there.

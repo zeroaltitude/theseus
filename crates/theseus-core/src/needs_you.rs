@@ -27,6 +27,7 @@
 
 use serde_json::json;
 use theseus_kernel::Action;
+use theseus_protocol::term::words::cut_marked;
 use theseus_protocol::work::QuestionKind;
 use theseus_protocol::ConfirmRequest;
 
@@ -150,7 +151,7 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
     let ask = crate::ask::input_of(a);
     let prompt = match &ask {
         Some(i) => i.question.clone(),
-        None => clip(&req.reason, 300),
+        None => cut_marked(req.reason.trim(), 300),
     };
     let choices = ask.as_ref().map(|i| i.choices()).unwrap_or_default();
     let kind = crate::rpc::answer::kind_of(req);
@@ -183,14 +184,6 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
     })
 }
 
-fn clip(s: &str, max: usize) -> String {
-    let s = s.trim();
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
-    }
-}
-
 /// One post for several questions that were due together (the pacer): who
 /// asks what, and how to answer each. It names every question
 /// (`questions`) so none pings again, and has no buttons and no settle: it is
@@ -201,7 +194,7 @@ pub fn batch_body_of(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json:
     for (a, req, who) in asks.iter().take(LISTED) {
         let prompt = match crate::ask::input_of(a) {
             Some(i) => i.question,
-            None => clip(&req.reason, 120),
+            None => cut_marked(req.reason.trim(), 120),
         };
         let short: String = {
             let mut tail: Vec<char> = a.correlation_id.chars().rev().take(8).collect();
@@ -210,7 +203,7 @@ pub fn batch_body_of(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json:
         };
         text.push_str(&format!(
             "\n- **{who}**: {} (`{short}`)",
-            clip(&prompt, 120)
+            cut_marked(prompt.trim(), 120)
         ));
     }
     if asks.len() > LISTED {

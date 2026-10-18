@@ -20,7 +20,7 @@ use std::time::Instant;
 use anyhow::{bail, Context};
 use serde_json::Value;
 use theseus_judge::builders::{CompareInput, CompareReply};
-use theseus_protocol::own_bench::{ReplayReply, ReplayVerdict, TurnReplayParams, TurnReplayResult};
+use theseus_protocol::own_bench::{ReplayVerdict, TurnReplayParams, TurnReplayResult};
 
 use super::rebuild::{Original, Said};
 use super::{parse_effort, BY_OWNER, REPLAY_MAX_TOKENS};
@@ -72,17 +72,6 @@ pub struct Replayed {
     pub result: TurnReplayResult,
     pub from_effort: String,
     pub replay_micros: u64,
-}
-
-fn reply_of(s: &Said) -> ReplayReply {
-    ReplayReply {
-        model: s.model.clone(),
-        text: s.text.clone(),
-        tool_calls: s.tool_calls.clone(),
-        input_tokens: s.input_tokens,
-        output_tokens: s.output_tokens,
-        cost_usd: s.cost_usd,
-    }
 }
 
 /// A model's answer as the replay's reply: its text, the calls it asked for
@@ -277,8 +266,8 @@ impl Core {
             effort: effort.map(super::effort_word),
             scope: scope.to_string(),
             request_digest: original.digest.clone(),
-            original: reply_of(&original_said),
-            replay: reply_of(&replay),
+            original: original_said.clone(),
+            replay: replay.clone(),
             verdict: None,
             unjudged: None,
             cost_usd: replay.cost_usd,

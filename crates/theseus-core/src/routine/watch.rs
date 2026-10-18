@@ -37,13 +37,6 @@ pub enum Outcome {
     Cancelled,
 }
 
-impl Outcome {
-    /// A failure or a block: the two a streak counts.
-    pub fn is_trouble(&self) -> bool {
-        matches!(self, Outcome::Failed(_) | Outcome::Blocked(_))
-    }
-}
-
 /// The run `e` (a routine's task) came to.
 pub fn outcome(store: &Store, e: &Execution) -> Outcome {
     if let Ok(Some(b)) =

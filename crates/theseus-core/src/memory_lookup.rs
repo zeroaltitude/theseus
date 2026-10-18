@@ -397,7 +397,7 @@ async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput,
         text,
         meta: json!({
             "mode": if some(&a.words).is_some() { "words" } else { "catalog" },
-            "when": when.as_ref().map(theseus_protocol::memory::RecallWhen::from),
+            "when": when.clone(),
             "total": total, "shown": shown, "cursor": offset,
             "next": more.then_some(next), "veiled": veiled, "sessions": ids,
             "tokens": used,

@@ -7,6 +7,7 @@
 //! when it read them (`counted_ms`), and never queues behind the writer.
 
 use super::*;
+use theseus_protocol::now_unix_ms;
 
 /// The counts the table gives, as last read.
 #[derive(Debug, Clone, Default)]
@@ -23,7 +24,7 @@ pub(super) struct Counts {
 impl Counts {
     fn of(t: &Table) -> Counts {
         let mut c = Counts {
-            at_ms: now_ms(),
+            at_ms: now_unix_ms(),
             ..Counts::default()
         };
         let mut done = 0u64;
@@ -73,7 +74,7 @@ impl Vectors {
     pub fn status(&self) -> VectorStatus {
         let st = self.state.lock().unwrap();
         let model = st.model.name().to_string();
-        let since = |i: Instant| now_ms().saturating_sub(i.elapsed().as_millis() as u64);
+        let since = |i: Instant| now_unix_ms().saturating_sub(i.elapsed().as_millis() as u64);
         let mut s = VectorStatus {
             model,
             weights_dir: self

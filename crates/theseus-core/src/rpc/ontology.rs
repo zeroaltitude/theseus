@@ -10,6 +10,7 @@
 //! session's place at compile, and a write of either is invalid input.
 
 use std::collections::BTreeMap;
+use theseus_protocol::now_unix_ms;
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
@@ -59,7 +60,7 @@ impl Core {
             _ if p.memberships == Some(false) => Vec::new(),
             Some(s) => {
                 let place = self.runner.target_of(s);
-                let mut ms = crate::ontology::given(place.as_deref(), now());
+                let mut ms = crate::ontology::given(place.as_deref(), now_unix_ms());
                 ms.extend(o.memberships(s));
                 ms.iter().map(|m| membership_info(s, m)).collect()
             }
@@ -249,7 +250,7 @@ impl Core {
             list(&mut lists, id.kind());
             let l = lists.get_mut(id.kind()).unwrap();
             if !l.iter().any(|m| m.category == id) {
-                l.push(Membership::operator(id, now()));
+                l.push(Membership::operator(id, now_unix_ms()));
             }
         }
         for s in &p.remove {
@@ -448,10 +449,6 @@ fn failure(e: anyhow::Error) -> RpcFailure {
         },
         Err(e) => RpcFailure::invalid(e),
     }
-}
-
-fn now() -> u64 {
-    theseus_protocol::now_unix_ms()
 }
 
 /// Who wrote a record, as its `added_by` holds it: one line of at most 100

@@ -452,12 +452,6 @@ impl WorkBoard {
         self.agenda(p, scope, zone)
     }
 
-    /// The root (execution id) of a session's tree, if the board holds it.
-    pub(super) fn root_of_session(&self, session: &str) -> Option<String> {
-        let id = self.by_session.get(session)?;
-        Some(self.root_of(id))
-    }
-
     // ------------------------------------------------------------- apply
 
     /// Take one frame the execution board has applied: `changed` are the

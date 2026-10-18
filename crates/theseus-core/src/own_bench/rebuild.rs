@@ -21,16 +21,8 @@ use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
 
-/// The original reply: what the turn's first answer said and asked for.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Said {
-    pub model: String,
-    pub text: String,
-    pub tool_calls: Vec<String>,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cost_usd: f64,
-}
+/// A reply: what a turn's answer said and asked for (the wire's own type).
+pub use theseus_protocol::own_bench::ReplayReply as Said;
 
 /// A first request, rebuilt.
 pub struct Original {

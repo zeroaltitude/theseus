@@ -83,7 +83,7 @@ mod tests_typing;
 mod tests_work;
 
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
+use theseus_protocol::now_unix_ms;
 
 use anyhow::{bail, Result};
 use theseus_client::Conn;
@@ -241,7 +241,7 @@ async fn tui(args: Args) -> Result<()> {
     // (`term`), and a panic turns them off.
     let terminal = ratatui::try_init()?;
     term::on_panic(|| Box::new(std::io::stdout()));
-    let mut runner = Runner::new(app, terminal, connect, rx, now_ms);
+    let mut runner = Runner::new(app, terminal, connect, rx, now_unix_ms);
     runner.out = Box::new(std::io::stdout());
     runner.delivery = args.notify.unwrap_or_default();
     runner.app.notify_pinned = args.notify.is_some();
@@ -285,14 +285,6 @@ fn ending_signals() -> std::io::Result<tokio::sync::mpsc::UnboundedReceiver<()>>
         let _ = end.send(());
     });
     Ok(signals)
-}
-
-/// The wall clock, in ms since the epoch.
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// A time of day on this machine's clock, `15:42`, as the daemon writes its

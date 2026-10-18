@@ -1080,11 +1080,6 @@ impl Service {
         (0..self.d.shapes.len() as u32).map(move |i| self.shape(ShapeId(i)))
     }
 
-    /// A shape by its model name (a linear scan).
-    pub fn shape_by_name(&self, name: &str) -> Option<ShapeRef<'_>> {
-        self.shapes().find(|s| s.name() == name)
-    }
-
     pub fn operation_count(&self) -> usize {
         self.d.operations.len()
     }
@@ -1162,10 +1157,6 @@ impl<'a> ShapeRef<'a> {
         self.flag(sf::DOCUMENT)
     }
 
-    pub fn is_event(&self) -> bool {
-        self.flag(sf::EVENT)
-    }
-
     pub fn is_eventstream(&self) -> bool {
         self.flag(sf::EVENTSTREAM)
     }
@@ -1174,25 +1165,8 @@ impl<'a> ShapeRef<'a> {
         self.flag(sf::STREAMING)
     }
 
-    pub fn is_exception(&self) -> bool {
-        self.flag(sf::EXCEPTION)
-    }
-
-    pub fn is_fault(&self) -> bool {
-        self.flag(sf::FAULT)
-    }
-
     pub fn is_deprecated(&self) -> bool {
         self.flag(sf::DEPRECATED)
-    }
-
-    pub fn requires_length(&self) -> bool {
-        self.flag(sf::REQUIRES_LENGTH)
-    }
-
-    /// The query protocol's output wrapper shape.
-    pub fn is_wrapper(&self) -> bool {
-        self.flag(sf::WRAPPER)
     }
 
     /// A list or map serialized without its wrapping element.
@@ -1370,11 +1344,6 @@ impl<'a> MemberRef<'a> {
         self.flag(mf::JSONVALUE)
     }
 
-    /// Substituted into the endpoint's host prefix.
-    pub fn is_host_label(&self) -> bool {
-        self.flag(mf::HOST_LABEL)
-    }
-
     pub fn is_xml_attribute(&self) -> bool {
         self.flag(mf::XML_ATTRIBUTE)
     }
@@ -1386,10 +1355,6 @@ impl<'a> MemberRef<'a> {
 
     pub fn is_streaming(&self) -> bool {
         self.flag(mf::STREAMING) || self.shape().is_streaming()
-    }
-
-    pub fn is_eventpayload(&self) -> bool {
-        self.flag(mf::EVENTPAYLOAD)
     }
 
     pub fn is_deprecated(&self) -> bool {
@@ -1495,14 +1460,6 @@ impl<'a> OperationRef<'a> {
     pub fn endpoint_discovery(&self) -> Option<bool> {
         self.flag(of::ENDPOINT_DISCOVERY)
             .then(|| self.flag(of::ENDPOINT_DISCOVERY_REQUIRED))
-    }
-
-    pub fn is_endpoint_operation(&self) -> bool {
-        self.flag(of::ENDPOINT_OPERATION)
-    }
-
-    pub fn request_compression(&self) -> bool {
-        self.flag(of::REQUEST_COMPRESSION)
     }
 
     pub fn auth(&self) -> Auth {

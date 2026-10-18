@@ -14,6 +14,7 @@
 //! new thread's first compile (an arrangement) and moves nothing.
 
 use serde::{Deserialize, Serialize};
+use theseus_protocol::term::words::clip;
 use theseus_protocol::threads::{
     ThreadInfo, ThreadState, WorkingSet, MAX_CARD, MAX_LINE_CHARS, MAX_TOPICS,
 };
@@ -51,14 +52,6 @@ pub struct MergeRecord {
 /// A date as `2026-10-14`.
 pub fn day(ms: u64) -> String {
     crate::arrangement::utc(ms).chars().take(10).collect()
-}
-
-/// `line` cut to at most `max` characters, with an ellipsis.
-fn clip(line: &str, max: usize) -> String {
-    match line.chars().count() > max {
-        true => format!("{}…", line.chars().take(max - 1).collect::<String>()),
-        false => line.to_string(),
-    }
 }
 
 /// `into`'s card with `from`'s quoted at its end as an evidence block:

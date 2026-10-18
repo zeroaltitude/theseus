@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
+use theseus_protocol::now_unix_ms;
 
 use anyhow::Context as _;
 use theseus_follow::{Cursor, FollowError, Kicker, Stop, Waker, WalFollower};
@@ -129,7 +130,7 @@ impl Shared {
         let ms = if bytes == 0 {
             0
         } else {
-            now_ms().saturating_sub(*self.caught_up_ms.lock().unwrap())
+            now_unix_ms().saturating_sub(*self.caught_up_ms.lock().unwrap())
         };
         Lag { bytes, ms }
     }
@@ -414,11 +415,11 @@ impl Tender {
                 offset: cursor.offset,
                 extractor: EXTRACTOR_VERSION,
                 schema: SCHEMA_VERSION,
-                started_at_ms: now_ms(),
+                started_at_ms: now_unix_ms(),
                 rebuilds: u64::from(why_rebuild.is_some()),
                 ..IndexStatus::default()
             }),
-            caught_up_ms: Mutex::new(now_ms()),
+            caught_up_ms: Mutex::new(now_unix_ms()),
             rebuild: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             kicker: waker.kicker(),
@@ -523,7 +524,7 @@ impl Tender {
             step.committed = true;
             self.shared.set(|s| {
                 s.commits += 1;
-                s.last_commit_ms = now_ms();
+                s.last_commit_ms = now_unix_ms();
             });
         } else if (self.places_dirty || self.saved_at.elapsed() >= self.cfg.backstop)
             && *self.follower.cursor() != self.saved
@@ -630,7 +631,7 @@ impl Tender {
                 schema: SCHEMA_VERSION,
                 extractor: EXTRACTOR_VERSION,
                 cursor: cursor.clone(),
-                saved_at_ms: now_ms(),
+                saved_at_ms: now_unix_ms(),
             },
         )
         .context("writing cursor.json")?;
@@ -643,7 +644,7 @@ impl Tender {
         let c = self.follower.cursor().clone();
         let behind = *stop == Stop::Budget;
         if !behind {
-            *self.shared.caught_up_ms.lock().unwrap() = now_ms();
+            *self.shared.caught_up_ms.lock().unwrap() = now_unix_ms();
             if self.backfill.take().is_some() {
                 tracing::info!(position = c.position, "index: caught up with the WAL");
                 // The rows are every chunk now: dead vectors can be counted.
@@ -833,7 +834,7 @@ impl Tender {
         self.shared.set(|s| {
             s.state = "stalled".into();
             s.last_error = Some(format!("{e:#}"));
-            s.last_error_ms = now_ms();
+            s.last_error_ms = now_unix_ms();
         });
     }
 }
@@ -873,10 +874,6 @@ pub fn wal_bytes_after(wal_dir: &Path, segment: u32, offset: u64) -> u64 {
 fn bytes_between(wal_dir: &Path, from: &Cursor, to: &Cursor) -> u64 {
     wal_bytes_after(wal_dir, from.segment, from.offset)
         .saturating_sub(wal_bytes_after(wal_dir, to.segment, to.offset))
-}
-
-pub fn now_ms() -> u64 {
-    theseus_store::record::now_unix_ms()
 }
 
 /// This process's resident memory, from `/proc/self/statm`.

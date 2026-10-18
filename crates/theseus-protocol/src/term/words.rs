@@ -15,6 +15,20 @@ pub fn clip(s: &str, max: usize) -> String {
     out
 }
 
+/// The first `max` characters of `s`, then `…` when there were more (`max + 1`
+/// in all).
+pub fn cut_marked(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((at, _)) => format!("{}…", &s[..at]),
+        None => s.to_string(),
+    }
+}
+
+/// The first `max` characters of `s`, with no mark.
+pub fn cut(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
 fn text(input: &Value, k: &str) -> Option<String> {
     input.get(k).and_then(Value::as_str).map(str::to_string)
 }
@@ -153,6 +167,31 @@ pub fn summarize(tool: &str, input: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn clip_at_most_n_counts_the_mark() {
+        let long = "x".repeat(300);
+        assert_eq!(clip(&long, 200).chars().count(), 200);
+        assert_eq!(clip(&long, 200), format!("{}…", "x".repeat(199)));
+        assert_eq!(clip("abc", 3), "abc");
+        assert_eq!(clip("abcd", 3), "ab…");
+        assert_eq!(clip("héllo wörld", 6), "héllo…");
+    }
+
+    #[test]
+    fn cut_marked_keeps_n_characters_then_the_mark() {
+        assert_eq!(cut_marked("ééé", 2), "éé…");
+        assert_eq!(cut_marked("abcdef", 3), "abc…");
+        assert_eq!(cut_marked("abc", 3), "abc");
+        assert_eq!(cut_marked("", 0), "");
+    }
+
+    #[test]
+    fn cut_keeps_n_characters_and_no_mark() {
+        assert_eq!(cut("héllo", 2), "hé");
+        assert_eq!(cut("hi", 9), "hi");
+        assert_eq!(cut(&"x".repeat(300), 200).chars().count(), 200);
+    }
 
     #[test]
     fn a_call_is_said_in_words() {

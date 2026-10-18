@@ -360,13 +360,6 @@ pub fn tender(name: &str) -> Option<u32> {
         .find(|&pid| stat(pid).is_some_and(|s| s.ppid == me && !matches!(s.state, 'Z' | 'X')))
 }
 
-/// What a process tends, read from its command line (`TENDERS`): a tender's
-/// binary, by its file name, with its first argument.
-pub fn tender_of(pid: u32) -> Option<&'static str> {
-    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-    tender_in(&cmdline)
-}
-
 fn tender_in(cmdline: &[u8]) -> Option<&'static str> {
     let mut args = cmdline.split(|&b| b == 0);
     let bin = std::path::Path::new(std::str::from_utf8(args.next()?).ok()?)

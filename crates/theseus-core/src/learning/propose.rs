@@ -1140,15 +1140,4 @@ impl Core {
         self.rec(None).announce(&f);
         Ok(())
     }
-
-    /// Every proposal of every lineage, newest first (the cockpit's
-    /// versions view reads them through `pack.list`'s rows and this).
-    pub fn learn_proposals(&self) -> Vec<JudgeProposal> {
-        let mut all: Vec<(u64, JudgeProposal)> = roots()
-            .iter()
-            .flat_map(|r| self.proposals(r).unwrap_or_default())
-            .collect();
-        all.sort_by_key(|a| std::cmp::Reverse(a.0));
-        all.into_iter().map(|(_, p)| p).collect()
-    }
 }

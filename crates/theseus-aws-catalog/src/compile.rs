@@ -521,13 +521,6 @@ pub(crate) fn encode_service(it: &Interner, d: &ServiceData) -> Vec<u8> {
     w.buf
 }
 
-/// Compiles one service and decodes it again: for tests that build a
-/// service from a model fixture, and for the round-trip check.
-pub fn compile_service(name: &str, files: &ModelFiles) -> Result<crate::Service, CompileError> {
-    let (it, d, _) = build_service(name, files)?;
-    Ok(crate::Service::decode(&encode_service(&it, &d))?)
-}
-
 /// What the generator reports.
 #[derive(Debug, Default, Clone)]
 pub struct CompileReport {
@@ -856,25 +849,6 @@ pub fn compile_dir(
     }
     let models = read_models(dir)?;
     compile_models(&models, &parts, snapshot, compress)
-}
-
-/// Compiles model files (a test's fixtures, say) with a one-partition table
-/// (`aws`, `us-east-1` and `us-west-2`): no rule set, so default endpoints.
-pub fn compile_fixtures(
-    models: &[(String, ModelFiles)],
-    snapshot: &str,
-    compress: Compress<'_>,
-) -> Result<Vec<u8>, CompileError> {
-    let parts = PartitionDef::parse(
-        &J::parse(
-            r#"{"partitions": [{"id": "aws", "outputs": {"dnsSuffix": "amazonaws.com",
-            "dualStackDnsSuffix": "api.aws", "implicitGlobalRegion": "us-east-1",
-            "supportsFIPS": true, "supportsDualStack": true},
-            "regions": {"us-east-1": {}, "us-west-2": {}}}]}"#,
-        )
-        .map_err(|e| CompileError::Json("fixture partitions".into(), e))?,
-    );
-    compile_models(models, &parts, snapshot, compress).map(|(bytes, _)| bytes)
 }
 
 pub(crate) fn compile_models(

@@ -15,6 +15,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::time::Duration;
+use theseus_protocol::now_unix_ms;
 
 use crate::status_notify::{read_name, Alerts};
 use anyhow::{bail, Context, Result};
@@ -23,6 +24,7 @@ use serde::Serialize;
 use serde_json::Value;
 use theseus_client::notify::Delivery;
 use theseus_client::{names, render, Conn};
+use theseus_protocol::term::words::clip;
 use theseus_protocol::{
     error_code, method, ConfirmRequest, Event, ExecutionView, ExecutionsWatchParams,
     ExecutionsWatchResult, Level, SessionListParams, SessionListResult, SessionWaitResult,
@@ -143,7 +145,7 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
         Ok(Err(e)) => return Err(e),
         Err(_) => bail!("the daemon did not answer within {within:?}"),
     };
-    let now = now_ms();
+    let now = now_unix_ms();
     let mut sum = board.summary(now, new_since_seen(), &displayed());
     // The long form's first line says the daemon's own jobs running, from
     // the work board (theseus-jn17m); `--short` and `--json` ask nothing more.
@@ -627,7 +629,7 @@ pub fn long_lines_with(
             (
                 format!("{} {}", mark(v), short_id(&v.session_id)),
                 first_line(&title),
-                cut(&with_forecast(tail, v, forecasts), tail_cap),
+                clip(&with_forecast(tail, v, forecasts), tail_cap),
             )
         })
         .collect();
@@ -639,9 +641,9 @@ pub fn long_lines_with(
         .min(width.saturating_sub(8 + 4 + widest_tail))
         .max(8);
     for (v, (id, title, tail)) in shown.iter().zip(&cells) {
-        let head = format!("{id}  {:<title_w$}  ", cut(title, title_w));
+        let head = format!("{id}  {:<title_w$}  ", clip(title, title_w));
         let room = width.saturating_sub(head.chars().count()).max(10);
-        lines.push(format!("{head}{}", cut(tail, room)));
+        lines.push(format!("{head}{}", clip(tail, room)));
         if group(v) == 0 {
             lines.push(format!("         {}", command(v)));
         }
@@ -726,16 +728,6 @@ fn clock(ms: u64) -> String {
 
 fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or("").trim().to_string()
-}
-
-/// `s` in at most `max` characters, the last one `…` when it is cut.
-fn cut(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let mut t: String = s.chars().take(max.saturating_sub(1)).collect();
-    t.push('…');
-    t
 }
 
 // ------------------------------------------------------------------ titles
@@ -882,7 +874,7 @@ impl<'a> Sink<'a> {
 
     /// Show the board if what a line says of it changed.
     pub fn show(&mut self, board: &Board) -> Result<()> {
-        let now = now_ms();
+        let now = now_unix_ms();
         let sum = board.summary(now, new_since_seen(), &displayed());
         // The short line has no wake in it, so a wake alone does not print one.
         let mut key = sum.clone();
@@ -954,7 +946,7 @@ pub async fn watch_conn(conn: &mut Conn, sink: &mut Sink<'_>) -> Result<()> {
         let wake = async {
             match due {
                 Some(at) => {
-                    let wait = at.saturating_sub(now_ms());
+                    let wait = at.saturating_sub(now_unix_ms());
                     tokio::time::sleep(Duration::from_millis(wait)).await;
                 }
                 None => std::future::pending().await,
@@ -970,7 +962,7 @@ pub async fn watch_conn(conn: &mut Conn, sink: &mut Sink<'_>) -> Result<()> {
             }
             () = wake => {
                 if let Some(a) = sink.alerts.as_mut() {
-                    a.fire(now_ms(), &displayed(), &local_hm);
+                    a.fire(now_unix_ms(), &displayed(), &local_hm);
                 }
             }
         }
@@ -986,7 +978,7 @@ pub async fn watch_conn(conn: &mut Conn, sink: &mut Sink<'_>) -> Result<()> {
                                 a.name(&v.session_id, name.unwrap_or_default());
                                 queue.extend(early);
                             }
-                            a.moved(v, now_ms(), &local_hm);
+                            a.moved(v, now_unix_ms(), &local_hm);
                         }
                         sink.show(&board)?;
                     }
@@ -1193,12 +1185,6 @@ impl Board {
 }
 
 // ------------------------------------------------------------------- clock
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
 
 /// A time of day on this machine's clock, `18:16`: the clients' one zone
 /// reader (`render::time`, theseus-0n1v).

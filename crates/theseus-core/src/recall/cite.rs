@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use theseus_memory::recall::Place;
 use theseus_protocol::cite::{split_header, Citation, DiscordSource};
+use theseus_protocol::term::words::cut_marked as clip;
 use theseus_store::NewRecord;
 
 use super::render::shown_text;
@@ -50,14 +51,6 @@ pub fn item_for<'a>(items: &'a [RecalledRef], handle: &str) -> Option<&'a Recall
     items
         .iter()
         .find(|i| split_header(&i.header).is_some_and(|(h, _)| h == handle))
-}
-
-/// `s` cut to `max` characters, `…` where it was.
-fn clip(s: &str, max: usize) -> String {
-    match s.char_indices().nth(max) {
-        Some((at, _)) => format!("{}…", &s[..at]),
-        None => s.to_string(),
-    }
 }
 
 impl TurnRunner {

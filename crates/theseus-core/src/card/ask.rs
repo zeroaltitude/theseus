@@ -9,6 +9,7 @@
 //! job's check (`run.rs`).
 
 use std::collections::BTreeMap;
+use theseus_protocol::term::words::cut_marked;
 
 use serde_json::{json, Value};
 use theseus_protocol::{StandingKind, StandingScope, SURFACES};
@@ -208,10 +209,7 @@ pub fn parse(content: &[Value], shown: &[Shown]) -> Option<Parsed> {
 
 fn cut(s: &str, max: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    match one.char_indices().nth(max) {
-        Some((at, _)) => format!("{}…", &one[..at.min(one.len())]),
-        None => one,
-    }
+    cut_marked(&one, max)
 }
 
 fn norm(s: &str) -> String {

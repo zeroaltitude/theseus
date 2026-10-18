@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
+use theseus_protocol::now_unix_ms;
 
 use anyhow::Context as _;
 use sha2::{Digest, Sha256};
@@ -1101,10 +1102,6 @@ pub enum Work {
     Idle(Duration),
 }
 
-fn now_ms() -> u64 {
-    crate::tender::now_ms()
-}
-
 fn file_sig(path: &Path) -> Option<(u64, SystemTime)> {
     let m = fs::metadata(path).ok()?;
     Some((m.len(), m.modified().ok()?))
@@ -1209,7 +1206,7 @@ impl Vectors {
         tracing::warn!(error = %e, "index: vectors");
         let mut s = self.stats.lock().unwrap();
         s.1 = Some(e);
-        s.2 = now_ms();
+        s.2 = now_unix_ms();
     }
 
     // -- What the ingest thread tells it.
@@ -1375,7 +1372,7 @@ impl Vectors {
                 }
                 s.stats.count += 1;
                 s.stats.dropped += c.dropped;
-                s.stats.last_at_ms = now_ms();
+                s.stats.last_at_ms = now_unix_ms();
                 s.stats.last_why = why.to_string();
                 s.stats.last_ms = ms;
                 s.stats.last_bytes_before = c.bytes_before;
@@ -1665,7 +1662,7 @@ impl Vectors {
                 st.model = Model::Loaded(Arc::new(e));
                 st.loads += 1;
                 st.load_ms = ms;
-                st.loaded_at_ms = now_ms();
+                st.loaded_at_ms = now_unix_ms();
                 st.last_used = Instant::now();
             }
             Err(LoadError::Missing(p)) => {

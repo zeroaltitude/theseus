@@ -928,7 +928,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   ro_paths`, neither inside nor holding one: `config/rsi.rs`). `rsi/sealed.rs`: `Sealed::put(set, family, bytes) ->
   ItemId` (a keyed hash; write-only, no call returns an item) and `score(set, &dyn Runner) -> Scores` (per-family
   counts and rates, cost, an opaque keyed id per failure), reached by `Core::sealed_put` (which writes the
-  `self.exam.counted` row, `sealed: true`, with the id alone) and `sealed_score`. The item is `{"v":1,"task","check",
+  `self.exam.counted` row, `sealed: true`, with the id alone). The item is `{"v":1,"task","check",
   "canary"?}` with the exam's check language, the part that reads a reply (`sealed/check.rs`); every output passes
   `sealed/filter.rs` and an error is a fixed sentence. Out of reach: `ToolRuntime::refusal` asks `sealed::Guard`
   first, for every tool in every place (a path the plan resolves into it, an argument that reaches it from the

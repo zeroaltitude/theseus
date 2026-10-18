@@ -26,9 +26,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use theseus_kernel::{
-    Action, ActionState, Completion, Kernel, Outcome, Post, RetryClass, Settled, BUDGET_TOOL,
-};
+use theseus_kernel::{Action, ActionState, Completion, Kernel, Outcome, Post, RetryClass, Settled};
 use theseus_protocol::OutboxStatus;
 use theseus_store::{kinds, NewRecord, Store as _};
 
@@ -1020,11 +1018,6 @@ impl Outbox {
             _ => None,
         }
     }
-}
-
-/// A budget question's card says what a reset does; a tool call's, what runs.
-pub fn is_budget(q: &Action) -> bool {
-    q.tool == BUDGET_TOOL
 }
 
 impl crate::Core {

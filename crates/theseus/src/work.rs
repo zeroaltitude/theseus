@@ -48,10 +48,6 @@ pub(crate) fn stamp(v: &WorkView) -> (u64, u64) {
     (v.position, v.at_ms)
 }
 
-pub(crate) fn now_ms() -> u64 {
-    theseus_protocol::now_unix_ms()
-}
-
 /// The glyph of a level.
 fn glyph(l: Level) -> &'static str {
     match l {

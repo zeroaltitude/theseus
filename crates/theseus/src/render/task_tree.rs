@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 
 use theseus_protocol::notices::name_of;
+use theseus_protocol::term::words::clip;
 use theseus_protocol::usd;
 use theseus_protocol::work::{DoingKind, Question, QuestionKind, WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
@@ -46,16 +47,6 @@ pub fn clock(ms: u64) -> String {
     } else {
         format!("{}:{:02}", s / 60, s % 60)
     }
-}
-
-/// `s` in at most `max` characters, the last one `…` when it is cut.
-pub fn cut(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let mut t: String = s.chars().take(max.saturating_sub(1)).collect();
-    t.push('…');
-    t
 }
 
 fn first_line(s: &str) -> &str {
@@ -457,17 +448,17 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
         if let Some(q) = row.asks {
             out.push(Line::new(
                 Tag::Dim,
-                format!("{pad}{}", cut(&answer_commands(q, room), room)),
+                format!("{pad}{}", clip(&answer_commands(q, room), room)),
             ));
         } else if let Some(cmds) = failed_commands(row.v) {
-            out.push(Line::new(Tag::Dim, format!("{pad}{}", cut(&cmds, room))));
+            out.push(Line::new(Tag::Dim, format!("{pad}{}", clip(&cmds, room))));
         }
     }
     let mut foot = counts.words();
     if more > 0 {
         foot.push_str(&format!(" · +{more} more conversations (--limit)"));
     }
-    out.push(Line::new(Tag::Dim, cut(&foot, width)));
+    out.push(Line::new(Tag::Dim, clip(&foot, width)));
     out
 }
 
@@ -563,7 +554,7 @@ impl Layout {
     fn line(&self, r: &Row, c: &Cells, header: bool) -> Line {
         let lead = " ".repeat(r.indent);
         let mark = mark(r.v, r.asks.is_some());
-        let title = cut(&c.title, self.title_w);
+        let title = clip(&c.title, self.title_w);
         let text = if header {
             // A conversation: its title, then how many of its tasks need
             // you or work, where a task has its time and its doing.
@@ -578,7 +569,7 @@ impl Layout {
                 "{lead}{mark} {}  {title:<tw$}  {:>ew$}  {cost}{}",
                 c.id,
                 c.elapsed,
-                cut(&c.activity, self.activity_w),
+                clip(&c.activity, self.activity_w),
                 tw = self.title_w,
                 ew = self.elapsed_w,
             )

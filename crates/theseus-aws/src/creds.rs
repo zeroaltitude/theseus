@@ -35,10 +35,6 @@ impl Credentials {
         &self.access_key_id
     }
 
-    pub fn has_session_token(&self) -> bool {
-        self.session_token.is_some()
-    }
-
     /// The secret key, for a job's environment at its launch only: a session's
     /// the broker hands a granted program (AWS design §3.5), never the root
     /// key, and never a record.

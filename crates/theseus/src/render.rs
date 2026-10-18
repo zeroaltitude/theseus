@@ -504,12 +504,6 @@ fn budget_answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
     );
 }
 
-/// What a turn a refusal moved to its model's fallback says, above its status
-/// line (theseus-7gir.18): `Sonnet 5.5 declined (cyber); Sonnet 5 answered.`
-pub fn fallback_line(r: &TurnSubmitResult) -> Option<String> {
-    r.fallback.as_ref().map(|f| f.line(&r.stop_reason))
-}
-
 pub fn status_line(r: &TurnSubmitResult) -> String {
     let cache = if r.usage.cache_read_input_tokens + r.usage.cache_creation_input_tokens > 0 {
         format!(

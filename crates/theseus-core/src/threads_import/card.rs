@@ -22,6 +22,7 @@
 //!   thread record's own bounds.
 
 use std::collections::BTreeSet;
+use theseus_protocol::term::words::cut_marked;
 
 use serde_json::{json, Value};
 use theseus_protocol::cite;
@@ -111,10 +112,7 @@ pub fn episodes(inputs: &[Input]) -> Vec<Episode> {
 
 fn cut(text: &str, max: usize) -> String {
     let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    match one.char_indices().nth(max) {
-        Some((at, _)) => format!("{}…", &one[..at]),
-        None => one,
-    }
+    cut_marked(&one, max)
 }
 
 /// The tool's schema: the contract.
