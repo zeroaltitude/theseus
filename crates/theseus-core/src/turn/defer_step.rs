@@ -34,8 +34,33 @@ impl TurnRunner {
     /// loads now, and how the model reaches the rest. Nothing when
     /// `[tools.defer]` is off.
     pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+        self.flows_in_scope(t, spec);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
         spec.defer = self.deferral_in(t.tc.session_id, kind, spec, &t.route.ask);
+    }
+
+    /// A loaded flow's tool stays in the request only where the flow is
+    /// offered: its repository holds the session's directory, and its kinds
+    /// of place include this one (theseus-pw1q.21.4). With no flow loaded
+    /// this reads one lock and changes nothing.
+    fn flows_in_scope(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+        let flows = &self.tools.flows;
+        if !flows.any() {
+            return;
+        }
+        let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
+        let cwd = self.tools.cwd_for(t.tc.dir);
+        spec.tools.retain(|d| {
+            let Some(name) = d["name"]
+                .as_str()
+                .and_then(|n| n.strip_prefix(crate::flow::tool::WIRE_PREFIX))
+            else {
+                return true;
+            };
+            flows
+                .get(name)
+                .is_some_and(|e| crate::flow::tool::in_scope(&e.spec, &cwd, kind))
+        });
     }
 
     /// The fresh choice for a session's request on `spec`.

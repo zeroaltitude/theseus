@@ -102,6 +102,10 @@ pub fn of_wire(wire: &str) -> String {
         let server = rest.split("__").next().unwrap_or(rest);
         return format!("mcp:{server}");
     }
+    // A loaded flow is a family of its own (theseus-pw1q.21.4).
+    if let Some(name) = wire.strip_prefix(crate::flow::tool::WIRE_PREFIX) {
+        return format!("flow:{name}");
+    }
     let family = match wire {
         "tools_find" => TOOLS,
         "file_read" => "files",
@@ -146,6 +150,11 @@ fn aws_family(wire: &str) -> &'static str {
 pub fn summary(family: &str) -> Option<String> {
     if let Some(server) = family.strip_prefix("mcp:") {
         return Some(mcp_summary(server));
+    }
+    if let Some(name) = family.strip_prefix("flow:") {
+        return Some(format!(
+            "the frozen flow {name}: a fixed sequence of steps over your own tools"
+        ));
     }
     FAMILIES
         .iter()

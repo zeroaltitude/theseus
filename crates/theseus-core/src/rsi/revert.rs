@@ -276,6 +276,18 @@ impl Core {
             },
         )?;
         let want = p.merge.trim().to_string();
+        // A flow is unloaded, not reverted: the frozen copy stays (theseus-pw1q.21.4).
+        if let Some(name) = want.strip_prefix(crate::flow::tool::PREFIX) {
+            let info = self
+                .flow_retire(name, "owner", &who.via())
+                .map_err(|e| BadMerge(format!("{e:#}")))?;
+            return Ok(SelfRevertResult {
+                merge: want,
+                revert: info.digest,
+                item: None,
+                changed: true,
+            });
+        }
         if want.len() < 7 {
             return Err(
                 BadMerge("name the merge by at least its first 7 characters".into()).into(),

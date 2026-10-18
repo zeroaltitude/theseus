@@ -196,6 +196,10 @@ pub(crate) fn gate(
     match tool.name() {
         PLAN_PRESENT => return asks(d),
         PLAN_STEP if rt.tightened.get(PLAN_STEP).is_none() => return quiet(d),
+        // A flow's call only starts its steps, each gated as the model's own.
+        n if crate::flow::is_flow(n) && rt.tightened.get(n).is_none() => {
+            return crate::flow::quiet(d)
+        }
         _ => {}
     }
     let Some(session) = at.session else {

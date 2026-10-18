@@ -929,6 +929,11 @@ impl Core {
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
         }
+        // The loaded flows (theseus-pw1q.21.4): one META key, and each one's
+        // frozen copy read back and checked against its digest.
+        if let Err(e) = core.seed_flows() {
+            tracing::warn!(error = %format!("{e:#}"), "the loaded flows did not read");
+        }
         // The day ceiling's total so far today (theseus-kp20): one bounded
         // read of today's rows, before serving.
         let d0 = Instant::now();

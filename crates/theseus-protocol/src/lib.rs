@@ -32,6 +32,7 @@ mod explain;
 pub mod extend;
 pub mod features;
 pub mod fill;
+pub mod flow;
 pub mod forecast;
 pub mod fork;
 mod gate;

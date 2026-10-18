@@ -903,6 +903,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `hands` (`ExtendHandsInfo::line`, the CLI's and the cockpit's words). Tests: `aws/hands/tests_broker.rs` (the hands
   rig's fake AWS), `extend/hands.rs`'s, `extend/tests.rs`' card test, `freeze.rs`'s digest test, the layouts'
   format-33 samples.
+- **Flows** (theseus-pw1q.21.4; RSI loop 1's cheapest minted tool; off until one is loaded; no store format change: the META key
+  `flows` and three ledger kinds, `flow.loaded`, `flow.retired`, `flow.ran`): `flow/`. A flow is a frozen JSON spec
+  (`flow::spec`: v1, validated, SHA-256 over a canonical form) of steps over `proc.run`, file read, list and search, and the
+  git and text reading tools (`ALLOWED_TOOLS`; no `sandbox`, `env`, `background`, `command` or `steps` argument), at most 24
+  steps and 10 minutes, a cycle only with `max` on every step in it. It is frozen read-only at
+  `<state>/self/mint/<name>/<digest>/spec.json` and read back, digest checked, on each start (`flow::load`). Each loaded flow is one
+  tool, `flow:<name>` (wire `flow__<name>`), a deferred family of its own (`family::of_wire`), added to the catalog by
+  `definitions_for` and kept in a request only where its scope holds (`TurnRunner::flows_in_scope`: a repository id `r:<hex>`
+  that holds the session's directory, and a kind of place); with none loaded `ToolRuntime::flows.any()` is one read lock and
+  nothing changes. **`flow_step`** (`toolrun/flow_step.rs`) is `admit` and `start` for one step, the path of any call of a
+  response: plan, gate at the model's posture, place rule, L0 or L1, its own `ToolCall`, result and rows. A step that would wait
+  is not asked: the flow stops and hands back the exact call (`needs-approval`), which the model makes and so waits as any call
+  does (the flow holds no state across a turn's park); a step policy refuses stops the flow with the refusal as its result. The
+  flow's own call is open at the gate (`flow::quiet`, in `modes::gate`) and class `Run`, so the hold still reaches it.
+  `flow::class` is the one reading of a result's class (`ok`, `err`, `conflict`, `test-fail`, `rerere-left`, `rerere-resolved`).
+  `Core::flow_load` (a test, the owner's CLI when it comes, R8's self-load) scrubs the spec and refuses one the scrubber would
+  change; a load or retire by the `"self"` principal asks `rsi::gate` first. `theseus self revert flow:<name>` is the owner's undo
+  (`flow_retire`: out of the record, `flow.retired`, the frozen copy kept). Not in the keep-warm, census or `context.explain`
+  specs, which are built without a session's directory. Tests: `flow/tests*.rs` (a real temp git repository with an upstream).
 - **Self-improvement's spine** (theseus-pw1q.2, theseus-pw1q.4; off by default): `rsi/`. `rsi::gate(&ctx)` is the
   one question every self step asks before it starts and between its phases: `Off` while `[self] mode = "off"`
   (`config/self_improve.rs`, read at the start), `Halted` while the kill switch is on (whatever the mode; a store never
