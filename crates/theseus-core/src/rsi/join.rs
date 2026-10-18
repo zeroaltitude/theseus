@@ -31,6 +31,14 @@
 //!    the push redoes the dry run, the merge and the gate, at most
 //!    [`TRIES`] times. The lock is released with its `done:` line. One
 //!    `self.joined` row.
+//!    **The sealed check** ([`sealing`], theseus-pw1q.21.7) runs on each try's
+//!    merge between main's gate and the signature, when the branch's diff
+//!    touches a behaviour path (`sealed::hold::BEHAVIOUR`) or `[self.sealed]
+//!    every_branch` is set: the merge's build, which main's gate just made,
+//!    is scored on every sealed set beside main's cached score, and a family
+//!    or total that falls holds the head (`self.join.stopped`, phase
+//!    `sealed`, with the numbers) and returns the item to the backlog. With
+//!    no sealed set the phase is skipped, saying so in its row.
 //! 4. **The install** ([`install`]), only with `[self] install = true`: the
 //!    build and the restart go to a transient `systemd-run --user` unit, and
 //!    the new daemon writes `self.installed` and the notice
@@ -47,9 +55,12 @@ pub mod lock;
 pub mod planted;
 pub mod review;
 mod reviewing;
+mod sealing;
 mod tender;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_sealed;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -80,6 +91,8 @@ pub struct Seams {
     pub reviewer: Arc<dyn Reviewer>,
     pub tests: Arc<dyn Tests>,
     pub installer: Arc<dyn install::Installer>,
+    /// Scores a build on the sealed sets (theseus-pw1q.21.7).
+    pub sealed: Arc<dyn super::sealed::hold::Scorer>,
     pub lock_wait: Duration,
     pub lock_every: Duration,
     /// Called with each phase's name before its gate is asked.
@@ -94,6 +107,7 @@ impl Default for Seams {
             reviewer: Arc::new(review::CheckTurn),
             tests: Arc::new(planted::Cargo),
             installer: Arc::new(install::Systemd),
+            sealed: Arc::new(super::sealed::hold::Scratch),
             lock_wait: Duration::from_secs(2 * 3600),
             lock_every: Duration::from_secs(30),
             on_phase: None,

@@ -57,9 +57,33 @@ impl Core {
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %format!("{e:#}"), "self-join: a pass failed"),
                 }
+                c.sealed_drift_tick(&seams).await;
                 drop(c);
                 tokio::time::sleep(EVERY).await;
             }
         });
+    }
+
+    /// The weekly drift check, when one is due and the gate allows it: the
+    /// installed main against the sealed baseline (theseus-pw1q.21.7).
+    async fn sealed_drift_tick(self: &Arc<Self>, seams: &Seams) {
+        if super::refused(self).is_some() {
+            return;
+        }
+        let now = theseus_protocol::now_unix_ms();
+        let drift = async {
+            let bins = super::sealing::installed_bins()?;
+            self.sealed_drift(&*seams.sealed, bins, now, false).await
+        };
+        match drift.await {
+            Ok(losses) if !losses.is_empty() => {
+                tracing::info!(
+                    losses = losses.len(),
+                    "sealed drift: families fell below the baseline"
+                );
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "sealed drift: the check failed"),
+        }
     }
 }

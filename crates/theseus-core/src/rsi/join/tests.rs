@@ -160,6 +160,11 @@ impl Reviewer for Slow {
 }
 
 pub(crate) fn rig(mode: SelfMode) -> Rig {
+    rig_with(mode, |_| {})
+}
+
+/// [`rig`] with `edit` applied to the config before the core is built.
+pub(crate) fn rig_with(mode: SelfMode, edit: impl FnOnce(&mut Config)) -> Rig {
     let f = fixture();
     let root = f.place.state.parent().unwrap().to_path_buf();
     let gpg = root.join("fake-gpg.sh");
@@ -180,6 +185,7 @@ pub(crate) fn rig(mode: SelfMode) -> Rig {
     cfg.self_improve.mode = mode;
     cfg.self_improve.repo = Some(f.place.repo.display().to_string());
     cfg.self_improve.remote = Some("origin".into());
+    edit(&mut cfg);
     let store = Store::open(&f.place.state.join("store")).unwrap();
     let says = Arc::new(Says {
         text: "The test fails without the fix and the diff is small.\nVERDICT: accept\n- its planted revert fails as it should".into(),

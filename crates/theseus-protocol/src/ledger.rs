@@ -259,6 +259,8 @@ ledger_kinds! {
     SelfMineRan = "self.mine.ran",
     SelfMintValidated = "self.mint.validated",
     SelfSealedScored = "self.sealed.scored",
+    SelfSealedChecked = "self.sealed.checked",
+    SelfSealedDrift = "self.sealed.drift",
     SelfExamRejected = "self.exam.rejected",
     SelfInstalled = "self.installed",
     SelfJoinStopped = "self.join.stopped",
