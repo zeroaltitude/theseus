@@ -62,12 +62,14 @@ pub enum TurnCmd {
 pub enum OwnBench {
     /// Your own benchmark (theseus-pw1q.12): which model your own turns need, measured by
     /// replaying them one rung down the routing table.
+    #[command(hide = true)]
     Route {
         #[command(subcommand)]
         cmd: RouteCmd,
     },
     /// A past turn: `turn replay SESSION TURN -P PROFILE`, its first request rebuilt byte for byte
     /// and sent to another profile (yours alone; refused inside a job).
+    #[command(hide = true)]
     Turn {
         #[command(subcommand)]
         cmd: TurnCmd,

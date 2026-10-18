@@ -15,6 +15,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
+- `src/help_cmd.rs`: `theseus help` is the everyday screen (the commands that are not hidden, in their `display_order`: ask chat tui history watch status tasks answer stop agenda digest remind routine wakes project thread places profile health), `theseus help all` lists every command one line each (clap's tree with `hide` ignored: everyday first, then the rest), and `theseus help COMMAND` is a command's page. Every other command is `#[command(hide = true)]` in `main.rs`: it parses, runs and has its `--help`. A new command is hidden unless it is everyday, and `help_cmd`'s tests fail a screen that drifts. Goldens: `tests/help.rs` (`tests/golden/help*.txt`).
 - `src/work.rs` (theseus-hkx30, theseus-6kgp8): the work board's lines, and `WorkArgs`: **`theseus work` is an alias of
   `theseus tasks --watch`** (`WorkArgs::into_tasks`; it keeps the connection and no longer exits, `--watch` is
   accepted and ignored, `--limit` and `--flat` pass through). `view_line` is a board view as one line (its glyph,
