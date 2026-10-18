@@ -1101,10 +1101,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # ---------------------------------------------------------------- cockpit
 # Each reply's footer links to its turn in the cockpit (`<public_url>/session/
 # <session>/turn/<turn>`): the flame graph, each loop's request and thinking,
-# each tool call. Set public_url where a relay forwards another port to the
-# daemon's web port. The link carries no key or token.
+# each tool call. The address follows [web] port on localhost. Set public_url
+# where a relay forwards another port to the daemon's web port. The link
+# carries no key or token.
 # [cockpit]
-# public_url = "http://localhost:7433"    # the address a browser reaches the cockpit at
+# public_url = "http://localhost:7433"    # the address a browser reaches the cockpit at; left out, http://localhost:<[web] port>
 
 # ---------------------------------------------------------------- routines
 # A routine is recurring work that is its own execution: a schedule (`weekdays
