@@ -141,13 +141,13 @@ async fn every_loop_of_the_turn_carries_the_effort() {
     );
     effort(&jev, "unclear", 0.95);
     turn(&r.core, Some(&res.session_id), "And in winter?", None).await;
-    // The profile leaves effort to the model, and Sonnet 5.5 takes no
-    // per-message effort (theseus-posww): the request says none, so the
-    // model's own default holds.
+    // The profile leaves effort to the model, and Sonnet 5.5 takes
+    // per-message effort (the 2026-10-17 probe, theseus-rwpbg.4): the turn
+    // says the per-message default, high, as Fable 5.1's does.
     assert_eq!(
         sent(&r.claude.requests()[2]).as_deref(),
-        None,
-        "the profile's own again"
+        Some("high"),
+        "the per-message default again"
     );
 }
 
