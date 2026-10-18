@@ -79,15 +79,18 @@ const BRIEF: &str = "Fix the typo in the quay notice.";
 /// nothing (`assert_eq!(ran_on(&r), "claude-fable-5-1")`, `decided` empty,
 /// `jev.connections() == 0`). Now the brief's verdict, routine coding, picks
 /// the class's first usable profile, which is the task's base; one request
-/// asks it, route.v6's alone.
+/// asks it, route.v6's alone. A routine-coding brief runs on Sonnet, not the
+/// class's cheaper first profile (`haikuhi`, a message's): a task is a piece
+/// of work over many turns, and "Sonnet codes" (the owner, 2026-10-10 and
+/// 2026-10-18, theseus-31pgz); only a trivial brief runs on Haiku, below.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_task_with_no_profile_runs_on_the_profile_its_briefs_class_picks() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     let r = rig_from(Some(&jev), "fable", |_| {});
     let (_, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-haiku-5-5");
-    assert_eq!(rec.last_target.unwrap().profile, "haikuhi");
+    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
     assert!(
         rec.routed.is_none(),
         "the class's profile is the base, not a move"
@@ -101,10 +104,21 @@ async fn a_task_with_no_profile_runs_on_the_profile_its_briefs_class_picks() {
             d[0]["from"].as_str(),
             d[0]["profile"].as_str()
         ),
-        (Some("task brief"), Some("fable"), Some("haikuhi"))
+        (Some("task brief"), Some("fable"), Some("sonnet"))
     );
     assert_eq!(d[0]["mode"], "routine_coding");
     assert!(d[0].get("follows").is_none());
+}
+
+/// Only a trivial brief runs on Haiku (theseus-31pgz).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trivial_brief_runs_on_haiku() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.95);
+    let r = rig_from(Some(&jev), "fable", |_| {});
+    let (_, rec) = run(&r, &params("Say hello to the quay.", None)).await;
+    assert_eq!(ran_on(&r), "claude-haiku-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "haiku");
 }
 
 /// review-fixes' floor holds for a brief too (the two rows' join): a brief

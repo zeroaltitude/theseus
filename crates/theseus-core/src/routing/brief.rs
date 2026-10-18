@@ -8,9 +8,19 @@
 //! Jev elevates the task from it and a step back down never goes below it.
 //! A detour's class (`trivial`, `quick`) is a base here too: a task has no
 //! "next message" to leave the model for.
+//!
+//! One class differs from a message's: a task is a piece of work that runs for
+//! many turns, so a `routine_coding` brief starts on Sonnet ([`CODING_BASE`]),
+//! not on the class's cheaper first profile (`haikuhi`) that suits a message's
+//! one short turn. Only a `trivial` brief runs on Haiku (the owner, 2026-10-18:
+//! "Haiku if trivial seems fine", with Sonnet the coding model, 2026-10-10).
 
 use super::{decide, Ask, Decision, HoldNext, Profiles, Reason};
 use crate::config::RoutingConfig;
+
+/// The profile a `routine_coding` brief tries first, before the class's own
+/// list (a config without it falls through to that list).
+pub const CODING_BASE: &str = "sonnet";
 
 /// The rule's answer for the brief `a.verdict` judged, `a.base` being the
 /// model the task would otherwise run on (its parent's). `switch` says the
@@ -22,7 +32,18 @@ pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Deci
         from: None,
         ..a.clone()
     };
-    let mut d = decide(cfg, profiles, &fresh);
+    let mut d = match fresh.verdict.mode.as_str() {
+        "routine_coding" => {
+            let mut c = cfg.clone();
+            c.classes.routine_coding.profiles.retain(|p| p != CODING_BASE);
+            c.classes
+                .routine_coding
+                .profiles
+                .insert(0, CODING_BASE.to_string());
+            decide(&c, profiles, &fresh)
+        }
+        _ => decide(cfg, profiles, &fresh),
+    };
     if d.detour {
         let reason = match d.reason {
             Reason::Capped => Reason::Capped,
@@ -42,6 +63,7 @@ pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Deci
 #[cfg(test)]
 mod tests {
     use super::super::tests::{ask, five, verdict};
+    use super::super::{short_cost, Profile};
     use super::*;
 
     fn base(v: &str, conf: f64, from: &str, cap: Option<f64>) -> Decision {
@@ -65,6 +87,43 @@ mod tests {
             (d.profile.as_str(), d.reason, d.switch, d.detour),
             ("sonnet", Reason::Verdict, true, false)
         );
+    }
+
+    /// A routine-coding brief runs on Sonnet even when the class's first
+    /// profile is the cheaper `haikuhi` (theseus-31pgz); a trivial one runs
+    /// on Haiku.
+    #[test]
+    fn a_routine_coding_brief_runs_on_sonnet_and_only_a_trivial_one_on_haiku() {
+        let cfg = RoutingConfig::default();
+        let mut ps = five();
+        for (name, model) in [
+            ("haiku", "claude-haiku-5-5"),
+            ("haikuhi", "claude-haiku-5-5"),
+        ] {
+            let e = crate::catalog::Catalog::builtin().get(model).unwrap().clone();
+            ps.insert(
+                name.into(),
+                Profile {
+                    provider: "anthropic".into(),
+                    model: model.into(),
+                    unusable: None,
+                    short_cost: Some(short_cost(&e)),
+                    input_per_mtok: Some(e.input_per_mtok),
+                    vision: e.vision,
+                },
+            );
+        }
+        let on = |mode: &str| {
+            let v = verdict(mode, 0.9);
+            brief_base(&cfg, &ps, &ask(&v, "fable", 0)).profile
+        };
+        assert_eq!(on("routine_coding"), "sonnet");
+        assert_eq!(on("trivial"), "haiku");
+        // A config that moved sonnet aside still gets it first.
+        let mut moved = RoutingConfig::default();
+        moved.classes.routine_coding.profiles = vec!["haikuhi".into()];
+        let v = verdict("routine_coding", 0.9);
+        assert_eq!(brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile, "sonnet");
     }
 
     /// A detour's class is a base: "thanks" does not leave the task on Fable.
