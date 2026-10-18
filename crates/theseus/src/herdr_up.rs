@@ -152,9 +152,13 @@ async fn panes_of(ctx: &mut Ctx) -> Result<Vec<Value>> {
 }
 
 /// Close what a herdr restart left: a pane in our workspace with no `kind` token is a
-/// restored shell. The pane this process runs in is never closed.
+/// restored shell. The pane this process runs in is never closed. herdr's startup hook runs in
+/// no pane of its own: its `HERDR_PANE_ID` is the focused pane of the restored session, itself
+/// a restored shell, so the hook (`HERDR_PLUGIN_EVENT=startup`) spares none (theseus-h9tu1: the
+/// focused tab survived every restart as a stray shell).
 async fn boot_close(ctx: &mut Ctx) -> Result<usize> {
-    let own = std::env::var("HERDR_PANE_ID").ok();
+    let hook = std::env::var("HERDR_PLUGIN_EVENT").is_ok_and(|e| e == "startup");
+    let own = std::env::var("HERDR_PANE_ID").ok().filter(|_| !hook);
     let mut n = 0;
     for p in panes_of(ctx).await? {
         let (Some(id), None) = (p["pane_id"].as_str(), p["tokens"]["kind"].as_str()) else {

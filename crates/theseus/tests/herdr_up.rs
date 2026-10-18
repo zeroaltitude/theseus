@@ -772,6 +772,34 @@ fn boot_closes_restored_shells_and_rebuilds() {
     );
 }
 
+/// herdr's startup hook runs with `HERDR_PANE_ID` set to the focused pane of the restored session,
+/// a restored shell like the others: `--boot` there closes it too, while the same variable from a
+/// pane that runs `--boot` itself (no startup event) still spares that pane (theseus-h9tu1).
+#[test]
+fn boot_from_the_startup_hook_closes_the_focused_restored_shell_too() {
+    let go = |event: Option<&str>| {
+        let dir = tempfile::tempdir().unwrap();
+        let mut model = Model::default();
+        let ws = model.ws_of("theseus");
+        restored(&mut model, &ws, 1, &[]);
+        restored(&mut model, &ws, 2, &[]);
+        let focused = format!("{ws}:r1");
+        let herdr = FakeHerdr::start(dir.path(), model);
+        let daemon = FakeDaemon::start(dir.path(), vec![]);
+        let mut c = theseus(&daemon.sock, &herdr.sock);
+        c.args(["--boot"]).env("HERDR_PANE_ID", &focused);
+        match event {
+            Some(e) => c.env("HERDR_PLUGIN_EVENT", e),
+            None => c.env_remove("HERDR_PLUGIN_EVENT"),
+        };
+        let out = c.output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        herdr.requests("pane.close").len()
+    };
+    assert_eq!(go(Some("startup")), 2, "the hook runs in no pane: both go");
+    assert_eq!(go(None), 1, "a pane of ours is left alone");
+}
+
 /// Run `theseus herdr up` with `args` and wait for it to exit well.
 fn up_with(daemon: &FakeDaemon, herdr: &FakeHerdr, args: &[&str]) -> String {
     let out = theseus(&daemon.sock, &herdr.sock)

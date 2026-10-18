@@ -8,9 +8,10 @@
 //! one clock, the rig's.
 //!
 //! What this file does not run: the herdr steps (a tab per task, `blocked` while one asks, marked
-//! done at the end). The scripted herdr is a model inside `crates/theseus/tests/herdr_up.rs`, and
-//! `scripts/acceptance/journey.sh` runs them against a real herdr where one is installed. The chat's
-//! `Conn::over` rig belongs to the TUI's tests; the chat's own steps are the script's too.
+//! done at the end). The scripted herdr is a model inside `crates/theseus/tests/herdr_up.rs`, and a
+//! real herdr (a scratch one, with its own socket and config) ran them on 2026-10-18 (the notes of
+//! theseus-h9tu1). The chat's `/task new` is typed into the real TUI on a terminal of a private tmux
+//! server (`a_task_started_in_the_chat_has_a_short_id_and_a_title`).
 //!
 //! The steps another row builds are ignored tests that assert that row's contract and name the
 //! row that removes the ignore (CLOUD_TASK.md, contract C8).
@@ -21,6 +22,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -427,6 +429,20 @@ impl Rig {
             .split_whitespace()
             .next()
             .map(String::from)
+    }
+
+    /// The board's row of a task: its line, with the heading of the section it is under.
+    fn board_row(&self, short: &str) -> Option<(String, String)> {
+        let mut heading = String::new();
+        for line in self.board().lines() {
+            if line.starts_with("**<") && line.ends_with("**") {
+                heading = line.trim_matches('*').to_string();
+            }
+            if line.contains(short) {
+                return Some((heading, line.to_string()));
+            }
+        }
+        None
     }
 
     /// The heading of the board section a task's row is under.
@@ -973,7 +989,6 @@ fn the_digest_names_each_task_with_its_report_line() {
 /// Steps 2 and 3: the one progress line on the board row and in `theseus tasks`
 /// (`$S of $L …`, contract C1; progress-words).
 #[test]
-#[ignore = "the DM board's working row did not show the line within 4 s at the join: theseus-ypnxt.8 follow-up"]
 fn the_progress_line_is_on_the_board_row_and_in_tasks() {
     let r = Rig::new();
     r.say(None, "Please start a quay task to survey the north quay.");
@@ -985,9 +1000,11 @@ fn the_progress_line_is_on_the_board_row_and_in_tasks() {
     // once answered, the task works, and its rows carry the line.
     let qid = r.answer_id(&quay).unwrap();
     r.cli(&["answer", &qid, "2", "--no-wait"]);
-    within("the line on the board's working row", 4000, || {
-        r.board_section(&quay)
-            .is_some_and(|s| !s.contains("Needs you") && s.contains(" of $25"))
+    // The row, not its section's heading, carries the line (the join's wait looked for the cost
+    // in the heading, which never has it).
+    within("the line on the board's working row", 8000, || {
+        r.board_row(&quay)
+            .is_some_and(|(h, row)| !h.contains("Needs you") && row.contains(" of $25"))
     });
     let (_, tasks, _) = r.cli(&["tasks"]);
     let row = tasks.lines().find(|l| l.contains(&quay)).unwrap();
@@ -1041,16 +1058,97 @@ fn the_report_links_the_tasks_post() {
     );
 }
 
-/// A task started with `/task new …` in the chat (chat-start-pause), through the chat's line mode.
+/// A private tmux server for a real terminal: the chat's TUI draws only on a tty. Killed with it.
+struct Tmux {
+    name: String,
+}
+
+impl Tmux {
+    /// None when there is no tmux to run a terminal in.
+    fn start(cmd: &[&str], env: &[(&str, &str)]) -> Option<Self> {
+        let name = format!("jtui{}-{}", std::process::id(), UNIQ.fetch_add(1, Ordering::Relaxed));
+        let mut shell = String::from("env -u THESEUS_SESSION TERM=xterm-256color");
+        for (k, v) in env {
+            shell.push_str(&format!(" {k}={v}"));
+        }
+        for c in cmd {
+            shell.push_str(&format!(" '{c}'"));
+        }
+        let ok = Command::new("tmux")
+            .args(["-L", &name, "-f", "/dev/null", "new-session", "-d", "-s", "chat"])
+            .args(["-x", "140", "-y", "40", &shell])
+            .status()
+            .is_ok_and(|s| s.success());
+        ok.then_some(Self { name })
+    }
+
+    fn keys(&self, args: &[&str]) {
+        let _ = Command::new("tmux")
+            .args(["-L", &self.name, "send-keys", "-t", "chat"])
+            .args(args)
+            .status();
+    }
+
+    fn screen(&self) -> String {
+        let out = Command::new("tmux")
+            .args(["-L", &self.name, "capture-pane", "-p", "-t", "chat"])
+            .output();
+        out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for Tmux {
+    fn drop(&mut self) {
+        let _ = Command::new("tmux")
+            .args(["-L", &self.name, "kill-server"])
+            .status();
+    }
+}
+
+static UNIQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A task started with `/task new …` in the chat (chat-start-pause): typed into the real
+/// `theseus chat` (the TUI) on a terminal of a private tmux server, against the rig's daemon. The
+/// task exists under its title with a short id, and the chat says both. A host with no tmux or no
+/// `theseus-tui` beside the CLI has no terminal to run it in, and says so.
 #[test]
-#[ignore = "chat-start-pause put /task new in the TUI's chat; `theseus chat --plain` (the CLI's line mode) has none yet"]
 fn a_task_started_in_the_chat_has_a_short_id_and_a_title() {
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+    if !bin.with_file_name("theseus-tui").exists() {
+        eprintln!("skipped: no theseus-tui beside {}", bin.display());
+        return;
+    }
     let r = Rig::new();
-    let (code, out, err) = r.cli_in(&["chat", "--plain"], "/task new Count the terns\n/quit\n");
-    assert_eq!(code, 0, "{out}{err}");
+    let sock = r.s.path("sock");
+    let state = r.s.path("xdg-state");
+    let Some(tmux) = Tmux::start(
+        &[&bin.to_string_lossy(), "--socket", &sock.to_string_lossy(), "chat"],
+        &[("XDG_STATE_HOME", &state.to_string_lossy())],
+    ) else {
+        eprintln!("skipped: no tmux to give the chat a terminal");
+        return;
+    };
+    // The chat opens its conversation, then takes the command; ask again while it says it is not open.
+    let mut sent = None::<Instant>;
+    within("the task started from the chat", 30_000, || {
+        if r.task("Count the terns").is_some() {
+            return true;
+        }
+        let waited = sent.is_none_or(|t| t.elapsed() > Duration::from_secs(3));
+        if waited && !tmux.screen().contains("started Count the terns") {
+            tmux.keys(&["C-u"]);
+            tmux.keys(&["-l", "/task new Count the terns"]);
+            tmux.keys(&["Enter"]);
+            sent = Some(Instant::now());
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        false
+    });
     let t = r.task("Count the terns").expect("the task exists");
-    assert!(
-        out.contains(t["short"].as_str().unwrap()) && out.contains("Count the terns"),
-        "{out}"
-    );
+    let short = t["short"].as_str().unwrap().to_string();
+    within("the chat says what it started", 10_000, || {
+        let screen = tmux.screen();
+        screen.contains("started Count the terns") && screen.contains(&short)
+    });
 }
