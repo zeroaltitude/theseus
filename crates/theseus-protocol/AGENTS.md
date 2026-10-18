@@ -209,6 +209,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   methods' params and results, `ProjectSliceSummary` (`context.compiled`'s `project`), and `DEFAULT_REVIEW`. `TaskRecord` gained `kind`
   (`TaskKind`), `due_at_ms` and `review` (store format 45, each left out of the bytes at its default). `notices.rs` reads a reminder
   whose note begins `⚑` as a milestone's (`MILESTONE_MARK`, no clock icon), and `⚑ overdue` as `Why::Overdue`: an Interrupt with no sound.
+- `flow.rs` (theseus-pw1q.21.4): `FlowInfo` (a loaded flow, as `Core::flow_list` tells it) and `FlowHandback` (the state a flow
+  hands the model). Not in the TypeScript: no cockpit reader yet.
 - `ts.rs`: the TypeScript export.
 
 ## The CLI's spellings and the wire (theseus-rwpbg.10)

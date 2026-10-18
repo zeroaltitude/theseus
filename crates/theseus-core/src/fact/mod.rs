@@ -52,6 +52,7 @@ pub mod driver;
 pub mod durability;
 pub mod extend;
 pub mod extend_hands;
+pub mod flow;
 pub mod import;
 pub mod index;
 pub mod initiative;
@@ -494,6 +495,9 @@ facts![
     extend::ExtendDeclined<'static>,
     extend::ExtendLoaded<'static>,
     extend::ExtendRevoked<'static>,
+    flow::FlowLoaded<'static>,
+    flow::FlowRetired<'static>,
+    flow::FlowRan<'static>,
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
     task_pause::TaskPaused<'static>,

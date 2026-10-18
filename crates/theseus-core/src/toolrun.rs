@@ -43,6 +43,8 @@ use guarded::guarded_paths;
 pub use guarded::sandbox_for;
 mod batch;
 mod calls;
+mod flow_step;
+pub(crate) use flow_step::Stepped;
 mod complete;
 pub mod fit;
 mod glide;
@@ -414,6 +416,9 @@ pub struct ToolRuntime {
     /// Proposed extensions (M7 43a): where they are frozen, and the board
     /// that tries them.
     pub extend: Arc<crate::extend::Extensions>,
+    /// The loaded flows (theseus-pw1q.21.4): frozen specs, each a deferred
+    /// tool in its scope. Empty by default, and then it adds nothing.
+    pub flows: crate::flow::Board,
     /// The judge (M5 step 24): every call that acts goes to `gate` once it
     /// is planned. Set as the core is built; unset, nothing is judged.
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
@@ -583,6 +588,7 @@ impl ToolRuntime {
                 tmp.join("extensions"),
                 vec![],
             )),
+            flows: crate::flow::Board::new(tmp.join("mint")),
             profiles: BTreeMap::new(),
         }
     }
@@ -592,6 +598,7 @@ impl ToolRuntime {
         match self.registry.get(name) {
             Some(t) => Some(t.clone()),
             None if name.starts_with(crate::policy::MCP_PREFIX) => self.mcp.get(name),
+            None if crate::flow::is_flow(name) => self.flows.tool(name),
             None => None,
         }
     }
@@ -601,6 +608,9 @@ impl ToolRuntime {
         match self.registry.by_wire(wire) {
             Some(t) => Some(t.clone()),
             None if wire.starts_with("mcp__") => self.mcp.by_wire(wire),
+            None if wire.starts_with(crate::flow::tool::WIRE_PREFIX) => {
+                self.flows.tool_by_wire(wire)
+            }
             None => None,
         }
     }
@@ -696,6 +706,21 @@ impl ToolRuntime {
                             "name": t.wire,
                             "description": t.description,
                             "input_schema": Tool::input_schema(t.as_ref()),
+                        })
+                    }),
+            );
+            // The loaded flows' tools, in their own deferred families; the
+            // turn leaves out those not in its directory's scope.
+            defs.extend(
+                self.flows
+                    .all()
+                    .iter()
+                    .filter(|e| offered(e.tool.name()))
+                    .map(|e| {
+                        json!({
+                            "name": e.tool.wire_name(),
+                            "description": e.tool.description(),
+                            "input_schema": e.tool.input_schema(),
                         })
                     }),
             );
@@ -1441,6 +1466,11 @@ impl ToolRuntime {
             Backend::Harness if tool.name() == crate::rsi::pr::PROPOSE => {
                 self.run_self_pr(tc, correlation_id, tool.as_ref(), call)
                     .await
+            }
+            Backend::Harness if crate::flow::is_flow(tool.name()) => {
+                // A step is a call too, so the future is boxed; the allow-list
+                // keeps a flow from naming another.
+                Box::pin(self.run_flow(tc, correlation_id, tool.as_ref(), call)).await
             }
             Backend::Harness if tool.name() == crate::extend::PROPOSE => {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
@@ -2339,6 +2369,7 @@ pub fn build_runtime(
             t.outputs_keep_days,
             t.outputs_max_bytes,
         ),
+        flows: crate::flow::Board::new(state.join("self").join("mint")),
         disk: Arc::new(crate::disk::Disk::new(
             state,
             cfg.server.disk_warn_mb,
