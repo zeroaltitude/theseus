@@ -8,6 +8,8 @@
 
 mod common;
 
+use common::Fixture;
+
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -32,6 +34,12 @@ struct Rig {
     dir: tempfile::TempDir,
 }
 
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+}
+
 impl Rig {
     fn new() -> Self {
         use std::os::unix::fs::PermissionsExt;
@@ -45,10 +53,6 @@ impl Rig {
         let note = safe_note(&theseusd, &path("projects"), 100.0);
         std::fs::write(path("config.toml"), note).unwrap();
         Self { dir }
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     fn command(&self) -> Command {

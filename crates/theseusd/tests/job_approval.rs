@@ -23,8 +23,8 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use common::{table, Fixture};
+
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -67,6 +67,16 @@ impl Drop for Rig {
 /// path the jobs name is, so that each `proc.run` runs under `notify`.
 const OUT: &str = "projects/out";
 
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    fn sock(&self) -> std::path::PathBuf {
+        self.path("projects/sock")
+    }
+}
+
 impl Rig {
     fn start() -> Self {
         let script = Script::default();
@@ -108,12 +118,6 @@ impl Rig {
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
             .unwrap();
-        fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-            t.entry(key)
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap()
-        }
         table(&mut t, "model").insert("api_base".into(), model.base.clone().into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
             p.as_table_mut()
@@ -159,10 +163,6 @@ impl Rig {
         };
         r.until("the secrets", |h| h["secrets"]["state"] == "ready");
         r
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     fn out(&self, file: &str) -> PathBuf {
@@ -217,26 +217,6 @@ impl Rig {
                 .exists()
                 .then(|| std::fs::read_to_string(self.out(file)).unwrap())
         })
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s =
-            UnixStream::connect(self.path("projects/sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
     }
 
     /// A turn in a new session: its result, once it parks or ends.
@@ -305,11 +285,8 @@ impl Rig {
                 .and_then(|s| s.trim().parse().ok())
         })
     }
-
     fn log(&self) -> String {
-        let s = std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default();
-        let lines: Vec<&str> = s.lines().collect();
-        lines[lines.len().saturating_sub(30)..].join("\n")
+        self.log_tail()
     }
 }
 

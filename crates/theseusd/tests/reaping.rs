@@ -8,8 +8,9 @@
 
 mod common;
 
+use common::{table, Fixture};
+
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -43,6 +44,12 @@ struct Rig {
     _model: FakeModel,
 }
 
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+}
+
 impl Rig {
     /// A daemon on a file config, under `notify`, whose secrets come from a
     /// fake `op` (`op` writes its script, given the rig's directory), with
@@ -72,12 +79,6 @@ impl Rig {
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
             .unwrap();
-        fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-            t.entry(key)
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap()
-        }
         table(&mut t, "model").insert("api_base".into(), model.base.clone().into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
             p.as_table_mut()
@@ -131,10 +132,6 @@ impl Rig {
                 .is_some_and(|s| s != "resolving")
         });
         r
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     /// The model answers a prompt that starts with `prompt` with `calls`.
@@ -191,22 +188,7 @@ impl Rig {
     }
 
     fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s = UnixStream::connect(self.path("sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(120))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
+        common::rpc::call_within(&self.sock(), 120, method, params)
     }
 
     /// A turn in a new session: its result, once it parks or ends.
@@ -231,10 +213,6 @@ impl Rig {
             .filter(|a| a["tool"] == "proc.run")
             .map(|a| a["state"].as_str().unwrap_or("").to_string())
             .collect()
-    }
-
-    fn log(&self) -> String {
-        std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
     }
 
     fn log_tail(&self) -> String {

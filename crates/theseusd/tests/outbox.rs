@@ -10,7 +10,9 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
+use common::{table, tail, Fixture, FAKE_OP};
+
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -28,19 +30,17 @@ const DM: u64 = USER + 1;
 
 type Script = Arc<Mutex<Vec<(String, Vec<(&'static str, Value)>)>>>;
 
-/// A fake `op`: every reference's value is `tv-<its item>`.
-const FAKE_OP: &str = "#!/bin/sh\n\
-    case \"$1\" in\n\
-    \x20 inject) sed -E 's#\\{\\{ op://Test/([^/]+)/[^}]* \\}\\}#tv-\\1#g' ;;\n\
-    \x20 read) for a; do ref=\"$a\"; done; printf 'tv-%s' \"$(echo \"$ref\" | cut -d/ -f4)\" ;;\n\
-    \x20 *) exit 1 ;;\n\
-    esac\n";
-
 struct Rig {
     dir: tempfile::TempDir,
     fake: Arc<FakeDiscord>,
     script: Script,
     _model: FakeModel,
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }
 
 impl Rig {
@@ -73,12 +73,6 @@ impl Rig {
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
             .unwrap();
-        fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-            t.entry(key)
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap()
-        }
         table(&mut t, "model").insert("api_base".into(), model.base.clone().into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
             p.as_table_mut()
@@ -106,10 +100,6 @@ impl Rig {
             script,
             _model: model,
         }
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     fn spawn(&self) -> Daemon {
@@ -155,44 +145,6 @@ impl Rig {
         d
     }
 
-    fn log(&self) -> String {
-        std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
-    }
-
-    fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
-        let t0 = Instant::now();
-        loop {
-            if let Some(v) = f() {
-                return v;
-            }
-            assert!(
-                t0.elapsed() < Duration::from_secs(40),
-                "no {what} in 40 s; the daemon's log ends:\n{}",
-                tail(&self.log(), 30)
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s = UnixStream::connect(self.path("sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
-    }
-
     /// The DM place's session, once the binding has bound it.
     fn session(&self) -> String {
         self.wait("the DM place bound", || {
@@ -234,11 +186,6 @@ impl Rig {
             .filter(|m| !m.content.starts_with("🔗 Theseus is bound here"))
             .collect()
     }
-}
-
-fn tail(s: &str, n: usize) -> String {
-    let lines: Vec<&str> = s.lines().collect();
-    lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
 /// `kill -9` after Discord received the create and before the settle was

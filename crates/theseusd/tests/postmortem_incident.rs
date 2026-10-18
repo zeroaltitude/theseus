@@ -23,6 +23,8 @@
 
 mod common;
 
+use common::{table, tail, Fixture, FAKE_OP};
+
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -34,14 +36,6 @@ use common::model::FakeModel;
 use common::Daemon;
 use serde_json::{json, Value};
 
-/// A fake `op`: every reference's value is `tv-<its item>`.
-const FAKE_OP: &str = "#!/bin/sh\n\
-    case \"$1\" in\n\
-    \x20 inject) sed -E 's#\\{\\{ op://Test/([^/]+)/[^}]* \\}\\}#tv-\\1#g' ;;\n\
-    \x20 read) for a; do ref=\"$a\"; done; printf 'tv-%s' \"$(echo \"$ref\" | cut -d/ -f4)\" ;;\n\
-    \x20 *) exit 1 ;;\n\
-    esac\n";
-
 type Script = Arc<Mutex<Vec<(String, Vec<(&'static str, Value)>)>>>;
 
 struct Rig {
@@ -49,11 +43,10 @@ struct Rig {
     _model: FakeModel,
 }
 
-fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-    t.entry(key)
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .unwrap()
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }
 
 impl Rig {
@@ -146,10 +139,6 @@ impl Rig {
         Self { dir, _model: model }
     }
 
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
-    }
-
     fn spawn(&self) -> Daemon {
         let log = std::fs::OpenOptions::new()
             .create(true)
@@ -185,10 +174,6 @@ impl Rig {
         d
     }
 
-    fn log(&self) -> String {
-        std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
-    }
-
     fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
         let t0 = Instant::now();
         loop {
@@ -202,10 +187,6 @@ impl Rig {
             );
             std::thread::sleep(Duration::from_millis(50));
         }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        call(&self.path("sock"), method, params)
     }
 
     fn rows(&self, kind: &str) -> Vec<Value> {
@@ -249,11 +230,6 @@ fn call(sock: &Path, method: &str, params: Value) -> Result<Value, Value> {
         }
     }
     Err(json!("the connection closed"))
-}
-
-fn tail(s: &str, n: usize) -> String {
-    let lines: Vec<&str> = s.lines().collect();
-    lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
 /// A turn on a new session, asked in a thread of its own: it returns when the

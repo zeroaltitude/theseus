@@ -31,6 +31,8 @@
 
 mod common;
 
+use common::Fixture;
+
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -71,6 +73,12 @@ if [ -n "$GH_TOKEN" ]; then echo token=yes; else echo token=no; fi
 echo "len=${#GH_TOKEN}"
 echo "printed=$GH_TOKEN"
 "#;
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+}
 
 impl Rig {
     fn start(tweak: impl FnOnce(&mut toml::Table)) -> Self {
@@ -189,10 +197,6 @@ impl Rig {
         r
     }
 
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
-    }
-
     fn asks(&self, prompt: &str, calls: Vec<(&'static str, Value)>) {
         self.script.lock().unwrap().push((prompt.into(), calls));
     }
@@ -272,11 +276,8 @@ impl Rig {
             .map(|r| r["data"].clone())
             .collect()
     }
-
     fn log(&self) -> String {
-        let s = std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default();
-        let lines: Vec<&str> = s.lines().collect();
-        lines[lines.len().saturating_sub(30)..].join("\n")
+        self.log_tail()
     }
 }
 

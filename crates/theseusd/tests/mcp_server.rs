@@ -17,8 +17,9 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
+use common::Fixture;
+
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -46,6 +47,16 @@ struct Rig {
 /// Where a job writes what it saw: inside the workspace root, so each
 /// `proc.run` there runs under `notify` but for the floor.
 const OUT: &str = "projects/out";
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    fn sock(&self) -> std::path::PathBuf {
+        self.path("projects/sock")
+    }
+}
 
 impl Rig {
     fn start() -> Self {
@@ -135,10 +146,6 @@ impl Rig {
         r
     }
 
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
-    }
-
     fn asks(&self, prompt: &str, calls: Vec<(&'static str, Value)>) {
         self.script.lock().unwrap().push((prompt.into(), calls));
     }
@@ -176,26 +183,6 @@ impl Rig {
             );
             std::thread::sleep(Duration::from_millis(10));
         }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s =
-            UnixStream::connect(self.path("projects/sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
     }
 
     /// The operator's own `theseus`, from outside every job.

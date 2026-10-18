@@ -15,6 +15,8 @@
 
 mod common;
 
+use common::Fixture;
+
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -58,6 +60,12 @@ impl Drop for Rig {
             .arg("u+w")
             .arg(self.path("state/extensions"))
             .status();
+    }
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
     }
 }
 
@@ -145,10 +153,6 @@ impl Rig {
         }
         self.daemon = spawn(self.dir.path());
         self.until("the secrets", |h| h["secrets"]["state"] == "ready");
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     fn until(&mut self, what: &str, ok: impl Fn(&Value) -> bool) -> Value {
@@ -260,11 +264,8 @@ impl Rig {
             ),
         )
     }
-
     fn log(&self) -> String {
-        let s = std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default();
-        let lines: Vec<&str> = s.lines().collect();
-        lines[lines.len().saturating_sub(30)..].join("\n")
+        self.log_tail()
     }
 }
 

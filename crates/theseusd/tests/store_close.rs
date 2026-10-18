@@ -5,6 +5,8 @@
 
 mod common;
 
+use common::table;
+
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
@@ -23,13 +25,6 @@ fn free_port() -> u16 {
         .local_addr()
         .unwrap()
         .port()
-}
-
-fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-    t.entry(key)
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .unwrap()
 }
 
 fn services_on(base: String, web: u16) -> impl FnOnce(&mut toml::Table) {
