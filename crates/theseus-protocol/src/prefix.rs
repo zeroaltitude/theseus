@@ -1,5 +1,5 @@
 //! `prefix.report` (theseus-rr15): the prefix library's picks, what they saved
-//! and the false fits, for `theseus prefix report`.
+//! and the false fits, for `theseus model prefix`.
 
 use serde::{Deserialize, Serialize};
 

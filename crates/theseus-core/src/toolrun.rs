@@ -382,7 +382,7 @@ pub struct ToolRuntime {
     /// The open watches, in memory (theseus-f2r2b): the `watch` tool adds to
     /// them, the driver's tick checks them. The core shares this board.
     pub watches: Arc<crate::watch::Board>,
-    /// `[watches]`, for the tool's bounds.
+    /// `[watch_for]`, for the tool's bounds.
     pub watches_cfg: crate::config::WatchesConfig,
     /// The finished tasks a new task's forecast is made from, and the work
     /// board's view of it (theseus-zz752).
@@ -2350,7 +2350,7 @@ pub fn build_runtime(
         question_due: Default::default(),
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
         watches: Default::default(),
-        watches_cfg: cfg.watches.clone(),
+        watches_cfg: cfg.watch_for.clone(),
         forecasts: Default::default(),
         sandbox,
         stops: Default::default(),

@@ -1,4 +1,4 @@
-//! `theseus route report` and `theseus turn replay` in words (own-benchmark,
+//! `theseus model bench` and `theseus model replay` in words (own-benchmark,
 //! theseus-pw1q.12): pure functions of the daemon's answers.
 
 use theseus_protocol::own_bench::{RouteReportResult, TurnReplayResult};
@@ -82,7 +82,7 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
     out.push(match &r.sampler {
         Some(why) => format!("Replays today: {} ({why}).", usd(r.replay_today_usd)),
         None => format!(
-            "Replays today: {} of {} ([route] replay_day_usd).",
+            "Replays today: {} of {} ([route_bench] replay_day_usd).",
             usd(r.replay_today_usd),
             usd(r.replay_day_usd)
         ),
@@ -251,7 +251,7 @@ mod tests {
                 "  claude-sonnet-5-5 @ high: 40 turns, $12.50, you checked 3; 9 replayed on haiku, 8 matched (compare.v1 same or better at 80%+); at 90% confidence at least 63% match, the replays cost 20% of the originals: $6.30 movable",
                 "  claude-fable-5-1 @ default: 2 turns, $4.00; not replayed yet",
                 "Movable at 90% confidence: $6.30 of $16.50.",
-                "Replays today: $0.31 of $1.00 ([route] replay_day_usd).",
+                "Replays today: $0.31 of $1.00 ([route_bench] replay_day_usd).",
             ]
         );
     }

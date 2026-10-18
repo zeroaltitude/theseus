@@ -2,7 +2,7 @@
 //! long conversation's prompt is mostly its cached prefix, and a cache entry
 //! lives an hour at most after its last read. After the last turn of a
 //! conversation a person talks in ends, the daemon sends one request every
-//! `[cache] keep_warm_minutes` that reads the prefix and so restarts its
+//! `[cache] keep_warm_every_minutes` that reads the prefix and so restarts its
 //! entry's hour, for up to the profile's `keep_warm_hours` after the
 //! session's last message. The next message then reads the prefix (0.025x of
 //! input on Fable 5.1) instead of writing it whole again (2x).
@@ -522,7 +522,7 @@ impl TurnRunner {
             }
         };
         // A thread's session is kept only while its thread is active, and
-        // within `[threads] keep_warm_hours` of its owner's last message.
+        // within `[cache] threads_keep_warm_hours` of its owner's last message.
         let thread_hours = match self.thread_warm(session_id) {
             crate::keep_warm_threads::ThreadWarm::NotThread => None,
             crate::keep_warm_threads::ThreadWarm::Window(h) => Some(h),
@@ -866,7 +866,7 @@ impl crate::rpc::Core {
                     profile: name.clone(),
                     model: p.model.clone(),
                     ttl: ttl.as_str().into(),
-                    inherited: from == "model" && name != "default",
+                    inherited: from == "cache" && name != "default",
                     keep_warm_hours: match ttl {
                         CacheTtl::OneHour => p.keep_warm_hours(),
                         CacheTtl::FiveMinutes => 0.0,
@@ -878,7 +878,7 @@ impl crate::rpc::Core {
             self.runner.keep_warm.counts(&today(&self.kernel));
         theseus_protocol::PromptCacheHealth {
             profiles,
-            keep_warm_minutes: self.cfg.cache.keep_warm_minutes,
+            keep_warm_minutes: self.cfg.cache.keep_warm_every_minutes,
             kept,
             stopped,
             reads_today,

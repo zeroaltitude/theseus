@@ -39,7 +39,7 @@ provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 api_key_secret = "anthropic_api_key"
 max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
-max_loops_mode = "end"                  # a trial ends at max_loops (exit 8), where the default notifies and goes on
+on_max_loops = "end"                  # a trial ends at max_loops (exit 8), where the default notifies and goes on
 
 [model.retries]
 transient = 4
@@ -48,7 +48,7 @@ transient = 4
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 # Reasoning effort medium, as Claude Code's and Pi's own defaults send it:
 # omitted, Sonnet 5.5 would run at its default, high (theseus-n6p5).
 effort = "medium"

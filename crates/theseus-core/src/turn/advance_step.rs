@@ -42,7 +42,7 @@ impl TurnRunner {
     ) -> bool {
         let advancer = UntilNoToolCalls {
             max_loops: t.target.max_loops,
-            notify: t.target.max_loops_mode == crate::config::MaxLoopsMode::Notify,
+            notify: t.target.on_max_loops == crate::config::MaxLoopsMode::Notify,
         };
         let stop = resp.stop_reason.as_deref();
         let outcome = LoopOutcome {

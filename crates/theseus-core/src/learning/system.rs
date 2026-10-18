@@ -563,7 +563,7 @@ impl Core {
             .split(", ")
             .find_map(|c| c.strip_prefix("profile "))
             .unwrap_or_default();
-        let modes = &self.cfg.routing.modes;
+        let modes = &self.cfg.routing.classes;
         let owning: Vec<&str> = crate::config::routing::MODES
             .into_iter()
             .filter(|m| modes.of(m).iter().any(|p| p == profile))

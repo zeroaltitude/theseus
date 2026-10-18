@@ -18,6 +18,26 @@ use crate::cmd::output;
 
 #[derive(Subcommand, Debug, Default)]
 pub enum PersonaCmd {
+    /// The speaking voice: `persona voice` shows the voice a call speaks in and where it comes from;
+    /// `persona voice audition [--voices a,b,c] [--text WORDS] [--out DIR]` makes the greeting in
+    /// several voices as WAV files and prints their paths and the cost (a few cents; yours alone).
+    /// Pick with `persona edit --tts-voice ID`.
+    Voice {
+        #[command(subcommand)]
+        cmd: Option<crate::voice_cmd::VoiceCmd>,
+    },
+    /// Your 👍 (`up`) or 👎 (`down`) on a message Theseus sent first: the latest, or the one `ID`
+    /// names (the turn id of a wake's or a task's reply, or the id a note it wrote itself has).
+    /// Yours alone (refused inside a job); the week's totals are in `persona`.
+    Rate {
+        /// `up` or `down`.
+        #[arg(value_parser = ["up", "down"])]
+        verdict: String,
+        id: Option<String>,
+        /// The session it was said in.
+        #[arg(long, short, value_name = "SESSION")]
+        session: Option<String>,
+    },
     /// Every persona: name, emoji, voice, initiative, its files (size, digest, when edited), the
     /// compiles that carried it, and the places that speak as it (default).
     #[default]
@@ -36,7 +56,7 @@ pub enum PersonaCmd {
         #[arg(long)]
         card: Option<String>,
         /// Overrides `[voice] tts_voice` while this persona is in play (`--voice` is the same flag;
-        /// `theseus voice audition` lets you hear several first).
+        /// `theseus persona voice audition` lets you hear several first).
         #[arg(long, alias = "voice")]
         tts_voice: Option<String>,
         /// A path or a URL, for Discord.
@@ -103,7 +123,22 @@ pub fn fields_of(cmd: &PersonaCmd) -> Vec<(&'static str, String)> {
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
+    match cmd {
+        PersonaCmd::Voice { cmd } => {
+            crate::voice_cmd::run(conn, json, cmd.unwrap_or_default()).await
+        }
+        PersonaCmd::Rate {
+            verdict,
+            id,
+            session,
+        } => crate::notices_cmd::rate(conn, json, verdict, id, session).await,
+        cmd => shown(conn, json, cmd).await,
+    }
+}
+
+async fn shown(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
     match &cmd {
+        PersonaCmd::Voice { .. } | PersonaCmd::Rate { .. } => unreachable!("`run` sends these on"),
         PersonaCmd::Show => {
             let v = conn
                 .request(

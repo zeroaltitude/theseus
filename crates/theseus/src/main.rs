@@ -27,6 +27,7 @@ mod extend;
 mod follow;
 mod fork;
 mod harness;
+mod help_cmd;
 mod herdr;
 mod herdr_answer;
 #[cfg(test)]
@@ -97,48 +98,26 @@ Quick start:
   theseus health                             is it up, which profile is live, token totals
   theseus ask \"Say hello.\"                  one turn, streamed
   echo \"Summarize: ...\" | theseus ask --json  pipelines
-  theseus profile use glm                    switch the live profile (persists)
-  theseus ask -P sonnet \"...\"               one turn under another profile
-  theseus ledger -n 20 -k provider.call      what every call cost and how long it took
   theseus ask -s <session> \"...\"            continue a session (its whole history is the context)
   theseus ask --attach notes.txt \"...\"      send a file with the prompt, as a Discord attachment is sent
-  theseus history [session]                  a session's transcript: messages, tool calls, results
-  theseus watch [session]                    follow a session live (turns started anywhere)
-  theseus watch --all                        every session's executions as they change, with what needs you
   theseus                                    on a terminal: a conversation in this directory, inline (same as `theseus chat`)
   theseus tui                                every session in one terminal: what needs you, answered inline
-  theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
-  theseus answer <id> <option> [--note ..]   answer any question waiting for you by one of its options, from the last four characters of its id
-  theseus budgets                            where the money is: each session's limit and its source, spend, tasks' carves
-  theseus tasks                              background tasks (task.create): state, spend, what each waits on
-  theseus wakes                              pending wakes (wake.at): session, due time, and note
-  theseus reach <node>                       where a node went: the contexts that held it, its copies, and the forks that took it
-  theseus fork <node>                        a new conversation from that moment of another, by reference (both stay)
-  theseus rewind --to <node>                 put the files your agent's edits changed, and the conversation, back to before a message
-  theseus cancel <id>                       stop a task and its jobs, or cancel a wake (its last six characters are enough)
-  theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
-  theseus wait <session> --until blocked      return once a session needs you (or settled, or terminal for a task)
-  theseus wait --any --until blocked         return once any session needs you
+  theseus history [session]                  a session's transcript: messages, tool calls, results
+  theseus watch [session]                    follow a session live (turns started anywhere)
   theseus status [--short] [--watch]         what needs you, what works, what failed: a screen, a prompt segment, a status bar
+  theseus tasks                              background tasks: state, spend, what each waits on
+  theseus answer <id> <option> [--note ..]   answer a question waiting for you by one of its options (no id: list them)
+  theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
   theseus digest [--since 2h]                what finished, failed or was answered since you last looked, in a few lines
-  theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
-  theseus tools                              the toollets, their policy, and calls so far
-  theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
-  theseus policy explain --tool proc.run     why a call waits: every layer of the gate, for each place (--session: one)
-  theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
-  theseus catalog                            models, context windows, and prices
-  theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
-  theseus memory recalled <session>          what recall would have admitted on each turn, and why it dropped the rest
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn and what it left for
                                              later (a job's late result, a wake: --follow-for), then stop it cleanly
-  theseus shutdown
 
 Web UI:      http://127.0.0.1:7433/  (while theseusd runs)
 Exit codes:  0 ok · 1 server or provider error · 2 usage · 3 cannot connect
              ask: 5 spend limit · 6 waits for approval · 7 refused · 8 cut by a limit · 9 stopped
-More:        theseus <command> --help";
+`theseus help all` lists every command.";
 
-/// `theseus ask --help`'s exit codes (theseus-n88g.2): how the turn ended,
+/// `theseus ask --help`'s exit codes: how the turn ended,
 /// for a script or a benchmark's harness that runs it headless.
 const ASK_EXIT_CODES: &str = "\
 Exit codes, by how the turn ended, the last one under --spawn's follow (`--json` gives its stop_reason
@@ -147,7 +126,7 @@ in full):
   1  failed: a provider's or a tool's fault, or the daemon's error
   2  usage · 3 cannot connect or spawn theseusd
   5  the session reached its spend limit; the turn waits for the operator to reset it
-  6  a call waits for the operator's approval (`theseus confirm`), which a headless run cannot give
+  6  a call waits for the operator's approval (`theseus answer`), which a headless run cannot give
   7  the model refused
   8  a limit ended the turn before the model did: the loop cap, the output limit, or the context window
   9  stopped: by an operator (/stop, `theseus stop`), or, under --spawn, by a SIGINT or SIGTERM, which
@@ -164,7 +143,8 @@ in full):
 to a running theseusd over its Unix socket, or spawns one on stdio with --spawn. Prompts come from an \
 argument or stdin; replies stream to stdout; diagnostics go to stderr; --json gives one JSON object for machines.",
     after_help = AFTER_HELP,
-    args_conflicts_with_subcommands = false
+    args_conflicts_with_subcommands = false,
+    disable_help_subcommand = true
 )]
 struct Cli {
     /// Unix socket of a running theseusd.
@@ -199,18 +179,27 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// The everyday screen; `help all` lists every command; `help COMMAND` is that command's page.
+    #[command(hide = true)]
+    Help {
+        /// `all`, or a command (and its subcommand).
+        topic: Vec<String>,
+    },
     /// Send one prompt as one turn and print the reply. Reads stdin when PROMPT is omitted or "-".
     /// The exit code says how the turn ended.
     #[command(after_help = ASK_EXIT_CODES)]
+    #[command(display_order = 1)]
     Ask(AskArgs),
     /// Run an MCP server's prompt as a turn's input and print the reply, as `ask` does.
     /// `theseus mcp` lists the prompts. The exit code says how the turn ended.
     #[command(after_help = ASK_EXIT_CODES)]
+    #[command(hide = true)]
     Prompt(prompt::PromptArgs),
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active; it is
     /// an id, or a unique end of one (four characters at least). A handle a reply cited
     /// (`m:a1b2c3`, the footnote's command) shows that message whole instead.
+    #[command(display_order = 4)]
     History {
         session: Option<String>,
         /// Only the newest N nodes (default 200); with --after or --before, a page's size.
@@ -233,20 +222,29 @@ enum Cmd {
     /// the compile left out and why, and the gate's posture for each tool the turn called and
     /// the layer that set it. TURN is a turn's id, or a unique start or end of one (four
     /// characters at least); it defaults to the session's last. A read: nothing is recompiled
-    /// or written. --json prints what the daemon answered.
+    /// or written. --json prints what the daemon answered. `--short` is how full the context is
+    /// instead: the session's last compiled request against the model's window, a line for each
+    /// kind of part with its tokens and a bar, and the free space; its argument is the SESSION
+    /// (default the most recently active).
+    #[command(hide = true)]
     Why {
+        /// A turn (a session with `--short`).
         turn: Option<String>,
         /// The session; defaults to the most recently active, as `history` does.
-        #[arg(long, value_name = "SESSION")]
+        #[arg(long, value_name = "SESSION", conflicts_with = "short")]
         session: Option<String>,
+        /// The context's fill, not the turn's reasons.
+        #[arg(long)]
+        short: bool,
     },
     /// What the next request holds, counted part by part down to each tool: the system's blocks
     /// and sections, every tool's description, schema and total with its use (calls planned in the
     /// last 30 days across every session, and the last one's date), the messages, and the total
     /// against the window. SESSION is that session's next request; with none, a fresh session's
-    /// first request for --place (cli, dm, channel, task, headless or harness; default cli). It compiles once and
+    /// first request for --place, the place kind (cli, dm, channel, task, headless or harness; default cli). It compiles once and
     /// sends nothing. --exact also asks the provider's token counter (not a model) when a key
     /// resolves. --json prints what the daemon answered.
+    #[command(hide = true)]
     Census {
         session: Option<String>,
         #[arg(long, value_name = "KIND")]
@@ -254,18 +252,12 @@ enum Cmd {
         #[arg(long)]
         exact: bool,
     },
-    /// How full the context is: the session's last compiled request against the model's
-    /// window, a line for each kind of part (system and persona, tools, context files, recalled,
-    /// conversation) with its tokens and a bar, and the free space. The short form of `why`,
-    /// which names every part and the rule that put it there. SESSION defaults to the most
-    /// recently active. A read: nothing is recompiled or written. --json prints what the daemon
-    /// answered.
-    Context { session: Option<String> },
     /// Open a turn in the cockpit's inspector: its flame graph, each loop's request
     /// and thinking, each tool call. `theseus open turn [TURN]`: TURN is a turn's id, or a unique
     /// start or end of one (four characters at least); it defaults to the session's last. Prints
     /// the link (`[cockpit] public_url`) and opens it in a browser where one is found; --print
     /// only prints it.
+    #[command(hide = true)]
     Open {
         #[command(subcommand)]
         what: open::What,
@@ -275,6 +267,7 @@ enum Cmd {
     /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
     /// node's id, or its last 6 or more characters, as `theseus history` prints it (msg·a1b2c3)
     /// and the cockpit's Nodes list (Ledger) shows it.
+    #[command(hide = true)]
     Reach {
         #[arg(value_name = "NODE")]
         node: String,
@@ -288,6 +281,7 @@ enum Cmd {
     /// more characters, as `theseus history` prints it (msg·a1b2c3), a message of yours or an
     /// answer that made no tool call. Files and what programs did after that point are not
     /// restored: they ran in the original.
+    #[command(hide = true)]
     Fork {
         #[arg(value_name = "NODE")]
         node: String,
@@ -310,6 +304,7 @@ enum Cmd {
     /// program changed are never restored; one over 1 MiB is not kept), then a new conversation
     /// forked at the node before the message, with the original left as it is. `--to @POSITION`
     /// with `--files-only` undoes a restore. The chat does this on Esc Esc.
+    #[command(hide = true)]
     Rewind {
         /// The conversation (default: the one the message is in).
         #[arg(value_name = "SESSION")]
@@ -328,11 +323,13 @@ enum Cmd {
     /// Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web
     /// UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any
     /// other guild channel) gets its own conversation and the public tools alone.
+    #[command(display_order = 17)]
     Places,
     /// Publish into a place (the place rule): one item into a place's conversation, as your
     /// message there, and said in the place: a node by id, a file you can read, or a message
     /// (`--text`). Only you, from a private place (the CLI is one), may. PLACE is as
     /// `theseus places` names it (`#openclaw`).
+    #[command(hide = true)]
     Publish {
         /// A node's id, or a file's path (it starts with `/`, `~`, or `.`, or names a file).
         #[arg(value_name = "NODE|FILE", required_unless_present = "text")]
@@ -351,6 +348,7 @@ enum Cmd {
     /// card names the tasks to re-run, and the table says every place it went. NODE is a node's
     /// id, the last six or more characters of one, or a recalled item's handle. Only you, from a
     /// private place; refused inside a job. A second retraction writes nothing.
+    #[command(hide = true)]
     Retract {
         #[arg(value_name = "NODE|HANDLE")]
         node: String,
@@ -361,6 +359,7 @@ enum Cmd {
     /// The ontology: the kinds of context, the categories (a bound place's channel or person,
     /// and the topics you declare) with their guidance, and sessions' memberships. A session's
     /// system block carries the guidance of the categories it is in, from its next recompile.
+    #[command(hide = true)]
     Ontology {
         #[command(subcommand)]
         cmd: Option<OntologyCmd>,
@@ -368,6 +367,7 @@ enum Cmd {
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
     /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent;
     /// it is an id, or a unique end of one (four characters at least). An unknown one exits 1.
+    #[command(display_order = 5)]
     Watch {
         session: Option<String>,
         /// Show thinking summaries too.
@@ -392,6 +392,7 @@ enum Cmd {
     /// `theseus-tui`, found beside this binary or else on PATH, with --socket and ARGS passed
     /// through (`theseus tui --help` is its help).
     #[command(disable_help_flag = true)]
+    #[command(display_order = 3)]
     Tui {
         /// Passed to theseus-tui: --notify bell|osc9|osc777|off, --help.
         #[arg(
@@ -404,6 +405,7 @@ enum Cmd {
     /// An inline conversation in this directory: a new one, or SESSION's (an id, or a unique end
     /// of one). The same as `theseus` alone on a terminal. It runs `theseus-tui chat`, found
     /// beside this binary or else on PATH.
+    #[command(display_order = 2)]
     Chat {
         /// A conversation to go on with.
         session: Option<String>,
@@ -428,11 +430,14 @@ enum Cmd {
     /// Answer a tool call waiting for your confirmation, or a session at its spend limit
     /// (approve resets its spend to $0), then follow the turn it resumes.
     /// Without an id, list everything waiting.
+    #[command(hide = true)]
     Confirm(ConfirmArgs),
     /// Answer any question waiting for you, with one of its answers: a call, a spend limit, a
     /// task change, an extension, a reminder. `theseus answer 7f3a approve`.
+    #[command(display_order = 8)]
     Answer(answer::AnswerArgs),
     /// The toollets: class, backend, what policy does with each, and calls so far.
+    #[command(hide = true)]
     Tools {
         /// Also print each tool's description and input schema.
         #[arg(long, short)]
@@ -441,21 +446,23 @@ enum Cmd {
     /// "Should have asked": make a tool ask first from now on, undo it, or list every tool's
     /// posture and what set it. A tightening is stored, never in the config, and only makes a
     /// tool stricter; an undo returns the tool to what the config says.
+    #[command(hide = true)]
     Policy {
         #[command(subcommand)]
         cmd: Option<PolicyCmd>,
     },
     /// Theseus's AWS account: `bootstrap` plans its first stacks, read-only, and applies them on
     /// your yes.
+    #[command(hide = true)]
     Aws {
         #[command(subcommand)]
         cmd: AwsCmd,
     },
-    /// The model catalog: context windows, output limits, prices per million tokens.
-    Catalog,
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
+    #[command(display_order = 19)]
     Health,
     /// Sessions: list them with per-session token totals, or open one to continue across turns.
+    #[command(hide = true)]
     Sessions {
         #[command(flatten)]
         page: pages::PageArgs,
@@ -465,8 +472,10 @@ enum Cmd {
     /// Where the money is: each open session's limit and where it comes from, spent, reserved,
     /// held, available, and lifetime cost, its resets and any budget question, each task under
     /// its parent with its carve, and the totals.
+    #[command(hide = true)]
     Budgets,
     /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
+    #[command(hide = true)]
     Executions {
         #[command(flatten)]
         page: pages::PageArgs,
@@ -478,6 +487,7 @@ enum Cmd {
     /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
     /// reports or fails. `--graph` is the task graph and each task's state and spend as before;
     /// `--json` the same list as data.
+    #[command(display_order = 7)]
     Tasks {
         #[command(flatten)]
         args: tasks_tree::TasksArgs,
@@ -488,87 +498,69 @@ enum Cmd {
     /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
     /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
     /// inside a job). `tasks` lists them.
+    #[command(hide = true)]
     Task {
         #[command(subcommand)]
         cmd: task_start::TaskCmd,
     },
     /// Wakes: the turns conversations asked for at a time with wake.at that have not run yet,
-    /// soonest first, with session, due time, and note.
-    Wakes {
-        /// Only this session's wakes.
-        #[arg(long, short)]
-        session: Option<String>,
+    /// soonest first, with session, due time, and note. `wake list` is the same; `wake pause|resume|
+    /// snooze|cancel ID` act on one (a reminder that fired is answered with `answer ID done|snooze`).
+    #[command(display_order = 14)]
+    Wake {
+        #[command(subcommand)]
+        cmd: Option<remind::WakeCmd>,
     },
-    /// Cancel a pending wake, so nothing fires; or stop a task and its jobs, as `executions
-    /// cancel` does, and its place hears it once. ID is its id or its last six characters, as
-    /// `theseus wakes` and `theseus tasks` show it.
+    /// Cancel a task and its jobs, or a pending wake, by what its id names (its last six characters
+    /// are enough, as `theseus tasks` and `theseus wake` show it); `wake cancel ID` is the same for a
+    /// wake. `stop SESSION` stops a conversation.
+    #[command(hide = true)]
     Cancel {
         #[arg(value_name = "ID")]
         name: String,
     },
     /// Remind the owner: WHEN and what to say, with no model turn. It is posted as it is when it
     /// is due, in the Discord DM when one is bound and to every surface that watches, with Done
-    /// and Snooze (`theseus snooze`). With no `--session` it lives in your Home conversation.
+    /// and Snooze (`theseus answer ID snooze`). With no `--session` it lives in your Home conversation.
+    #[command(display_order = 12)]
     Remind(remind::RemindArgs),
-    /// Move a wake or a reminder that fired to WHEN (10 minutes by default): `theseus snooze
-    /// 3f9a1c 1h`, `theseus snooze wak_… tomorrow 9:00` (a reminder that fired is named by its
-    /// whole id, as its notice carries it).
-    Snooze {
-        #[arg(value_name = "ID")]
-        wake: String,
-        /// `10m`, `1h`, `tomorrow 9:00`, `fri 9:00`.
-        when: Option<String>,
-    },
-    /// Hold a wake: a series keeps its place and passes its occurrences over (`--until WHEN`
-    /// moves it past that time instead). `theseus resume` lets it go on.
-    Pause {
-        #[arg(value_name = "ID")]
-        wake: String,
-        #[arg(long)]
-        until: Option<String>,
-    },
-    /// Let a paused wake go on: a series at its next occurrence, numbered by its place.
-    Resume {
-        #[arg(value_name = "ID")]
-        wake: String,
-    },
-    /// A reminder that fired was seen and is settled.
-    Done {
-        #[arg(value_name = "ID")]
-        wake: String,
-    },
     /// What needs you, what works, and what failed, in one screen: a header of counts and a row
     /// for each task (what it asks, and the command that answers). `--short` is a line for a
     /// prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal
     /// tab's progress as well). One read, within 100 ms of connecting.
+    #[command(display_order = 6)]
     Status(status::StatusArgs),
-    /// The work board, kept current: `tasks --watch`.
-    Work(work::WorkArgs),
     /// A running job's last lines, once: its size and the last 20 lines (work.peek), scrubbed.
-    /// JOB is its id (`act_…`), or a unique end of it as `theseus tasks` (and its alias `work`) prints it.
+    /// JOB is its id (`act_…`), or a unique end of it as `theseus tasks` prints it.
+    #[command(hide = true)]
     Peek(jobout::PeekArgs),
     /// Follow a running job's output live (action.output): its last lines, then each line as it is
     /// printed, until the job ends. Ctrl-C detaches and the job goes on; a stream that fell behind
     /// says so and reads the job again.
+    #[command(hide = true)]
     Attach(jobout::AttachArgs),
     /// The future in one view: Now, Today, This week, Later, Recurring (routines and repeating
     /// reminders), Waiting on the world (watches) and Projects, with the verbs that act on them.
     /// `--watch` keeps it current.
+    #[command(display_order = 10)]
     Agenda(agenda::AgendaArgs),
     /// What finished, failed, was answered or woke since you last looked, in a few lines
     /// (work.digest). `--since 2h` names a time; the default is since the last time a terminal
     /// client showed you the board, and with none yet, the last 24 hours. `--session` is one
     /// conversation's or task's own timeline.
+    #[command(display_order = 11)]
     Digest(digest::DigestArgs),
     /// An incident's timeline, from the ledger: what ran, waited, failed and cost, what was asked
     /// of the owner and answered, and every restart of the daemon, as markdown (`--json`: the
     /// same facts as data). Read only. The default window is the last 12 hours; `--session` or
     /// `--task` narrow it to one conversation or task and what it started.
+    #[command(hide = true)]
     Postmortem(postmortem::PostmortemArgs),
     /// Wait until a session needs you, settles, or ends, then print its state and its questions
     /// (session.wait). The daemon owns the wait, so nothing polls, and a wait already satisfied
     /// answers at once. SESSION is its id, or at least its last four characters. Exit codes: 0
     /// reached, 4 timed out, and 1, 2, and 3 as for every command.
+    #[command(hide = true)]
     Wait {
         #[arg(value_name = "SESSION", required_unless_present = "any")]
         session: Option<String>,
@@ -591,18 +583,21 @@ enum Cmd {
     },
     /// Dismiss a failed task: it stops needing you on every surface, and its record stays. ID is
     /// the task's id, or at least its last four characters.
+    #[command(hide = true)]
     Dismiss {
         #[arg(value_name = "ID")]
         id: String,
     },
     /// Try a failed task again: a new task opens from the same brief and pieces under the same
     /// parent, with no more budget than the failed one had, and the failed one is dismissed.
+    #[command(hide = true)]
     Retry(retry::RetryArgs),
     /// Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and
     /// what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks
     /// and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its
     /// last four characters. With `--all` (`--tasks`) it also cancels every task under the
     /// conversation, a task's own tasks and jobs first; its wakes stay.
+    #[command(display_order = 9)]
     Stop {
         #[arg(value_name = "SESSION")]
         session: String,
@@ -613,13 +608,16 @@ enum Cmd {
     /// A conversation's mode, as Shift+Tab sets it: `ask`, `edits` (file edits in this project run
     /// with a notice), `plan` (read-only until you approve a plan) or `auto` (what only its posture
     /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
+    #[command(hide = true)]
     Mode(mode_cmd::ModeArgs),
     /// Model profiles: list, or switch the live one (`theseus profile use glm`).
+    #[command(display_order = 18)]
     Profile {
         #[command(subcommand)]
         cmd: Option<ProfileCmd>,
     },
     /// Recent ledger rows (every turn, loop, provider call, state change, error).
+    #[command(hide = true)]
     Ledger {
         /// How many rows.
         #[arg(short, long, default_value_t = 20)]
@@ -634,31 +632,28 @@ enum Cmd {
     },
     /// herdr, the terminal workspace manager: `theseus herdr sync` gives each session that needs
     /// you or is working a pane in herdr, running `theseus watch --interactive`.
+    #[command(hide = true)]
     Herdr {
         #[command(subcommand)]
         cmd: herdr_sync::HerdrCmd,
     },
-    /// The index: `index status` says how far the index tender has read the store and what
-    /// it holds; `index search <QUERY>` finds what was said, run, and read, by its words and
-    /// names (BM25, exact entities, and vectors once the model's files are installed).
-    Index {
-        #[command(subcommand)]
-        cmd: IndexCmd,
-    },
     /// Recall: `memory search <QUERY>` runs recall's pipeline for a query, writing nothing;
     /// `memory recalled <SESSION>` shows what each of its turns would have recalled, in shadow.
+    #[command(hide = true)]
     Memory {
         #[command(subcommand)]
         cmd: MemoryCmd,
     },
     /// Jev's judgments: `judge log` lists the recent ones, each with its pack, session,
     /// answers, and cost; `judge show <id>` shows one whole.
+    #[command(hide = true)]
     Judge {
         #[command(subcommand)]
         cmd: JudgeCmd,
     },
-    /// The ladder: each Jev pack's mode, share and why, its rollback rules and last rows;
+    /// The ladder: each Jev pack's rung, share and why, its rollback rules and last rows;
     /// `packs promote <pack> --canary <share> | --live` and `packs rollback <pack>` move one.
+    #[command(hide = true)]
     Packs {
         #[command(subcommand)]
         cmd: Option<packs::PacksCmd>,
@@ -666,12 +661,14 @@ enum Cmd {
     /// The operator's past history: `import openclaw <file>...` brings episode
     /// files in as imported sessions, closed and private; `import erase --tag <tag>` and
     /// `import list`.
+    #[command(hide = true)]
     Import {
         #[command(subcommand)]
         cmd: Option<import::ImportCmd>,
     },
     /// The MCP servers the config attaches: each server's state, and its tools with their
     /// postures and classes; `mcp restart <NAME>` starts one again, a failed one included.
+    #[command(hide = true)]
     Mcp {
         #[command(subcommand)]
         cmd: Option<mcp::McpCmd>,
@@ -679,6 +676,7 @@ enum Cmd {
     /// Extensions: `extend list` shows each proposal with its state, its frozen
     /// digest, its tools and tests, and the question `theseus confirm` answers, and each loaded
     /// one; `extend revoke <NAME>` stops a loaded one and drops its tools.
+    #[command(hide = true)]
     Extend {
         #[command(subcommand)]
         cmd: extend::ExtendCmd,
@@ -686,6 +684,7 @@ enum Cmd {
     /// Self-improvement: `self log` shows what Theseus changed about itself,
     /// `self halt [WHY]` stops all self-directed work at once, `self resume` (the owner's) releases.
     #[command(name = "self")]
+    #[command(hide = true)]
     SelfImprove {
         #[command(subcommand)]
         cmd: self_cmd::SelfCmd,
@@ -694,30 +693,18 @@ enum Cmd {
     /// initiative, files with digest and edit time, the compiles that carried it, its places);
     /// `persona edit [NAME] [--name|--emoji|--card|--tts-voice|--avatar|--initiative VALUE]` sets
     /// short fields in the config file, or opens its file in $EDITOR; `persona history` lists
-    /// the `persona.changed` rows.
+    /// the `persona.changed` rows; `persona voice [audition]` is the speaking voice, and `persona rate
+    /// up|down [ID]` your 👍 or 👎 on the latest message Theseus sent first.
+    #[command(hide = true)]
     Persona {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
-    },
-    /// The speaking voice: `voice` shows the voice a call speaks in and where it
-    /// comes from; `voice audition [--voices a,b,c] [--text WORDS] [--out DIR]` makes the
-    /// greeting in several voices as WAV files and prints their paths and the cost (a few cents;
-    /// yours alone). Pick with `persona edit --voice ID`.
-    Voice {
-        #[command(subcommand)]
-        cmd: Option<voice_cmd::VoiceCmd>,
-    },
-    /// What Theseus said first: `notices rate up|down [ID]` is your 👍 or 👎 on
-    /// the latest message it sent unprompted, or the one ID names; the week's totals are in
-    /// `persona`. Yours alone (refused inside a job).
-    Notices {
-        #[command(subcommand)]
-        cmd: notices_cmd::NoticesCmd,
     },
     /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
     /// preference|fact] [--scope everywhere|place:T|session:ID | --surface NAME] TEXT` and `standing revoke ID` are
     /// yours alone (refused inside a job).
+    #[command(hide = true)]
     Standing {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
@@ -727,16 +714,17 @@ enum Cmd {
     /// `card propose [--dry-run]` runs the job (under `[card] day_usd`); `card keep|edit|decline ID`
     /// answers one; `card done` stops the nightly run. Nothing is added without your answer; the
     /// writes are yours alone (refused inside a job).
+    #[command(hide = true)]
     Card {
         #[command(subcommand)]
         cmd: Option<card_cmd::CardCmd>,
     },
-    /// Watches: wait on the world with no model. `watches` lists them; `watches add
+    /// Watches: wait on the world with no model. `watch-for` lists them; `watch-for add
     /// TITLE --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED' [--every 5m]
     /// [--for 3d] [--then notice|turn|task]` checks on a timer until the condition holds, then tells
-    /// you; `watches rm ID` ends one. (`watch SESSION` is the session follower.) Adding one is yours
-    /// alone (refused inside a job).
-    Watches {
+    /// you; `watch-for rm ID` ends one. Adding one is yours alone (refused inside a job).
+    #[command(hide = true, name = "watch-for")]
+    WatchFor {
         #[command(subcommand)]
         cmd: Option<watch_cmd::WatchesCmd>,
     },
@@ -744,6 +732,7 @@ enum Cmd {
     /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
     /// resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone
     /// (refused inside a job).
+    #[command(display_order = 16)]
     Thread {
         #[command(subcommand)]
         cmd: Option<thread::ThreadCmd>,
@@ -751,18 +740,20 @@ enum Cmd {
     /// Routines: recurring work, each run a fresh task with its own budget, from a
     /// month of its own. `routine` lists them; `routine add SCHEDULE BRIEF`, `runs`, `pause`,
     /// `resume`, `run`, `update`, `rm`. The writes are yours alone (refused inside a job).
+    #[command(display_order = 13)]
     Routine {
         #[command(subcommand)]
         cmd: Option<routine::RoutineCmd>,
     },
-    /// Your own benchmark: `route report [--week]`, and `turn replay`.
-    #[command(flatten)]
-    OwnBench(own_bench::OwnBench),
-    /// The prefix library: `prefix report`, its picks, the cache writes they saved,
-    /// and the false fits.
-    Prefix {
+    /// Models and what they cost: `model bench [--week]` is your own benchmark (which model your own
+    /// turns need, measured by replaying them one rung down the routing table), `model replay SESSION
+    /// TURN -P PROFILE` sends a past turn's first request to another profile (yours alone), `model
+    /// prefix` is the prefix library's picks and what they saved, and `model catalog` the models'
+    /// windows and prices.
+    #[command(hide = true)]
+    Model {
         #[command(subcommand)]
-        cmd: prefix_cmd::PrefixCmd,
+        cmd: own_bench::ModelCmd,
     },
     /// Projects (also `projects`): long-term work with a goal, dated milestones that
     /// remind you, a weekly review, and a slice in every session attached to it. `project` lists
@@ -770,16 +761,19 @@ enum Cmd {
     /// TITLE@WHEN`, `project attach SESSION ID`, `project detach SESSION`. The writes are yours alone
     /// (refused inside a job).
     #[command(alias = "projects")]
+    #[command(display_order = 15)]
     Project {
         #[command(subcommand)]
         cmd: Option<project::ProjectCmd>,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
+    #[command(hide = true)]
     Rpc {
         method: String,
         params: Option<String>,
     },
     /// Ask the server to stop cleanly (removes its socket).
+    #[command(hide = true)]
     Shutdown,
 }
 
@@ -789,7 +783,7 @@ struct AskArgs {
     /// Continue an existing session instead of opening a new one.
     #[arg(long, short)]
     session: Option<String>,
-    /// Run in this thread's session (theseus-nhew), opened at its first message: the slug
+    /// Run in this thread's session, opened at its first message: the slug
     /// `theseus thread list` shows.
     #[arg(long, value_name = "SLUG", conflicts_with = "session")]
     thread: Option<String>,
@@ -1092,7 +1086,7 @@ enum IndexCmd {
     /// process, and its vectors.
     Status,
     /// Drop the index and build it again from the WAL. The daemon watches it and writes its
-    /// start, progress and end, so `theseus work` and `theseus status` show it as the daemon's
+    /// start, progress and end, so `theseus tasks` and `theseus status` show it as the daemon's
     /// own work. The owner's act, from their own shell.
     Rebuild,
     /// The best chunks for QUERY, each with its node, session, WAL position, and the sources that
@@ -1115,6 +1109,13 @@ enum IndexCmd {
 
 #[derive(Subcommand, Debug)]
 enum MemoryCmd {
+    /// The index: `memory index status` says how far the index tender has read the store and what it
+    /// holds; `memory index search <QUERY>` finds what was said, run, and read, by its words and
+    /// names (BM25, exact entities, and vectors once the model's files are installed).
+    Index {
+        #[command(subcommand)]
+        cmd: IndexCmd,
+    },
     /// Recall's pipeline for QUERY, writing nothing: what the index offers, what the pack would
     /// admit with each source's rank, and why each other hit is dropped (its place first).
     Search {
@@ -1170,7 +1171,7 @@ enum MemoryCmd {
 
 #[derive(Subcommand, Debug)]
 enum JudgeCmd {
-    /// The recent judgments, oldest first: time, pack and mode, session, answers (each with its
+    /// The recent judgments, oldest first: time, pack and rung, session, answers (each with its
     /// band), cost, and how long Jev took; a failed or skipped one says why.
     Log {
         /// How many (the newest).
@@ -1183,7 +1184,7 @@ enum JudgeCmd {
         #[arg(long, value_name = "PACK")]
         pack: Option<String>,
     },
-    /// One judgment: its pack, mode, outcome, timing, and cost; the state Jev was sent, as
+    /// One judgment: its pack, rung, outcome, timing, and cost; the state Jev was sent, as
     /// fields; and each answer with its probabilities and band.
     Show {
         /// The judgment's id (`jdg_…`), as `judge log --json` or a trace's `judge` mark names it.
@@ -1232,7 +1233,7 @@ enum JudgeCmd {
     /// wording as a new version, a replay checks it, and the numbers place it (or hold it).
     /// The operator's alone.
     Learn(judge_runs::LearnArgs),
-    /// Correct a turn's routing: it should have run on a profile, a mode, `stronger`, or
+    /// Correct a turn's routing: it should have run on a profile, a task class, `stronger`, or
     /// `cheaper`. Labels its route judgment as yours and moves the session there from its next
     /// turn; a later message close to it runs there too. The operator's alone: refused inside a
     /// Theseus job, and from a shared place.
@@ -1300,9 +1301,14 @@ fn main() {
         std::process::exit(code);
     }
     let cli = Cli::parse();
+    if let Cmd::Help { topic } = &cli.cmd {
+        std::process::exit(help_cmd::run(
+            &topic.iter().map(String::as_str).collect::<Vec<_>>(),
+        ));
+    }
     theseus_client::render::style::set_plain(cli.plain);
     // `status --short` runs on every prompt draw: one connection and one
-    // request, so one thread, not a pool (theseus-8kn12).
+    // request, so one thread, not a pool.
     let short = matches!(&cli.cmd, Cmd::Status(a) if a.is_short_once());
     let mut runtime = if short {
         tokio::runtime::Builder::new_current_thread()
@@ -1364,17 +1370,15 @@ async fn wait_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     wait_session_or_any(c, json, session, until, after, timeout).await
 }
 
-/// `theseus agenda`, `prefix`, `card`, `voice`, `digest` and `mode`: the horizon, the prefix library's report,
+/// `theseus agenda`, `card`, `digest` and `mode`: the horizon,
 /// the owner card's proposals, the speaking voice, what happened while you were away, and a conversation's mode.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Agenda(a) => agenda::run(c, json, a).await,
-        Cmd::Prefix { cmd } => prefix_cmd::run(c, json, cmd).await,
         Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Voice { cmd } => voice_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Digest(a) => digest::run(c, json, a).await,
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
-        _ => unreachable!("only agenda, prefix, card, voice, digest and mode come here"),
+        _ => unreachable!("only agenda, card, digest and mode come here"),
     }
 }
 
@@ -1398,11 +1402,11 @@ async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     }
 }
 
-/// `theseus herdr answer|plugin|setup|popup|link` connect nothing for themselves (theseus-pkaq).
+/// `theseus herdr answer|plugin|setup|popup|link` connect nothing for themselves.
 async fn run_or_own(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Herdr { ref cmd } if cmd.is_own() => herdr_keys::run_own(&cli.socket, cmd).await,
-        // `theseus herdr up` connects for itself (theseus-fuw5d).
+        // `theseus herdr up` connects for itself.
         Cmd::Herdr {
             cmd: HerdrCmd::Up(a),
         } => herdr_up::run(&cli.socket, cli.spawn.as_deref(), cli.json, a).await,
@@ -1434,9 +1438,15 @@ async fn run(cli: Cli) -> Result<()> {
             before,
             full,
         } => cmd::history(c, json, session, (n, after, before), full).await,
-        Cmd::Why { turn, session } => why::why(c, json, session, turn).await,
+        Cmd::Why {
+            turn,
+            session,
+            short,
+        } => match short {
+            true => why::context(c, json, turn).await,
+            false => why::why(c, json, session, turn).await,
+        },
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
-        Cmd::Context { session } => why::context(c, json, session).await,
         Cmd::Open { what } => open::open(c, json, what).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
@@ -1462,35 +1472,32 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { page, cmd } => cmd::executions(c, json, page, cmd).await,
         Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
-        Cmd::Wakes { session } => cmd::wakes(c, json, session).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
         Cmd::Remind(a) => remind::remind(c, json, a).await,
         Cmd::Answer(a) => answer::answer(c, json, a).await,
-        Cmd::Snooze { wake, when } => remind::snooze(c, json, wake, when).await,
-        Cmd::Pause { wake, until } => remind::pause(c, json, wake, until).await,
-        cmd @ (Cmd::Resume { .. } | Cmd::Done { .. }) => remind::settle(c, json, cmd).await,
+        Cmd::Wake { cmd } => remind::wake(c, json, cmd.unwrap_or_default()).await,
         Cmd::Stop { session, all } => cmd::stop(c, json, session, all).await,
         cmd @ (Cmd::Dismiss { .. } | Cmd::Retry(_)) => retry::run(c, json, cmd).await,
         w @ Cmd::Wait { .. } => wait_cmd(c, json, w).await,
-        cmd @ (Cmd::Work(_) | Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
-        cmd @ (Cmd::Agenda(_) | Cmd::Prefix { .. } | Cmd::Digest(_) | Cmd::Mode(_)) => {
-            long_cmd(c, json, cmd).await
-        }
-        Cmd::Status(_) | Cmd::Postmortem(_) | Cmd::Tui { .. } | Cmd::Chat { .. } => {
+        cmd @ (Cmd::Peek(_) | Cmd::Attach(_)) => jobout::board(c, json, cmd).await,
+        cmd @ (Cmd::Agenda(_) | Cmd::Digest(_) | Cmd::Mode(_)) => long_cmd(c, json, cmd).await,
+        Cmd::Help { .. }
+        | Cmd::Status(_)
+        | Cmd::Postmortem(_)
+        | Cmd::Tui { .. }
+        | Cmd::Chat { .. } => {
             unreachable!("above")
         }
-        cmd @ (Cmd::Card { .. } | Cmd::Voice { .. }) => long_cmd(c, json, cmd).await,
+        cmd @ Cmd::Card { .. } => long_cmd(c, json, cmd).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,
-        Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
         Cmd::Packs { cmd } => packs::run(c, json, cmd.unwrap_or(packs::PacksCmd::List)).await,
@@ -1499,12 +1506,11 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Notices { cmd } => notices_cmd::run(c, json, cmd).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Watches { cmd } => watch_cmd::go(c, json, cmd).await,
+        Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
-        Cmd::OwnBench(cmd) => own_bench::run(c, json, cmd).await,
+        Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
     };
@@ -1513,7 +1519,7 @@ async fn run(cli: Cli) -> Result<()> {
 }
 
 /// The daemon's connection: one run's own (`--spawn`), followed for its bound when it asks
-/// (theseus-mqxk), or the socket's.
+///, or the socket's.
 async fn connect(cli: &Cli) -> Result<Conn> {
     Ok(match (&cli.spawn, &cli.cmd) {
         (Some(bin), Cmd::Ask(a)) => Conn::spawn_with(bin, &follow::daemon_args(a.follow_for))?,
@@ -1523,7 +1529,7 @@ async fn connect(cli: &Cli) -> Result<Conn> {
 }
 
 /// A spawned daemon stops cleanly, not by a kill, so the next open of its
-/// store replays nothing (theseus-n88g.2). A daemon that exits as its stop
+/// store replays nothing. A daemon that exits as its stop
 /// is written breaks the pipe: that write fails instead of ending this
 /// process, and the default comes back for what is printed after.
 async fn close(conn: Conn) {

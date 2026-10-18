@@ -126,7 +126,7 @@ async fn the_cap_is_checked_before_the_call() {
         |c| {
             c.judge.enabled = true;
             c.judge.api_base = jev.base();
-            c.route.replay_day_usd = 0.000_001;
+            c.route_bench.replay_day_usd = 0.000_001;
         },
     );
     script(&r, &["a", "r1"]);
@@ -193,7 +193,7 @@ async fn a_day_that_spent_its_cap_replays_nothing() {
 #[tokio::test]
 async fn a_zero_cap_turns_the_sampler_off() {
     let r = crate::tests_recall::rig_with(crate::config::MemoryMode::Off, |c| {
-        c.route.replay_day_usd = 0.0;
+        c.route_bench.replay_day_usd = 0.0;
     });
     let out = r.core.replay_sample(now()).await.unwrap();
     assert!(out.stopped.unwrap().contains("off"));

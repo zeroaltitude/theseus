@@ -230,7 +230,7 @@ pub struct RouteReportResult {
     pub cells: Vec<RouteCell>,
     pub total_spend_usd: f64,
     pub total_movable_usd: f64,
-    /// The replays' cost today against `[route] replay_day_usd`.
+    /// The replays' cost today against `[route_bench] replay_day_usd`.
     pub replay_today_usd: f64,
     pub replay_day_usd: f64,
     /// Machine labels the whole-turn replays fed to routing's learning loop

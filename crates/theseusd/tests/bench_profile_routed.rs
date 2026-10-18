@@ -50,7 +50,7 @@ fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
     assert_eq!(cfg.judge.key_secret, "jev_api_key");
     assert!(cfg.routing.enabled);
     assert_routes_live_and_waits_two_seconds(&cfg);
-    let modes = &cfg.routing.modes;
+    let modes = &cfg.routing.classes;
     let table = |m: &str| modes.of(m).to_vec();
     assert_eq!(table("trivial"), ["haiku"]);
     assert_eq!(table("quick"), ["haiku"]);

@@ -1,4 +1,4 @@
-//! `theseus prefix report` (theseus-rr15): the prefix library's picks (reuse,
+//! `theseus model prefix` (theseus-rr15): the prefix library's picks (reuse,
 //! coarser, mint), the cache writes the reuses saved, the reuses below `act`
 //! and the false fits among them, and the library's size against its cap.
 //! A read (`prefix.report`), the owner's from a private surface.

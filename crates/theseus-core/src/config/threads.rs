@@ -82,8 +82,6 @@ pub struct ThreadsConfig {
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
     pub working_tokens: u64,
-    #[serde(default = "default_keep_warm_hours")]
-    pub keep_warm_hours: f64,
     #[serde(default)]
     pub persona_engage: PersonaEngage,
     #[serde(default)]
@@ -124,10 +122,6 @@ fn default_working_tokens() -> u64 {
     60_000
 }
 
-fn default_keep_warm_hours() -> f64 {
-    4.0
-}
-
 impl Default for ThreadsConfig {
     fn default() -> Self {
         Self {
@@ -143,7 +137,6 @@ impl Default for ThreadsConfig {
             ask_wait_secs: default_ask_wait(),
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
-            keep_warm_hours: default_keep_warm_hours(),
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
         }
@@ -191,12 +184,6 @@ impl ThreadsConfig {
         }
         if self.working_tokens < 2_000 {
             bail!("threads.working_tokens is under 2,000: a resume could not keep a turn");
-        }
-        if !(self.keep_warm_hours.is_finite() && self.keep_warm_hours >= 0.0) {
-            bail!(
-                "threads.keep_warm_hours must be 0 or more, not {}",
-                self.keep_warm_hours
-            );
         }
         Ok(())
     }
@@ -250,16 +237,16 @@ mod tests {
         }
     }
 
-    /// `keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
+    /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
     /// negative window is refused (theseus-ytt8).
     #[test]
     fn the_keep_warm_window_is_four_hours_and_zero_is_none() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert_eq!(cfg.threads.keep_warm_hours, 4.0);
-        let off = crate::Config::from_toml("[threads]\nkeep_warm_hours = 0\n").unwrap();
-        assert_eq!(off.threads.keep_warm_hours, 0.0);
+        assert_eq!(cfg.cache.threads_keep_warm_hours, 4.0);
+        let off = crate::Config::from_toml("[cache]\nthreads_keep_warm_hours = 0\n").unwrap();
+        assert_eq!(off.cache.threads_keep_warm_hours, 0.0);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        let bad = format!("{secrets}\n[threads]\nkeep_warm_hours = -1\n");
+        let bad = format!("{secrets}\n[cache]\nthreads_keep_warm_hours = -1\n");
         assert!(crate::Config::parse(&bad).is_err());
     }
 

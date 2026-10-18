@@ -6,7 +6,7 @@
 //! **Out of reach, by the sandbox and the gate, not by trust.** `[self]
 //! sealed_dir` is checked at load to sit outside every workspace root, the
 //! state dir, the repository and every `[sandbox] ro_paths` entry
-//! (`config/rsi.rs`). Then, three ways:
+//! (`config/self_improve.rs`). Then, three ways:
 //! - the gate refuses any call that names it (`Guard`, run first in
 //!   `ToolRuntime::refusal`, for every tool, in every place, at every
 //!   posture: a path the plan resolves into it, symlinks followed, or its
@@ -67,7 +67,7 @@ pub const KEEL_PATHS: &[&str] = &[
     "crates/theseus-core/src/rsi/sealed/filter.rs",
     "crates/theseus-core/src/rsi/sealed/daemon.rs",
     "crates/theseus-core/src/toolrun/guarded.rs",
-    "crates/theseus-core/src/config/rsi.rs",
+    "crates/theseus-core/src/config/self_improve.rs",
     "crates/theseus-core/src/rsi/sealed/tests.rs",
     "crates/theseus-core/src/rsi/sealed/tests_reach.rs",
 ];

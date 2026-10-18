@@ -39,7 +39,7 @@ use theseus_kernel::{micros_to_usd, usd_to_micros, Micros};
 use theseus_protocol::rsi::{SelfBranchSpend, SelfBudgetView, SelfMode};
 use theseus_store::{kinds, NewRecord};
 
-use crate::config::rsi::SelfBudgetConfig;
+use crate::config::self_improve::SelfBudgetConfig;
 use crate::fact::rsi_budget::{BudgetReserved, BudgetSettled, BudgetStopped};
 use crate::store::Store;
 

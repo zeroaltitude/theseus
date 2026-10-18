@@ -2,7 +2,7 @@
 //! per (model, effort) cell, replayed one rung down the routing table and
 //! judged by `compare.v1`, each a `route.replay.judged` row. Paced by
 //! pressure (the machine quiet before each replay), and under
-//! `[route] replay_day_usd`: the day's spend is read back from the rows, and
+//! `[route_bench] replay_day_usd`: the day's spend is read back from the rows, and
 //! a replay whose reservation would pass what is left is not made (the check
 //! is before the call, never after). Never a shared place's turn, and never
 //! one whose replay would send a sealed thread's, a veiled recall's or an
@@ -114,7 +114,7 @@ impl Core {
 
     /// The rung table of this daemon's config and catalog.
     pub(crate) fn rungs(&self) -> Vec<rung::Rung> {
-        let names = rung::profiles_of(&self.cfg.routing.modes);
+        let names = rung::profiles_of(&self.cfg.routing.classes);
         rung::ladder(&names, |p| {
             let prof = self.cfg.profile(p).ok()?;
             self.runner
@@ -141,13 +141,13 @@ impl Core {
 
     /// One pass of the sampler (the nightly run's, and a test's).
     pub async fn replay_sample(self: &Arc<Self>, now_ms: u64) -> anyhow::Result<Sampled> {
-        let cap = theseus_kernel::usd_to_micros(self.cfg.route.replay_day_usd);
+        let cap = theseus_kernel::usd_to_micros(self.cfg.route_bench.replay_day_usd);
         let mut out = Sampled {
-            cap_usd: self.cfg.route.replay_day_usd,
+            cap_usd: self.cfg.route_bench.replay_day_usd,
             ..Sampled::default()
         };
         if cap == 0 {
-            out.stopped = Some("[route] replay_day_usd = 0: the sampler is off".into());
+            out.stopped = Some("[route_bench] replay_day_usd = 0: the sampler is off".into());
             return Ok(out);
         }
         let table = self.rungs();
@@ -185,7 +185,7 @@ impl Core {
                 }
                 if spent >= cap {
                     out.stopped = Some(format!(
-                        "[route] replay_day_usd (${:.2}) is spent for the day",
+                        "[route_bench] replay_day_usd (${:.2}) is spent for the day",
                         out.cap_usd
                     ));
                     break 'cells;
@@ -301,7 +301,7 @@ impl Core {
     /// learning hour, a missed night once, never within 10 minutes of a
     /// start. Nothing with the cap at 0.
     pub fn route_replay_after_serving(self: &Arc<Self>) {
-        if self.cfg.route.replay_day_usd <= 0.0 {
+        if self.cfg.route_bench.replay_day_usd <= 0.0 {
             return;
         }
         let core = Arc::downgrade(self);

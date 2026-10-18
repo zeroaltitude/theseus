@@ -131,7 +131,7 @@ pub struct Target {
     pub effort: Option<Effort>,
     pub thinking_display: ThinkingDisplay,
     pub max_loops: u32,
-    pub max_loops_mode: crate::config::MaxLoopsMode,
+    pub on_max_loops: crate::config::MaxLoopsMode,
     pub refusal_fallbacks: bool,
     /// The profile's prompt-cache TTL (theseus-ev1).
     pub cache_ttl: CacheTtl,
@@ -758,7 +758,7 @@ impl TurnRunner {
             effort: prof.effort,
             thinking_display: prof.thinking_display,
             max_loops: prof.max_loops,
-            max_loops_mode: prof.max_loops_mode,
+            on_max_loops: prof.on_max_loops,
             refusal_fallbacks: prof.refusal_fallbacks,
             cache_ttl: prof.ttl(),
             chosen: None,

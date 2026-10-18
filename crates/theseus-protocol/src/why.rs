@@ -228,9 +228,9 @@ fn ran(i: &WhyInput) -> Vec<String> {
     let s = |k: &str| r.get(k).and_then(Value::as_str);
     let reason = s("reason").unwrap_or("unknown");
     let mut why = match (s("source"), s("mode")) {
-        (Some(src), Some(m)) => format!("{m}, placed by {src}"),
+        (Some(src), Some(m)) => format!("task class {m}, placed by {src}"),
         (Some(src), None) => format!("placed by {src}"),
-        (None, Some(m)) => format!("{m}, {}", reason_words(reason)),
+        (None, Some(m)) => format!("task class {m}, {}", reason_words(reason)),
         (None, None) => reason_words(reason).to_string(),
     };
     let (from, to) = (s("from").unwrap_or(""), s("profile").unwrap_or(""));

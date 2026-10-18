@@ -1,4 +1,4 @@
-//! `[watches]` (theseus-f2r2b): waiting on the world with no model. A watch
+//! `[watch_for]` (theseus-f2r2b): waiting on the world with no model. A watch
 //! is a check (a command, a fetch, a file) run on a timer until a condition
 //! holds (`watch.rs`). Every key has a default. The most watches the daemon
 //! holds is `[kernel] max_watches` (20), with the other wake limits.
@@ -79,20 +79,21 @@ impl WatchesConfig {
 mod tests {
     use super::*;
 
-    /// The template's `[watches]` is the default, and a note may change it.
+    /// The template's `[watch_for]` is the default, and a note may change it.
     #[test]
     fn the_templates_watches_section_is_the_default() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert_eq!(cfg.watches, WatchesConfig::default());
-        assert_eq!(cfg.watches.spans_ms().unwrap(), (300_000, 60_000));
-        assert_eq!(cfg.watches.max_days, 30);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# [watches]\n# default_every = \"5m\""));
-        let own = crate::Config::from_toml("[watches]\ndefault_every = \"10m\"\n").unwrap();
-        assert_eq!(own.watches.spans_ms().unwrap().0, 600_000);
+        assert_eq!(cfg.watch_for, WatchesConfig::default());
+        assert_eq!(cfg.watch_for.spans_ms().unwrap(), (300_000, 60_000));
+        assert_eq!(cfg.watch_for.max_days, 30);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# [watch_for]\n# default_every = \"5m\""));
+        let own = crate::Config::from_toml("[watch_for]\ndefault_every = \"10m\"\n").unwrap();
+        assert_eq!(own.watch_for.spans_ms().unwrap().0, 600_000);
         let secrets = "";
         assert!(
-            crate::Config::parse(&format!("{secrets}\n[watches]\nmin_every = \"30s\"\n")).is_err()
+            crate::Config::parse(&format!("{secrets}\n[watch_for]\nmin_every = \"30s\"\n"))
+                .is_err()
         );
-        assert!(crate::Config::from_toml("[watches]\nbogus = 1\n").is_err());
+        assert!(crate::Config::from_toml("[watch_for]\nbogus = 1\n").is_err());
     }
 }

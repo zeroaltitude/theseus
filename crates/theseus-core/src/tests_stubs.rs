@@ -21,8 +21,7 @@ use crate::{Config, Core};
 const STUB: &str = "left out of this request";
 
 fn one_hour() -> Config {
-    let text =
-        Config::EXAMPLE_TOML.replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"");
+    let text = Config::EXAMPLE_TOML.replace("\n[cache]\n", "\n[cache]\nttl = \"1h\"\n");
     let mut c = Config::parse(&text).unwrap().0;
     c.cache.keep_warm_min_tokens = 0;
     c

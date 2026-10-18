@@ -205,7 +205,7 @@ fails, with one result and one approval for the whole batch, judged as its stric
 class; and `fs.patch` recounts a hunk header whose line counts are off (spec Part III Item 175).
 
 The **model catalog** gives every model its context window, output ceiling, and prices, so every
-call is priced in dollars (`theseus catalog`; override or add rows with `[catalog."<model>"]`).
+call is priced in dollars (`theseus model catalog`; override or add rows with `[catalog."<model>"]`).
 
 ```bash
 theseus ask "Run the tests in ~/projects/foo and fix what fails."   # tool activity on stderr
@@ -215,7 +215,7 @@ theseus history [session]              # the transcript: messages, calls with ga
 theseus watch [session]                # follow a session live, whoever drives it
 theseus ask -s ses_… "and now?"        # continue a session: its history is the context
 theseus tools                          # toollets, policy, calls, shell-fallback ratio
-theseus catalog                        # windows, output limits, prices
+theseus model catalog                        # windows, output limits, prices
 ```
 
 ## Build

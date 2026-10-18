@@ -131,7 +131,7 @@ fn walk(
             s.bytes += len;
             if s.bytes > max {
                 return Err(no(format!(
-                    "{} holds more than {} MB to copy ([route] whole_tree_mb)",
+                    "{} holds more than {} MB to copy ([route_bench] whole_tree_mb)",
                     root.display(),
                     max / (1024 * 1024)
                 )));

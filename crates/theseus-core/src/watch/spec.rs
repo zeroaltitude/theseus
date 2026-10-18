@@ -290,7 +290,7 @@ fn subject_of(check: &WatchCheck) -> Result<(&'static str, Subject), String> {
     })
 }
 
-/// How long a watch waits: `for_at_most`, else the most `[watches] max_days`
+/// How long a watch waits: `for_at_most`, else the most `[watch_for] max_days`
 /// allows, and (but for a reply, which has no interval) at least one interval.
 fn for_span(
     p: &WatchCreateParams,
@@ -307,7 +307,7 @@ fn for_span(
     };
     if for_ms > max_ms {
         return Err(format!(
-            "a watch waits {} days at the most ([watches] max_days), not {}",
+            "a watch waits {} days at the most ([watch_for] max_days), not {}",
             cfg.max_days,
             crate::wake::span(for_ms)
         ));

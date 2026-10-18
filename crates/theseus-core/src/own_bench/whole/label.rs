@@ -3,7 +3,7 @@
 //!
 //! The route pack asked one deciding question of the turn, `mode`: which kind
 //! of work this is, and so which profile runs it. A replay on the profile one
-//! rung down that Jev judged `same` or `better` at `[route] whole_label_bar`,
+//! rung down that Jev judged `same` or `better` at `[route_bench] whole_label_bar`,
 //! with the facts not against it (the same last test result when there was one,
 //! the same paths changed, no cap ending it), says the work could run there. The
 //! label is the class whose profile list leads with that profile (the first of
@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use theseus_protocol::own_bench::TurnReplayResult;
 use theseus_protocol::LedgerKind;
 
-use crate::config::routing::RoutingModes;
+use crate::config::routing::RoutingClasses;
 use crate::fact;
 use crate::learning::{labels, REPLAY_SOURCE, REPLAY_WEIGHT};
 use crate::rpc::Core;
@@ -39,7 +39,7 @@ pub const CLASS_ORDER: [&str; 7] = [
 ];
 
 /// The classes whose first profile is `profile`.
-pub fn leading_to<'a>(modes: &RoutingModes, profile: &str) -> Vec<&'a str> {
+pub fn leading_to<'a>(modes: &RoutingClasses, profile: &str) -> Vec<&'a str> {
     let of = |c: &str| match c {
         "routine_coding" => &modes.routine_coding,
         "deep_coding" => &modes.deep_coding,
@@ -58,7 +58,7 @@ pub fn leading_to<'a>(modes: &RoutingModes, profile: &str) -> Vec<&'a str> {
 
 /// The class to label: the pack's own when it leads to the profile, else the
 /// first that does.
-pub fn class_for(modes: &RoutingModes, profile: &str, gave: Option<&str>) -> Option<String> {
+pub fn class_for(modes: &RoutingClasses, profile: &str, gave: Option<&str>) -> Option<String> {
     let leading = leading_to(modes, profile);
     gave.filter(|g| leading.contains(g))
         .or_else(|| leading.first().copied())
@@ -88,10 +88,10 @@ impl Core {
         profile: &str,
         result: &TurnReplayResult,
     ) -> Result<String, String> {
-        let bar = self.cfg.route.whole_label_bar;
+        let bar = self.cfg.route_bench.whole_label_bar;
         let none = |why: &str| Err(format!("none: {why}"));
         if bar <= 0.0 {
-            return none("[route] whole_label_bar is 0");
+            return none("[route_bench] whole_label_bar is 0");
         }
         let (Some(v), Some(w)) = (result.verdict.as_ref(), result.whole.as_ref()) else {
             return none("the replay was not judged");
@@ -132,8 +132,11 @@ impl Core {
             return none("the turn has no route judgment the ledger can read");
         };
         let judgment = judgment.as_str();
-        let Some(class) = class_for(&self.cfg.routing.modes, profile, row.data["mode"].as_str())
-        else {
+        let Some(class) = class_for(
+            &self.cfg.routing.classes,
+            profile,
+            row.data["mode"].as_str(),
+        ) else {
             return none(&format!("no routing mode leads with {profile}"));
         };
         let pack_name = jrow.data["pack"].as_str().unwrap_or_default().to_string();

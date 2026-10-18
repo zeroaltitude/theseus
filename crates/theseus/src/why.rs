@@ -66,7 +66,7 @@ pub async fn why(
     Ok(())
 }
 
-/// `theseus context [SESSION]`: the short form (theseus-wy6v.2), one
+/// `theseus why --short [SESSION]`: the short form (theseus-wy6v.2), one
 /// `context.explain` for the session's last turn, in the words of
 /// `theseus_protocol::fill`.
 pub async fn context(conn: &mut Conn, json: bool, session: Option<String>) -> Result<()> {

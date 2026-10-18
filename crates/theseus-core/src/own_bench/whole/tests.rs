@@ -350,7 +350,7 @@ async fn a_turn_without_pre_images_is_refused_naming_the_file() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_cap_stops_a_long_replay() {
     let _g = SERIAL.lock().await;
-    let w = world(|c| c.route.whole_loops = 2);
+    let w = world(|c| c.route_bench.whole_loops = 2);
     let t = original(&w).await;
     let calls = w.rig.model.requests().len();
     for i in 0..4 {
@@ -368,7 +368,7 @@ async fn the_cap_stops_a_long_replay() {
     assert_eq!(w.rig.model.requests().len(), calls + 2);
     assert!(leftovers().is_empty());
 
-    let w = world(|c| c.route.whole_usd = 0.0);
+    let w = world(|c| c.route_bench.whole_usd = 0.0);
     let t = original(&w).await;
     let calls = w.rig.model.requests().len();
     push(&w.rig, Scripted::text("never"));
@@ -560,7 +560,7 @@ fn judged_world(jev: &FakeJev) -> World {
             c.judge.api_base = base;
             c.judge.connect_secs = 1;
             c.judge.total_secs = 2;
-            c.routing.modes.routine_coding.profiles = vec!["haiku".into()];
+            c.routing.classes.routine_coding.profiles = vec!["haiku".into()];
         },
         |p| p.secrets = board,
     );
@@ -711,7 +711,7 @@ async fn a_weak_or_contradicted_replay_writes_no_label() {
 /// pack's own when it is one of them.
 #[test]
 fn a_rung_is_labeled_with_the_class_that_leads_to_it() {
-    let mut modes = crate::config::routing::RoutingModes::default();
+    let mut modes = crate::config::routing::RoutingClasses::default();
     modes.routine_coding.profiles = vec!["haiku".into()];
     modes.chat.profiles = vec!["haiku".into()];
     modes.deep_coding.profiles = vec!["fable".into()];

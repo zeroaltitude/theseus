@@ -330,8 +330,7 @@ async fn a_thread_on_a_reused_header_is_kept_warm_with_its_next_turns_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let (core, fake) = build(dir.path(), texts(5), |c| {
         // Every profile that says none caches for an hour, as tests_keep_warm's.
-        let text = Config::EXAMPLE_TOML
-            .replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"");
+        let text = Config::EXAMPLE_TOML.replace("\n[cache]\n", "\n[cache]\nttl = \"1h\"\n");
         let state = c.server.state_dir.clone();
         *c = Config::parse(&text).unwrap().0;
         (c.server.state_dir, c.tools.roots) = (state, vec![]);

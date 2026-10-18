@@ -144,7 +144,7 @@ impl TurnRunner {
         if t.tc.class == crate::places::PlaceClass::Shared {
             return Ok(false);
         }
-        if t.target.max_loops_mode != crate::config::MaxLoopsMode::Notify
+        if t.target.on_max_loops != crate::config::MaxLoopsMode::Notify
             && t.loops >= t.target.max_loops
         {
             return Ok(false);

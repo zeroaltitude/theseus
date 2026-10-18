@@ -5,7 +5,7 @@
 # `inbound` state, one request. Live whenever the judge is on (the core's
 # `[routing]` lowers it to shadow); the baseline runs every message on the
 # session's own profile. The core maps each mode to its ordered profiles
-# (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+# (`[routing.classes.<mode>]`); `other` is routed as `chat`.
 id = "route"
 version = 1
 jev_model = "jev-1.13.0"

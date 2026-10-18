@@ -1,4 +1,4 @@
-$ theseus wakes
+$ theseus wake
 --- requests
 wake.list
 --- stdout

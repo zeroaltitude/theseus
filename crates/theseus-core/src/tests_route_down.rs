@@ -123,7 +123,7 @@ async fn a_review_verdict_runs_on_opushi_and_then_fable() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "review", 0.95);
     let r = rig(Some(&jev), 1, |c| {
-        c.routing.modes.review.profiles = vec!["nosuch".into(), "fable".into()];
+        c.routing.classes.review.profiles = vec!["nosuch".into(), "fable".into()];
     });
     let one = turn(&r.core, None, "Is this right?", None).await;
     assert_eq!(one.profile, "fable");

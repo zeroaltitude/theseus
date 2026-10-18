@@ -15,9 +15,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
   other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
-- `src/work.rs` (theseus-hkx30, theseus-6kgp8): the work board's lines, and `WorkArgs`: **`theseus work` is an alias of
-  `theseus tasks --watch`** (`WorkArgs::into_tasks`; it keeps the connection and no longer exits, `--watch` is
-  accepted and ignored, `--limit` and `--flat` pass through). `view_line` is a board view as one line (its glyph,
+- `src/help_cmd.rs`: `theseus help` is the everyday screen (the commands that are not hidden, in their `display_order`: ask chat tui history watch status tasks answer stop agenda digest remind routine wake project thread places profile health), `theseus help all` lists every command one line each (clap's tree with `hide` ignored: everyday first, then the rest), and `theseus help COMMAND` is a command's page. Every other command is `#[command(hide = true)]` in `main.rs`: it parses, runs and has its `--help`. A new command is hidden unless it is everyday, and `help_cmd`'s tests fail a screen that drifts. Goldens: `tests/help.rs` (`tests/golden/help*.txt`).
+- `src/work.rs` (theseus-hkx30, theseus-6kgp8): the work board's lines, the old `theseus work` is
+  **`theseus tasks --watch`** (it keeps the connection and does not exit; `--limit` and `--flat` pass through; there is no
+  `work` command). `view_line` is a board view as one line (its glyph,
   title, attention label, progress, a running job's time, `›` its last line), `change_line` a `--watch` change
   (`@12 job c0ffee running …`), `notice_line`, `thread_change_line` and `thread_section` (`Threads: 2 live, 1 need
   you`, a header for each live thread, a seal recommendation, its open tasks, questions and wakes, needs you first);
@@ -25,7 +26,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   daemon's own jobs, theseus-jn17m) is a line of its own with its jobs under it: `◐ Importing Claude Code history ·
   batch 41 of 120 · 3:12` (`work_system::line`), a failed job `✗`. `theseus status` (long form only) asks `work.watch`
   for `system` alone and puts `⚙ importing 41/120` after the time on its first line; `--short` and `--json` ask
-  nothing more. `theseus index rebuild` is the owner's act (`OPERATORS`); the three importers number their batches
+  nothing more. `theseus memory index rebuild` is the owner's act (`OPERATORS`); the three importers number their batches
   (`import::Numbered`).
 - `src/board.rs` (theseus-6kgp8): what `theseus tasks` prints beyond the task tree, so no line of the old work board is
   lost. `lines` is the snapshot: the thread view first (`thread_section`, as `work` grouped the board by thread since
@@ -48,7 +49,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   watch at S; `--watch` keeps the connection, tells the daemon a person is looking (`interactive: true`; a plain `tasks`
   says false) and prints a line for each task event (`task_tree::events`: started, asks, reported, failed, cancelled,
   with the commands under an ask or a failure) and each notice not already told by one. `theseus tasks forecast` is
-  `tasks_forecast.rs`. `theseus work` is `tasks --watch` (theseus-6kgp8); the board's threads, job ids and the daemon's
+  `tasks_forecast.rs`. `theseus tasks --watch` is the old `theseus work` (theseus-6kgp8); the board's threads, job ids and the daemon's
   own work are drawn by `board.rs`; the words of `tasks` are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. Tests inside it and
   `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in `tests/golden_tree/`, `THESEUS_GOLDEN=write`; `footer_cost_100.txt`),
   `tests/tasks_cli.rs` (the binary against a scripted daemon). A routine, a watch and a project are rows of the tree
@@ -100,7 +101,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `tests/status_edges.rs`: a daemon that connects and never answers (`--short` exit 1, silent, after 2 s), a dead
   daemon's socket file (exit 3), and a signal's clearing of the tab on a pseudo-terminal.
 - `src/tasks_forecast.rs` (theseus-zz752): `theseus tasks forecast`, how many tasks of the last 7 and 30 days finished
-  inside their forecast's p90, by class (`forecast.calibration`; the words are the protocol's). `theseus work` and the
+  inside their forecast's p90, by class (`forecast.calibration`; the words are the protocol's). `theseus tasks --watch` and the
   long `theseus status` show a task's spend against its median (`$0.42 of ~$0.60`); status asks `work.watch` once, only
   when a task row shows, and lets it go (`status::forecasts`).
 - `src/agenda.rs` and `src/render/horizon.rs` (theseus-nuhsz): `theseus agenda [--watch]`, the future in one view: a header of
@@ -134,12 +135,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   no session is the newest); it prints the mode's line and the plan's checklist (`render/modes.rs`, which `watch` uses for
   the `session.mode` notification too). `session.mode` is in `client::OPERATORS`, so a job's shell is refused. Tests:
   `tests/mode.rs`.
-- `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `snooze`, `pause`, `resume` and
-  `done`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
+- `src/remind.rs` (theseus-8ux6x): `theseus remind WHEN NOTE` (`--every`, `--days`, `--until`, `--session`), `wake pause|resume|snooze`,
+  `answer ID done|snooze`: the owner's verbs on wakes, one call each (`wake.create`, …), no model turn. With no `--session` a reminder lives in the owner's
   Home. A watching terminal says a fired reminder with its four answers as commands (`render/wakes.rs::noticed_lines`).
-- `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watches` (list), `watches add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watches add TITLE --reply PLACE [--from WHO] [--words TEXT|/RE/] [--for 5d]` (a reply in a Discord place, no checks: theseus-rlnbf), `watches rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
-- `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watches` (list), `watches add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watches rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
-- `src/notices_cmd.rs` (theseus-slvl.9): `theseus notices rate up|down [ID] [--session S]`, the owner's verdict on a message
+- `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watch-for` (list), `watch-for add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watch-for add TITLE --reply PLACE [--from WHO] [--words TEXT|/RE/] [--for 5d]` (a reply in a Discord place, no checks: theseus-rlnbf), `watch-for rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
+- `src/watch_cmd.rs` and `src/render/watches.rs` (theseus-f2r2b): `theseus watch-for` (list), `watch-for add TITLE --run 'CMD' | --url URL | --file PATH --until COND [--every 5m] [--for 3d] [--then notice|turn|task] [--field PATH] [--session S]`, `watch-for rm ID` (`wake.cancel`). `theseus watch SESSION` is the session follower and stays. `--run` is split into an argv as a shell splits words (no expansion, no operators). `watch.create` is in `client::OPERATORS`.
+- `src/notices_cmd.rs` (theseus-slvl.9): `theseus persona rate up|down [ID] [--session S]`, the owner's verdict on a message
   Theseus sent first (`initiative.rate`; in `client::OPERATORS`), and `theseus persona`'s last lines, the week's promises kept and
   👍/👎 (`persona_cmd::week_lines`, over `initiative.week`; `--json` stays the persona list alone).
 - `src/thread.rs` (theseus-nhew): `theseus thread` (list: slug, state, last activity, the session's context tokens and
@@ -241,9 +242,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   and ends with `import.sync.record` (the new cursor on a run that did not fail; a failed one records its reason, which
   is health's warning). Both methods are in `client::OPERATORS`. A systemd user timer runs it nightly
   (`scripts/user-service.sh sync-timer install`). Tests: `import_sync_tests.rs`, theseusd's `tests/import_sync.rs`.
-- `src/own_bench.rs` and `src/render/own_bench.rs` (own-benchmark, theseus-pw1q.12): `theseus route report [--week]` (per
+- `src/own_bench.rs` and `src/render/own_bench.rs` (own-benchmark, theseus-pw1q.12): `theseus model bench [--week]` (per
   (model, effort) cell: turns and spend, the replays one rung down and what `compare.v1` made of them, what you checked,
-  the dollars movable at the stated confidence, and the replays' cost against `[route] replay_day_usd`) and `theseus
+  the dollars movable at the stated confidence, and the replays' cost against `[route_bench] replay_day_usd`) and `theseus
   turn replay SESSION TURN -P PROFILE [--effort E] [--no-compare] [--whole]`, a past turn's first request rebuilt byte for byte
   and sent to another profile (`--whole`: the whole turn, tools and all, on a scratch copy of its directory; the lines add the
   calls with what ran, what was stubbed and what was refused, the paths changed, the test runs, the caveats and the routing label;
@@ -374,7 +375,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/resolve.rs`: the one id resolver (theseus-0n1v) for `confirm`, `history`, `watch`, `stop`, `cancel`, `wait`
   and `explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.
-- `src/render/wakes.rs` (theseus-lherl): `theseus wakes`' line (a wake's title, a series' weekdays and end) and health's
+- `src/render/wakes.rs` (theseus-lherl): `theseus wake`' line (a wake's title, a series' weekdays and end) and health's
   `wakes:` line.
 - `src/render/time.rs`: every time in human output, on this machine's clock, its zone read at the first time printed
   (TZ, else `/etc/localtime` alone: jiff's `system()` lists the tz database); `--json` prints the daemon's numbers.

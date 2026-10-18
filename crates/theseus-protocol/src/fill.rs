@@ -1,6 +1,6 @@
 //! How full the context is (theseus-wy6v.2), as every surface says it: the
 //! status line's `ctx 7%`, and the short form of `theseus why` that `/context`
-//! in the chat and `theseus context` print. Pure: numbers in, text out. The
+//! in the chat and `theseus why --short` print. Pure: numbers in, text out. The
 //! parts and their tokens are `context.explain`'s, the words of `why.rs`'s
 //! (`num`, the block names); this is the short form beside its full one, never
 //! a second reading of the compile.
@@ -89,7 +89,7 @@ fn pct(tokens: u64, window: u64) -> String {
     share(tokens, window).map_or_else(String::new, |p| format!("{p:.1}%"))
 }
 
-/// `/context` and `theseus context`: the total against the window, a row for
+/// `/context` and `theseus why --short`: the total against the window, a row for
 /// each kind of part with its tokens and a bar, the free space, and where the
 /// rest is. The parts and their tokens are the full `why`'s own.
 pub fn context_short(x: &ContextExplainResult) -> Vec<String> {

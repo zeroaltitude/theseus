@@ -1,8 +1,8 @@
-//! `theseus watches …` (theseus-f2r2b): waiting on the world with no model.
+//! `theseus watch-for …` (theseus-f2r2b): waiting on the world with no model.
 //! `theseus watch SESSION` is the session follower and stays; this is the
-//! other thing, so it is `watches`:
+//! other thing, so it is `watch-for`:
 //!
-//! - `watches add TITLE --run 'gh pr view 123 --json state -q .state' --until
+//! - `watch-for add TITLE --run 'gh pr view 123 --json state -q .state' --until
 //!   'equals MERGED' [--every 5m] [--for 3d] [--then notice|turn|task]`: a
 //!   check on a timer until the condition holds, with no model. `--run` is
 //!   one command and its arguments, split as a shell splits words (quotes and
@@ -10,11 +10,11 @@
 //!   redirects, no expansion (`--run "sh -c '...'"` for a script). `--url` and
 //!   `--file` check a page or a file instead. The owner's act (refused inside
 //!   a job, `client::OPERATORS`); the owner typed the command, so no card asks.
-//! - `watches add TITLE --reply '#ops' [--from NAME] [--words TEXT] [--for 5d]`: wait for a reply
+//! - `watch-for add TITLE --reply '#ops' [--from NAME] [--words TEXT] [--for 5d]`: wait for a reply
 //!   in a Discord place with no checks and no model (theseus-rlnbf); it only notices.
-//! - `watches` / `watches list`: each open watch, its last value, its checks
+//! - `watch-for` / `watch-for list`: each open watch, its last value, its checks
 //!   and when it gives up.
-//! - `watches rm ID`: end one (`wake.cancel`).
+//! - `watch-for rm ID`: end one (`wake.cancel`).
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -41,7 +41,7 @@ pub enum WatchesCmd {
     Rm { id: String },
 }
 
-/// The arguments of `watches add`.
+/// The arguments of `watch-for add`.
 #[derive(clap::Args, Debug)]
 pub struct AddArgs {
     /// What it waits for, as a question: "PR 123 merged?".
@@ -237,7 +237,7 @@ async fn run(conn: &mut Conn, json: bool, cmd: WatchesCmd) -> Result<()> {
                 let w = &r.watch;
                 let now = theseus_protocol::now_unix_ms();
                 println!(
-                    "Watching \"{}\" ({}): every {}, until {}, giving up {}; then {}. No model is called while it waits. End it with `theseus watches rm {}`.",
+                    "Watching \"{}\" ({}): every {}, until {}, giving up {}; then {}. No model is called while it waits. End it with `theseus watch-for rm {}`.",
                     w.title,
                     w.short,
                     w.every,

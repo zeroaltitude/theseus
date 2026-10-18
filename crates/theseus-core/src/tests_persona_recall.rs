@@ -94,7 +94,7 @@ fn rig(default_persona: Option<&str>, boost: f64) -> Rig {
         c.memory.canary_fraction = 1.0;
         c.personas.insert("wren".into(), PersonaConfig::default());
         c.context.default_persona = default_persona.map(str::to_string);
-        c.persona.own_boost = boost;
+        c.persona_import.own_boost = boost;
     })
 }
 

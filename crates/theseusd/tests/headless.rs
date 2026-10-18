@@ -260,9 +260,9 @@ fn a_turn_cut_by_the_loop_cap_exits_8() {
     let model = FakeModel::start(reads_notes);
     let dir = rig(&model, |t| {
         set(t, &["model", "max_loops"], 1.into());
-        set(t, &["model", "max_loops_mode"], "end".into());
+        set(t, &["model", "on_max_loops"], "end".into());
         set(t, &["profiles", "sonnet", "max_loops"], 1.into());
-        set(t, &["profiles", "sonnet", "max_loops_mode"], "end".into());
+        set(t, &["profiles", "sonnet", "on_max_loops"], "end".into());
     });
     let run = ask(dir.path(), "read the notes");
     assert_eq!(run.code, 8, "{}\n{}", run.turn, run.stderr);

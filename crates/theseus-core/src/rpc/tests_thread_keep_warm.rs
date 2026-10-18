@@ -1,6 +1,6 @@
 //! Keep-warm for threads (theseus-ytt8, T9) through the core, with the fake
 //! provider and tokio's paused clock: an active thread's session is read at
-//! the interval within `[threads] keep_warm_hours` of its owner's last
+//! the interval within `[cache] threads_keep_warm_hours` of its owner's last
 //! message and not after, while an unthreaded session goes on to the
 //! profile's window; pausing removes it at once and a resume waits for the
 //! next message; a restart leaves a paused thread out; the day's line reads
@@ -29,7 +29,7 @@ fn cli() -> Answerer {
 
 fn config(thread_hours: f64) -> Config {
     let mut c = one_hour(24);
-    c.threads.keep_warm_hours = thread_hours;
+    c.cache.threads_keep_warm_hours = thread_hours;
     c
 }
 
@@ -53,7 +53,7 @@ fn read_sessions(core: &Core) -> Vec<String> {
         .collect()
 }
 
-/// A thread is read every interval to `[threads] keep_warm_hours` after its
+/// A thread is read every interval to `[cache] threads_keep_warm_hours` after its
 /// owner's message, and none after; a plain conversation on the same profile
 /// goes on to the profile's 24 hours.
 #[tokio::test]

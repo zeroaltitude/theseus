@@ -109,7 +109,7 @@ pub struct ThreadsCache {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ThreadsHealth {
-    /// `[threads] keep_warm_hours`: how long after its last owner message an
+    /// `[cache] threads_keep_warm_hours`: how long after its last owner message an
     /// active thread's session is kept warm (0: none).
     pub keep_warm_hours: f64,
     /// The day's numbers; absent until the first read of the ledger ends.

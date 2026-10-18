@@ -3,7 +3,7 @@
 //! `enabled` says it either way. Enabled, every pack this build wires in judges in shadow:
 //! each judgment is made, priced, recorded, and acted on by nothing. The
 //! config is a ceiling an agent cannot raise: `max_mode` and a pack's own
-//! `mode` lower what a pack may do, and never raise it above what the ladder
+//! `rung` lower what a pack may do, and never raise it above what the ladder
 //! (step 26a) has given it, which in 23a is shadow for every pack.
 
 use std::collections::BTreeMap;
@@ -227,8 +227,8 @@ fn tail_band() -> f64 {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JudgePackConfig {
-    /// A ceiling on the pack's mode: it lowers, never raises.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// A ceiling on the pack's rung: it lowers, never raises.
+    #[serde(default, rename = "rung", skip_serializing_if = "Option::is_none")]
     pub mode: Option<PackMode>,
     /// The share of eligible events judged in shadow, 0 to 1 (the pack's
     /// own share when absent).
@@ -539,11 +539,11 @@ mod tests {
         let on = |extra: &str| cfg(&format!("enabled = true\n{extra}")).unwrap();
         let shadow = PackMode::Shadow;
         assert_eq!(on("").mode_of("loop.v1", shadow), shadow);
-        let raise = on("max_mode = \"live\"\n[packs.\"loop.v1\"]\nmode = \"live\"");
+        let raise = on("max_mode = \"live\"\n[packs.\"loop.v1\"]\nrung = \"live\"");
         assert_eq!(raise.mode_of("loop.v1", shadow), shadow, "never raised");
-        let canary = on("[packs.\"loop.v1\"]\nmode = \"canary\"");
+        let canary = on("[packs.\"loop.v1\"]\nrung = \"canary\"");
         assert_eq!(canary.mode_of("loop.v1", shadow), shadow);
-        let off = on("[packs.\"loop.v1\"]\nmode = \"off\"");
+        let off = on("[packs.\"loop.v1\"]\nrung = \"off\"");
         assert_eq!(off.mode_of("loop.v1", shadow), PackMode::Off);
         assert_eq!(
             off.mode_of("security.v1", shadow),
@@ -572,7 +572,7 @@ mod tests {
             live,
             "loop.v1's switch alone"
         );
-        let quiet = on("stop_nudge = false\n[packs.\"loop.v1\"]\nmode = \"off\"");
+        let quiet = on("stop_nudge = false\n[packs.\"loop.v1\"]\nrung = \"off\"");
         assert_eq!(quiet.mode_of(STOP_PACK, live), PackMode::Off);
     }
 
@@ -583,7 +583,7 @@ mod tests {
         let secrets: BTreeMap<String, String> =
             [("jev_api_key".to_string(), "op://v/i/f".to_string())].into();
         assert!(cfg("enable = true").is_err(), "an unknown key");
-        let bad = cfg("[packs.\"nope.v9\"]\nmode = \"off\"").unwrap();
+        let bad = cfg("[packs.\"nope.v9\"]\nrung = \"off\"").unwrap();
         assert!(format!("{:#}", bad.validate(&secrets).unwrap_err()).contains("nope.v9"));
         let bad = cfg("[packs.\"loop.v1\"]\nsample = 1.5").unwrap();
         assert!(bad.validate(&secrets).is_err());

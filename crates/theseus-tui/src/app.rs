@@ -679,7 +679,7 @@ impl App {
     /// A reminder fired (theseus-8ux6x): the policy's notice for it (an
     /// Interrupt, whatever the TUI shows: it is the owner's), the flash line
     /// and the ring, unless `--notify off`. Its four answers are the CLI's:
-    /// `theseus done`, `theseus snooze`, until `work.answer` routes them.
+    /// `theseus answer ID done`, `theseus answer ID snooze`, until `work.answer` routes them.
     fn noticed(&mut self, n: &theseus_protocol::WakeNoticed) -> Vec<Effect> {
         let notice = notices::reminder_notice(n, &self.hm);
         self.flash = Some((Tag::Ask, notice.line.clone()));

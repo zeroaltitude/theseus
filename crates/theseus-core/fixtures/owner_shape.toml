@@ -19,7 +19,9 @@ aws_account = "123456789012"
 
 [model]
 live = "sonnet"
-cache_ttl = "1h"
+
+[cache]
+ttl = "1h"
 
 [policy]
 enforcement = "notify"
@@ -145,16 +147,16 @@ cache_ttl = "1h"
 [routing]
 max_wait_ms = 300
 
-[routing.modes.trivial]
+[routing.classes.trivial]
 profiles = ["haiku", "glm"]
 
-[routing.modes.sophisticated]
+[routing.classes.sophisticated]
 profiles = ["opus", "fable"]
 
-[routing.modes.deep_coding]
+[routing.classes.deep_coding]
 profiles = ["sonnethi", "opus"]
 
-[routing.modes.routine_coding]
+[routing.classes.routine_coding]
 profiles = ["haikuhi", "sonnet"]
 
 [catalog."claude-opus-5-5"]

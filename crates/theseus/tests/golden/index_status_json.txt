@@ -1,4 +1,4 @@
-$ theseus --json index status
+$ theseus --json memory index status
 --- requests
 index.status
 --- stdout

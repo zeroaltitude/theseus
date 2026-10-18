@@ -1,0 +1,80 @@
+$ theseus help
+--- stdout
+Theseus CLI.
+
+A thin client that speaks the Theseus protocol (JSON-RPC over newline-delimited JSON) to a running theseusd over its Unix socket, or spawns one on stdio with --spawn. Prompts come from an argument or stdin; replies stream to stdout; diagnostics go to stderr; --json gives one JSON object for machines.
+
+Usage: theseus [OPTIONS] <COMMAND>
+
+Commands:
+  ask      Send one prompt as one turn and print the reply. Reads stdin when PROMPT is omitted or "-". The exit code says how the turn ended
+  chat     An inline conversation in this directory: a new one, or SESSION's (an id, or a unique end of one). The same as `theseus` alone on a terminal. It runs `theseus-tui chat`, found beside this binary or else on PATH
+  tui      The terminal UI: every session in one sidebar with its task trees, the queue of what needs you, answered inline, and a session's history with its input line. It runs `theseus-tui`, found beside this binary or else on PATH, with --socket and ARGS passed through (`theseus tui --help` is its help)
+  history  A session's transcript: messages, tool calls with their gate decisions, results, and anything waiting for your confirmation. SESSION defaults to the most recently active; it is an id, or a unique end of one (four characters at least). A handle a reply cited (`m:a1b2c3`, the footnote's command) shows that message whole instead
+  watch    Follow a session live: streamed text, tool calls, confirmations, context decisions, whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent; it is an id, or a unique end of one (four characters at least). An unknown one exits 1
+  status   What needs you, what works, and what failed, in one screen: a header of counts and a row for each task (what it asks, and the command that answers). `--short` is a line for a prompt or a status bar, `--watch` keeps it current from the push (`--tab`: the terminal tab's progress as well). One read, within 100 ms of connecting
+  tasks    Tasks (work.watch), one line each under its conversation: a mark, its short id, its title, how long it has run and what it is doing; under one that asks, the command that answers it; a footer of counts. `--watch` keeps it current: a line for each task that starts, asks, reports or fails. `--graph` is the task graph and each task's state and spend as before; `--json` the same list as data
+  answer   Answer any question waiting for you, with one of its answers: a call, a spend limit, a task change, an extension, a reminder. `theseus answer 7f3a approve`
+  stop     Halt what a session is doing, as Discord's `/stop` does: its running turn, its jobs, and what waits on you. The conversation goes on: the next `ask -s` continues it, and its tasks and wakes go on too (`theseus cancel <id>` stops one). SESSION is its id, or at least its last four characters. With `--all` (`--tasks`) it also cancels every task under the conversation, a task's own tasks and jobs first; its wakes stay
+  agenda   The future in one view: Now, Today, This week, Later, Recurring (routines and repeating reminders), Waiting on the world (watches) and Projects, with the verbs that act on them. `--watch` keeps it current
+  digest   What finished, failed, was answered or woke since you last looked, in a few lines (work.digest). `--since 2h` names a time; the default is since the last time a terminal client showed you the board, and with none yet, the last 24 hours. `--session` is one conversation's or task's own timeline
+  remind   Remind the owner: WHEN and what to say, with no model turn. It is posted as it is when it is due, in the Discord DM when one is bound and to every surface that watches, with Done and Snooze (`theseus answer ID snooze`). With no `--session` it lives in your Home conversation
+  routine  Routines: recurring work, each run a fresh task with its own budget, from a month of its own. `routine` lists them; `routine add SCHEDULE BRIEF`, `runs`, `pause`, `resume`, `run`, `update`, `rm`. The writes are yours alone (refused inside a job)
+  wake     Wakes: the turns conversations asked for at a time with wake.at that have not run yet, soonest first, with session, due time, and note. `wake list` is the same; `wake pause|resume| snooze|cancel ID` act on one (a reminder that fired is answered with `answer ID done|snooze`)
+  project  Projects (also `projects`): long-term work with a goal, dated milestones that remind you, a weekly review, and a slice in every session attached to it. `project` lists them (a bar of milestones done, the next one and its date, the review); `project show ID` (the tree with dates), `project new TITLE --milestone TITLE@WHEN`, `project attach SESSION ID`, `project detach SESSION`. The writes are yours alone (refused inside a job)
+  thread   Threads: lines of work on virtual places `thread:<slug>`, each with a session of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause| resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone (refused inside a job)
+  places   Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any other guild channel) gets its own conversation and the public tools alone
+  profile  Model profiles: list, or switch the live one (`theseus profile use glm`)
+  health   Server health: version, live profile, providers, sessions, turns, provider errors, token totals
+
+Options:
+      --socket <SOCKET>
+          Unix socket of a running theseusd
+          
+          [env: THESEUS_SOCKET=]
+          [default: ~/.theseus/theseus.sock]
+
+      --spawn [<SPAWN>]
+          Spawn `theseusd --stdio` (optionally a path to the binary) instead of connecting to the socket
+
+      --json
+          Machine-readable output: the final result as one JSON object on stdout
+
+      --no-stream
+          Do not stream the reply; print it once at the end
+
+      --plain
+          Print a reply as the text it is, with no markdown drawn and no escape sequence, even on a terminal (a pipe, or NO_COLOR set, already does)
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+Quick start:
+  export OP_SERVICE_ACCOUNT_TOKEN=...        1Password, the recommended home of the config's secrets
+  theseusd &                                 start the server (or run it in the foreground)
+  theseus health                             is it up, which profile is live, token totals
+  theseus ask "Say hello."                  one turn, streamed
+  echo "Summarize: ..." | theseus ask --json  pipelines
+  theseus ask -s <session> "..."            continue a session (its whole history is the context)
+  theseus ask --attach notes.txt "..."      send a file with the prompt, as a Discord attachment is sent
+  theseus                                    on a terminal: a conversation in this directory, inline (same as `theseus chat`)
+  theseus tui                                every session in one terminal: what needs you, answered inline
+  theseus history [session]                  a session's transcript: messages, tool calls, results
+  theseus watch [session]                    follow a session live (turns started anywhere)
+  theseus status [--short] [--watch]         what needs you, what works, what failed: a screen, a prompt segment, a status bar
+  theseus tasks                              background tasks: state, spend, what each waits on
+  theseus answer <id> <option> [--note ..]   answer a question waiting for you by one of its options (no id: list them)
+  theseus stop <session>                     halt a session's running turn and jobs, as /stop does; the conversation goes on
+  theseus digest [--since 2h]                what finished, failed or was answered since you last looked, in a few lines
+  theseus --spawn ask "..."                 no daemon: spawn theseusd on stdio for one turn and what it left for
+                                             later (a job's late result, a wake: --follow-for), then stop it cleanly
+
+Web UI:      http://127.0.0.1:7433/  (while theseusd runs)
+Exit codes:  0 ok · 1 server or provider error · 2 usage · 3 cannot connect
+             ask: 5 spend limit · 6 waits for approval · 7 refused · 8 cut by a limit · 9 stopped
+`theseus help all` lists every command.
+--- stderr
+--- exit 0

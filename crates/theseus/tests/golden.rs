@@ -1331,7 +1331,7 @@ fn health_says_where_the_index_stands() {
     );
 }
 
-/// `theseus index status` and `theseus index search` (roadmap row 51): the
+/// `theseus memory index status` and `theseus memory index search` (roadmap row 51): the
 /// index, its tender, cursor, and vectors; one that is down; the hits with
 /// each source's rank, cut to one line; a search the core could not answer;
 /// and the query the core gets, `--sources` included.
@@ -1340,28 +1340,28 @@ fn index_status_and_search_print_the_index_and_its_hits() {
     golden(
         "index_status",
         &run(
-            &["index", "status"],
+            &["memory", "index", "status"],
             vec![step("index.status", index_ready())],
         ),
     );
     golden(
         "index_status_json",
         &run(
-            &["--json", "index", "status"],
+            &["--json", "memory", "index", "status"],
             vec![step("index.status", index_ready())],
         ),
     );
     golden(
         "index_status_down",
         &run(
-            &["index", "status"],
+            &["memory", "index", "status"],
             vec![step("index.status", index_down())],
         ),
     );
     golden(
         "index_search",
         &run(
-            &["index", "search", "port", "7433", "-k", "5"],
+            &["memory", "index", "search", "port", "7433", "-k", "5"],
             vec![step("index.query", index_hits())],
         ),
     );
@@ -1371,14 +1371,14 @@ fn index_status_and_search_print_the_index_and_its_hits() {
     golden(
         "index_search_skipped",
         &run(
-            &["index", "search", "nothing", "like", "it"],
+            &["memory", "index", "search", "nothing", "like", "it"],
             vec![step("index.query", loading)],
         ),
     );
     golden(
         "index_search_json",
         &run(
-            &["--json", "index", "search", "port 7433"],
+            &["--json", "memory", "index", "search", "port 7433"],
             vec![step("index.query", index_hits())],
         ),
     );
@@ -1391,24 +1391,25 @@ fn index_status_and_search_print_the_index_and_its_hits() {
     };
     golden(
         "index_search_down",
-        &run(&["index", "search", "port", "7433"], vec![down]),
+        &run(&["memory", "index", "search", "port", "7433"], vec![down]),
     );
     // The query as the core gets it: its words joined, `-k`, `--as-of`.
     assert_eq!(
         request_params(
-            &["index", "search", "port", "7433", "-k", "5", "--as-of", "1600"],
+            &["memory", "index", "search", "port", "7433", "-k", "5", "--as-of", "1600"],
             index_hits()
         ),
         json!({"text": "port 7433", "k": 5, "as_of": 1600})
     );
     assert_eq!(
-        request_params(&["index", "search", "7433"], index_hits()),
+        request_params(&["memory", "index", "search", "7433"], index_hits()),
         json!({"text": "7433", "k": 10})
     );
     // `--sources`: these sources alone.
     assert_eq!(
         request_params(
             &[
+                "memory",
                 "index",
                 "search",
                 "what",
@@ -1690,13 +1691,11 @@ fn catalog_prints_windows_and_prices() {
             "cache_read_per_mtok": 0.3, "cache_write_per_mtok": 3.75,
             "cache_write_1h_per_mtok": 6.0, "thinking": "adaptive"},
          "profiles": []}]});
-    golden(
-        "catalog",
-        &run(&["catalog"], vec![step("catalog.list", cat.clone())]),
-    );
+    let catalog = |args: &[&str], cat: Value| run(args, vec![step("catalog.list", cat)]);
+    golden("catalog", &catalog(&["model", "catalog"], cat.clone()));
     golden(
         "catalog_json",
-        &run(&["--json", "catalog"], vec![step("catalog.list", cat)]),
+        &catalog(&["--json", "model", "catalog"], cat),
     );
 }
 
@@ -1715,7 +1714,7 @@ fn catalog_lists_a_long_prompt_tier() {
          "profiles": ["lite"]}]});
     golden(
         "catalog_tier",
-        &run(&["catalog"], vec![step("catalog.list", cat)]),
+        &run(&["model", "catalog"], vec![step("catalog.list", cat)]),
     );
 }
 
@@ -1754,7 +1753,7 @@ fn catalog_says_what_the_configs_tables_change() {
             "cache_write_per_mtok": 3.75}}]});
     golden(
         "catalog_config",
-        &run(&["catalog"], vec![step("catalog.list", cat)]),
+        &run(&["model", "catalog"], vec![step("catalog.list", cat)]),
     );
 }
 
@@ -1972,12 +1971,12 @@ fn tasks_and_wakes_when_there_are_none() {
     golden("tasks_json", &run(&["--json", "tasks", "-s", S], none()));
     golden(
         "wakes_none",
-        &run(&["wakes"], vec![step("wake.list", json!({"wakes": []}))]),
+        &run(&["wake"], vec![step("wake.list", json!({"wakes": []}))]),
     );
     golden(
         "wakes_json",
         &run(
-            &["--json", "wakes", "-s", S],
+            &["--json", "wake", "list", "-s", S],
             vec![step("wake.list", json!({"wakes": []}))],
         ),
     );

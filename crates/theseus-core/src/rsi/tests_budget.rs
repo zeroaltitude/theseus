@@ -5,7 +5,7 @@
 
 use theseus_protocol::rsi::SelfMode;
 
-use crate::config::rsi::SelfBudgetConfig;
+use crate::config::self_improve::SelfBudgetConfig;
 use crate::ledger::LedgerRow;
 use crate::rsi::budget::{Budget, Line, Reservation, Reserved};
 use crate::store::Store;

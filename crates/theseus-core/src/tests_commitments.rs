@@ -543,7 +543,7 @@ fn the_blocks_golden_none_one_a_series_and_a_long_list() {
     let want: Vec<String> = std::iter::once(format!("{HEAD_ONE}13{HEAD_REST}"))
         .chain((0..10).map(|i| format!("⏰ {i:06} Fri 09:{i:02} note {i}")))
         .chain(std::iter::once(
-            "(and 3 more: wake.list, or `theseus wakes`, shows them all.)".to_string(),
+            "(and 3 more: wake.list, or `theseus wake`, shows them all.)".to_string(),
         ))
         .collect();
     assert_eq!(shown.text, want.join("\n"));

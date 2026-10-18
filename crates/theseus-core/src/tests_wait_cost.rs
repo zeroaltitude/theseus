@@ -102,12 +102,9 @@ fn config(dir: &std::path::Path, hour: bool, edit: impl FnOnce(&mut Config)) -> 
     let mut cfg = match hour {
         false => Config::example(),
         true => {
-            Config::parse(
-                &Config::EXAMPLE_TOML
-                    .replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\""),
-            )
-            .unwrap()
-            .0
+            Config::parse(&Config::EXAMPLE_TOML.replace("\n[cache]\n", "\n[cache]\nttl = \"1h\"\n"))
+                .unwrap()
+                .0
         }
     };
     cfg.server.state_dir = dir.join("state").to_string_lossy().into_owned();
@@ -452,7 +449,7 @@ async fn a_wait_that_ends_before_the_cache_lapses_reads_it_once_or_not_at_all() 
     assert!(short.warm_reads().is_empty(), "a 200 s wait reads nothing");
 }
 
-/// A one-hour cache is read at `[cache] keep_warm_minutes`, so a wait of the
+/// A one-hour cache is read at `[cache] keep_warm_every_minutes`, so a wait of the
 /// longest length reads nothing; a prefix under `keep_warm_min_tokens` is
 /// not read either.
 #[tokio::test(start_paused = true)]

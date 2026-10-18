@@ -1,7 +1,7 @@
 turn trn_k3m9x2 · session ses_reef42 (the harbour survey)
 place: #pier (shared)
 ran on: deep (glm-x), a window of 200,000 tokens
-routing: deep_coding, by the route pack's verdict, moved from quick to deep
+routing: task class deep_coding, by the route pack's verdict, moved from quick to deep
 effort: Jev said high (applied), the request carried high
 context: 7 parts, 11,780 tokens (the system blocks are the bytes this turn saw)
   header       persona · 1,200 tok · the system's first block

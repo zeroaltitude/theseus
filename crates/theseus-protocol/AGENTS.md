@@ -211,6 +211,14 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   whose note begins `⚑` as a milestone's (`MILESTONE_MARK`, no clock icon), and `⚑ overdue` as `Why::Overdue`: an Interrupt with no sound.
 - `ts.rs`: the TypeScript export.
 
+## The CLI's spellings and the wire (theseus-rwpbg.10)
+
+The CLI's names changed and the wire's did not: a folded command (`answer ID snooze`, `wake pause`, `tasks --watch`,
+`persona rate`, `memory index`, `model bench`, `why --short`, `watch-for`) calls the method it always called. New clients use
+`work.answer`, `work.watch`, `session.*` and one cancel; the other answer, watch and cancel methods (`action.confirm`,
+`executions.watch`, `execution.cancel`, `task.cancel`, `wake.cancel`) are kept for the cockpit and the TUI and get no new
+siblings. A rename of a wire field or a stored value is a store-format step, never a trim.
+
 ## Invariants
 
 - **One definition per wire shape** (Item 30). Senders build the typed struct; nothing sends `json!` for a shape

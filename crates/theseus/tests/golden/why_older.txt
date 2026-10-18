@@ -9,7 +9,7 @@ node.list {"kind":"tool_call","n":1000,"session_id":"ses_reef42"}
 turn trn_b7q1w4 · session ses_reef42 (the harbour survey)
 place: CLI (private)
 ran on: deep (glm-x), a window of 200,000 tokens
-routing: chat, by the route pack's verdict, moved from quick to deep
+routing: task class chat, by the route pack's verdict, moved from quick to deep
 effort: Jev said high (applied), the request carried high
 context: 4 parts, 11,450 tokens (the system blocks are the bytes this turn saw)
   header       persona · 1,200 tok · the system's first block

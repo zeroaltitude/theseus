@@ -77,7 +77,7 @@ impl Rig {
             let packs = table(j, "packs");
             for p in ["classify.v3", "role.v1", "route.v6", "directive.v1"] {
                 let mut off = toml::Table::new();
-                off.insert("mode".into(), "off".into());
+                off.insert("rung".into(), "off".into());
                 packs.insert(p.into(), off.into());
             }
         }

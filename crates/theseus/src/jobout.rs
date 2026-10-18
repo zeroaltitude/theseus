@@ -124,7 +124,6 @@ fn bytes(n: u64) -> String {
 /// the CLI's `run`, which stays within clippy's length that way.
 pub async fn board(conn: &mut Conn, json: bool, cmd: crate::Cmd) -> Result<()> {
     match cmd {
-        crate::Cmd::Work(a) => crate::tasks_tree::run(conn, json, a.into_tasks()).await,
         crate::Cmd::Peek(a) => peek(conn, json, a).await,
         crate::Cmd::Attach(a) => attach(conn, json, a).await,
         _ => unreachable!("routed by `run`"),

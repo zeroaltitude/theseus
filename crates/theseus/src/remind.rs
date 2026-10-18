@@ -1,5 +1,6 @@
-//! `theseus remind`, `snooze`, `pause`, `resume` and `done` (theseus-8ux6x): the
-//! owner's verbs on wakes, with no model turn. Each is one call
+//! `theseus remind` and `theseus wake pause|resume|snooze` (theseus-8ux6x): the
+//! owner's verbs on wakes, with no model turn (a fired reminder's done and snooze are
+//! `theseus answer ID done|snooze`). Each is one call
 //! (`wake.create`, `wake.snooze`, `wake.pause`, `wake.resume`, `wake.done`) that
 //! the daemon answers in one frame, whatever the conversation is doing.
 //!
@@ -11,11 +12,66 @@
 use anyhow::Result;
 use theseus_client::Conn;
 use theseus_protocol::{
-    method, WakeCreateParams, WakeDoneResult, WakeEditResult, WakeNameParams, WakePauseParams,
-    WakeSnoozeParams,
+    method, WakeCreateParams, WakeEditResult, WakeNameParams, WakePauseParams, WakeSnoozeParams,
 };
 
 use crate::cmd::output;
+
+/// `theseus wake …`: the pending wakes, and the verbs on one.
+#[derive(clap::Subcommand, Debug)]
+pub enum WakeCmd {
+    /// Pending wakes, soonest first, with session, due time, and note (default).
+    List {
+        /// Only this session's wakes.
+        #[arg(long, short)]
+        session: Option<String>,
+    },
+    /// Hold a wake: a series keeps its place and passes its occurrences over (`--until WHEN`
+    /// moves it past that time instead). `wake resume` lets it go on.
+    Pause {
+        #[arg(value_name = "ID")]
+        wake: String,
+        #[arg(long)]
+        until: Option<String>,
+    },
+    /// Let a paused wake go on: a series at its next occurrence, numbered by its place.
+    Resume {
+        #[arg(value_name = "ID")]
+        wake: String,
+    },
+    /// Move a wake or a reminder that fired to WHEN (10 minutes by default): `theseus wake snooze
+    /// 3f9a1c 1h`, `theseus wake snooze wak_… tomorrow 9:00` (a reminder that fired is named by its
+    /// whole id, as its notice carries it).
+    Snooze {
+        #[arg(value_name = "ID")]
+        wake: String,
+        /// `10m`, `1h`, `tomorrow 9:00`, `fri 9:00`.
+        when: Option<String>,
+    },
+    /// Cancel a wake, so nothing fires; the same handler as `theseus cancel ID`, which also stops a
+    /// task.
+    Cancel {
+        #[arg(value_name = "ID")]
+        name: String,
+    },
+}
+
+impl Default for WakeCmd {
+    fn default() -> Self {
+        Self::List { session: None }
+    }
+}
+
+/// `theseus wake`: one arm of `main`'s `run`, which is at clippy's line limit.
+pub async fn wake(conn: &mut Conn, json: bool, cmd: WakeCmd) -> Result<()> {
+    match cmd {
+        WakeCmd::List { session } => crate::cmd::wakes(conn, json, session).await,
+        WakeCmd::Pause { wake, until } => pause(conn, json, wake, until).await,
+        WakeCmd::Resume { wake } => resume(conn, json, wake).await,
+        WakeCmd::Snooze { wake, when } => snooze(conn, json, wake, when).await,
+        WakeCmd::Cancel { name } => crate::cmd::cancel(conn, json, name).await,
+    }
+}
 
 /// `theseus remind`'s arguments.
 #[derive(clap::Args, Debug)]
@@ -71,15 +127,15 @@ pub async fn remind(conn: &mut Conn, json: bool, p: RemindArgs) -> Result<()> {
         };
         println!(
             "reminder {} set for {}{series}{home}: it is posted as it is, with no model turn; \
-             `theseus snooze {}`, `theseus cancel {}`",
+             `theseus wake snooze {}`, `theseus cancel {}`",
             w.short, w.due_local, w.short, w.short
         );
         Ok(())
     })
 }
 
-/// `theseus snooze ID [WHEN]`: move a pending wake, or set a reminder that
-/// fired again, for WHEN (10 minutes by default).
+/// `theseus wake snooze ID [WHEN]` and `theseus answer ID snooze [WHEN]`: move a pending wake, or set a
+/// reminder that fired again, for WHEN (10 minutes by default).
 pub async fn snooze(conn: &mut Conn, json: bool, wake: String, when: Option<String>) -> Result<()> {
     let fired = wake.starts_with("wak_");
     let v = conn
@@ -102,7 +158,7 @@ pub async fn snooze(conn: &mut Conn, json: bool, wake: String, when: Option<Stri
     })
 }
 
-/// `theseus pause ID [--until WHEN]`.
+/// `theseus wake pause ID [--until WHEN]`.
 pub async fn pause(conn: &mut Conn, json: bool, wake: String, until: Option<String>) -> Result<()> {
     let v = conn
         .request(
@@ -117,7 +173,7 @@ pub async fn pause(conn: &mut Conn, json: bool, wake: String, until: Option<Stri
     output(json, v, |r: WakeEditResult| {
         if r.wake.paused {
             println!(
-                "wake {} paused: it keeps its place, and `theseus resume {}` lets it go on",
+                "wake {} paused: it keeps its place, and `theseus wake resume {}` lets it go on",
                 r.wake.short, r.wake.short
             );
         } else {
@@ -127,34 +183,13 @@ pub async fn pause(conn: &mut Conn, json: bool, wake: String, until: Option<Stri
     })
 }
 
-/// `theseus resume ID` and `theseus done ID`: one arm of `main`'s `run`, which
-/// is at clippy's line limit.
-pub async fn settle(conn: &mut Conn, json: bool, cmd: crate::Cmd) -> Result<()> {
-    match cmd {
-        crate::Cmd::Resume { wake } => resume(conn, json, wake).await,
-        crate::Cmd::Done { wake } => done(conn, json, wake).await,
-        _ => unreachable!("main sends only resume and done"),
-    }
-}
-
-/// `theseus resume ID`.
+/// `theseus wake resume ID`.
 pub async fn resume(conn: &mut Conn, json: bool, wake: String) -> Result<()> {
     let v = conn
         .request(method::WAKE_RESUME, WakeNameParams { wake, author: None })
         .await?;
     output(json, v, |r: WakeEditResult| {
         println!("wake {} goes on: next {}", r.wake.short, r.wake.due_local);
-        Ok(())
-    })
-}
-
-/// `theseus done ID`: a fired reminder was seen and is settled.
-pub async fn done(conn: &mut Conn, json: bool, wake: String) -> Result<()> {
-    let v = conn
-        .request(method::WAKE_DONE, WakeNameParams { wake, author: None })
-        .await?;
-    output(json, v, |r: WakeDoneResult| {
-        println!("wake {} is done", r.short);
         Ok(())
     })
 }

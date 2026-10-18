@@ -452,7 +452,7 @@ pub fn lines_from_views(views: &[WorkView]) -> Vec<AgendaLine> {
 }
 
 /// The verbs line: the commands that act on what is listed.
-pub const VERBS: &str = "theseus remind WHEN NOTE · snooze ID [WHEN] · done ID · pause ID · resume ID · cancel ID · routine run|pause|resume ID · watches rm ID";
+pub const VERBS: &str = "theseus remind WHEN NOTE · wake snooze ID [WHEN] · answer ID done · wake pause ID · wake resume ID · cancel ID · routine run|pause|resume ID · watch-for rm ID";
 
 /// The agenda as lines, a heading to a section, an indent to a row.
 pub fn lines(a: &Agenda) -> Vec<Line> {

@@ -299,7 +299,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
         let packs = table(j, "packs")?;
         for p in ["classify.v3", "role.v1", "route.v4", "directive.v1"] {
             let mut off = toml::Table::new();
-            off.insert("mode".into(), "off".into());
+            off.insert("rung".into(), "off".into());
             packs.insert(p.into(), off.into());
         }
     }

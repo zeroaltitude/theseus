@@ -11,7 +11,7 @@ bar: number,
  */
 confidence: number, cells: Array<RouteCell>, total_spend_usd: number, total_movable_usd: number, 
 /**
- * The replays' cost today against `[route] replay_day_usd`.
+ * The replays' cost today against `[route_bench] replay_day_usd`.
  */
 replay_today_usd: number, replay_day_usd: number, 
 /**

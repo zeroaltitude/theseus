@@ -61,7 +61,7 @@ pub use theseus_protocol::rsi::SelfMode;
 /// `[self]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SelfConfig {
+pub struct SelfImproveConfig {
     #[serde(default, deserialize_with = "mode")]
     pub mode: SelfMode,
     #[serde(default, deserialize_with = "digest")]
@@ -178,7 +178,7 @@ fn default_backlog_max_open() -> u32 {
     20
 }
 
-impl Default for SelfConfig {
+impl Default for SelfImproveConfig {
     fn default() -> Self {
         Self {
             mode: SelfMode::default(),
@@ -243,7 +243,7 @@ impl Default for SelfBudgetConfig {
     }
 }
 
-impl SelfConfig {
+impl SelfImproveConfig {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
@@ -254,7 +254,7 @@ impl SelfConfig {
     }
 }
 
-impl SelfConfig {
+impl SelfImproveConfig {
     /// `[self] sealed_dir` against the config it sits in: absolute, and
     /// apart from every place Theseus or a job may reach (theseus-pw1q.5).
     pub fn validate(&self, cfg: &crate::Config) -> anyhow::Result<()> {
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn the_self_section_is_off_by_default_and_refuses_an_unknown_mode() {
         let none = Config::from_toml("").unwrap();
-        assert_eq!(none.self_improve, SelfConfig::default());
+        assert_eq!(none.self_improve, SelfImproveConfig::default());
         assert_eq!(none.self_improve.mode, SelfMode::Off);
         assert_eq!(none.self_improve.digest, SelfDigest::Weekly);
         assert!(!none.self_improve.posts_digest());

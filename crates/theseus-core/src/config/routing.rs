@@ -1,10 +1,10 @@
-//! `[routing]` (M5 step 25e): Jev's model per interaction mode. The route
+//! `[routing]` (M5 step 25e): Jev's model per task class. The route
 //! pack (`route.v4` since theseus-p8dy; `route.v3`, `route.v2` and `route.v1` before it)
-//! asks, at `inbound`, which mode a person's message needs, and the turn runs
-//! on that mode's first usable profile; since route.v3 it also asks the
+//! asks, at `inbound`, which task class a person's message needs, and the turn runs
+//! on that class's first usable profile; since route.v3 it also asks the
 //! effort the reply needs, which the turn's model runs at, within
 //! `effort_bounds`. It acts only while `[judge]` is on, and
-//! `mode = "shadow"` (or `[judge.packs."route.v4"] mode = "shadow"`) records
+//! `rung = "shadow"` (or `[judge.packs."route.v4"] rung = "shadow"`) records
 //! the verdict and routes nothing. Every key has a default, so a sparse note
 //! holds only what differs.
 
@@ -26,8 +26,8 @@ pub struct RoutingConfig {
     /// On by default: acts only while `[judge]` is on.
     #[serde(default = "yes")]
     pub enabled: bool,
-    /// `live` routes; `shadow` records the verdict and routes nothing.
-    #[serde(default = "live")]
+    /// `live` routes; `shadow` records the verdict and routes nothing: the route pack's rung.
+    #[serde(default = "live", rename = "rung")]
     pub mode: RoutingMode,
     /// How long the turn waits for the verdict after its first compile ends.
     #[serde(default = "max_wait_ms")]
@@ -42,7 +42,7 @@ pub struct RoutingConfig {
     #[serde(default = "cold_switch_tokens")]
     pub cold_switch_tokens: u64,
     /// A verdict routes only at this confidence or more (detours included),
-    /// unless its mode sets its own bar (`[routing.modes.<mode>]`).
+    /// unless its mode sets its own bar (`[routing.classes.<class>]`).
     #[serde(default = "switch_confidence")]
     pub switch_confidence: f64,
     /// The efforts Jev's answer may set, lowest and highest, inclusive
@@ -61,9 +61,9 @@ pub struct RoutingConfig {
     /// mode's list.
     #[serde(default = "dear_tier_max_tokens")]
     pub dear_tier_max_tokens: u64,
-    /// Each mode's profiles, in order: the first usable wins.
+    /// Each task class's profiles, in order: the first usable wins.
     #[serde(default)]
-    pub modes: RoutingModes,
+    pub classes: RoutingClasses,
     /// The owner's corrections of routing (theseus-q31l).
     #[serde(default)]
     pub corrections: CorrectionsConfig,
@@ -102,7 +102,7 @@ impl Default for CorrectionsConfig {
     }
 }
 
-/// `[routing] mode`.
+/// `[routing] rung`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutingMode {
@@ -110,31 +110,31 @@ pub enum RoutingMode {
     Shadow,
 }
 
-/// `[routing.modes.<mode>]`, one per mode the route pack answers (`other`
+/// `[routing.classes.<class>]`, one per mode the route pack answers (`other`
 /// is routed as `chat`; `quick` is route.v2's, theseus-3okf).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RoutingModes {
+pub struct RoutingClasses {
     #[serde(default = "trivial")]
-    pub trivial: ModeProfiles,
+    pub trivial: ClassProfiles,
     #[serde(default = "quick")]
-    pub quick: ModeProfiles,
+    pub quick: ClassProfiles,
     #[serde(default)]
-    pub chat: ModeProfiles,
+    pub chat: ClassProfiles,
     #[serde(default = "sophisticated")]
-    pub sophisticated: ModeProfiles,
+    pub sophisticated: ClassProfiles,
     #[serde(default = "deep_coding")]
-    pub deep_coding: ModeProfiles,
+    pub deep_coding: ClassProfiles,
     #[serde(default = "routine_coding")]
-    pub routine_coding: ModeProfiles,
+    pub routine_coding: ClassProfiles,
     /// route.v4's `review` (theseus-p8dy): verification of work already made.
     #[serde(default = "review")]
-    pub review: ModeProfiles,
+    pub review: ClassProfiles,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ModeProfiles {
+pub struct ClassProfiles {
     /// Profile names (or `cheapest`), in order; empty: the session's own.
     #[serde(default)]
     pub profiles: Vec<String>,
@@ -151,7 +151,7 @@ pub struct ModeProfiles {
 /// the trivial profile, for that turn alone.
 pub const TRIVIAL_CONFIDENCE: f64 = 0.4;
 
-/// The modes, in the pack's order.
+/// The classes, in the pack's order.
 pub const MODES: [&str; 7] = [
     "trivial",
     "quick",
@@ -162,7 +162,7 @@ pub const MODES: [&str; 7] = [
     "review",
 ];
 
-/// The modes whose turn is a detour (theseus-3okf; `trivial` alone before
+/// The classes whose turn is a detour (theseus-3okf; `trivial` alone before
 /// it): that turn alone runs on the mode's profile, with the last
 /// `trivial_context_turns` exchanges, and the session stays where it was, its
 /// cache warm. A late verdict of one of them applies to no message
@@ -207,46 +207,46 @@ fn high_effort_confidence() -> f64 {
 fn dear_tier_max_tokens() -> u64 {
     200_000
 }
-fn list(names: &[&str]) -> ModeProfiles {
-    ModeProfiles {
+fn list(names: &[&str]) -> ClassProfiles {
+    ClassProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
         switch_confidence: None,
     }
 }
 /// Haiku 5.5 first, then GLM-5.3 Flash, then the cheapest usable profile, so
 /// a config without either still detours as it did before (theseus-3okf).
-fn trivial() -> ModeProfiles {
+fn trivial() -> ClassProfiles {
     list(&["haiku", "glm", CHEAPEST])
 }
 /// Haiku 5.5 alone: a config without it runs a quick message on the
 /// session's own profile, as it did while `chat` held them.
-fn quick() -> ModeProfiles {
+fn quick() -> ClassProfiles {
     list(&["haiku"])
 }
-fn sophisticated() -> ModeProfiles {
+fn sophisticated() -> ClassProfiles {
     list(&["opus", "fable"])
 }
-fn deep_coding() -> ModeProfiles {
+fn deep_coding() -> ClassProfiles {
     list(&["opus", "sonnet"])
 }
 /// Haiku 5.5 at high effort, then Sonnet 5.5 (theseus-3okf): a config
 /// without `haikuhi` runs routine programming on `sonnet`, or the session's
 /// own.
-fn routine_coding() -> ModeProfiles {
+fn routine_coding() -> ClassProfiles {
     list(&["haikuhi", "sonnet"])
 }
 /// Opus 5.5 at high effort, then Fable 5.1 (theseus-p8dy): a config without
 /// `opushi` reviews on `fable`, or the session's own.
-fn review() -> ModeProfiles {
+fn review() -> ClassProfiles {
     list(&["opushi", "fable"])
 }
 
-impl Default for RoutingModes {
+impl Default for RoutingClasses {
     fn default() -> Self {
         Self {
             trivial: trivial(),
             quick: quick(),
-            chat: ModeProfiles::default(),
+            chat: ClassProfiles::default(),
             sophisticated: sophisticated(),
             deep_coding: deep_coding(),
             routine_coding: routine_coding(),
@@ -255,9 +255,9 @@ impl Default for RoutingModes {
     }
 }
 
-impl RoutingModes {
+impl RoutingClasses {
     /// A mode's table; `other` and any unknown mode are `chat`'s.
-    pub fn table(&self, mode: &str) -> &ModeProfiles {
+    pub fn table(&self, mode: &str) -> &ClassProfiles {
         match mode {
             "trivial" => &self.trivial,
             "quick" => &self.quick,
@@ -287,7 +287,7 @@ impl Default for RoutingConfig {
             effort_bounds: effort_bounds(),
             high_effort_confidence: high_effort_confidence(),
             dear_tier_max_tokens: dear_tier_max_tokens(),
-            modes: RoutingModes::default(),
+            classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
             data: RoutingData::default(),
         }
@@ -308,10 +308,10 @@ impl RoutingConfig {
             anyhow::bail!("routing.switch_confidence must be above 0 and at most 1");
         }
         for m in MODES {
-            if let Some(c) = self.modes.table(m).switch_confidence {
+            if let Some(c) = self.classes.table(m).switch_confidence {
                 if !(c > 0.0 && c <= 1.0) {
                     anyhow::bail!(
-                        "routing.modes.{m}.switch_confidence must be above 0 and at most 1"
+                        "routing.classes.{m}.switch_confidence must be above 0 and at most 1"
                     );
                 }
             }
@@ -339,8 +339,8 @@ impl RoutingConfig {
             );
         }
         for m in MODES {
-            if let Some(p) = self.modes.of(m).iter().find(|p| p.trim().is_empty()) {
-                anyhow::bail!("routing.modes.{m}.profiles has an empty name {p:?}");
+            if let Some(p) = self.classes.of(m).iter().find(|p| p.trim().is_empty()) {
+                anyhow::bail!("routing.classes.{m}.profiles has an empty name {p:?}");
             }
         }
         let c = &self.corrections;
@@ -357,7 +357,7 @@ impl RoutingConfig {
     /// bar, else trivial's [`TRIVIAL_CONFIDENCE`], else the section's
     /// `switch_confidence` (theseus-6n5j).
     pub fn confidence_for(&self, mode: &str) -> f64 {
-        let own = self.modes.table(mode).switch_confidence;
+        let own = self.classes.table(mode).switch_confidence;
         own.unwrap_or(match mode {
             "trivial" => TRIVIAL_CONFIDENCE,
             _ => self.switch_confidence,
@@ -378,7 +378,7 @@ impl RoutingConfig {
 }
 
 /// The template's `[routing]`, un-commented: its defaults, and the
-/// profiles its modes name configured.
+/// profiles its classes name configured.
 #[cfg(test)]
 pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     let r = &cfg.routing;
@@ -393,11 +393,14 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     assert_eq!(r.high_effort_confidence, 0.70);
     assert_eq!(r.dear_tier_max_tokens, 200_000);
     for m in MODES {
-        assert_eq!(r.modes.of(m), RoutingModes::default().of(m), "{m}");
+        assert_eq!(r.classes.of(m), RoutingClasses::default().of(m), "{m}");
     }
     assert_eq!(r.corrections, CorrectionsConfig::default());
     // Its one commented bar is trivial's, at the default it documents.
-    assert_eq!(r.modes.trivial.switch_confidence, Some(TRIVIAL_CONFIDENCE));
+    assert_eq!(
+        r.classes.trivial.switch_confidence,
+        Some(TRIVIAL_CONFIDENCE)
+    );
     assert_eq!(r.confidence_for("trivial"), TRIVIAL_CONFIDENCE);
     assert_eq!(r.confidence_for("sophisticated"), 0.6);
     for (p, model) in [
@@ -412,7 +415,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     }
     // Every profile a mode names is the template's, but `cheapest`.
     for m in MODES {
-        for p in r.modes.of(m).iter().filter(|p| *p != CHEAPEST) {
+        for p in r.classes.of(m).iter().filter(|p| *p != CHEAPEST) {
             assert!(cfg.all_profiles().contains_key(p), "{m}: {p}");
         }
     }
@@ -430,14 +433,14 @@ mod tests {
     fn the_defaults_are_the_steps_table() {
         let d = cfg("").unwrap();
         assert_eq!(d, RoutingConfig::default());
-        assert_eq!(d.modes.of("trivial"), ["haiku", "glm", "cheapest"]);
-        assert_eq!(d.modes.of("quick"), ["haiku"]);
-        assert!(d.modes.of("chat").is_empty());
-        assert_eq!(d.modes.of("other"), d.modes.of("chat"));
-        assert_eq!(d.modes.of("sophisticated"), ["opus", "fable"]);
-        assert_eq!(d.modes.of("deep_coding"), ["opus", "sonnet"]);
-        assert_eq!(d.modes.of("routine_coding"), ["haikuhi", "sonnet"]);
-        assert_eq!(d.modes.of("review"), ["opushi", "fable"]);
+        assert_eq!(d.classes.of("trivial"), ["haiku", "glm", "cheapest"]);
+        assert_eq!(d.classes.of("quick"), ["haiku"]);
+        assert!(d.classes.of("chat").is_empty());
+        assert_eq!(d.classes.of("other"), d.classes.of("chat"));
+        assert_eq!(d.classes.of("sophisticated"), ["opus", "fable"]);
+        assert_eq!(d.classes.of("deep_coding"), ["opus", "sonnet"]);
+        assert_eq!(d.classes.of("routine_coding"), ["haikuhi", "sonnet"]);
+        assert_eq!(d.classes.of("review"), ["opushi", "fable"]);
         d.validate(|_| false).unwrap();
         assert_eq!(
             (
@@ -460,11 +463,11 @@ mod tests {
 
     #[test]
     fn one_mode_set_keeps_the_others_defaults() {
-        let c = cfg("[modes.chat]\nprofiles = [\"sonnet\"]").unwrap();
-        assert_eq!(c.modes.of("chat"), ["sonnet"]);
-        assert_eq!(c.modes.of("sophisticated"), ["opus", "fable"]);
+        let c = cfg("[classes.chat]\nprofiles = [\"sonnet\"]").unwrap();
+        assert_eq!(c.classes.of("chat"), ["sonnet"]);
+        assert_eq!(c.classes.of("sophisticated"), ["opus", "fable"]);
         assert!(
-            cfg("[modes.poetry]\nprofiles = []").is_err(),
+            cfg("[classes.poetry]\nprofiles = []").is_err(),
             "no such mode"
         );
         assert!(cfg("wait_ms = 1").is_err(), "an unknown key");
@@ -485,13 +488,13 @@ mod tests {
         ] {
             assert!(cfg(bad).unwrap().validate(|_| false).is_err(), "{bad}");
         }
-        let empty = cfg("[modes.trivial]\nprofiles = [\" \"]").unwrap();
+        let empty = cfg("[classes.trivial]\nprofiles = [\" \"]").unwrap();
         assert!(empty.validate(|_| false).is_err());
         for bad in ["0.0", "1.5", "-0.1"] {
-            let c = cfg(&format!("[modes.chat]\nswitch_confidence = {bad}")).unwrap();
+            let c = cfg(&format!("[classes.chat]\nswitch_confidence = {bad}")).unwrap();
             let e = c.validate(|_| false).unwrap_err();
             assert!(
-                format!("{e:#}").contains("routing.modes.chat.switch_confidence"),
+                format!("{e:#}").contains("routing.classes.chat.switch_confidence"),
                 "{bad}: {e:#}"
             );
         }
@@ -518,13 +521,13 @@ mod tests {
         ] {
             assert_eq!(d.confidence_for(m), 0.6, "{m}");
         }
-        let named = cfg("[modes.trivial]\nprofiles = [\"haiku\", \"glm\"]").unwrap();
+        let named = cfg("[classes.trivial]\nprofiles = [\"haiku\", \"glm\"]").unwrap();
         assert_eq!(named.confidence_for("trivial"), 0.4);
         let raised = cfg("switch_confidence = 0.8").unwrap();
         assert_eq!(raised.confidence_for("chat"), 0.8, "the section's bar");
         assert_eq!(raised.confidence_for("trivial"), 0.4, "trivial's own");
         let own = cfg(
-            "[modes.trivial]\nswitch_confidence = 0.55\n[modes.sophisticated]\nswitch_confidence = 0.75",
+            "[classes.trivial]\nswitch_confidence = 0.55\n[classes.sophisticated]\nswitch_confidence = 0.75",
         )
         .unwrap();
         assert_eq!(own.confidence_for("trivial"), 0.55);
@@ -534,7 +537,7 @@ mod tests {
         // An unset bar is left out when the section is written back.
         let text = toml::to_string(&d).unwrap();
         assert!(
-            !text.contains("modes.trivial.switch") && !text.contains("0.4"),
+            !text.contains("classes.trivial.switch") && !text.contains("0.4"),
             "{text}"
         );
     }
@@ -551,10 +554,10 @@ mod tests {
         for m in ["chat", "other", "sophisticated", "routine_coding", "poetry"] {
             assert!(!is_detour(m), "{m}");
         }
-        let c = cfg("[modes.quick]\nprofiles = [\"glm\"]\nswitch_confidence = 0.7").unwrap();
-        assert_eq!(c.modes.of("quick"), ["glm"]);
+        let c = cfg("[classes.quick]\nprofiles = [\"glm\"]\nswitch_confidence = 0.7").unwrap();
+        assert_eq!(c.classes.of("quick"), ["glm"]);
         assert_eq!(c.confidence_for("quick"), 0.7);
-        assert_eq!(c.modes.of("trivial"), ["haiku", "glm", "cheapest"]);
+        assert_eq!(c.classes.of("trivial"), ["haiku", "glm", "cheapest"]);
         c.validate(|_| false).unwrap();
     }
 
@@ -610,7 +613,7 @@ mod tests {
         assert_eq!(on.pack_mode(PackMode::Live), PackMode::Live);
         assert_eq!(on.pack_mode(PackMode::Shadow), PackMode::Shadow);
         assert_eq!(on.pack_mode(PackMode::Off), PackMode::Off);
-        let shadow = cfg("mode = \"shadow\"").unwrap();
+        let shadow = cfg("rung = \"shadow\"").unwrap();
         assert_eq!(shadow.pack_mode(PackMode::Live), PackMode::Shadow);
         let off = cfg("enabled = false").unwrap();
         assert_eq!(off.pack_mode(PackMode::Live), PackMode::Off);

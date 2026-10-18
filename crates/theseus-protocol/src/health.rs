@@ -232,7 +232,7 @@ pub struct BinaryStatus {
 pub struct PromptCacheHealth {
     /// Every profile, by name.
     pub profiles: Vec<ProfileTtl>,
-    /// `[cache] keep_warm_minutes`: how long after a session's last call
+    /// `[cache] keep_warm_every_minutes`: how long after a session's last call
     /// its read goes.
     pub keep_warm_minutes: f64,
     /// Sessions kept warm now: in their window, their reads not stopped.
@@ -245,7 +245,7 @@ pub struct PromptCacheHealth {
     pub usd_today: f64,
 }
 
-/// A profile's cache TTL (`5m` or `1h`), whether it inherited `[model]`'s,
+/// A profile's cache TTL (`5m` or `1h`), whether it inherited `[cache]`'s,
 /// and its keep-warm window in hours (0: none, as for every 5-minute one).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

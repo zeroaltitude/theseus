@@ -3,7 +3,7 @@
 //! each join with its numbers and its undo, the switch's moves, what it
 //! cost, and every change, newest first. `theseus self digest` prints it;
 //! the Discord binding posts it to the owner's DM once a week while
-//! `[self] mode = "act"` and `digest = "weekly"` (`SelfConfig::posts_digest`),
+//! `[self] mode = "act"` and `digest = "weekly"` (`SelfImproveConfig::posts_digest`),
 //! and never while the mode is off.
 
 use std::collections::BTreeMap;

@@ -438,7 +438,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
         return stay(Reason::Unsure, keep_or_clear);
     }
-    let list = cfg.modes.of(&a.verdict.mode);
+    let list = cfg.classes.of(&a.verdict.mode);
     let kept = (GUARDED.contains(&a.verdict.mode.as_str())
         && a.est_tokens > cfg.dear_tier_max_tokens)
         .then(|| dear_guard(list, profiles, a.images))
@@ -641,7 +641,7 @@ mod tests {
     fn each_modes_first_usable_profile_then_the_next_then_the_sessions() {
         let cfg = RoutingConfig::default();
         let mut ps = five();
-        let list = |m: &str| cfg.modes.of(m).to_vec();
+        let list = |m: &str| cfg.classes.of(m).to_vec();
         assert_eq!(
             pick(&list("sophisticated"), &ps, false, None),
             Picked::Profile("opus".into())
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(cheapest(&ps, true, None).as_deref(), Some("sonnet"));
         let cfg = RoutingConfig::default();
         assert_eq!(
-            pick(cfg.modes.of("trivial"), &ps, false, None),
+            pick(cfg.classes.of("trivial"), &ps, false, None),
             Picked::Profile("glm53".into())
         );
     }
@@ -754,8 +754,8 @@ mod tests {
             assert_eq!((d.reason, d.switch), (Reason::Unsure, false), "{m}");
         }
         let mut own = RoutingConfig::default();
-        own.modes.trivial.switch_confidence = Some(0.5);
-        own.modes.sophisticated.switch_confidence = Some(0.4);
+        own.classes.trivial.switch_confidence = Some(0.5);
+        own.classes.sophisticated.switch_confidence = Some(0.4);
         let d = decide(&own, &ps, &ask(&verdict("trivial", 0.45), "sonnet", 10));
         assert_eq!(d.reason, Reason::Unsure, "trivial's own bar, raised");
         let d = decide(
@@ -1086,7 +1086,7 @@ mod tests {
         let (dear, cheap) = ("opus", "fable");
         ps.get_mut(dear).unwrap().input_per_mtok = Some(10.0);
         ps.get_mut(cheap).unwrap().input_per_mtok = Some(5.0);
-        cfg.modes.sophisticated.profiles = vec![dear.into(), cheap.into()];
+        cfg.classes.sophisticated.profiles = vec![dear.into(), cheap.into()];
         let v = verdict("sophisticated", 0.9);
         let at =
             |est: u64, ps: &Profiles, cfg: &RoutingConfig| decide(cfg, ps, &ask(&v, "sonnet", est));
@@ -1107,11 +1107,11 @@ mod tests {
         assert_eq!(at(250_000, &ps, &cfg).profile, dear);
         cfg.dear_tier_max_tokens = 200_000;
         // Cheaper first: nothing skipped.
-        cfg.modes.sophisticated.profiles = vec![cheap.into(), dear.into()];
+        cfg.classes.sophisticated.profiles = vec![cheap.into(), dear.into()];
         let d = at(300_000, &ps, &cfg);
         assert_eq!((d.profile.as_str(), d.reason), (cheap, Reason::Verdict));
         // The cheaper unusable: the dear one is the last usable, kept.
-        cfg.modes.sophisticated.profiles = vec![dear.into(), cheap.into()];
+        cfg.classes.sophisticated.profiles = vec![dear.into(), cheap.into()];
         ps.get_mut(cheap).unwrap().unusable = Some("key");
         let d = at(300_000, &ps, &cfg);
         assert_eq!((d.profile.as_str(), d.reason), (dear, Reason::Verdict));
@@ -1132,7 +1132,7 @@ mod tests {
         let mut ps = five();
         ps.get_mut("opus").unwrap().input_per_mtok = Some(10.0);
         ps.get_mut("fable").unwrap().input_per_mtok = Some(5.0);
-        cfg.modes.sophisticated.profiles = vec!["fable".into(), "opus".into()];
+        cfg.classes.sophisticated.profiles = vec!["fable".into(), "opus".into()];
         let v = verdict("sophisticated", 0.9);
         let d = decide(&cfg, &ps, &ask(&v, "sonnet", 500_000));
         assert_eq!(
@@ -1140,7 +1140,7 @@ mod tests {
             ("fable", Reason::Verdict, true),
             "the first was already the cheaper"
         );
-        cfg.modes.sophisticated.profiles = vec!["opus".into(), "fable".into()];
+        cfg.classes.sophisticated.profiles = vec!["opus".into(), "fable".into()];
         let d = decide(&cfg, &ps, &ask(&v, "sonnet", 500_000));
         assert_eq!(
             (d.profile.as_str(), d.reason, d.switch),
@@ -1276,7 +1276,7 @@ mod tests {
     #[test]
     fn a_review_verdict_routes_to_opushi_then_fable() {
         let cfg = RoutingConfig::default();
-        assert_eq!(cfg.modes.of("review"), ["opushi", "fable"]);
+        assert_eq!(cfg.classes.of("review"), ["opushi", "fable"]);
         let mut ps = five();
         let c = crate::catalog::Catalog::builtin();
         let e = c.get("claude-opus-5-5").unwrap();
