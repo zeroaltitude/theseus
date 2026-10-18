@@ -89,12 +89,16 @@ impl crate::rpc::Core {
         let known: BTreeSet<String> = by.keys().cloned().collect();
         let (cost, find_cost) = self.tokens_by_family();
         let mechanism = self.defer_mechanism();
+        let (live, _) = self.live_profile();
         let since = now.saturating_sub(u64::from(cfg.window_days) * DAY_MS);
         let places = PlaceKind::ALL
             .iter()
             .map(|&kind| {
                 let stats = board.stats(kind);
-                let sel = board.select("", kind, cfg, now, &known, &BTreeSet::new());
+                let sel = self
+                    .runner
+                    .fresh_selection(kind, &live, &known)
+                    .unwrap_or_else(|| board.select("", kind, cfg, now, &known, &BTreeSet::new()));
                 let used = stats.sum_since(since, |d| &d.used);
                 let searched = stats.sum_since(since, |d| &d.searched);
                 let missed = stats.sum_since(since, |d| &d.missed);

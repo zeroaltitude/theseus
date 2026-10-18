@@ -314,7 +314,6 @@ impl Board {
             )
         };
         let searched: BTreeSet<String> = searches.iter().flat_map(|s| s.families.clone()).collect();
-        let used: BTreeSet<String> = called.union(&searched).cloned().collect();
         let turn = TurnUse {
             kind,
             mechanism,
@@ -326,14 +325,15 @@ impl Board {
             searches,
             misses,
         };
-        Self::count(st.kinds.entry(kind).or_default(), &turn, &used, now_ms);
+        Self::count(st.kinds.entry(kind).or_default(), &turn, now_ms);
         turn
     }
 
-    fn count(stats: &mut Stats, t: &TurnUse, used: &BTreeSet<String>, at_ms: u64) {
+    /// Only a call is use: a search says a family was wanted, and is counted apart.
+    fn count(stats: &mut Stats, t: &TurnUse, at_ms: u64) {
         let day = stats.day_mut(at_ms);
         day.turns += 1;
-        for f in used {
+        for f in &t.used {
             *day.used.entry(f.clone()).or_insert(0) += 1;
         }
         for f in &t.loaded {
@@ -350,7 +350,7 @@ impl Board {
         for m in &t.misses {
             *day.missed.entry(m.family.clone()).or_insert(0) += 1;
         }
-        for f in used {
+        for f in &t.used {
             let last = stats.last_used.entry(f.clone()).or_insert(0);
             *last = (*last).max(at_ms);
         }
@@ -373,7 +373,6 @@ impl Board {
                 .unwrap_or_default()
         };
         let (called, searched) = (list("used"), list("searched"));
-        let used: BTreeSet<String> = called.union(&searched).cloned().collect();
         let t = TurnUse {
             kind,
             mechanism: None,
@@ -390,7 +389,7 @@ impl Board {
         if st.live_since.is_some_and(|l| at_ms >= l) {
             return;
         }
-        Self::count(st.kinds.entry(kind).or_default(), &t, &used, at_ms);
+        Self::count(st.kinds.entry(kind).or_default(), &t, at_ms);
     }
 
     /// A `tools.searched` row read back: its families count as searched.

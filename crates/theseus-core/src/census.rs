@@ -208,7 +208,7 @@ impl TurnRunner {
 
     /// The kind of session, the place it speaks in and its id for a census: the session's own, or a fresh
     /// one's on a kind of place (`dm` is the first DM the binding binds, else the CLI's, said in a note).
-    fn census_place(
+    pub(crate) fn census_place(
         &self,
         rec: Option<&SessionRecord>,
         place_kind: &str,

@@ -8,6 +8,12 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   while the machine is busy (`theseus_store::pressure`, `VectorConfig::yield_bound`; tests give zero). It is not in
   `SCHED_IDLE` (theseus-tood): it also loads the model a waiting query needs, and candle's rayon pool takes the
   policy of the thread that first runs it, so query embeddings could inherit it.
+- **Commits coalesce** (`tender.rs`, `COALESCE`, 200 ms; theseus-rwpbg.3): a caught-up tender that just committed waits that
+  long (a stop, a rebuild or a forget kick it awake) and then reads on, so the frames of a burst, a turn's loops, share one
+  commit, one cursor write and one reader reload instead of each paying them. The cursor is still written only after its
+  commit, so a kill re-reads from the WAL. A test that needs a node indexed waits on the status's `nodes` or `position`,
+  never a longer sleep. The core only reports `indexed_through` and never waits on it. Test:
+  `tests::index_commits_coalesce_within_the_window`.
 - **Queries at the daemon's priority** (`priority.rs`, theseus-y9a3). The tender's own work (the WAL's ingest,
   tantivy's merges, the backfill) runs at `serve --nice` (10; the embedding thread lowers itself to 19) in the idle
   I/O class; its socket's threads, and so each query and the queries' embedding pool, keep the priority the tender

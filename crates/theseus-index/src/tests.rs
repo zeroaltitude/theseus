@@ -945,6 +945,35 @@ fn the_socket_answers_and_a_new_node_is_indexed_within_a_second() {
     h.join().unwrap().unwrap();
 }
 
+/// Frames that arrive one after another (a turn's loops, forty of them 10 ms apart) share commits:
+/// the tender waits out `COALESCE` after one, so a few commits cover them, and a search once the
+/// window has passed finds every node.
+#[test]
+fn index_commits_coalesce_within_the_window() {
+    let rig = Rig::new();
+    let t = rig.open();
+    let shared = t.shared();
+    let h = std::thread::spawn(move || t.run());
+    for i in 0..40 {
+        rig.put(&[user("ses_1", &format!("burst note {i} about an ocelot"))]);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while shared.status().nodes < 40 {
+        assert!(Instant::now() < deadline, "never indexed: {:?}", shared.status());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let commits = shared.status().commits;
+    eprintln!("40 frames over 400 ms: {commits} commits");
+    assert!(commits <= 6, "{commits} commits for one burst");
+    let mut q = QueryParams::new("ocelot");
+    q.k = 100;
+    let r = shared.query(&q).unwrap();
+    assert_eq!(r.hits.len(), 40, "every node of the burst is found");
+    shared.request_stop();
+    h.join().unwrap().unwrap();
+}
+
 #[test]
 fn a_reader_shares_the_engine_while_ingest_runs() {
     // `Shared` crosses threads: the socket's and the ingest loop's.

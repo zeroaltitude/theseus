@@ -1999,7 +1999,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Ship's mark), which call `session.fork`. Tests: `tests_fork.rs`, the layouts' format-29 samples, the CLI's
   `golden_fork.rs`.
 - **Deferred tools** (theseus-7m7w.2; store format 33): `tools_defer.rs` and `tools_defer/`. Every tool belongs to a
-  family by its wire name (`family.rs`: files, commands, web, memory, tasks, routines, threads, terminals, code,
+  family by its wire name (`family.rs`: files, commands, web, memory, tasks, reminders (the `wake_*` tools; the DM loads them and defers the task tools), routines, threads, terminals, code,
   channels, aws, ask, projects, extensions, self, and `mcp:<server>`; an unknown tool is `other` and always loads, and a test fails a registered tool in it), and a
   request loads whole families. `RequestSpec.defer` is the turn's fresh choice (`turn/defer_step.rs`, once a turn:
   `Board::select` over the in-memory counts: a place kind's committed defaults (`PlaceKind::defaults`, never a
@@ -2037,6 +2037,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   point is scored once per family. Evidence from before the split names `aws` for every AWS tool; a place that
   learned to load `aws` loads the generic three now, and the others learn from use again. The detour's test is
   `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`.
+  **Only a call is use, and a learned family is held to the place's budget** (theseus-buz3h, theseus-rwpbg.3): the board counts a
+  family as used in a turn only when a tool of it was called (a search is its own `searched` column, never a vote to load),
+  live and read back from the rows. After the selector, `tools_defer::budget::demote` (run by `defer_selection`, which a turn,
+  the census and `tool.defer` share) takes the learned families back to deferred (`Why::OverBudget`, the largest first, the
+  least used among equals) while the system and the loaded tools are over the place kind's first-request budget
+  (`PlaceKind::tools_budget_tokens`); a default, an always-loaded family and what a message or plan mode asked for stay.
+  `want::extra` takes the system's tokens off the same budget. A ledger row from before the `reminders` split names `tasks`
+  for a wake's call: `family::predecessor` lets `reminders` take that last use, so the DM's default is not read as idle.
+  Tests: `tests_trim_tokens.rs`, `tools_defer/budget.rs`'s own.
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
 - **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
   `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]

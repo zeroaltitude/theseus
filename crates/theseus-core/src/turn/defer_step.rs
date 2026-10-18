@@ -15,7 +15,10 @@ use super::{Turn, TurnRunner};
 use crate::compiler::{Compiled, RequestSpec};
 use crate::fact::tools_defer::{ToolsMissed, ToolsSearched, ToolsUsed};
 use crate::provider::{ModelResponse, ToolUse};
+use crate::catalog::TokenRates;
 use crate::tools_defer::board::Miss;
+use crate::tools_defer::budget::{self, Fit};
+use crate::tools_defer::select::Selection;
 use crate::tools_defer::{self, scan, Deferral, Mechanism, PlaceKind};
 
 impl TurnRunner {
@@ -70,13 +73,8 @@ impl TurnRunner {
         if !cfg.enabled {
             return None;
         }
-        let mechanism = match self.catalog.get(&spec.model) {
-            Some(e) if e.tool_search => Mechanism::Search,
-            _ => Mechanism::Find,
-        };
+        let mechanism = self.mechanism_of(&spec.model);
         let known = tools_defer::families_of(&spec.tools);
-        let now = self.kernel.now_ms();
-        let board = &self.tools.defer;
         // A conversation in plan mode loads the family that holds the plan's
         // tools (theseus-lyxy), since the refusal in plan mode names one of them.
         let mut extra: BTreeSet<String> = (self.tools.earned.modes.mode_of(sid)
@@ -84,12 +82,13 @@ impl TurnRunner {
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();
-        let mut loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
+        let mut loaded = self.defer_selection(sid, kind, spec, &known, &extra).loaded();
         if mechanism == Mechanism::Find {
-            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded);
+            let system = self.system_tokens(spec).ceil() as u64;
+            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded, system);
             if !wanted.is_empty() {
                 extra.extend(wanted);
-                loaded = board.select(sid, kind, cfg, now, &known, &extra).loaded();
+                loaded = self.defer_selection(sid, kind, spec, &known, &extra).loaded();
             }
         }
         Some(Deferral {
@@ -97,6 +96,80 @@ impl TurnRunner {
             loaded,
             resolved: false,
         })
+    }
+
+    /// The request's system blocks in tokens, at the model's text rate.
+    fn system_tokens(&self, spec: &RequestSpec) -> f64 {
+        let bytes: usize = [
+            &spec.system_text,
+            &spec.persona_text,
+            &spec.context_text,
+            &spec.session_text,
+        ]
+        .iter()
+        .map(|t| t.len())
+        .sum();
+        bytes as f64 / self.model_rates(&spec.model).text
+    }
+
+    /// How the model reaches a tool the request hides.
+    fn mechanism_of(&self, model: &str) -> Mechanism {
+        match self.catalog.get(model) {
+            Some(e) if e.tool_search => Mechanism::Search,
+            _ => Mechanism::Find,
+        }
+    }
+
+    fn model_rates(&self, model: &str) -> TokenRates {
+        self.catalog
+            .get(model)
+            .map_or_else(|| TokenRates::of(model), |e| e.bytes_per_token)
+    }
+
+    /// The families a place kind loads for `spec`'s request: the selector's
+    /// choice, with its learned families held to the place's budget
+    /// (`tools_defer::budget`, theseus-buz3h).
+    pub(crate) fn defer_selection(
+        &self,
+        sid: &str,
+        kind: PlaceKind,
+        spec: &RequestSpec,
+        known: &BTreeSet<String>,
+        extra: &BTreeSet<String>,
+    ) -> Selection {
+        let mut sel = self.tools.defer.select(
+            sid,
+            kind,
+            &self.cfg.tools.defer,
+            self.kernel.now_ms(),
+            known,
+            extra,
+        );
+        let mechanism = self.mechanism_of(&spec.model);
+        let fit = Fit {
+            kind,
+            mechanism,
+            catalog: &spec.tools,
+            system_tokens: self.system_tokens(spec),
+            json_rate: self.model_rates(&spec.model).json,
+        };
+        budget::demote(&mut sel, &fit);
+        sel
+    }
+
+    /// What a fresh session on a kind of place loads, as its first request
+    /// does (`tool.defer` lists it): the budget's demotions included.
+    pub(crate) fn fresh_selection(
+        &self,
+        kind: PlaceKind,
+        live: &str,
+        known: &BTreeSet<String>,
+    ) -> Option<Selection> {
+        let (session, view, sid, _) = self.census_place(None, kind.as_str());
+        let target = self.resolve_target(live, None, None, None).ok()?;
+        let paths = self.cfg.context_paths(target.persona.as_deref());
+        let spec = self.spec_of(&target, session, view, self.context_files.peek(&paths));
+        Some(self.defer_selection(&sid, kind, &spec, known, &BTreeSet::new()))
     }
 
     /// What the loop's compile sent: the families it loaded and the tools it

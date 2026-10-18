@@ -32,9 +32,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "memory",
         "look things up in your memory of past conversations",
     ),
+    ("tasks", "tasks and sub-sessions, and the task graph"),
     (
-        "tasks",
-        "tasks and sub-sessions, wakes and reminders, and the task graph",
+        "reminders",
+        "wake yourself or remind the owner at a time; move or cancel a wake",
     ),
     (
         "routines",
@@ -111,7 +112,8 @@ pub fn of_wire(wire: &str) -> String {
             "fs" | "git" | "text" => "files",
             "job" => "commands",
             "web" | "http" => "web",
-            "task" | "wake" => "tasks",
+            "task" => "tasks",
+            "wake" => "reminders",
             "routine" | "watch" => "routines",
             "thread" => "threads",
             "project" => "projects",
@@ -126,6 +128,13 @@ pub fn of_wire(wire: &str) -> String {
         },
     };
     family.to_string()
+}
+
+/// The family whose use the ledger recorded under another name before a split: a
+/// wake's calls were `tasks`'s until `reminders` took them (theseus-rwpbg.3), so
+/// a default family is not idle for want of rows under its new name.
+pub fn predecessor(family: &str) -> Option<&'static str> {
+    (family == "reminders").then_some("tasks")
 }
 
 /// The family of an AWS tool, by use: the generic call, the catalog and the identity are `aws`.
@@ -242,17 +251,20 @@ impl PlaceKind {
             // its 8,000; a search loads them, and the ledger's use puts them
             // back where a place calls them.
             PlaceKind::Cli => &["memory"],
-            // A person's message: memory, tasks and reminders, the web. Posting
-            // to and reading other places is deferred (theseus-to0xw): a
-            // direct message answers in itself, and the family is 855 tokens
-            // of the DM's 15,000 budget; a search loads it, and the ledger's
-            // use puts it back where a DM calls it in 1 of 10 turns. Routines,
+            // A person's message: memory, reminders, the web. The task tools
+            // (about 4,300 tokens) are deferred (the owner's rule, 2026-10-14:
+            // no call in 30 days; a search or the ledger's use loads them);
+            // `wake_at` had one call. Posting to and reading other places is
+            // deferred (theseus-to0xw): a direct message answers in itself, and
+            // the family is 855 tokens of the DM's 15,000 budget; a search loads
+            // it, and the ledger's use puts it back where a DM calls it in 1 of
+            // 10 turns. Routines,
             // watches and threads are deferred the same way (2026-10-15, the
             // owner's "Go for it!"): `routine_create`, `watch` and
             // `thread_read` had no call in 30 days across every session
             // (install #30's census), 1,167 tokens of the DM's request.
-            PlaceKind::Dm => &["memory", "tasks", "web"],
-            PlaceKind::Channel => &["memory", "tasks", "web", "channels"],
+            PlaceKind::Dm => &["memory", "reminders", "web"],
+            PlaceKind::Channel => &["memory", "tasks", "reminders", "web", "channels"],
             // A task's session works: the files and commands. Its wakes and
             // sub-tasks, and the language servers, load once its place kind
             // has used them.

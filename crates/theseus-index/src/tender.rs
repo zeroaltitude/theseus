@@ -22,7 +22,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
-use theseus_follow::{Cursor, FollowError, Kicker, Stop, Waker, WalFollower};
+use theseus_follow::{Cursor, FollowError, Kicker, Stop, Wake, Waker, WalFollower};
 use theseus_store::{kinds, wal, Record};
 
 use crate::engine::{self, Engine, Writer, SCHEMA_VERSION, SOURCES};
@@ -33,6 +33,13 @@ use crate::proto::{
 };
 use crate::state::{self, Lock, Paths, Places, Saved, CURSOR_FORMAT};
 use crate::vectors::{text_hash, NodeChunks, VectorConfig, Vectors};
+
+/// How long a caught-up tender waits after a commit before it reads on, so the
+/// frames of one burst (a loop's four, a tool call's) share one commit, one
+/// cursor write and one reader reload. Long enough to span a burst, which the
+/// writer lands in a few milliseconds; short enough that a node is searchable
+/// well inside the next turn's recall.
+pub const COALESCE: Duration = Duration::from_millis(200);
 
 /// How long `index.forget` waits for the ingest thread.
 const FORGET_WAIT: Duration = Duration::from_secs(60);
@@ -813,17 +820,33 @@ impl Tender {
                 }
             }
             self.serve_forgets();
-            let more = match self.step() {
-                Ok(s) => s.stop == Stop::Budget,
+            let (more, committed) = match self.step() {
+                Ok(s) => (s.stop == Stop::Budget, s.committed),
                 Err(e) => {
                     self.stalled(&e);
-                    false
+                    (false, false)
                 }
             };
-            if !more {
+            if !more && committed {
+                // Caught up and just committed: let the burst's other frames
+                // land, then read them together (the window's wakes are taken
+                // here, so the loop reads again rather than waiting).
+                self.coalesce();
+            } else if !more {
                 self.waker
                     .wait(self.cfg.backstop)
                     .context("waiting on the WAL")?;
+            }
+        }
+    }
+
+    /// Wait out [`COALESCE`], ending early for a kick: a stop, a rebuild or a
+    /// forget.
+    fn coalesce(&mut self) {
+        let until = Instant::now() + COALESCE;
+        while let Some(left) = until.checked_duration_since(Instant::now()) {
+            if !matches!(self.waker.wait(left), Ok(Wake::Changed | Wake::Timer)) {
+                return;
             }
         }
     }

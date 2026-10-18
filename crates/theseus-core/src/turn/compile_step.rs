@@ -161,6 +161,8 @@ impl TurnRunner {
         }
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
+        // `compiled.digest` is the request before this tail rides its last block, and stays so:
+        // the own-benchmark's rebuild reproduces the request from the record without the tail.
         let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));

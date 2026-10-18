@@ -20,7 +20,7 @@ pub const MIN_TURNS: u32 = 10;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Day {
     pub turns: u32,
-    /// Turns in which the family was called or searched for.
+    /// Turns in which the family was called (a search is `searched`, not use).
     pub used: BTreeMap<String, u32>,
     /// Turns in which the family was loaded.
     pub loaded: BTreeMap<String, u32>,
@@ -37,7 +37,7 @@ pub struct Day {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Stats {
     pub days: BTreeMap<u64, Day>,
-    /// When each family was last used (a call, or a search for it).
+    /// When each family was last called.
     pub last_used: BTreeMap<String, u64>,
     /// The earliest row: how long the ledger has watched this kind.
     pub first_ms: Option<u64>,
@@ -96,11 +96,17 @@ pub enum Why {
     Unused { days: u64 },
     /// Not a default, and not used enough: deferred.
     Deferred,
+    /// Used enough to be learned, but the place's budget has no room for it: a
+    /// search away (`budget::demote`, theseus-buz3h).
+    OverBudget { share: f64 },
 }
 
 impl Why {
     pub fn loads(&self) -> bool {
-        !matches!(self, Why::Unused { .. } | Why::Deferred)
+        !matches!(
+            self,
+            Why::Unused { .. } | Why::Deferred | Why::OverBudget { .. }
+        )
     }
 
     pub fn words(&self) -> String {
@@ -112,6 +118,10 @@ impl Why {
             Why::Extra => "offered for this message".into(),
             Why::Unused { days } => format!("unused for {days} days"),
             Why::Deferred => "deferred".into(),
+            Why::OverBudget { share } => format!(
+                "used in {:.0}% of turns, deferred: over the place's budget",
+                share * 100.0
+            ),
         }
     }
 }
@@ -171,7 +181,8 @@ pub fn select(
                 share: f64::from(used[fam]) / f64::from(turns),
             }
         } else if defaults.contains(&fam.as_str()) {
-            let last = stats.and_then(|s| s.last_used.get(fam)).copied();
+            let last_of = |f: &str| stats.and_then(|s| s.last_used.get(f)).copied();
+            let last = last_of(fam).max(family::predecessor(fam).and_then(last_of));
             let idle = last.is_none_or(|l| l < hide_from);
             if watched && recent_turns >= MIN_TURNS && idle {
                 let since = last.or(stats.and_then(|s| s.first_ms)).unwrap_or(now_ms);

@@ -22,7 +22,7 @@
 //! turn's row (`tools.used`) feeds the next selection.
 //!
 //! The module's parts: `family` (the families and place kinds), `select`
-//! (the pure choice), `want` (the families a message names, for a model
+//! (the pure choice), `budget` (a learned family held to the place's budget), `want` (the families a message names, for a model
 //! without tool search), `board` (the counts and the conversations' notes, in
 //! memory), `find` (the fallback tool and the words), `scan` (a response's
 //! searches), and `warm` (the ledger read after serving).
@@ -35,6 +35,7 @@ use serde_json::{json, Value};
 use crate::compiler::{CompileInput, RequestSpec};
 
 pub mod board;
+pub mod budget;
 pub mod family;
 pub mod find;
 pub mod list;

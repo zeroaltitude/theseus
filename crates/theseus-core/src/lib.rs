@@ -516,6 +516,8 @@ mod tests_wait_cost;
 #[cfg(test)]
 mod tests_wakes;
 #[cfg(test)]
+mod tests_trim_tokens;
+#[cfg(test)]
 mod tests_web_offer;
 #[cfg(test)]
 mod tests_work;

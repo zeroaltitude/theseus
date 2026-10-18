@@ -4,7 +4,10 @@
 //! conversation a person talks in ends, the daemon sends one request every
 //! `[cache] keep_warm_minutes` that reads the prefix and so restarts its
 //! entry's hour, for up to the profile's `keep_warm_hours` after the
-//! session's last message. The next message then reads the prefix (0.025x of
+//! session's last message, or the model's break-even if that is sooner
+//! (`break_even_hours`: a read costs the cache-read price, a rewrite one
+//! 1-hour write, so reads past `write_1h / read x keep_warm_minutes` cost
+//! more than the rewrite they avoid). The next message then reads the prefix (0.025x of
 //! input on Fable 5.1) instead of writing it whole again (2x).
 //!
 //! **The request** is the session's next compile, made as its next turn
@@ -318,6 +321,16 @@ impl KeepWarm {
     }
 }
 
+/// How long after a message reads every `minutes` cost no more than the one
+/// 1-hour rewrite they avoid: `(write_1h / read) x minutes`, from the entry's
+/// prices. Past it the next message is cheaper to pay a rewrite for, so the
+/// window closes there (never later than the profile's `keep_warm_hours`).
+/// None for a model priced no read or no write: its window stays as set.
+pub(crate) fn break_even_hours(e: &crate::catalog::CatalogEntry, minutes: f64) -> Option<f64> {
+    (e.cache_read_per_mtok > 0.0 && e.cache_write_1h_per_mtok > 0.0)
+        .then(|| e.cache_write_1h_per_mtok / e.cache_read_per_mtok * minutes / 60.0)
+}
+
 /// Today's local date, as the day ceiling names it.
 pub fn today(kernel: &theseus_kernel::Kernel) -> String {
     let c = kernel.day_ceiling();
@@ -522,6 +535,11 @@ impl TurnRunner {
             .get(&b.target.profile)
             .map_or(0.0, |p| p.keep_warm_hours());
         let hours = thread_hours.map_or(hours, |t| hours.min(t));
+        let hours = self
+            .catalog
+            .get(&b.target.model)
+            .and_then(|e| break_even_hours(e, self.cfg.cache.keep_warm_minutes))
+            .map_or(hours, |be| hours.min(be));
         let window = Duration::from_secs_f64(hours * 3600.0);
         if kw.since_message(session_id).is_none_or(|ago| ago >= window) {
             kw.forget(session_id);
