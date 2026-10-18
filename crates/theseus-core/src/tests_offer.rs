@@ -213,13 +213,15 @@ fn posts_of(r: &Rig, place: &str, kind: &str) -> Vec<Value> {
 async fn a_batch_that_lands_after_the_reply_posts_the_offer_late() {
     let jev = FakeJev::start().unwrap();
     offer(&jev, 0.95);
-    jev.set_latency(SLOW_BATCH, SLOW_BATCH);
-    let r = rig(&jev, crate::tests_judge::texts(1), false);
+    jev.set_latency(SLOW_BATCH, LATE_BATCH);
+    let r = rig_with(&jev, crate::tests_judge::texts(1), false, |c| {
+        c.judge.total_secs = 5;
+    });
     let body = reply(&r, "dm:42", LATER).await;
     assert!(body.get("offer").is_none(), "{body}");
     assert!(posts_of(&r, "dm:42", "offer").is_empty(), "nothing yet");
     let turn = body["turn_id"].as_str().unwrap().to_string();
-    for _ in 0..200 {
+    for _ in 0..400 {
         if !posts_of(&r, "dm:42", "offer").is_empty() {
             break;
         }
@@ -271,3 +273,7 @@ async fn a_turn_that_made_a_task_gets_no_late_offer() {
 
 const SOON: std::time::Duration = std::time::Duration::from_millis(10);
 const SLOW_BATCH: std::time::Duration = std::time::Duration::from_millis(850);
+/// The late-offer test's batch: past the reply even on a loaded machine (a
+/// gate's reply took 1,053 ms beside an 850 ms batch, which then rode it),
+/// under that test's 5 s judge budget (the rig's is 1 s).
+const LATE_BATCH: std::time::Duration = std::time::Duration::from_millis(2_500);
