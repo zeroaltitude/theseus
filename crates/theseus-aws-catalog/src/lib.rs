@@ -119,11 +119,6 @@ impl ServiceEntry {
             raw_len: r.u32()?,
         })
     }
-
-    /// The service's compressed size in the catalog.
-    pub fn compressed_len(&self) -> usize {
-        self.len as usize
-    }
 }
 
 /// The catalog: an index of services, and their blobs, decoded on demand.

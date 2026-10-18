@@ -178,15 +178,6 @@ impl Client {
         }
     }
 
-    /// A client over another catalog (a test's).
-    pub fn with_catalog(config: ClientConfig, catalog: &'static Catalog) -> Client {
-        Client {
-            http: OnceLock::new(),
-            catalog: Some(catalog),
-            config,
-        }
-    }
-
     /// The catalog, its index decoded on the first use.
     pub fn catalog(&self) -> Result<&'static Catalog, CallError> {
         match self.catalog {

@@ -1047,13 +1047,6 @@ impl FakeCore {
         }
     }
 
-    pub fn set_turn(&self, turn: Duration) {
-        self.turn_ms.store(
-            u64::try_from(turn.as_millis()).unwrap_or(u64::MAX),
-            Ordering::Relaxed,
-        );
-    }
-
     /// Each session's label (`mcp <client>`, then the client's label).
     pub fn labels(&self) -> Vec<String> {
         let st = lock(&self.state);

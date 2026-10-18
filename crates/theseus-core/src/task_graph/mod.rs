@@ -363,11 +363,6 @@ pub fn line(t: &TaskRecord) -> String {
     out
 }
 
-/// How many tasks are open.
-pub fn open_count(tasks: &[TaskRecord]) -> u32 {
-    tasks.iter().filter(|t| !t.state.is_closed()).count() as u32
-}
-
 /// What a session's principal is: its execution's authority, else the
 /// operator.
 pub fn principal_of(kernel: &theseus_kernel::Kernel, execution_id: &str) -> String {

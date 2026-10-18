@@ -47,7 +47,7 @@
 //!   control) and guards on the per-task one. Its four answers are
 //!   `insufficient`, `canary_better`, `canary_worse`, `no_difference`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -711,13 +711,4 @@ pub fn markdown(r: &Report) -> String {
         diff(&r.completions_per_usd_diff, 3)
     );
     s
-}
-
-/// A summary of the input's shape, for the binary: how many tasks per arm.
-pub fn arm_counts(records: &[TaskRecord]) -> BTreeMap<&'static str, usize> {
-    let mut m = BTreeMap::new();
-    for r in records {
-        *m.entry(r.arm.as_str()).or_insert(0) += 1;
-    }
-    m
 }

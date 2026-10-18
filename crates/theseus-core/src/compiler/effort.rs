@@ -75,13 +75,6 @@ pub fn refused_by(req: &ProviderRequest, class: &str, error: &str) -> bool {
         && req.messages.iter().any(|m| level_of(m).is_some())
 }
 
-/// The request without its effort-only messages and their beta: what a model
-/// that refuses them is sent, its level the top-level one.
-pub fn without_messages(req: &mut ProviderRequest) {
-    req.messages.retain(|m| level_of(m).is_none());
-    sync_beta(req);
-}
-
 /// A request's `output_config`: its effort, for a model whose catalog row
 /// takes effort (route.v3 sets it after the first compile, theseus-qe3v). A
 /// model that thinks implicitly (GLM, DeepSeek) documents three levels, low,

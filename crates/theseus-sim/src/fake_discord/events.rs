@@ -78,27 +78,6 @@ impl FakeDiscord {
         self.state.lock().unwrap().refuse_events = refuse;
     }
 
-    /// Put an event the bot did not make in the guild (a person's own), so
-    /// the mirror's room is counted against it.
-    pub fn add_foreign_event(&self, name: &str) -> u64 {
-        let mut st = self.state.lock().unwrap();
-        st.next_event += 1;
-        let id = st.next_event;
-        let guild = st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id);
-        st.events.push(FakeEvent {
-            id,
-            guild,
-            name: name.into(),
-            description: String::new(),
-            location: "elsewhere".into(),
-            starts: "2099-01-01T00:00:00+00:00".into(),
-            ends: "2099-01-01T01:00:00+00:00".into(),
-            status: 1,
-            history: vec!["create".into()],
-        });
-        id
-    }
-
     /// `/guilds/<g>/scheduled-events[/<id>]`.
     pub(super) fn event_route(
         &self,

@@ -56,10 +56,6 @@ pub const PLAN_STEP: &str = "plan.step";
 /// own, apart from a place's.
 pub const REFUSAL: &str = "plan mode: read-only";
 
-/// What `plan_present`'s approval answers in the key its question offers
-/// besides a plain yes: the plan, and then edits for the conversation.
-pub const PICK_EDITS: &str = "edits";
-
 /// The modes in force, per session, in memory.
 #[derive(Default)]
 pub struct Modes {
