@@ -879,6 +879,10 @@ impl Watch {
             }
             (Purpose::Turn(text), Some(e)) if self.of_task.is_some() && task_is_over(&e) => {
                 self.to_main = Some(text);
+                // The ended task sends no further view to clear "sending".
+                if let Some(rep) = &mut self.reporter {
+                    rep.restore();
+                }
             }
             (Purpose::Main, Some(e)) => {
                 self.printer.settle();

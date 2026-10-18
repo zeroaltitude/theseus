@@ -1644,3 +1644,60 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
 }
+
+/// theseus-ypnxt.3's join: a line typed in an ended task's pane goes to the conversation that
+/// started it, and the pane's label goes back to what the task's last view said; it was left
+/// "working · sending your message" for good, since an ended task sends no further view.
+#[test]
+fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let main = "ses_main0a1b2c";
+    let mut ended = view(30, "complete", "ready", "done", None, 0.4);
+    ended["kind"] = json!("task");
+    let d = FakeDaemon::start(dir.path(), move |req| {
+        let p = &req["params"];
+        let task = json!({"session_id": S, "kind": "task", "label": "task",
+            "title": "Sound the north channel", "parent_session_id": main,
+            "created_at_unix_ms": 1, "turns": 3, "profile": "sonnet"});
+        let parent = json!({"session_id": main, "kind": "conversation", "label": "Harbour log",
+            "created_at_unix_ms": 1, "turns": 2, "profile": "sonnet"});
+        Some(match req["method"].as_str().unwrap() {
+            "session.watch" => Ok(json!({"watching": true})),
+            "session.wait" => Ok(json!({"reached": "settled", "already": true,
+                "execution": ended.clone(), "confirms": []})),
+            "session.list"
+                if p["ids"]
+                    .as_array()
+                    .is_some_and(|i| i.contains(&json!(main))) =>
+            {
+                Ok(json!({"sessions": [parent]}))
+            }
+            "session.list" => Ok(json!({"sessions": [task]})),
+            "turn.submit" if p["session_id"] == S => Err(json!({"code": -32000,
+                "message": "the task is complete", "data": {"class": "execution_complete"}})),
+            "turn.submit" => Ok(json!({"session_id": main, "turn_id": "trn_1", "loops": 1,
+                "output": "Noted.", "stop_reason": "end_turn", "provider_stop_reason": null,
+                "model": "invented-model", "usage": {"input_tokens": 1, "output_tokens": 1},
+                "elapsed_ms": 5})),
+            _ => Ok(json!({})),
+        })
+    });
+    let mut w = Watch::start(&d, Some(&herdr), &["--interactive"]);
+    herdr.wait_for("pane.report_agent", 1);
+    w.type_line("hello");
+    d.wait_for("turn.submit", 2);
+    w.wait_err("main › Noted.", 1);
+    herdr.wait_for("pane.report_agent", 3);
+    drop(w.child.stdin.take());
+    herdr.wait_for("pane.release_agent", 1);
+    let (code, err) = w.finish();
+    assert_eq!(code, 0, "{err}");
+    let got = reports(&herdr.requests());
+    assert_eq!(got[1], rep("working", "sending your message"), "{got:?}");
+    assert_eq!(
+        got.last(),
+        got.first(),
+        "back to the last view's label: {got:?}"
+    );
+}
