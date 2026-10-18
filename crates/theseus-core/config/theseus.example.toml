@@ -36,7 +36,10 @@
 narrative = true
 
 # ---------------------------------------------------------------- model
-# The implicit "default" profile is built from this section. `live` names the
+# The defaults every profile inherits: a profile that leaves a setting out takes
+# this section's (provider, max_output_tokens, system, effort, thinking_display,
+# max_loops, max_loops_mode, refusal_fallbacks, cache_ttl, keep_warm_hours), and the
+# implicit "default" profile is built from it. `live` names the
 # profile that is live at startup; a runtime switch (`theseus profile use`)
 # persists in the store and wins over this value on restart.
 [model]
@@ -57,7 +60,7 @@ max_loops = 40                          # tool loops per turn before a notice (o
 # session's place at max_loops, and one at each multiple of it, and the turn
 # goes on until the model stops calling tools or you stop it (`theseus stop`,
 # `/stop`, the cockpit's Stop). "end" ends the turn there, as before. Each
-# profile has its own; this is the default profile's.
+# profile may set its own; this is the default every profile inherits.
 max_loops_mode = "notify"               # notify | end
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
 # cache_ttl = "1h"                      # 5m (the default) | 1h; every profile that says none inherits it; see [profiles.sonnet]

@@ -35,12 +35,17 @@ pub fn sparse_note(text: &str) -> Result<String> {
 }
 
 /// The config as it acts, to compare two by: every setting it prints, and
-/// the catalog as the code's rows with the config's tables over them.
+/// the catalog as the code's rows with the config's tables over them, and the profiles resolved.
 fn acting(cfg: &Config) -> Result<toml::Value> {
     let mut v = toml::Value::try_from(cfg)?;
     let catalog = crate::catalog::Catalog::with_overrides(&cfg.catalog);
     if let Some(t) = v.as_table_mut() {
         t.insert("catalog".into(), toml::Value::try_from(catalog)?);
+        // A profile as it resolves, not as written: a key it restates from `[model]` changes nothing.
+        t.insert(
+            "profiles".into(),
+            toml::Value::try_from(&cfg.resolved.profiles)?,
+        );
     }
     Ok(v)
 }
