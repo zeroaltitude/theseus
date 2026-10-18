@@ -315,28 +315,28 @@ async fn a_late_offer_changes_nothing_for_an_unknown_or_a_chipped_or_a_shared_re
 }
 
 /// The replies a late offer can join are a private place's alone (the join's
-/// fix): sixteen shared-place replies after a DM's do not push the DM's out
-/// of the list, so its late offer still adds the button.
+/// fix): sixteen replies in the open (shared) channel after a DM's do not
+/// push the DM's out of the list, so its late offer still adds the button.
 #[tokio::test]
 async fn shared_replies_never_push_a_dms_reply_out_of_a_late_offers_reach() {
     let r = offer_rig().await;
     let m = plain_reply(&r).await;
-    let lab = r
+    let open = r
         .core
         .outbox
-        .place_session(&format!("channel:{LAB}"))
+        .place_session(&format!("channel:{OPEN}"))
         .unwrap()
         .unwrap();
     for i in 0..16 {
-        let node = assistant(&r.core, &lab, &format!("Shared reply {i}."));
-        let body = reply_body(&format!("turn_shared_{i}"), &node, &lab, vec![]);
+        let node = assistant(&r.core, &open, &format!("Shared reply {i}."));
+        let body = reply_body(&format!("turn_shared_{i}"), &node, &open, vec![]);
         r.core
             .outbox
-            .post(&lab, "", &format!("discord:channel:{LAB}"), body)
+            .post(&open, "", &format!("discord:channel:{OPEN}"), body)
             .unwrap();
     }
     r.until("the sixteen shared replies", || {
-        r.posted(LAB)
+        r.posted(OPEN)
             .iter()
             .filter(|x| x.content.contains("Shared reply"))
             .count()
