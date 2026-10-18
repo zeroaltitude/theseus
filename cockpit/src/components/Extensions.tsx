@@ -68,7 +68,7 @@ function Proposal({ e, now }: { e: ExtendInfo; now: number }) {
       <Pill tone={stateTone(e.state)}>{e.state}</Pill>{' '}
       <span className="text-[11px] text-ink-dim">
         {e.passed} of {e.tests} tests · {networkWords(e.network)} · {ago(e.proposed_at_ms, now)}
-        {e.state === 'proposed' && e.question && ` · theseus confirm ${e.question}`}
+        {e.state === 'proposed' && e.question && ` · theseus answer ${e.question} approve`}
       </span>
     </Field>
   )
