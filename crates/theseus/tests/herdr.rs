@@ -841,7 +841,7 @@ fn a_task_is_named_by_its_title_not_its_label() {
     assert_eq!(code, 0, "{err}");
     // A task's pane says whose it is and the keys that leave it (theseus-m638c).
     assert!(
-        err.contains("── ⚙ task q7f3k2 · prefix+m main · prefix+i inspect ──"),
+        err.contains("── ⚙ task q7f3k2 · prefix+m main · prefix+i inspect · prefix+p pause ──"),
         "{err}"
     );
 }

@@ -176,3 +176,25 @@ fn the_inspect_popup_and_the_main_key_run_their_commands() {
     assert!(keys.contains(&("prefix+m", "theseus.main")));
     assert!(keys.contains(&("prefix+i", "theseus.inspect")));
 }
+
+/// prefix+p is bound in the snippet, and its action runs the hidden helper with the focused pane.
+#[test]
+fn the_pause_key_runs_the_pause_helper() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contrib/herdr/theseus/herdr-plugin.toml");
+    let m: toml::Table = std::fs::read_to_string(path).unwrap().parse().unwrap();
+    let action = m["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"].as_str() == Some("pause"))
+        .unwrap();
+    assert_eq!(
+        action["command"][2].as_str(),
+        Some("exec theseus herdr pause ${HERDR_ACTIVE_PANE_ID:+--pane \"$HERDR_ACTIVE_PANE_ID\"}")
+    );
+    let keys: Vec<_> = KEYS.iter().map(|k| (k.key, k.action)).collect();
+    assert!(keys.contains(&("prefix+p", "theseus.pause")));
+    assert!(snippet()
+        .contains("key = \"prefix+p\"\ntype = \"plugin_action\"\ncommand = \"theseus.pause\""));
+}

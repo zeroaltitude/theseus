@@ -95,6 +95,15 @@ pub enum HerdrCmd {
         #[arg(long, value_name = "PATH")]
         herdr_socket: Option<PathBuf>,
     },
+    /// prefix+p: pause the task a pane shows, or resume it when it is held.
+    #[command(hide = true)]
+    Pause {
+        #[arg(long, value_name = "PANE")]
+        pane: String,
+        /// herdr's API socket (as `sync`).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<PathBuf>,
+    },
     /// Focus the `main` tab, the conversation a task came from (made the first time).
     Main {
         /// herdr's API socket (as `sync`).
@@ -386,6 +395,9 @@ pub async fn run(
             yes,
             herdr_socket,
         } => return crate::herdr_keys::stop(conn, json, &pane, herdr_socket, yes).await,
+        HerdrCmd::Pause { pane, herdr_socket } => {
+            return crate::herdr_keys::pause(conn, &pane, herdr_socket).await
+        }
         HerdrCmd::Up(_) => {
             bail!("`herdr up` connects for itself (main sends it before the connection)")
         }

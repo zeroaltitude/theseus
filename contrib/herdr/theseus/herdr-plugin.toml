@@ -62,6 +62,12 @@ description = "Read the focused task's transcript and live stream, without joini
 command = ["sh", "-c", 'exec theseus herdr popup inspect ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
 
 [[actions]]
+id = "pause"
+title = "Theseus: pause"
+description = "Pause the focused task at its next step, or resume it when it is held"
+command = ["sh", "-c", 'exec theseus herdr pause ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+
+[[actions]]
 id = "open-link"
 title = "Theseus: open a link"
 description = "What a click on a theseus:// link under a question opens (the card; never an answer)"

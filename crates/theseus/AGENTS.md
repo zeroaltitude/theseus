@@ -358,17 +358,17 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (`y`, `t`, `n`, `1`..`6`; words decline with a note), `card` words it, and an answer is one `work.answer` with author `herdr`;
   a `confirm.resolved` for the shown question says it was answered elsewhere. `herdr next` focuses the oldest question's pane
   (`agent.focus`), `herdr stop --pane P` asks y/N then runs `cancel` (a task) or `stop` (a conversation), `herdr popup NAME`
-  opens one of the plugin's popup panes by `plugin.pane.open` (ids only in its environment), `herdr link URL` is the link
+  opens one of the plugin's popup panes by `plugin.pane.open` (ids only in its environment), `herdr pause --pane P` (prefix+p, hidden: `hold_for` reads the pane's task and the board's `paused`, then one `task.pause` or `task.resume`) holds or releases the pane's task, `herdr link URL` is the link
   handler (`parse_link` reads `theseus://answer|history|open/<id>` strictly; a click opens the card, never answers),
   `herdr plugin` prints the plugin's path and the one `herdr plugin link` command, and `herdr setup [--config FILE]` prints the
   config snippet and lists what a config lacks, read only. `links_under` prints the OSC 8 links under a question in
-  `interactive.rs`, only when `HERDR_ENV=1`. The commands that need no daemon connection first (`answer`, `plugin`, `setup`,
+  `interactive.rs`, only when `HERDR_ENV=1`. A pane (`watch --interactive`) answers every question it shows (theseus-ypnxt.3): a plain approval as `action.confirm`, a question with options (`owner_ask`) numbered `1`..`6` by `interactive/ask.rs` and answered with `work.answer` (a number is `choice:N`, other words `choice:other` with the words as the note, a `y` or a number out of range sends nothing and says the keys), and a line typed after its task ended goes to the parent session with `task_redirect_line`, not as "not sent" (a bare answer word still is not sent). Tests: `tests/pane_answers.rs`. The commands that need no daemon connection first (`answer`, `plugin`, `setup`,
   `popup`, `link`) run before `main`'s connect (`HerdrCmd::is_own`). The manifest, the snippet, the link pattern and the reporter's
   tokens are tied by one test (`herdr_setup_tests.rs`). The operator's guide is `docs/herdr.md`. Tests: the three `*_tests.rs`
   files and `tests/herdr_answer.rs` (a scripted daemon and a fake herdr).
 - `src/herdr_main.rs` (theseus-m638c): `theseus herdr main` (prefix+m) focuses the workspace's `main` tab (kind token `main`, argv
   `theseus --socket S chat`), making it the first time and never twice; `task_header` is the line a task's pane prints (the parent
-  and the two keys, read from `herdr_setup::KEYS`). prefix+i is `herdr popup inspect --pane P`: `inspect_for` takes the focused
+  and the three keys, main, inspect and pause, read from `herdr_setup::KEYS`). prefix+i is `herdr popup inspect --pane P`: `inspect_for` takes the focused
   task pane's session, and the popup runs `theseus chat --task S --inspect` (the chat flags are another row's). Tests:
   `tests/herdr_main.rs`, the unit tests in both files.
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every

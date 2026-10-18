@@ -1,6 +1,6 @@
 //! The commands the Theseus herdr plugin's keys and link handler run (theseus-pkaq):
 //! `theseus herdr next` (focus the task that has waited longest), `stop` (ask y/N, then stop what
-//! the pane shows), `plugin` (where the plugin is, and the one command that links it), `popup`
+//! the pane shows), `pause` (prefix+p: hold the pane's task, or let it go on), `plugin` (where the plugin is, and the one command that links it), `popup`
 //! (open one of the plugin's popup panes through herdr's API) and `link` (what a click on a
 //! `theseus://` link opens). The answer card is `herdr_answer.rs`; the config snippet is
 //! `herdr_setup.rs`. Nothing here is resident: each command starts on a key and ends.
@@ -10,7 +10,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use theseus_client::Conn;
-use theseus_protocol::{method, ConfirmListResult, ConfirmRequest};
+use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
+use theseus_protocol::work::{WorkKind, WorkView};
+use theseus_protocol::{
+    method, ConfirmListResult, ConfirmRequest, WorkWatchParams, WorkWatchResult,
+};
 
 use crate::herdr;
 
@@ -238,6 +242,76 @@ pub async fn stop(
         Stop::Cancel(id) => crate::cmd::cancel(conn, json, id).await,
         Stop::Halt(session) => crate::cmd::stop(conn, json, session, false).await,
     }
+}
+
+/// What prefix+p calls for a task: its pause when it works, its resume when it is held.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hold {
+    pub method: &'static str,
+    pub task: String,
+    pub name: String,
+}
+
+/// The call prefix+p makes for the task a pane shows (its `kind` and `session` tokens), read from
+/// the board's view of it: `paused` there says to resume, otherwise to pause. A pane that shows no
+/// task, a task the board lacks and one that is over have nothing to hold, and the error says so.
+pub fn hold_for(tokens: &Value, views: &[WorkView]) -> Result<Hold> {
+    let Some(session) = inspect_for(tokens) else {
+        bail!("this pane does not show a task: nothing to pause");
+    };
+    let Some(v) = views
+        .iter()
+        .find(|v| v.kind == WorkKind::Task && v.session_id.as_deref() == Some(session.as_str()))
+    else {
+        bail!("the board has no task {session}: nothing to pause");
+    };
+    if v.state.ended() {
+        bail!("task {} is over: nothing to pause", v.title);
+    }
+    Ok(Hold {
+        method: if v.paused {
+            method::TASK_RESUME
+        } else {
+            method::TASK_PAUSE
+        },
+        task: session,
+        name: v.title.clone(),
+    })
+}
+
+/// `theseus herdr pause --pane P` (prefix+p): `task.pause` for the task the pane shows, or
+/// `task.resume` when the board says it is held. It prints one line, which herdr shows.
+pub async fn pause(conn: &mut Conn, pane: &str, herdr_socket: Option<PathBuf>) -> Result<()> {
+    let socket = herdr_socket_or_default(herdr_socket)?;
+    let v = herdr::request(
+        &socket,
+        "theseus:keys:pane",
+        "pane.get",
+        json!({ "pane_id": pane }),
+    )
+    .await?;
+    let tokens = v.pointer("/pane/tokens").cloned().unwrap_or(Value::Null);
+    let board: WorkWatchResult = serde_json::from_value(
+        conn.request(method::WORK_WATCH, WorkWatchParams::default())
+            .await?,
+    )?;
+    let hold = hold_for(&tokens, &board.views)?;
+    let params = TaskPauseParams {
+        task: hold.task.clone(),
+        author: Some(crate::herdr_answer::AUTHOR.to_string()),
+        discord: None,
+    };
+    let done: TaskPauseResult = serde_json::from_value(conn.request(hold.method, params).await?)?;
+    println!(
+        "{}",
+        match (done.paused, done.changed) {
+            (true, true) => format!("paused {}: it parks at its next step", hold.name),
+            (true, false) => format!("{} was paused already", hold.name),
+            (false, true) => format!("resumed {}", hold.name),
+            (false, false) => format!("{} was running already", hold.name),
+        }
+    );
+    Ok(())
 }
 
 /// herdr's socket: the one named, else `$HERDR_SOCKET_PATH`, else herdr's own.
