@@ -902,7 +902,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   format-33 samples.
 - **Self-improvement's spine** (theseus-pw1q.2, theseus-pw1q.4; off by default): `rsi/`. `rsi::gate(&ctx)` is the
   one question every self step asks before it starts and between its phases: `Off` while `[self] mode = "off"`
-  (`config/rsi.rs`, read at the start), `Halted` while the kill switch is on (whatever the mode; a store never
+  (`config/self_improve.rs`, read at the start), `Halted` while the kill switch is on (whatever the mode; a store never
   resumed is halted, so `"act"` alone starts nothing), else `Allowed`. One read of a cached state: the META record
   `self.switch`, read at the first ask and kept by the moves (`rsi::Switch`, `Core.rsi`); unreadable is halted.
   `self.halt` is anyone's and idempotent; `self.resume` is `judge_act(Act::SelfResume)` (the owner from any place:
@@ -925,7 +925,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Option` test. Mode off: every call refuses, reads and writes nothing. Tests: `rsi/tests_budget.rs`, `tests_self_budget.rs`.
   **Sealed holdout sets** (theseus-pw1q.5; the hard keel: Theseus gets a score, never an item): `[self] sealed_dir`
   (unset: none; checked at load to sit outside every root, `cwd`, the state dir, the repository and `[sandbox]
-  ro_paths`, neither inside nor holding one: `config/rsi.rs`). `rsi/sealed.rs`: `Sealed::put(set, family, bytes) ->
+  ro_paths`, neither inside nor holding one: `config/self_improve.rs`). `rsi/sealed.rs`: `Sealed::put(set, family, bytes) ->
   ItemId` (a keyed hash; write-only, no call returns an item) and `score(set, &dyn Runner) -> Scores` (per-family
   counts and rates, cost, an opaque keyed id per failure), reached by `Core::sealed_put` (which writes the
   `self.exam.counted` row, `sealed: true`, with the id alone) and `sealed_score`. The item is `{"v":1,"task","check",

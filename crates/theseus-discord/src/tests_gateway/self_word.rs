@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use theseus_core::config::rsi::SelfMode;
+use theseus_core::config::self_improve::SelfMode;
 use theseus_core::ledger::LedgerRow;
 use theseus_core::provider::{FakeProvider, Provider};
 use theseus_protocol::LedgerKind;

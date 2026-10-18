@@ -40,7 +40,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_data;
-pub mod rsi;
+pub mod self_improve;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
 mod persona_settings;
@@ -228,10 +228,10 @@ pub struct Config {
     /// in `config/import.rs`.
     #[serde(default, skip_serializing_if = "import::ImportConfig::is_default")]
     pub import: import::ImportConfig,
-    /// `[self]`: self-improvement, off by default (theseus-pw1q), in `config/rsi.rs`.
+    /// `[self]`: self-improvement, off by default (theseus-pw1q), in `config/self_improve.rs`.
     #[serde(default, rename = "self")]
-    #[serde(skip_serializing_if = "rsi::SelfConfig::is_default")]
-    pub self_improve: rsi::SelfConfig,
+    #[serde(skip_serializing_if = "self_improve::SelfImproveConfig::is_default")]
+    pub self_improve: self_improve::SelfImproveConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
