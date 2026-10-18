@@ -362,3 +362,42 @@ fn the_config_names_the_guard_and_the_store() {
     assert!(!guard_of(&cfg).unwrap().is_none());
     assert!(open(&cfg).is_some());
 }
+
+/// The strings of the first tuple `name = (` .. `)` in the keel guard's source.
+fn guard_tuple(src: &str, name: &str) -> Vec<String> {
+    let after = src
+        .split_once(&format!("\n{name} = ("))
+        .unwrap_or_else(|| panic!("scripts/keel-guard.py has no {name}"))
+        .1;
+    let body = after.split_once("\n)").map_or(after, |(b, _)| b);
+    let body = body.split_once(')').map_or(body, |(b, _)| b);
+    body.split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn the_keel_guard_holds_every_keel_path() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let src = std::fs::read_to_string(root.join("scripts/keel-guard.py")).unwrap();
+    let files = guard_tuple(&src, "KEEL_FILES");
+    let prefixes = guard_tuple(&src, "KEEL_PREFIXES");
+    assert!(!files.is_empty() && !prefixes.is_empty(), "{files:?}");
+    let missing: Vec<&str> = KEEL_PATHS
+        .iter()
+        .copied()
+        .filter(|p| {
+            if p.ends_with('/') {
+                !prefixes.iter().any(|k| k == p)
+            } else {
+                !files.iter().any(|k| k == p)
+            }
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "scripts/keel-guard.py's KEEL_FILES / KEEL_PREFIXES lack: {missing:?}"
+    );
+}

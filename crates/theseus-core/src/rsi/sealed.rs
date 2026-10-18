@@ -59,17 +59,22 @@ pub const MAX_ITEM_BYTES: usize = 256 * 1024;
 /// The item layout this build reads.
 pub const ITEM_VERSION: u32 = 1;
 
-/// What the maintainer should hold in the keel guard's `KEEL_FILES`: a change
-/// to the sealed set's code or its tests is the owner's (the hard keel).
+/// What the keel guard holds in its `KEEL_FILES` (a path ending in `/` in its
+/// `KEEL_PREFIXES`): a change to the sealed set's code, its runner and relay,
+/// its tests or the exam set is the owner's (the hard keel). A test in
+/// `sealed/tests.rs` fails when the guard's lists lack one.
 pub const KEEL_PATHS: &[&str] = &[
     "crates/theseus-core/src/rsi/sealed.rs",
     "crates/theseus-core/src/rsi/sealed/check.rs",
     "crates/theseus-core/src/rsi/sealed/filter.rs",
     "crates/theseus-core/src/rsi/sealed/daemon.rs",
+    "crates/theseus-core/src/rsi/sealed/runner.rs",
+    "crates/theseus-core/src/rsi/sealed/relay.rs",
     "crates/theseus-core/src/toolrun/guarded.rs",
     "crates/theseus-core/src/config/self_improve.rs",
     "crates/theseus-core/src/rsi/sealed/tests.rs",
     "crates/theseus-core/src/rsi/sealed/tests_reach.rs",
+    "crates/theseus-exam/exam/",
 ];
 
 /// An item's opaque id: a keyed hash of its bytes. It names an item in the
