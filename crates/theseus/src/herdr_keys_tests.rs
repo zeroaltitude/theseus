@@ -216,3 +216,52 @@ fn inspect_takes_a_tasks_session_and_no_other_pane() {
         None
     );
 }
+
+fn task_view(session: &str, state: &str, paused: bool) -> WorkView {
+    serde_json::from_value(json!({
+        "id": "exe_t1", "kind": "task", "position": 9, "at_ms": 9, "root": "exe_main",
+        "session_id": session, "title": "Sound the north channel", "state": state, "paused": paused,
+        "attention": {"level": "working", "label": "turn 3", "since_ms": 5},
+        "started_at_ms": 1, "state_since_ms": 5
+    }))
+    .unwrap()
+}
+
+/// prefix+p pauses a task that works and resumes one the board says is held, for the task the
+/// pane shows and no other.
+#[test]
+fn pause_toggles_by_what_the_board_says_of_the_panes_task() {
+    let pane = json!({"kind": "task", "session": "ses_task9f2", "task": "9f2"});
+    let running = [
+        task_view("ses_other", "running", true),
+        task_view("ses_task9f2", "running", false),
+    ];
+    let held = [task_view("ses_task9f2", "waiting", true)];
+    let go = hold_for(&pane, &running).unwrap();
+    assert_eq!(
+        (go.method, go.task.as_str(), go.name.as_str()),
+        ("task.pause", "ses_task9f2", "Sound the north channel")
+    );
+    assert_eq!(hold_for(&pane, &held).unwrap().method, "task.resume");
+}
+
+/// A pane that shows no task, a task the board lacks and one that is over have nothing to hold.
+#[test]
+fn pause_holds_nothing_that_is_not_a_task_at_work() {
+    let pane = json!({"kind": "task", "session": "ses_task9f2"});
+    let words = |e: anyhow::Error| e.to_string();
+    assert!(
+        hold_for(&json!({"kind": "conversation", "session": "ses_c"}), &[])
+            .map_err(words)
+            .unwrap_err()
+            .contains("does not show a task")
+    );
+    assert!(hold_for(&pane, &[task_view("ses_other", "running", false)])
+        .map_err(words)
+        .unwrap_err()
+        .contains("no task ses_task9f2"));
+    assert!(hold_for(&pane, &[task_view("ses_task9f2", "done", false)])
+        .map_err(words)
+        .unwrap_err()
+        .contains("is over"));
+}

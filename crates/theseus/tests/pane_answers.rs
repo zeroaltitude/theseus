@@ -95,7 +95,9 @@ impl Daemon {
                     "session.list" => Ok(json!({"sessions": p["ids"].as_array().map_or_else(
                         || vec![session(TASK)],
                         |ids| ids.iter().map(|i| session(i.as_str().unwrap())).collect())})),
-                    "work.answer" => Ok(json!({"question_id": p["question_id"], "option": p["option"]})),
+                    "work.answer" => {
+                        Ok(json!({"question_id": p["question_id"], "option": p["option"]}))
+                    }
                     "action.confirm" => Ok(json!({"correlation_id": p["correlation_id"],
                         "approved": p["approve"], "session_id": TASK, "execution_id": "exe_task"})),
                     "turn.submit" if p["session_id"] == TASK => Err(json!({"code": -32000,
@@ -134,7 +136,12 @@ impl Daemon {
     }
 
     fn count(&self, method: &str) -> usize {
-        self.got.lock().unwrap().iter().filter(|r| r["method"] == method).count()
+        self.got
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r["method"] == method)
+            .count()
     }
 }
 
@@ -173,7 +180,9 @@ impl Pane {
                 if n == 0 {
                     break;
                 }
-                e.lock().unwrap().push_str(&String::from_utf8_lossy(&buf[..n]));
+                e.lock()
+                    .unwrap()
+                    .push_str(&String::from_utf8_lossy(&buf[..n]));
             }
         });
         Self { child, err }
@@ -211,7 +220,12 @@ fn an_owner_ask_is_answered_by_its_number() {
     let mut w = Pane::start(&d, &dir.path().join("state"));
     w.wait_err("choose? [1-3, or your own words]", 1);
     let shown = w.seen();
-    for line in ["? Which quay first?", "1. North quay", "2. East quay — the tide is in", "3. Skip both"] {
+    for line in [
+        "? Which quay first?",
+        "1. North quay",
+        "2. East quay — the tide is in",
+        "3. Skip both",
+    ] {
         assert!(shown.contains(line), "{line}: {shown}");
     }
     // A yes chooses nothing, and neither does a place past the last option.
@@ -226,7 +240,11 @@ fn an_owner_ask_is_answered_by_its_number() {
         answers[0]["params"],
         json!({"question_id": "act_00reef", "option": "choice:1", "author": "theseus watch"})
     );
-    assert_eq!(d.count("action.confirm"), 0, "the daemon refuses a yes to a question with options");
+    assert_eq!(
+        d.count("action.confirm"),
+        0,
+        "the daemon refuses a yes to a question with options"
+    );
     w.transcript("an owner_ask answered by 2");
 }
 
@@ -240,8 +258,14 @@ fn other_words_answer_with_the_owners_own() {
     w.line("the west quay, after the tide");
     let answers = d.wait_for("work.answer", 1);
     assert_eq!(
-        (answers[0]["params"]["option"].clone(), answers[0]["params"]["note"].clone()),
-        (json!("choice:other"), json!("the west quay, after the tide"))
+        (
+            answers[0]["params"]["option"].clone(),
+            answers[0]["params"]["note"].clone()
+        ),
+        (
+            json!("choice:other"),
+            json!("the west quay, after the tide")
+        )
     );
 }
 

@@ -18,8 +18,8 @@ pub fn main_pane(panes: &[Value]) -> Option<&Value> {
         .find(|p| p["tokens"]["kind"].as_str() == Some(wire::MAIN_KIND))
 }
 
-/// The line at the top of a task's pane: whose it is and the two keys that leave it. The keys are
-/// read from the plugin's own table, so the words and the bindings cannot differ.
+/// The line at the top of a task's pane: whose it is and the keys that leave it or hold it. The
+/// keys are read from the plugin's own table, so the words and the bindings cannot differ.
 pub fn task_header(short: &str, parent: Option<&str>) -> String {
     let key = |action: &str| {
         crate::herdr_setup::KEYS
@@ -29,9 +29,10 @@ pub fn task_header(short: &str, parent: Option<&str>) -> String {
     };
     let of = parent.map_or(String::new(), |p| format!(" of {p}"));
     format!(
-        "── ⚙ task {short}{of} · {} main · {} inspect ──",
+        "── ⚙ task {short}{of} · {} main · {} inspect · {} pause ──",
         key("theseus.main"),
-        key("theseus.inspect")
+        key("theseus.inspect"),
+        key("theseus.pause")
     )
 }
 
@@ -75,11 +76,11 @@ mod tests {
     fn the_header_names_the_parent_and_the_keys() {
         assert_eq!(
             task_header("a1b2c3", Some("Tide notes")),
-            "── ⚙ task a1b2c3 of Tide notes · prefix+m main · prefix+i inspect ──"
+            "── ⚙ task a1b2c3 of Tide notes · prefix+m main · prefix+i inspect · prefix+p pause ──"
         );
         assert_eq!(
             task_header("a1b2c3", None),
-            "── ⚙ task a1b2c3 · prefix+m main · prefix+i inspect ──"
+            "── ⚙ task a1b2c3 · prefix+m main · prefix+i inspect · prefix+p pause ──"
         );
     }
 

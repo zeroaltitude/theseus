@@ -29,7 +29,12 @@ pub(super) fn prompt_lines(q: &ConfirmRequest) -> Vec<String> {
     let mut out = vec![format!("  ? {}", a.question)];
     for (i, o) in a.options.iter().enumerate() {
         let detail = o.detail.as_deref().map(|d| format!(" — {d}"));
-        out.push(format!("      {}. {}{}", i + 1, o.label, detail.unwrap_or_default()));
+        out.push(format!(
+            "      {}. {}{}",
+            i + 1,
+            o.label,
+            detail.unwrap_or_default()
+        ));
     }
     out
 }
@@ -133,14 +138,28 @@ mod tests {
         let q = three();
         assert_eq!(said(&q, "1"), send("choice:0", None));
         assert_eq!(said(&q, " 2 "), send("choice:1", None));
-        assert_eq!(said(&q, "3 only if it is cheap"), send("choice:2", Some("only if it is cheap")));
+        assert_eq!(
+            said(&q, "3 only if it is cheap"),
+            send("choice:2", Some("only if it is cheap"))
+        );
     }
 
     /// An approval's answers are no answer to it, and neither is a number past the last option.
     #[test]
     fn a_yes_or_a_number_out_of_range_sends_nothing() {
         let q = three();
-        for l in ["y", "Yes", "n", "no", "t", "", "0", "4", "7 of 9", "99999999999999999999999"] {
+        for l in [
+            "y",
+            "Yes",
+            "n",
+            "no",
+            "t",
+            "",
+            "0",
+            "4",
+            "7 of 9",
+            "99999999999999999999999",
+        ] {
             assert_eq!(said(&q, l), Said::Keys, "{l:?}");
         }
     }

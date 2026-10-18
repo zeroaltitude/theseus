@@ -29,9 +29,17 @@ The plugin needs herdr 0.9.0 or later and `theseus` on the PATH of the herdr ser
 | `prefix+t` | the terminal UI, as a 92% by 90% popup |
 | `prefix+shift+s` | stop the focused task or session: asks y/N, then cancels a task or halts a conversation |
 | `prefix+n` | start a task from one line of words (`theseus task start`) |
+| `prefix+m` | back to the main conversation (`theseus herdr main`) |
+| `prefix+i` | read the focused task's transcript and live stream, without joining it |
+| `prefix+p` | pause the focused task at its next step, or resume it when it is held (`task.pause` / `task.resume`) |
 
-Each key is a plugin action (`theseus.answer`, `theseus.next`, `theseus.tui`, `theseus.stop`, `theseus.new`), so
-the command palette lists them too.
+Each key is a plugin action (`theseus.answer`, `theseus.next`, `theseus.tui`, `theseus.stop`, `theseus.new`,
+`theseus.main`, `theseus.inspect`, `theseus.pause`), so the command palette lists them too.
+
+A task's pane answers every question it shows, without the popup: `y/N/t` for an approval, and for a question
+with options (`owner_ask`) its options numbered `1`..`6`, or words of your own, sent as `work.answer`. Once the
+task is over, a line typed in its pane goes to the conversation that started it, with the redirect line every
+surface says.
 
 ## The answer card
 

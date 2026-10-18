@@ -25,8 +25,9 @@ pub struct Binding {
     pub description: &'static str,
 }
 
-/// The owner's keys (2026-10-08): answer, next, the TUI, stop, a new task, back to main, inspect a task.
-pub const KEYS: [Binding; 7] = [
+/// The owner's keys (2026-10-08): answer, next, the TUI, stop, a new task, back to main, inspect a
+/// task, pause or resume one.
+pub const KEYS: [Binding; 8] = [
     Binding {
         key: "prefix+a",
         action: "theseus.answer",
@@ -61,6 +62,11 @@ pub const KEYS: [Binding; 7] = [
         key: "prefix+i",
         action: "theseus.inspect",
         description: "read the focused task's transcript",
+    },
+    Binding {
+        key: "prefix+p",
+        action: "theseus.pause",
+        description: "pause the focused task, or resume it",
     },
 ];
 
