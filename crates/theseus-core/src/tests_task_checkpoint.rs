@@ -557,3 +557,86 @@ async fn the_board_says_a_moved_task_is_on_its_new_model() {
     assert_eq!(seen[..3], [None, None, None], "{seen:?}");
     assert_eq!(seen.last(), Some(&Some("sonnet")));
 }
+
+/// A verdict that takes its time never holds a loop: the task runs on at its base while the
+/// checkpoint is out, and moves at the first boundary after the answer comes (the loops
+/// are 60 ms apiece, the verdict 500 ms, and the window is wide enough to keep its flight).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
+    let t = task_with(
+        loops(20, 0),
+        None,
+        |c| c.routing.task_checkpoints.min_loops_between = 12,
+        |j| {
+            on_trigger(j, "failing: 3 failed", "deep_coding");
+            j.set_latency(
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_millis(500),
+            );
+        },
+    )
+    .await;
+    let models = t.models();
+    assert!(
+        models[3..7].iter().all(|m| *m == "haiku"),
+        "the loops after the ask ran on: {models:?}"
+    );
+    let at = moved_at(&models, "sonnet");
+    assert!((8..=16).contains(&at), "applied when it came: {models:?}");
+}
+
+/// Not a benchmark: three scripted tasks on a Haiku base, the model each loop ran on, the
+/// checkpoints asked and what Jev cost per task. One fails three loops then passes, one
+/// stalls (words nobody changes), one is clean.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cost_note_on_three_scripted_tasks() {
+    let stall: Vec<Scripted> = (0..10)
+        .map(|n| {
+            Scripted::tools(
+                "",
+                &[(
+                    &format!("s{n}"),
+                    "text_diff",
+                    json!({"a": "x\n", "b": "y\n"}),
+                )],
+            )
+        })
+        .chain([Scripted::text("Done: the report.")])
+        .collect();
+    let mut recover = loops(3, 6);
+    recover.truncate(9);
+    recover.push(Scripted::text("Done: the report."));
+    let cases = [
+        ("fails three loops, then passes", recover),
+        ("stalls for ten loops", stall),
+        ("clean", loops(0, 8)),
+    ];
+    let mut up = Vec::new();
+    for (name, script) in cases {
+        let t = task_with(
+            script,
+            None,
+            |_| {},
+            |j| {
+                on_trigger(j, "failing: 3 failed", "deep_coding");
+                on_trigger(j, "no progress for 8 loops", "sophisticated");
+            },
+        )
+        .await;
+        let rows = t.checkpoints();
+        let jev: f64 = rows.iter().map(|d| d["cost_usd"].as_f64().unwrap()).sum();
+        let kinds: Vec<_> = rows
+            .iter()
+            .map(|d| d["trigger"].as_str().unwrap())
+            .collect();
+        eprintln!(
+            "COSTNOTE {name}: models {:?}; checkpoints {kinds:?}; jev ${jev:.6}; task spent ${:.6}",
+            t.models(),
+            t.spent() as f64 / 1e6
+        );
+        up.push((t.models(), rows.len()));
+    }
+    assert!(up[0].0.contains(&"sonnet") && up[0].1 >= 1);
+    assert!(up[1].0.contains(&"opus") && up[1].1 >= 1);
+    assert_eq!((up[2].1, up[2].0.iter().all(|m| *m == "haiku")), (0, true));
+}
