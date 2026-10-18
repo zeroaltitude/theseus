@@ -224,6 +224,7 @@ async fn keep_warm_replays_the_last_effort() {
         hour.routing = c.routing.clone();
         hour.memory = c.memory.clone();
         *c = hour;
+        no_per_message(c);
     });
     let res = turn(&r.core, None, "Where do the herons nest?", None).await;
     let sid = res.session_id;
