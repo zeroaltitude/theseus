@@ -117,6 +117,18 @@ pub enum Purpose {
     TaskInspect,
     /// `f` on an ended task: `task.retry`.
     FollowUp,
+    /// `/task new` and "make that a task": `task.start`, with the title the
+    /// brief's first line gives (theseus-ypnxt.4).
+    TaskStart {
+        title: String,
+    },
+    /// `/pause`, `/resume`: `task.pause` or `task.resume` for the task `short`.
+    Hold {
+        on: bool,
+        short: String,
+    },
+    /// `task.list` for the task picker's ended tasks, read once as it opens.
+    PickerTasks,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +212,9 @@ pub struct Chat {
     pub(super) answered_text: HashSet<String>,
     pub(super) proposed: std::collections::HashMap<String, (String, Value)>,
     pub(super) unsent: Vec<String>,
+    /// The owner's last message in this conversation (never a task's), for
+    /// `make that a task`.
+    pub(super) last_said: Option<String>,
     pub(super) typist: Typist,
     pub(super) banner: Banner,
     /// `-r`: the list of conversations, in the dock in place of the input.
@@ -276,6 +291,7 @@ impl Chat {
             answered_text: HashSet::new(),
             proposed: Default::default(),
             unsent: Vec::new(),
+            last_said: None,
             typist: Typist::default(),
             banner: Banner::default(),
             picker: None,
@@ -730,9 +746,13 @@ impl Chat {
                 return Vec::new();
             }
         }
+        if Self::is_make_that(trimmed) {
+            return self.new_task("");
+        }
         if let Some(effects) = self.view_submit(&taken) {
             return effects;
         }
+        self.last_said = Some(text.clone());
         let mut effects = vec![Effect::SaveHistory(self.editor.history().to_vec())];
         if self.must_queue() {
             self.enqueue(taken);

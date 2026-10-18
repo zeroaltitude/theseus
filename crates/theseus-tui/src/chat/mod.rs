@@ -38,6 +38,7 @@ mod screen;
 mod state;
 mod stop;
 mod style;
+mod task_new;
 mod task_picker;
 mod task_view;
 mod tasks;
@@ -54,6 +55,8 @@ mod tests_mode;
 mod tests_reopen;
 #[cfg(test)]
 mod tests_rewind;
+#[cfg(test)]
+mod tests_task_new;
 #[cfg(test)]
 mod tests_task_view;
 #[cfg(test)]

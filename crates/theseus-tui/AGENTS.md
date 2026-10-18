@@ -193,6 +193,15 @@ new lines, the dock again, in synchronized-output mode 2026).
   (the conversation to go back to), and opens the view without replaying the conversation first. Header clocks are `coarse` minutes
   (`view_repaint_at` is the one deadline). Tests: `chat/tests_task_view.rs` (golden `tests/golden/chat_task_view_100.txt`).
 
+- **Start, pause, search** (theseus-ypnxt.4; `chat/task_new.rs`, `chat/task_picker.rs`, `new_task.rs`): `/task new BRIEF` and the typed
+  words `make that a task` (the whole message, case blind; with `/task new` alone) send `task.start` with `home` = the conversation, no
+  model turn, the brief the owner's last message (`Chat::last_said`, never the model's reply), and print `◐ started <title> (<short>) ·
+  /task <id> to look, /join <id> to talk to it`; `/pause [ID]` and `/resume [ID]` send `task.pause`/`task.resume` (no id: the task shown,
+  else the only one they could change, else they list the candidates and send nothing). In the TUI `P` holds the task under the cursor or
+  lets it go on. The ctrl-t picker reads `task.list {session_id}` once as it opens (its rows: the board's, then the ended ones the board
+  lacks) and typing searches title and report line; `j`/`c`/`a` stay commands until a query starts (`/` starts one). Tests:
+  `chat/tests_task_new.rs`, `tests_new_task.rs`.
+
 - **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
   plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in
   the list Shift+Tab is still the walk back through the queue. The mode and the plan are read once when a conversation is
