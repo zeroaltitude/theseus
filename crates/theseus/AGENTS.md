@@ -52,7 +52,12 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `tasks_forecast.rs`. `theseus tasks --watch` is the old `theseus work` (theseus-6kgp8); the board's threads, job ids and the daemon's
   own work are drawn by `board.rs`; the words of `tasks` are `render::task_tree::{tree, footer, events, event_line}`, shared with the chat. Tests inside it and
   `render/task_tree_tests.rs` (goldens at 80, 120 and 200 columns in `tests/golden_tree/`, `THESEUS_GOLDEN=write`; `footer_cost_100.txt`),
-  `tests/tasks_cli.rs` (the binary against a scripted daemon). A routine, a watch and a project are rows of the tree
+  `tests/tasks_cli.rs` (the binary against a scripted daemon). **Finding a task later** (theseus-ypnxt.1): `tasks --ended [--since
+  7d|12h|2026-10-15] [WORDS]` is one `task.list` with `ended`, `since_ms`, `query` and `limit` (50, `--limit` changes it), drawn by
+  `render/task_history.rs` (`lines`: a mark, short id, title, how it ended and when, what it spent, and the report's first line cut to
+  the width; `since_ms`: an age or a calendar day at this machine's midnight); WORDS alone search every task, open or ended. The
+  bare `tasks` that finds nothing open says `no open tasks · 3 ended today: theseus tasks --ended` (one more `task.list`, asked only
+  then; an older daemon's answer is the old `no tasks`). A routine, a watch and a project are rows of the tree
   (`routine · next Fri 09:00`) and no task in its counts; the chat's footer (`footer`, not `tree`) adds a cost column
   (theseus-xock5).
 - `src/task_lines.rs` (theseus-mnd9g): the line mode's task lines. `theseus chat --plain`, a pipe in or out, or `TERM=dumb` runs
@@ -126,7 +131,10 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   the task's short id and where to follow it. The times go to the daemon as typed (`start_when`, read in the daemon's zone, as
   `remind`'s are). `--in` resolves a session like `watch` does. A quote file's text is outside text for the task (it holds
   the task's session). `task.start` is in `client::OPERATORS`, so a job's shell is refused before anything is sent. `task`
-  (this verb) and `tasks` (the list) are separate subcommands. Tests: `tests/task_start.rs` (a scripted daemon).
+  (this verb) and `tasks` (the list) are separate subcommands. `task show ID` is one `task.list {id}` read drawn whole by
+  `render/task_history.rs::show` (state, where it reports, brief, plan, children, spend, times, the whole report, and the commands that
+  act on it now); `task pause ID` and `task resume ID` are `task.pause` and `task.resume` (in `client::OPERATORS`), printing what
+  changed, or the daemon's refusal of an ended task. Tests: `tests/task_start.rs` (a scripted daemon), `tests/task_history.rs`.
 - `src/open.rs` (theseus-x9swu): `theseus open turn [TURN] [--session S] [--print]`: `turn.inspect` for the link the daemon built from
   `[cockpit] public_url`, printed (stdout alone; `--json` the ids and the link) and opened with `$BROWSER`, `wslview`,
   `xdg-open` or `open` where one is found. The turn is found among the session's `turn.started` rows (`ledger.tail`), so a detour's turn, which compiles no context, opens too (theseus-v8h48); `why` stays on `context.explain`. The status line ends with ` · inspect <url>` when the result carries one. Tests:

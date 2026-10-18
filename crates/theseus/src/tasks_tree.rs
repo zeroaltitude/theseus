@@ -12,10 +12,14 @@
 use anyhow::Result;
 use clap::Args;
 use serde_json::Value;
+use theseus_client::render::task_history;
 use theseus_client::render::task_tree;
+use theseus_client::render::time::local_day_at;
 use theseus_client::Conn;
 use theseus_protocol::work::WorkView;
-use theseus_protocol::{method, notify, Message, WorkWatchParams, WorkWatchResult};
+use theseus_protocol::{
+    method, notify, Message, TaskListParams, TaskListResult, WorkWatchParams, WorkWatchResult,
+};
 
 use crate::board::{self, Follow};
 use crate::cmd;
@@ -44,6 +48,84 @@ pub struct TasksArgs {
     /// The board as one list of conversations, with no group for a thread.
     #[arg(long)]
     pub flat: bool,
+    /// The tasks that have ended, newest first, one line each with how each ended and the first
+    /// line of its report (`theseus task show ID` has the rest).
+    #[arg(long, conflicts_with_all = ["watch", "graph", "flat"])]
+    pub ended: bool,
+    /// With --ended or a search: only tasks that ended (or were updated) since then: `30m`, `12h`,
+    /// `7d`, `2w`, or a date, `2026-10-15`.
+    #[arg(long, value_name = "WHEN", conflicts_with_all = ["watch", "graph", "flat"])]
+    pub since: Option<String>,
+    /// Search every task, open or ended, for these words (all of them, any case) in its title,
+    /// its brief or its report's first line.
+    #[arg(value_name = "QUERY", conflicts_with_all = ["watch", "graph", "flat"])]
+    pub query: Vec<String>,
+}
+
+/// How many tasks the history list shows unless `--limit` says.
+const HISTORY_LIMIT: u32 = 50;
+
+impl TasksArgs {
+    /// Whether this is a search of the store, not the board.
+    fn history(&self) -> bool {
+        self.ended || self.since.is_some() || !self.query.is_empty()
+    }
+}
+
+/// The search, or the ended list: one `task.list` with the filters, drawn by `render::task_history`.
+async fn history(conn: &mut Conn, json: bool, a: &TasksArgs) -> Result<()> {
+    let now = theseus_protocol::now_unix_ms();
+    let session_id = match a.session.as_deref() {
+        Some(s) => Some(theseus_client::resolve::session(conn, s).await?),
+        None => None,
+    };
+    let p = TaskListParams {
+        session_id,
+        ended: a.ended.then_some(true),
+        since_ms: a
+            .since
+            .as_deref()
+            .map(|s| task_history::since_ms(s, now))
+            .transpose()?,
+        query: (!a.query.is_empty()).then(|| a.query.join(" ")),
+        limit: Some(a.limit.unwrap_or(HISTORY_LIMIT)),
+        ..Default::default()
+    };
+    let v = conn
+        .call(method::TASK_LIST, serde_json::to_value(p)?, |_, _| {})
+        .await?;
+    if json {
+        println!("{}", serde_json::json!({"result": v}));
+        return Ok(());
+    }
+    let r: TaskListResult = serde_json::from_value(v)?;
+    let what = if a.ended { "ended tasks" } else { "tasks" };
+    let width = theseus_client::render::style::terminal_width();
+    for l in task_history::lines(&r, now, width, what) {
+        println!("{l}");
+    }
+    Ok(())
+}
+
+/// How many tasks ended since this machine's midnight, for the bare `tasks` that finds nothing open.
+async fn ended_today(conn: &mut Conn, now: u64) -> usize {
+    let p = TaskListParams {
+        ended: Some(true),
+        since_ms: local_day_at(now, 0, 0, 0),
+        limit: Some(HISTORY_LIMIT),
+        ..Default::default()
+    };
+    let Ok(v) = conn
+        .call(
+            method::TASK_LIST,
+            serde_json::to_value(p).unwrap_or_default(),
+            |_, _| {},
+        )
+        .await
+    else {
+        return 0;
+    };
+    serde_json::from_value::<TaskListResult>(v).map_or(0, |r| r.tasks.len())
 }
 
 /// The params of the one read: only the session's own tree when one is named.
@@ -62,6 +144,9 @@ async fn params(conn: &mut Conn, a: &TasksArgs, interactive: bool) -> Result<Val
 
 /// Run `theseus tasks`.
 pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
+    if a.history() {
+        return history(conn, json, &a).await;
+    }
     if a.graph || (json && !a.watch) {
         return cmd::tasks(conn, json, a.session).await;
     }
@@ -76,7 +161,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
     if json {
         println!("{}", serde_json::json!({"result": v}));
     } else {
-        print_board(&snap, a.flat);
+        print_board(conn, &snap, a.flat).await;
     }
     if !a.watch {
         let _ = conn
@@ -108,7 +193,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
                     "-- events were lost; the board again at position {} --",
                     snap.position
                 );
-                print_board(&snap, a.flat);
+                print_board(conn, &snap, a.flat).await;
             }
             follow.reset(&snap);
             continue;
@@ -119,13 +204,18 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
 }
 
 /// The snapshot, drawn at the terminal's width.
-fn print_board(snap: &WorkWatchResult, flat: bool) {
-    let lines = board::lines(
+async fn print_board(conn: &mut Conn, snap: &WorkWatchResult, flat: bool) {
+    let now = theseus_protocol::now_unix_ms();
+    let mut lines = board::lines(
         snap,
         flat,
-        theseus_protocol::now_unix_ms(),
+        now,
         theseus_client::render::style::terminal_width(),
     );
+    // A board with nothing on it says what ended today, so a finished task is not lost.
+    if lines == ["no tasks"] {
+        lines = vec![task_history::nothing_open(ended_today(conn, now).await)];
+    }
     for l in lines {
         println!("{l}");
     }

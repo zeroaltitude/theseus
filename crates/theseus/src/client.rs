@@ -296,7 +296,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 82] = [
+pub const OPERATORS: [(&str, &str); 84] = [
     (method::VOICE_AUDITION, "theseus persona voice audition"),
     (method::INITIATIVE_RATE, "theseus persona rate"),
     (method::STANDING_KEEP, "theseus standing keep"),
@@ -390,6 +390,8 @@ pub const OPERATORS: [(&str, &str); 82] = [
     (method::THREAD_UNMERGE, "theseus thread unmerge"),
     (method::THREAD_SPLIT, "theseus thread split"),
     (method::TASK_START, "theseus task start"),
+    (method::TASK_PAUSE, "theseus task pause"),
+    (method::TASK_RESUME, "theseus task resume"),
     (method::SESSION_MODE, "theseus mode"),
 ];
 

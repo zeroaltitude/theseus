@@ -319,3 +319,200 @@ fn work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids() {
         "{out}"
     );
 }
+
+// ---- finding a task later (theseus-ypnxt.1) -------------------------------------------------
+
+fn ended_info(short: &str, title: &str, state: &str, ended_ago: u64, spent: f64) -> Value {
+    json!({
+        "task_id": format!("ses_00000000000000{short}"), "short": short,
+        "execution_id": format!("exe_{short}"), "parent_session_id": "ses_conv",
+        "parent_execution_id": "exe_conv", "title": title, "state": state,
+        "spent_usd": spent, "limit_usd": 2.0, "cost_usd": spent, "turns": 3,
+        "created_at_ms": ago(ended_ago + 600_000), "updated_at_ms": ago(ended_ago),
+    })
+}
+
+/// Three ended tasks, newest first, each with its report's first line.
+fn three_ended() -> Value {
+    let tasks = vec![
+        ended_info("a1b2c3", "Paint the quay", "complete", 1_800_000, 0.4),
+        ended_info("b2c3d4", "Sound the channel", "failed", 10_800_000, 1.25),
+        ended_info(
+            "c3d4e5",
+            "Chart the buoys",
+            "cancelled",
+            3 * 86_400_000,
+            0.0,
+        ),
+    ];
+    let lines = [
+        "Painted the quay railings green.",
+        "the model was unavailable",
+        "stopped by you",
+    ];
+    let details: Vec<Value> = tasks
+        .iter()
+        .zip(lines)
+        .map(|(t, l)| json!({"task_id": t["task_id"], "report_line": l}))
+        .collect();
+    json!({"tasks": tasks, "records": [], "details": details})
+}
+
+/// Like `run`, but the daemon answers every request on the connection until it closes (a command that
+/// asks twice).
+fn run_all(args: &[&str], answers: Vec<(&'static str, Value)>) -> (String, Vec<(String, Value)>) {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let asked: Asked = Arc::default();
+    let seen = asked.clone();
+    let daemon = std::thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(&s);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            let req: Value = serde_json::from_str(&line).unwrap();
+            line.clear();
+            let method = req["method"].as_str().unwrap().to_string();
+            seen.lock()
+                .unwrap()
+                .push((method.clone(), req["params"].clone()));
+            let result = answers
+                .iter()
+                .find(|(m, _)| *m == method)
+                .map_or(json!({}), |(_, r)| r.clone());
+            let answer = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
+            (&s).write_all(format!("{answer}\n").as_bytes()).unwrap();
+        }
+    });
+    let out = theseus(&sock, args).output().unwrap();
+    daemon.join().unwrap();
+    let asked = asked.lock().unwrap().clone();
+    (String::from_utf8_lossy(&out.stdout).into_owned(), asked)
+}
+
+fn listed(asked: &[(String, Value)]) -> Value {
+    let calls: Vec<&(String, Value)> = asked.iter().filter(|(m, _)| m == "task.list").collect();
+    assert_eq!(calls.len(), 1, "{asked:?}");
+    calls[0].1.clone()
+}
+
+/// `tasks --ended` is one `task.list` for the ended, three lines with their report lines.
+#[test]
+fn ended_lists_the_ended_tasks_with_their_report_lines() {
+    let (out, _, asked) = run(
+        &["tasks", "--ended"],
+        vec![("task.list", three_ended())],
+        vec![],
+    );
+    assert_eq!(listed(&asked)["ended"], json!(true));
+    assert!(!asked.iter().any(|(m, _)| m == "work.watch"), "{asked:?}");
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(lines[0].starts_with("✓ a1b2c3  Paint the quay"), "{out}");
+    assert!(
+        lines[0].contains("done 30m ago") && lines[0].ends_with("Painted the quay railings green."),
+        "{out}"
+    );
+    assert!(
+        lines[1].contains("failed")
+            && lines[1].contains("$1.25")
+            && lines[1].ends_with("the model was unavailable"),
+        "{out}"
+    );
+    assert!(
+        lines[2].contains("stopped") && lines[2].ends_with("stopped by you"),
+        "{out}"
+    );
+    assert!(lines.iter().all(|l| l.chars().count() <= 100), "{out}");
+}
+
+/// Words search every task: they are sent as the query, and the answer is the one the daemon found.
+#[test]
+fn a_query_is_sent_whole_and_prints_what_the_daemon_found() {
+    let one = {
+        let all = three_ended();
+        json!({"tasks": [all["tasks"][1]], "records": [], "details": [all["details"][1]]})
+    };
+    let (out, _, asked) = run(
+        &["tasks", "channel", "SOUNDINGS"],
+        vec![("task.list", one)],
+        vec![],
+    );
+    let p = listed(&asked);
+    assert_eq!(p["query"], json!("channel SOUNDINGS"));
+    assert!(
+        p.get("ended").is_none(),
+        "a search covers open tasks too: {p}"
+    );
+    assert_eq!(out.lines().count(), 1, "{out}");
+    assert!(out.contains("Sound the channel"), "{out}");
+}
+
+/// `--since` is an age or a day, sent as a time.
+#[test]
+fn since_is_sent_as_a_time() {
+    let (_, _, asked) = run(
+        &["tasks", "--ended", "--since", "1d"],
+        vec![("task.list", three_ended())],
+        vec![],
+    );
+    let ms = listed(&asked)["since_ms"].as_u64().unwrap();
+    let want = now_ms() - 86_400_000;
+    assert!(ms.abs_diff(want) < 60_000, "{ms} vs {want}");
+    let (_, err, asked) = run(&["tasks", "--ended", "--since", "soon"], vec![], vec![]);
+    assert!(err.contains("`soon` is no time"), "{err}");
+    assert!(asked.is_empty(), "{asked:?}");
+}
+
+/// An empty answer says so in words; `--json` prints the answer.
+#[test]
+fn an_empty_history_says_so_and_json_prints_the_answer() {
+    let none = json!({"tasks": [], "records": []});
+    let (out, _, _) = run(
+        &["tasks", "--ended", "--since", "1h"],
+        vec![("task.list", none.clone())],
+        vec![],
+    );
+    assert_eq!(out, "no ended tasks\n");
+    let (out, _, _) = run(&["tasks", "harbour"], vec![("task.list", none)], vec![]);
+    assert_eq!(out, "no tasks\n");
+    let (out, _, _) = run(
+        &["tasks", "--ended", "--json"],
+        vec![("task.list", three_ended())],
+        vec![],
+    );
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["result"]["tasks"].as_array().unwrap().len(), 3);
+}
+
+/// The bare `tasks` with nothing open, as it said before ("no tasks") and now: what ended today.
+#[test]
+fn nothing_open_says_what_ended_today() {
+    let empty = json!({"position": 10, "views": [], "total": 0});
+    // No task.list answer (an older daemon): the old words, unchanged.
+    let (out, _) = run_all(&["tasks"], vec![("work.watch", empty.clone())]);
+    assert_eq!(out, "no tasks\n");
+    let (out, asked) = run_all(
+        &["tasks"],
+        vec![("work.watch", empty), ("task.list", three_ended())],
+    );
+    assert_eq!(
+        out,
+        "no open tasks · 3 ended today: theseus tasks --ended\n"
+    );
+    let p = listed(&asked);
+    assert_eq!(p["ended"], json!(true));
+    assert!(p["since_ms"].as_u64().unwrap() <= now_ms());
+    // An open board is the tree as before, and asks nothing more.
+    let (_, asked) = run_all(&["tasks"], vec![("work.watch", snapshot())]);
+    assert!(!asked.iter().any(|(m, _)| m == "task.list"), "{asked:?}");
+}
+
+/// `tasks forecast` is still the subcommand, not a search for the word.
+#[test]
+fn forecast_is_still_a_subcommand() {
+    let (_, _, asked) = run(&["tasks", "forecast"], vec![], vec![]);
+    let methods: Vec<&str> = asked.iter().map(|(m, _)| m.as_str()).collect();
+    assert_eq!(methods, ["forecast.calibration"], "{asked:?}");
+}

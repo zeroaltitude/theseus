@@ -6,9 +6,11 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
+use theseus_client::render::{task_history, task_tree};
 use theseus_client::Conn;
-use theseus_protocol::method;
+use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
 use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
+use theseus_protocol::{method, TaskListParams, TaskListResult};
 
 use crate::cmd::output;
 
@@ -18,6 +20,25 @@ pub enum TaskCmd {
     /// quay" --budget 2`. Prints the task's short id; `theseus tasks` shows it, `theseus watch ID`
     /// follows it. Only you may (refused inside a job).
     Start(StartArgs),
+    /// One task whole: its state, where it reports, its brief and plan, what it has spent, when it
+    /// started and ended, its children and its whole report, and the commands that act on it now.
+    /// ID is its short id (the last six characters, or four or more of its id). `--json` is the
+    /// record.
+    Show {
+        /// The task: its id, or the end of it (four characters at least).
+        id: String,
+    },
+    /// Hold a running task at its next loop, so it takes no more turns until you resume it (a
+    /// model call already going finishes). Yours alone (refused inside a job).
+    Pause {
+        /// The task: its id, or the end of it (four characters at least).
+        id: String,
+    },
+    /// Let a held task go on. Yours alone (refused inside a job).
+    Resume {
+        /// The task: its id, or the end of it (four characters at least).
+        id: String,
+    },
 }
 
 /// `theseus task start`'s arguments.
@@ -59,6 +80,57 @@ pub struct StartArgs {
 pub async fn run(conn: &mut Conn, json: bool, cmd: TaskCmd) -> Result<()> {
     match cmd {
         TaskCmd::Start(a) => start(conn, json, a).await,
+        TaskCmd::Show { id } => show(conn, json, &id).await,
+        TaskCmd::Pause { id } => hold(conn, json, &id, true).await,
+        TaskCmd::Resume { id } => hold(conn, json, &id, false).await,
+    }
+}
+
+/// `theseus task show ID`: one `task.list` read of the task by `id`.
+async fn show(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
+    let p = TaskListParams {
+        id: Some(id.to_string()),
+        ..Default::default()
+    };
+    let v = conn.request(method::TASK_LIST, p).await?;
+    output(json, v, |r: TaskListResult| {
+        for l in task_history::show(&r)? {
+            println!("{l}");
+        }
+        Ok(())
+    })
+}
+
+/// `theseus task pause|resume ID`: `task.pause` or `task.resume`. A task that has ended is refused
+/// with the daemon's words.
+async fn hold(conn: &mut Conn, json: bool, id: &str, pause: bool) -> Result<()> {
+    let m = if pause {
+        method::TASK_PAUSE
+    } else {
+        method::TASK_RESUME
+    };
+    let p = TaskPauseParams {
+        task: id.to_string(),
+        author: None,
+        discord: None,
+    };
+    let v = conn.request(m, p).await?;
+    output(json, v, |r: TaskPauseResult| {
+        println!("{}", hold_line(&r, id));
+        Ok(())
+    })
+}
+
+/// What `pause` or `resume` did, in words.
+fn hold_line(r: &TaskPauseResult, id: &str) -> String {
+    let short = task_tree::short_id(&r.task_id);
+    match (r.paused, r.changed) {
+        (true, true) => format!(
+            "Pausing {short}: it stops at its next loop. `theseus task resume {id}` lets it go on."
+        ),
+        (true, false) => format!("{short} is paused already."),
+        (false, true) => format!("Resuming {short}: it goes on."),
+        (false, false) => format!("{short} is not paused."),
     }
 }
 

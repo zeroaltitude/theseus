@@ -42,12 +42,19 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
   a prompt, `--watch` keeps it current.
 - **`tasks`**: tasks, one line each under its conversation, with the command that answers one that asks and a footer of
   counts. `theseus tasks`; `--watch`, `--graph`, `--json`; `theseus tasks forecast` is how often tasks finished inside
-  their forecast.
+  their forecast. To find a task later: `theseus tasks --ended [--since 7d|2026-10-15] [WORDS]` lists the ended ones,
+  newest first, one line each with how it ended, when, what it spent and its report's first line; `theseus tasks WORDS`
+  searches every task (title, brief and report line, all the words, any case). With nothing open, `theseus tasks` says
+  how many ended today.
 - **`task`**: start a task from your word with no model turn. `theseus task start "write the changelog" --in-time 2h`.
-  `task` starts one; `tasks` lists them.
+  `theseus task show ID` prints one task whole (its brief, plan, children, spend, times, its whole report, and the
+  commands that act on it now); `theseus task pause ID` holds a running task at its next loop and `theseus task resume ID`
+  lets it go on (yours alone, refused inside a job). `task` acts on one; `tasks` lists them.
 - **`agenda`**: the future in one view: Now, Today, This week, Later, Recurring, Waiting on the world, Projects.
   `theseus agenda --watch`.
-- **`digest`**: what finished, failed, was answered or woke since you last looked. `theseus digest --since 2h`.
+- **`digest`**: what finished, failed, was answered or woke since you last looked. `theseus digest --since 2h`. A task that
+  reported is named with its report's first line (up to five under one conversation, then the rest by title); a window
+  too long to read whole says where it stopped.
 - **`peek`**: a running job's last lines, once. `theseus peek JOB`.
 - **`attach`**: follow a running job's output live until it ends; Ctrl-C detaches and the job goes on.
   `theseus attach JOB`.

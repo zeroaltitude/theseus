@@ -487,7 +487,7 @@ enum Cmd {
     /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
     /// reports or fails. `--graph` is the task graph and each task's state and spend as before;
     /// `--json` the same list as data.
-    #[command(display_order = 7)]
+    #[command(display_order = 7, subcommand_precedence_over_arg = true)]
     Tasks {
         #[command(flatten)]
         args: tasks_tree::TasksArgs,
@@ -497,7 +497,8 @@ enum Cmd {
     /// Task: `task start BRIEF` starts a task from your word with no model turn: now,
     /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
     /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
-    /// inside a job). `tasks` lists them.
+    /// inside a job). `task show ID` prints one task whole, its report and the commands that act
+    /// on it; `task pause ID` and `task resume ID` hold and release a running one. `tasks` lists them.
     #[command(hide = true)]
     Task {
         #[command(subcommand)]
