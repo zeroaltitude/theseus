@@ -478,6 +478,46 @@ fn scripts_in(c: &Core, root: &std::path::Path, t: u64) -> std::path::PathBuf {
     dir
 }
 
+/// A report whose tiers all passed: the fixtures' and the dry replay's results
+/// as `tests_self_mint` proves them, the A/B tier the judge over stand-in arms.
+fn passing_report(digest: &str) -> crate::rsi::mint::ValidateReport {
+    use crate::rsi::mint::kind::Kind;
+    use crate::rsi::mint::validate::ab::{judge, ArmFacts};
+    use crate::rsi::mint::validate::dry::DryReport;
+    use crate::rsi::mint::validate::fixtures::FixtureReport;
+    let turn = |tokens, decisions, called| ArmFacts {
+        matched: true,
+        tokens,
+        wall_ms: tokens / 10,
+        decisions,
+        called,
+        usd: 0.01,
+    };
+    let ab = judge(&[(turn(10_000, 4, false), turn(4_000, 1, true)); 3]);
+    assert!(ab.pass, "{ab:?}");
+    crate::rsi::mint::ValidateReport::assemble(
+        ("run_scripts", Kind::Flow, digest),
+        (
+            Some(FixtureReport {
+                arms: 1,
+                passed: 1,
+                failed: vec![],
+                pass: true,
+            }),
+            Some(DryReport {
+                instances: 3,
+                reproduced: 3,
+                deviations: vec![],
+                unverified: 3,
+                pass: true,
+                why: "3 of 3".into(),
+            }),
+            Some(ab),
+        ),
+        true,
+    )
+}
+
 /// End to end, with the stand-in model: a planted motif in a synthetic ledger
 /// is mined (R5) and its mint prepared; the validation's report passes (R7:
 /// the fixtures' and the dry replay's tests are `tests_self_mint`'s, and the
@@ -490,10 +530,6 @@ async fn a_planted_motif_is_mined_deployed_called_and_told() {
     use crate::provider::{ProviderRequest, Scripted};
     use crate::rsi::mint::kind::Kind;
     use crate::rsi::mint::run::Named;
-    use crate::rsi::mint::validate::ab::{judge, ArmFacts};
-    use crate::rsi::mint::validate::dry::DryReport;
-    use crate::rsi::mint::validate::fixtures::FixtureReport;
-    use crate::rsi::mint::ValidateReport;
     use crate::tests_places::{answers_a_call, rig_scripted, turn as place_turn};
 
     let input: Arc<std::sync::Mutex<Value>> = Arc::default();
@@ -546,37 +582,7 @@ async fn a_planted_motif_is_mined_deployed_called_and_told() {
     let sk = c.mint_spec(&pending, &named).unwrap();
     c.tools.flows.freeze(&sk.spec).unwrap();
     let digest = sk.spec.digest.clone().unwrap();
-    let turn = |tokens, decisions, called| ArmFacts {
-        matched: true,
-        tokens,
-        wall_ms: tokens / 10,
-        decisions,
-        called,
-        usd: 0.01,
-    };
-    let ab = judge(&[(turn(10_000, 4, false), turn(4_000, 1, true)); 3]);
-    assert!(ab.pass, "{ab:?}");
-    let report = ValidateReport::assemble(
-        ("run_scripts", Kind::Flow, &digest),
-        (
-            Some(FixtureReport {
-                arms: 1,
-                passed: 1,
-                failed: vec![],
-                pass: true,
-            }),
-            Some(DryReport {
-                instances: 3,
-                reproduced: 3,
-                deviations: vec![],
-                unverified: 3,
-                pass: true,
-                why: "3 of 3".into(),
-            }),
-            Some(ab),
-        ),
-        true,
-    );
+    let report = passing_report(&digest);
     assert!(report.pass);
     c.mint_keep_report(&ph, &report).unwrap();
 
@@ -617,6 +623,12 @@ async fn a_planted_motif_is_mined_deployed_called_and_told() {
     let tended = c.mint_tend(&NoReds, now() + HOUR).await.unwrap();
     assert!(tended.retired.is_empty(), "{tended:?}");
 
+    the_notice_tells_it_and_one_verb_undoes_it(&c, t, &report.digest).await;
+}
+
+/// The notice lists the flow with its numbers and undo; the owner's one verb
+/// takes it back and the frozen copy stays.
+async fn the_notice_tells_it_and_one_verb_undoes_it(c: &Arc<Core>, t: u64, digest: &str) {
     // The notice tells it, with its numbers and its undo.
     let text = c
         .self_notice(t - 2 * DAY, now() + HOUR)
@@ -648,11 +660,11 @@ async fn a_planted_motif_is_mined_deployed_called_and_told() {
         )
         .await
         .unwrap();
-    assert!(done.changed && live(&c).is_empty());
+    assert!(done.changed && live(c).is_empty());
     assert!(c
         .tools
         .flows
-        .frozen_dir("run_scripts", report.digest.trim_start_matches("sha256:"))
+        .frozen_dir("run_scripts", digest.trim_start_matches("sha256:"))
         .join("spec.json")
         .is_file());
 }

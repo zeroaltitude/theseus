@@ -287,29 +287,7 @@ impl Core {
                     String::new(),
                 ),
             };
-            let brief = format!(
-                "Port the loaded flow flow:{name} into core.\n\n\
-                 Evidence (the ledger's tool-call rows, {days} days since it was loaded): {calls} \
-                 calls, {fails} failures, p50 {p50} ms, p95 {p95} ms.\n\
-                 Digest: {digest}\nFrozen spec (read-only): {frozen}\nSpec: {spec}\n\n\
-                 Done is:\n\
-                 1. A core tool with the flow's name and input schema that runs the same steps and \
-                 hands back what the flow hands back, each step gated as the model's own call \
-                 would be.\n\
-                 2. A Rust test for each arm the spec's exits name, which fails without the port.\n\
-                 3. Every gate passes. The flow stays loaded until the join.\n\
-                 4. The port widens nothing the flow had: no network, no secret, no authored \
-                 write, no change to a policy, a permission or a limit.\n\n\
-                 Call self.propose_change {{ item: \"{{item}}\", issue: <the issue>, why: <one \
-                 sentence> }}.",
-                name = f.name,
-                days = u.window_days,
-                calls = u.calls,
-                fails = u.failures,
-                p50 = u.p50_ms,
-                p95 = u.p95_ms,
-                digest = f.digest,
-            );
+            let brief = flow_brief(f, &u, &spec, &frozen);
             let g = Graduation {
                 extension: format!("flow:{}", f.name),
                 digest: f.digest.clone(),
@@ -454,6 +432,34 @@ impl Core {
         }
         out
     }
+}
+
+/// The port's brief for the loaded flow `f`: its evidence, its frozen spec, and
+/// what done is.
+fn flow_brief(f: &crate::flow::load::Stored, u: &ExtendUsage, spec: &str, frozen: &str) -> String {
+    format!(
+        "Port the loaded flow flow:{name} into core.\n\n\
+         Evidence (the ledger's tool-call rows, {days} days since it was loaded): {calls} \
+         calls, {fails} failures, p50 {p50} ms, p95 {p95} ms.\n\
+         Digest: {digest}\nFrozen spec (read-only): {frozen}\nSpec: {spec}\n\n\
+         Done is:\n\
+         1. A core tool with the flow's name and input schema that runs the same steps and \
+         hands back what the flow hands back, each step gated as the model's own call \
+         would be.\n\
+         2. A Rust test for each arm the spec's exits name, which fails without the port.\n\
+         3. Every gate passes. The flow stays loaded until the join.\n\
+         4. The port widens nothing the flow had: no network, no secret, no authored \
+         write, no change to a policy, a permission or a limit.\n\n\
+         Call self.propose_change {{ item: \"{{item}}\", issue: <the issue>, why: <one \
+         sentence> }}.",
+        name = f.name,
+        days = u.window_days,
+        calls = u.calls,
+        fails = u.failures,
+        p50 = u.p50_ms,
+        p95 = u.p95_ms,
+        digest = f.digest,
+    )
 }
 
 #[cfg(test)]

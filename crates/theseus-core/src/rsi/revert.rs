@@ -289,32 +289,8 @@ impl Core {
                 changed: true,
             });
         }
-        // A minted extension is revoked, not reverted: the frozen copy stays
-        // (theseus-pw1q.21.8). Only one the `"self"` principal loaded: an owner's
-        // extension is `theseus extend revoke`'s.
         if let Some(name) = want.strip_prefix("ext:") {
-            let minted = crate::extend::load::LoadedSet::read(&self.store)?
-                .loaded
-                .get(name)
-                .is_some_and(|l| l.acked_by == super::pr::PRINCIPAL);
-            if !minted {
-                return Err(BadMerge(format!(
-                    "no minted extension named {name:?} is loaded (an extension the owner \
-                     loaded is `theseus extend revoke {name}`)"
-                ))
-                .into());
-            }
-            let r = self
-                .revoke_loaded(name, None, ("owner", &who.via()), Some("reverted"), || {
-                    Ok(())
-                })
-                .map_err(|e| BadMerge(format!("{e:#}")))?;
-            return Ok(SelfRevertResult {
-                merge: want,
-                revert: r.digest,
-                item: None,
-                changed: true,
-            });
+            return self.revert_minted_extension(name, &want, who);
         }
         if want.len() < 7 {
             return Err(
@@ -378,5 +354,40 @@ impl Core {
                 &j.merge[..j.merge.len().min(12)]
             )),
         }
+    }
+}
+
+impl Core {
+    /// A minted extension is revoked, not reverted: the frozen copy stays
+    /// (theseus-pw1q.21.8). Only one the `"self"` principal loaded: an owner's
+    /// extension is `theseus extend revoke`'s.
+    fn revert_minted_extension(
+        &self,
+        name: &str,
+        want: &str,
+        who: &Answerer,
+    ) -> Result<SelfRevertResult> {
+        let minted = crate::extend::load::LoadedSet::read(&self.store)?
+            .loaded
+            .get(name)
+            .is_some_and(|l| l.acked_by == super::pr::PRINCIPAL);
+        if !minted {
+            return Err(BadMerge(format!(
+                "no minted extension named {name:?} is loaded (an extension the owner loaded is \
+                 `theseus extend revoke {name}`)"
+            ))
+            .into());
+        }
+        let r = self
+            .revoke_loaded(name, None, ("owner", &who.via()), Some("reverted"), || {
+                Ok(())
+            })
+            .map_err(|e| BadMerge(format!("{e:#}")))?;
+        Ok(SelfRevertResult {
+            merge: want.into(),
+            revert: r.digest,
+            item: None,
+            changed: true,
+        })
     }
 }

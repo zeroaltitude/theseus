@@ -106,7 +106,7 @@ async fn self_load_is_refused_for_network_secrets_or_failed_tests() {
 
     // The same extension with every test passing is allowed, and the three
     // refusals are each one change from it.
-    let mut ok = m.clone();
+    let mut ok = m;
     ok.tests.retain(|t| t.passed);
     assert_eq!(refusal(&ok), None);
     let mut net = ok.clone();
@@ -292,7 +292,7 @@ async fn a_self_principal_answers_no_other_card() {
     // The one path names a manifest and answers its extension card alone:
     // pointed at a call's card it refuses and answers nothing.
     let mut m = manifest(&r, "wordcount");
-    m.question = Some(other.clone());
+    m.question = Some(other);
     r.core.store.append(&[m.record().unwrap()]).unwrap();
     let e = r
         .core

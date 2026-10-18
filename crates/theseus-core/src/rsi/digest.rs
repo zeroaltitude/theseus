@@ -80,6 +80,8 @@ impl Core {
     /// off: no read, no write. The first week starts when posting is first
     /// on (that tick writes its mark and posts nothing). Whether it posted.
     pub fn post_self_digest_if_due(&self) -> bool {
+        // The same tick posts the morning's notice (theseus-pw1q.21.8).
+        self.post_self_notice_if_due();
         if !self.cfg.self_improve.posts_digest() || !self.runner.place_rule.owner_dm_bound() {
             return false;
         }
