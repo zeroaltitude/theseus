@@ -1,6 +1,6 @@
 //! The one progress line (theseus-ypnxt.2, contract C1): what every surface
 //! says of a running task, in the same words. `paused`, `step 3 of 5`,
-//! `$0.40 of $2`, `~6 min left`, joined by ` · `, each part left out when the
+//! `$0.40 of $2`, `~6 min left`, `on sonnet` (a task a checkpoint moved off its base), joined by ` · `, each part left out when the
 //! view has no data for it. A pure function of the view and the clock the
 //! caller passes. The cockpit writes the same words in TypeScript from
 //! `golden/progress_line.json`.
@@ -69,6 +69,7 @@ pub fn progress_rest(v: &WorkView, now_ms: u64) -> Option<String> {
             .and_then(|p| step_words(p.steps_done, p.steps_total)),
         v.cost.as_ref().map(cost_words),
         time_words(v, now_ms),
+        v.moved_to.as_ref().map(|p| format!("on {p}")),
     ]
     .into_iter()
     .flatten()
@@ -139,6 +140,43 @@ mod tests {
                 ..forecast(num(f, "n") as u32, false)
             });
             v.paused = c.get("paused").and_then(Value::as_bool).unwrap_or(false);
+            let now = v.started_at_ms + (num(&c, "elapsed_min") * MIN_MS) as u64;
+            let want = c["expect"].as_str().map(str::to_string);
+            assert_eq!(progress_line(&v, now), want, "{}", c["case"]);
+        }
+    }
+
+    /// A task a checkpoint moved off its base says where it runs, last; a task on its base
+    /// reads as the eight cases above do (theseus-ypnxt.9).
+    #[test]
+    fn a_moved_tasks_line_says_where_it_runs() {
+        let cases: Vec<Value> =
+            serde_json::from_str(include_str!("golden/progress_line_moved.json")).unwrap();
+        assert_eq!(cases.len(), 3);
+        for c in cases {
+            let mut v = view(WorkKind::Task, WorkState::Running, None);
+            v.cost = c.get("cost").map(|k| Cost {
+                spent_usd: num(k, "spent"),
+                limit_usd: num(k, "limit"),
+                turn_usd: None,
+            });
+            v.progress = c.get("progress").map(|p| Progress {
+                steps_done: num(p, "done") as u32,
+                steps_total: num(p, "total") as u32,
+                current: None,
+                said: None,
+                at_ms: 0,
+            });
+            v.forecast = c.get("forecast").map(|f| WorkForecast {
+                min_p50: num(f, "min_p50"),
+                min_p90: num(f, "min_p90"),
+                ..forecast(num(f, "n") as u32, false)
+            });
+            v.paused = c.get("paused").and_then(Value::as_bool).unwrap_or(false);
+            v.moved_to = c
+                .get("moved_to")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             let now = v.started_at_ms + (num(&c, "elapsed_min") * MIN_MS) as u64;
             let want = c["expect"].as_str().map(str::to_string);
             assert_eq!(progress_line(&v, now), want, "{}", c["case"]);

@@ -47,5 +47,7 @@ export function routeLine(r: LedgerEntry): string {
   const head = `${t.mode ?? 'no verdict'} · ${where} (${t.reason})${d.detour ? ' · this message alone' : ''}`
   const effort = effortWords(t)
   const wait = typeof d.wait_ms === 'number' ? ` · waited ${d.wait_ms} ms${d.late ? ', late' : ''}` : ''
-  return `${head}${effort ? ` · ${effort}` : ''}${wait}`
+  // A running task's checkpoint (theseus-ypnxt.9): why it was asked, and what a switch cost cold.
+  const check = d.source === 'task checkpoint' ? ` · task checkpoint: ${d.trigger ?? 'asked'}${d.cache_usd != null ? `, ${d.cold_tokens} cold tokens (~$${Number(d.cache_usd).toFixed(4)})` : ''}` : ''
+  return `${head}${effort ? ` · ${effort}` : ''}${check}${wait}`
 }

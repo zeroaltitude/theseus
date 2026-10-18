@@ -67,6 +67,7 @@ impl TurnRunner {
         } else {
             advancer.decide(&outcome)
         };
+        let on = t.checkpoint.moved_to(&t.target.profile);
         t.record(&fact::turn::LoopEnded {
             turn_id: t.tc.turn_id,
             outcome: &outcome,
@@ -79,6 +80,7 @@ impl TurnRunner {
             retry,
             a0,
             say: say.as_deref(),
+            on: on.as_deref(),
         });
         match decision {
             Decision::Continue => true,

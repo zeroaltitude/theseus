@@ -12,7 +12,9 @@ export function routeLine(route: TurnRoute | undefined, profile: string): string
       ? 'correction'
       : route.source === 'task brief' && route.mode
         ? `${route.mode} (task brief)`
-        : (route.mode ?? route.reason)
+        : route.source?.startsWith('task checkpoint') && route.mode
+          ? `${route.mode} (${route.source})`
+          : (route.mode ?? route.reason)
   const from = route.from && route.from !== profile ? ` (from ${route.from})` : ''
   const who = personaWords(route)
   if (!what) return who ? `answered by: ${who}` : null

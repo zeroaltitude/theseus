@@ -207,6 +207,12 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub below: Option<Rollup>,
+    /// A task a checkpoint moved off its base: the profile it runs on now
+    /// (theseus-ypnxt.9). The progress line says `on sonnet`; a task on its
+    /// base, and every other view, has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub moved_to: Option<String>,
     /// Why it was queued (`wake`, `report`, `task`, `input`), kept while it
     /// is queued.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -822,6 +828,7 @@ impl WorkView {
                 }
             });
         WorkView {
+            moved_to: None,
             id: x.execution_id.clone(),
             kind,
             position: x.position,

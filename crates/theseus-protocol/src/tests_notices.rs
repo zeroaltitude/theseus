@@ -24,6 +24,7 @@ fn level(state: WorkState) -> Level {
 /// `since`.
 fn root(state: WorkState, at: u64, since: u64) -> WorkView {
     WorkView {
+        moved_to: None,
         id: "exe_000harbr1".into(),
         kind: WorkKind::Conversation,
         position: at / 1000,

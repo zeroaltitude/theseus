@@ -34,6 +34,7 @@ pub(super) fn line(s: &str) -> String {
 /// A view with nothing in it but what every view has.
 pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
     WorkView {
+        moved_to: None,
         id: id.to_string(),
         kind,
         position: 0,
@@ -124,6 +125,7 @@ impl WorkBoard {
         }
         v.doing = self.doing_of(ei, &v);
         v.progress = super::progress::said_only(ei.said.as_deref(), 0);
+        v.moved_to = ei.on.clone();
         v.report = self.report_of(ei, &v);
         v.flagged = ei.flagged;
         v.expect = ei.expect;

@@ -61,6 +61,17 @@ pub(super) struct Checkpoints {
     state: State,
 }
 
+impl Checkpoints {
+    /// The profile a task runs on when a checkpoint has moved it off its
+    /// base: what its `loop.ended` rows say, so the board's line does.
+    pub(super) fn moved_to(&self, on: &str) -> Option<String> {
+        match &self.state {
+            State::On(a) if a.base != on => Some(on.to_string()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Default)]
 enum State {
     /// Not read yet: the first loop's end decides.

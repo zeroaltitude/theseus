@@ -662,6 +662,7 @@ mod tests {
         position: u64,
     ) -> WorkView {
         WorkView {
+            moved_to: None,
             id: id.into(),
             kind,
             position,

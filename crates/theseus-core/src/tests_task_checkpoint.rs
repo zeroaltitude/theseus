@@ -13,6 +13,7 @@ use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::{SessionRecord, TargetRef};
+use crate::tests_judge::kinds;
 use crate::tests_route::{decided, mode, rig_parts, session, Rig};
 use crate::tests_task_brief::{params, run, BRIEF};
 use crate::tests_tasks::exec;
@@ -94,6 +95,7 @@ async fn task_with(
             p.providers.insert("anthropic".into(), provider);
         },
     );
+    rig.core.push.ensure(&rig.core).await.unwrap();
     tokio::spawn(crate::harness::drive(rig.core.clone()));
     let home = rig.core.home().unwrap();
     let (live, _) = rig.core.live_profile();
@@ -511,4 +513,47 @@ async fn a_checkpoints_text_is_bounded_for_a_task_of_long_loops() {
         "{} characters",
         text.chars().count()
     );
+}
+
+/// The work board and its progress line say where a moved task runs, only for a task a
+/// checkpoint moved off its base; the `loop.ended` rows carry it, and a task on its base
+/// has none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_board_says_a_moved_task_is_on_its_new_model() {
+    let moved = task_with(
+        loops(8, 0),
+        None,
+        |_| {},
+        |j| {
+            on_trigger(j, "failing: 3 failed", "deep_coding");
+        },
+    )
+    .await;
+    let kept = task_with(loops(8, 0), None, |_| {}, |_| {}).await;
+    let on = |t: &Task| {
+        let v = t
+            .rig
+            .core
+            .push
+            .work_all()
+            .remove(&t.id)
+            .expect("the task's view");
+        (
+            v.moved_to.clone(),
+            theseus_protocol::work::progress_line::progress_line(&v, v.at_ms),
+        )
+    };
+    let (to, line) = on(&moved);
+    assert_eq!(to.as_deref(), Some("sonnet"));
+    assert!(line.unwrap().ends_with(" · on sonnet"));
+    let (to, line) = on(&kept);
+    assert_eq!(to, None);
+    assert!(
+        !line.unwrap_or_default().contains(" on "),
+        "a task on its base says nothing"
+    );
+    let ended = kinds(&moved.rig.core.store, "loop.ended");
+    let seen: Vec<_> = ended.iter().map(|r| r.data["on"].as_str()).collect();
+    assert_eq!(seen[..3], [None, None, None], "{seen:?}");
+    assert_eq!(seen.last(), Some(&Some("sonnet")));
 }
