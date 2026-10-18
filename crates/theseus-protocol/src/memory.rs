@@ -203,6 +203,13 @@ pub struct RecallWhen {
     pub to_ms: Option<u64>,
 }
 
+impl RecallWhen {
+    /// Whether `ms` is inside the span.
+    pub fn holds(&self, ms: u64) -> bool {
+        self.from_ms.is_none_or(|f| ms >= f) && self.to_ms.is_none_or(|t| ms < t)
+    }
+}
+
 /// A recalled node's FSRS-6 retention at the recall (M6 32a): what the
 /// `+retention` arm weighed.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

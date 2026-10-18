@@ -24,30 +24,8 @@
 use crate::wake::{civil_from_days, days_from_civil};
 
 /// A span a question names: `[from_ms, to_ms)`, either end open, and the
-/// words that named it, as the question wrote them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct When {
-    pub from_ms: Option<u64>,
-    pub to_ms: Option<u64>,
-    pub said: String,
-}
-
-impl When {
-    /// Whether `ms` is inside the span.
-    pub fn holds(&self, ms: u64) -> bool {
-        self.from_ms.is_none_or(|f| ms >= f) && self.to_ms.is_none_or(|t| ms < t)
-    }
-}
-
-impl From<&When> for theseus_protocol::memory::RecallWhen {
-    fn from(w: &When) -> Self {
-        Self {
-            said: w.said.clone(),
-            from_ms: w.from_ms,
-            to_ms: w.to_ms,
-        }
-    }
-}
+/// words that named it, as the question wrote them (the wire's own type).
+pub use theseus_protocol::memory::RecallWhen as When;
 
 /// The span the turn's own words name: its new messages' texts (`turn_id`'s
 /// user messages), never the reply joined to the query, which may name
@@ -76,7 +54,7 @@ pub fn kept(
     let Some(w) = when else {
         return r;
     };
-    m.when = Some(w.into());
+    m.when = Some(w.clone());
     let before = r.hits.len();
     r.hits.retain(|h| w.holds(h.time_ms));
     let out = (before - r.hits.len()) as u64;

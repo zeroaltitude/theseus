@@ -117,7 +117,7 @@ pub(super) async fn session(
         text,
         meta: json!({
             "mode": "session", "session": id,
-            "when": when.map(theseus_protocol::memory::RecallWhen::from),
+            "when": when.cloned(),
             "total": total, "shown": shown, "cursor": offset,
             "next": more.then_some(next), "veiled": veiled, "tokens": used,
         }),

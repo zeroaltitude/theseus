@@ -316,3 +316,28 @@ fn a_note_that_says_a_change_or_a_time_states_the_event() {
     assert!(!states("The relay is on the east rack."));
     assert!(!states("Did anyone look at the relay?"));
 }
+
+#[test]
+fn a_span_is_the_wires_own_type_and_serialises_as_it_always_did() {
+    use super::when::When;
+    let both = When {
+        from_ms: Some(1_000),
+        to_ms: Some(2_000),
+        said: "march".into(),
+    };
+    assert_eq!(
+        serde_json::to_string(&both).unwrap(),
+        r#"{"said":"march","from_ms":1000,"to_ms":2000}"#
+    );
+    let open = When {
+        from_ms: None,
+        to_ms: Some(2_000),
+        said: "before march".into(),
+    };
+    assert_eq!(
+        serde_json::to_string(&open).unwrap(),
+        r#"{"said":"before march","to_ms":2000}"#
+    );
+    assert!(both.holds(1_000) && both.holds(1_999) && !both.holds(2_000) && !both.holds(999));
+    assert!(open.holds(0) && !open.holds(2_000));
+}

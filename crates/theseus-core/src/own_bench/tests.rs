@@ -449,3 +449,19 @@ async fn a_replay_sends_the_system_the_turn_saw_not_the_one_built_now() {
     assert!(system(&sent[1]).contains("7714"), "the turn's own system");
     assert!(!system(&sent[1]).contains("9000"), "not the one built now");
 }
+
+#[test]
+fn a_reply_is_the_wires_own_type_and_serialises_as_it_always_did() {
+    let said = super::rebuild::Said {
+        model: "m".into(),
+        text: "t".into(),
+        tool_calls: vec!["fs.read".into()],
+        input_tokens: 3,
+        output_tokens: 4,
+        cost_usd: 0.5,
+    };
+    assert_eq!(
+        serde_json::to_string(&said).unwrap(),
+        r#"{"model":"m","text":"t","tool_calls":["fs.read"],"input_tokens":3,"output_tokens":4,"cost_usd":0.5}"#
+    );
+}
