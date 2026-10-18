@@ -295,19 +295,15 @@ fn a_first_run_writes_the_config_a_second_changes_nothing_and_the_check_follows_
     let r = rig!();
     let (code, out) = r.run(&[]);
     assert_eq!(code, 3, "{out}");
-    for b in [
-        "theseusd",
-        "theseus",
-        "theseus-tui",
-        "theseus-sim",
-        "theseus-index",
-    ] {
+    for b in ["theseusd", "theseus", "theseus-tui", "theseus-index"] {
         assert_eq!(
             std::fs::read(r.at("prefix").join(b)).unwrap(),
             std::fs::read(r.at("target/release-thin").join(b)).unwrap(),
             "{b}"
         );
     }
+    // theseus-sim is built for the size check and the benches, never installed (theseus-rwpbg.5).
+    assert!(!r.at("prefix/theseus-sim").exists());
     let cfg = r.config();
     let mode = |p: &Path| std::fs::metadata(p).unwrap().mode() & 0o777;
     assert_eq!(mode(&cfg), 0o640);
@@ -335,7 +331,7 @@ fn a_first_run_writes_the_config_a_second_changes_nothing_and_the_check_follows_
         );
     }
     for want in [
-        "installed 5 (0 already matched)",
+        "installed 4 (0 already matched)",
         "wrote ",
         "each an op:// placeholder",
         "Stopped before the check and the service: your turn.",
@@ -363,7 +359,7 @@ fn a_first_run_writes_the_config_a_second_changes_nothing_and_the_check_follows_
     assert_eq!(code, 3, "{again}");
     assert_eq!(r.tree(), after_first, "a second run changed a file");
     for want in [
-        "all 5 match the build: nothing to install",
+        "all 4 match the build: nothing to install",
         "it exists, and says what the template says: nothing to do",
     ] {
         assert!(again.contains(want), "{want:?} missing from:\n{again}");
