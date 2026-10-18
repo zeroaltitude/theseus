@@ -9,18 +9,17 @@
 //! A detour's class (`trivial`, `quick`) is a base here too: a task has no
 //! "next message" to leave the model for.
 //!
-//! One class differs from a message's: a task is a piece of work that runs for
-//! many turns, so a `routine_coding` brief starts on Sonnet ([`CODING_BASE`]),
-//! not on the class's cheaper first profile (`haikuhi`) that suits a message's
-//! one short turn. Only a `trivial` brief runs on Haiku (the owner, 2026-10-18:
-//! "Haiku if trivial seems fine", with Sonnet the coding model, 2026-10-10).
+//! A `routine_coding` brief starts on Haiku at high effort ([`CODING_BASE`],
+//! `haikuhi`), and its checkpoints move it up when it fails or stalls
+//! (theseus-ypnxt.9; the owner, 2026-10-18: start cheap, escalate). A `trivial`
+//! brief runs on Haiku.
 
 use super::{decide, Ask, Decision, HoldNext, Profiles, Reason};
 use crate::config::RoutingConfig;
 
 /// The profile a `routine_coding` brief tries first, before the class's own
 /// list (a config without it falls through to that list).
-pub const CODING_BASE: &str = "sonnet";
+pub const CODING_BASE: &str = "haikuhi";
 
 /// The rule's answer for the brief `a.verdict` judged, `a.base` being the
 /// model the task would otherwise run on (its parent's). `switch` says the
@@ -92,9 +91,9 @@ mod tests {
         );
     }
 
-    /// A routine-coding brief runs on Sonnet even when the class's first
-    /// profile is the cheaper `haikuhi` (theseus-31pgz); a trivial one runs
-    /// on Haiku.
+    /// A routine-coding brief starts on `haikuhi` even when a config moved it
+    /// aside, and its checkpoints move it up (theseus-31pgz, theseus-ypnxt.9);
+    /// a trivial one runs on Haiku.
     #[test]
     fn a_routine_coding_brief_runs_on_sonnet_and_only_a_trivial_one_on_haiku() {
         let cfg = RoutingConfig::default();
@@ -123,15 +122,15 @@ mod tests {
             let v = verdict(mode, 0.9);
             brief_base(&cfg, &ps, &ask(&v, "fable", 0)).profile
         };
-        assert_eq!(on("routine_coding"), "sonnet");
+        assert_eq!(on("routine_coding"), "haikuhi");
         assert_eq!(on("trivial"), "haiku");
-        // A config that moved sonnet aside still gets it first.
+        // A config that moved haikuhi aside still gets it first.
         let mut moved = RoutingConfig::default();
-        moved.classes.routine_coding.profiles = vec!["haikuhi".into()];
+        moved.classes.routine_coding.profiles = vec!["sonnet".into()];
         let v = verdict("routine_coding", 0.9);
         assert_eq!(
             brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile,
-            "sonnet"
+            "haikuhi"
         );
     }
 

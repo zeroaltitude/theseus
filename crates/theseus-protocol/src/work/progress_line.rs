@@ -169,7 +169,7 @@ mod tests {
     }
 
     /// A task a checkpoint moved off its base says where it runs, last; a task on its base
-    /// reads as the eight cases above do (theseus-ypnxt.9).
+    /// reads as the ten golden cases do (theseus-ypnxt.9).
     #[test]
     fn a_moved_tasks_line_says_where_it_runs() {
         let cases: Vec<Value> =
@@ -190,6 +190,7 @@ mod tests {
                 at_ms: 0,
             });
             v.forecast = c.get("forecast").map(|f| WorkForecast {
+                usd_p50: f.get("usd_p50").map_or(0.0, |x| x.as_f64().unwrap()),
                 min_p50: num(f, "min_p50"),
                 min_p90: num(f, "min_p90"),
                 ..forecast(num(f, "n") as u32, false)

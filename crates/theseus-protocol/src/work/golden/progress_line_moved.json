@@ -1,8 +1,8 @@
 [
   {"case": "moved, nothing else", "elapsed_min": 0, "moved_to": "sonnet", "expect": "on sonnet"},
   {"case": "moved, with step, cost and time", "elapsed_min": 4, "moved_to": "sonnet", "progress": {"done": 2, "total": 5},
-   "cost": {"spent": 0.4, "limit": 2}, "forecast": {"min_p50": 10, "min_p90": 20, "n": 4},
-   "expect": "step 3 of 5 · $0.40 of $2 · ~6 min left · on sonnet"},
+   "cost": {"spent": 0.4, "limit": 2}, "forecast": {"usd_p50": 0.6, "min_p50": 10, "min_p90": 20, "n": 4},
+   "expect": "step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left · on sonnet"},
   {"case": "moved and paused", "elapsed_min": 0, "moved_to": "opus", "paused": true, "progress": {"done": 2, "total": 5},
    "expect": "paused · step 3 of 5 · on opus"}
 ]

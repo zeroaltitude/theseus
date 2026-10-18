@@ -77,5 +77,5 @@ test('a task a checkpoint moved says where it runs, last (the Rust golden of the
     assert.equal(progressLine(v, at(c.elapsed_min)), c.expect ?? undefined, c.case)
   }
   // A task on its base is the line it was.
-  assert.equal(progressLine(four, at(4)), 'step 3 of 5 · $0.40 of $2 · ~6 min left')
+  assert.equal(progressLine(four, at(4)), 'step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left')
 })

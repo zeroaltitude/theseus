@@ -319,17 +319,16 @@ async fn one_agreeing_verdict_then_a_disagreeing_one_leaves_it_up() {
     assert!(!models[models.iter().position(|m| *m == "sonnet").unwrap()..].contains(&"haiku"));
 }
 
-/// Never below the base: a trivial verdict on a task whose base is Sonnet
-/// leaves it on Sonnet.
+/// Never below the base: a trivial verdict on a task whose base is Sonnet (a
+/// deep-coding brief) leaves it on Sonnet.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cheap_verdict_never_takes_a_task_below_its_base() {
     let t = task_with(
         loops(8, 0),
         None,
-        |c| {
-            c.routing.classes.routine_coding.profiles = vec!["sonnet".into()];
-        },
+        |_| {},
         |j| {
+            mode(j, "deep_coding", 0.95);
             on_trigger(j, "failing: ", "trivial");
         },
     )
