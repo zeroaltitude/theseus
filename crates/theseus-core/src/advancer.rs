@@ -32,18 +32,6 @@ pub trait Advancer: Send + Sync {
     fn decide(&self, outcome: &LoopOutcome) -> Decision;
 }
 
-/// The first policy and the permanent baseline: one loop, then the turn ends.
-pub struct StopAfterOneLoop;
-
-impl Advancer for StopAfterOneLoop {
-    fn name(&self) -> &'static str {
-        "stop_after_one_loop"
-    }
-    fn decide(&self, _outcome: &LoopOutcome) -> Decision {
-        Decision::EndTurn("stop_after_one_loop".into())
-    }
-}
-
 /// The conventional agent loop with a cap: at `max_loops` the turn ends, or,
 /// when the cap notifies (`notify`, theseus-usei), it goes on, and the turn
 /// posts its notice (`turn/budget_step.rs`).
@@ -78,12 +66,6 @@ mod tests {
             tool_calls: tools,
             output_chars: 0,
         }
-    }
-
-    #[test]
-    fn stop_after_one_always_ends() {
-        let a = StopAfterOneLoop;
-        assert!(matches!(a.decide(&outcome(0, 5)), Decision::EndTurn(_)));
     }
 
     #[test]

@@ -774,23 +774,6 @@ impl Core {
         })
     }
 
-    /// One task record (39a), by its id or the end of it, with its
-    /// children.
-    pub fn task_get(
-        &self,
-        p: theseus_protocol::tasks::TaskGetParams,
-    ) -> Result<theseus_protocol::tasks::TaskGetResult, RpcFailure> {
-        let all = crate::task_graph::all_shown(&self.store, &self.kernel)?;
-        let task = crate::task_graph::resolve(&all, &p.id)
-            .map_err(|e| RpcFailure::new(error_code::NOT_FOUND, e))?
-            .clone();
-        let children = crate::task_graph::children(&all, &task.id)
-            .into_iter()
-            .cloned()
-            .collect();
-        Ok(theseus_protocol::tasks::TaskGetResult { task, children })
-    }
-
     /// Stop a task and its jobs, as `execution.cancel` does; the place hears
     /// it once (DD7). A task that has ended already is left as it is.
     pub(super) async fn task_cancel(

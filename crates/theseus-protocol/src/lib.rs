@@ -272,8 +272,6 @@ pub mod method {
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
         TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
-        /// One task record (39a, `tasks::TaskGetParams`). A read.
-        TASK_GET = "task.get",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
         /// Wakes (DD8): the turns conversations asked for at a time, with `wake.at`, that have not run yet.

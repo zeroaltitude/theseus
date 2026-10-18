@@ -368,17 +368,9 @@ async fn a_plan_splits_closes_with_evidence_and_refuses_a_stale_edit() {
         "{shown}"
     );
 
-    // task.list carries the records beside the task sessions, and task.get
-    // reads one with its children.
+    // task.list carries the records beside the task sessions.
     let listed = c.task_records(Some(&s)).unwrap();
     assert_eq!(listed.len(), 5);
-    let got = c
-        .task_get(theseus_protocol::tasks::TaskGetParams {
-            id: second.short().into(),
-        })
-        .unwrap();
-    assert_eq!(got.task.id, second.id);
-    assert_eq!(got.children.len(), 2);
 }
 
 /// A plain turn, in a session whose scope holds no task (while another's

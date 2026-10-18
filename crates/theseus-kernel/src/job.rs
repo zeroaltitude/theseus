@@ -875,44 +875,6 @@ pub fn job_in_cmdline(cmdline: &[u8]) -> Option<String> {
     Some(id.unwrap_or_else(|| "?".into()))
 }
 
-/// `theseusd`'s options that take a value (theseus-6uo): what follows one is
-/// its value, never a subcommand. A test in `theseusd` keeps this in step with
-/// its command line.
-pub const DAEMON_VALUE_FLAGS: [&str; 5] = [
-    "--config",
-    "--one-shot",
-    "--op-token-file",
-    "--socket",
-    "--state-dir",
-];
-
-/// Is this command line a serving `theseusd` (theseus-6uo)? Its program's file
-/// name is `theseusd`, and no subcommand follows: the socket daemon or
-/// `--stdio`, not a job wrapper, `check`, or `config`. The approval trace that
-/// read it is retired (theseus-zmgb); it goes with the daemon's subreaper
-/// (core review §F9).
-pub fn daemon_in_cmdline(cmdline: &[u8]) -> bool {
-    let mut args = cmdline.split(|&b| b == 0);
-    let Some(first) = args.next() else {
-        return false;
-    };
-    let name = first.rsplit(|&b| b == b'/').next().unwrap_or(first);
-    if name != b"theseusd" {
-        return false;
-    }
-    while let Some(a) = args.next() {
-        if a.is_empty() {
-            continue;
-        }
-        if DAEMON_VALUE_FLAGS.iter().any(|f| f.as_bytes() == a) {
-            args.next();
-        } else if !a.starts_with(b"-") {
-            return false;
-        }
-    }
-    true
-}
-
 /// Best-effort poke: one line on a Unix stream socket. Failure is fine; the
 /// spool is the truth and the reconciler will find it.
 #[cfg(unix)]
@@ -925,28 +887,6 @@ pub fn notify(sock: &Path, correlation_id: &str) {
 }
 #[cfg(not(unix))]
 pub fn notify(_: &Path, _: &str) {}
-
-/// Is a pid alive? It exists (`kill(pid, 0)`) and is not a zombie. A wrapper
-/// that has exited stays a zombie until its parent reaps it. Before the daemon
-/// reaped its wrappers (theseus-z4b), a cancel took a wrapper it had killed
-/// for alive, and settled `OutcomeUncertain` after its whole grace
-/// (theseus-6qy).
-pub fn pid_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        let exists = unsafe { libc::kill(pid as i32, 0) == 0 };
-        exists && !exited(pid)
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
-}
-
-/// A zombie, or a process being reaped (`/proc/<pid>/stat` state Z or X).
-fn exited(pid: u32) -> bool {
-    proc_stat(pid).is_some_and(|s| matches!(s.state, 'Z' | 'X'))
-}
 
 /// What holds a job's wrapper pid now (theseus-mi6a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1809,59 +1749,19 @@ mod tests {
         }
     }
 
-    /// A serving daemon is known by its command line (theseus-6uo): `theseusd`
-    /// with options only, the socket daemon or `--stdio`. A wrapper, a
-    /// subcommand, and another program are not, and an option's value is not
-    /// taken for a subcommand.
-    #[test]
-    fn a_serving_daemon_is_known_by_its_command_line() {
-        for serving in [
-            &["theseusd"][..],
-            &[
-                "/home/x/.local/bin/theseusd",
-                "--config",
-                "check",
-                "--socket",
-                "/s",
-            ],
-            &["theseusd", "--stdio", "--state-dir", "/tmp/x"],
-            &[
-                "target/debug/theseusd",
-                "--config=/c.toml",
-                "--op-token-file",
-                "config",
-            ],
-        ] {
-            assert!(daemon_in_cmdline(&cmdline(serving)), "{serving:?}");
-        }
-        for other in [
-            &["theseusd", WRAPPER_MODE, "--spool", "/s", "--", "sh"][..],
-            &["theseusd", "--config", "/c.toml", "check"],
-            &["theseusd", "config"],
-            &["theseus", "--socket", "/s", "confirm"],
-            &["theseusd-old"],
-            &["sh", "-c", "theseusd"],
-        ] {
-            assert!(!daemon_in_cmdline(&cmdline(other)), "{other:?}");
-        }
-        assert!(!daemon_in_cmdline(&[]));
-    }
-
     /// A zombie is not alive: it has exited, and waits only to be reaped.
     #[test]
     fn a_zombie_is_not_alive() {
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let pid = child.id();
         let t0 = Instant::now();
-        while !exited(pid) {
+        while !proc_stat(pid).is_some_and(|s| matches!(s.state, 'Z' | 'X')) {
             assert!(t0.elapsed() < Duration::from_secs(10), "true never exited");
             std::thread::sleep(Duration::from_millis(5));
         }
-        assert!(!pid_alive(pid), "unreaped, it still answers kill(pid, 0)");
         assert_eq!(holder(pid, "act_1"), Holder::Gone);
         assert!(!wrapper_alive(pid, "act_1"));
         child.wait().unwrap();
-        assert!(pid_alive(std::process::id()));
     }
 
     /// What holds a wrapper's pid (theseus-mi6a), from its command line and,

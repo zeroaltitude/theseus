@@ -559,23 +559,6 @@ pub fn carries(v: &Verdict) -> bool {
     !is_detour(&v.mode)
 }
 
-/// How many turns a switch at `context` tokens takes to pay back its cold
-/// cache, from `from` to `to`, with `output` tokens a turn: the cold write
-/// (at `to`'s cache-write rate) over what each later turn saves (cache reads
-/// and output at the two rates). None: it never pays back.
-pub fn break_even_turns(
-    from: &CatalogEntry,
-    to: &CatalogEntry,
-    context: u64,
-    output: u64,
-) -> Option<f64> {
-    let m = 1e6;
-    let cold = context as f64 * to.cache_write_per_mtok.max(to.cache_read_per_mtok) / m;
-    let saved = context as f64 * (from.cache_read_per_mtok - to.cache_read_per_mtok) / m
-        + output as f64 * (from.output_per_mtok - to.output_per_mtok) / m;
-    (saved > 0.0).then(|| cold / saved)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1044,30 +1027,6 @@ mod tests {
             (d.profile.as_str(), d.reason, d.switch),
             ("opus", Reason::Capped, false)
         );
-    }
-
-    /// The break-even the rule implies (reported): a switch above
-    /// `cold_switch_tokens` waits for a second agreeing turn because the cold
-    /// write takes turns to pay back, and to GLM 5.3 only output pays it.
-    #[test]
-    fn the_break_even_of_a_switch() {
-        let c = crate::catalog::Catalog::builtin();
-        let (sonnet, opus, glm53) = (
-            c.get("claude-sonnet-5-5").unwrap(),
-            c.get("claude-opus-5-5").unwrap(),
-            c.get("glm-5.3").unwrap(),
-        );
-        // GLM 5.3's cache read is dearer than Sonnet's: with no output, never.
-        assert_eq!(break_even_turns(sonnet, glm53, 30_000, 0), None);
-        let n = break_even_turns(sonnet, glm53, 30_000, 1_000).unwrap();
-        // Sonnet 5.5's cache reads are $0.10 (not $0.20), so the dearer GLM
-        // reads take longer to pay back: about 52.5 turns.
-        assert!((52.0..53.0).contains(&n), "{n}");
-        // Opus is dearer than Sonnet on every rate: it never pays back in money.
-        assert_eq!(break_even_turns(sonnet, opus, 30_000, 1_000), None);
-        // From Opus to GLM 5.3, output pays for it in about three turns.
-        let n = break_even_turns(opus, glm53, 30_000, 1_000).unwrap();
-        assert!((2.5..3.5).contains(&n), "{n}");
     }
 
     /// The dear tier's context guard (theseus-p8dy): over

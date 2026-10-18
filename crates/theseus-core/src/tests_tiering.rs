@@ -420,8 +420,9 @@ async fn a_recall_source_from_before_a_floor_renders_the_same_bytes() {
         assert!(*pos <= last, "the heron is before the floor");
         assert!(!heron.is_hydrated(), "and a stub there");
         let stored = c.store.session_nodes(&a).unwrap().remove(0).1;
-        let read = c.store.node_at(*pos, &heron.id).unwrap().unwrap();
-        assert_eq!(*read, stored, "by position, the node the store holds");
+        let (at, read) = c.store.get_node(&heron.id).unwrap().unwrap();
+        assert_eq!(at, *pos, "by id, at the same position");
+        assert_eq!(read, stored, "the node the store holds");
         assert_eq!(heron.body, stored.body, "the stub rehydrates to it");
         // B recalls it, by its position, and the model reads its bytes.
         let all = index_of(c, vec![a.clone()]);

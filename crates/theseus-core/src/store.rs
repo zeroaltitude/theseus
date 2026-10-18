@@ -37,7 +37,6 @@ use theseus_store::{
     WalStore,
 };
 
-use crate::node::Node;
 use crate::node_cache::NodeCache;
 
 /// The index's projection for a daemon's store (theseus-lv2): the kernel's
@@ -1049,20 +1048,6 @@ impl Store {
         Ok(nodes)
     }
 
-    /// The node at `position`, through the heat cache: what a recall's
-    /// source reads. `None` when the record there is not the node `id`.
-    pub fn node_at(&self, position: u64, id: &str) -> Result<Option<Arc<Node>>> {
-        if let Some(n) = self.cache.get(position).filter(|n| n.id == id) {
-            return Ok(Some(n));
-        }
-        match self.inner.get(position)? {
-            Some(r) if r.kind == kinds::NODE && r.key.as_deref() == Some(id) => {
-                Ok(Some(self.cache.node(r.position, &r.payload)?))
-            }
-            _ => Ok(None),
-        }
-    }
-
     /// The heat cache of decoded nodes (M6 step 33).
     pub fn node_cache(&self) -> &Arc<NodeCache> {
         &self.cache
@@ -1170,6 +1155,7 @@ impl Store {
 pub(crate) mod tests {
     use super::*;
     use crate::ledger::LedgerRow;
+    use crate::node::Node;
     use std::collections::BTreeMap;
 
     fn row(kind: &str) -> NewRecord {

@@ -1507,6 +1507,17 @@ async fn a_stop_before_a_jobs_launch_means_it_never_starts() {
     assert!(!spool.has_completion(&corr));
 }
 
+/// A process that exists and is no zombie (`/proc/<pid>/stat` state not Z or X).
+fn process_alive(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| {
+        !s.rsplit(')')
+            .next()
+            .unwrap_or("")
+            .trim_start()
+            .starts_with(['Z', 'X'])
+    })
+}
+
 /// theseus-36to, the check after the launch: a `/stop` that lands during the
 /// launch, after the check before it and before the job's pid is in the
 /// spool, reaches nothing (the call settles cancelled, unsupported). The
@@ -1569,11 +1580,11 @@ async fn a_stop_during_a_jobs_launch_stops_it_once_its_pid_is_written() {
         "the job's wrapper runs on after the stop"
     );
     let t0 = std::time::Instant::now();
-    while theseus_kernel::job::pid_alive(child) && t0.elapsed() < Duration::from_secs(5) {
+    while process_alive(child) && t0.elapsed() < Duration::from_secs(5) {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(
-        !theseus_kernel::job::pid_alive(child),
+        !process_alive(child),
         "the job's process runs on after the stop"
     );
     let rows = ledgered(&r, "job.stopped_at_launch");

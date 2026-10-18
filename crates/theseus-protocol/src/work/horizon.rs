@@ -401,7 +401,7 @@ pub fn watch_met_answers() -> Vec<WakeAnswer> {
 /// move has no verb until the `projects` row brings `project.move`.
 pub fn milestone_answers() -> Vec<WakeAnswer> {
     vec![
-        answer("open", "Open", crate::method::TASK_GET),
+        answer("open", "Open", crate::method::PROJECT_SHOW),
         answer("move", "Move the date", "project.move"),
     ]
 }

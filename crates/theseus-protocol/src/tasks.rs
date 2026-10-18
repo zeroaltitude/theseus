@@ -5,7 +5,7 @@
 //! objective and acceptance are the operator's (layer 1: a change is a
 //! proposal), its plan the agent's (layer 2), and its evidence only grows
 //! (layer 3). These are the record as it is stored and as the protocol shows
-//! it: `task.list`'s `records`, `task.get`, and `task.changed`.
+//! it: `task.list`'s `records` and `task.changed`.
 
 use serde::{Deserialize, Serialize};
 
@@ -300,22 +300,6 @@ fn or_none(s: &str) -> &str {
     } else {
         s
     }
-}
-
-/// `task.get`: one task's record, by its id or the end of it.
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TaskGetParams {
-    pub id: String,
-}
-
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskGetResult {
-    pub task: TaskRecord,
-    /// Its children, in the order they were made.
-    #[serde(default)]
-    pub children: Vec<TaskRecord>,
 }
 
 /// `task.changed`: a task's record after a change, with the verb that made

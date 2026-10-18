@@ -89,7 +89,6 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   driver's `driver.started` row did, when a stop came as the daemon began to serve (theseus-fts6). The stop's
   answer is written before the daemon stops.
 - **A serving daemon is a child subreaper** (`children::adopt`): a job's orphans are its to adopt and reap.
-  `job::DAEMON_VALUE_FLAGS` must match clap's options; a test here holds them together.
 - **One index tender per state dir**, and none outlives its daemon: it holds `<state>/index/LOCK`, exits when the
   daemon's pid does (`--parent`), and after a restart in place the new image takes it over (`children::relearn`
   knows it by its command line). A test config from the template turns `[index]` off (`common::safe_note`): a

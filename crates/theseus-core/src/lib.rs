@@ -1,7 +1,7 @@
 //! Theseus kernel. See `docs/the-ship-of-theseus.md`.
 //!
 //! M0 First light: config and secrets from 1Password, a turn runner with an
-//! empty tool list, an Advancer whose only policy is `stop_after_one_loop`.
+//! empty tool list, an Advancer (the turn's today is `UntilNoToolCalls`).
 //! (M0's hook events, defined but never handled, came out in theseus-hco.)
 //! M1 Keel: the WAL store. M2 Kernel: executions, actions, completions, the
 //! spool, admission, budgets, the harness loop (`theseus-kernel` + `harness`).

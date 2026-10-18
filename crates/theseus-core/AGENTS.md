@@ -2236,7 +2236,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 - **Tiering** (M6 step 33, theseus-6fn.13): a turn decodes only what it renders.
   - `node_cache.rs`: the heat cache, `Arc<Node>` by WAL position, one per store and shared by every handle, so every
-    reader of nodes (a turn's transcript, `session_nodes`, `get_node`, a recall's source by `Store::node_at`) decodes a
+    reader of nodes (a turn's transcript, `session_nodes`, `get_node`) decodes a
     node once. Bounded by `[memory] node_cache_mb` (64; 0 off) in record bytes; past it, `decay_sweep`'s hints go
     first, then the coldest by last touch and count. It is the store's read path: it serves with memory off. Health's
     `store.node_cache`, the metrics `theseus.node_cache.*`.

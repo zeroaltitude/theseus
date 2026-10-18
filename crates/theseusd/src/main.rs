@@ -1672,26 +1672,4 @@ mod tests {
             "0 secret(s) resolved in 0 ms (nothing to fetch): "
         );
     }
-
-    /// The core knows a serving daemon by its command line (theseus-6uo), so
-    /// it must know which of the daemon's options take a value: exactly
-    /// these, with no positional argument but the subcommands.
-    #[test]
-    fn a_serving_daemons_value_options_are_the_ones_the_core_skips() {
-        use clap::CommandFactory;
-        let cmd = Cli::command();
-        let mut takes: Vec<String> = cmd
-            .get_arguments()
-            .filter(|a| a.get_action().takes_values())
-            .filter_map(|a| a.get_long().map(|l| format!("--{l}")))
-            .collect();
-        takes.sort();
-        let mut known: Vec<String> = theseus_kernel::job::DAEMON_VALUE_FLAGS
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        known.sort();
-        assert_eq!(takes, known);
-        assert_eq!(cmd.get_positionals().count(), 0);
-    }
 }

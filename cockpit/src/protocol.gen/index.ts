@@ -627,8 +627,6 @@ export type * from './TaskChanged';
 export type * from './TaskCheck';
 export type * from './TaskClaim';
 export type * from './TaskEvidence';
-export type * from './TaskGetParams';
-export type * from './TaskGetResult';
 export type * from './TaskInfo';
 export type * from './TaskKind';
 export type * from './TaskListParams';
