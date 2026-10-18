@@ -258,6 +258,8 @@ ledger_kinds! {
     SelfGraduateProposed = "self.graduate.proposed",
     SelfMineRan = "self.mine.ran",
     SelfMintValidated = "self.mint.validated",
+    SelfMintDeployed = "self.mint.deployed",
+    SelfMintRetired = "self.mint.retired",
     SelfSealedScored = "self.sealed.scored",
     SelfSealedChecked = "self.sealed.checked",
     SelfSealedDrift = "self.sealed.drift",

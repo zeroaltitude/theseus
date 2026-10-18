@@ -139,7 +139,13 @@ impl Core {
             }
             _ => m.spec(),
         };
-        let text = brief(&skeleton, kind, &halves.build);
+        let mut text = brief(&skeleton, kind, &halves.build);
+        if kind == Kind::Rust {
+            text.push_str(&format!(
+                "\nCall self.propose_change {{ item: \"{item}\", issue: <the issue>, why: <one \
+                 sentence> }}; the item carries the tag mint:{placeholder}.\n"
+            ));
+        }
         if !isolated(&text, &halves.check) {
             bail!("the brief holds a check-half id: not started");
         }
@@ -179,21 +185,21 @@ impl Core {
             self.mint_profile_ok(&pending.motif)
                 .map_err(|e| anyhow!(e))?;
             let reply = self.mint_writer_turn(&s).await?;
+            // A Rust mint is the writer's `self.propose_change` and the self-join's:
+            // its item carries `mint:<id>` and closes at the join, not here.
+            if pending.kind == Kind::Rust {
+                return Ok::<_, anyhow::Error>(None);
+            }
             let named = writer_reply(&reply)
                 .ok_or_else(|| anyhow!("the writer's reply ended with no MINT line"))?;
-            self.mint_validate(&pending, &named).await
+            Ok(Some(match pending.kind {
+                Kind::Mcp => self.mint_mcp_settle(&s, &placeholder, &named),
+                _ => self.mint_flow_settle(&pending, &named).await?,
+            }))
         };
         let settled = match run.await {
-            Ok(r) => match (&r.back_to_backlog, r.pass) {
-                (Some(evidence), _) => Settled::Back(evidence.clone()),
-                (None, true) => Settled::Passed(r.digest.clone()),
-                (None, false) => Settled::Failed(
-                    r.tiers()
-                        .iter()
-                        .find(|t| !t.pass)
-                        .map_or_else(String::new, |t| format!("{}: {}", t.name, t.why)),
-                ),
-            },
+            Ok(Some(settled)) => settled,
+            Ok(None) => return,
             Err(e) => {
                 tracing::warn!(item = %s.item, error = %format!("{e:#}"), "self mint: the mint did not finish");
                 Settled::Failed(format!("{e:#}"))
@@ -201,6 +207,62 @@ impl Core {
         };
         if let Err(e) = self.backlog_mint_settle(&s.item, settled) {
             tracing::warn!(item = %s.item, error = %format!("{e:#}"), "self mint: the item was not closed");
+        }
+    }
+
+    /// A flow's validation, and on a pass its deploy: a tool that finds no room
+    /// waits, validated, for the tender (`mint_deploy_waiting`).
+    async fn mint_flow_settle(
+        self: &Arc<Self>,
+        pending: &Pending,
+        named: &Named,
+    ) -> Result<Settled> {
+        let r = self.mint_validate(pending, named).await?;
+        Ok(match (&r.back_to_backlog, r.pass) {
+            (Some(evidence), _) => Settled::Back(evidence.clone()),
+            (None, true) => {
+                if let Err(e) = self.mint_deploy_flow(&pending.placeholder) {
+                    tracing::info!(tool = %r.name, why = %format!("{e:#}"), "self mint: validated, not deployed");
+                }
+                Settled::Passed(r.digest.clone())
+            }
+            (None, false) => Settled::Failed(
+                r.tiers()
+                    .iter()
+                    .find(|t| !t.pass)
+                    .map_or_else(String::new, |t| format!("{}: {}", t.name, t.why)),
+            ),
+        })
+    }
+
+    /// An MCP mint's end: the extension the writer proposed, self-loaded when
+    /// its manifest allows it (no network, no secret, every test passed), else
+    /// left to the owner's card with the reason.
+    fn mint_mcp_settle(
+        &self,
+        s: &crate::rsi::backlog::Started,
+        placeholder: &str,
+        named: &Named,
+    ) -> Settled {
+        let found = crate::extend::manifests(&self.store).map(|ms| {
+            ms.into_iter()
+                .filter(|m| {
+                    m.name == named.name
+                        && m.state == "proposed"
+                        && m.proposed_by.session_id == s.session_id
+                })
+                .max_by_key(|m| m.proposed_at_ms)
+        });
+        match found {
+            Ok(Some(m)) => match self.mint_self_load(placeholder, &m.name, &m.digest) {
+                Ok(d) => Settled::Passed(d.digest),
+                Err(e) => Settled::Failed(format!("left for the owner's card: {e:#}")),
+            },
+            Ok(None) => Settled::Failed(format!(
+                "the writer proposed no extension named {:?}",
+                named.name
+            )),
+            Err(e) => Settled::Failed(format!("{e:#}")),
         }
     }
 
@@ -247,7 +309,11 @@ impl Core {
     /// The flow spec the writer's answer makes of the pending skeleton: named,
     /// described, its ambiguous inputs typed, sealed, and scrubbed (a spec the
     /// scrubber would change, a secret in a description, say, is refused).
-    fn mint_spec(&self, pending: &Pending, named: &Named) -> Result<super::spec::Skeleton> {
+    pub(crate) fn mint_spec(
+        &self,
+        pending: &Pending,
+        named: &Named,
+    ) -> Result<super::spec::Skeleton> {
         let scrub = |s: &str| self.tools.scrubber.scrub(s).0;
         let mut sk = flow_spec(&pending.motif, &named.name, &scrub).map_err(|e| anyhow!(e))?;
         sk.spec.description.clone_from(&named.description);
@@ -330,6 +396,7 @@ impl Core {
             (Some(fixtures), Some(dry), ab),
             isolated,
         );
+        self.mint_keep_report(&pending.placeholder, &report)?;
         self.mint_record(&report)?;
         Ok(report)
     }

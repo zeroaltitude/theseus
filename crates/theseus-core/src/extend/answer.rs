@@ -68,6 +68,7 @@ impl Core {
         answer: Answer<'_>,
         by: &str,
         via: &str,
+        mint: Option<&str>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let args = a
             .proposal
@@ -109,6 +110,7 @@ impl Core {
             correlation_id: corr,
             by,
             via,
+            mint,
         };
         let declined = ExtendDeclined {
             name: &name,

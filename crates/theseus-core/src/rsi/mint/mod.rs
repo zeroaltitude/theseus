@@ -17,16 +17,23 @@
 //! unknown-origin) profile, decided by the profile's origin and never its
 //! name ([`data_rule`]). A motif born in the bench alone may use any model.
 //!
+//! - [`deploy`] and [`retire`] (theseus-pw1q.21.8): a pass goes live (a flow
+//!   loaded, an extension self-loaded, a Rust mint through self-pr) and the
+//!   tender keeps, retires or graduates it by its use; the morning notice
+//!   (`rsi/digest/notice.rs`) tells the owner what landed.
+//!
 //! **Off by default.** `[self.mint] mine = false` starts nothing; the start
-//! asks `rsi::gate` first. Nothing here deploys: a validated tool is loaded,
-//! self-loaded or joined by the next step.
+//! asks `rsi::gate` first, and so does every deploy and retire.
 
 use crate::catalog::Catalog;
 use crate::config::Config;
 use crate::rsi::mine::Motif;
 
 pub mod brief;
+pub mod deploy;
 pub mod kind;
+pub mod retire;
+pub mod rows;
 pub mod run;
 pub mod source;
 pub mod spec;
@@ -34,6 +41,8 @@ pub mod validate;
 
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_retire;
 
 pub use validate::ValidateReport;
 

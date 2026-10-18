@@ -81,3 +81,80 @@ impl Fact for MintValidated {
         );
     }
 }
+
+/// A minted tool went live (theseus-pw1q.21.8): `self.mint.deployed`, one row
+/// for each flow loaded, extension self-loaded, or Rust mint filed through
+/// self-pr. `numbers` is what the notice quotes (the motif's support, the
+/// check half's agreement, the saving the A/B measured); `undo` the one verb
+/// that takes it back. Names, digests and counts, never a value.
+pub struct MintDeployed {
+    pub name: String,
+    pub kind: String,
+    pub digest: String,
+    /// What the notice calls it: `flow:<name>`, `ext-<name>`, or the item.
+    pub tool: String,
+    /// Born in the bench alone: the notice says so.
+    pub bench_born: bool,
+    pub what: String,
+    pub numbers: Value,
+    pub undo: String,
+}
+
+impl Fact for MintDeployed {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SelfMintDeployed);
+
+    fn row(&self) -> Value {
+        json!({"name": self.name, "kind": self.kind, "digest": self.digest,
+               "tool": self.tool, "bench_born": self.bench_born,
+               "what": self.what, "why": null,
+               "numbers": self.numbers, "undo": self.undo})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "The minted {} {} is live: {}.",
+                self.kind, self.name, self.what
+            ),
+        );
+    }
+}
+
+/// A minted tool left the loaded set (theseus-pw1q.21.8): `self.mint.retired`.
+/// The rule that retired it and the numbers it fired on; the frozen copy stays,
+/// and `undo` says where.
+pub struct MintRetired {
+    pub name: String,
+    pub kind: String,
+    pub digest: String,
+    pub tool: String,
+    pub bench_born: bool,
+    /// The rule's name: `failures`, `scope`, `health`, `unused`, `no-saving`,
+    /// `not-falling`, `graduated`.
+    pub rule: String,
+    pub why: String,
+    pub numbers: Value,
+    pub undo: String,
+}
+
+impl Fact for MintRetired {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SelfMintRetired);
+
+    fn row(&self) -> Value {
+        json!({"name": self.name, "kind": self.kind, "digest": self.digest,
+               "tool": self.tool, "bench_born": self.bench_born, "rule": self.rule,
+               "what": format!("the minted {} {} retired", self.kind, self.name),
+               "why": self.why, "numbers": self.numbers, "undo": self.undo})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "The minted {} {} retired: {}.",
+                self.kind, self.name, self.why
+            ),
+        );
+    }
+}

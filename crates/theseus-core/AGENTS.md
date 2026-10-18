@@ -1148,7 +1148,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `theseus self patterns` (`Core::self_patterns`, the owner's, works with the mode off) runs the same pass in memory and
   writes nothing. Tests: `rsi/mine/*/tests.rs`, `rpc/tests_self_patterns.rs`.
   **From a motif to a checked tool** (theseus-pw1q.21.6; no store format change: one ledger kind, `self.mint.validated`;
-  `rsi/mint/`, `fact/rsi_mint.rs`; nothing is loaded, self-loaded or joined: deploying is the next step's). `spec.rs`: a
+  `rsi/mint/`, `fact/rsi_mint.rs`; nothing is loaded by validating; deploying is below). `spec.rs`: a
   motif's skeleton as R6's flow spec (`flow_spec`, through `flow::spec`'s types), a constant kept only past the shape check
   and the scrubber, else an input; where arms differ by what rerere did it adds a synthetic `git rerere status` step (the
   runtime makes those classes only from that program). `kind.rs`: the rule, in order (flow when every step is an allowed
@@ -1167,6 +1167,38 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   request and run through the same hands). The start is `backlog/start.rs`'s `backlog_mint_start`, beside the fix start
   with its own cap (`[self.mint] per_night`); a motif whose pending record exists is not started again. Tests:
   `rsi/mint/tests.rs`, `validate/tests_*.rs`, `rpc/tests_self_mint.rs`, `own_bench/whole/tests_minted.rs`.
+  **Deploy, keep or retire, and the morning notice** (theseus-pw1q.21.8; no store format change: two ledger kinds,
+  `self.mint.deployed` and `self.mint.retired`, a `mint` field on `extend.acked`, and the META key `self.notice.posted`;
+  `rsi/mint/{deploy,retire,rows}.rs`, `rsi/digest/notice.rs`, `backlog/graduate.rs`; every step asks `rsi::gate` and reads
+  and writes nothing while the mode is off or the switch halted). `deploy.rs`: a flow that passed (`mint_keep_report`
+  keeps its `ValidateReport` at `<state>/self/mint/<placeholder>/report.json` beside `pending.json`) is loaded through
+  `Core::flow_load` from its frozen copy, by `"self"`, in its scope (`mint_deploy_flow`); a proposed MCP extension is
+  *self-loaded* (`mint_self_load`: the extension's own `extend.ack` card answered by `"self"` through `answer_extension`,
+  `extend.acked {by: "self", mint}`) only when `self_load_refusal` finds no network, no hands (a credential), no failed
+  test and at least one declared test, under `extend::load::minted_ceiling` (the proposing place's ceiling, its floor at
+  least `notify`: "read-only, no network", held by `Floors` on every call); no surface answers as `"self"`
+  (`Answerer` of the unnamed surface is refused by the place rule), and the one path takes a manifest's own card, never a
+  call's. A Rust mint is no deploy here: its item carries the `mint:<id>` evidence tag, its brief tells the writer to
+  call `self.propose_change` with that item, and the self-join closes it. At most `[self.mint] per_night` deploys a day
+  (the last 24 hours' `self.mint.deployed` rows) and `max_live` live minted tools (flows by `"self"`, extensions acked
+  by `"self"`); a flow with no room waits, validated, and `mint_deploy_waiting` (in the tender) tries it again.
+  `retire.rs` (`Core::mint_tend`, a tender every 6 hours after serving, `mint_tender_after_serving`): per live minted tool,
+  `decide` over `Evidence` counted from `action.*` rows (`tool_calls`, `extend/usage.rs`, a flow's producer is
+  `harness:flow:<name>`): a red health signal attributed to it (`attributed`: the only minted tool with a call within an
+  hour before the red, from the revert watch's `Signals`), more than 20% failed over at least 5 calls, fewer than 3 calls
+  in `retire_after_days` once that old, its motif's by-hand runs (the miner, `mine_run`, once a pass) not falling once
+  that old; retiring is `flow_retire` or `revoke_loaded` by `"self"` and a `self.mint.retired` row, and the frozen copy
+  is never deleted. Not built, said in the module's doc: a write outside the declared scope (nothing in the ledger can
+  show one: a flow has no authored write and an extension's are discarded) and a live measure of the saving.
+  `theseus self revert flow:<name>` and `ext:<name>` (a minted one) are the owner's one verb. **Graduation** extends to
+  flows: `graduate_flow_obs` files `graduate flow:<name>` (key `graduate.flow:<name>:<digest>`) at the extensions'
+  rule, and a tool retired for a motif that did not fall is a cause, `mint.retired:<tool>:<digest>`. **The notice**
+  (`digest/notice.rs`): `notice_text` is pure over the night's ledger rows (joins with their review, sealed score and
+  install, deploys, retires, the backlog's waits and counts); `Core::post_self_notice_if_due`, from the harness tick,
+  posts one `self_digest` post to the owner's DM from `[initiative] morning_hour`, once a local day, only with
+  `[self] mode = "act"`, never halted, scrubbed, and a night with nothing to say writes only its mark. Tests:
+  `rsi/mint/tests_retire.rs`, `rsi/digest/tests_notice.rs` (the golden), `extend/tests_load/self_load.rs`,
+  `rpc/tests_self_deploy.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

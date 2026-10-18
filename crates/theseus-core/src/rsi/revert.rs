@@ -20,7 +20,8 @@
 //! keel gate, no key) is the owner's card.
 //!
 //! **The veto** ([`Core::self_revert`], `theseus self revert <merge>`, the
-//! cockpit's Revert button): the owner's alone, from any place, by the
+//! cockpit's Revert button; also `flow:<name>` and `ext:<name>` for a minted
+//! tool, one verb, theseus-pw1q.21.8): the owner's alone, from any place, by the
 //! resume's rule (`judge_act(Act::SelfRevert)`, `places::owner_anywhere`); a
 //! job's shell is refused with an `approval.refused` row. It reverts at once,
 //! writes `self.vetoed`, and drops the join's backlog item for good. It works
@@ -288,6 +289,9 @@ impl Core {
                 changed: true,
             });
         }
+        if let Some(name) = want.strip_prefix("ext:") {
+            return self.revert_minted_extension(name, &want, who);
+        }
         if want.len() < 7 {
             return Err(
                 BadMerge("name the merge by at least its first 7 characters".into()).into(),
@@ -350,5 +354,40 @@ impl Core {
                 &j.merge[..j.merge.len().min(12)]
             )),
         }
+    }
+}
+
+impl Core {
+    /// A minted extension is revoked, not reverted: the frozen copy stays
+    /// (theseus-pw1q.21.8). Only one the `"self"` principal loaded: an owner's
+    /// extension is `theseus extend revoke`'s.
+    fn revert_minted_extension(
+        &self,
+        name: &str,
+        want: &str,
+        who: &Answerer,
+    ) -> Result<SelfRevertResult> {
+        let minted = crate::extend::load::LoadedSet::read(&self.store)?
+            .loaded
+            .get(name)
+            .is_some_and(|l| l.acked_by == super::pr::PRINCIPAL);
+        if !minted {
+            return Err(BadMerge(format!(
+                "no minted extension named {name:?} is loaded (an extension the owner loaded is \
+                 `theseus extend revoke {name}`)"
+            ))
+            .into());
+        }
+        let r = self
+            .revoke_loaded(name, None, ("owner", &who.via()), Some("reverted"), || {
+                Ok(())
+            })
+            .map_err(|e| BadMerge(format!("{e:#}")))?;
+        Ok(SelfRevertResult {
+            merge: want.into(),
+            revert: r.digest,
+            item: None,
+            changed: true,
+        })
     }
 }
