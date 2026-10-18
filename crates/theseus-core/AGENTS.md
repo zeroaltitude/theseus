@@ -291,10 +291,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[card] every_days`, off once `card.done`. Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in
   `card/fixture.rs`), `config/tests_card.rs`.
 - **The owner's agents as personas** (theseus-a8n7, T10b; store format 41; `persona_import/`, `persona_recall.rs`,
-  `standing_proposals.rs`, `rpc/persona_import.rs`, `rpc/standing_proposals.rs`, `config/persona_settings.rs`, `[persona]`
+  `standing_proposals.rs`, `rpc/persona_import.rs`, `rpc/standing_proposals.rs`, `config/persona_settings.rs`, `[persona_import]`
   because `[personas]` is a map of personas). `persona.import {from, name, agent?, dry_run}` (the import's act:
   `judge_act(Act::Import)`, refused in a job by the CLI; `theseus persona import`) reads an agent's workspace on the
-  daemon's machine and carries `[persona] import_files` (`SOUL.md`, `IDENTITY.md`, `USER.md`, `AGENTS.md`, `MEMORY.md`,
+  daemon's machine and carries `[persona_import] import_files` (`SOUL.md`, `IDENTITY.md`, `USER.md`, `AGENTS.md`, `MEMORY.md`,
   and the folder `memory`) **byte for byte** into `<state>/personas/<name>/`; the top-level files are the persona's context
   files (the CLI writes `[personas.<name>] files` into the config), the folder's notes are carried and read for feedback
   but not compiled. A file over the 64 KB context limit is cut at its headings into `NAME.partN.md`, every part verbatim
@@ -313,7 +313,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   proposal (`standing.proposal_answered`), `standing.dismiss` closes it for good; a closed proposal is never proposed
   again. A persona scope holds for turns whose `Target.persona` is that persona (`standing::Scope.persona`).
   **Recall** (`persona_recall.rs`): while a persona is engaged (the turn's `Target.persona`; route.v5's verdict will
-  engage one the same way) `[persona] own_boost` (1.2; 1.0 off) multiplies the rank score of an imported episode of its
+  engage one the same way) `[persona_import] own_boost` (1.2; 1.0 off) multiplies the rank score of an imported episode of its
   own agent (`ImportedFrom.agent`, matched lower case against `Manifest.agent`, else the persona's key) in the pure
   pipeline (`theseus_memory::PersonaBoost` in `Params`; filters see the index's score, so it admits nothing), and that
   item's frozen header begins `[from Wren, 2026-09-14, @4210]` (`render::persona_mark`). A model's own lookups and
@@ -618,7 +618,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   answers (one clone, only for such a response, only for a request that caches and a prefix of at least `[cache]
   keep_warm_min_tokens`); the wait sends it again at `MAX_TOKENS` through `keep_warm_send` (the between-turns read's own
   send: reserved, held on the day ceiling, booked as a `keep_warm` row whose data says `during_wait`) every 4 minutes
-  of a 5-minute entry, or `[cache] keep_warm_minutes` of an hour's, beside its other events, so a settle, a message or a
+  of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
   stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
   `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
@@ -829,7 +829,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   hook's crash file beside the store, which the next start takes and health reports). The config template is
   `config/theseus.example.toml`, public, so it never carries a deployment's own values: a deployment's note holds
   only what differs from the defaults, and `config/sparse.rs` cuts a whole note to that (`theseusd config
-  --sparse`, theseus-vwar). `config/lookup.rs` finds the config when nothing names one (theseus-5aqz):
+  --sparse`, theseus-vwar). `config/renamed.rs` is the one table of renamed keys, (old, new) paths, and `explain`, which turns the loader's unknown-field error for an old key into "`[model] max_loops_mode` was renamed to `[model] on_max_loops`" (naming the file); there is no alias, so a rename adds a row and a literal case in its tests (`CASES`, one per row), and the operator edits the file. `config/lookup.rs` finds the config when nothing names one (theseus-5aqz):
   `~/.theseus/theseus.toml` if it exists, else `/etc/theseus/theseus.toml`, which `scripts/setup.sh` writes.
 - **MCP servers** (M7 36b): `mcp/`. `McpBoard` tends each `[mcp.servers]` server (`config/mcp.rs`) after serving,
   never before: a stdio server through `children::spawn(Kind::Owned)` in its own process group (stderr to
@@ -1193,7 +1193,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
     late detour's (`trivial`, `quick`) to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
     (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely, at the
-    mode's own bar (`[routing.modes.<mode>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
+    mode's own bar (`[routing.classes.<class>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
     `RoutingConfig::confidence_for`): the mode's first usable profile under a place's cap, a detour (the modes of
     `config::routing::DETOURS`, `trivial` and `quick`: that turn alone, compiled outside the session's compilation,
     which it never writes; never test a mode by name, ask `is_detour`), or a switch of the session's
@@ -1943,7 +1943,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing edits a watch afterwards (`wake.move`, `wake.snooze` and `wake.pause` refuse one); not in a task. The owner's
   `watch.create` and `watch.list` (`rpc/watch.rs`; `Act::Watch`, the owner from a private place, refused inside a job)
   and `theseus watches add|list|rm`. The commitments block lists a watch as `👁 c3d4e5 PR 123 merged? (OPEN at 14:05)`
-  from its last frame's state. `[watches] default_every|min_every|max_days` (`config/watches.rs`). A `run` check needs
+  from its last frame's state. `[watch_for] default_every|min_every|max_days` (`config/watches.rs`). A `run` check needs
   L1, so a root daemon's refuses it (theseus-pv6i) and the watch fails with that reason. Tests: `watch/tests_watch.rs`
   (a real core: a file met within an interval, twenty unchanged checks write no frame, a planted secret scrubbed,
   three failures inform once, expiry, a restart, the cap), `watch/tests_watch_tool.rs` (the approval and the command
@@ -2068,8 +2068,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     night once, never within 10 minutes of a start; before each replay it waits for the machine to be quiet
     (`pressure`). Per (model, effort) cell of the last seven days' turns (`turn.ended` rows and `route.decided`'s
     `effort_ran`), the newest `PER_CELL` (3) not yet judged, replayed on the rung down the routing table
-    (`own_bench/rung.rs`: `[routing.modes.*]`'s profiles, a model once, by catalog price). The day's spend is read back
-    from today's `route.replay.judged` rows (replay plus judgment, a failed call at its reservation) against `[route]
+    (`own_bench/rung.rs`: `[routing.classes.*]`'s profiles, a model once, by catalog price). The day's spend is read back
+    from today's `route.replay.judged` rows (replay plus judgment, a failed call at its reservation) against `[route_bench]
     replay_day_usd` (1.00; 0 is off), and a replay whose reservation passes what is left is not made: the check is
     before the call (`CapReached`). Each result is a `route.replay.judged` row.
   - **`route.report { week? }`** (`own_bench/report.rs`, a read, any surface): per cell, the turns and spend, the
@@ -2084,7 +2084,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `own_bench/whole/`): `turn.replay { scope: "whole_turn" }` runs the turn's tools too, on a scratch copy of its
     directory, and judges what it did. `scratch.rs` copies the session's directory (`cwd_for(session.dir)`) into
     an owner-only directory under the temp dir, without `target/`, `node_modules/` or `.theseus-files/` (named in the
-    row's caveats), refusing past `[route] whole_tree_mb` or 200,000 entries, and removes it when its guard drops.
+    row's caveats), refusing past `[route_bench] whole_tree_mb` or 200,000 entries, and removes it when its guard drops.
     `undo.rs` puts back the directory *as it was at the turn's start* by taking back, newest first, every recorded write
     from the turn on: `fs.edit` by its input's `old_string`/`new_string` (the new text must still be there exactly once),
     `fs.write` by `created` or by the whole diff its result carries; a write with no whole diff, an `fs.patch`, or any
@@ -2095,11 +2095,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `proc.run` runs in L1 over the copy as the only workspace (`theseus_kernel::probe_run::run_in`: a view from an empty
     root, writes discarded with L1's scratch, egress `[sandbox] egress`, environment `PATH` and `HOME`; a root daemon's
     L1 refusal fails the call, never L0); every other tool returns a stub: the original turn's own recorded result for
-    that tool, else a sentence. `runloop.rs` is the loop (`Core::replay_whole`) under `[route] whole_loops|whole_seconds|
+    that tool, else a sentence. `runloop.rs` is the loop (`Core::replay_whole`) under `[route_bench] whole_loops|whole_seconds|
     whole_usd`, each call reserved first as a first-loop replay's is (`call_model`, shared with `call_replay`), the cap
     named in the row. `compare.rs` is the deterministic half (the last test run's pass/fail by the argv's words, the
     set of paths changed, the set of exit codes) beside `compare.v1` on the final replies. `label.rs`: a judged match at
-    `[route] whole_label_bar` (0.9) with no cap, the same last test result and the same paths becomes a `judge.label` row
+    `[route_bench] whole_label_bar` (0.9) with no cap, the same last test result and the same paths becomes a `judge.label` row
     on the turn's route judgment (question `mode`, the class whose profile list leads with the rung, source `replay`,
     weight `learning::REPLAY_WEIGHT` 0.4, keyed once per judgment and turn). The learning loop drops `replay` labels from
     every holdout (`learning::without_machine` in the report, `propose::gather`'s owner-labeled holdout), counts them
@@ -2145,7 +2145,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `turn/budget_step.rs`. With `[kernel] spend_limit_mode = "notify"` (the default) a provider call past the
   session's limit goes out (`Kernel::overdraws`, theseus-kernel's `overdraw.rs`), and the loop whose call took the
   spend past the limit, or a multiple of it (`crossed`), posts one `notice` to the session's place, a
-  `budget.reached` row and a narrative line, all in the turn's next frame; `[profiles.*] max_loops_mode = "notify"`
+  `budget.reached` row and a narrative line, all in the turn's next frame; `[profiles.*] on_max_loops = "notify"`
   does the same at `max_loops` and each multiple (`loop.cap_reached`), and the turn goes on. `"ask"` and `"end"`
   are the old behaviour. A multiple is noticed at the check after the settle that crossed it (each loop's start and
   its call's settle, whatever the call's outcome, against `SpendMarks`, the spend each execution's last check saw, in

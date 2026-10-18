@@ -1,6 +1,6 @@
 //! What a task's limits do when they are reached (theseus-usei): its spend
 //! limit (`[kernel] spend_limit_mode`) and its loop cap (`[profiles.*]
-//! max_loops_mode`). The owner's decision (2026-10-07): for tasks and
+//! on_max_loops`). The owner's decision (2026-10-07): for tasks and
 //! tokens, notify, not restrict. Long tasks failed at the budget, so by
 //! default reaching either posts a notice and the work goes on; today's
 //! restriction stays one line away. AWS budgets are managed apart and still
@@ -64,7 +64,7 @@ impl DailyCeilingMode {
     }
 }
 
-/// `[profiles.*] max_loops_mode` (and `[model] max_loops_mode`, the default
+/// `[profiles.*] on_max_loops` (and `[model] on_max_loops`, the default
 /// profile's).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

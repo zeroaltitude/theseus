@@ -78,9 +78,9 @@ impl TurnRunner {
         if t.state != ThreadState::Active {
             return ThreadWarm::Out(format!("its thread {} is {}", t.slug, t.state.as_str()));
         }
-        match self.cfg.threads.keep_warm_hours {
+        match self.cfg.cache.threads_keep_warm_hours {
             h if h > 0.0 => ThreadWarm::Window(h),
-            _ => ThreadWarm::Out("[threads] keep_warm_hours is 0".into()),
+            _ => ThreadWarm::Out("[cache] threads_keep_warm_hours is 0".into()),
         }
     }
 }
@@ -292,7 +292,7 @@ impl crate::rpc::Core {
             return None;
         }
         Some(ThreadsHealth {
-            keep_warm_hours: self.cfg.threads.keep_warm_hours,
+            keep_warm_hours: self.cfg.cache.threads_keep_warm_hours,
             cache: Some(self.threads_cache()),
         })
     }

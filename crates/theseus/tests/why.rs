@@ -191,7 +191,7 @@ fn why_prints_the_last_turn_its_route_its_recalls_its_drops_and_its_gated_tools(
     s.extend(script(T));
     let got = run(&["why"], s);
     assert!(
-        got.contains("routing: deep_coding, by the route pack's verdict"),
+        got.contains("routing: task class deep_coding, by the route pack's verdict"),
         "{got}"
     );
     assert!(
@@ -216,7 +216,7 @@ fn a_prefix_names_an_older_turn_and_a_session_flag_names_the_session() {
     let got = run(&["why", "--session", S, "b7q1w4"], s);
     assert!(got.contains(&format!("turn {OLDER} ")), "{got}");
     assert!(
-        got.contains("routing: chat, by the route pack's verdict"),
+        got.contains("routing: task class chat, by the route pack's verdict"),
         "{got}"
     );
     assert!(got.contains("fs_read"), "{got}");

@@ -177,7 +177,7 @@ fn example_template_uncommented_still_parses() {
     );
     // The 1-hour cache TTL (theseus-ev1), on the implicit profile and on
     // the Sonnet one; the GLM one says none, so inherits it (theseus-ezeg).
-    assert_eq!(cfg.model.cache_ttl, CacheTtl::OneHour);
+    assert_eq!(cfg.cache.ttl, CacheTtl::OneHour);
     assert_eq!(cfg.profiles["sonnet"].cache_ttl, Some(CacheTtl::OneHour));
     assert_eq!(cfg.profile("glm").unwrap().ttl(), CacheTtl::OneHour);
     let new = &cfg.catalog["some-new-model"];
@@ -996,7 +996,7 @@ fn a_url_that_could_carry_a_credential_is_named() {
 
 /// `cache_ttl` (theseus-ev1) is "5m" or "1h", on a profile and on
 /// `[model]`, whose implicit profile carries it. A profile that says
-/// none inherits `[model]`'s (theseus-ezeg): the raw profile keeps
+/// none inherits `[cache]`'s (theseus-ezeg): the raw profile keeps
 /// none, and serializes none; any other value is refused.
 #[test]
 fn cache_ttl_is_five_minutes_or_an_hour_per_profile() {
@@ -1011,14 +1011,13 @@ fn cache_ttl_is_five_minutes_or_an_hour_per_profile() {
     let text = toml::to_string(&cfg.profiles["sonnet"]).unwrap();
     assert!(text.contains("cache_ttl = \"1h\""), "{text}");
 
-    // A 1-hour `[model]`: the default profile and every profile that
+    // A 1-hour `[cache] ttl`: the default profile and every profile that
     // says none, sonnet's and glm's, cache for an hour.
-    let on_model =
-        Config::EXAMPLE_TOML.replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"");
+    let on_model = Config::EXAMPLE_TOML.replace("\n[cache]\n", "\n[cache]\nttl = \"1h\"\n");
     let (cfg, _) = Config::parse(&on_model).unwrap();
     assert_eq!(cfg.profile("default").unwrap().ttl(), CacheTtl::OneHour);
     assert_eq!(cfg.profile("sonnet").unwrap().ttl(), CacheTtl::OneHour);
-    assert_eq!(cfg.ttl_of("glm"), Some((CacheTtl::OneHour, "model")));
+    assert_eq!(cfg.ttl_of("glm"), Some((CacheTtl::OneHour, "cache")));
     let wrong = Config::EXAMPLE_TOML.replace(
         "\n[profiles.glm]",
         "\ncache_ttl = \"10m\"\n\n[profiles.glm]",

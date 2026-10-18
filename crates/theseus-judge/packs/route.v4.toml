@@ -1,7 +1,7 @@
 # route.v4 (ROUTE): route.v3's two questions, with a `review` mode added to
 # `mode` (theseus-p8dy, 2026-10-11; the owner's model-guide decision: a review
 # of something already made, a check, a pre-merge read, runs on a model chosen
-# for it, `[routing.modes.review]`). A new pack version, as route.v2's `quick`
+# for it, `[routing.classes.review]`). A new pack version, as route.v2's `quick`
 # and route.v3's second question were: a live pack's options never change in
 # place, so its history and its labels stay what they were asked. Every other
 # option of `mode` is route.v3's, word for word, and `reply_effort` is route.v3's
@@ -10,7 +10,7 @@
 # route.v1's rollback rules; route.v1 to route.v3 stay embedded for their
 # history. At `inbound`, beside classify.v1 and role.v1: the same `inbound`
 # state. The core maps each mode to its ordered profiles
-# (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+# (`[routing.classes.<mode>]`); `other` is routed as `chat`.
 id = "route"
 version = 4
 jev_model = "jev-1.13.0"

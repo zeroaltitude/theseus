@@ -10,7 +10,7 @@
 # 5.5, live with route.v1's rollback rules; route.v1 stays embedded for its
 # history. At `inbound`, beside classify.v1 and role.v1: the same `inbound`
 # state. The core maps each mode to its ordered profiles
-# (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+# (`[routing.classes.<mode>]`); `other` is routed as `chat`.
 id = "route"
 version = 2
 jev_model = "jev-1.13.0"

@@ -16,13 +16,13 @@
 //!   `PATH` and `HOME`); every other tool returns a stub, the original turn's
 //!   own recorded result for that tool when it called it, and a plain
 //!   sentence otherwise. The row names each.
-//! - `runloop.rs`: the loop, under `[route] whole_loops|whole_seconds|
+//! - `runloop.rs`: the loop, under `[route_bench] whole_loops|whole_seconds|
 //!   whole_usd`, each call reserved and held on the day ceiling as a
 //!   first-loop replay's is.
 //! - `compare.rs`: the words (`compare.v1` on the final replies) and the
 //!   facts (the same last test run, the same paths changed, the same exit
 //!   codes), both in the row.
-//! - `label.rs`: a judged match at `[route] whole_label_bar` that the facts
+//! - `label.rs`: a judged match at `[route_bench] whole_label_bar` that the facts
 //!   do not contradict becomes a machine label on the turn's route judgment,
 //!   source `replay`, train split only (`learning::without_machine`).
 //!

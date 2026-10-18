@@ -4,7 +4,7 @@
 //! session's nodes; writes nothing but the `turn.replayed` row the caller
 //! writes.
 //!
-//! Caps, each a ceiling on one replay (`[route] whole_loops`, `whole_seconds`,
+//! Caps, each a ceiling on one replay (`[route_bench] whole_loops`, `whole_seconds`,
 //! `whole_usd`): the loop that would pass one is not made, and the row says
 //! which stopped it. Every call is reserved before it is sent (the caller's
 //! own cap and the day ceiling too, as a first-loop replay's call is), so the
@@ -247,7 +247,7 @@ impl Core {
         left: Option<u64>,
         spent: &mut u64,
     ) -> anyhow::Result<Done> {
-        let route = &self.cfg.route;
+        let route = &self.cfg.route_bench;
         let t0 = Instant::now();
         let rt = self.runner.tools.clone();
         let orig_cwd = rt.cwd_for(original.session.dir.as_deref());
@@ -388,7 +388,7 @@ impl Core {
             },
         )?;
         let cwd = rt.cwd_for(original.session.dir.as_deref());
-        let max = self.cfg.route.whole_tree_mb * 1024 * 1024;
+        let max = self.cfg.route_bench.whole_tree_mb * 1024 * 1024;
         let tag = p.turn.clone();
         let skip: Vec<std::path::PathBuf> = rt
             .policy

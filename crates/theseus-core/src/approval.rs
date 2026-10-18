@@ -37,7 +37,18 @@ pub enum Surface {
     Unnamed,
 }
 
+/// What a person reads for a surface's stored name: the CLI is `terminal`, the web UI `cockpit`; every other name
+/// (`discord`, `mcp`, `voice`) reads as stored. The one place a stored surface becomes a displayed one.
+pub fn display_name(stored: &str) -> &str {
+    match stored {
+        "cli" => "terminal",
+        "web" => "cockpit",
+        other => other,
+    }
+}
+
 impl Surface {
+    /// The stored name (`cli`, `web`, …): ledger rows and labels keep it. Show a person `display_name` of it.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cli => "cli",
@@ -224,6 +235,25 @@ mod tests {
             channel_id: "444444444444444444".into(),
             guild_id: guild.map(str::to_string),
         })
+    }
+
+    /// A stored `cli` or `web` shows as `terminal` or `cockpit` wherever a person reads a surface; the stored
+    /// names stay what the ledger holds.
+    #[test]
+    fn a_stored_surface_shows_its_display_name() {
+        use crate::standing::surface_name;
+        use Surface::*;
+        assert_eq!(Cli.as_str(), "cli");
+        assert_eq!(Web.as_str(), "web");
+        assert_eq!(surface_name(Cli, false), Some("terminal"));
+        assert_eq!(surface_name(Web, false), Some("cockpit"));
+        assert_eq!(surface_name(Discord, false), Some("discord"));
+        assert_eq!(surface_name(Discord, true), Some("voice"));
+        assert_eq!(surface_name(Mcp, false), Some("mcp"));
+        assert_eq!(surface_name(Unnamed, false), None);
+        assert_eq!(display_name("cli"), "terminal");
+        assert_eq!(display_name("web"), "cockpit");
+        assert_eq!(display_name("discord:dm"), "discord:dm");
     }
 
     fn answerer(surface: Surface, discord: Option<DiscordOrigin>) -> Answerer {

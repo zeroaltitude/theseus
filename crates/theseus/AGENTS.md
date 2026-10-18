@@ -244,7 +244,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (`scripts/user-service.sh sync-timer install`). Tests: `import_sync_tests.rs`, theseusd's `tests/import_sync.rs`.
 - `src/own_bench.rs` and `src/render/own_bench.rs` (own-benchmark, theseus-pw1q.12): `theseus route report [--week]` (per
   (model, effort) cell: turns and spend, the replays one rung down and what `compare.v1` made of them, what you checked,
-  the dollars movable at the stated confidence, and the replays' cost against `[route] replay_day_usd`) and `theseus
+  the dollars movable at the stated confidence, and the replays' cost against `[route_bench] replay_day_usd`) and `theseus
   turn replay SESSION TURN -P PROFILE [--effort E] [--no-compare] [--whole]`, a past turn's first request rebuilt byte for byte
   and sent to another profile (`--whole`: the whole turn, tools and all, on a scratch copy of its directory; the lines add the
   calls with what ran, what was stubbed and what was refused, the paths changed, the test runs, the caveats and the routing label;

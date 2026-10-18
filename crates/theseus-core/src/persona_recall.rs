@@ -1,6 +1,6 @@
 //! The persona's part of a recall (theseus-a8n7): while a persona is engaged,
 //! its own agent's imported episodes rank above others at equal relevance
-//! (`[persona] own_boost`, a bounded multiplier), and a recalled item of
+//! (`[persona_import] own_boost`, a bounded multiplier), and a recalled item of
 //! theirs says whose it is in its header (`[from Wren, 2026-09-14, @4210]`).
 //! Off when no persona is engaged, and when the boost is 1.0.
 //!
@@ -101,7 +101,7 @@ impl TurnRunner {
     /// off.
     pub fn persona_scene(&self, persona: Option<&str>) -> Option<PersonaScene> {
         let key = persona?;
-        if self.cfg.persona.own_boost <= 1.0 {
+        if self.cfg.persona_import.own_boost <= 1.0 {
             return None;
         }
         let cfg = self.cfg.personas.get(key)?;
@@ -109,7 +109,7 @@ impl TurnRunner {
         Some(PersonaScene {
             name: view.name,
             agent: self.persona.agent_of(&self.state_root(), key),
-            boost: self.cfg.persona.own_boost,
+            boost: self.cfg.persona_import.own_boost,
             store: self.store.clone(),
             memo: self.persona.agents.clone(),
         })

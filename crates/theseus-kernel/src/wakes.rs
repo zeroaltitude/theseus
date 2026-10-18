@@ -269,7 +269,7 @@ impl Kernel {
                 );
             }
         }
-        // A watch's span has its own floor (`[watches] min_every`), checked by the core.
+        // A watch's span has its own floor (`[watch_for] min_every`), checked by the core.
         if let Some(r) = repeat.as_ref().filter(|_| purpose != Purpose::Watch) {
             let floor = self.config().min_repeat_ms;
             anyhow::ensure!(

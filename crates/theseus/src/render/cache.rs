@@ -1,5 +1,5 @@
 //! Health's lines for the prompt cache (theseus-ezeg): each profile's TTL,
-//! and whether it inherited `[model]`'s; then the keep-warm's state. Apart
+//! and whether it inherited `[cache]`'s; then the keep-warm's state. Apart
 //! from `render.rs`, whose length the shape budget caps
 //! (`scripts/long-files.txt`).
 
@@ -7,7 +7,7 @@ use theseus_protocol::PromptCacheHealth;
 
 use super::{plural, Tag};
 
-/// `cache: default 1h, fable 1h (from [model]), glm 5m (from [model]), …`,
+/// `cache: default 1h, fable 1h (from [cache]), glm 5m (from [cache]), …`,
 /// then `  keep-warm: …`. Nothing from a daemon before it.
 pub fn cache_lines(c: Option<&PromptCacheHealth>) -> Vec<(Tag, String)> {
     let Some(c) = c else { return Vec::new() };
@@ -15,7 +15,7 @@ pub fn cache_lines(c: Option<&PromptCacheHealth>) -> Vec<(Tag, String)> {
         .profiles
         .iter()
         .map(|p| {
-            let from = if p.inherited { " (from [model])" } else { "" };
+            let from = if p.inherited { " (from [cache])" } else { "" };
             format!("{} {}{from}", p.profile, p.ttl)
         })
         .collect();
@@ -97,7 +97,7 @@ mod tests {
         let lines = cache_lines(Some(&c));
         assert_eq!(
             lines[0].1,
-            "cache: default 1h, fable 1h (from [model]), glm 5m, opus 1h"
+            "cache: default 1h, fable 1h (from [cache]), glm 5m, opus 1h"
         );
         assert_eq!(
             lines[1].1,
@@ -111,7 +111,7 @@ mod tests {
             ..PromptCacheHealth::default()
         };
         let lines = cache_lines(Some(&off));
-        assert_eq!(lines[0].1, "cache: glm 5m (from [model])");
+        assert_eq!(lines[0].1, "cache: glm 5m (from [cache])");
         assert!(lines[1].1.contains("keep-warm: off"), "{}", lines[1].1);
         assert!(cache_lines(None).is_empty());
     }

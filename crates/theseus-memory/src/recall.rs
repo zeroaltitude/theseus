@@ -233,7 +233,7 @@ pub struct Params {
 pub struct PersonaBoost {
     /// The persona's agent, lower case.
     pub agent: String,
-    /// `[persona] own_boost`: 1.0 to 2.0.
+    /// `[persona_import] own_boost`: 1.0 to 2.0.
     pub boost: f64,
     /// The agent of each candidate session that has one, lower case.
     pub of_session: BTreeMap<String, String>,

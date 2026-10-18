@@ -3,7 +3,7 @@
 //! spend_limit_mode = "notify"`, the default, a call past the session's
 //! spend limit goes out (`Kernel::overdraws`), and the loop whose call took
 //! the spend to the limit, or past a multiple of it, posts one notice to the
-//! session's place; with `[profiles.*] max_loops_mode = "notify"`, the loop
+//! session's place; with `[profiles.*] on_max_loops = "notify"`, the loop
 //! that reaches `max_loops`, or a multiple of it, does, and the turn goes on.
 //! Each notice says what was reached, the spend or loops so far, and how to
 //! stop the work, and is a ledger row and a narrative line. Its post and its
@@ -138,9 +138,7 @@ impl TurnRunner {
     pub(super) fn loops_noticed(&self, t: &mut Turn<'_>, i: u32, going_on: bool) -> Result<()> {
         let max = t.target.max_loops.max(1);
         let loops = i + 1;
-        if !going_on
-            || t.target.max_loops_mode != MaxLoopsMode::Notify
-            || !loops.is_multiple_of(max)
+        if !going_on || t.target.on_max_loops != MaxLoopsMode::Notify || !loops.is_multiple_of(max)
         {
             return Ok(());
         }
@@ -149,7 +147,7 @@ impl TurnRunner {
         let text =
             format!(
             "{who} has run {loops} loops in this turn, {}its profile's cap of {max}, and goes on: \
-             the cap notifies (`[profiles.{}] max_loops_mode = \"notify\"`). To stop the work: \
+             the cap notifies (`[profiles.{}] on_max_loops = \"notify\"`). To stop the work: \
              {}. The next notice comes at {} loops.",
             if multiple == 1 { String::new() } else { format!("{multiple} times ") },
             t.target.profile,

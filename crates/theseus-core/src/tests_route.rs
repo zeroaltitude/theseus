@@ -53,8 +53,8 @@ fn routing_only(c: &mut Config) {
 /// 5.3 Flash and routine programming on GLM 5.3, both on the `zai` fake, for
 /// the tests whose detour or switch is meant to leave the session's provider.
 pub(crate) fn glm_placements(c: &mut Config) {
-    c.routing.modes.trivial.profiles = vec!["glm".into()];
-    c.routing.modes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
+    c.routing.classes.trivial.profiles = vec!["glm".into()];
+    c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
 }
 
 pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {

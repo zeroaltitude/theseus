@@ -16,7 +16,7 @@ pub fn threads_lines(t: Option<&ThreadsHealth>) -> Vec<(Tag, String)> {
             t.keep_warm_hours
         )
     } else {
-        "keep-warm off ([threads] keep_warm_hours = 0)".to_string()
+        "keep-warm off ([cache] threads_keep_warm_hours = 0)".to_string()
     };
     let Some(c) = &t.cache else {
         return vec![(Tag::Plain, format!("threads: {warm}"))];
@@ -107,7 +107,7 @@ mod tests {
         };
         assert_eq!(
             threads_lines(Some(&off))[0].1,
-            "threads: keep-warm off ([threads] keep_warm_hours = 0)"
+            "threads: keep-warm off ([cache] threads_keep_warm_hours = 0)"
         );
     }
 }

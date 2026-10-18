@@ -4,9 +4,9 @@
 # and output cap) holds, and these differ, which makes this arm a
 # diamond on the Benchmarks tab ("conditions its peers did not share"):
 #   - `[judge]` is on, and route.v4 (the acting route pack on main since
-#     theseus-p8dy; route.v3 with a `review` mode) asks at the message which mode it needs and the effort
-#     its reply needs; the turn runs on that mode's first usable profile
-#     (`[routing.modes.*]`, the owner's table), at Jev's effort where Jev
+#     theseus-p8dy; route.v3 with a `review` class) asks at the message which task class it needs and the effort
+#     its reply needs; the turn runs on that class's first usable profile
+#     (`[routing.classes.*]`, the owner's table), at Jev's effort where Jev
 #     is sure (within `[routing] effort_bounds`, the full range here);
 #   - the session's own profile, `bench`, stays Sonnet 5.5 at medium effort,
 #     as the plain arm's: `chat` and `other` run on it, and a profile the
@@ -34,7 +34,7 @@ provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 api_key_secret = "anthropic_api_key"
 max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
-max_loops_mode = "end"                  # a trial ends at max_loops (exit 8), where the default notifies and goes on
+on_max_loops = "end"                  # a trial ends at max_loops (exit 8), where the default notifies and goes on
 
 [model.retries]
 transient = 4
@@ -43,7 +43,7 @@ transient = 4
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 # Reasoning effort medium, as Claude Code's and Pi's own defaults send it:
 # omitted, Sonnet 5.5 would run at its default, high (theseus-n6p5).
 effort = "medium"
@@ -108,7 +108,7 @@ mode = "off"
 provider = "anthropic"
 model = "claude-sonnet-5-5"
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 
 # Deep coding's first profile since the owner's decision of 2026-10-10: Sonnet 5.5 at high effort, Opus after it.
 [profiles.sonnethi]
@@ -116,33 +116,33 @@ provider = "anthropic"
 model = "claude-sonnet-5-5"
 effort = "high"
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 
 [profiles.opus]
 provider = "anthropic"
 model = "claude-opus-5-5"
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 
 [profiles.fable]
 provider = "anthropic"
 model = "claude-fable-5-1"
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 
 [profiles.haiku]
 provider = "anthropic"
 model = "claude-haiku-5-5"
 effort = "low"
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 
 [profiles.haikuhi]
 provider = "anthropic"
 model = "claude-haiku-5-5"
 effort = "high"
 max_loops = 200                         # set by the adapter
-max_loops_mode = "end"
+on_max_loops = "end"
 
 [judge]
 enabled = true
@@ -150,18 +150,18 @@ key_secret = "jev_api_key"
 
 [routing]
 enabled = true
-mode = "live"
+rung = "live"
 max_wait_ms = 2000
 
-[routing.modes.trivial]
+[routing.classes.trivial]
 profiles = ["haiku"]
-[routing.modes.quick]
+[routing.classes.quick]
 profiles = ["haiku"]
-[routing.modes.chat]
+[routing.classes.chat]
 profiles = []
-[routing.modes.sophisticated]
+[routing.classes.sophisticated]
 profiles = ["opus", "fable"]
-[routing.modes.deep_coding]
+[routing.classes.deep_coding]
 profiles = ["sonnethi", "opus"]
-[routing.modes.routine_coding]
+[routing.classes.routine_coding]
 profiles = ["haikuhi", "sonnet"]

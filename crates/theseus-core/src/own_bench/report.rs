@@ -10,7 +10,7 @@
 //! where `floor` is the one-sided Wilson lower bound of the match rate and
 //! `saving` is what the replays' first requests cost less than the originals'.
 //! A cell with no judged replay moves nothing. Read only: every number is a
-//! row already written. The replays' cost is shown against `[route]
+//! row already written. The replays' cost is shown against `[route_bench]
 //! replay_day_usd`.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -234,7 +234,7 @@ impl Core {
             .iter()
             .filter(|r| r.data["source"] == crate::learning::REPLAY_SOURCE)
             .count() as u64;
-        let cap = self.cfg.route.replay_day_usd;
+        let cap = self.cfg.route_bench.replay_day_usd;
         Ok(RouteReportResult {
             window_days: days,
             bar: BAR,
@@ -245,7 +245,8 @@ impl Core {
             labels_fed,
             replay_today_usd: self.replay_spent_today(now_ms)?,
             replay_day_usd: cap,
-            sampler: (cap <= 0.0).then(|| "[route] replay_day_usd = 0: the sampler is off".into()),
+            sampler: (cap <= 0.0)
+                .then(|| "[route_bench] replay_day_usd = 0: the sampler is off".into()),
         })
     }
 }

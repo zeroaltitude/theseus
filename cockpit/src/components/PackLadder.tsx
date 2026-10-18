@@ -36,7 +36,7 @@ export function PackLadder({ readOnly }: { readOnly: boolean }) {
   return (
     <div className="text-[12px]">
       <div className="num border-b border-line px-3 py-1.5 text-[11px] text-ink-faint">
-        judge {data.enabled ? 'on' : 'off'} · max_mode {data.max_mode}{said && <span className="ml-2 text-live">{said}</span>}
+        judge {data.enabled ? 'on' : 'off'} · max rung {data.max_mode}{said && <span className="ml-2 text-live">{said}</span>}
       </div>
       {data.packs.map((p) => (
         <div key={p.pack} className="border-b border-line/60 px-3 py-1.5">

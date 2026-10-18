@@ -72,8 +72,8 @@ class Profile(unittest.TestCase):
         values = tb.settings("claude-sonnet-5-5", "/app", max_loops=7, spend_limit_usd=0.5)
         cfg = tomllib.loads(tb.profile(tb.PROFILE.read_text(), values))
         self.assertEqual(cfg["kernel"]["spend_limit_mode"], "ask")
-        self.assertEqual(cfg["model"]["max_loops_mode"], "end")
-        self.assertEqual(cfg["profiles"]["bench"]["max_loops_mode"], "end")
+        self.assertEqual(cfg["model"]["on_max_loops"], "end")
+        self.assertEqual(cfg["profiles"]["bench"]["on_max_loops"], "end")
         self.assertEqual((tb.ended(5), tb.ended(8)), ("spend_limit", "cut"))
 
     def test_a_trial_sets_its_daemons_day_ceiling_explicitly(self):
@@ -157,7 +157,7 @@ class Routed(unittest.TestCase):
         # Every profile the table routes to ends at its loop cap, as the plain one does (budgets-notify's join fix,
         # theseus-usei): a profile's mode defaults to notify.
         for name in ("sonnet", "opus", "fable", "haiku", "haikuhi"):
-            self.assertEqual(cfg["profiles"][name]["max_loops_mode"], "end", name)
+            self.assertEqual(cfg["profiles"][name]["on_max_loops"], "end", name)
         self.assertEqual(cfg["profiles"]["bench"]["effort"], "medium")
         self.assertNotIn("max_output_tokens", text)
         # The differences: the judge, the routing table, the profiles it names.

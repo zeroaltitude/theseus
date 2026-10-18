@@ -55,7 +55,7 @@ pub fn digest(bytes: &[u8]) -> String {
 }
 
 /// Import `p.from` as persona `p.name`. `names` are the config's
-/// `[persona] import_files`; `limit` the context-file limit in bytes.
+/// `[persona_import] import_files`; `limit` the context-file limit in bytes.
 pub fn import(
     state_dir: &Path,
     p: &PersonaImportParams,

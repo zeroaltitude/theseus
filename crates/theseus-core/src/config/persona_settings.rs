@@ -1,4 +1,4 @@
-//! `[persona]` (theseus-a8n7): how the owner's agents come over as personas
+//! `[persona_import]` (theseus-a8n7): how the owner's agents come over as personas
 //! and how an engaged persona's own memories rank. (`[personas.<name>]` is a
 //! map of personas, so these keys cannot sit in it.) Every key has a default.
 //!

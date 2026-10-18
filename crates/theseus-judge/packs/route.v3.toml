@@ -14,7 +14,7 @@
 # since theseus-qe3v, live with route.v1's rollback rules; route.v1 and
 # route.v2 stay embedded for their history. At `inbound`, beside classify.v1
 # and role.v1: the same `inbound` state. The core maps each mode to its
-# ordered profiles (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+# ordered profiles (`[routing.classes.<mode>]`); `other` is routed as `chat`.
 id = "route"
 version = 3
 jev_model = "jev-1.13.0"

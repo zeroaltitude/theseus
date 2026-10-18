@@ -1,5 +1,5 @@
 //! `theseus packs` (M5 26a): the ladder, from `pack.list`. Each pack this
-//! build wires with its mode, share and why, its rollback rules, and its
+//! build wires with its rung, share and why, its rollback rules, and its
 //! last `pack.mode` rows; `promote` and `rollback` move one, the owner's
 //! acts (refused inside a job, `client::OPERATORS`). A security pack's
 //! promotion is a card: `theseus confirm <id> --approve` answers it.
@@ -17,7 +17,7 @@ use crate::cmd::output;
 
 #[derive(Subcommand, Debug)]
 pub enum PacksCmd {
-    /// Every pack: its mode, share and why, its rules, and its last rows (default).
+    /// Every pack: its rung, share and why, its rules, and its last rows (default).
     List,
     /// Move a pack up: to a canary share of sessions, or live. Short of the bar (a learning
     /// report whose frozen holdout has 200 labeled per deciding question, in which it beats its
@@ -98,7 +98,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: PacksCmd) -> Result<()> {
 /// The listing: a header naming the ceiling, then each pack.
 pub fn table(r: &PackListResult) -> String {
     let mut out = format!(
-        "the ladder: judge {}, max_mode {}\n",
+        "the ladder: judge {}, max rung {}\n",
         if r.enabled { "on" } else { "off" },
         r.max_mode
     );
@@ -123,7 +123,7 @@ fn pack_lines(p: &PackInfo) -> String {
     out
 }
 
-/// One `pack.mode` row: its mode, who, why, and what it cites.
+/// One `pack.mode` row: its rung, who, why, and what it cites.
 pub fn row_line(r: &PackModeRow) -> String {
     let mode = match (r.mode.as_str(), r.share) {
         ("canary", Some(s)) => format!("canary {s:?}"),
@@ -131,7 +131,7 @@ pub fn row_line(r: &PackModeRow) -> String {
     };
     let mut out = format!("{} → {mode} by {} ({}): {}", r.from, r.who, r.via, r.why);
     if r.declined {
-        out.push_str(" · declined, no mode written");
+        out.push_str(" · declined, no rung written");
     }
     if r.forced {
         out.push_str(&format!(
@@ -161,7 +161,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_listing_names_each_packs_mode_why_and_rows() {
+    fn a_listing_names_each_packs_rung_why_and_rows() {
         let r = PackListResult {
             enabled: true,
             max_mode: "live".into(),
@@ -189,6 +189,11 @@ mod tests {
             }],
         };
         let t = table(&r);
+        assert!(
+            t.starts_with("the ladder: judge on, max rung live\n"),
+            "{t}"
+        );
+        assert!(!t.contains("mode"), "the ladder's word is rung: {t}");
         assert!(
             t.contains("loop.v1: canary 1.0 (owner: forced by the owner)"),
             "{t}"

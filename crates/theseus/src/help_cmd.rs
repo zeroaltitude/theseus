@@ -45,7 +45,7 @@ fn line(cmd: &Command) -> String {
                 .rsplit_once(' ')
                 .map_or(&first[..cut], |(w, _)| w)
         ),
-        None => first.to_string(),
+        None => first.trim_end().to_string(),
     }
 }
 

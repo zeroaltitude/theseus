@@ -308,7 +308,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Judgment
   'judgment.main': e(
     'Show how Jev, the judge inside the loop, is doing, pack by pack.',
-    'One row per pack: its mode (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work.',
+    'One row per pack: its rung (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work.',
     'A pack in shadow is being tested before it can act. Slow or costly judgments are paid for on every turn they run in.'),
   'judgment.log': e(
     'List the judgments Jev made, so you can find and read one.',

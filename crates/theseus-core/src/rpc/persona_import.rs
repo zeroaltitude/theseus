@@ -70,7 +70,7 @@ impl Core {
         let (mut result, found) = run::import(
             &self.runner.state_root(),
             p,
-            &self.cfg.persona.import_files,
+            &self.cfg.persona_import.import_files,
             crate::context_files::MAX_BYTES,
             now,
         )?;

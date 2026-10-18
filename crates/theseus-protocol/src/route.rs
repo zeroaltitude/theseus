@@ -1,7 +1,7 @@
-//! Routing (M5 25e): which interaction mode the route pack judged a person's
+//! Routing (M5 25e): which task class the route pack judged a person's
 //! message to need, and why the turn ran where it ran. A turn's result
 //! carries it (`TurnSubmitResult.route`), so a client's status line can say
-//! the mode beside the model. A refusal's fallback moves a turn too
+//! the task class beside the model. A refusal's fallback moves a turn too
 //! (`TurnSubmitResult.fallback`, theseus-7gir.18), and says so in one line.
 
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnRoute {
-    /// The mode the route pack answered (`trivial`, `quick` since route.v2,
+    /// The task class the route pack answered (`trivial`, `quick` since route.v2,
     /// `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`),
     /// when a verdict was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

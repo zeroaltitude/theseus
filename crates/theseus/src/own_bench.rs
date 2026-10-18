@@ -19,7 +19,7 @@ pub enum RouteCmd {
     /// Per (model, effort) cell of your own turns: the turns and their spend, the turns replayed
     /// one rung down the routing table and what `compare.v1` made of them, the turns you checked,
     /// and the dollars moving the cell down would have saved at the stated confidence; and the
-    /// replays' cost against `[route] replay_day_usd`.
+    /// replays' cost against `[route_bench] replay_day_usd`.
     Report {
         /// The last seven days (the default is today).
         #[arg(long)]
@@ -48,7 +48,7 @@ pub enum TurnCmd {
         no_compare: bool,
         /// Run the whole turn, tools and all, on a scratch copy of its directory: programs in L1
         /// with their writes discarded, tools that would reach you or the world answered with a
-        /// recorded stub (the row names each), under `[route] whole_loops|whole_seconds|whole_usd`.
+        /// recorded stub (the row names each), under `[route_bench] whole_loops|whole_seconds|whole_usd`.
         /// The replies are judged and the tests, the paths changed and the exit codes compared; a
         /// confident match becomes a machine label for routing's learning (train split only).
         /// Refused when the turn's directory cannot be put back as it was.

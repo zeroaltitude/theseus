@@ -86,14 +86,11 @@ impl Scope<'_> {
 /// through, as a record's scope names it: `terminal` is the CLI and the TUI,
 /// `cockpit` the web UI. A connection no listener named has none.
 pub fn surface_name(surface: crate::approval::Surface, voice: bool) -> Option<&'static str> {
-    use crate::approval::Surface;
+    use crate::approval::{display_name, Surface};
     match surface {
-        Surface::Cli => Some("terminal"),
-        Surface::Web => Some("cockpit"),
-        Surface::Discord if voice => Some("voice"),
-        Surface::Discord => Some("discord"),
-        Surface::Mcp => Some("mcp"),
         Surface::Unnamed => None,
+        Surface::Discord if voice => Some("voice"),
+        s => Some(display_name(s.as_str())),
     }
 }
 

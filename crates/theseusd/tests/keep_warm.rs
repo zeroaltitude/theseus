@@ -1,5 +1,5 @@
 //! The keep-warm read through the real `theseusd` and a stand-in Messages API (theseus-ezeg). A profile that
-//! inherits `[model]`'s 1-hour cache, a short `[cache] keep_warm_minutes`, and a session's turn: then reads at the
+//! inherits `[cache]`'s 1-hour ttl, a short `[cache] keep_warm_every_minutes`, and a session's turn: then reads at the
 //! interval, each a request of one output token whose messages begin as the next turn's do, each with a
 //! `keep_warm` row, and health says the profiles' TTLs and the reads. The stand-in reports no cache reads, so what
 //! the provider would bill is the maintainer's live check (CLOUD_REPORT.md); here the daemon's own side is proved.
@@ -54,14 +54,14 @@ impl Rig {
         }
         let model_t = table(&mut t, "model");
         model_t.insert("api_base".into(), model.base.clone().into());
-        model_t.insert("cache_ttl".into(), "1h".into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
             p.as_table_mut()
                 .unwrap()
                 .insert("api_base".into(), model.base.clone().into());
         }
         let cache = table(&mut t, "cache");
-        cache.insert("keep_warm_minutes".into(), 0.03.into());
+        cache.insert("ttl".into(), "1h".into());
+        cache.insert("keep_warm_every_minutes".into(), 0.03.into());
         cache.insert("keep_warm_min_tokens".into(), 1.into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         let log = std::fs::File::create(path("theseusd.log")).unwrap();
@@ -201,7 +201,7 @@ fn a_conversation_is_read_at_the_interval_and_its_next_turn_follows_the_read() {
         next["messages"].as_array().unwrap()[..n]
     );
 
-    // Health: each profile's TTL (inherited from [model]) and the reads.
+    // Health: each profile's TTL (inherited from [cache]) and the reads.
     let h = r.call("health", Value::Null).unwrap();
     let c = &h["cache"];
     assert!(c["reads_today"].as_u64().unwrap() >= 2, "{c}");

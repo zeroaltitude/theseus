@@ -70,8 +70,13 @@ impl Core {
             }
         };
         let now = self.kernel.now_ms();
-        let built = spec::build(&p, now, &self.cfg.watches, self.outbox.target(&session_id))
-            .map_err(invalid)?;
+        let built = spec::build(
+            &p,
+            now,
+            &self.cfg.watch_for,
+            self.outbox.target(&session_id),
+        )
+        .map_err(invalid)?;
         let set = self
             .kernel
             .create_wake(&execution_id, None, built.new, &by)

@@ -2,13 +2,13 @@
 //! dearest first, and the rung one down from a model. Pure: the profiles and
 //! prices are given.
 //!
-//! The table is `[routing.modes.*]`'s profiles (the keyword `cheapest` names
+//! The table is `[routing.classes.*]`'s profiles (the keyword `cheapest` names
 //! none), one rung a distinct model, ordered by the catalog's input price. A
 //! cell's rung down is the dearest model strictly cheaper than its own; a
 //! model the table does not hold has its rung down all the same, from its
 //! price, and a cell on the table's cheapest model has none.
 
-use crate::config::routing::RoutingModes;
+use crate::config::routing::RoutingClasses;
 
 /// One rung: the profile that runs a model, and the model's price.
 #[derive(Debug, Clone, PartialEq)]
@@ -19,8 +19,8 @@ pub struct Rung {
     pub price: (f64, f64),
 }
 
-/// Every profile name `[routing.modes.*]` lists, first mention first.
-pub fn profiles_of(modes: &RoutingModes) -> Vec<String> {
+/// Every profile name `[routing.classes.*]` lists, first mention first.
+pub fn profiles_of(modes: &RoutingClasses) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for m in [
         &modes.trivial,
@@ -110,7 +110,7 @@ mod tests {
     /// The default routing modes name profiles, never the keyword.
     #[test]
     fn the_default_modes_give_profiles_and_never_cheapest() {
-        let got = profiles_of(&crate::config::routing::RoutingModes::default());
+        let got = profiles_of(&crate::config::routing::RoutingClasses::default());
         assert!(!got.is_empty());
         assert!(!got.iter().any(|p| p == "cheapest"));
     }

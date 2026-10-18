@@ -11,7 +11,7 @@ export type PromptCacheHealth = {
  */
 profiles: Array<ProfileTtl>, 
 /**
- * `[cache] keep_warm_minutes`: how long after a session's last call
+ * `[cache] keep_warm_every_minutes`: how long after a session's last call
  * its read goes.
  */
 keep_warm_minutes: number, 

@@ -22,12 +22,12 @@ use crate::{Config, Core};
 
 pub(crate) const MIN: Duration = Duration::from_secs(60);
 
-/// The template with a 1-hour `[model]`, so every profile that says none
+/// The template with a 1-hour `[cache] ttl`, so every profile that says none
 /// (the live one, sonnet, among them) caches for an hour, kept warm for
 /// `hours` after a message.
 pub(crate) fn one_hour(hours: u32) -> Config {
     let text = Config::EXAMPLE_TOML
-        .replace("live = \"sonnet\"", "live = \"sonnet\"\ncache_ttl = \"1h\"")
+        .replace("\n[cache]\n", "\n[cache]\nttl = \"1h\"\n")
         .replace(
             "keep_warm_hours = 24\n",
             &format!("keep_warm_hours = {hours}\n"),

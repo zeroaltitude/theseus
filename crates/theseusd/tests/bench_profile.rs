@@ -164,7 +164,7 @@ fn a_first_byte_timeout_is_retried_inside_the_headless_turn() {
 
 /// A trial stays capped (theseus-usei): where the defaults now notify and go
 /// on, the bench profile keeps the old stops, `[kernel] spend_limit_mode =
-/// "ask"` and `max_loops_mode = "end"` on `[model]` and `[profiles.bench]`.
+/// "ask"` and `on_max_loops = "end"` on `[model]` and `[profiles.bench]`.
 /// A trial whose first call's reservation passes its limit exits 5 with no
 /// call made, and one at its `max_loops` exits 8 where the model would go on.
 #[test]
@@ -172,8 +172,8 @@ fn a_bench_trial_still_ends_at_its_spend_limit_and_its_loop_cap() {
     let text = std::fs::read_to_string(profile_path()).unwrap();
     let (cfg, _) = Config::parse(&text).unwrap();
     assert_eq!(cfg.kernel.spend_limit_mode, SpendLimitMode::Ask);
-    assert_eq!(cfg.model.max_loops_mode, MaxLoopsMode::End);
-    assert_eq!(cfg.profiles["bench"].max_loops_mode, MaxLoopsMode::End);
+    assert_eq!(cfg.model.on_max_loops, MaxLoopsMode::End);
+    assert_eq!(cfg.profiles["bench"].on_max_loops, MaxLoopsMode::End);
     // The stand-in answers a tool's result with text: a turn of two loops.
     let diffs = |_: &str| vec![("text_diff", json!({"a": "x\n", "b": "y\n"}))];
     let model = FakeModel::start(diffs);

@@ -1,7 +1,7 @@
 // The ladder as the cockpit reads it (M5 26a): health's pack lines, and a `pack.mode` row in words. Pure, so
 // `npm test` runs it.
 
-/** Health's judge line, `route.v1: live (owner: decision of 2026-10-04)`, as its pack and its mode's first word. */
+/** Health's judge line, `route.v1: live (owner: decision of 2026-10-04)`, as its pack and its rung's first word. */
 export function packLine(line: string): { pack: string; mode: string; why: string } {
   const i = line.indexOf(': ')
   if (i < 0) return { pack: line, mode: '', why: '' }

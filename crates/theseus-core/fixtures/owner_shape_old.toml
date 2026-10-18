@@ -1,0 +1,172 @@
+# The owner's config in shape (theseus-ykc7o): the sections and switches of the installed
+# /etc/theseus/theseus.toml as of 2026-10-15, with every secret an `env:` reference, the AWS account
+# AWS's documentation example, and no paths or names of its own. The first request's budget is measured
+# on this as well as on the daemon's defaults: the defaults left out the language servers, the AWS
+# account and the web search key, and read the CLI's first request 1,500 tokens under the owner's.
+# Keep it in step with the installed config's sections (the install's census is the check).
+narrative = true
+
+[aws.accounts.123456789012]
+deployment = "theseus-desktop"
+durability = true
+monthly_budget_usd = 200
+owner_role = "theseus-owner"
+region = "us-west-2"
+regions = ["us-west-2", "us-east-1"]
+
+[broker.programs.aws]
+aws_account = "123456789012"
+
+[model]
+live = "sonnet"
+cache_ttl = "1h"
+
+[policy]
+enforcement = "notify"
+
+[policy.aws]
+read = "open"
+run = "notify"
+write = "notify"
+
+[policy.tools]
+"aws.describe" = "open"
+"fs.glob" = "open"
+"fs.grep" = "open"
+"fs.list" = "open"
+"fs.read" = "open"
+"git.diff" = "open"
+"git.log" = "open"
+"text.diff" = "open"
+
+[profiles.dsflash]
+effort = "high"
+model = "deepseek-flash"
+provider = "deepseek"
+
+[profiles.dsflashmax]
+effort = "max"
+model = "deepseek-flash"
+provider = "deepseek"
+
+[profiles.dspro]
+effort = "high"
+model = "deepseek-v4-pro"
+provider = "deepseek"
+
+[profiles.glm]
+model = "glm-5.3-flash"
+provider = "zai"
+cache_ttl = "5m"
+
+[profiles.sonnet]
+model = "claude-sonnet-5-5"
+cache_ttl = "1h"
+effort = "medium"
+
+[providers.deepseek]
+api_base = "https://api.deepseek.com/anthropic"
+api_key_secret = "deepseek_api_key"
+
+[providers.zai]
+api_base = "https://api.z.ai/api/anthropic"
+api_key_secret = "zai_api_key"
+
+[secrets]
+anthropic_api_key = "env:THESEUS_TEST_KEY"
+aws_access_key_id = "env:THESEUS_TEST_KEY"
+aws_secret_access_key = "env:THESEUS_TEST_KEY"
+brave_api_key = "env:THESEUS_TEST_KEY"
+deepgram_api_key = "env:THESEUS_TEST_KEY"
+deepseek_api_key = "env:THESEUS_TEST_KEY"
+discord_bot_token = "env:THESEUS_TEST_KEY"
+github_token = "env:THESEUS_TEST_KEY"
+jev_api_key = "env:THESEUS_TEST_KEY"
+zai_api_key = "env:THESEUS_TEST_KEY"
+mcp_server_key = "env:THESEUS_TEST_KEY"
+
+[voice]
+enabled = true
+
+[judge]
+enabled = true
+shadow_limit_usd_per_day = 2.0
+
+[memory]
+mode = "live"
+arm = "baseline"
+summary_profile = "haikuhi"
+rerank_wait_ms = 300
+synth_limit_usd_per_day = 0.5
+synth_profile = "haikuhi"
+
+[lsp]
+enabled = true
+
+[profiles.opus]
+provider = "anthropic"
+model = "claude-opus-5-5"
+effort = "medium"
+thinking_display = "summarized"
+max_loops = 40
+cache_ttl = "1h"
+
+[profiles.haiku]
+provider = "anthropic"
+model = "claude-haiku-5-5"
+effort = "low"
+max_loops = 40
+cache_ttl = "5m"
+
+[profiles.haikuhi]
+provider = "anthropic"
+model = "claude-haiku-5-5"
+effort = "high"
+thinking_display = "summarized"
+cache_ttl = "1h"
+max_loops = 40
+
+[profiles.sonnethi]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+effort = "high"
+thinking_display = "summarized"
+cache_ttl = "1h"
+max_loops = 40
+
+[profiles.fable]
+provider = "anthropic"
+model = "claude-fable-5-1"
+effort = "high"
+thinking_display = "summarized"
+max_loops = 40
+cache_ttl = "1h"
+
+[routing]
+max_wait_ms = 300
+
+[routing.modes.trivial]
+profiles = ["haiku", "glm"]
+
+[routing.modes.sophisticated]
+profiles = ["opus", "fable"]
+
+[routing.modes.deep_coding]
+profiles = ["sonnethi", "opus"]
+
+[routing.modes.routine_coding]
+profiles = ["haikuhi", "sonnet"]
+
+[catalog."claude-opus-5-5"]
+refusal_fallback_model = "claude-opus-5"
+
+[people]
+not_people = []
+
+[mcp_server]
+enabled = true
+key_secret = "mcp_server_key"
+memory = true
+
+[cockpit]
+public_url = "http://localhost:17433"

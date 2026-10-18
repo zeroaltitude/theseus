@@ -234,7 +234,7 @@ enum Cmd {
     /// and sections, every tool's description, schema and total with its use (calls planned in the
     /// last 30 days across every session, and the last one's date), the messages, and the total
     /// against the window. SESSION is that session's next request; with none, a fresh session's
-    /// first request for --place (cli, dm, channel, task, headless or harness; default cli). It compiles once and
+    /// first request for --place, the place kind (cli, dm, channel, task, headless or harness; default cli). It compiles once and
     /// sends nothing. --exact also asks the provider's token counter (not a model) when a key
     /// resolves. --json prints what the daemon answered.
     #[command(hide = true)]
@@ -697,7 +697,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: JudgeCmd,
     },
-    /// The ladder: each Jev pack's mode, share and why, its rollback rules and last rows;
+    /// The ladder: each Jev pack's rung, share and why, its rollback rules and last rows;
     /// `packs promote <pack> --canary <share> | --live` and `packs rollback <pack>` move one.
     #[command(hide = true)]
     Packs {
@@ -1227,7 +1227,7 @@ enum MemoryCmd {
 
 #[derive(Subcommand, Debug)]
 enum JudgeCmd {
-    /// The recent judgments, oldest first: time, pack and mode, session, answers (each with its
+    /// The recent judgments, oldest first: time, pack and rung, session, answers (each with its
     /// band), cost, and how long Jev took; a failed or skipped one says why.
     Log {
         /// How many (the newest).
@@ -1240,7 +1240,7 @@ enum JudgeCmd {
         #[arg(long, value_name = "PACK")]
         pack: Option<String>,
     },
-    /// One judgment: its pack, mode, outcome, timing, and cost; the state Jev was sent, as
+    /// One judgment: its pack, rung, outcome, timing, and cost; the state Jev was sent, as
     /// fields; and each answer with its probabilities and band.
     Show {
         /// The judgment's id (`jdg_…`), as `judge log --json` or a trace's `judge` mark names it.
@@ -1289,7 +1289,7 @@ enum JudgeCmd {
     /// wording as a new version, a replay checks it, and the numbers place it (or hold it).
     /// The operator's alone.
     Learn(judge_runs::LearnArgs),
-    /// Correct a turn's routing: it should have run on a profile, a mode, `stronger`, or
+    /// Correct a turn's routing: it should have run on a profile, a task class, `stronger`, or
     /// `cheaper`. Labels its route judgment as yours and moves the session there from its next
     /// turn; a later message close to it runs there too. The operator's alone: refused inside a
     /// Theseus job, and from a shared place.

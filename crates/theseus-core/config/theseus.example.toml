@@ -58,13 +58,8 @@ max_loops = 40                          # tool loops per turn before a notice (o
 # goes on until the model stops calling tools or you stop it (`theseus stop`,
 # `/stop`, the cockpit's Stop). "end" ends the turn there, as before. Each
 # profile has its own; this is the default profile's.
-max_loops_mode = "notify"               # notify | end
+on_max_loops = "notify"               # notify | end
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
-# cache_ttl = "1h"                      # 5m (the default) | 1h; every profile that says none inherits it; see [profiles.sonnet]
-# A conversation whose profile caches for 1h is kept warm after its turns end: one read of
-# its prefix every [cache] keep_warm_minutes, for this many hours after its last message
-# (a new message starts the window again); 0 turns it off. Inherited as cache_ttl is.
-keep_warm_hours = 24
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
 
@@ -111,10 +106,10 @@ refusal_fallbacks = true
 # conversation pauses 5 to 60 minutes after most of its prefix is written: then the
 # next call reads the prefix instead of writing it again. It applies to every cache
 # breakpoint, the conversation's included; a task's own conversation stays 5m. A profile
-# that says none takes [model]'s; one that must stay at 5 minutes under a 1-hour [model]
-# says cache_ttl = "5m".
+# that says none takes [cache]'s ttl; one that must stay at 5 minutes under a 1-hour [cache]
+# says cache_ttl = "5m". Its keep_warm_hours overrides [cache]'s the same way.
 # cache_ttl = "1h"
-# keep_warm_hours = 24                  # none: [model]'s
+# keep_warm_hours = 24                  # none: [cache]'s
 
 [profiles.glm]
 provider = "zai"
@@ -195,13 +190,20 @@ max_loops = 40
 # A long conversation's prompt is mostly its cached prefix. On a 1-hour profile, after a
 # conversation a person talks in (the CLI, the TUI, the web UI, the owner's DM; never a
 # task, a job, the judge or Jev) goes quiet, the daemon reads its prefix once every
-# keep_warm_minutes, with the smallest answer the provider allows and nothing stored but
+# keep_warm_every_minutes, with the smallest answer the provider allows and nothing stored but
 # its keep_warm ledger row, so the next message reads the cache (0.025x of input on Fable
 # 5.1) instead of writing it again (2x). Each read is a model call under the spend limit
 # and the daily ceiling; a refused or failed one stops that session's reads until its
-# next message. A prefix under keep_warm_min_tokens is not kept warm.
+# next message. A prefix under keep_warm_min_tokens is not kept warm. A profile may override
+# ttl and keep_warm_hours with cache_ttl and keep_warm_hours of its own ([profiles.<name>]);
+# one that says none takes these.
 [cache]
-keep_warm_minutes = 55                  # under the 1-hour cache's life by a margin; 0 < it < 60
+# ttl = "1h"                            # how long the provider keeps cached prefixes: 5m (the default) | 1h; a 1-hour entry costs 2x input to write instead of 1.25x
+# A conversation whose profile caches for 1h is kept warm this many hours after its last message
+# (a new message starts the window again); 0 turns it off.
+keep_warm_hours = 24
+keep_warm_every_minutes = 55            # under the 1-hour cache's life by a margin; 0 < it < 60
+threads_keep_warm_hours = 4             # a thread's own window: an active thread whose owner wrote within this is read at the same interval; 0: no thread is kept warm; the profile's own keep_warm_hours still bounds it
 keep_warm_min_tokens = 20000            # the smallest prefix kept warm, estimated
 # When a request will write the cache anyway (the session's last call is older than its
 # TTL, and no keep-warm kept it), an attachment's text over stub_min_tokens from before
@@ -443,7 +445,7 @@ task_lease_minutes = 30                 # a task claim's lease (task.claim): the
 max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder or a deferred task may be set; at least 1
 max_wakes = 5                           # check-ins (wake.at) one conversation may hold at once; at least 1
 max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
-max_watches = 20                        # watches the daemon may hold (see [watches])
+max_watches = 20                        # watches the daemon may hold (see [watch_for])
 steer_queued = true                     # a message sent while a turn runs interrupts its waits (job_wait, a command, a terminal) and joins the turn at its next loop; false: it waits for the turn to end
 
 # ---------------------------------------------------------------- tools
@@ -1059,13 +1061,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # is a stub that says how to read it again.
 # resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
 # working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
-# Keep-warm for threads: an active thread whose owner last wrote within
-# keep_warm_hours has its session read at the [cache] interval, as a long
-# conversation's is, so its next message reads the cache instead of rewriting
-# it. A paused or done thread is never read, and pausing stops it at once. The
-# profile's own keep_warm_hours still bounds it. `theseus health` has a threads
-# line, and `theseus thread show` the thread's own numbers.
-# keep_warm_hours = 4                     # 0: no thread is kept warm
+# Keep-warm for threads is [cache] threads_keep_warm_hours: an active thread whose owner last
+# wrote within it has its session read at the [cache] interval, as a long conversation's is,
+# so its next message reads the cache instead of rewriting it. A paused or done thread is never
+# read, and pausing stops it at once. `theseus health` has a threads line, and `theseus thread
+# show` the thread's own numbers.
 # With two or more [personas], each message is answered by the one it calls for: named at its start
 # ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
 # which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).
@@ -1091,7 +1091,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # The owner's other agents come over as personas (theseus-a8n7): `theseus persona
 # import --from <workspace> --name <persona>` copies the files below byte for
 # byte into <state>/personas/<persona>/ and points [personas.<persona>] at them.
-# [persona]
+# [persona_import]
 # import_files = ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "MEMORY.md", "memory"]   # a name ending .md is a file in the workspace's top folder; any other name is a folder of curated notes (carried, not compiled)
 # own_boost = 1.2                         # while a persona is engaged, its own agent's imported episodes rank this much higher at equal relevance in recall (1.0 off, at most 2.0)
 
@@ -1128,7 +1128,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # a turn, or a task starts). An unchanged value writes nothing: three days at 5
 # minutes is hundreds of checks and a handful of frames, at no model cost. The most
 # watches the daemon holds is [kernel] max_watches.
-# [watches]
+# [watch_for]
 # default_every = "5m"                    # how often a watch checks when it does not say
 # min_every = "1m"                        # the most often one may check (a minute at the least)
 # max_days = 30                           # the longest one waits before it gives up, and the default
@@ -1136,13 +1136,13 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # ---------------------------------------------------------------- route
 # Your own benchmark (own-benchmark, theseus-pw1q.12). Nightly, paced by
 # pressure, a few of your recent turns per (model, effort) cell are rebuilt
-# byte for byte, sent one rung down the routing table (`[routing.modes.*]`),
+# byte for byte, sent one rung down the routing table (`[routing.classes.*]`),
 # and judged by compare.v1 against the reply they got; `theseus route report`
 # says per cell what matched and what moving it would have saved. Never a
 # shared place's turn, and never one that would send a sealed thread's, a
 # veiled recall's or an attachment's bytes to another provider. It moves no
 # routing: a pack that would climbs the ladder on its frozen holdout.
-# [route]
+# [route_bench]
 # replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
 # whole_loops = 24                        # a whole-turn replay (`theseus turn replay --whole`) makes at most this many model calls
 # whole_seconds = 300                     # ... runs at most this long
@@ -1420,10 +1420,10 @@ stop_nudge = true                       # a private turn whose last message says
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
 # [judge.packs."loop.v1"]
-# mode = "off"                          # off | shadow: "off" stops this pack alone
+# rung = "off"                          # off | shadow: "off" stops this pack alone
 # sample = 0.5                          # the share of its events judged in shadow (default the pack's own, 1.0)
 # [judge.packs."rerank.v1"]            # recall's +rerank arm, live (M6 32d): its own 600 ms deadline and breaker
-# mode = "off"                          # "shadow" keeps Jev's order out of every request; "off" reranks nothing
+# rung = "off"                          # "shadow" keeps Jev's order out of every request; "off" reranks nothing
 # security.v3 is live as notices: when it is at least 90% sure an open call
 # (one that ran without asking) was risky, your DM gets a notice after the call,
 # which never waits, with right / wrong / noise buttons. More than 30 in a day,
@@ -1451,13 +1451,13 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v4 asks at each
-# message you send which mode it needs (beside classify.v1 and role.v1), and
-# the turn runs on that mode's first usable profile: configured, its key settled, its
+# Jev's model per task class (M5 25e). While [judge] is on, route.v4 asks at each
+# message you send which task class it needs (beside classify.v1 and role.v1), and
+# the turn runs on that class's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
 # own. "cheapest" is the usable profile cheapest for a short turn at catalog prices. A
 # trivial or quick message is a detour: that turn alone runs on its profile, with the last
-# trivial_context_turns exchanges, and the session stays where it was. Any other mode
+# trivial_context_turns exchanges, and the session stays where it was. Any other class
 # moves the session: at once under cold_switch_tokens of context, above it only when two
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
 # or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
@@ -1471,7 +1471,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # below, the turn runs at high (the row says held_high), before the bounds clamp it.
 [routing]
 enabled = true                          # acts only while [judge] is on
-mode = "live"                           # "shadow" records each verdict and routes nothing
+rung = "live"                           # "shadow" records each verdict and routes nothing
 max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
 trivial_context_turns = 2               # the exchanges a detour (trivial, quick) carries
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
@@ -1479,27 +1479,27 @@ switch_confidence = 0.6                 # a verdict routes only at this confiden
 effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
 high_effort_confidence = 0.70           # an xhigh or max answer applies only above this confidence; else the turn runs high
 dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
-# Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
-# mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
+# Each task class's profiles, in order: the first usable wins. Empty: the session's own. A
+# class's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
 # A verdict that comes after the wait applies to the next message alone, and a trivial
-# or quick one to none. A profile a mode names that this config lacks is passed over. A
+# or quick one to none. A profile a class names that this config lacks is passed over. A
 # session Jev moved up from its own profile goes back to it after two verdicts in a row
-# whose mode is its own profile or cheaper (chat, routine_coding); you moving it is yours.
-# [routing.modes.trivial]
+# whose class is its own profile or cheaper (chat, routine_coding); you moving it is yours.
+# [routing.classes.trivial]
 # profiles = ["haiku", "glm", "cheapest"]
 # switch_confidence = 0.4
-# [routing.modes.quick]                 # a quick question a short, direct answer settles
+# [routing.classes.quick]                 # a quick question a short, direct answer settles
 # profiles = ["haiku"]
-# [routing.modes.chat]                  # conversation building on the work: the session's own
+# [routing.classes.chat]                  # conversation building on the work: the session's own
 # profiles = []
-# [routing.modes.sophisticated]
+# [routing.classes.sophisticated]
 # profiles = ["opus", "fable"]
-# [routing.modes.deep_coding]
+# [routing.classes.deep_coding]
 # profiles = ["opus", "sonnet"]
-# [routing.modes.routine_coding]
+# [routing.classes.routine_coding]
 # profiles = ["haikuhi", "sonnet"]
-# [routing.modes.review]                # verification: "check this", a pre-merge review, "is this right?"
+# [routing.classes.review]                # verification: "check this", a pre-merge review, "is this right?"
 # profiles = ["opushi", "fable"]
 # Your corrections (theseus-q31l): in a private place, "that should have been on fable",
 # "use opus for that", "that needed more effort" or "rerun that on opus" labels the last

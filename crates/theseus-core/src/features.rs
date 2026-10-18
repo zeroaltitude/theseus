@@ -95,11 +95,11 @@ mod tests {
         assert_eq!(none.jev, "Jev off (no jev_api_key entry under [secrets])");
         let off = of(&cfg(SET, "[judge]\nenabled = false"), None);
         assert_eq!(off.jev, "Jev off ([judge] enabled = false)");
-        let shadow = of(&cfg(SET, "[routing]\nmode = \"shadow\""), None);
+        let shadow = of(&cfg(SET, "[routing]\nrung = \"shadow\""), None);
         assert_eq!(shadow.jev, "Jev on, routing shadow");
         let pack = crate::judge::inbound::ROUTE_PACK;
         let packed = of(
-            &cfg(SET, &format!("[judge.packs.\"{pack}\"]\nmode = \"shadow\"")),
+            &cfg(SET, &format!("[judge.packs.\"{pack}\"]\nrung = \"shadow\"")),
             None,
         );
         assert_eq!(packed.jev, "Jev on, routing shadow");

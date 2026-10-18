@@ -1,4 +1,4 @@
-//! `[route]` (own-benchmark, theseus-pw1q.12): your own benchmark's sampler.
+//! `[route_bench]` (own-benchmark, theseus-pw1q.12): your own benchmark's sampler.
 //! Nightly, a few of the owner's recent turns per (model, effort) cell are
 //! replayed one rung down the routing table and judged by `compare.v1`
 //! (`theseus route report` reads them). It spends only under its own day cap
@@ -118,27 +118,28 @@ impl RouteConfig {
 mod tests {
     use super::*;
 
-    /// The template's `[route]` is the default, and a note may change it.
+    /// The template's `[route_bench]` is the default, and a note may change it.
     #[test]
     fn the_templates_route_section_is_the_default() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert_eq!(cfg.route, RouteConfig::default());
-        assert!((cfg.route.replay_day_usd - 1.0).abs() < f64::EPSILON);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# [route]\n# replay_day_usd = 1.0"));
-        let off = crate::Config::from_toml("[route]\nreplay_day_usd = 0\n").unwrap();
-        assert!(off.route.replay_day_usd == 0.0);
+        assert_eq!(cfg.route_bench, RouteConfig::default());
+        assert!((cfg.route_bench.replay_day_usd - 1.0).abs() < f64::EPSILON);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# [route_bench]\n# replay_day_usd = 1.0"));
+        let off = crate::Config::from_toml("[route_bench]\nreplay_day_usd = 0\n").unwrap();
+        assert!(off.route_bench.replay_day_usd == 0.0);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(
-            crate::Config::parse(&format!("{secrets}\n[route]\nreplay_day_usd = -1\n")).is_err()
+            crate::Config::parse(&format!("{secrets}\n[route_bench]\nreplay_day_usd = -1\n"))
+                .is_err()
         );
-        assert!(crate::Config::from_toml("[route]\nbogus = 1\n").is_err());
+        assert!(crate::Config::from_toml("[route_bench]\nbogus = 1\n").is_err());
         // The whole-turn replay's caps (theseus-pw1q.20): defaults in the
         // template, each bounded.
-        assert_eq!(cfg.route.whole_loops, 24);
-        assert_eq!(cfg.route.whole_seconds, 300);
-        assert!((cfg.route.whole_usd - 0.5).abs() < f64::EPSILON);
-        assert_eq!(cfg.route.whole_tree_mb, 256);
-        assert!((cfg.route.whole_label_bar - 0.9).abs() < f64::EPSILON);
+        assert_eq!(cfg.route_bench.whole_loops, 24);
+        assert_eq!(cfg.route_bench.whole_seconds, 300);
+        assert!((cfg.route_bench.whole_usd - 0.5).abs() < f64::EPSILON);
+        assert_eq!(cfg.route_bench.whole_tree_mb, 256);
+        assert!((cfg.route_bench.whole_label_bar - 0.9).abs() < f64::EPSILON);
         for bad in [
             "whole_loops = 0",
             "whole_seconds = 0",
@@ -147,7 +148,7 @@ mod tests {
             "whole_label_bar = 1.5",
         ] {
             assert!(
-                crate::Config::parse(&format!("{secrets}\n[route]\n{bad}\n")).is_err(),
+                crate::Config::parse(&format!("{secrets}\n[route_bench]\n{bad}\n")).is_err(),
                 "{bad}"
             );
         }

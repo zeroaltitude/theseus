@@ -33,7 +33,7 @@ async fn a_reply_from_the_named_person_in_a_shared_channel_reaches_the_owners_dm
     };
     let p = theseus_core::watch::reply::resolved(&p, &r.core.runner.place_rule).unwrap();
     let now = r.core.kernel.now_ms();
-    let built = theseus_core::watch::spec::build(&p, now, &r.core.cfg.watches, None).unwrap();
+    let built = theseus_core::watch::spec::build(&p, now, &r.core.cfg.watch_for, None).unwrap();
     let set = r
         .core
         .kernel

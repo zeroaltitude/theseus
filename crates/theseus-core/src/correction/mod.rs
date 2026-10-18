@@ -182,7 +182,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
             let leads = last
                 .mode
                 .as_ref()
-                .is_some_and(|m| cfg.modes.of(m).contains(p));
+                .is_some_and(|m| cfg.classes.of(m).contains(p));
             Resolved {
                 profile: Some(p.clone()),
                 mode: None,
@@ -193,7 +193,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
             }
         }
         To::Mode(m) => {
-            let profile = match pick(cfg.modes.of(m), profiles, false, None) {
+            let profile = match pick(cfg.classes.of(m), profiles, false, None) {
                 Picked::Profile(p) | Picked::Capped(Some(p)) => p,
                 _ => last.from.clone(),
             };

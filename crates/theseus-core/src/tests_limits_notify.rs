@@ -2,7 +2,7 @@
 //! spend limit the turn goes on and one notice posts to the session's place,
 //! one more at twice it, never one per call; a call whose reservation passes
 //! the limit goes out; at `max_loops` the turn goes on with a notice; with
-//! `spend_limit_mode = "ask"` or `max_loops_mode = "end"`, today's behaviour.
+//! `spend_limit_mode = "ask"` or `on_max_loops = "end"`, today's behaviour.
 
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ struct Ran {
 /// The template, with every profile's `max_loops = 40` made `to`.
 fn loops(to: &str) -> Config {
     let text = Config::EXAMPLE_TOML
-        .replace("max_loops_mode = \"notify\"", "")
+        .replace("on_max_loops = \"notify\"", "")
         .replace("max_loops = 40", to);
     Config::parse(&text).unwrap().0
 }
@@ -248,10 +248,10 @@ async fn at_max_loops_the_turn_goes_on_with_a_notice_at_each_multiple() {
     let notices = ran.notices();
     assert_eq!(notices.len(), 2, "{notices:?}");
     assert!(notices[0].contains("2 loops"), "{}", notices[0]);
-    assert!(notices[0].contains("max_loops_mode"), "{}", notices[0]);
+    assert!(notices[0].contains("on_max_loops"), "{}", notices[0]);
 }
 
-/// `max_loops_mode = "end"`: today's behaviour, the turn ends at the cap.
+/// `on_max_loops = "end"`: today's behaviour, the turn ends at the cap.
 #[tokio::test]
 async fn end_mode_ends_the_turn_at_max_loops_as_before() {
     let script = (1..=5)
@@ -267,14 +267,14 @@ async fn end_mode_ends_the_turn_at_max_loops_as_before() {
         })
         .collect();
     let ran = turn_on(
-        loops("max_loops = 2\nmax_loops_mode = \"end\""),
+        loops("max_loops = 2\non_max_loops = \"end\""),
         script,
         |_| {},
     )
     .await;
     let (live, _) = ran.core.live_profile();
     assert_eq!(
-        ran.core.cfg.profile(&live).unwrap().max_loops_mode,
+        ran.core.cfg.profile(&live).unwrap().on_max_loops,
         MaxLoopsMode::End
     );
     assert_eq!(

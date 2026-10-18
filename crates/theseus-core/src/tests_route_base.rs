@@ -284,7 +284,7 @@ async fn switched_twice(jev: &FakeJev) -> (Rig, String) {
     // The second switch goes to a profile dearer than the base: one cheaper
     // is a step back down, which waits for two turns (theseus-p8dy).
     let (r, sid) = crate::tests_route::moved_to_opus_with(jev, 3, |c| {
-        c.routing.modes.deep_coding.profiles = vec!["fable".into()];
+        c.routing.classes.deep_coding.profiles = vec!["fable".into()];
     })
     .await;
     mode(jev, "deep_coding", 0.95);

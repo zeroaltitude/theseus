@@ -44,6 +44,7 @@ pub mod self_improve;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
 mod persona_settings;
+mod renamed;
 mod sessions;
 mod standing;
 mod threads;
@@ -184,12 +185,12 @@ pub struct Config {
     /// `[routines]`: recurring work, a run a task (theseus-pvm5c), `config/routines.rs`.
     #[serde(default, skip_serializing_if = "RoutinesConfig::is_default")]
     pub routines: RoutinesConfig,
-    /// `[route]`: your own benchmark's sampler (theseus-pw1q.12), `config/route.rs`.
+    /// `[route_bench]`: your own benchmark's sampler (theseus-pw1q.12), `config/route.rs`.
     #[serde(default, skip_serializing_if = "RouteConfig::is_default")]
-    pub route: RouteConfig,
-    /// `[persona]`: the agent import and the recall boost (theseus-a8n7), `config/persona_settings.rs`.
+    pub route_bench: RouteConfig,
+    /// `[persona_import]`: the agent import and the recall boost (theseus-a8n7), `config/persona_settings.rs`.
     #[serde(default, skip_serializing_if = "PersonaSettings::is_default")]
-    pub persona: PersonaSettings,
+    pub persona_import: PersonaSettings,
     /// `[projects]`: long-term work (theseus-n5ui2), `config/projects.rs`.
     #[serde(default, skip_serializing_if = "ProjectsConfig::is_default")]
     pub projects: ProjectsConfig,
@@ -202,9 +203,9 @@ pub struct Config {
     /// `[initiative]`: what Theseus says first, in its persona's voice (theseus-slvl.9), `config/initiative.rs`.
     #[serde(default, skip_serializing_if = "InitiativeConfig::is_default")]
     pub initiative: InitiativeConfig,
-    /// `[watches]`: checks with no model until a condition holds (theseus-f2r2b), `config/watches.rs`.
+    /// `[watch_for]`: checks with no model until a condition holds (theseus-f2r2b), `config/watches.rs`.
     #[serde(default, skip_serializing_if = "WatchesConfig::is_default")]
-    pub watches: WatchesConfig,
+    pub watch_for: WatchesConfig,
     /// `[cockpit]`: the link a reply's footer carries (theseus-x9swu), `config/cockpit.rs`.
     #[serde(default, skip_serializing_if = "CockpitConfig::is_default")]
     pub cockpit: CockpitConfig,
@@ -1034,16 +1035,16 @@ pub struct ProfileConfig {
     pub effort_fixed: bool,
     #[serde(default)]
     pub thinking_display: ThinkingDisplay,
-    /// Tool loops per turn before a notice, or the turn's end: `max_loops_mode`.
+    /// Tool loops per turn before a notice, or the turn's end: `on_max_loops`.
     #[serde(default = "default_max_loops")]
     pub max_loops: u32,
     #[serde(default, skip_serializing_if = "MaxLoopsMode::is_default")]
-    pub max_loops_mode: MaxLoopsMode,
+    pub on_max_loops: MaxLoopsMode,
     /// Server-side refusal fallbacks where the model supports them.
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
     /// How long the provider keeps the profile's cached prefixes (theseus-ev1);
-    /// none: `[model]`'s, as `keep_warm_hours` (theseus-ezeg, `config/cache.rs`).
+    /// none: `[cache]`'s ttl, as `keep_warm_hours` (theseus-ezeg, `config/cache.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<CacheTtl>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1108,16 +1109,9 @@ pub struct ModelConfig {
     #[serde(default = "default_max_loops")]
     pub max_loops: u32,
     #[serde(default, skip_serializing_if = "MaxLoopsMode::is_default")]
-    pub max_loops_mode: MaxLoopsMode,
+    pub on_max_loops: MaxLoopsMode,
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
-    #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
-    pub cache_ttl: CacheTtl,
-    #[serde(
-        default = "cache::default_keep_warm_hours",
-        skip_serializing_if = "cache::is_default_keep_warm_hours"
-    )]
-    pub keep_warm_hours: f64,
     #[serde(default = "default_api_base")]
     pub api_base: String,
     /// Name of the entry in `[secrets]` holding the Anthropic key.
@@ -1266,10 +1260,8 @@ impl Default for ModelConfig {
             effort: None,
             thinking_display: ThinkingDisplay::Summarized,
             max_loops: default_max_loops(),
-            max_loops_mode: MaxLoopsMode::default(),
+            on_max_loops: MaxLoopsMode::default(),
             refusal_fallbacks: true,
-            cache_ttl: CacheTtl::default(),
-            keep_warm_hours: cache::default_keep_warm_hours(),
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
             timeouts: Default::default(),
@@ -1313,7 +1305,8 @@ impl Config {
             std::fs::read_to_string(&path)
                 .with_context(|| format!("reading config file {}", path.display()))?
         };
-        let (cfg, warnings) = Self::parse(&text)?;
+        let (cfg, warnings) =
+            Self::parse(&text).with_context(|| format!("loading config {source}"))?;
         for w in &warnings {
             tracing::warn!("{w}");
         }
@@ -1507,16 +1500,16 @@ impl Config {
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
-        self.persona.validate()?;
+        self.persona_import.validate()?;
         self.cockpit.validate()?;
         self.routines.validate()?;
-        self.watches.validate()?;
+        self.watch_for.validate()?;
         self.initiative.validate()?;
         discord::ThreadBind::validate_all(&self.discord.thread)?;
         discord::digest_slots(&self.discord.digest_at)?;
         self.discord.calendar.validate()?;
         discord::validate_forum_channel(&self.discord.forum_channel)?;
-        self.route.validate()?;
+        self.route_bench.validate()?;
         self.prefix.validate()?;
         self.notify.validate()?;
         self.projects.validate()?;
@@ -1741,7 +1734,10 @@ impl Config {
 
     /// Deserialize a document and resolve its implicit profile and provider.
     fn from_toml(text: &str) -> Result<Self, toml::de::Error> {
-        let mut cfg: Config = toml::from_str(text)?;
+        let mut cfg: Config = toml::from_str(text).map_err(|e| match renamed::explain(text) {
+            Some(said) => <toml::de::Error as serde::de::Error>::custom(said),
+            None => e,
+        })?;
         let m = &cfg.model;
         let mut profiles = cfg.profiles.clone();
         profiles
@@ -1755,12 +1751,12 @@ impl Config {
                 effort_fixed: false,
                 thinking_display: m.thinking_display,
                 max_loops: m.max_loops,
-                max_loops_mode: m.max_loops_mode,
+                on_max_loops: m.on_max_loops,
                 refusal_fallbacks: m.refusal_fallbacks,
-                cache_ttl: Some(m.cache_ttl),
-                keep_warm_hours: Some(m.keep_warm_hours),
+                cache_ttl: Some(cfg.cache.ttl),
+                keep_warm_hours: Some(cfg.cache.keep_warm_hours),
             });
-        cache::inherit(&mut profiles, m);
+        cache::inherit(&mut profiles, &cfg.cache);
         let mut providers = cfg.providers.clone();
         providers
             .entry("anthropic".into())
