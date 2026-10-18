@@ -24,6 +24,12 @@ fn key(task_session: &str) -> String {
     format!("task.route.{task_session}")
 }
 
+/// Whether the task was started with no profile: its base came from its
+/// brief or its parent, so it is not pinned (a checkpoint may move it).
+pub(crate) fn marked(store: &crate::store::Store, task_session: &str) -> bool {
+    matches!(store.get_meta::<String>(&key(task_session)), Ok(Some(_)))
+}
+
 /// The record a task opened with no profile carries.
 pub(crate) fn mark(task_session: &str) -> anyhow::Result<NewRecord> {
     NewRecord::json(kinds::META, Some(&key(task_session)), &"brief")
@@ -38,7 +44,7 @@ impl TurnRunner {
         if t.tc.task.is_none() || t.tc.guard.turn != 1 || !self.judge.config().enabled {
             return;
         }
-        if !matches!(t.tc.store.get_meta::<String>(&key(sid)), Ok(Some(_))) {
+        if !marked(t.tc.store, sid) {
             return;
         }
         // Live only: a shadow route (or none) leaves the parent's model.

@@ -781,6 +781,9 @@ pub struct LoopEnded<'a> {
     /// scrubbed and cut (`turn::advance_step::say_of`); none when the loop
     /// made no call (theseus-xlias).
     pub say: Option<&'a str>,
+    /// The profile a running task's checkpoint has moved it to, off its
+    /// base (theseus-ypnxt.9): the work board's progress line says `on <it>`.
+    pub on: Option<&'a str>,
 }
 
 impl Fact for LoopEnded<'_> {
@@ -791,6 +794,9 @@ impl Fact for LoopEnded<'_> {
         let mut row = json!({"loop": self.outcome.loop_index, "outcome": self.outcome, "advancer": self.advancer, "decision": self.decision, "usage": self.usage});
         if let Some(say) = self.say {
             row["say"] = json!(say);
+        }
+        if let Some(on) = self.on {
+            row["on"] = json!(on);
         }
         row
     }

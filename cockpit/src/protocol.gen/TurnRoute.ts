@@ -24,7 +24,9 @@ from: string,
  * `correction` when the owner's correction (or the live layer's entry
  * close to this message) placed the turn ahead of the verdict
  * (theseus-q31l), or `task brief` when the verdict on a task's brief picked
- * its model (theseus-ypnxt.7); absent when the verdict on a message did.
+ * its model (theseus-ypnxt.7), or `task checkpoint: failing` (`quiet`,
+ * `phase`, `report`) when a running task's checkpoint moved its model
+ * (theseus-ypnxt.9); absent when the verdict on a message did.
  */
 source?: string, 
 /**

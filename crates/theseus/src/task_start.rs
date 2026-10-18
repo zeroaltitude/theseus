@@ -10,7 +10,9 @@ use theseus_client::render::{task_history, task_tree};
 use theseus_client::Conn;
 use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
 use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
-use theseus_protocol::{method, TaskListParams, TaskListResult};
+use theseus_protocol::{
+    method, LedgerTailParams, LedgerTailResult, TaskListParams, TaskListResult,
+};
 
 use crate::cmd::output;
 
@@ -93,12 +95,37 @@ async fn show(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
         ..Default::default()
     };
     let v = conn.request(method::TASK_LIST, p).await?;
+    let models = match json {
+        true => Vec::new(),
+        false => models_of(conn, &v).await,
+    };
     output(json, v, |r: TaskListResult| {
-        for l in task_history::show(&r)? {
+        for l in task_history::show_with(&r, &models)? {
             println!("{l}");
         }
         Ok(())
     })
+}
+
+/// The task's model lines: where its brief put it and each move a checkpoint made, read from its
+/// session's `route.decided` rows (one `ledger.tail`, asked only here). A task with no session of
+/// its own, or an answer that does not come, has none: the lines are a help, never the point.
+async fn models_of(conn: &mut Conn, task: &serde_json::Value) -> Vec<String> {
+    let Some(session) = task["records"][0]["session"].as_str() else {
+        return Vec::new();
+    };
+    let p = LedgerTailParams {
+        n: Some(200),
+        kind: Some("route.decided".into()),
+        session_id: Some(session.to_string()),
+        ..LedgerTailParams::default()
+    };
+    match conn.request(method::LEDGER_TAIL, p).await {
+        Ok(v) => serde_json::from_value::<LedgerTailResult>(v)
+            .map(|r| task_history::model_lines(&r.rows))
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
 }
 
 /// `theseus task pause|resume ID`: `task.pause` or `task.resume`. A task that has ended is refused

@@ -9,6 +9,7 @@ const AT: u64 = 1_790_000_000_000;
 
 pub(crate) fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkView {
     WorkView {
+        moved_to: None,
         id: "exe_0000a1b2c3".into(),
         kind,
         position: 7,

@@ -63,6 +63,7 @@ pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
 mod ceiling_step;
+mod checkpoint_step;
 mod cite_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
@@ -416,6 +417,8 @@ struct Turn<'a> {
     recall: recall_step::Recalled,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
+    /// A running task's checkpoints (theseus-ypnxt.9).
+    checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
     fallback: Option<fallback_step::FellBack>,
     /// The stop judged live, and the one nudge (theseus-fh0u).
@@ -547,6 +550,7 @@ impl<'a> Turn<'a> {
             ended: false,
             recall: recall_step::Recalled::default(),
             route: route_step::RouteState::default(),
+            checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
             nudge: nudge_step::Nudge::default(),
             fill: fill_step::Fill::default(),
@@ -1536,8 +1540,9 @@ impl TurnRunner {
             .get(&target.provider)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
-        // Where routing moves the turn (25e), and a refusal (theseus-7gir.18).
-        let (routed, fell_back) = (OnceLock::new(), OnceLock::new());
+        // Where routing moves the turn (25e), a refusal (theseus-7gir.18), and
+        // a task's checkpoints (theseus-ypnxt.9).
+        let slots = (OnceLock::new(), OnceLock::new(), checkpoint_step::slots());
         // What this turn runs on is the session's target from the turn's
         // start (theseus-kol): its copy carries it into every session write
         // the turn makes (a recompile's, a failure's, its end's), and an
@@ -1610,7 +1615,7 @@ impl TurnRunner {
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
         match boxed(|| {
-            let fork = (&routed, &fell_back);
+            let fork = (&slots.0, &slots.1, &slots.2);
             self.turn_body(&mut t, &mut session, provider.as_ref(), asked, fork)
         })
         .await
@@ -1633,7 +1638,11 @@ impl TurnRunner {
         session: &mut SessionRecord,
         provider: &dyn Provider,
         asked: Asked,
-        (routed, fallback): (&'a OnceLock<Target>, &'a OnceLock<Target>),
+        (routed, fallback, moves): (
+            &'a OnceLock<Target>,
+            &'a OnceLock<Target>,
+            &'a checkpoint_step::Slots,
+        ),
     ) -> Result<Next> {
         let Asked {
             input,
@@ -1781,6 +1790,11 @@ impl TurnRunner {
             if t.loops > 0 {
                 self.take_late(t)?;
                 self.steer_in(t)?;
+                if let Some(f) =
+                    self.checkpoint_apply(t, session, &mut spec, &mut routed_to, moves)?
+                {
+                    return Ok(Next::Fail(f));
+                }
             }
             let i = t.loops;
             t.loops += 1;
@@ -1968,6 +1982,14 @@ impl TurnRunner {
             let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
+            let ended = checkpoint_step::Ended {
+                compiled: &compiled,
+                resp: &resp,
+                uses: &uses,
+                index: i,
+                more: run_model,
+            };
+            self.checkpoint_ended(t, session, ended);
             t.last = Some(resp);
             // A stop that announced more work goes on once (theseus-fh0u).
             run_model = run_model || (window_failed.is_none() && self.stop_nudge(t, i).await?);
@@ -3056,7 +3078,10 @@ impl TurnRunner {
                     t.background.push(correlation_id);
                     answered += 1;
                 }
-                CallOutcome::Done { .. } => answered += 1,
+                CallOutcome::Done { status } => {
+                    t.checkpoint.failed |= status.is_error();
+                    answered += 1;
+                }
             }
         }
         t.awaiting = batch.awaiting;

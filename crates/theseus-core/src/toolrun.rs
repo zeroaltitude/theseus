@@ -872,13 +872,7 @@ impl ToolRuntime {
                 tool_use_id: r.tool_use_id.into(),
                 tool: r.tool.into(),
                 status: r.status,
-                is_error: matches!(
-                    r.status,
-                    ResultStatus::Error
-                        | ResultStatus::Declined
-                        | ResultStatus::Unknown
-                        | ResultStatus::Cancelled
-                ),
+                is_error: r.status.is_error(),
                 content,
                 correlation_id: r.correlation_id.map(str::to_string),
                 bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),

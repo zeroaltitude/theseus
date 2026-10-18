@@ -18,6 +18,7 @@ fn level(s: WorkState) -> Level {
 
 fn view(id: &str, kind: WorkKind, state: WorkState, thread: Option<&str>) -> WorkView {
     WorkView {
+        moved_to: None,
         id: id.into(),
         kind,
         position: 1,

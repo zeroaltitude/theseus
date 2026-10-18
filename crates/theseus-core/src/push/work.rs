@@ -134,6 +134,9 @@ struct ExecIn {
     /// The newest `say` of a `loop.ended` row: the model's own line before
     /// its tool calls (theseus-xlias). Kept until the next one.
     said: Option<String>,
+    /// The profile a checkpoint moved the task to, off its base: the newest
+    /// `loop.ended` row's `on`, none once it is back (theseus-ypnxt.9).
+    on: Option<String>,
     woke: Option<Woke>,
     /// A task's forecast, said once (theseus-zz752), and the loops it has run.
     forecast: Option<Outcome>,
@@ -582,6 +585,7 @@ impl WorkBoard {
                             if let Some(say) = s("say").filter(|x| !x.is_empty()) {
                                 e.said = Some(say.to_string());
                             }
+                            e.on = s("on").map(str::to_string);
                             e.loops_total += 1;
                             d.execs.insert(id);
                         }
@@ -1046,6 +1050,7 @@ impl WorkBoard {
                 turn_started_ms: 0,
                 loop_index: 0,
                 said: None,
+                on: None,
                 woke: None,
                 forecast: None,
                 loops_total: 0,

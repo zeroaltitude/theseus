@@ -11,6 +11,7 @@
 use anyhow::{anyhow, bail, Result};
 use theseus_protocol::tasks::TaskRecord;
 use theseus_protocol::term::words::clip;
+use theseus_protocol::LedgerEntry;
 use theseus_protocol::{usd, TaskDetail, TaskInfo, TaskListResult};
 
 use super::task_tree::{coarse, short_id};
@@ -169,9 +170,44 @@ fn indented(text: &str) -> impl Iterator<Item = String> + '_ {
     text.lines().map(|l| format!("  {l}"))
 }
 
+/// A task's model, from its session's `route.decided` rows (theseus-ypnxt.9): where
+/// its brief put it (`haikuhi (task brief)`), then each move a checkpoint made, newest
+/// last (`sonnet (from haikuhi, loop 7: failing)`). Only a move that switched counts;
+/// a checkpoint that left it where it was is no line. A step back down says `step down`.
+pub fn model_lines(rows: &[LedgerEntry]) -> Vec<String> {
+    let mut rows: Vec<&LedgerEntry> = rows.iter().collect();
+    rows.sort_by_key(|r| r.position);
+    rows.into_iter()
+        .filter_map(|r| {
+            let d = &r.data;
+            let str = |k: &str| d[k].as_str();
+            let profile = str("profile")?;
+            match (str("source"), d["switch"].as_bool()) {
+                (Some("task brief"), _) => Some(format!("{profile} (task brief)")),
+                (Some("task checkpoint"), Some(true)) => {
+                    let why = match str("reason") {
+                        Some("step_down") => "step down",
+                        _ => str("trigger").unwrap_or("checkpoint"),
+                    };
+                    let at = d["loop"]
+                        .as_u64()
+                        .map_or(String::new(), |n| format!(", loop {}", n + 1));
+                    Some(format!("{profile} (from {}{at}: {why})", str("from")?))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// One task whole: its state, where it reports, its brief, plan and
 /// children, its money and times, its report, and what to type next.
 pub fn show(r: &TaskListResult) -> Result<Vec<String>> {
+    show_with(r, &[])
+}
+
+/// `show`, with the task's model lines (`model_lines`) after where it reports.
+pub fn show_with(r: &TaskListResult, models: &[String]) -> Result<Vec<String>> {
     let (Some(t), Some(rec)) = (r.tasks.first(), r.records.first()) else {
         bail!("that is a plan item, not a task with a session: it has no run to show");
     };
@@ -186,6 +222,12 @@ pub fn show(r: &TaskListResult) -> Result<Vec<String>> {
     out.push(format!("  id        {} ({})", short_id(&t.task_id), rec.id));
     if let Some(to) = t.target.as_deref() {
         out.push(format!("  reports   {to}"));
+    }
+    for (n, m) in models.iter().enumerate() {
+        out.push(format!(
+            "  {}{m}",
+            if n == 0 { "model     " } else { "          " }
+        ));
     }
     out.push(format!(
         "  spent     {} of {}",

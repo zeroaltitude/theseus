@@ -491,6 +491,8 @@ mod tests_stubs;
 #[cfg(test)]
 mod tests_task_brief;
 #[cfg(test)]
+mod tests_task_checkpoint;
+#[cfg(test)]
 mod tests_task_claims;
 #[cfg(test)]
 mod tests_task_graph;

@@ -17,6 +17,10 @@ test("a turn's route line names its mode, or the correction that placed it", () 
     routeLine({ mode: 'routine_coding', reason: 'verdict', from: 'fable', source: 'task brief' }, 'haikuhi'),
     'routed: routine_coding (task brief) · haikuhi (from fable)',
   )
+  assert.equal(
+    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haikuhi', source: 'task checkpoint: failing' }, 'sonnet'),
+    'routed: deep_coding (task checkpoint: failing) · sonnet (from haikuhi)',
+  )
 })
 
 test("the footer's controls are a direction each way, then every other profile", () => {

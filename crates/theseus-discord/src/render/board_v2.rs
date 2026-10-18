@@ -436,6 +436,7 @@ mod tests {
     fn view(n: usize, state: WorkState) -> WorkView {
         let id = format!("exe_01J0000000000000000000{n:04}");
         WorkView {
+            moved_to: None,
             id,
             kind: WorkKind::Task,
             position: n as u64,

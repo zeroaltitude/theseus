@@ -223,3 +223,83 @@ fn show_of_a_plan_item_is_refused_in_words() {
     };
     assert!(show(&r).unwrap_err().to_string().contains("plan item"));
 }
+
+fn route_row(position: u64, data: serde_json::Value) -> LedgerEntry {
+    LedgerEntry {
+        position,
+        at_unix_ms: 0,
+        kind: "route.decided".into(),
+        session_id: Some("ses_00000000000000a1b2c3".into()),
+        turn_id: None,
+        data,
+    }
+}
+
+/// A task's model is its brief's pick and each move a checkpoint made, in order; a
+/// checkpoint that left the task where it was is no line, and a step back down says so.
+#[test]
+fn a_tasks_model_lines_are_its_brief_and_each_move() {
+    let rows = [
+        route_row(
+            30,
+            json!({"source": "task checkpoint", "switch": true, "profile": "haikuhi",
+            "from": "sonnet", "reason": "step_down", "trigger": "quiet", "loop": 14}),
+        ),
+        route_row(
+            10,
+            json!({"source": "task brief", "switch": true, "profile": "haikuhi",
+            "from": "fable", "reason": "verdict"}),
+        ),
+        route_row(
+            20,
+            json!({"source": "task checkpoint", "switch": true, "profile": "sonnet",
+            "from": "haikuhi", "reason": "verdict", "trigger": "failing", "loop": 6}),
+        ),
+        route_row(
+            25,
+            json!({"source": "task checkpoint", "switch": false, "profile": "sonnet",
+            "from": "sonnet", "reason": "cache_hold", "trigger": "quiet", "loop": 9}),
+        ),
+        route_row(
+            5,
+            json!({"source": null, "switch": true, "profile": "opus", "from": "sonnet"}),
+        ),
+    ];
+    assert_eq!(
+        model_lines(&rows),
+        [
+            "haikuhi (task brief)",
+            "sonnet (from haikuhi, loop 7: failing)",
+            "haikuhi (from sonnet, loop 15: step down)"
+        ]
+    );
+    let s = text(&one("running", 0, false, None));
+    let with = show_with(
+        &TaskListResult {
+            tasks: one("running", 0, false, None).tasks,
+            records: one("running", 0, false, None).records,
+            details: one("running", 0, false, None).details,
+        },
+        &model_lines(&rows),
+    )
+    .unwrap();
+    let at = with
+        .iter()
+        .position(|l| l.starts_with("  model     "))
+        .expect("a model line");
+    assert_eq!(with[at], "  model     haikuhi (task brief)");
+    assert_eq!(
+        with[at + 1],
+        "            sonnet (from haikuhi, loop 7: failing)"
+    );
+    // A task no checkpoint moved prints what it did before.
+    let without: Vec<String> = with
+        .iter()
+        .filter(|l| !l.contains("(task brief)") && !l.contains("(from "))
+        .cloned()
+        .collect();
+    assert_eq!(
+        without.join("\n") + "\n",
+        s.replace("\r", "") + if s.ends_with('\n') { "" } else { "\n" }
+    );
+}

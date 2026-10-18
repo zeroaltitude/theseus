@@ -1347,6 +1347,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     The dear tier's guard (`[routing] dear_tier_max_tokens`, 200,000): over it, a `sophisticated` or `review`
     verdict skips a profile whose catalog input price is above the next usable one's (`Reason::ContextGuard`).
     Tests: `tests_route_down.rs`, `routing::tests`.
+    **A running task's checkpoints** (theseus-ypnxt.9; `turn/checkpoint_step.rs`, `routing/checkpoint.rs`, `[routing.task_checkpoints]`
+    in `config/routing_checkpoints.rs`; on by default): a task started with no profile (the brief's mark, `brief_step::marked`; a
+    pinned one has no state and asks nothing) asks route.v6 about its recent state at a loop's end (`checkpoint_ended`, after
+    `advance`) when it fails `failing_streak` loops in a row (a result `ResultStatus::is_error` marks), makes no progress for
+    `quiet_loops`, changes its current plan step, or marks the last open one done (`Tally`, pure), at most one verdict per
+    `min_loops_between` loops and one in flight, never waited on: the answer is read with `try_recv` at the first later loop
+    boundary (`checkpoint_apply`, beside `steer_in`), and a flight a window old is dropped. The text is the brief's first 600
+    characters, the plan (12 steps), the last 6 loops' lines and the trigger, within 1,500 tokens (`checkpoint::text`); no
+    pack's wording changes. `checkpoint::decide` is the rule beside `decide` and `step_down`: only Jev elevates, the base
+    (`Routed.from`, else the brief's pick) is the floor, two agreeing verdicts step back down to it, a cold switch up waits for
+    a second, a detour's class moves nothing, `max_switches` bounds the moves up (`Reason::SwitchCap`; a step down past it
+    is allowed). A move is a refusal's fallback's shape: one slot of `checkpoint_step::Slots` a move, `route_to`, the
+    next compile on the new model; each verdict is a `route.decided` row (`source: task checkpoint`, `trigger`, `loop`,
+    and on a switch `cold_tokens` and `cache_usd`). The judgment's settled cost is charged to the task's execution by the
+    judge (`Kernel::charge_execution`: no row, no word to the day ceiling, since `judge.budget` already holds it), a task
+    that cannot cover `RESERVE_MICROS` skips the ask (reason `budget`), and its `loop.ended` rows say `on` while it is off
+    its base (the work board's `moved_to`, the progress line's `on sonnet`). Tests: `tests_task_checkpoint.rs`,
+    `routing::checkpoint::tests`. Not covered: a task a model made with `task.create` (it has no brief mark).
     **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.70, else
     `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to

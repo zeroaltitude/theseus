@@ -79,6 +79,7 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
     };
     question.options = answer_options(&question);
     let mut v = WorkView {
+        moved_to: None,
         id: id.into(),
         kind,
         position: 4_096,

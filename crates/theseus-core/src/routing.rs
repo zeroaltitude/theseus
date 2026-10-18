@@ -40,6 +40,10 @@
 //! - **A task's brief** (theseus-ypnxt.7, [`brief::brief_base`]): the verdict
 //!   on a task's brief picks the task's base, the class's first usable
 //!   profile under the cap, at once and for good (a detour's class too).
+//! - **A task's checkpoints** (theseus-ypnxt.9, [`checkpoint`]): a running task
+//!   asks the same pack again at a loop boundary, when it keeps failing, stalls,
+//!   changes phase or is about to report. Only Jev elevates it; it steps back
+//!   down to its base after two agreeing verdicts, never below it.
 //! - **The cap.** A place's profile is its default and its cap: a profile
 //!   dearer than it at catalog prices is passed over, and the turn says
 //!   `capped`.
@@ -53,6 +57,7 @@ use crate::config::routing::{is_detour, CHEAPEST};
 use crate::config::RoutingConfig;
 
 pub mod brief;
+pub mod checkpoint;
 pub mod data;
 pub mod effort;
 pub use data::DataAnswer;
@@ -136,6 +141,9 @@ pub enum Reason {
     /// The message names a sensitive name and the turn's profile was of
     /// restricted origin, so the `[model]` default runs (theseus-oejh3).
     DataGate,
+    /// A task's checkpoint verdict would move it up, but it has made its
+    /// `[routing.task_checkpoints] max_switches` moves (theseus-ypnxt.9).
+    SwitchCap,
 }
 
 impl Reason {
@@ -156,6 +164,7 @@ impl Reason {
             Reason::ContextGuard => "context_guard",
             Reason::StepDown => "step_down",
             Reason::DataGate => "data_gate",
+            Reason::SwitchCap => "switch_cap",
         }
     }
 }

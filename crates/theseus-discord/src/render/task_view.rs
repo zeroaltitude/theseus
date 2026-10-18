@@ -259,6 +259,7 @@ mod tests {
 
     fn task() -> WorkView {
         WorkView {
+            moved_to: None,
             id: "exe_01J000000000000000task01".into(),
             kind: WorkKind::Task,
             position: 1,

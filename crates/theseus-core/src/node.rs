@@ -69,6 +69,16 @@ impl ResultStatus {
             ResultStatus::Cancelled => "cancelled",
         }
     }
+
+    /// A result of this status is an error as the runner marks one: the node's
+    /// `is_error`, and what a task's checkpoint counts as a failed result
+    /// (theseus-ypnxt.9).
+    pub fn is_error(self) -> bool {
+        matches!(
+            self,
+            Self::Error | Self::Declined | Self::Unknown | Self::Cancelled
+        )
+    }
 }
 
 /// A file that came with an operator's message (theseus-9g2), as its node

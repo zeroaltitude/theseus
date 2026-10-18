@@ -60,3 +60,22 @@ test('the edges: no plan, a past flag, hours, and dollars as the Rust function w
   assert.equal(progressLine({ ...base, started_at_ms: 0, forecast } as WorkView, at(4)), undefined)
   assert.deepEqual([0.0042, 0.4, 2, 25, 10.02].map(lineUsd), ['$0.0042', '$0.40', '$2', '$25', '$10.02'])
 })
+
+test('a task a checkpoint moved says where it runs, last (the Rust golden of the moved cases)', () => {
+  const url = new URL('../../crates/theseus-protocol/src/work/golden/progress_line_moved.json', import.meta.url)
+  const cases: (Golden & { moved_to: string })[] = JSON.parse(readFileSync(url, 'utf8'))
+  assert.equal(cases.length, 3)
+  for (const c of cases) {
+    const v = {
+      ...base,
+      paused: c.paused ?? false,
+      moved_to: c.moved_to,
+      ...(c.cost && { cost: { spent_usd: c.cost.spent, limit_usd: c.cost.limit } }),
+      ...(c.progress && { progress: { steps_done: c.progress.done, steps_total: c.progress.total, at_ms: START } }),
+      ...(c.forecast && { forecast: { ...forecast, ...c.forecast } }),
+    } as WorkView
+    assert.equal(progressLine(v, at(c.elapsed_min)), c.expect ?? undefined, c.case)
+  }
+  // A task on its base is the line it was.
+  assert.equal(progressLine(four, at(4)), 'step 3 of 5 · $0.40 of $2 · ~6 min left')
+})

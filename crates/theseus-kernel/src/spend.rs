@@ -52,6 +52,26 @@ impl Kernel {
         self.day_after([crate::day_ceiling::Effect::Book(cost)]);
         Ok(e)
     }
+
+    /// Charge `cost` to `execution_id`'s spend and carry it to a task's
+    /// parent, as `book_spend` does, with no row and no word to the day
+    /// ceiling: for spend another record already holds in the day (a Jev
+    /// judgment's, which the judge's day budget keeps), so a task's `spent`
+    /// shows it and the day's total counts it once (theseus-ypnxt.9).
+    pub fn charge_execution(&self, execution_id: &str, cost: Micros) -> Result<Execution> {
+        self.require_accepting()?;
+        let _w = self.lock_family(execution_id)?;
+        let mut e = self
+            .execution(execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
+        let spent_before = e.budget.spent_micros;
+        e.budget.spent_micros = e.budget.spent_micros.saturating_add(cost);
+        e.updated_at_ms = self.now_ms();
+        let mut frame = vec![exec_record(&e)?];
+        self.carry_to_parent(&e, spent_before, &mut frame)?;
+        self.commit(&frame)?;
+        Ok(e)
+    }
 }
 
 #[cfg(test)]
@@ -110,5 +130,30 @@ mod tests {
             .kernel
             .book_spend("exe_none", 1, LedgerKind::SpeechSynthesized, json!({}))
             .is_err());
+    }
+
+    /// A charge lands in the execution's spend and writes no row of its own
+    /// (the judgment it pays for has one), past the limit, in full, and an
+    /// unknown execution is refused (theseus-ypnxt.9).
+    #[test]
+    fn a_charge_is_booked_to_the_execution_with_no_row() {
+        let w = world();
+        let e = w
+            .kernel
+            .open_execution(
+                &new_id("ses"),
+                SessionKind::Conversation,
+                auth(),
+                Some(1_000),
+                None,
+            )
+            .unwrap();
+        let after = w.kernel.charge_execution(&e.id, 400).unwrap();
+        assert_eq!(after.budget.spent_micros, 400);
+        let over = w.kernel.charge_execution(&e.id, 5_000).unwrap();
+        assert_eq!(over.budget.spent_micros, 5_400);
+        let stored = w.kernel.execution(&e.id).unwrap().unwrap();
+        assert_eq!(stored.budget.spent_micros, 5_400);
+        assert!(w.kernel.charge_execution("exe_none", 1).is_err());
     }
 }

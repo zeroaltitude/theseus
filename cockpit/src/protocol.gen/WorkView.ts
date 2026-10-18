@@ -92,6 +92,12 @@ forecast?: WorkForecast,
  */
 below?: Rollup, 
 /**
+ * A task a checkpoint moved off its base: the profile it runs on now
+ * (theseus-ypnxt.9). The progress line says `on sonnet`; a task on its
+ * base, and every other view, has none.
+ */
+moved_to?: string, 
+/**
  * Why it was queued (`wake`, `report`, `task`, `input`), kept while it
  * is queued.
  */

@@ -41,6 +41,7 @@ mod projects;
 pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
+mod routing_checkpoints;
 mod routing_data;
 pub mod self_improve;
 pub mod self_mint;

@@ -15,7 +15,7 @@ use crate::tests_route::{decided, mode, rig, session, Rig};
 use crate::tests_tasks::{exec, until};
 use theseus_protocol::PlaceCeiling;
 
-fn cli() -> Answerer {
+pub(crate) fn cli() -> Answerer {
     Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
@@ -40,7 +40,7 @@ fn rig_from(jev: Option<&FakeJev>, parent: &str, tweak: impl FnOnce(&mut crate::
     r
 }
 
-fn params(brief: &str, profile: Option<&str>) -> TaskStartParams {
+pub(crate) fn params(brief: &str, profile: Option<&str>) -> TaskStartParams {
     TaskStartParams {
         brief: brief.into(),
         profile: profile.map(str::to_string),
@@ -49,7 +49,7 @@ fn params(brief: &str, profile: Option<&str>) -> TaskStartParams {
 }
 
 /// Start a task and wait for its first turn to end; its session record.
-async fn run(r: &Rig, p: &TaskStartParams) -> (TaskStartResult, SessionRecord) {
+pub(crate) async fn run(r: &Rig, p: &TaskStartParams) -> (TaskStartResult, SessionRecord) {
     let started = r.core.task_start(p, cli()).unwrap();
     let id = started.session_id.replacen("ses_", "exe_", 1);
     until("the task's turn", || {
@@ -72,7 +72,7 @@ fn ran_on(r: &Rig) -> String {
     all[0].model.clone()
 }
 
-const BRIEF: &str = "Fix the typo in the quay notice.";
+pub(crate) const BRIEF: &str = "Fix the typo in the quay notice.";
 
 /// The rule (theseus-ypnxt.7). Before it, this test held that a task started
 /// with no profile from a Fable conversation ran on Fable and asked Jev
