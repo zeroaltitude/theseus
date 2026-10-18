@@ -58,6 +58,7 @@ mod admit_step;
 pub(crate) mod advance_step;
 #[cfg(test)]
 pub(crate) use admit_step::admit_hook;
+pub(crate) mod brief_step;
 pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
@@ -1698,6 +1699,9 @@ impl TurnRunner {
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
             self.inbound_point(t, &node, &author, false);
+        } else {
+            // A task's first turn has no message: its brief is judged.
+            self.brief_point(t);
         }
 
         // 3. The loops, while the model has something new to read.

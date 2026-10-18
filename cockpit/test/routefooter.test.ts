@@ -13,6 +13,10 @@ test("a turn's route line names its mode, or the correction that placed it", () 
     routeLine({ mode: 'chat', reason: 'correction', from: 'sonnet', source: 'correction' }, 'fable'),
     'routed: correction · fable (from sonnet)',
   )
+  assert.equal(
+    routeLine({ mode: 'routine_coding', reason: 'verdict', from: 'fable', source: 'task brief' }, 'haikuhi'),
+    'routed: routine_coding (task brief) · haikuhi (from fable)',
+  )
 })
 
 test("the footer's controls are a direction each way, then every other profile", () => {

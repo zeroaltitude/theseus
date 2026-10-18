@@ -128,6 +128,7 @@ impl Core {
             title: &title,
             parent_rec: &parent_rec,
             target: target.as_ref(),
+            by_brief: p.profile.is_none(),
             home_exec: &home_exec,
             correlation_id: &correlation_id,
             reports_to: reports_to.as_deref(),
@@ -235,7 +236,9 @@ impl Core {
         }
     }
 
-    /// The model the task runs on: the profile asked for, else the parent's.
+    /// The model the task starts on: the profile asked for (a pin), else the
+    /// parent's, which its brief's verdict replaces on its first turn
+    /// (`turn/brief_step.rs`: the one place that rule lives).
     fn target_of(
         &self,
         p: &TaskStartParams,
@@ -268,6 +271,8 @@ struct Draft<'a> {
     title: &'a str,
     parent_rec: &'a SessionRecord,
     target: Option<&'a TargetRef>,
+    /// No profile was asked for: the brief's verdict picks the model.
+    by_brief: bool,
     home_exec: &'a str,
     correlation_id: &'a str,
     reports_to: Option<&'a str>,
@@ -321,6 +326,9 @@ impl Core {
             )?],
         };
         records.push(d.brief_node.record()?);
+        if d.by_brief {
+            records.push(crate::turn::brief_step::mark(&task.session_id)?);
+        }
         if let Some(a) = d.arrangement {
             records.push(a.record()?);
             records.push(

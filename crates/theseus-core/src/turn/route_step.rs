@@ -66,7 +66,7 @@ pub(super) struct RouteState {
     /// point takes rather than reading it again.
     pub(super) read: Option<PackMode>,
     /// The turn's input carries an image.
-    images: bool,
+    pub(super) images: bool,
     /// Routing is deciding: the first compile does not persist its
     /// compilation (only the one the call uses is).
     pub(super) defer_persist: bool,
@@ -97,6 +97,9 @@ pub(super) struct RouteState {
     /// A persona correction or the layer's entry placing the persona ahead of
     /// Jev's pick (theseus-c1uz).
     pub(super) persona_steer: Option<Steering>,
+    /// The turn is a task's first, and the verdict on its brief picks the
+    /// task's base (theseus-ypnxt.7, `brief_step`).
+    pub(super) brief: bool,
 }
 
 impl RouteState {
@@ -476,6 +479,7 @@ impl TurnRunner {
         );
         let decision = match (&steering, &verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, compiled.est_tokens)),
+            (None, Some(v), None) if t.route.brief => Some(self.decide_brief(t, v)),
             (None, Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
         };
@@ -579,12 +583,16 @@ impl TurnRunner {
             (Got::Late, true) => {
                 let judge = self.judge.clone();
                 let s = sid.to_string();
+                // A brief's late verdict picks nothing, now or for a later message.
+                let keep = !t.route.brief;
                 tokio::spawn(async move {
                     if let Ok(Answered {
                         verdict: Some(v), ..
                     }) = rx.await
                     {
-                        judge.set_late(&s, v);
+                        if keep {
+                            judge.set_late(&s, v);
+                        }
                     }
                 });
                 match late() {
@@ -605,11 +613,7 @@ impl TurnRunner {
         est_tokens: u64,
     ) -> Decision {
         let profiles = self.route_profiles();
-        let cap =
-            t.tc.ceiling
-                .and_then(|c| c.profile.as_ref())
-                .and_then(|p| profiles.get(p))
-                .and_then(|p| p.short_cost);
+        let cap = Self::place_cap(t, &profiles);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         // Jev's own move up from the base is what a step back down undoes.
         let from = session
@@ -662,7 +666,9 @@ impl TurnRunner {
     ) {
         let base = t.target.profile.clone();
         let reason = decision.map_or(reason.unwrap_or(Reason::NoVerdict), |d| d.reason);
-        let source = steering.map(|_| "correction");
+        let source = steering
+            .map(|_| "correction")
+            .or(t.route.brief.then_some("task brief"));
         let profile = decision.map_or(base.clone(), |d| d.profile.clone());
         let answer = verdict.and_then(|v| v.effort.as_ref());
         let e = t.route.effort;
@@ -774,6 +780,12 @@ impl TurnRunner {
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
+            if t.route.brief {
+                // The class's profile is the task's base, not a move from
+                // its parent's model (theseus-ypnxt.7).
+                session.routed = None;
+                return Ok(());
+            }
             // The base it was moved from, kept through later switches; a
             // switch back to it ends the move (theseus-0j2.17).
             let r = session.routed.get_or_insert_with(Default::default);

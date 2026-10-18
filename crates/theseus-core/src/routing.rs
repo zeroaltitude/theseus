@@ -37,6 +37,9 @@
 //!   estimate, and a verdict of another mode, or one under its bar, breaks
 //!   the row (a detour leaves it, as for any hold). Never below the base.
 //!   An owner's correction (`steer_to`) never steps down.
+//! - **A task's brief** (theseus-ypnxt.7, [`brief::brief_base`]): the verdict
+//!   on a task's brief picks the task's base, the class's first usable
+//!   profile under the cap, at once and for good (a detour's class too).
 //! - **The cap.** A place's profile is its default and its cap: a profile
 //!   dearer than it at catalog prices is passed over, and the turn says
 //!   `capped`.
@@ -49,6 +52,7 @@ use crate::catalog::CatalogEntry;
 use crate::config::routing::{is_detour, CHEAPEST};
 use crate::config::RoutingConfig;
 
+pub mod brief;
 pub mod data;
 pub mod effort;
 pub use data::DataAnswer;
@@ -592,7 +596,7 @@ mod tests {
     }
 
     /// The template's five, at their catalog costs for a short turn.
-    fn five() -> Profiles {
+    pub(super) fn five() -> Profiles {
         let c = crate::catalog::Catalog::builtin();
         let mut out = Profiles::new();
         for (name, provider, model) in [
@@ -612,7 +616,7 @@ mod tests {
         out
     }
 
-    fn verdict(mode: &str, confidence: f64) -> Verdict {
+    pub(super) fn verdict(mode: &str, confidence: f64) -> Verdict {
         Verdict {
             mode: mode.into(),
             confidence,
@@ -625,7 +629,7 @@ mod tests {
         }
     }
 
-    fn ask<'a>(v: &'a Verdict, base: &'a str, est: u64) -> Ask<'a> {
+    pub(super) fn ask<'a>(v: &'a Verdict, base: &'a str, est: u64) -> Ask<'a> {
         Ask {
             verdict: v,
             base,

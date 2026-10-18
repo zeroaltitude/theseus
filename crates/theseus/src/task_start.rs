@@ -35,7 +35,7 @@ pub struct StartArgs {
     /// Its budget in dollars (a quarter of what the conversation has left by default).
     #[arg(long, value_name = "USD")]
     pub budget: Option<f64>,
-    /// The profile its turns run on (the conversation's model by default).
+    /// The profile its turns run on (routed from the brief by default).
     #[arg(long)]
     pub profile: Option<String>,
     /// Start then, asleep until it: `fri 9:00`, `tomorrow 9:00`, `17:30`, `2026-10-14 09:00`, or
