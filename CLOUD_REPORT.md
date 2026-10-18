@@ -233,8 +233,8 @@ beside it): door, keel guard (0 findings; `0 findings acked`), keel tests, fmt, 
 targets, `-D warnings`), the clippy probe, the cockpit's lint, tests and build, the test build and the reader rule
 (`tests_registry`, 15 of 15) all pass. The suite phase: 6,724 tests, 6,687 passed, 36 failed, 1 timed out:
 
-- 33 are the known L1 failures (`theseus-sandbox::contract` ×22, `theseus-sandbox::bench spawn_100`, `theseusd::sandbox`
-  ×13 of the list above, the root daemon's job has no cgroup, theseus-pv6i), none touched by this branch;
+- 33 are the known L1 failures (`theseus-sandbox::contract` ×19, `theseus-sandbox::bench spawn_100`, `theseusd::sandbox`
+  ×13; the root daemon's job has no cgroup, theseus-pv6i), none touched by this branch;
 - `theseus::markdown rendering_costs_little_per_hundred_lines`, `theseus::herdr a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile`,
   `theseus-judge builders::tests::every_builder_stays_under_its_cap_on_huge_inputs` (a timing cap, 2.0 s under load) and
   `theseus-discord tests_task_threads::a_task_in_a_guild_channel_gets_a_thread_where_its_stream_lands_and_one_rename_at_the_end`
