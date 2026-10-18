@@ -94,6 +94,13 @@ pub struct L1 {
     /// it (`THESEUS_TEST_EGRESS_DNS`); None everywhere else.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub egress_dns: Option<theseus_sandbox::egress::Resolver>,
+    /// Read-write binds at the same paths (theseus-pw1q.21.1): the only
+    /// writes an L1 job keeps. **Only the core's self-build launcher sets
+    /// it** (`sandbox::self_build_view`): `proc.run`'s plan and every other
+    /// builder leave it empty, so no model input reaches it, and a view
+    /// that is not a self build's is as it was.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rw: Vec<PathBuf>,
 }
 
 /// A job's output file keeps this much unless the config says otherwise

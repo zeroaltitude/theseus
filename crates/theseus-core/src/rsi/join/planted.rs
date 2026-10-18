@@ -20,6 +20,7 @@ use anyhow::Result;
 use theseus_kernel::children::{self, Kind};
 
 use super::git;
+use crate::rsi::jail::{Jail, Job};
 use crate::rsi::tree::{self, Place, Tree};
 
 /// What the planted revert found.
@@ -95,6 +96,9 @@ impl Tests for Cargo {
             .map(|n| format!("test(/(^|::){n}$/)"))
             .collect::<Vec<_>>()
             .join(" | ");
+        if let Some(jail) = p.jail()? {
+            return in_l1(jail, p, t, &expr);
+        }
         let mut c = Command::new("nice");
         c.args([
             "-n",
@@ -129,6 +133,49 @@ impl Tests for Cargo {
         Ok((o.status.success(), tail))
     }
 }
+
+/// The same run in L1 (theseus-pw1q.21.1): the branch's tests are the
+/// branch's code, and run below the floor like its gate. Its output is a
+/// log under the gates, whose tail is the verdict's words.
+fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(bool, String)> {
+    std::fs::create_dir_all(p.gates())?;
+    let log = p.gates().join(format!("planted-{}.log", t.slug));
+    let argv = [
+        "nice",
+        "-n",
+        "19",
+        "cargo",
+        "nextest",
+        "run",
+        "--workspace",
+        "--no-fail-fast",
+        "--no-tests=pass",
+        "-E",
+        expr,
+    ]
+    .map(Into::into)
+    .to_vec();
+    let code = jail.run_blocking(
+        p,
+        &Job {
+            tree: t,
+            ro: Vec::new(),
+            argv,
+            env: Vec::new(),
+            log: &log,
+            limit: TESTS_LIMIT,
+        },
+    )?;
+    let text = std::fs::read_to_string(&log).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    Ok((
+        code == Some(0),
+        lines[lines.len().saturating_sub(20)..].join("\n"),
+    ))
+}
+
+/// The longest a planted revert's test run may take before it is stopped.
+const TESTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
 
 /// Whether `path` holds tests only.
 pub fn is_test_path(path: &str) -> bool {

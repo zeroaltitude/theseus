@@ -16,7 +16,12 @@
 //!   one), as a lane's gate is, with `THESEUS_GATE_NO_BENCH=1`, its own
 //!   `CARGO_TARGET_DIR`, no compiler wrapper, and none of the daemon's own
 //!   `THESEUS_*` variables. When main has `scripts/may-build.sh`, the gate
-//!   waits until it says yes.
+//!   waits until it says yes (that script is main's, and runs at L0).
+//!   **The gate runs the branch's code in L1** (theseus-pw1q.21.1): a place
+//!   made by a daemon carries a [`Jail`], and the gate, in the view
+//!   `sandbox::self_build_view` gives it, can write only the tree and its
+//!   build tree, reaches no network, and sees nothing of Theseus's floor or
+//!   the sealed sets. A place with no jail (a test's stand-in gate) runs at L0.
 //! - [`push`] pushes only to `refs/heads/self/*` on the named remote, never
 //!   main and never forced, after the scrub: every line the branch adds and
 //!   every commit message is read by the daemon's scrubber (each secret it
@@ -37,6 +42,8 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
 
+use super::jail::{Jail, Job};
+
 /// Where self branches are built: the repo they are cut from, the state dir
 /// their trees live under, and any environment every git call and the gate
 /// add (a test's hermetic git; none in a daemon).
@@ -45,6 +52,9 @@ pub struct Place {
     pub repo: PathBuf,
     pub state: PathBuf,
     pub env: Vec<(OsString, OsString)>,
+    /// L1, where the branch's code runs: always in a daemon, none in a test
+    /// that stands in for the gate.
+    pub jail: Option<Jail>,
 }
 
 /// An open tree: its slug, its branch, where it is, and its build tree.
@@ -98,6 +108,17 @@ const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
 const KEEL_FAILED: &[&str] = &["gate: FAILED in keel", "gate: FAILED in door"];
 
 impl Place {
+    /// L1 for the branch's code. A place with none runs a stand-in at L0
+    /// in this crate's own tests; anywhere else it is an error, so a self
+    /// build never runs outside L1.
+    pub fn jail(&self) -> Result<Option<&Jail>> {
+        match &self.jail {
+            Some(j) => Ok(Some(j)),
+            None if cfg!(test) => Ok(None),
+            None => bail!("a self build runs in L1, and this place has no sandbox to run it in"),
+        }
+    }
+
     pub fn root(&self) -> PathBuf {
         self.state.join("self")
     }
@@ -414,7 +435,10 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         .gates()
         .join(format!("{}.log", tree.branch.replace('/', "-")));
     let t0 = Instant::now();
-    let status = run_niced(p, tree, &script, &log, GATE_LIMIT, benches).await?;
+    let status = match p.jail()? {
+        Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
+        None => run_niced(p, tree, &script, &log, GATE_LIMIT, benches).await?,
+    };
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let verdict = if status == Some(0) {
         Verdict::Green
@@ -424,7 +448,10 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         Verdict::Red
     };
     let lines: Vec<&str> = text.lines().collect();
-    let tail = lines[lines.len().saturating_sub(30)..].join("\n");
+    let mut tail = lines[lines.len().saturating_sub(30)..].join("\n");
+    if let Some(why) = crate::sandbox::supply_chain(&text).filter(|_| verdict != Verdict::Green) {
+        tail = format!("{why}\n{tail}");
+    }
     Ok(GateRun {
         verdict,
         exit: status,
@@ -433,6 +460,41 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         secs: t0.elapsed().as_secs(),
         tail,
     })
+}
+
+/// Main's gate in L1: the same command line as `run_niced`'s, over the
+/// self-build view, with the variables the gate reads and no others.
+async fn jailed(
+    jail: &Jail,
+    p: &Place,
+    tree: &Tree,
+    script: &Path,
+    log: &Path,
+    benches: bool,
+) -> Result<Option<i32>> {
+    let mut argv: Vec<OsString> = vec!["nice".into(), "-n".into(), "19".into()];
+    if on_path("ionice") {
+        argv.extend(["ionice".into(), "-c".into(), "3".into()]);
+    }
+    argv.extend(["bash".into(), script.as_os_str().to_owned()]);
+    let mut env = vec![(
+        "THESEUS_GATE_ROOT".to_string(),
+        tree.dir.to_string_lossy().into_owned(),
+    )];
+    if !benches {
+        env.push(("THESEUS_GATE_NO_BENCH".into(), "1".into()));
+    }
+    let job = Job {
+        tree,
+        ro: vec![script.to_path_buf()],
+        argv,
+        env,
+        log,
+        limit: GATE_LIMIT,
+    };
+    jail.run(p, job)
+        .await
+        .map_err(|e| e.context("the gate did not run in L1, and a self build never runs at L0"))
 }
 
 /// Wait until main's may-build rule says yes, asking every minute, for at

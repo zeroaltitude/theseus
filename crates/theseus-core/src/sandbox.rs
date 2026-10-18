@@ -25,6 +25,9 @@
 //!   processes are capped by `RLIMIT_NPROC`, so a daemon that runs as root,
 //!   whom Linux exempts from it, gets no L1 job at all (theseus-pv6i).
 
+mod self_build;
+pub use self_build::{env as self_build_env, supply_chain, SelfBuild};
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -571,6 +574,8 @@ impl Sandbox {
             // Each job's own, from its proposal (`for_job`).
             egress: Vec::new(),
             egress_dns: crate::egress::test_dns(),
+            // Only a self build's launcher sets it (`self_build_view`).
+            rw: Vec::new(),
         };
         Self {
             cfg: cfg.clone(),
@@ -655,6 +660,12 @@ impl Sandbox {
     /// A job started, by class (health's `jobs_l0`, `jobs_l1`).
     pub fn count(&self, class: Class) {
         self.started[class as usize].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Why L1 refuses every job here (a root daemon), or `None`: what a self
+    /// build asks before it starts (`rsi::pr`), health's own line.
+    pub fn refusal(&self) -> Option<&'static str> {
+        self.refuses
     }
 
     /// The view and limits for an L1 job.

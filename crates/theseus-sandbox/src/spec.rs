@@ -35,6 +35,11 @@ pub struct Spec {
     /// 18b: the port of the egress listener the init opens on 127.0.0.1
     /// inside the job's network namespace and hands to the wrapper.
     pub egress_port: Option<u16>,
+    /// Read-write binds at the same absolute paths (theseus-pw1q.21.1): the
+    /// one place a job's writes persist. Only a self build's launcher sets
+    /// it (`L1.rw`'s doc says why); a directory only.
+    #[serde(default)]
+    pub rw: Vec<PathBuf>,
 }
 
 /// What one job may use. Its memory has no limit of its own, as an L0
@@ -85,6 +90,7 @@ impl Spec {
             hostname: HOSTNAME.into(),
             limits: Limits::default(),
             egress_port: None,
+            rw: Vec::new(),
         }
     }
 
@@ -102,6 +108,7 @@ impl Spec {
             .iter()
             .map(|p| ("a workspace root", p))
             .chain(self.ro_paths.iter().map(|p| ("a read-only path", p)))
+            .chain(self.rw.iter().map(|p| ("a read-write path", p)))
             .chain(self.home.iter().map(|p| ("HOME", p)));
         for (what, p) in user {
             if let Some(why) = bad_view_path(p) {

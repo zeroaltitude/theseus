@@ -88,6 +88,7 @@ pub(super) fn fixture_with(gate: &str) -> Fixture {
             repo: root.join("repo"),
             state,
             env: hermetic(),
+            jail: None,
         },
         upstream,
         _dir: dir,

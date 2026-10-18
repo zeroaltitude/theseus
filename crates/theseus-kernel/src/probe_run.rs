@@ -135,3 +135,74 @@ fn head(mut f: std::fs::File, max: usize) -> String {
     }
     String::from_utf8_lossy(&buf).into_owned()
 }
+
+/// What a command run to a log did (`run_logged`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Logged {
+    /// Its exit status; none when a signal ended it or it did not start.
+    pub code: Option<i32>,
+    /// Its deadline stopped it, with the whole job.
+    pub timed_out: bool,
+    /// It could not start in L1, or could not be waited for: the reason.
+    pub failed: Option<String>,
+}
+
+/// Run `argv` in L1 with `env` as its whole environment, its output on
+/// `log`, for at most `deadline_ms` (a self build's gate, theseus-pw1q.21.1:
+/// hours long, so its output is a file, not a head kept in memory). The same
+/// path as `run_in`: from the calling thread, no job record, and the whole
+/// job stopped at the deadline. Nothing falls back to L0.
+pub fn run_logged(
+    l1: &L1,
+    argv: &[String],
+    cwd: &std::path::Path,
+    env: Vec<(String, String)>,
+    log: std::fs::File,
+    deadline_ms: u64,
+) -> Logged {
+    let args = WrapperArgs {
+        spool_dir: PathBuf::new(),
+        correlation_id: "self-build".into(),
+        deadline_ms,
+        notify_socket: None,
+        argv: argv.to_vec(),
+        cwd: Some(cwd.to_path_buf()),
+        env,
+        umask: None,
+        redact: vec![],
+        output_max_bytes: 0,
+        sandbox: None,
+        cgroup: None,
+    };
+    let err = match log.try_clone() {
+        Ok(f) => f,
+        Err(e) => {
+            return Logged {
+                code: None,
+                timed_out: false,
+                failed: Some(format!("could not open the command's output: {e}")),
+            }
+        }
+    };
+    let mut detail = json!({});
+    let (outcome, note) = job_l1::run(
+        &args,
+        l1,
+        Reap::Command,
+        log.into(),
+        err.into(),
+        &mut detail,
+    );
+    let code = detail["exit_code"].as_i64().map(|c| c as i32);
+    let timed_out = detail["timed_out"].as_bool().unwrap_or(false);
+    let failed = match (&outcome, code) {
+        (Outcome::Succeeded, _) => None,
+        (_, Some(_)) if !timed_out && detail.pointer("/sandbox/error").is_none() => None,
+        _ => Some(note),
+    };
+    Logged {
+        code,
+        timed_out,
+        failed,
+    }
+}

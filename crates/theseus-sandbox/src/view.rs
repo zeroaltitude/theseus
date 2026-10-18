@@ -6,6 +6,8 @@
 //!   read-only binds, with symlinks where the host has them;
 //! - the workspace roots are at their own paths, read-only under overlays
 //!   whose upper directories are one capped tmpfs: scratch;
+//! - `rw` paths are writable binds at their own paths, the one place a job's
+//!   writes persist (a self build's tree and build tree, theseus-pw1q.21.1);
 //! - HOME, `/tmp`, and `/dev/shm` are empty capped tmpfs mounts;
 //! - `/dev` holds `null`, `zero`, `random`, and `urandom`, the fd links, and
 //!   `shm`;
@@ -120,6 +122,8 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
                 .stage(format!("mounting HOME at {}", path.display()))?,
             Part::ReadOnly => bind_ro(&host(&path), &path)
                 .stage(format!("binding {} read-only", path.display()))?,
+            Part::ReadWrite => bind_rw(&host(&path), &path)
+                .stage(format!("binding {} read-write", path.display()))?,
             Part::Workspace(i) => overlay(&host(&path), &path, i)
                 .stage(format!("mounting the workspace {}", path.display()))?,
         }
@@ -156,6 +160,7 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
 enum Part {
     Home,
     ReadOnly,
+    ReadWrite,
     Workspace(usize),
 }
 
@@ -165,6 +170,7 @@ fn plan(spec: &Spec) -> Vec<(PathBuf, Part)> {
     let mut v: Vec<(PathBuf, Part)> = Vec::new();
     v.extend(spec.home.iter().map(|h| (h.clone(), Part::Home)));
     v.extend(spec.ro_paths.iter().map(|p| (p.clone(), Part::ReadOnly)));
+    v.extend(spec.rw.iter().map(|p| (p.clone(), Part::ReadWrite)));
     v.extend(
         spec.workspace
             .iter()
@@ -249,6 +255,28 @@ fn bind_ro(source: &Path, target: &Path) -> io::Result<()> {
         true,
         MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV,
     )
+}
+
+/// A recursive bind of the directory `source` at `target`, writable: what the
+/// job writes there is the host's (theseus-pw1q.21.1). nosuid and nodev, as
+/// every bind is; exec stays, since a build runs what it makes.
+fn bind_rw(source: &Path, target: &Path) -> io::Result<()> {
+    if !fs::metadata(source)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a read-write path must be a directory",
+        ));
+    }
+    mkdir_all(target)?;
+    let t = c(target)?;
+    sys::mount(
+        Some(&c(source)?),
+        &t,
+        None,
+        libc::MS_BIND | libc::MS_REC,
+        None,
+    )?;
+    sys::mount_setattr(&t, true, MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV)
 }
 
 /// One of the system's directories: a read-only bind, or the same symlink
