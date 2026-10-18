@@ -1,7 +1,7 @@
 // The one progress line (contract C1, theseus-ypnxt.2): the same words every surface shows, here from a `WorkView`.
 // `paused · step 3 of 5 · $0.40 of $2 · ~6 min left`, each part left out when its data is absent. Pure: the view and
-// the clock in, one string out. Tested by test/progressLine.test.ts; if it disagrees with the Rust golden
-// (`crates/theseus-protocol/src/work/golden/progress_line.json`), the golden wins.
+// the clock in, one string out. test/progressLine.test.ts runs the Rust golden
+// (`crates/theseus-protocol/src/work/golden/progress_line.json`) and the Rust function's edges.
 import type { WorkView } from '@protocol'
 
 /** Dollars as `theseus_protocol::push::usd` says them: `$10`, `$10.02`, and a fraction of a cent to four places. */
@@ -11,20 +11,25 @@ export function lineUsd(x: number): string {
   return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`
 }
 
-/** A span of minutes as the line rounds it: `~6 min`, `~2 h`. */
-function coarse(min: number): string {
-  const m = Math.max(1, Math.round(min))
-  return m < 60 ? `~${m} min` : `~${Math.round(m / 60)} h`
+/** Minutes left as the Rust line says them (`left` in progress_line.rs): `<1 min`, `6 min`, `2 h`. */
+function left(minutes: number): string {
+  const m = Math.round(minutes)
+  if (m === 0) return '<1 min'
+  return m < 60 ? `${m} min` : `${Math.round(minutes / 60)} h`
 }
 
+const ENDED: readonly string[] = ['done', 'failed', 'cancelled', 'expired']
+
 /** The time part: what is left of the usual time (the median while it lasts, then the 90th percentile), or that it is
- *  past; nothing without a forecast made from finished tasks. */
+ *  past; nothing for an ended task, one with no known start, or a forecast made from no finished task. */
 function timeLeft(v: WorkView, nowMs: number): string | undefined {
   const f = v.forecast
-  if (!f || f.n === 0) return undefined
-  const elapsed = v.started_at_ms > 0 ? Math.max(0, nowMs - v.started_at_ms) / 60_000 : 0
-  const left = f.min_p50 - elapsed > 0 ? f.min_p50 - elapsed : f.min_p90 - elapsed
-  return f.past || left <= 0 ? 'past its usual time' : `${coarse(left)} left`
+  if (!f || f.n === 0 || ENDED.includes(v.state) || !v.started_at_ms) return undefined
+  const elapsed = Math.max(0, nowMs - v.started_at_ms) / 60_000
+  const toP90 = f.min_p90 - elapsed
+  if (f.past || toP90 <= 0) return 'past its usual time'
+  const toP50 = f.min_p50 - elapsed
+  return `~${left(toP50 > 0 ? toP50 : toP90)} left`
 }
 
 export function progressLine(v: WorkView, nowMs: number): string | undefined {
