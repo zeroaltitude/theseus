@@ -1968,4 +1968,6 @@ mod tests_card;
 #[cfg(test)]
 mod tests_fresh;
 #[cfg(test)]
+mod tests_inherit;
+#[cfg(test)]
 mod tests_persona;

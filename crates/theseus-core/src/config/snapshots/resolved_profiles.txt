@@ -1,0 +1,608 @@
+== owner_shape
+-- default
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- dsflash
+ProfileConfig {
+    provider: "deepseek",
+    model: "deepseek-flash",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- dsflashmax
+ProfileConfig {
+    provider: "deepseek",
+    model: "deepseek-flash",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Max,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- dspro
+ProfileConfig {
+    provider: "deepseek",
+    model: "deepseek-v4-pro",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- fable
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-fable-5-1",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- glm
+ProfileConfig {
+    provider: "zai",
+    model: "glm-5.3-flash",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- haiku
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Low,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- haikuhi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- opus
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Medium,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- sonnet
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Medium,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- sonnethi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+== template
+-- default
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- fable
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-fable-5-1",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- glm
+ProfileConfig {
+    provider: "zai",
+    model: "glm-5.3-flash",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- glm53
+ProfileConfig {
+    provider: "zai",
+    model: "glm-5.3",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- haiku
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Low,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- haikuhi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        OneHour,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- opus
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- opushi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- sonnet
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    max_loops_mode: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+== bench
+-- bench
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Medium,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- default
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+== bench_routed
+-- bench
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Medium,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- default
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- fable
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-fable-5-1",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- haiku
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        Low,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- haikuhi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-haiku-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- opus
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- sonnet
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: None,
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
+-- sonnethi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 200,
+    max_loops_mode: End,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
