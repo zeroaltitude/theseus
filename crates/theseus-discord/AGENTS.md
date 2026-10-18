@@ -345,8 +345,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   and the board's links work unchanged: the owner's message there steers the task. The parent gets one quiet line
   (`📺 <#channel> · title`), the Follow mirror `-# in <#channel>`; a task that had a thread is moved (the thread says `moved
   to`, is archived and its place goes after `GRACE`, the session's posts rebound to the channel). At the end the report is
-  said in the channel and one PATCH moves it under `⚙️ Theseus tasks · done`, names it `✅`/`❌` and denies the owner Send
-  Messages; a sweep at the start and once a day deletes channels that ended `task_channel_keep_days` ago (a full done
+  said in the channel and one PATCH moves it under `⚙️ Theseus tasks · done`, names it `✅`/`❌` and replaces the whole
+  overwrite set (theseus-oejh3; the owner: access is removed for everyone but the operator): every overwrite but
+  `@everyone`'s View Channel deny, the operator's read (no Send Messages) and the bot's goes, a war-room guest's and
+  a hand-added role's included, the guest list is cleared and a later `share:` refused. A member with Administrator,
+  and the guild's owner, see every channel whatever the overwrites say: Discord allows nothing narrower; a sweep at the start and once a day deletes channels that ended `task_channel_keep_days` ago (a full done
   category loses its oldest). A 403 turns channels off until the next start (the owner's DM gets one line naming Manage
   Channels and Manage Roles, with the invite link of `INVITE_PERMISSIONS`); the cap and any other failure leave the task as it
   was. Tests: `tests_task_channels.rs`, `runtime/task_channels.rs`'s timer test on the paused clock.
@@ -360,7 +363,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   relayed once to the owner as a quiet notice in the parent place (`-# 💬 <name> on “<title>”: <80 chars> · <jump link>`), the guest's
   first one is answered by one quiet line in the task's place, Details lists the last five (`task_view::detail`), and the report's facts
   line counts them (`render::report`'s `guests`). Guest text reaches no session, board line, digest or ledger row (the row has `chars`).
-  A shared place's thread keeps `join_task`'s guest rule (redirect to the conversation). Tests: `tests_war_room.rs`; the stand-in's
+  A shared place's thread keeps `join_task`'s guest rule (redirect to the conversation). At the task's end the guests are out (theseus-oejh3): a channel's close replaces its overwrites, a thread's guests are removed
+  from it while it is still open (Discord keeps an archived thread's members), `discord.task_guests.<task>` is cleared, and
+  `share:` answers "That task has ended; its place is yours alone." Tests: `tests_war_room.rs`; the stand-in's
   `PUT/DELETE` overwrites and thread members are `fake_discord/overwrites.rs`, and `slash_with` sends USER options.
 - **The default forum** (theseus-bh3t.6, `runtime/default_forum.rs`; `[discord] forum`, on, and `forum_channel`, `theseus`, an id or a
   name): one private forum in the owner's guild, the complete index of tasks. It acts only when the bindings trust exactly one guild.

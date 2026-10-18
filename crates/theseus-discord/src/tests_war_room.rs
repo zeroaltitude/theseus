@@ -69,7 +69,7 @@ fn task_id(r: &Rig) -> String {
 }
 
 /// The text a command answered, once it has: a view's, or a plain line.
-async fn answered(r: &Rig, iid: &str) -> String {
+pub(crate) async fn answered(r: &Rig, iid: &str) -> String {
     let t0 = std::time::Instant::now();
     loop {
         if let Some(m) = r.fake.reply_message(iid) {
@@ -328,6 +328,38 @@ async fn sharing_a_channel_sets_a_member_overwrite_and_unshare_deletes_it() {
         .await
         .unwrap();
     assert!(theirs(&r).is_none());
+}
+
+/// A task thread's guests are removed from it as the task ends, while the
+/// thread is still open, and the guest list is cleared.
+#[tokio::test]
+async fn ending_a_task_thread_removes_the_guests_the_war_room_added() {
+    let (r, thread, _) = running(|_| answers("Reef charted.")).await;
+    let id = task_id(&r);
+    let name = id[id.len() - 6..].to_string();
+    let iid = r
+        .fake
+        .slash_with(
+            &from(ANA, "ana"),
+            "task",
+            &[("name", &name)],
+            &[("share", BEN)],
+        )
+        .unwrap();
+    assert!(answered(&r, &iid).await.contains("can watch and comment"));
+    assert_eq!(r.fake.thread_members(thread), vec![BEN]);
+    open_gate(&r);
+    until(&r, "the guest out of the thread", || {
+        r.fake.thread_members(thread).is_empty()
+    })
+    .await;
+    let guests: Vec<u64> = r
+        .core
+        .store
+        .get_meta(&format!("discord.task_guests.{id}"))
+        .unwrap()
+        .unwrap_or_default();
+    assert!(guests.is_empty(), "{guests:?}");
 }
 
 /// A shared place is not narrowed to guests, and its thread keeps the guest
