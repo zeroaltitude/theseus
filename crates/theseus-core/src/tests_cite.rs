@@ -14,10 +14,10 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::config::MemoryMode;
-use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, RecalledRef};
 use crate::provider::Scripted;
 use crate::session::SessionRecord;
+use crate::test_support::recall_rows as rows;
 use crate::tests_recall::{index_of, rig_with, session, turn, Rig, DEN, PIER};
 use crate::turn::TurnRequest;
 use crate::Core;
@@ -43,17 +43,6 @@ fn node_ids(core: &Core, sid: &str) -> Vec<String> {
         .unwrap()
         .into_iter()
         .map(|(_, n)| n.id)
-        .collect()
-}
-
-/// The session's rows of `kind`, scoped to its recalls.
-fn rows(core: &Core, sid: &str, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .scope_after(&crate::fact::recall::scope(sid), 0)
-        .unwrap()
-        .iter()
-        .map(|r| r.decode::<LedgerRow>().unwrap())
-        .filter(|r| r.kind == kind)
         .collect()
 }
 

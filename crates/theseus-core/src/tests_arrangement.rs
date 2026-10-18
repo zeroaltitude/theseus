@@ -7,14 +7,11 @@
 //! later turns. The pure rules' own tests are `arrangement::tests`.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 
-use crate::bus::EventSink;
-use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::{
@@ -22,7 +19,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+use crate::test_support::{ledger_rows_100k as rows, turn, until_within_10ms as until};
 use crate::{Config, Core};
 
 const PLACE: &str = "dm:42";
@@ -132,41 +129,6 @@ fn parent_session(core: &Arc<Core>) -> String {
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
-}
-
-async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(
-            t0.elapsed() < Duration::from_secs(secs),
-            "no {what} in {secs} s"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
 fn nodes(core: &Core, sid: &str) -> Vec<Node> {
     core.store
         .session_nodes(sid)
@@ -196,16 +158,6 @@ fn creates(core: &Core, sid: &str) -> Vec<(ResultStatus, String, Value)> {
 
 fn tasks(core: &Core) -> Vec<Execution> {
     core.kernel.tasks(None).unwrap()
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(100_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 /// The requests a task's turns made: those whose first user message is a

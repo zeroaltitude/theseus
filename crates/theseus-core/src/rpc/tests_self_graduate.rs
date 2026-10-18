@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use theseus_protocol::rsi::{SelfBacklogParams, SelfHaltParams, SelfMode, SelfResumeParams};
 use theseus_protocol::tasks::TaskState;
 
@@ -23,6 +23,7 @@ use crate::extend::load::{Loaded, LoadedSet};
 use crate::extend::{Capabilities, Expect, Manifest, ProposedBy, TestRun, TestSpec, ToolInfo};
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
+use crate::test_support::rows;
 
 const DAY: u64 = 86_400_000;
 const HOUR: u64 = 3_600_000;
@@ -150,17 +151,6 @@ fn load(c: &Core, l: Loaded) {
 
 fn tick() -> u64 {
     theseus_protocol::now_unix_ms()
-}
-
-fn rows(c: &Core, kind: &str) -> Vec<Value> {
-    c.store
-        .ledger_tail::<LedgerRow>(10_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .map(|r| r.data)
-        .collect()
 }
 
 fn graduates(c: &Core) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {

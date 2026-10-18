@@ -8,7 +8,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
 use theseus_protocol::{PersonaListParams, SessionKind};
 
 use crate::bus::EventSink;
@@ -20,6 +19,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
+use crate::test_support::rows_100k as rows;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
@@ -164,16 +164,6 @@ impl Rig {
     fn last(&self) -> ProviderRequest {
         self.model.requests.lock().unwrap().last().unwrap().clone()
     }
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
-        .unwrap()
-        .into_iter()
-        .filter(|(_, r)| r.is_kind(kind))
-        .map(|(_, r)| r.data)
-        .collect()
 }
 
 fn dm() -> String {

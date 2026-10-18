@@ -21,10 +21,10 @@ use super::state::{self, State};
 use crate::approval::{Answerer, Surface};
 use crate::config::{Config, MemoryMode};
 use crate::import::tests::{call, lines};
-use crate::ledger::LedgerRow;
 use crate::provider::{FakeProvider, Scripted};
 use crate::rpc::Core;
 use crate::store::Store;
+use crate::test_support::ledger_rows_2k as rows;
 
 struct Rig {
     core: Arc<Core>,
@@ -102,16 +102,6 @@ fn two() -> Scripted {
             "E4",
         ),
     ])
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(2000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 async fn propose(r: &Rig) -> CardProposeResult {

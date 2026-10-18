@@ -12,9 +12,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution, Wake};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 
-use crate::bus::EventSink;
 use crate::node::{Body, Node};
 use crate::policy::Posture;
 use crate::provider::{
@@ -22,7 +21,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+use crate::test_support::{rows, turn, until_within as until};
 use crate::{Config, Core};
 
 const PLACE: &str = "dm:42";
@@ -206,30 +205,6 @@ fn session(core: &Arc<Core>) -> String {
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
-}
-
 fn exec_of(core: &Core, sid: &str) -> Execution {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     core.kernel
@@ -266,28 +241,6 @@ fn replies(core: &Core) -> Vec<Value> {
             assert_eq!(crate::outbox::target_of(&a), TARGET);
             crate::outbox::body_of(&a).clone()
         })
-        .collect()
-}
-
-async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(
-            t0.elapsed() < Duration::from_secs(secs),
-            "no {what} in {secs} s"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .map(|r| r.data)
         .collect()
 }
 

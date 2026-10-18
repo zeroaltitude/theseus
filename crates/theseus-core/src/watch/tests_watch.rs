@@ -20,6 +20,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use crate::approval::{Client, Surface};
 use crate::provider::FakeProvider;
 use crate::store::Store;
+pub(crate) use crate::test_support::{rows, until_within as until};
 use crate::{Config, Core};
 
 pub(super) const DM: &str = "dm:42";
@@ -141,28 +142,6 @@ pub(super) async fn look(core: &Arc<Core>, wake_id: &str) {
     tokio::task::spawn_blocking(move || c.watch_finish(&id, result))
         .await
         .unwrap();
-}
-
-pub(super) async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(
-            t0.elapsed() < Duration::from_secs(secs),
-            "no {what} in {secs} s"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
-pub(super) fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .map(|r| r.data)
-        .collect()
 }
 
 fn ledger_len(core: &Core) -> usize {

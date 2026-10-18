@@ -35,6 +35,7 @@ use crate::node::Body;
 use crate::provider::{FakeProvider, ProviderError, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
+pub(crate) use crate::test_support::rows_2k as rows;
 use crate::turn::compaction::OVERAGE_CLASS;
 use crate::turn::{TurnError, TurnRequest};
 use crate::{Config, Core};
@@ -175,15 +176,6 @@ async fn turn_on(
             answer_at: None,
         })
         .await
-}
-
-/// The ledger rows of `kind`, oldest first.
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(2000).unwrap();
-    rows.into_iter()
-        .filter(|(_, r)| r.kind == kind)
-        .map(|(_, r)| r.data)
-        .collect()
 }
 
 /// A message of about `tokens` tokens of prose, its first word `tag`.

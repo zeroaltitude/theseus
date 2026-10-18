@@ -21,14 +21,14 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_kernel::{micros_to_usd, ActionState, Execution};
-use theseus_protocol::{SessionKind, TurnSubmitResult, Usage};
+use theseus_protocol::{SessionKind, Usage};
 use theseus_store::{kinds, NewRecord};
 
-use crate::bus::EventSink;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::{TurnError, TurnRequest, FAULT_CLASS};
+use crate::test_support::{session_rows_1k as rows, try_turn as turn};
+use crate::turn::{TurnError, FAULT_CLASS};
 use crate::{Config, Core};
 
 struct Rig {
@@ -62,29 +62,6 @@ fn session(core: &Core) -> String {
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None)?;
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-}
-
 /// A response billed with exactly these tokens in and out.
 fn billed(input: u64, output: u64, then: Scripted) -> Scripted {
     Scripted::Billed {
@@ -106,15 +83,6 @@ fn read_harbor() -> Scripted {
 
 fn payload(r: &NewRecord) -> Value {
     serde_json::from_slice(&r.payload).unwrap_or(Value::Null)
-}
-
-/// The ledger rows of `kind` in the session, oldest first.
-fn rows(core: &Core, sid: &str, kind: &str) -> Vec<Value> {
-    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(1000).unwrap();
-    rows.into_iter()
-        .filter(|(_, r)| r.kind == kind && r.session_id.as_deref() == Some(sid))
-        .map(|(_, r)| r.data)
-        .collect()
 }
 
 fn execution(core: &Core, sid: &str) -> Execution {

@@ -22,6 +22,7 @@ use crate::bus::EventSink;
 use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
+use crate::test_support::session_rows_1k as rows;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
@@ -95,15 +96,6 @@ async fn turn(core: &Arc<Core>, sid: &str, model: Option<&str>) -> TurnSubmitRes
         })
         .await
         .expect("the turn ends")
-}
-
-/// The ledger rows of `kind` in the session, oldest first.
-fn rows(core: &Core, sid: &str, kind: &str) -> Vec<Value> {
-    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(1000).unwrap();
-    rows.into_iter()
-        .filter(|(_, r)| r.kind == kind && r.session_id.as_deref() == Some(sid))
-        .map(|(_, r)| r.data)
-        .collect()
 }
 
 fn execution(core: &Core, sid: &str) -> Execution {

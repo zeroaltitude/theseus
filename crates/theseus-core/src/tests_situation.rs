@@ -33,6 +33,7 @@ use crate::node::{Body, Node};
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
+use crate::test_support::rows_2k as rows;
 use crate::tests_recall::index_of;
 use crate::turn::situation_step::UNADMITTED_CLASS;
 use crate::turn::{TurnError, TurnRequest, ASSEMBLY, PERSONA};
@@ -89,15 +90,6 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result
             answer_at: None,
         })
         .await
-}
-
-/// The ledger rows of `kind`, oldest first.
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(2000).unwrap();
-    rows.into_iter()
-        .filter(|(_, r)| r.kind == kind)
-        .map(|(_, r)| r.data)
-        .collect()
 }
 
 /// The session's current compilation.

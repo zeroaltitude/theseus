@@ -7,13 +7,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use theseus_protocol::context::{ContextExplainParams, ContextExplainResult};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 
-use crate::bus::EventSink;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+use crate::test_support::turn_in as turn;
 use crate::{Config, Core};
 
 struct Rig {
@@ -46,41 +45,6 @@ fn rig(script: Vec<Scripted>, file: &str) -> (Rig, String) {
         },
         path,
     )
-}
-
-async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
-    let rec = match session {
-        Some(id) => core
-            .store
-            .get_session::<SessionRecord>(id)
-            .unwrap()
-            .unwrap(),
-        None => {
-            let r = SessionRecord::new(SessionKind::Conversation, None);
-            core.store.put_session(&r.session_id, &r).unwrap();
-            r
-        }
-    };
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
 }
 
 fn explain(core: &Core, session: &str, turn: Option<&str>, private: bool) -> ContextExplainResult {

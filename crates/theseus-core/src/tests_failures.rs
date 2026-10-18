@@ -14,13 +14,13 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Wake};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 
-use crate::bus::EventSink;
 use crate::provider::{FakeProvider, ProviderError, Scripted};
 use crate::session::{SessionRecord, Then};
 use crate::store::Store;
-use crate::turn::{TurnError, TurnRequest};
+use crate::test_support::try_turn as turn;
+use crate::turn::TurnError;
 use crate::{Config, Core};
 
 struct Rig {
@@ -71,29 +71,6 @@ fn bound_session(core: &Core) -> String {
         ..Default::default()
     });
     rec.session_id
-}
-
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None)?;
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
 }
 
 /// The failed-turn notices the session's place has been sent.

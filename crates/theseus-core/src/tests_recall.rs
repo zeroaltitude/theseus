@@ -11,9 +11,8 @@ use std::time::{Duration, Instant};
 use proptest::prelude::*;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 use theseus_protocol::memory::{MemoryRecallsParams, MemorySearchParams, RecallManifest};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 
-use crate::bus::EventSink;
 use crate::config::MemoryMode;
 use crate::ledger::LedgerRow;
 use crate::node::Node;
@@ -22,7 +21,7 @@ use crate::provider::{FakeProvider, ProviderRequest};
 use crate::recall::{Ask, AskFuture};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+pub(crate) use crate::test_support::turn;
 use crate::{Config, Core};
 
 /// The owner on Discord, someone else, and three guild channels: one bound
@@ -156,34 +155,6 @@ pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
             })
         })
     })
-}
-
-pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec = core
-        .store
-        .get_session::<SessionRecord>(sid)
-        .unwrap()
-        .unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
 }
 
 /// The session's recall rows, as `memory.recalls` reads them.

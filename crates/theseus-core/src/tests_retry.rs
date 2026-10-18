@@ -11,9 +11,9 @@ use theseus_protocol::work::{WorkState, WorkView};
 use theseus_protocol::{Level, TaskRetryResult};
 
 use crate::approval::{Answerer, Refusal, Surface};
-use crate::ledger::LedgerRow;
 use crate::provider::{FakeProvider, ProviderError, Scripted};
 use crate::rpc::Parts;
+use crate::test_support::ledger_rows_2k as rows;
 use crate::tests_tasks::{
     answers_a_call, arranged, first_user, last_user, only_task, parent_session, rig, turn, until,
     Rig, ASK,
@@ -90,16 +90,6 @@ async fn failed_task(r: &Rig) -> (String, theseus_kernel::Execution) {
     .await;
     let failed = crate::tests_tasks::exec(&r.core, &task.id);
     (parent, failed)
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(2000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 /// A restarted daemon's core, over a copy of `c`'s store taken now (the

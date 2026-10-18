@@ -16,6 +16,7 @@ use crate::places::BoundPlace;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
+pub(crate) use crate::test_support::ledger_rows_5k as rows;
 use crate::turn::{TurnError, TurnRequest};
 use crate::{Config, Core};
 
@@ -112,14 +113,6 @@ pub(crate) async fn turn_in(
             answer_at: None,
         })
         .await
-}
-
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
-    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(5000).unwrap();
-    rows.into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 /// The posts of `kind` waiting in the outbox for the owner.
