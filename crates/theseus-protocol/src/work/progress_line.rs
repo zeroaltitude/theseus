@@ -1,7 +1,9 @@
 //! The one progress line (theseus-ypnxt.2, contract C1): what every surface
 //! says of a running task, in the same words. `paused`, `step 3 of 5`,
 //! `$0.40 of $2`, `~6 min left`, joined by ` · `, each part left out when the
-//! view has no data for it. A pure function of the view and the clock the
+//! view has no data for it. Where the forecast has tasks like it, the dollars
+//! read against what they usually cost, `$0.40 of ~$0.60 (limit $2)`, beside
+//! the time left (the owner, 2026-10-18: keep `[$x of ~$p50]`). A pure function of the view and the clock the
 //! caller passes. The cockpit writes the same words in TypeScript from
 //! `golden/progress_line.json`.
 
@@ -67,7 +69,7 @@ pub fn progress_rest(v: &WorkView, now_ms: u64) -> Option<String> {
         v.progress
             .as_ref()
             .and_then(|p| step_words(p.steps_done, p.steps_total)),
-        v.cost.as_ref().map(cost_words),
+        cost_part(v),
         time_words(v, now_ms),
     ]
     .into_iter()
@@ -81,6 +83,21 @@ pub fn cost_words(c: &Cost) -> String {
     format!("{} of {}", usd(c.spent_usd), usd(c.limit_usd))
 }
 
+/// `$0.40 of ~$0.60`: the spend against the median of the tasks like it
+/// (theseus-zz752's forecast). Nothing for a forecast made from none.
+pub fn forecast_cost(f: &WorkForecast, spent_usd: f64) -> Option<String> {
+    (f.n > 0).then(|| f.spent_of(spent_usd))
+}
+
+/// The dollars part: `$0.40 of ~$0.60 (limit $2)` where there is a forecast,
+/// else `$0.40 of $2`; nothing without a cost.
+pub fn cost_part(v: &WorkView) -> Option<String> {
+    let c = v.cost.as_ref()?;
+    match v.forecast.as_ref().and_then(|f| forecast_cost(f, c.spent_usd)) {
+        Some(f) => Some(format!("{f} (limit {})", usd(c.limit_usd))),
+        None => Some(cost_words(c)),
+    }
+}
 /// The line, or `None` when no part has data.
 pub fn progress_line(v: &WorkView, now_ms: u64) -> Option<String> {
     match (v.paused, progress_rest(v, now_ms)) {
@@ -118,7 +135,7 @@ mod tests {
     fn the_golden_cases_hold() {
         let cases: Vec<Value> =
             serde_json::from_str(include_str!("golden/progress_line.json")).unwrap();
-        assert_eq!(cases.len(), 8);
+        assert_eq!(cases.len(), 10);
         for c in cases {
             let mut v = view(WorkKind::Task, WorkState::Running, None);
             v.cost = c.get("cost").map(|k| Cost {
@@ -134,6 +151,7 @@ mod tests {
                 at_ms: 0,
             });
             v.forecast = c.get("forecast").map(|f| WorkForecast {
+                usd_p50: f.get("usd_p50").map_or(0.0, |x| x.as_f64().unwrap()),
                 min_p50: num(f, "min_p50"),
                 min_p90: num(f, "min_p90"),
                 ..forecast(num(f, "n") as u32, false)

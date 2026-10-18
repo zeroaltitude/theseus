@@ -303,7 +303,7 @@ mod tests {
         let now = 1_000 + 4 * 60_000;
         assert_eq!(
             view_line(&v, now),
-            "◐ Sound the channel  turn 2  [step 3 of 5 · $0.40 of $2 · ~6 min left]  Reading depths"
+            "◐ Sound the channel  turn 2  [step 3 of 5 · $0.40 of ~$1 (limit $2) · ~6 min left]  Reading depths"
         );
         v.paused = true;
         assert!(view_line(&v, now).contains("[paused · step 3 of 5"));

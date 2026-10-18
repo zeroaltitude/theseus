@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 
 use theseus_protocol::forecast::WorkForecast;
-use theseus_protocol::work::progress_line::{step_words, time_left};
+use theseus_protocol::work::progress_line::{forecast_cost, step_words, time_left};
 use theseus_protocol::work::{DoingKind, WorkKind, WorkState, WorkView};
 use unicode_width::UnicodeWidthStr;
 
@@ -62,9 +62,10 @@ pub struct Facts {
     /// Plan steps done and in all, when the task has a plan.
     pub steps: Option<(u32, u32)>,
     pub paused: bool,
-    /// The forecast and the start of a task that has not ended: what its
-    /// time left is made from (theseus-ypnxt.2).
-    pub timing: Option<(WorkForecast, u64)>,
+    /// The forecast, the start and the spend so far of a task that has not
+    /// ended: what its cost against the usual and its time left are made from
+    /// (theseus-ypnxt.2).
+    pub timing: Option<(WorkForecast, u64, f64)>,
     pub form: Form,
     /// A finished task's first report line.
     pub report: Option<String>,
@@ -210,7 +211,7 @@ impl Work {
                 .forecast
                 .clone()
                 .filter(|_| !v.state.ended())
-                .map(|f| (f, v.started_at_ms)),
+                .map(|f| (f, v.started_at_ms, v.cost.map_or(0.0, |c| c.spent_usd))),
             form: form_of(v, jobs.get(v.id.as_str()).copied()),
             report: (v.state == WorkState::Done && v.kind == WorkKind::Task)
                 .then(|| {
@@ -286,7 +287,8 @@ pub fn clock(ms: u64) -> String {
 }
 
 /// What a row says its session is doing, at `now_ms`; `hm` writes a time of
-/// day. `paused` and the plan's `step 3 of 5` come first, the time left last.
+/// day. `paused` and the plan's `step 3 of 5` come first, the spend against
+/// the usual and the time left last.
 pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
     let since = |t: u64| clock(now_ms.saturating_sub(t));
     let body = match &f.form {
@@ -319,7 +321,10 @@ pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
         Some(body),
         f.timing
             .as_ref()
-            .and_then(|(fc, started)| time_left(fc, *started, now_ms)),
+            .and_then(|(fc, _, spent)| forecast_cost(fc, *spent)),
+        f.timing
+            .as_ref()
+            .and_then(|(fc, started, _)| time_left(fc, *started, now_ms)),
     ];
     parts.into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }

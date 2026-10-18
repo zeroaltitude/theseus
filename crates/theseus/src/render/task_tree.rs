@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use theseus_protocol::notices::name_of;
 use theseus_protocol::term::words::clip;
-use theseus_protocol::work::progress_line::{cost_words, progress_rest, step_words};
+use theseus_protocol::work::progress_line::{cost_part, progress_rest, step_words};
 use theseus_protocol::work::{DoingKind, Question, QuestionKind, WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
 
@@ -780,7 +780,7 @@ pub fn event_line(e: &Event) -> Line {
                 .and_then(|p| step_words(p.steps_done, p.steps_total))
                 .into_iter()
                 .collect::<Vec<_>>();
-            parts.extend(v.cost.as_ref().map(cost_words));
+            parts.extend(cost_part(v));
             Line::new(
                 Tag::Level(Level::Working),
                 format!("◐ {}: {}", name(v), parts.join(" · ")),

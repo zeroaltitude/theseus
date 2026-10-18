@@ -413,25 +413,26 @@ fn facts(paused: bool, minutes_run: u64) -> (crate::work::Facts, u64) {
     let f = crate::work::Facts {
         steps: Some((2, 5)),
         paused,
-        timing: Some((forecast, started)),
+        timing: Some((forecast, started, 0.4)),
         form: crate::work::Form::Text("waiting".into()),
         report: None,
     };
     (f, T0)
 }
 
-/// A row says `paused` first and the time left last (theseus-ypnxt.2), and a
+/// A row says `paused` first, then the spend against the usual and the time
+/// left last (theseus-ypnxt.2, theseus-31pgz), and a
 /// row cut from its right end keeps `paused`.
 #[test]
 fn a_row_says_paused_and_time_left() {
     let (f, now) = facts(true, 4);
     let said = crate::work::doing(&f, now, &utc_hm);
-    assert_eq!(said, "paused · step 3 of 5 · waiting · ~6 min left");
+    assert_eq!(said, "paused · step 3 of 5 · waiting · $0.40 of ~$1 · ~6 min left");
     let (_, cut) = crate::work::fit("Sound the north channel", "", &said, 24);
     assert!(cut.starts_with("paused"), "{cut}");
     let (f, now) = facts(false, 25);
     assert_eq!(
         crate::work::doing(&f, now, &utc_hm),
-        "step 3 of 5 · waiting · past its usual time"
+        "step 3 of 5 · waiting · $0.40 of ~$1 · past its usual time"
     );
 }

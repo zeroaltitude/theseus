@@ -377,6 +377,30 @@ fn a_step_change_prints_one_line_and_a_frame_that_changes_nothing_none() {
     assert!(told(&b, &c).is_empty());
 }
 
+/// With a forecast of tasks like it, a step line says the spend against what
+/// they usually cost, as the progress line does (theseus-31pgz).
+#[test]
+fn a_step_line_reads_the_spend_against_the_forecast() {
+    let views = regatta();
+    let mut a = views[2].clone();
+    a.cost = Some(theseus_protocol::work::Cost {
+        spent_usd: 0.4,
+        limit_usd: 2.0,
+        turn_usd: None,
+    });
+    a.forecast = Some(
+        serde_json::from_value(json!({
+            "usd_p50": 0.6, "usd_p90": 1.5, "min_p50": 5.0, "min_p90": 9.0, "n": 4
+        }))
+        .unwrap(),
+    );
+    let b = moved(&a, |v| v.progress.as_mut().unwrap().steps_done += 1);
+    assert_eq!(
+        told(&a, &b),
+        ["◐ Buoy survey: step 6 of 9 · $0.40 of ~$0.60 (limit $2)"]
+    );
+}
+
 #[test]
 fn past_its_usual_time_is_told_once() {
     let views = regatta();

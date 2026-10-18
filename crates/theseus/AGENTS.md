@@ -19,7 +19,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/work.rs` (theseus-hkx30, theseus-6kgp8): the work board's lines, the old `theseus work` is
   **`theseus tasks --watch`** (it keeps the connection and does not exit; `--limit` and `--flat` pass through; there is no
   `work` command). `view_line` is a board view as one line (its glyph,
-  title, attention label, the one progress line `[paused · step 3 of 5 · $0.40 of $2 · ~6 min left]` (`theseus_protocol::work::progress_line`, theseus-ypnxt.2) and the model's words, a running job's time, `›` its last line), `change_line` a `--watch` change
+  title, attention label, the one progress line `[paused · step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left]` (`theseus_protocol::work::progress_line`, theseus-ypnxt.2) and the model's words, a running job's time, `›` its last line), `change_line` a `--watch` change
   (`@12 job c0ffee running …`), `notice_line`, `thread_change_line` and `thread_section` (`Threads: 2 live, 1 need
   you`, a header for each live thread, a seal recommendation, its open tasks, questions and wakes, needs you first);
   `tree_lines` is the old board tree, kept for the daemon's own work and the schedules. The `Theseus` root (the
@@ -43,7 +43,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/tasks_tree.rs` (theseus-mnd9g): `theseus tasks`. One `work.watch {limit: 20}` read draws the tree
   (`render/task_tree.rs`): a conversation, then one line for each task under it (mark `● ◐ ✗ ✓`, the short id of its
   session, title, how long it has run, and what it does: `asks: …`, `job 2:14 › last line`, `model 0:31`, the plan's
-  `step 3 of 5 · $0.40 of $2 · ~6 min left · said`, `paused` first, the report's first line), the exact command that answers a task that asks beneath it, `theseus retry ID ·
+  `step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left · said`, `paused` first, the report's first line), the exact command that answers a task that asks beneath it, `theseus retry ID ·
   theseus dismiss ID` beneath a failed one, and a footer of counts. A column that does not fit gives way title first (to 12
   columns), then the activity. `--graph` and `--json` are the task list (`task.list`) as before; `--session S` roots the
   watch at S; `--watch` keeps the connection, tells the daemon a person is looking (`interactive: true`; a plain `tasks`
