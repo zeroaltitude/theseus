@@ -1,5 +1,6 @@
 //! route.v6's `data` question as the core reads it (theseus-a1wvq.2): the
-//! verdict carries Jev's answer with its band, and nothing acts on it yet.
+//! verdict carries Jev's answer with its band, and a message that names a
+//! sensitive name makes it `private` (theseus-oejh3).
 
 use serde_json::json;
 use theseus_judge::band::{band, Band};
@@ -63,7 +64,7 @@ fn the_verdict_reads_the_data_answer() {
             vec![mode.clone(), choice("data", picked, confidence)],
             false,
         );
-        let v = verdict(&j, "trn_1").unwrap();
+        let v = verdict(&j, "trn_1", false).unwrap();
         let d = v.data.expect("the data answer rides the verdict");
         assert_eq!(
             (d.choice.as_str(), d.confidence, d.band),
@@ -78,6 +79,7 @@ fn a_verdict_without_the_data_answer_carries_none() {
     let v = verdict(
         &judgment(vec![choice("mode", "chat", 0.95)], false),
         "trn_1",
+        false,
     )
     .unwrap();
     assert!(v.data.is_none());
@@ -90,7 +92,33 @@ fn no_data_answer_is_read_from_a_drifted_judgment() {
         true,
     );
     assert!(
-        verdict(&j, "trn_1").is_none(),
+        verdict(&j, "trn_1", false).is_none(),
         "only an actionable judgment is read"
+    );
+}
+
+/// Jev says `open` at 0.95; the message names a configured name, so the answer
+/// the verdict carries is `private`, sure, at the act band (theseus-oejh3).
+#[test]
+fn a_sensitive_name_makes_the_data_answer_private() {
+    use crate::judge::inbound::names_hit;
+    use theseus_judge::builders::DataNames;
+    let names = DataNames {
+        open: vec![],
+        private: vec!["Examplecorp".into()],
+    };
+    let j = judgment(
+        vec![choice("mode", "chat", 0.95), choice("data", "open", 0.95)],
+        false,
+    );
+    let plain = names_hit(&names, "Summarise the release notes.");
+    let named = names_hit(&names, "Draft the examplecorp's budget memo.");
+    assert!(!plain && named);
+    let d = verdict(&j, "trn_1", plain).unwrap().data.unwrap();
+    assert_eq!((d.choice.as_str(), d.band), ("open", Band::Act));
+    let d = verdict(&j, "trn_1", named).unwrap().data.unwrap();
+    assert_eq!(
+        (d.choice.as_str(), d.confidence, d.band),
+        ("private", 1.0, Band::Act)
     );
 }

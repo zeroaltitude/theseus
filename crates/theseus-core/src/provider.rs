@@ -555,6 +555,11 @@ pub enum ProviderError {
     /// counts (theseus-36re). It passes with time: the next start retries.
     #[error("{message}")]
     Stopping { message: String },
+    /// A request the floor refused before sending a byte: it names a
+    /// sensitive name and its model is of restricted origin
+    /// (`data_gate.rs`, theseus-oejh3).
+    #[error("{message}")]
+    DataGate { message: String },
 }
 
 /// The class of a call not sent for the daemon's stop (theseus-36re).
@@ -574,6 +579,7 @@ impl ProviderError {
             ProviderError::Stream { .. } => "stream",
             ProviderError::Truncated { .. } => "truncated",
             ProviderError::Stopping { .. } => STOPPING_CLASS,
+            ProviderError::DataGate { .. } => crate::data_gate::DATA_GATE_CLASS,
         }
     }
 

@@ -202,7 +202,8 @@ impl TurnRunner {
         via: &str,
         provenance: String,
     ) -> anyhow::Result<Correcting> {
-        let resolved = correction::resolve(to, &last, &self.cfg.routing, &self.route_profiles());
+        let resolved =
+            correction::resolve(to, &last, &self.cfg.routing, &self.route_profiles(false));
         let asked = resolved.question != "persona" || last.persona_asked;
         let label = match (&resolved.label, &last.judgment) {
             (Some(words), Some(_)) if asked => {
@@ -396,7 +397,7 @@ impl TurnRunner {
         s: &Steering,
         est_tokens: u64,
     ) -> Decision {
-        let profiles = self.route_profiles();
+        let profiles = self.route_profiles(t.route.sensitive);
         let cap =
             t.tc.ceiling
                 .and_then(|c| c.profile.as_ref())

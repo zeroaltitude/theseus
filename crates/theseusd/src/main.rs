@@ -1069,6 +1069,9 @@ fn warm_after_serving(core: &Arc<Core>) {
     // The task claims that hold (39b), by one read of the task records, so
     // the driver's due pass frees a lapsed lease from memory.
     core.warm_leases();
+    // The embedded packs' text against `[privacy] sensitive_names`, once
+    // (theseus-oejh3).
+    core.check_pack_text_after_serving();
 }
 
 /// What runs once the socket answers: the kernel's startup report and the

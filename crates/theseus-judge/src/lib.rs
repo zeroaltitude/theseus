@@ -36,6 +36,7 @@ pub mod decision;
 pub mod eval;
 pub mod judge;
 pub mod learn;
+pub mod names;
 pub mod pack;
 pub mod price;
 pub mod propose;
