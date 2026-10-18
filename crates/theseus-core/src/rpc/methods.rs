@@ -752,9 +752,15 @@ impl Core {
         &self,
         p: theseus_protocol::TaskListParams,
     ) -> Result<theseus_protocol::TaskListResult, RpcFailure> {
+        let tasks = self.tasks(p.session_id.as_deref(), p.target.as_deref())?;
+        let records = self.task_records(p.session_id.as_deref())?;
+        if p.narrows() {
+            return self.task_history(&p, tasks, records);
+        }
         Ok(theseus_protocol::TaskListResult {
-            tasks: self.tasks(p.session_id.as_deref(), p.target.as_deref())?,
-            records: self.task_records(p.session_id.as_deref())?,
+            tasks,
+            records,
+            details: Vec::new(),
         })
     }
 

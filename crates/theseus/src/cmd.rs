@@ -1456,6 +1456,7 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
             theseus_protocol::TaskListParams {
                 session_id: session,
                 target: None,
+                ..Default::default()
             },
         )
         .await?;

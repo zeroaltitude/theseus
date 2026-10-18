@@ -107,7 +107,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         ExecutionInfo,
         BudgetInfo, ExecutionListResult, ExecutionListParams, ActionInfo, ActionListParams, ActionListResult,
         ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams, ExecutionStopResult, ExecutionDismissParams, ExecutionDismissResult, TaskRetryParams, TaskRetryResult, task_pause::TaskPauseParams, task_pause::TaskPauseResult,
-        TaskInfo, TaskListParams, TaskListResult, TaskCancelParams, TaskCancelResult, WakeInfo,
+        TaskInfo, TaskListParams, TaskListResult, tasks::TaskDetail, TaskCancelParams, TaskCancelResult, WakeInfo,
         WakeListParams, WakeListResult, WakeCancelParams, WakeCancelResult, wakes::WakeCreateParams, wakes::WakeEditResult, wakes::WakeSnoozeParams, wakes::WakePauseParams, wakes::WakeNameParams, wakes::WakeDoneResult, wakes::WakeAnswer, wakes::WakeNoticed, watches::WatchCheck, watches::WatchThen, watches::WatchCreateParams, watches::WatchInfo, watches::WatchCreateResult, watches::WatchListParams, watches::WatchListResult, TaskRef, SessionKind, task_start::TaskStartParams, task_start::TaskStartResult, task_start::ReportTo, task_start::Expect,
         SessionOpenParams, SessionInfo, SessionListResult, TurnSubmitParams, Attachment, sessions::SessionRetireParams, sessions::SessionReopenParams,
         ProfileInfo, ProfileListResult, ProfileUseParams, ProfileChanged, Span, Usage,
