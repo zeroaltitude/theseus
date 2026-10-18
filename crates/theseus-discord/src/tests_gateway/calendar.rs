@@ -138,9 +138,13 @@ async fn a_reminder_becomes_an_event_that_moves_settles_and_goes() {
         .find(|e| e.name == "stand up")
         .unwrap();
     assert_eq!(done.history, ["create", "status:2", "status:3"]);
-    // And the store forgot it.
-    let saved: serde_json::Value = r.core.store.get_meta("discord.calendar").unwrap().unwrap();
-    assert_eq!(saved["entries"], json!([]));
+    // And the store forgot it: the pass saves after the settle's PATCH, so
+    // the event can read settled a moment before the store is written.
+    r.until("the store forgot it", || {
+        let saved: Option<serde_json::Value> = r.core.store.get_meta("discord.calendar").unwrap();
+        saved.is_some_and(|s| s["entries"] == json!([]))
+    })
+    .await;
 }
 
 #[tokio::test]
