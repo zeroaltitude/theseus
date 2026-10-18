@@ -308,10 +308,18 @@ fn label_of(w: &WorkView, f: &Facts, now_ms: u64) -> String {
             Some(_) => said("blocked", reason),
             None => "needs you".into(),
         },
-        WorkState::Running => match &f.tool {
-            Some((words, _)) => format!("{} · {words}", w.attention.label),
-            None => w.attention.label.clone(),
-        },
+        WorkState::Running => {
+            let working = match &f.tool {
+                Some((words, _)) => format!("{} · {words}", w.attention.label),
+                None => w.attention.label.clone(),
+            };
+            // A paused task says so first, so a cut label keeps it.
+            if w.paused {
+                format!("paused · {working}")
+            } else {
+                working
+            }
+        }
         WorkState::Waiting => match w.doing.as_ref().map(|d| d.what) {
             Some(DoingKind::Job) if w.state_since_ms > 0 => {
                 format!("job · {}", span(now_ms.saturating_sub(w.state_since_ms)))
@@ -385,6 +393,19 @@ mod tests {
             "attention": {"level": "working", "label": label, "since_ms": 0}}))
         .unwrap();
         WorkView::from_execution(&x)
+    }
+
+    /// A paused task's pane label says so first (theseus-ypnxt.2).
+    #[test]
+    fn a_paused_task_says_paused_in_its_label() {
+        let mut w = running("turn 3");
+        w.paused = true;
+        let f = Facts {
+            kind: Some(SessionKind::Task),
+            session_id: "ses_q7f3k2".into(),
+            ..Facts::default()
+        };
+        assert_eq!(slots(Some(&w), &f, 1_000).label, "paused · turn 3");
     }
 
     /// A running call is said as it runs and with its elapsed time, and the

@@ -82,8 +82,17 @@ pub(crate) fn view_line(v: &WorkView, now: u64) -> String {
         glyph(v.attention.level),
         v.attention.label
     );
-    if let Some(line) = v.progress.as_ref().and_then(|p| p.line()) {
+    // The one progress line (theseus-ypnxt.2), then the model's own words.
+    if let Some(line) = theseus_protocol::work::progress_line::progress_line(v, now) {
         s.push_str(&format!("  [{line}]"));
+    }
+    if let Some(said) = v
+        .progress
+        .as_ref()
+        .and_then(|p| p.said.as_deref())
+        .filter(|w| !w.is_empty())
+    {
+        s.push_str(&format!("  {said}"));
     }
     // A running job's time, against its usual (theseus-e1hu4).
     if v.kind == WorkKind::Job && v.state == theseus_protocol::work::WorkState::Running {
@@ -94,13 +103,6 @@ pub(crate) fn view_line(v: &WorkView, now: u64) -> String {
                 v.eta.map(|e| e.usual_ms)
             )
         ));
-    }
-    if let Some(f) = &v.forecast {
-        let spent = v.cost.map_or(0.0, |c| c.spent_usd);
-        s.push_str(&format!("  [{}]", f.spent_of(spent)));
-        if f.past {
-            s.push_str(" past its p90");
-        }
     }
     if let Some(b) = &v.below {
         if b.total > 0 {
@@ -283,6 +285,28 @@ mod tests {
                 "○ Quiet one  ready",
             ]
         );
+    }
+
+    /// A task's board line carries the one progress line (theseus-ypnxt.2):
+    /// paused, the step, dollars and time left; the herdr board tab and
+    /// `--watch` print this line.
+    #[test]
+    fn a_task_line_has_the_step_and_the_time_left_and_says_paused() {
+        let mut v = view(
+            json!({"id": "exe_t", "kind": "task", "title": "Sound the channel",
+            "started_at_ms": 1_000,
+            "progress": {"steps_done": 2, "steps_total": 5, "said": "Reading depths", "at_ms": 1},
+            "cost": {"spent_usd": 0.4, "limit_usd": 2.0},
+            "forecast": {"usd_p50": 1.0, "usd_p90": 2.0, "min_p50": 10.0, "min_p90": 20.0, "n": 4},
+            "attention": {"level": "working", "label": "turn 2", "since_ms": 1}}),
+        );
+        let now = 1_000 + 4 * 60_000;
+        assert_eq!(
+            view_line(&v, now),
+            "◐ Sound the channel  turn 2  [step 3 of 5 · $0.40 of $2 · ~6 min left]  Reading depths"
+        );
+        v.paused = true;
+        assert!(view_line(&v, now).contains("[paused · step 3 of 5"));
     }
 
     /// The daemon's own work (theseus-jn17m): the root closed over its count,
