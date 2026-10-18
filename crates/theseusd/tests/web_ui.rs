@@ -340,3 +340,74 @@ fn the_web_ui_on_ipv6_serves_its_own_user() {
         "{h:#}"
     );
 }
+
+/// The cockpit is embedded compressed and sent in the coding the client takes (theseus-rwpbg.5), through a real
+/// daemon: brotli, else gzip, else the plain bytes, each with the file's own type and `Vary`.
+#[test]
+fn the_cockpit_is_sent_in_the_coding_the_client_takes() {
+    let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("cockpit/dist/assets");
+    let Some(name) = std::fs::read_dir(&dist).ok().and_then(|d| {
+        d.filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .find(|n| n.ends_with(".js"))
+    }) else {
+        return; // the cockpit is not built; the other tests say so
+    };
+    let want = std::fs::read(dist.join(&name)).unwrap();
+    let port = free_port();
+    let s = Served::start(
+        |_| {},
+        |t| {
+            let w = t.get_mut("web").unwrap().as_table_mut().unwrap();
+            w.insert("enabled".into(), true.into());
+            w.insert("bind".into(), "127.0.0.1".into());
+            w.insert("port".into(), i64::from(port).into());
+        },
+    );
+    let ui = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while TcpStream::connect_timeout(&ui, Duration::from_millis(250)).is_err() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no web UI:\n{}",
+            s.log()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let raw = |accept: &str| {
+        let head = format!(
+            "GET /assets/{name} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{accept}Connection: close\r\n\r\n"
+        );
+        let mut c = TcpStream::connect_timeout(&ui, Duration::from_secs(5)).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        c.write_all(head.as_bytes()).unwrap();
+        let mut got = Vec::new();
+        let _ = c.read_to_end(&mut got);
+        let cut = got.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = String::from_utf8_lossy(&got[..cut]).to_lowercase();
+        (head, got[cut + 4..].to_vec())
+    };
+    for (accept, coding) in [
+        ("Accept-Encoding: gzip, br\r\n", Some("br")),
+        ("Accept-Encoding: gzip\r\n", Some("gzip")),
+        ("", None),
+    ] {
+        let (head, body) = raw(accept);
+        assert!(head.starts_with("http/1.1 200 "), "{accept}: {head}");
+        assert!(head.contains("content-type: text/javascript"), "{head}");
+        assert!(head.contains("vary: accept-encoding"), "{head}");
+        match coding {
+            Some(c) => assert!(head.contains(&format!("content-encoding: {c}")), "{head}"),
+            None => assert!(!head.contains("content-encoding"), "{head}"),
+        }
+        if coding.is_none() {
+            assert!(body == want, "the plain bytes are the file's");
+        } else {
+            assert!(
+                body.len() < want.len(),
+                "{accept}: {} of {}",
+                body.len(),
+                want.len()
+            );
+        }
+    }
+}
