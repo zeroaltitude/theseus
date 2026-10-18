@@ -150,6 +150,14 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Show the tasks Theseus is tracking.',
     'One row per task: its state, owner, claim and version, with a waiting change and its card where there is one.',
     'A task that is claimed but stale is work nobody is doing. A waiting change needs your answer.'),
+  'tasks.board': e(
+    'Show every task by what it needs: your answer, its work, or its report.',
+    'Needs you holds a task with a question open, with its answer buttons. Working holds the running, the waiting on its own command, and the paused, each with one progress line: the step, the spend of its limit, and the time left. Done holds the ended, with the first line of the report, newest first, fifty at a time.',
+    'It is the one place that says whether a task is still going. A task waiting on a long command is working, and a paused one is held until you resume it.'),
+  'tasks.new': e(
+    'Start a task from the page.',
+    'A brief, an optional title and budget, and the conversation it goes under (your Home when none is chosen). It opens the task at once, with no model turn, and scrolls to its row.',
+    'A task works on its own and reports back, so a long piece of work does not hold a conversation.'),
   'actions.taskgraph': e(
     'Show the task records as a tree, and as a graph.',
     'The tree nests tasks under the one that started them. The graph view draws the same records as nodes and arrows; click a node for its record. It shows the present only.',

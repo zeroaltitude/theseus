@@ -64,6 +64,7 @@ const router = createBrowserRouter(
             { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
             // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
             { path: 'session/:id/turn/:turn', lazy: async () => ({ Component: (await import('./views/TurnInspect')).default }) },
+            { path: 'tasks', lazy: async () => ({ Component: (await import('./views/Tasks')).default }) },
             { path: 'agenda', lazy: async () => ({ Component: (await import('./views/Agenda')).default }) },
             { path: 'actions', element: wrap(<Actions />) },
             { path: 'ledger', element: wrap(<Ledger />) },
