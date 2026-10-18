@@ -147,6 +147,13 @@ cache_ttl = "1h"
 [routing]
 max_wait_ms = 300
 
+[routing.task_checkpoints]
+enabled = true
+failing_streak = 3
+quiet_loops = 8
+min_loops_between = 4
+max_switches = 2
+
 [routing.classes.trivial]
 profiles = ["haiku", "glm"]
 

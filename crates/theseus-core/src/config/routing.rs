@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Effort, PackMode};
 
+pub use super::routing_checkpoints::TaskCheckpoints;
 pub use super::routing_data::RoutingData;
 
 /// The profile name that means the usable profile cheapest for a short
@@ -70,6 +71,9 @@ pub struct RoutingConfig {
     /// The owner's data rule (theseus-a1wvq): the names Jev reads.
     #[serde(default)]
     pub data: RoutingData,
+    /// A running task's model ranges (theseus-ypnxt.9).
+    #[serde(default)]
+    pub task_checkpoints: TaskCheckpoints,
 }
 
 /// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
@@ -290,6 +294,7 @@ impl Default for RoutingConfig {
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
             data: RoutingData::default(),
+            task_checkpoints: TaskCheckpoints::default(),
         }
     }
 }
@@ -343,6 +348,7 @@ impl RoutingConfig {
                 anyhow::bail!("routing.classes.{m}.profiles has an empty name {p:?}");
             }
         }
+        self.task_checkpoints.validate()?;
         let c = &self.corrections;
         if !(c.similarity > 0.0 && c.similarity <= 1.0) {
             anyhow::bail!("routing.corrections.similarity must be above 0 and at most 1");
@@ -396,6 +402,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         assert_eq!(r.classes.of(m), RoutingClasses::default().of(m), "{m}");
     }
     assert_eq!(r.corrections, CorrectionsConfig::default());
+    assert_eq!(r.task_checkpoints, TaskCheckpoints::default());
     // Its one commented bar is trivial's, at the default it documents.
     assert_eq!(
         r.classes.trivial.switch_confidence,

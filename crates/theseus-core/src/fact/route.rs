@@ -45,6 +45,23 @@ pub struct RouteDecided<'a> {
     /// The effort the request carried when `sticky` held it at the previous
     /// request's (`effort_reason`): `effort_ran` then is Jev's level.
     pub effort_sent: Option<&'a str>,
+    /// A running task's checkpoint (theseus-ypnxt.9): the row's `source` is
+    /// `task checkpoint`, and this says why it was asked, where, and what a
+    /// switch cost.
+    pub checkpoint: Option<Checkpointed<'a>>,
+}
+
+/// What a task checkpoint's `route.decided` row adds to the turn's own.
+pub struct Checkpointed<'a> {
+    /// `failing`, `quiet`, `phase` or `report`.
+    pub trigger: &'a str,
+    /// The loop the verdict was applied at the boundary of.
+    pub loop_index: u32,
+    /// On a switch: the compile's estimate less the warm prefix on the new
+    /// model, and what writing those tokens cold costs at its catalog prices.
+    pub cold: Option<(u64, f64)>,
+    /// What the checkpoint's judgment settled at, in dollars: charged to the task.
+    pub cost_usd: f64,
 }
 
 impl Fact for RouteDecided<'_> {
@@ -69,6 +86,15 @@ impl Fact for RouteDecided<'_> {
                 row["follows"] = json!(self.follows);
             }
         }
+        if let Some(c) = &self.checkpoint {
+            row["trigger"] = json!(c.trigger);
+            row["loop"] = json!(c.loop_index);
+            row["cost_usd"] = json!(c.cost_usd);
+            if let Some((tokens, usd)) = c.cold {
+                row["cold_tokens"] = json!(tokens);
+                row["cache_usd"] = json!(usd);
+            }
+        }
         row
     }
 
@@ -90,6 +116,13 @@ impl Fact for RouteDecided<'_> {
             _ => String::new(),
         };
         let line = match (self.detour, self.switch) {
+            (_, true) if self.checkpoint.is_some() => {
+                let c = self.checkpoint.as_ref().expect("checked");
+                format!(
+                    "Routing (task checkpoint: {}): the task moves from {} to {}.",
+                    c.trigger, self.from, self.profile
+                )
+            }
             (true, _) => format!(
                 "Routing{mode}: this message alone runs on {}; the session stays on {}.",
                 self.profile, self.from

@@ -397,7 +397,7 @@ impl TurnRunner {
     /// The effort rule for the profile the turn moves to (or its own), from
     /// route.v3's answer: none when the verdict has none (route.v1 and v2
     /// ask no effort). `acts` when the turn reads a live verdict.
-    fn route_effort(
+    pub(super) fn route_effort(
         &self,
         t: &Turn<'_>,
         v: &Verdict,
@@ -725,6 +725,7 @@ impl TurnRunner {
             effort_applied: applied.is_some(),
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
             effort_sent: e.and_then(|e| e.sent).map(effort::name),
+            checkpoint: None,
         });
         let persona_shown = t.route.result.take().and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {
@@ -777,7 +778,7 @@ impl TurnRunner {
 
     /// Move the turn to `target`: its spec, and for a switch the session's
     /// routed profile and `last_target`.
-    fn route_to<'a>(
+    pub(super) fn route_to<'a>(
         &self,
         t: &mut Turn<'a>,
         session: &mut SessionRecord,
@@ -981,6 +982,7 @@ mod tests {
                     let _ = tx.send(Answered {
                         verdict: Some(v("chat")),
                         at: tokio::time::Instant::now(),
+                        cost_micros: 0,
                     });
                 }
                 None => {

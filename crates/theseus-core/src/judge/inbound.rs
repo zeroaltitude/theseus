@@ -125,6 +125,31 @@ impl Early {
 pub struct Answered {
     pub verdict: Option<crate::routing::Verdict>,
     pub at: tokio::time::Instant,
+    /// What the call settled at, in micro-dollars (a checkpoint's is charged
+    /// to its task).
+    pub cost_micros: u64,
+}
+
+/// What a point asks: every inbound pack, route.v6 alone for a task's brief,
+/// or route.v6 alone for a running task's checkpoint, which is charged to the
+/// task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Point {
+    All,
+    Brief,
+    Checkpoint,
+}
+
+/// A checkpoint's settled cost, charged to its task's execution and its
+/// parent's by the kernel's carry. It is the judge's day budget's spend too
+/// (that record already holds it), so the day ceiling is not told again.
+fn charge(kernel: &theseus_kernel::Kernel, execution: &str, micros: u64) {
+    if micros == 0 {
+        return;
+    }
+    if let Err(e) = kernel.charge_execution(execution, micros) {
+        tracing::warn!(error = %format!("{e:#}"), "judge: a task checkpoint's cost was not charged to its task");
+    }
 }
 
 /// The spec's twelve seed roles (§3.4), each with its stance and hints in
@@ -271,17 +296,28 @@ impl JudgeService {
     /// router waits on the thread answer before it knows which session's turn
     /// this is).
     pub fn inbound_early(&self, msg: Inbound) -> Option<Early> {
-        self.inbound_early_of(msg, false)
+        self.inbound_early_of(msg, Point::All)
     }
 
     /// A task's brief, whose first turn has no message of its own: route.v6
     /// alone judges it (no `classify`, no `role`), so the verdict can pick
     /// the task's model (theseus-ypnxt.7, `turn/brief_step.rs`).
     pub fn at_brief(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
-        self.inbound_early_of(msg, true)?.adopt(trace, None)
+        self.inbound_early_of(msg, Point::Brief)?.adopt(trace, None)
     }
 
-    fn inbound_early_of(&self, msg: Inbound, route_only: bool) -> Option<Early> {
+    /// A running task's checkpoint (theseus-ypnxt.9, `turn/checkpoint_step.rs`):
+    /// route.v6 alone judges `msg.text`, the task's recent state, as it
+    /// judges a brief. What the call settles at is the task's, charged to its
+    /// execution when it lands ([`charge`]); the verdict's cost rides
+    /// `Answered`. A message with no node of its own: `msg.node_id` is empty.
+    pub fn at_checkpoint(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
+        self.inbound_early_of(msg, Point::Checkpoint)?
+            .adopt(trace, None)
+    }
+
+    fn inbound_early_of(&self, msg: Inbound, point: Point) -> Option<Early> {
+        let route_only = point != Point::All;
         if slash_command(&msg.text) {
             return None;
         }
@@ -359,6 +395,7 @@ impl JudgeService {
             tx,
             ttx,
             (heard, said_rx),
+            point == Point::Checkpoint,
         ));
         Some(Early {
             marks,
@@ -896,6 +933,7 @@ async fn judge_inbound(
         Option<crate::capture::act::Message>,
         Option<tokio::sync::oneshot::Receiver<(String, String)>>,
     ),
+    charged: bool,
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
@@ -903,6 +941,7 @@ async fn judge_inbound(
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
     let (session, names) = (msg.session_id.clone(), msg.data_names.clone());
+    let to_task = charged.then(|| (msg.kernel.clone(), msg.execution_id.clone()));
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
         .await
@@ -936,12 +975,17 @@ async fn judge_inbound(
             ms = t0.elapsed().as_millis() as u64,
             "judge: route.v1 judged"
         );
+        let cost_micros: u64 = judgments.iter().filter_map(|j| j.cost_micros).sum();
+        if let Some((kernel, execution)) = &to_task {
+            charge(kernel, execution, cost_micros);
+        }
         if let Some(tx) = route {
             let _ = tx.send(Answered {
                 verdict: judgments
                     .first()
                     .and_then(|j| verdict(j, &turn, names_hit(&names, &brief))),
                 at: tokio::time::Instant::now(),
+                cost_micros,
             });
         }
         judgments
