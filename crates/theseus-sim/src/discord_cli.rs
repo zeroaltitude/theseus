@@ -2,7 +2,7 @@
 //!
 //! - `proof` runs the kl8m proof against a real `theseusd`, with its own
 //!   stand-ins (`theseus_sim::discord_proof`), and exits 1 when a step fails.
-//! - `say`, `press`, and `read` drive a running `theseus-sim fake-discord
+//! - `say`, `press`, `react`, and `read` drive a running `theseus-sim fake-discord
 //!   --gateway …` from a live check: a message typed as a user, a button on a
 //!   posted message pressed as one, and what the stand-in holds, read back
 //!   (its control routes, under `/_fake/` on its REST port).
@@ -63,6 +63,23 @@ pub enum Cmd {
         user: u64,
         #[arg(long, default_value = "tester")]
         name: String,
+    },
+    /// React to a message the bot posted, as a user: the gateway's
+    /// `MESSAGE_REACTION_ADD` (the task card's ⏸ ▶️ 🛑).
+    React {
+        #[arg(long, default_value = "127.0.0.1:9447")]
+        fake: String,
+        /// The message's channel; without it, the user's DM with the bot.
+        #[arg(long)]
+        channel: Option<u64>,
+        /// The message's id (`read` lists them).
+        #[arg(long)]
+        message: String,
+        /// The emoji, as typed (`⏸️`).
+        #[arg(long)]
+        emoji: String,
+        #[arg(long)]
+        user: u64,
     },
     /// Drive a task command (theseus-a5uds): a JSON body with an `op`
     /// (`slash`, `autocomplete`, `message_command`, `modal`, `pick`,
@@ -166,6 +183,17 @@ pub fn run(cmd: Cmd) -> Result<()> {
         } => {
             let body = json!({"message": message, "button": button, "user": user, "name": name});
             print_sent(control(&fake, "POST", "press", &body)?)
+        }
+        Cmd::React {
+            fake,
+            channel,
+            message,
+            emoji,
+            user,
+        } => {
+            let body =
+                json!({"channel": channel, "message": message, "emoji": emoji, "user": user});
+            print_sent(control(&fake, "POST", "react", &body)?)
         }
         Cmd::Interact { fake, body } => {
             let body: Value = serde_json::from_str(&body).context("the body is JSON")?;
