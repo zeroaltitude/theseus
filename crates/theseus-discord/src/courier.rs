@@ -766,7 +766,6 @@ impl Lane {
     }
 
     /// A post's writes, by its kind.
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
@@ -784,10 +783,7 @@ impl Lane {
             };
         let reply_to = body["reply_to"].as_str().and_then(|s| s.parse().ok());
         match kind_of(a) {
-            "reply" => {
-                let channel = self.place_channel().await?;
-                Ok(self.reply(&body, channel))
-            }
+            "reply" => self.reply_in_place(&body).await,
             "card" => self.card(&body).await,
             "settle" => Ok(self.settled(&body)),
             "notice" => {
@@ -875,8 +871,9 @@ impl Lane {
             // hand role and the red after its apply (theseus-pw1q.15): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" | "standing_card" => self.jev_post(a, &body).await,
-            "digest" => self.jev_post(a, &body).await,
+            | "self_narrow_red" | "initiative" | "standing_card" | "digest" => {
+                self.jev_post(a, &body).await
+            }
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -887,6 +884,11 @@ impl Lane {
                 "a post of kind {other:?} is not one this binding knows"
             ))),
         }
+    }
+
+    async fn reply_in_place(&mut self, body: &Value) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        Ok(self.reply(body, channel))
     }
 
     /// A turn's reply: its loops' final text under the stream's keys, which

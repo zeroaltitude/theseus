@@ -573,19 +573,26 @@ impl Place {
     /// owner: `work.answer` or `task.cancel` as the speaker, the transcript
     /// posted as any voice turn's is, and a short word back. True when they
     /// did, and no voice turn is made of them.
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    /// Whether every utterance of the turn is one owner's.
+    fn spoke_alone_as_owner(&self, t: &VoiceTurn) -> bool {
+        let Some(speaker) = t.utterances.first().map(|u| u.speaker.0) else {
+            return false;
+        };
+        let core = &self.shared.core;
+        t.utterances.iter().all(|u| u.speaker.0 == speaker)
+            && core
+                .runner
+                .place_rule
+                .owners(&core.cfg)
+                .contains(&format!("discord:{speaker}"))
+    }
+
     pub(super) fn voice_answered(&mut self, t: &VoiceTurn) -> bool {
         let Some(first) = t.utterances.first() else {
             return false;
         };
         let speaker = first.speaker.0;
-        let core = &self.shared.core;
-        let owner = t.utterances.iter().all(|u| u.speaker.0 == speaker)
-            && core
-                .runner
-                .place_rule
-                .owners(&core.cfg)
-                .contains(&format!("discord:{speaker}"));
+        let owner = self.spoke_alone_as_owner(t);
         let words = t
             .utterances
             .iter()
