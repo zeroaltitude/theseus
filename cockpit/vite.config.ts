@@ -2,6 +2,7 @@ import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
+import { compressed } from './compress'
 
 // The cockpit (theseus-45n5): the web UI, served by theseusd at / (theseus-vm3n.6; its old /cockpit/ redirects)
 // and embedded from crates/theseusd/cockpit/dist. The protocol client is src/protocol.ts, whose types
@@ -19,7 +20,7 @@ const benchmarks = fileURLToPath(new URL('../docs/benchmarks', import.meta.url))
 
 export default defineConfig({
   base: '/',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), compressed()],
   define: {
     'import.meta.env.VITE_THESEUS_DEV_DAEMON': JSON.stringify(devDaemon),
   },
