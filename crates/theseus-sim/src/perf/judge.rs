@@ -307,13 +307,22 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
 }
 
 /// The fake Jev's answers: a confident `chat` for `route.v6` (a switch to
-/// chat's profile, which the bench points at the stand-in too), and the
-/// bench's `true` sure to be harmless, so no notice is posted.
+/// chat's profile, which the bench points at the stand-in too), `none` for
+/// `directive.v1` (a plain message carries no standing order, so the turn
+/// writes no capture's frames beside its own four), and the bench's `true`
+/// sure to be harmless, so no notice is posted.
 pub(super) fn scripted(jev: &FakeJev) {
     jev.script(
         "route.v6/mode",
         Scripted::Choice {
             option: "chat".into(),
+            confidence: 0.95,
+        },
+    );
+    jev.script(
+        "directive.v1/kind",
+        Scripted::Choice {
+            option: "none".into(),
             confidence: 0.95,
         },
     );

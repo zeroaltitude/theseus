@@ -282,3 +282,24 @@ fn the_restore_rows_store_is_the_same_with_the_cancel_row_selected() {
         "the restore row's WAL is {a} bytes alone and {w} with the cancel row selected"
     );
 }
+
+/// `bench turn --judge`'s every-pack arm measures a plain turn: the fake Jev answers
+/// `directive.v1` with `none`, as a real plain message's verdict reads, so the turn writes no
+/// standing capture beside its four frames (theseus-n10cv: it asked one, and the arm failed on
+/// `[ledger:standing.asked, meta:standing.capture]`). A real `theseusd`, the one beside
+/// `theseus-sim`; the bench itself fails the run when a turn's frames are not its trace's.
+#[test]
+fn the_judge_benchs_every_pack_arm_counts_a_plain_turns_own_frames() {
+    let sim_bin = std::path::PathBuf::from(env!("CARGO_BIN_EXE_theseus-sim"));
+    let theseusd = sim_bin.with_file_name("theseusd");
+    assert!(
+        theseusd.exists(),
+        "{} is not built: build the workspace first",
+        theseusd.display()
+    );
+    let out = sim(&["bench", "turn", "--judge", "--runs", "1"]);
+    assert!(
+        !out.contains("standing.capture") && !out.contains("standing.asked"),
+        "{out}"
+    );
+}
