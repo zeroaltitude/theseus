@@ -281,7 +281,10 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
             text.starts_with("◆ 3 reported, 1 answered by you, 1 cancelled"),
             "{text}"
         );
-        assert!(text.contains("📋 Count to three. reported: Nothing to do."), "{text}");
+        assert!(
+            text.contains("📋 Count to three. reported: Nothing to do."),
+            "{text}"
+        );
     }
     let to = d["to"].as_u64().unwrap();
     assert!(r.digest(to)["lines"].as_array().unwrap().is_empty());
