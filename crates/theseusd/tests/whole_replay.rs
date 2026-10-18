@@ -70,6 +70,12 @@ fn point_at(t: &mut toml::Table, base: &str) {
         .insert("enforcement".into(), "notify".into());
 }
 
+/// A refused program says why, in the words L1 gave (theseus-glisu).
+fn says_why_it_was_refused(r: &Value) {
+    let why = r["whole"]["calls"][1]["why"].as_str();
+    assert!(why.is_some_and(|w| w.contains("runs as root")), "{r}");
+}
+
 #[test]
 fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
     let root = unsafe { libc::geteuid() } == 0;
@@ -153,11 +159,17 @@ fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
         // L1 refuses a root daemon's job: the call says so, and the check did
         // not run anywhere else.
         assert_eq!(calls[1], ("proc.run", "refused"), "{r}");
+        says_why_it_was_refused(&r);
         assert_eq!(whole["tests"][0]["exit"], Value::Null);
     } else {
-        assert_eq!(calls[1], ("proc.run", "ran"), "{r}");
+        assert_eq!(
+            calls[1],
+            ("proc.run", "ran"),
+            "{}: {r}",
+            whole["calls"][1]["why"]
+        );
         assert_eq!(whole["tests"][0]["exit"], 0, "{r}");
-        assert_eq!(whole["same"]["tests"], true);
+        assert_eq!(whole["same"]["tests"], true, "{r}");
     }
     let tail = s.call("ledger.tail", json!({"n": 500})).unwrap();
     let row = tail["rows"]

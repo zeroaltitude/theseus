@@ -305,7 +305,7 @@ pub async fn watch(
     }
     if interactive {
         let mut out = std::io::stderr().lock();
-        for c in &w.questions {
+        for c in w.questions.iter().filter(|c| !ask::is_ask(c)) {
             crate::print::lines(&mut out, &render::confirm_lines(c))?;
         }
     }
@@ -560,7 +560,8 @@ impl Watch {
         }
         if self.interactive {
             let mut out = std::io::stderr().lock();
-            for c in &self.questions {
+            // A question with choices says itself, once, when it is asked (`say_prompt`'s block).
+            for c in self.questions.iter().filter(|c| !ask::is_ask(c)) {
                 crate::print::lines(&mut out, &render::confirm_lines(c))?;
             }
         }
@@ -674,11 +675,12 @@ impl Watch {
             None => {}
         }
         // A question still waits and this event printed below its prompt (a
-        // parked turn's footer comes after its question): the prompt goes
-        // last again, so the line to answer on is the one the terminal ends on.
+        // parked turn's footer comes after its question): the line to answer
+        // on goes last again, so it is the one the terminal ends on. The
+        // question's block is above already and prints once.
         let below = self.printer.lines_printed() != printed;
         if self.interactive && self.asked.is_some() && self.asked == was_asked && below {
-            self.say_prompt();
+            self.say_prompt(false);
         }
         Ok(())
     }
@@ -692,13 +694,15 @@ impl Watch {
             return;
         };
         self.asked = Some(q.correlation_id.clone());
-        self.say_prompt();
+        self.say_prompt(true);
     }
 
     /// The prompt of the question asked, as a whole line below whatever was
     /// printed last: the prompt is what the terminal ends on while a question
-    /// waits (theseus-rn7s).
-    fn say_prompt(&mut self) {
+    /// waits (theseus-rn7s). `block` says the question's own lines first (an
+    /// `owner_ask`'s question and its numbered options, a card's links): once,
+    /// when it is first asked; saying the prompt again prints the line alone.
+    fn say_prompt(&mut self, block: bool) {
         let Some(q) = self
             .questions
             .iter()
@@ -708,8 +712,10 @@ impl Watch {
         };
         self.printer.settle();
         let prompt = if ask::is_ask(q) {
-            for l in ask::prompt_lines(q) {
-                eprintln!("{l}");
+            if block {
+                for l in ask::prompt_lines(q) {
+                    eprintln!("{l}");
+                }
             }
             ask::keys_line(q)
         } else if q.budget.is_some() {
@@ -725,6 +731,7 @@ impl Watch {
         // Under the card, in a herdr pane: links that open the answer card, never answer.
         if let Some(l) =
             crate::herdr_keys::links_under(q, std::env::var("HERDR_ENV").ok().as_deref())
+                .filter(|_| block || !ask::is_ask(q))
         {
             eprintln!("  {l}");
         }
@@ -815,7 +822,7 @@ impl Watch {
         let ask::Said::Send { option, note } = ask::said(&q, line) else {
             self.questions.insert(i, q);
             self.asked = Some(self.questions[i].correlation_id.clone());
-            self.say_prompt();
+            self.say_prompt(false);
             return Ok(());
         };
         let params = serde_json::to_value(WorkAnswerParams {

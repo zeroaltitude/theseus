@@ -172,3 +172,50 @@ async fn an_unflagged_task_reports_as_an_inform() {
     let told = report_notice(&r, &task).await;
     assert_eq!(told.urgency, Urgency::Inform);
 }
+
+/// A task that waits on an `owner_ask` carries that question whole on its own view, the one
+/// `theseus tasks` and the Discord board read: its kind is `Ask`, its `choices` are the model's,
+/// and its options are `choice:0`, `choice:1` and `choice:other`, not the approve and decline a
+/// pending call has in brief (the live run: a needs-you row said "approve · decline").
+#[tokio::test]
+async fn a_waiting_owner_ask_is_its_tasks_own_question_with_its_choices() {
+    use theseus_protocol::work::QuestionKind;
+    let r = rig(model(false), |_| {});
+    r.core.push.ensure(&r.core).await.unwrap();
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    let asked = || {
+        r.core
+            .push
+            .work_all()
+            .remove(&task.id)
+            .and_then(|v| v.question)
+    };
+    until("the task's own view holds its question", || {
+        asked().is_some()
+    })
+    .await;
+    let q = asked().unwrap();
+    let ids: Vec<&str> = q.options.iter().map(|o| o.id.as_str()).collect();
+    assert_eq!(
+        (q.kind, q.choices.as_slice(), ids.as_slice()),
+        (
+            QuestionKind::Ask,
+            ["Careful".to_string(), "Fast".to_string()].as_slice(),
+            ["choice:0", "choice:1", "choice:other"].as_slice()
+        ),
+        "{q:?}"
+    );
+    assert_eq!(q.prompt, "Which plan?");
+    // The question's own view says the same.
+    let own = r
+        .core
+        .push
+        .work_all()
+        .into_values()
+        .find(|v| v.id == q.id)
+        .and_then(|v| v.question)
+        .expect("the question's own view");
+    assert_eq!((own.kind, own.choices), (q.kind, q.choices));
+}

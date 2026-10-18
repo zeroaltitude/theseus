@@ -53,13 +53,18 @@ impl Core {
     }
 
     pub(super) fn backlog_work(&self) -> Result<Work> {
+        self.backlog_work_at(theseus_protocol::now_unix_ms())
+    }
+
+    /// `backlog_work` as of `now_ms`: the instant every score is read at.
+    fn backlog_work_at(&self, now_ms: u64) -> Result<Work> {
         let st = State::read(&self.store)?;
         Ok(Work {
             tasks: self.backlog_tasks(&st)?,
             parent: None,
             changed: vec![],
             said: vec![],
-            now: theseus_protocol::now_unix_ms(),
+            now: now_ms,
             st,
         })
     }
@@ -73,12 +78,18 @@ impl Core {
     /// The ranked list: open and running items by rank, then (with `all`)
     /// the ones that left.
     pub fn self_backlog(&self, p: &SelfBacklogParams) -> Result<SelfBacklogResult> {
+        self.self_backlog_at(p, theseus_protocol::now_unix_ms())
+    }
+
+    /// `self_backlog` with every score read at `now_ms`, so two reads at one
+    /// instant agree to the milli-point (a score decays with the clock).
+    pub fn self_backlog_at(&self, p: &SelfBacklogParams, now_ms: u64) -> Result<SelfBacklogResult> {
         let _one = self
             .rsi
             .backlog
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut w = self.backlog_work()?;
+        let mut w = self.backlog_work_at(now_ms)?;
         let order = open_order(&mut w);
         let mut ids: Vec<String> = order.clone();
         let mut others: Vec<_> = w.tasks.values().filter(|t| !is_open(t)).collect();

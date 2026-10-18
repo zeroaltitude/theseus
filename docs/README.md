@@ -36,6 +36,7 @@
   and the same steps by hand.
 - **[user-service.md](user-service.md)**: running the daemon as a systemd user service. It covers why, the one
   command (`scripts/user-service.sh install`), what each step does, daily use, undoing it, and the WSL notes.
+- **[privacy.md](privacy.md)**: what Theseus does with data, Google's included, and how to revoke access.
 - **[benchmarks/](benchmarks/README.md)**: every benchmark run's report, newest first, with its numbers and their
   intervals, plots, analysis, cost and reproduction, and how a report is written. How to run them:
   [`bench/README.md`](../bench/README.md).

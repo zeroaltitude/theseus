@@ -2409,7 +2409,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
   `crates/theseus-protocol/src/ledger.rs`.
 - **A running job's output, on demand and live** (theseus-e1hu4; `rpc/peek.rs`, `push/last_line.rs`,
-  `toolrun/peek.rs`'s `newest` and `last_line`). All read the job's output file, `results/<id>.out`, which its wrapper
+  `toolrun/peek.rs`'s `newest` and `last_line`; `last_line` returns the last *complete* line, ended by a newline or a carriage return, so a sample never shows a line the job is still writing, while `peek` shows the live tail as it is). All read the job's output file, `results/<id>.out`, which its wrapper
   writes while it runs; nothing is timed on a turn's path and no frame is written. `work.peek` (a read, on the blocking
   pool): a stat and at most 64 KiB from the end, scrubbed, at most 20 lines, each cut to 1,000 characters.
   `action.output {id, from?}`: a follower task for this connection (`SessionBus::follow`, aborted by `action.unfollow`

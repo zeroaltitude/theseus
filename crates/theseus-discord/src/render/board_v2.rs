@@ -27,7 +27,7 @@
 
 use serde_json::Value;
 use theseus_protocol::work::progress_line::progress_rest;
-use theseus_protocol::work::{WorkState, WorkView};
+use theseus_protocol::work::{QuestionKind, WorkState, WorkView};
 
 use super::clip;
 use super::horizon::{self, FutureParts};
@@ -130,7 +130,13 @@ pub(super) fn ask_line(v: &WorkView) -> String {
             v.state_since_ms
         }
     });
-    format!("{what} · asked {}", ago(since))
+    let answer = match v.question.as_ref() {
+        Some(q) if q.kind == QuestionKind::Ask && !q.choices.is_empty() => {
+            format!(" · answer 1–{}", q.choices.len())
+        }
+        _ => String::new(),
+    };
+    format!("{what} · asked {}{answer}", ago(since))
 }
 
 /// What a working task is doing: its doing's label, then the one progress
@@ -630,6 +636,28 @@ mod tests {
             "{json}"
         );
         assert!(json.contains("Answer ↗"));
+    }
+
+    /// A question with choices (an `owner_ask`) says how to answer it: by number, never approve
+    /// or decline; an approval's row is as it was (the test above).
+    #[test]
+    fn a_needs_you_item_that_asks_with_choices_says_to_answer_by_number() {
+        let mut v = asking(2);
+        let q = v.question.as_mut().unwrap();
+        q.kind = QuestionKind::Ask;
+        q.prompt = "Which quay first?".into();
+        q.choices = vec!["North quay".into(), "East quay".into(), "Skip both".into()];
+        let n = [v];
+        let t = texts(&render(&parts(&n, &[], &[])));
+        assert_eq!(
+            t[2],
+            "**Task number 2** `…000002`\nWhich quay first? · asked <t:1789999760:R> · answer 1–3"
+        );
+        assert!(
+            !t[2].contains("approve") && !t[2].contains("decline"),
+            "{}",
+            t[2]
+        );
     }
 
     #[test]

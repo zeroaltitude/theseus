@@ -7,10 +7,16 @@
  */
 export type WholeCall = { tool: string, 
 /**
- * `ran`, `stub` or `refused`.
+ * `ran`, `stub`, `refused` (a policy's answer: the call was not allowed
+ * here) or `failed` (a program that could not run: its start, its
+ * deadline).
  */
 how: string, 
 /**
  * A program's exit status.
  */
-exit?: number, };
+exit?: number, 
+/**
+ * Why a program did not run, in the words that were sent back to the model.
+ */
+why?: string, };

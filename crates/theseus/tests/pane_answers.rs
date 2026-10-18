@@ -5,7 +5,7 @@
 //! it, with the redirect line every surface says. Run with `--nocapture` to read the panes.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -72,6 +72,7 @@ fn approval() -> Value {
 struct Daemon {
     sock: PathBuf,
     got: Arc<Mutex<Vec<Value>>>,
+    out: Arc<Mutex<Option<UnixStream>>>,
 }
 
 impl Daemon {
@@ -82,8 +83,11 @@ impl Daemon {
         let listener = UnixListener::bind(&sock).unwrap();
         let got = Arc::new(Mutex::new(Vec::new()));
         let g = got.clone();
+        let out = Arc::new(Mutex::new(None));
+        let o = out.clone();
         std::thread::spawn(move || {
             let (s, _) = listener.accept().unwrap();
+            *o.lock().unwrap() = s.try_clone().ok();
             for line in BufReader::new(&s).lines() {
                 let Ok(line) = line else { break };
                 let req: Value = serde_json::from_str(&line).unwrap();
@@ -118,7 +122,16 @@ impl Daemon {
                 }
             }
         });
-        Self { sock, got }
+        Self { sock, got, out }
+    }
+
+    /// A notification the daemon sends the pane, as an event of the task.
+    fn push(&self, method: &str, params: Value) {
+        let line = json!({"jsonrpc": "2.0", "method": method, "params": params});
+        let out = self.out.lock().unwrap();
+        let mut s = out.as_ref().expect("the pane connected");
+        writeln!(s, "{line}").unwrap();
+        s.flush().unwrap();
     }
 
     fn wait_for(&self, method: &str, n: usize) -> Vec<Value> {
@@ -246,6 +259,31 @@ fn an_owner_ask_is_answered_by_its_number() {
         "the daemon refuses a yes to a question with options"
     );
     w.transcript("an owner_ask answered by 2");
+}
+
+/// Events print below a question that waits, and the pane says its prompt again after each so
+/// the line to answer on is the last: the question's block (`? question`, the numbered options)
+/// is said once, when it is first asked, and only the `choose?` line comes again.
+#[test]
+fn a_question_block_prints_once_whatever_prints_below_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), "waiting", vec![ask()]);
+    let w = Pane::start(&d, &dir.path().join("state"));
+    w.wait_err("choose? [1-3, or your own words]", 1);
+    for n in 1..=2 {
+        d.push(
+            "tool.started",
+            json!({"session_id": TASK, "turn_id": "trn_1", "tool_use_id": format!("tu_{n}"),
+                "tool": "fs.read", "correlation_id": format!("act_r{n}"), "backend": "inproc"}),
+        );
+        w.wait_err("choose? [1-3, or your own words]", 1 + n);
+    }
+    let shown = w.seen();
+    assert_eq!(shown.matches("fs.read").count(), 2, "{shown}");
+    for line in ["? Which quay first?", "1. North quay", "3. Skip both"] {
+        assert_eq!(shown.matches(line).count(), 1, "{line}: {shown}");
+    }
+    w.transcript("a question's block once");
 }
 
 /// Words of the owner's own answer `other`, with the words as the note.

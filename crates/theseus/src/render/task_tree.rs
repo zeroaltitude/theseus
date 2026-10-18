@@ -328,6 +328,11 @@ pub fn answer_commands(q: &Question, room: usize) -> String {
         .map(|o| o.id.as_str())
         .collect();
     if q.kind == QuestionKind::Ask {
+        // A question with choices never says approve or decline, even when its options did not
+        // come with it: its answer is a number.
+        if ids.is_empty() {
+            return format!("{base} <number>");
+        }
         let all: Vec<String> = ids.iter().map(|o| format!("{base} {o}")).collect();
         let full = all.join(" · ");
         if full.chars().count() <= room {

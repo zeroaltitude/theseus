@@ -295,6 +295,49 @@ mod tests {
         );
     }
 
+    /// A task that waits on an `owner_ask` (a question with choices, as the daemon now sends it
+    /// on the task's own view) is answered by its choices, never by approve and decline; and a
+    /// question of that kind whose options did not come says its answer is a number.
+    #[test]
+    fn a_task_that_asks_with_choices_is_answered_by_its_choices() {
+        let ask = |options: Value| {
+            view(
+                json!({"id": "exe_task", "kind": "task", "parent": "exe_1", "root": "exe_1",
+                "title": "Pick a quay", "started_at_ms": 3, "state": "needs_you",
+                "attention": {"level": "needs_you", "label": "confirm owner_ask", "since_ms": 4},
+                "question": {"id": "act_ask", "kind": "ask", "prompt": "Which quay first?",
+                    "asked_by": {"id": "exe_task", "kind": "task", "title": "Pick a quay"},
+                    "options": options, "choices": ["North quay", "East quay"],
+                    "floor": false, "may_answer": true}}),
+            )
+        };
+        let option = |id: &str, label: &str| json!({"id": id, "label": label, "style": "plain", "takes_note": false, "effect": "x"});
+        let lines = |task: WorkView| {
+            let root = view(json!({"id": "exe_1", "title": "Harbour log"}));
+            tree_lines_at(&[root, task], 61_000, 120, 0)
+        };
+        let said = lines(ask(json!([
+            option("choice:0", "North quay"),
+            option("choice:1", "East quay"),
+            option("choice:other", "Something else")
+        ])));
+        assert!(
+            said.iter()
+                .any(|l| l.trim()
+                    == "theseus answer ct_ask choice:0 · theseus answer ct_ask choice:1"),
+            "{said:#?}"
+        );
+        let bare = lines(ask(json!([])));
+        assert!(
+            bare.iter()
+                .any(|l| l.contains("theseus answer ct_ask <number>")),
+            "{bare:#?}"
+        );
+        for l in said.iter().chain(&bare) {
+            assert!(!l.contains("approve") && !l.contains("decline"), "{l}");
+        }
+    }
+
     /// A task that ended says so in words; a notice says how loud it is.
     #[test]
     fn a_change_and_a_notice_are_one_line_each() {

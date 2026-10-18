@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 246 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 253 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -213,3 +213,212 @@ still late (the A/B's 48 loops: 9 in 16 on time): the words now always come, and
 **Left open.** The model loads on the embedding thread, at nice 19 in the idle I/O class: beside a busy machine a
 load took 4 to 9 s on 2026-10-10 (and none finished in the A/B's 35 s burn), and recalls in that time hold the words
 alone. Warming on a keystroke is its own row.
+
+_The record of the joins of 2026-10-11 to 2026-10-16 is not yet written as Items. These seven Items, written on 2026-10-18
+from each merge's message and its branch's commits, cover the joins from 2026-10-17 01:13 to 2026-10-18 10:21. Where a
+merge message names no proof, the Item says only that the row was reviewed, and names the test its join fix added._
+
+### Item 247. The task-join rows: the owner joins a running task from every surface, and returns (theseus-slmj1, theseus-xock5, theseus-go4ig, theseus-peqbl, theseus-mu0e6, theseus-jm46q, theseus-esxyb, theseus-rrkb7, theseus-m638c; nine cloud rows of 2026-10-16, joined 2026-10-17 01:13 to 01:36; installed as #37, `96c592c0`)
+
+**Why.** A task ran apart from the conversation that started it: the owner could watch it, and a message to it was held
+until it ended or lost to it. The plan (theseus-l00z) was inspect, join and return: look into a task, say something to
+it while it works, and get back to the conversation, the same on every surface.
+
+**What landed.** The kernel's half first, then each surface on it.
+
+| Row (merge) | What it built |
+|---|---|
+| task-join-core (`756bcfeb`) | The owner's input steers into a running task (`Core::owner_input`: the owner, in a private place, not a job's and not a prompt's); a task whose last call had the owner's message offered parks on input and reports from the next turn; the end frame writes the joined count (a META record, no store format change) and the parent's report ends `(you joined: N messages)`. `joinable()` and `task_redirect_line()` are the protocol's, so every surface says one line when a message cannot join. |
+| chat-board-gaps (`8ed50fc3`) | The chat's footer says what tasks spent, `/tasks` lists routines, watches and projects, and the chat reads the seen file. |
+| cockpit-notices-policy (`6ca11a40`) | Desktop notices for questions, failures, reminders and finishes, not approvals alone. |
+| herdr-horizon-digest (`45d384bf`) | herdr's Space row says what happened since the owner looked, the next reminder and the routines due. |
+| tui-task-return (`3c72841e`) | The TUI's task pane names its parent, `p` goes back, `I` inspects, and a message for an ended task goes to main. |
+| cockpit-task-page (`88c61b6d`) | A task's page has its header, joins the task, and sends to main once it has ended. |
+| discord-task-join (`3f045da8`) | The owner joins a task from its Discord thread or its Follow mirror; a guest's message, and one for an ended task, goes to the conversation with the one line. |
+| chat-task-view (`ba931256`) | The chat inspects, joins and returns from a task, and `theseus chat --task ID [--inspect]`. |
+| herdr-task-return (`f37900de`) | herdr's prefix+m goes back to the main tab, prefix+i inspects a task, and a task pane has a header. |
+
+**Join fixes** (each a commit after its merge): the cockpit's notices read the daemon's own `work.notice` pushes in
+place of a TypeScript port of the policy (`c7f6e15d`); the redirect line carries every surface's reason and the
+TUI, the cockpit and the chat keep task-join-core's helpers (`68c9fa44`, `fc197213`); Discord sends the owner's origin so
+the core takes the message as the owner's and steers the running task (`8569a95d`).
+
+**How it was proven.** Each row was reviewed, in writing, before its merge. The join fixes each added the test that
+holds what they changed: a turn the owner's message began counts as joined (`5aab328a`), a question view counts as seen
+by its task's mark (`6278af17`), a joined task's line is the message and never an inspect key (`eedbfc7b`), the task
+pane's header, and its absence on a conversation's pane (`fa102956`), and the joined count while the task runs on
+Discord (`c6f62abf`).
+
+### Item 248. The afternoon rows of 2026-10-17: the China-origin catalog and route.v6's data question, the Discord task places, reactions, the offer chip, voice, emojis and the default forum (theseus-a1wvq.1, theseus-a1wvq.2, theseus-bh3t.1 to .6, theseus-ss36w, theseus-6ifz1; ten rows, joined 2026-10-17 14:51 to 16:45; installed as #37, `96c592c0`)
+
+**Why.** Two plans met in the same files that afternoon: the owner's rule that Google Workspace and partner matter never
+reach a model of China origin (the model-origin half, theseus-a1wvq), and tasks given a place of their own in Discord,
+a way to be paused, shared and spoken about (theseus-bh3t, theseus-ss36w). They were reviewed one at a time and merged
+in a run, each resolved beside the others.
+
+**What landed.**
+
+| Row (merge) | What it built |
+|---|---|
+| cn-catalog (`45f86304`) | A model's origin by its endpoint, its family and its catalog row (`origin_of`); DeepSeek's rows; GLM's implicit thinking and three effort levels; Sonnet 5.5's cache read at $0.10. The joiner's live probe of `glm-5.3-flash` took `output_config`'s effort (no 400; output tokens 9 at low, 26 with none, 44 at max) and a thinking block went back on a tool turn, so GLM's effort stays on. A join fix reads a GLM the catalog does not know, behind a host that vouches for us, as `cn` by its family (`7e3730ce`). |
+| cn-route-v6 (`5b18838f`) | `route.v6` asks Jev's data question (open, private or unclear) beside route.v5's four, with the operator's `[routing.data]` names in its state. Nothing acted on the answer at the merge: Item 250 wires it. |
+| discord-task-channels (`fbd326e1`) | A private channel for each task in a private place with two plan steps, `expect = long`, or still working after ten minutes; a done category, read-only, deleted after 14 days. `task.create` gains `expect` (about 20 tokens; the first-request budgets unchanged), kept as the META key `task.expect.<session>`. |
+| discord-war-room (`57d50bd6`) | `/task name:<task> share:@user` and `unshare:`; a non-owner's message in a private task's place is a comment that reaches no session. |
+| discord-reactions (`03ab67d0`) | The owner's reaction on a task's message pauses, resumes, stops, retries, follows or pins it, and the core's `task.pause` and `task.resume`. |
+| task-offer-chip (`f25bcc3c`) | `classify.v3` asks whether the owner's message is work for later, and a yes at the act bar puts "Make this a task" on the reply. |
+| voice-tasks (`6846c432`) | In a private call a task's question and report are spoken once at the next pause, and "approve", "the second one" or "stop it" answers as the owner (`[voice] speak_tasks = false` turns it off). |
+| discord-emoji-catchup (`a5df3b4e`) | The bot's animated emojis for task states with the Unicode fallback, the 08:00 and 18:00 digest post when something happened, and one catch-up message after an outage. |
+| herdr-wire-fix (`0f93aa81`, a local lane) | herdr's real API, the main and board tabs at boot, and a schema contract test (theseus-6ifz1). |
+| discord-default-forum (`c3801e51`) | One private forum in the owner's guild with a post for every task; a task with no other home works in its post, any other gets an index card. |
+
+**Join fixes:** a shadow classify judgment offers no task (`432bbbeb`), a resume that races a task's park still wakes it
+(`f5923052`), a shared channel's task that works on with a two-step plan gets no channel (`fdb3037c`), and a task with a
+channel of its own has an index card in the forum (`a7e63827`, `0a44e1f1`).
+
+**How it was proven.** Each merge's message says it was reviewed, in writing, and what was resolved beside which rows
+(the packs' count, 24 once task-offer-chip and cn-route-v6 had each raised it by one; the stand-in Discord's routes
+kept by every row). The invite permission integer for the task channels is 326686067792. The behaviour has the tests of
+the rows' own modules (`tests_task_channels`, `tests_war_room`, `tests_default_forum`, `tests_board`).
+
+**Left open.** Nothing acted on `route.v6`'s data answer until the review-fixes row (Item 250). The rule that Google
+Workspace content never reaches a model of China origin is the owner's stated policy; what enforces it today is the
+model-origin floor of Item 250, which a turn that names a sensitive name triggers, not Google-sourced content as such
+(theseus-a1wvq.3).
+
+### Item 249. The trim rows: one name for each thing, and the dead code gone (theseus-rwpbg.1 to .10, theseus-buz3h; twelve rows, joined 2026-10-17 20:18 to 2026-10-18 00:52; installed as #37, `96c592c0`)
+
+**Why.** The owner's direction of 2026-10-17: "more important to be right than to be historically conservative this
+early", so aliases, doubled names and dead code go, and every caller is fixed in the same row.
+
+**What landed.**
+
+| Row (merge) | What it built |
+|---|---|
+| trim-docs (`bf696c9b`) | `docs/cli.md` and `docs/glossary.md`; internal ids out of the one-line help. |
+| trim-security-v1 (`065f1bf5`) | `security.v3` alone at the gate; the brake and the notified call's score move to v3; stored v1 judgments stay readable. |
+| trim-config-inherit (`91d0b889`) | A profile's unset field takes `[model]`'s; `--sparse` compares resolved profiles; every resolved profile is pinned. |
+| trim-effort (`ecb6edbf`) | Sticky effort; keep-warm replays the last effort; per-message effort is catalog data (join fixes: Sonnet 5.5 takes per-message effort, as the live probe showed, and Opus 5.5 stays sticky, `3c4223c7`; a Sonnet 5.5 turn with no level from Jev carries the per-message default, `d2d81749`). |
+| trim-utils (`6987413e`) | One clip and cut, one `now_unix_ms`, one civil calendar, one JSON-RPC framing; the wire's own span and reply; 35 dead pub items gone. |
+| trim-keel-deletions (`000f1864`, part C only) | The gate clippies the judge crate's probe feature. Parts A, B and D, the deletions, were not done at the merge: its session refused to delete tests. |
+| trim-binary (`34629c73`) | The cockpit embedded as brotli and gzip and served by `Accept-Encoding`, no unwind tables in release builds, one brotli decoder, `theseus-sim` built but not installed. |
+| trim-tokens (`e7573983`) | Learned tool loads inside the place budget and only calls count as use, a shorter tools note, reminders split from tasks, keep-warm stops at break-even, index commits coalesced. |
+| trim-names (`3d14103d`) | The everyday help and `help all`, noun-then-verb folds, one right name for each thing (task class, rung, `on_max_loops`, `[route_bench]`, `[persona_import]`, one `[cache]`, `[watch_for]`); an old config key fails naming the new one. |
+| trim-tests-dedup (`40aa83cd`) | One copy of each identical test helper. |
+| the answer rename (`c579c49b`, rwpbg.10) | `confirm` is `answer` and `executions` is `sessions --state`, with no aliases; every caller (the goldens, the daemon's tests, bench/async, the smoke script, the guides) names the new spellings. |
+
+**The deletions, done late.** Parts A, B and D of trim-keel-deletions landed on 2026-10-18 at 00:11 as three commits, each
+on the owner's approval of the trim review's part 1 and each carrying its `Keel:` acks: the startup unit-budget
+rewrite and the retired config keys (`fd33868c`), six superseded pack versions leaving the build (`f6ade10d`), and the
+dead code that never landed, with its tests (`b88b360c`, among it the `task.get` RPC: a task is read through
+`task.list`).
+
+| Planned | Actual | Why | Disposition |
+|---|---|---|---|
+| Parts A, B and D with the row's merge | Parts A, B and D about four hours after | The row's own session would not delete tests | Done by the joiner on the owner's yes, each ack naming what was removed |
+| The keel guard reading a renamed cap key as unchanged | It read the renamed cap keys as removed | A rename is a delete and an add to the guard | Acked with the owner's words on the rename; every value is unchanged |
+
+**How it was proven.** The merge messages name the review, and the join fixes name the tests they put back: a family the
+message names is counted on the tools alone (`154c52e7`), the keep-warm effort test runs on a model without per-message
+effort (`9862782a`), setup's test installs four binaries and never `theseus-sim` (`f3a1cb3f`), and the joined tree's
+tests are in trim-names' words (`c7ad21f7`, `76a80491`). The kernel simulator starts at seed 2 after part A, since with
+three fewer seeded executions its random walk moved and seed 1 no longer reached a report that woke its parent.
+
+### Item 250. review-fixes: one list of sensitive names, and a floor off models of restricted origin (theseus-oejh3; a cloud row, joined 2026-10-18 01:25, `0daac1fa`, with its join fixes; installed as #37, `96c592c0`)
+
+**Why.** The owner's rule that a name's matter never goes to a model of China (or unknown) origin needed one list that
+every reader of it shared, and a closed task channel needed to be the operator's alone.
+
+**What landed.** `[privacy] sensitive_names` is the one list. Route.v6's `data` question reads it as its private names
+(`[routing.data]` keeps `open_topics` alone; the old `private_topics` key is refused), a message that hits a name makes
+the verdict's `data` answer `private` at 1.0, the start checks the embedded packs' text against it
+(`Core::check_pack_text_after_serving`), and a floor keeps the turn off every profile whose origin is `cn` or `unknown`
+(`route_profiles(true)`; none left, the turn ends before any model call, class `data_gate`), with a guard at the
+provider chokepoint that refuses a request to such a model holding a name in any string of its system, messages or tools
+(`data_gate::guard`). A closed task channel's overwrites are replaced whole (the operator's read and the bot's alone) and
+guests are removed from a task's thread or channel at its end.
+
+**Join fixes:** the route's floor reads the whole request, so a name said earlier keeps the next turn off restricted
+models too (`f7d202a8`); T28 reads the list, and `private_topics` is in the renamed-key table (`04947173`); the floor's read moves
+into `decide_floored` under clippy's line limit (`96c592c0`); and a task's brief is judged with the sensitive names and
+routed off restricted profiles like a message (`ace0e857`, with task-model-by-brief).
+
+**How it was proven.** Reviewed; the tests are `tests_data_gate`, `data_gate`'s own, and `tests_route_data`, and the
+catalog's rule that a config table cannot loosen a built-in `cn` origin (`a_config_table_cannot_loosen_a_builtin_cn_origin`).
+
+**Left open.** The floor is triggered by a name on the list, not by where content came from: Google-sourced content that
+names no listed name is not held back by it (theseus-a1wvq.3).
+
+### Item 251. The last-features rows: the pane, the chat, the cockpit and Discord start, pause, answer and find tasks, one progress line everywhere, and the acceptance journey (theseus-ypnxt.1 to .8, theseus-h9tu1; eight cloud rows, joined 2026-10-18 01:27 to 03:26; the first three installed as #37, `96c592c0`, the rest as #38, `c323da54`)
+
+**Why.** The owner's target for v1: start a task, see it, answer it, pause it and find it later, from any surface, in
+the same words.
+
+**What landed.**
+
+| Row (merge) | What it built |
+|---|---|
+| pane-answers (`2b1710be`) | A herdr pane answers an `owner_ask` by its number or in the owner's own words; a message after the task's end goes to main; prefix+p pauses or resumes the pane's task. |
+| chat-start-pause (`a7131e02`) | The chat's `/task new` and "make that a task", `/pause` and `/resume`, the TUI's `P`, and a task picker that searches ended tasks too. |
+| cockpit-tasks (`d8728305`) | The cockpit's Tasks page with a New task box, Pause and Resume, the progress line in TypeScript, and a header that counts working tasks. |
+| discord-tasks (`373bacb7`) | A task's report links its own post or channel, `/tasks done` and `all` read the store, the offer chip that arrives late, voice "pause it" and "go on", and the cockpit link on the configured port. |
+| task-model-by-brief (`a1354a72`) | A task's model is routed from its brief by route.v6 in place of inherited from the conversation that started it. |
+| progress-words (`1673ed9a`) | One progress line on every surface (paused, step N of M, $ of the limit, time left), the CLI's step and pause events, Discord's paused and stopped forum tags. |
+| task-history (`cd4df28e`) | `task.list` takes `ended`, `since`, words, `id` and `limit`; `theseus tasks --ended` and search, `task show`, `task pause` and `task resume`; a digest that names each reported task. |
+| acceptance-journey (`fd88eb5b`) | One cross-surface journey on a real daemon: start, ask, answer elsewhere, join, pause, end, digest, find; `theseus-sim`'s `discord react`; the live script. |
+
+**Join fixes:** the cockpit's progress line in the Rust line's exact words, its test running the Rust golden file
+(`090e7465`); a line sent on to main puts the ended task's pane back to its last label (`20f42b9a`); only a private
+place's reply waits for a late offer (`c235eb7f`, `2df6ac05`, `5daed979`); discord-tasks' `task.list` call takes
+task-history's new params at their defaults (`13a1401e`); the journey answers with `--no-wait` and its steps for the
+joined rows run, two stay ignored (`80d7b5ee`); the cockpit's extension proposal says `theseus answer ID approve`
+(`da6f06d3`).
+
+**How it was proven.** The merge messages name the conflicts each took and the order the rows joined in (progress-words
+after the first three). The journey (`tests/acceptance_journey.rs`) counts the rings, a plain turn's frames and each
+change's delay to a watching client; the progress line has one Rust golden, which the cockpit's test reads.
+
+**Left open.** Two of the journey's steps assert contracts of rows that had not joined; Item 253's lane ran them.
+
+### Item 252. RSI loop 1's rows: the flow runner, the pattern miner, the keel guard's watch, self builds in L1 and the sealed scorer's runner (theseus-pw1q.21.1 to .5; five cloud rows, joined 2026-10-18 02:31 to 04:58; the first three installed as #38, `c323da54`, the last two as #39, `70937771`)
+
+**Why.** Self-improvement's first loop (R1 to R6) is the cheapest minted tool, a flow, and the machinery around it: a
+miner that finds the recurring work, a keel that watches the sealed paths, builds that cannot reach out of their tree,
+and a scorer that runs a candidate as Theseus itself. All of it is off in the owner's config: no `[self]` is in
+`/etc/theseus`, and RSI stays off.
+
+**What landed.**
+
+| Row (merge) | What it built |
+|---|---|
+| flow-runner, R6 (`92c16e5c`) | Flow spec v1 frozen by its digest; each loaded flow is its own deferred tool `flow:<name>` whose steps run through the tool path; the owner's revert of a flow. No flow is loaded on any daemon, since nothing loads one yet (no wire method or CLI verb). |
+| pattern-miner, R5 (`e09a0bbd`) | The nightly pattern miner, with no model call, files pattern causes in the self backlog; `theseus self patterns` shows them; `[self.mint]` with `mine = false`. |
+| keel-watch-sealed, R2 (`746cd908`) | The keel guard watches the sealed scorer's code, its runner and relay and the exam set; a new `sealed-reach` rule flags code outside the keel files that names the sealed dir. |
+| l1-self-build, R1 (`e36570c8`) | A self branch's gate, planted reverts, merge gate, auto-revert gate and install build run in L1, the tree and its build tree the only writable places, no network; the install's L0 half only copies and restarts. Join fix: the install copies the four installed binaries, not `theseus-sim` (`e7efe2fd`). |
+| sealed-runner, R3 (`6e3bee86`) | The sealed scorer's production Runner (a scratch daemon of the candidate in L1) and the metered model relay; `[self] sealed_dir` is `[self.sealed] dir`. Join fix: the sealed runner's item view binds nothing read-write (`499fbb6a`, with R1). |
+
+**How it was proven.** Each merge names its conflicts and its order: R5, then R2 (so R5's `[self.mint]` field line lands
+before `config/self_improve.rs` becomes a keel file), then R1, then R3. The keel guard's findings on R2, R1 and R3 were
+the rows' own and each carries a `Keel:` ack under the owner's one yes for the four keel changes. Join fixes: a leading
+`NAME=value` word never reaches a mined shape (`5b7029e8`).
+
+**Left open.** The live run of a self branch in L1 needs a non-root daemon with a job cgroup; a root machine's tests run
+the item through a stand-in launcher (the core's guide says so).
+
+### Item 253. The morning lane of 2026-10-18: a routine-coding brief on Sonnet, the cost forecast on the progress line, a Reminders-homed task's forum post, the ping window, `self.patterns`, the Keel ack and herdr's startup hook (theseus-31pgz, theseus-h9tu1; a local lane, `22c1540f..70937771`, fast-forwarded 09:42 to 10:21, no merge; installed as #39, `70937771`)
+
+**Why.** Small defects the owner met on the morning's live run.
+
+**What landed.**
+
+- A routine-coding brief starts its task on Sonnet, and only a trivial one on Haiku (`22c1540f`).
+- The progress line reads the spend against the forecast, `$0.40 of ~$0.60 (limit $2)`, beside the time left (`b63a3ae8`).
+- A task homed in Reminders still gets its forum post and its board row (`1f75ce00`).
+- The ping window never holds a question that waits on the owner (`030f0984`).
+- `self.patterns` mines on the blocking pool, not the request's worker (`2cf1f23b`); its `[self.mint]` field line is acked
+  under the keel guard (`2f74d06b`).
+- herdr's startup hook closes the focused restored shell too, and the journey's two ignored steps run (`b512e40d`,
+  `b1e0b3d2`, `70937771`).
+
+**How it was proven.** The lane's commits carry no separate review; each names the test it added (the chat step's
+assertions in `tests/acceptance_journey.rs`, the Keel ack for the one config field line). The journey's two ignored
+steps run again.

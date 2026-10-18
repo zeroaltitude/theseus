@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-11 00:18 MST. Version 0.0.1; the design document is at v0.87._
+_Updated 2026-10-18 12:00 MST. Version 0.0.1; the design document is at v0.88._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -26,6 +26,26 @@ As installed on the operator's daemon on October 6 at 22:13 (install #9; the sto
 his earlier history followed install #8 (17:22). What installs #7 to #9 added is listed after this list, and what has
 joined since, for install #10, after that. Theseus has been feature complete (v1-beta) since October 6 at 22:04.
 
+- **Since the joins of October 17 and 18 (installs #37 to #39; Items 247 to 253).** Tasks are one thing on every surface:
+  - **A task is found later and joined.** `theseus tasks --ended` and a word search find any task, open or ended;
+    `task show` reads one whole. The owner's message to a running task steers into it from the pane, the chat, the
+    cockpit's task page and its Discord thread, and the report ends `(you joined: N messages)`; a message after the task
+    has ended goes to main, with one line that says why.
+  - **A task's model comes from its brief.** route.v6 reads the brief when a task starts, in place of inheriting the
+    conversation's model; a routine-coding brief starts on Sonnet.
+  - **One progress line everywhere:** `step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left`, paused first when paused,
+    in the CLI, the chat, the cockpit, the herdr panes and Discord's forum tags.
+  - **herdr pane answers.** A pane answers an `owner_ask` by its number or in the owner's own words, and prefix+p pauses
+    or resumes its task.
+  - **A post, a channel and a forum entry for each task on Discord,** with a war room for guests, the owner's reactions
+    to pause, resume, stop or retry, an offer chip ("Make this a task"), spoken questions in a call, and a digest at 08:00
+    and 18:00.
+  - **One name for each thing.** A task is a "task"; `theseus answer` is the one verb for an answer (`confirm` and
+    `executions` are gone, and an old config key fails naming the new one); the cockpit, Discord, the TUI and the CLI say
+    the same words.
+  - **A floor off models of restricted origin.** `[privacy] sensitive_names` is one list that the route's data question,
+    the start's pack check and a floor read: a turn that names one never reaches a model of `cn` or unknown origin.
+    Self-improvement (RSI loop 1's builds, scorer and pattern miner) is built and off.
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
   picks its model from the operator's routing table, waiting at most 300 ms beside the first compile (his setting; 200
@@ -404,6 +424,29 @@ earliest. The spine's last rows (26b, 26c and 35b) run beside it. This
 pass did not re-estimate v1.1's date.
 
 ## Recently landed
+
+- **2026-10-18 (morning):** the morning lane (Item 253, theseus-31pgz, theseus-h9tu1): a routine-coding brief starts on
+  Sonnet, the progress line shows the spend against the forecast, a task homed in Reminders gets its forum post and board
+  row, the ping window never holds a question, `self.patterns` runs on the blocking pool, and herdr's startup hook closes
+  the focused restored shell too. Installed at install #39 (`70937771`, 11:29).
+- **2026-10-18 (night to morning):** RSI loop 1's rows (Item 252, theseus-pw1q.21.1 to .5): the flow runner, the pattern
+  miner, the keel guard's watch of the sealed paths, self builds in L1 and the sealed scorer's runner with its metered
+  relay. Built and off (no `[self]` in the owner's config). The first three are on install #38 (`c323da54`), the last two
+  on #39.
+- **2026-10-18 (early morning):** the last-features rows (Item 251, theseus-ypnxt.1 to .8): pane answers, chat start and
+  pause, the cockpit's Tasks page, Discord's task links and history, a task's model from its brief, one progress line, task
+  history, and the acceptance journey. On installs #37 and #38.
+- **2026-10-18 (01:25):** review-fixes (Item 250, theseus-oejh3): `[privacy] sensitive_names`, one list read by route.v6's
+  data question, the start's pack check and a floor off models of restricted origin; a closed task channel is the
+  operator's alone. On install #37.
+- **2026-10-17 to 18:** the trim rows (Item 249, theseus-rwpbg.1 to .10): one name for each thing, no aliases, the dead
+  code and six superseded packs gone, and the cockpit embedded as brotli and gzip. On install #37.
+- **2026-10-17 (afternoon):** the China-origin catalog and route.v6's data question, the Discord task channels, war room,
+  reactions, offer chip, voice, emojis and default forum (Item 248, theseus-a1wvq.1 and .2, theseus-bh3t.1 to .6,
+  theseus-ss36w). On install #37.
+- **2026-10-17 (01:13 to 01:36):** the task-join rows (Item 247, theseus-slmj1 and eight more): the owner joins a running
+  task from every surface and returns. On install #37.
+- **Not yet written as Items:** the joins of 2026-10-11 to 10-16 (this page's record of them is also missing).
 
 - **2026-10-13:** the root user's AWS check alerts on root's sign-ins and on its calls that are not read-only
   (`readOnly` false, or none at all), and no longer on its reads (theseus-4znao, the owner's yes that morning): one
