@@ -96,18 +96,27 @@ impl Core {
     /// shows a place its own session's tasks in that place alone, as it shows
     /// its cards, so a private DM's board is the owner's own DM; the views it
     /// hears are still scrubbed and offer no answer (`may_answer` is false:
-    /// an answer is judged when it is pressed).
+    /// an answer is judged when it is pressed). The Reminders Home, which no
+    /// place runs on, is watched too: the binding shows its tasks on the
+    /// owner's DM (theseus-31pgz), with the same scrubbing.
     fn may_watch(&self, sid: &str, surface: crate::approval::Surface) -> bool {
         if matches!(self.runner.place_of(sid), Place::Shared(_)) {
             return true;
         }
         surface == crate::approval::Surface::Discord
-            && self
+            && (self
                 .outbox
                 .try_target(sid)
                 .ok()
                 .flatten()
                 .is_some_and(|t| t.starts_with("discord:"))
+                || self
+                    .store
+                    .get_meta::<String>(crate::wake_home::HOME_SESSION)
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    == Some(sid))
     }
 
     /// What a watch may see. `roots` are conversations (session ids); a

@@ -372,6 +372,61 @@ async fn a_dm_task_works_in_its_post_and_the_dm_gets_one_link_line() {
     assert_eq!(dm_lines(&r, "🧵"), 1, "still one line");
 }
 
+/// A task the CLI starts before the owner's DM has a session is homed in the
+/// "Reminders" conversation, a root no place runs on. It still gets its forum
+/// post and its row on the DM's board once the DM exists: every task does,
+/// whatever its home (theseus-31pgz, "threads === tasks").
+#[tokio::test]
+async fn a_cli_task_started_before_the_dm_has_a_session_still_gets_its_post_and_row() {
+    let r = rig(
+        vec![Scripted::text("Hello, ana.")],
+        |dir| vec![(REEF, [vec![gate(dir)], sleeps(1, "Reef charted.")].concat())],
+        &bindings(true, ""),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    assert!(
+        r.core
+            .outbox
+            .place_session(&format!("dm:{ANA}"))
+            .unwrap()
+            .is_none(),
+        "the DM has no session yet"
+    );
+    let started = r
+        .core
+        .task_start(
+            &theseus_protocol::task_start::TaskStartParams {
+                brief: REEF.into(),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    let home: String = r
+        .core
+        .store
+        .get_meta(theseus_core::wake_home::HOME_SESSION)
+        .unwrap()
+        .expect("a Reminders home");
+    assert_eq!(started.home_session, home, "homed in Reminders");
+    // The owner speaks: the DM place opens its session and adopts Home's tasks.
+    r.say((ANA, "ana"), None, "hello");
+    until(&r, "the task's post", || {
+        post_with(&r, forum, "Reef-chart").is_some()
+    })
+    .await;
+    until(&r, "its row on the DM's board", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("Tasks") && m.content.contains("Reef-chart"))
+    })
+    .await;
+    open_gate(&r);
+}
+
 /// The owner's message in a homed post steers the running task.
 #[tokio::test]
 async fn the_owners_message_in_a_tasks_post_steers_it() {

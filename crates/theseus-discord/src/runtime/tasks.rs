@@ -14,6 +14,12 @@
 //!   place's: `place_of_root`. The place gets a `PlaceMsg::Tasks` and draws
 //!   its own board from `Tasks::project`; the counts for the bot's status line
 //!   (`Counts`) are the whole model's, one number each.
+//! - **Home's tasks are the owner's DM's.** A task the CLI starts before the DM
+//!   has a session lives under the "Reminders" Home conversation
+//!   (`wake_home.rs`), a root no place runs on. The owner's DM place adopts it
+//!   (`Tasks::set_home`): the watch names that conversation too, and its tasks
+//!   are the DM's for the board, the forum and the commands, since every task
+//!   has its post and its row (the owner: "threads === tasks").
 //! - **Nothing is stored.** The model is a projection of the engine's; what
 //!   "since you looked" means is one number a place, the time of its last
 //!   Clear, in memory (a restart shows today's done tasks again, once). Only
@@ -65,6 +71,9 @@ struct Model {
     views: HashMap<String, WorkView>,
     /// When each place last cleared its done tasks, by its session id.
     cleared: HashMap<String, u64>,
+    /// The Home conversation's session and the session of the place that
+    /// adopts its tasks, when both exist (`Tasks::set_home`).
+    home: Option<(String, String)>,
 }
 
 pub(crate) struct Tasks {
@@ -139,6 +148,13 @@ impl Tasks {
         });
     }
 
+    /// The owner's Home conversation (its session) and the place session that
+    /// adopts its tasks, or none. True when it changed.
+    pub fn set_home(&self, home: Option<(String, String)>) -> bool {
+        let mut m = self.model.lock().unwrap();
+        std::mem::replace(&mut m.home, home.clone()) != home
+    }
+
     /// The numbers now, and a receiver that wakes when they change.
     pub fn counts(&self) -> watch::Receiver<Counts> {
         self.counts.subscribe()
@@ -207,18 +223,12 @@ impl Tasks {
     /// What the place whose conversation is `session_id` shows.
     pub fn project(&self, session_id: &str) -> Projection {
         let m = self.model.lock().unwrap();
-        let Some(root) = m
-            .views
-            .values()
-            .find(|v| {
-                v.kind == WorkKind::Conversation && v.session_id.as_deref() == Some(session_id)
-            })
-            .map(|v| v.id.clone())
-        else {
+        let roots = roots_of(&m, session_id);
+        if roots.is_empty() {
             return Projection::default();
-        };
+        }
         let cleared = m.cleared.get(session_id).copied().unwrap_or(0);
-        project(&m.views, &root, cleared, theseus_protocol::now_unix_ms())
+        project(&m.views, &roots, cleared, theseus_protocol::now_unix_ms())
     }
 
     /// The projects the model holds, the soonest next step first.
@@ -246,12 +256,10 @@ impl Tasks {
     /// Every view under the root of the place whose conversation is `session_id`.
     pub fn in_place(&self, session_id: &str) -> Vec<WorkView> {
         let m = self.model.lock().unwrap();
-        let Some(root) = root_of(&m, session_id) else {
-            return Vec::new();
-        };
+        let roots = roots_of(&m, session_id);
         m.views
             .values()
-            .filter(|v| v.root == root)
+            .filter(|v| roots.contains(&v.root))
             .cloned()
             .collect()
     }
@@ -260,8 +268,8 @@ impl Tasks {
     /// another place's task by naming its id.
     pub fn view_in_place(&self, session_id: &str, id: &str) -> Option<WorkView> {
         let m = self.model.lock().unwrap();
-        let root = root_of(&m, session_id)?;
-        m.views.get(id).filter(|v| v.root == root).cloned()
+        let roots = roots_of(&m, session_id);
+        m.views.get(id).filter(|v| roots.contains(&v.root)).cloned()
     }
 
     /// The place's task that `text` names: an id or its end, else the one task
@@ -302,20 +310,11 @@ impl Tasks {
     /// first (the thread sync reads it, theseus-i3do6).
     pub fn all_of(&self, session_id: &str) -> Vec<WorkView> {
         let m = self.model.lock().unwrap();
-        let Some(root) = m
-            .views
-            .values()
-            .find(|v| {
-                v.kind == WorkKind::Conversation && v.session_id.as_deref() == Some(session_id)
-            })
-            .map(|v| v.id.clone())
-        else {
-            return Vec::new();
-        };
+        let roots = roots_of(&m, session_id);
         let mut all: Vec<WorkView> = m
             .views
             .values()
-            .filter(|v| v.root == root && counted(v))
+            .filter(|v| roots.contains(&v.root) && counted(v))
             .cloned()
             .collect();
         all.sort_by_key(|v| (v.started_at_ms, v.id.clone()));
@@ -350,11 +349,14 @@ impl Tasks {
     /// The sessions the binding should watch, as `work.watch` names them.
     fn roots(shared: &Shared) -> Vec<String> {
         let r = shared.routes.lock().unwrap();
-        r.by_session
+        let mut roots: Vec<String> = r
+            .by_session
             .keys()
             .filter(|s| !s.is_empty())
             .cloned()
-            .collect()
+            .collect();
+        roots.extend(shared.tasks.model.lock().unwrap().home.as_ref().map(|h| h.0.clone()));
+        roots
     }
 
     /// The status is due again (a fresh gateway session).
@@ -498,12 +500,24 @@ pub(super) async fn finished(
         .collect()
 }
 
-/// The execution at the top of the conversation `session_id`.
-fn root_of(m: &Model, session_id: &str) -> Option<String> {
+/// The executions at the top of the conversations the place whose session is
+/// `session_id` shows the tasks of: its own, and Home's when it adopts them.
+fn roots_of(m: &Model, session_id: &str) -> HashSet<String> {
+    let adopted = m
+        .home
+        .as_ref()
+        .filter(|h| h.1 == session_id)
+        .map(|h| h.0.as_str());
     m.views
         .values()
-        .find(|v| v.kind == WorkKind::Conversation && v.session_id.as_deref() == Some(session_id))
+        .filter(|v| v.kind == WorkKind::Conversation)
+        .filter(|v| {
+            v.session_id
+                .as_deref()
+                .is_some_and(|s| s == session_id || Some(s) == adopted)
+        })
         .map(|v| v.id.clone())
+        .collect()
 }
 
 /// The position rule: a view older than the one held is dropped.
@@ -518,24 +532,29 @@ fn apply(m: &mut Model, v: WorkView, touched: &mut HashSet<String>) {
     m.views.insert(v.id.clone(), v);
 }
 
-/// The sessions of the conversations whose execution is one of `roots`.
+/// The sessions of the places whose tasks are under one of `roots`: a
+/// conversation's own, and for Home the place that adopts its tasks.
 fn sessions_of(m: &Model, roots: &HashSet<String>) -> HashSet<String> {
     m.views
         .values()
         .filter(|v| v.kind == WorkKind::Conversation && roots.contains(&v.id))
         .filter_map(|v| v.session_id.clone())
+        .map(|s| match &m.home {
+            Some((home, place)) if *home == s => place.clone(),
+            _ => s,
+        })
         .collect()
 }
 
-/// One place's three parts, from the views under `root`.
+/// One place's three parts, from the views under `roots`.
 fn project(
     views: &HashMap<String, WorkView>,
-    root: &str,
+    roots: &HashSet<String>,
     cleared_ms: u64,
     now_ms: u64,
 ) -> Projection {
     let mut p = Projection::default();
-    for v in views.values().filter(|v| v.root == root && counted(v)) {
+    for v in views.values().filter(|v| roots.contains(&v.root) && counted(v)) {
         if v.state == WorkState::NeedsYou {
             p.needs.push(v.clone());
         } else if v.state.working() {
@@ -585,7 +604,27 @@ pub(super) fn watch_loop(shared: &Arc<Shared>) {
     });
 }
 
+/// Home's session and the session of the owner's DM place that adopts its
+/// tasks: both must exist, and the place must be one this binding draws.
+fn home_of(shared: &Shared) -> Option<(String, String)> {
+    let core = &shared.core;
+    let home = core
+        .store
+        .get_meta::<String>(theseus_core::wake_home::HOME_SESSION)
+        .ok()
+        .flatten()?;
+    let routes = shared.routes.lock().unwrap();
+    core.runner
+        .place_rule
+        .owner_dm_places()
+        .into_iter()
+        .filter_map(|p| core.outbox.place_session(&p).ok().flatten())
+        .find(|s| *s != home && routes.by_session.contains_key(s))
+        .map(|s| (home, s))
+}
+
 async fn ask(shared: &Arc<Shared>) {
+    shared.tasks.set_home(home_of(shared));
     let roots = Tasks::roots(shared);
     if roots.is_empty() {
         return;

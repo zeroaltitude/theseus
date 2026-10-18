@@ -177,13 +177,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   table is unchanged: thinking and tool lines on, every chat message may ping); this is **task status only**.
   - **The binding hears the engine** (`runtime/tasks.rs`): `work.watch` from the binding's own connection
     (`interactive: false`), roots named (the Discord surface reads no private text; the core lets it watch a session
-    that speaks in a Discord place of any class, `rpc/work_board.rs::may_watch`, scrubbed, `may_answer` false), kept by
+    that speaks in a Discord place of any class, and the Reminders Home, `rpc/work_board.rs::may_watch`, scrubbed, `may_answer` false; the owner's DM place adopts Home's tasks once it has a session (`Tasks::set_home`, asked again with every route change), since a CLI task started before the DM had a session lives there and still gets its post and its row, theseus-31pgz), kept by
     `work.changed` under the position rule, asked again after `events.lost` and whenever the places' sessions change
     (`Tasks::rewatch`, once for a burst). A view goes to the place of its root's conversation (`PlaceMsg::Tasks`), which
     draws its own board. Nothing is stored; "since you looked" is one in-memory time a place (`Clear done`).
   - **The board** (`render/board_v2.rs`, `render/v2.rs`, `runtime/live_board.rs`, `courier/v2.rs`): one Components V2
     message a place, pinned, **edited and never posted anew**, so it never pings; a header with the counts, **Needs you**
-    (title, short id, the question, `[ Answer ↗ ]`), **Now** (what it does, then the one progress line: `step 3 of 5 · $0.42 of $2 · ~6 min left`; `turn N` only with no plan; a paused task shows ⏸️ and `paused` first; theseus-ypnxt.2), **Done, not yet
+    (title, short id, the question, `[ Answer ↗ ]`), **Now** (what it does, then the one progress line: `step 3 of 5 · $0.42 of ~$1 (limit $2) · ~6 min left`; `turn N` only with no plan; a paused task shows ⏸️ and `paused` first; theseus-ypnxt.2), **Done, not yet
     seen** (24 h, until Clear), `[ ✓ Clear done ] [ 🔕 Quiet 1 h ]` and a select "Open a task…". Times are Discord's
     `<t:…:R>`, which tick by themselves, so a quiet board is never edited for the clock. At most 40 components and 4,000
     characters (`v2::validate`): a part folds its tail into `+N more · /tasks` (needs you keeps the longest waiting
@@ -506,7 +506,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   not think pings for its tool line as before (the owner's call on the fold, 2026-10-10: no ping owed to a later
   create, which put a tool loop's buzz a loop late under the next loop's thinking). `ping_window_secs` (the place's, else
   `[discord]`'s; 0, off, by default) holds a channel to one ping in that long (`policy::Pings`, in memory, 256
-  channels kept); a ping it holds goes out silent. An edit never notifies. The `discord.message.out` row says
+  channels kept); a ping it holds goes out silent. A question that waits on the owner (a card with an answer's buttons, the needs-you post, a V2 question card, the burst summary) is never held: the window is for chat, so a reply that used it first cannot leave a question unheard (`courier::asks`, theseus-31pgz). An edit never notifies. The `discord.message.out` row says
   `ping` and `held` (the window took it). The shared policy's urgency (`theseus_protocol::notices`) decides what
   the house shows, not whether the chat buzzes.
 - **A place shows its tool lines and its thinking unless its binding says not to** (theseus-l1y1,
