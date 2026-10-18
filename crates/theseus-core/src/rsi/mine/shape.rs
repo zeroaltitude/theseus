@@ -472,9 +472,23 @@ fn base(program: &str) -> &str {
     program.rsplit('/').next().unwrap_or(program)
 }
 
+/// A leading `NAME=value` word: an environment setting for the command, whose
+/// value may be a secret (`PGPASSWORD=…`), and never the program.
+fn assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(k, _)| {
+        k.chars()
+            .next()
+            .is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+            && k.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+    })
+}
+
 /// An argv as a shape: the program, its subcommand words, its flags as a
-/// sorted set, then its positional values.
+/// sorted set, then its positional values. Leading environment settings are
+/// left out whole (the night joiner's fix): their values never reach a
+/// shape's text, and the program is the word after them.
 fn program(argv: &[String], w: &Where) -> Option<Norm> {
+    let argv = &argv[argv.iter().take_while(|a| assignment(a)).count()..];
     let first = argv.first()?;
     let prog = base(first).to_string();
     let mut rest: Vec<String> = argv[1..].to_vec();

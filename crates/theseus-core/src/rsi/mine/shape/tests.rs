@@ -239,6 +239,23 @@ fn what_is_never_mined_is_named() {
     assert!(never_mined(&curl[0]));
 }
 
+/// A leading `NAME=value` sets the command's environment: its value never
+/// reaches a shape, and the program after it is the head, so an outward
+/// program behind one is still never mined.
+#[test]
+fn an_environment_setting_before_the_program_is_left_out() {
+    let psql = run(&["PGPASSWORD=hunter2", "psql", "-h", "db"]);
+    assert!(!psql.contains("hunter2"), "{psql}");
+    assert!(psql.starts_with("proc.run[psql "), "{psql}");
+    let curl = normalize(
+        "proc.run",
+        &json!({"argv": ["TOKEN=x", "curl", "https://example.org"]}),
+        &Where::default(),
+    );
+    assert!(never_mined(&curl[0]));
+    assert!(assignment("_A1=b") && !assignment("1A=b") && !assignment("--flag=x"));
+}
+
 #[test]
 fn a_raw_value_prints_as_nothing() {
     let r = Raw::new("hunter2-secret");
