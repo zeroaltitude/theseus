@@ -38,9 +38,10 @@
 #   - `--remap-path-prefix` for the source tree, the cargo home, the rustup home,
 #     and the target directory: rustc writes source paths into panic messages and
 #     `file!()`, and a build in another directory would differ in those bytes.
-#   - `-C force-unwind-tables=no`: no `.eh_frame` (5.8 MB of theseusd, theseus-rwpbg.5). The release profiles are
-#     `panic = "abort"` and stripped, so nothing unwinds and a panic's record (crash.rs: thread, location, message)
-#     has no backtrace to lose. What goes: `perf record --call-graph dwarf`, gdb's `bt`, and eBPF stack walks of a
+#   - no `.eh_frame` (5.8 MB of theseusd, theseus-rwpbg.5): `-C force-unwind-tables=no` for the crates rustc compiles,
+#     and scripts/discard-eh-frame.ld at the link for the rest (std's, the C code's; the flag alone moves 0.05 MB).
+#     The release profiles are `panic = "abort"` and stripped, so nothing unwinds and a panic's record (crash.rs:
+#     thread, location, message) has no backtrace to lose. What goes: `perf record --call-graph dwarf`, gdb's `bt`, and eBPF stack walks of a
 #     live release daemon. (Frame-pointer walks, and a debug or `check` build, which this does not touch, stay.)
 #   - SOURCE_DATE_EPOCH, the commit's time, for any build script or tool that
 #     wants a clock.
@@ -87,6 +88,9 @@ target_dir="${CARGO_TARGET_DIR:-$root/target}"
 # tree, comes after it.
 flags="--remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$rustup_home=/rustup"
 flags="$flags --remap-path-prefix=$root=/theseus --remap-path-prefix=$target_dir=/target -C force-unwind-tables=no"
+# The flag reaches only the crates rustc compiles; the precompiled std and the C code keep theirs, so the link drops the
+# section whole (scripts/discard-eh-frame.ld).
+flags="$flags -C link-arg=$root/scripts/discard-eh-frame.ld"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
 # The commit's time; a tree with no history (a `git archive`) is given it.
 : "${SOURCE_DATE_EPOCH:=$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
