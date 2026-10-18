@@ -91,6 +91,16 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "The owner's veto: a join reverted by the owner's word.",
     },
     SelfRowKind {
+        name: "self.sealed.scored",
+        fields: &[
+            "set", "branch", "head", "items", "passed", "failed", "errors", "rate", "cost_usd",
+            "families", "failures",
+        ],
+        doc: "A sealed set scored against a candidate's build (theseus-pw1q.21.5): counts, rates \
+              per family, the model relay's metered cost, and an opaque id per failure; never an \
+              item, a reply or a task's text.",
+    },
+    SelfRowKind {
         name: "self.exam.counted",
         fields: &["item", "family", "sealed", "reviewer"],
         doc: "An exam item counted after its independent review; a sealed one names no text.",

@@ -936,6 +936,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   no L1 view (a job's, an MCP server's, a proposed extension's) shows it. An L0 job can still build the path from
   pieces: L1 is the boundary, as for the socket. Health's `self` line gives counts per set (`SelfState.sealed`).
   The paths the keel guard should hold are `sealed::KEEL_PATHS`. Tests: `rsi/sealed/tests.rs`, `tests_reach.rs`.
+  **The scorer's Runner and the model relay** (theseus-pw1q.21.5; no store format change: one ledger kind; `rsi/sealed/runner.rs`,
+  `relay.rs`, `config/self_sealed.rs`): `[self.sealed]` holds `dir` (it was `[self] sealed_dir`, now refused with the rename
+  message), `every_branch`, `item_usd` (0.25) and `drift_every_days` (7). `Core::sealed_score_branch(set, Candidate { branch,
+  bins, profile }, head)` asks `rsi::gate` first (off or halted: nothing is read, run or written), then runs `Sealed::score`
+  over a `ScratchRunner` on the blocking pool and writes one `self.sealed.scored` row (counts, rates per family, the relay's
+  metered cost, opaque failure ids). `ScratchRunner::new` copies the candidate's `theseusd` and `theseus` read-only into
+  `<state>/self/runner/<branch>/bin/` with their SHA-256 digests, writes a generated config beside them (memory, judge,
+  channels, web, index and MCP server off; no AWS, no hands, no extension; `model.api_base` the relay; a placeholder key), and
+  runs each item as one L1 job, `theseus --spawn theseusd ask --json`, over `runner_view`: the system and that directory
+  read-only, no workspace, no production state or sealed dir, and the relay's name as the whole egress list. The daemon's
+  state lives in the job's tmpfs and goes with its pid namespace; the directory is removed when the runner drops. The job's
+  environment is bare (`DAEMON_ENV` only; `SCRATCH_UNSET` is the list theseus-exam's `start` strips too). `Relay` is served in
+  process on the job's egress listener (`theseus_kernel::job_egress::register`), speaks `/v1/messages`, injects the
+  production key, serves only the profile's model, is refused while `rsi::gate` says off or halted, reserves each call
+  (worst case from `max_tokens` and an input estimate) on the item's line and on `[self.budget]` before forwarding, settles to
+  the provider's usage (a stream that never ended at its worst case), and logs usage lines only (`UsageLine`; never a body).
+  An item's cost is the relay's meter, a call refused at a line makes the item `RunFailed`. The live run in L1 needs a
+  non-root daemon with a job cgroup; the tests run the item through a stand-in `Launch`. Tests: `tests_relay.rs`,
+  `tests_runner.rs`, the config's `the_sealed_table_has_its_defaults_and_the_old_key_is_renamed`.
 - **The self backlog** (theseus-pw1q.7; `rsi/backlog.rs` and `rsi/backlog/`): the nightly read (`backlog_night`; its
   tender, `backlog_after_serving`, runs an hour after consolidation, only with `[self] mode = "act"`) asks `rsi::gate`
   first and between its phases, reads the last day's ledger by kind (failed calls and turns, provider errors, invalid

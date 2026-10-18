@@ -38,6 +38,8 @@
 mod check;
 mod daemon;
 mod filter;
+pub mod relay;
+pub mod runner;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -656,3 +658,7 @@ pub const REFUSAL: &str = "sealed: the sealed holdout set is out of reach of eve
 mod tests;
 #[cfg(test)]
 mod tests_reach;
+#[cfg(test)]
+mod tests_relay;
+#[cfg(test)]
+mod tests_runner;
