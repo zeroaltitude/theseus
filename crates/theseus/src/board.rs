@@ -187,7 +187,7 @@ impl Follow {
         let mut out = Vec::new();
         match Event::from_notification(m, p)? {
             Some(Event::WorkChanged(c)) => {
-                let now = work::now_ms();
+                let now = theseus_protocol::now_unix_ms();
                 for v in &c.views {
                     if listed(v) {
                         let seen = self.seen.entry(v.id.clone()).or_default();

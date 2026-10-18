@@ -752,7 +752,7 @@ pub fn header_rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
         + " ── ".chars().count()
         + keys.chars().count();
     let room = ctx.width.saturating_sub(fixed).max(8);
-    let title = task_tree::cut(&v.task.title, room);
+    let title = theseus_protocol::term::words::clip(&v.task.title, room);
     vec![one(
         Sty::Cyan,
         format!("── ⚙ task {} · {title}{tail} ── {keys}", v.task.short()),

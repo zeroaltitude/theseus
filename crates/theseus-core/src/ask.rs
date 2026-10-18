@@ -29,6 +29,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use theseus_kernel::Action;
+use theseus_protocol::term::words::cut_marked;
 use theseus_protocol::work::ask::{self as words, AskInput, Choice};
 use theseus_store::{kinds, NewRecord};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
@@ -118,20 +119,12 @@ impl Tool for OwnerAsk {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let a = AskInput::parse(input)?;
         Ok(Plan {
-            summary: format!("ask the owner: {}", clip(&a.question)),
+            summary: format!("ask the owner: {}", cut_marked(a.question.trim(), 80)),
             // Asking acts on nothing, but only the owner answers it: the
             // gate waits at every posture, as it does for a layer-1 change.
             authority: Some("the owner's decision".into()),
             ..Default::default()
         })
-    }
-}
-
-fn clip(s: &str) -> String {
-    let s = s.trim();
-    match s.char_indices().nth(80) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
     }
 }
 

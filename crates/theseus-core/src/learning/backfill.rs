@@ -73,14 +73,7 @@ pub fn day_start(date: &str) -> anyhow::Result<u64> {
     if !(1..=12).contains(&m) || !(1..=31).contains(&d) || y < 1970 {
         return Err(bad());
     }
-    // Days since 1970-01-01 of a civil date (Howard Hinnant's algorithm).
-    let y2 = if m <= 2 { y - 1 } else { y };
-    let era = y2.div_euclid(400);
-    let yoe = y2 - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
+    let days = crate::wake::days_from_civil(y, m as u32, d as u32);
     let utc = (days * 86_400_000) as u64;
     let offset = crate::wake::local(utc).offset_secs * 1000;
     Ok((utc as i64 - offset).max(0) as u64)

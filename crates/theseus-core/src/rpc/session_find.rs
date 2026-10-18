@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use theseus_protocol::term::words::cut;
 use theseus_protocol::{SessionInfo, SessionListParams, SessionListResult};
 
 use super::server::RpcFailure;
@@ -176,11 +177,6 @@ impl Core {
             .filter(|t| !t.is_empty());
         (first, last, prompts)
     }
-}
-
-/// `text` cut to `max` characters.
-fn cut(text: &str, max: usize) -> String {
-    text.chars().take(max).collect()
 }
 
 /// The first and the last `each` characters of `text`, or all of it when it

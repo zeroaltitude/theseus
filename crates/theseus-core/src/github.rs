@@ -1,6 +1,7 @@
 //! GitHub token hygiene: at startup, learn when the configured token expires
 //! and say so, loudly when it is close. Never fatal; the network may be down.
 
+use crate::wake::days_from_civil;
 use anyhow::{Context, Result};
 use serde::Serialize;
 
@@ -61,17 +62,6 @@ fn parse_days_left(s: &str) -> Option<i64> {
         .as_secs()
         / 86_400) as i64;
     Some(exp - now_days)
-}
-
-// Howard Hinnant's days-from-civil, days since 1970-01-01.
-fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (m as i64 + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
 }
 
 #[cfg(test)]

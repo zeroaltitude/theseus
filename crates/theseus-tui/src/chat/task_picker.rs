@@ -156,7 +156,10 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
             s if s.working() => Sty::Plain,
             _ => Sty::Dim,
         };
-        out.push(one(sty, task_tree::cut(&text, ctx.width)));
+        out.push(one(
+            sty,
+            theseus_protocol::term::words::clip(&text, ctx.width),
+        ));
     }
     out.push(one(
         Sty::Dim,

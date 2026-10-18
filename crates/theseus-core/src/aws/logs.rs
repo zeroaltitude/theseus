@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use theseus_protocol::now_unix_ms;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -74,10 +75,6 @@ pub(super) fn utc(ms: i64) -> String {
         t / 60 % 60,
         t % 60
     )
-}
-
-fn now_ms() -> i64 {
-    theseus_protocol::now_unix_ms() as i64
 }
 
 /// One Logs request, signed in the call's work session.
@@ -356,7 +353,7 @@ impl Tool for Query {
                             found
                         }
                     };
-                    let now = now_ms() / 1000;
+                    let now = (now_unix_ms() as i64) / 1000;
                     let input = json!({
                         "logGroupNames": groups,
                         "queryString": n.query,
@@ -648,7 +645,7 @@ impl Tool for Tail {
             let t = tailing.map_err(ToolFailure::new)?;
             let b = binding.as_deref();
             let what = format!("reading log group {} in {}", t.group, t.region);
-            let mut from = now_ms() - (t.since_s as i64) * 1000;
+            let mut from = (now_unix_ms() as i64) - (t.since_s as i64) * 1000;
             let ends = tokio::time::Instant::now() + t.follow;
             let mut seen: Vec<String> = Vec::new();
             let mut events: Vec<Value> = Vec::new();

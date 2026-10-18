@@ -26,6 +26,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, PoisonError};
+use theseus_protocol::now_unix_ms;
 
 use theseus_memory::science::Heat;
 use theseus_memory::{Baseline, MemoryScience};
@@ -98,7 +99,7 @@ impl NodeCache {
     /// it). A smaller bound evicts at once.
     pub fn set_mb(&self, mb: u64) {
         self.cap.store(mb.saturating_mul(1024 * 1024), Relaxed);
-        self.evict(now_ms());
+        self.evict(now_unix_ms());
     }
 
     /// The science whose `decay_sweep` orders eviction.
@@ -123,7 +124,7 @@ impl NodeCache {
 
     /// The node at `position`, touched, when it is kept.
     pub fn get(&self, position: u64) -> Option<Arc<Node>> {
-        self.get_at(position, now_ms())
+        self.get_at(position, now_unix_ms())
     }
 
     fn get_at(&self, position: u64, now: u64) -> Option<Arc<Node>> {
@@ -159,7 +160,7 @@ impl NodeCache {
 
     /// Keep `node`, `bytes` long on the record, at `position`.
     pub fn keep(&self, position: u64, node: Arc<Node>, bytes: u64) {
-        self.keep_at(position, node, bytes, now_ms());
+        self.keep_at(position, node, bytes, now_unix_ms());
     }
 
     fn keep_at(&self, position: u64, node: Arc<Node>, bytes: u64, now: u64) {
@@ -268,10 +269,6 @@ impl NodeCache {
             failed: self.failed.load(Relaxed),
         }
     }
-}
-
-fn now_ms() -> u64 {
-    theseus_protocol::now_unix_ms()
 }
 
 #[cfg(test)]

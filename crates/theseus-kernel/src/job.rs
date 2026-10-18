@@ -19,6 +19,7 @@ use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use theseus_protocol::now_unix_ms;
 
 use anyhow::{Context, Result};
 
@@ -401,7 +402,7 @@ fn run(
     subreaper_error: Option<String>,
 ) -> Result<(Spool, crate::redact::Copier, bool)> {
     let spool = Spool::open(&args.spool_dir)?;
-    let started = now_ms();
+    let started = now_unix_ms();
     let t0 = Instant::now();
     let out_path = spool.result_path(&args.correlation_id);
     // The output before the scrubber sees it, which can hold a secret a
@@ -509,7 +510,7 @@ fn run(
         result_ref: Some(out_path.to_string_lossy().into_owned()),
         external_op_id: None,
         started_at_ms: started,
-        finished_at_ms: now_ms(),
+        finished_at_ms: now_unix_ms(),
         producer: format!("wrapper:{}", std::process::id()),
         signature: None,
         cost_micros: None,
@@ -910,11 +911,6 @@ pub fn daemon_in_cmdline(cmdline: &[u8]) -> bool {
         }
     }
     true
-}
-
-/// `daemon_in_cmdline` for a live process.
-pub fn serving_daemon(pid: u32) -> bool {
-    std::fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| daemon_in_cmdline(&c))
 }
 
 /// Best-effort poke: one line on a Unix stream socket. Failure is fine; the
@@ -1477,13 +1473,6 @@ impl Evidence for WrapperEvidence {
             _ => Probe::Gone,
         }
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// Parse wrapper-mode argv (everything after the mode word). Kept here so

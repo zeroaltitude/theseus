@@ -25,6 +25,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use theseus_protocol::term::words::cut;
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
@@ -162,15 +163,15 @@ impl Kernel {
         let now = self.now_ms();
         let s = &news.state;
         let mut row = json!({"execution_id": e.id, "wake_id": wake.id,
-            "title": clip(&wake.note), "checks": s.checks, "value": s.last.as_deref().map(clip)});
+            "title": cut(&wake.note, 200), "checks": s.checks, "value": s.last.as_deref().map(|v| cut(v, 200))});
         if let Some(p) = wake.probe() {
             row["check"] = json!(p.kind);
         }
         if !news.text.is_empty() {
-            row["text"] = json!(clip(&news.text));
+            row["text"] = json!(cut(&news.text, 200));
         }
         if let Some(f) = &s.failing {
-            row["error"] = json!(clip(f));
+            row["error"] = json!(cut(f, 200));
         }
         if let Some(d) = news.detail.as_object() {
             for (k, v) in d {
@@ -221,9 +222,4 @@ impl Kernel {
             post,
         }))
     }
-}
-
-/// A value or a message as a ledger row carries it.
-fn clip(s: &str) -> String {
-    s.chars().take(200).collect()
 }
