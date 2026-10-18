@@ -15,12 +15,15 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_client::{render, resolve, CallError, Conn};
+use theseus_protocol::answer::WorkAnswerParams;
+use theseus_protocol::work::task_redirect_line;
 use theseus_protocol::{
-    method, notify, ConfirmRequest, Event, Id, Message, Notification, Response, SessionInfo,
-    SessionKind, SessionListResult, SessionWaitResult,
+    error_code, method, notify, ConfirmRequest, Event, Id, Message, Notification, Response,
+    RpcError, SessionInfo, SessionKind, SessionListResult, SessionWaitResult,
 };
 use tokio::signal::unix::{signal, SignalKind};
 
+mod ask;
 mod thread;
 
 use crate::herdr::{self, Reporter};
@@ -78,12 +81,21 @@ fn only_an_answer(line: &str) -> bool {
     )
 }
 
+/// Whether a refusal says the task has ended (`execution_complete` and its kin), as the chat and
+/// Discord read it.
+fn task_is_over(e: &RpcError) -> bool {
+    let class = e.data.get("class").and_then(Value::as_str);
+    e.code == error_code::NOT_FOUND || class.is_some_and(|c| c.starts_with("execution_"))
+}
+
 /// What a request this watch sent is for, until its answer comes.
 enum Purpose {
     /// An answer to this question.
     Answer(Box<ConfirmRequest>),
-    /// A message, as `turn.submit`.
-    Turn,
+    /// A message, as `turn.submit`; its text is kept for the task that ended.
+    Turn(String),
+    /// A message the task's end sent to main (theseus-ypnxt.3).
+    Main,
     /// The session again: its title, which a fresh session gets with its
     /// first turn, and the profile its last turn ran on.
     Info,
@@ -230,6 +242,14 @@ pub async fn watch(
         info.model.clone().or(info.profile.clone()),
         info.created_at_unix_ms,
     );
+    let of_task = info
+        .parent_session_id
+        .clone()
+        .filter(|_| kind == SessionKind::Task)
+        .map(|parent| OfTask {
+            parent,
+            title: theseus_client::names::of(&info),
+        });
     let (label, title, profile) = (info.label, info.title, info.profile);
 
     let mut w = Watch {
@@ -256,6 +276,8 @@ pub async fn watch(
         rebind_to: None,
         status_due: false,
         tasks: Default::default(),
+        of_task,
+        to_main: None,
     };
     if let Some(r) = &mut w.reporter {
         r.set_facts(facts.0, facts.1, parent);
@@ -303,7 +325,8 @@ pub async fn watch(
                 Ok(Some(Message::Notification(n))) => w.on_note(conn, n).await.map(|()| Step::Go),
                 Ok(Some(Message::Response(r))) => {
                     w.on_response(r);
-                    w.follow(conn).await.map(|()| Step::Go)
+                    w.follow(conn).await?;
+                    w.redirect(conn).await.map(|()| Step::Go)
                 }
                 Ok(Some(Message::Request(_))) => Ok(Step::Go),
             },
@@ -451,6 +474,16 @@ struct Watch {
     status_due: bool,
     /// The conversation's tasks, told as lines (theseus-mnd9g).
     tasks: crate::task_lines::TaskLines,
+    /// What a task's pane needs to send a message to main once the task has ended.
+    of_task: Option<OfTask>,
+    /// A message the task refused because it is over: it goes to main next.
+    to_main: Option<String>,
+}
+
+/// A task's parent and name: where its pane sends what the owner types after it ended.
+struct OfTask {
+    parent: String,
+    title: String,
 }
 
 impl Watch {
@@ -674,7 +707,12 @@ impl Watch {
             return;
         };
         self.printer.settle();
-        let prompt = if q.budget.is_some() {
+        let prompt = if ask::is_ask(q) {
+            for l in ask::prompt_lines(q) {
+                eprintln!("{l}");
+            }
+            ask::keys_line(q)
+        } else if q.budget.is_some() {
             "reset and continue? [y/N/note]".to_string()
         } else if q.external_text.is_some() {
             "approve? [y/N/t/note] (t: approve, and trust the session again)".to_string()
@@ -712,6 +750,9 @@ impl Watch {
     async fn on_line(&mut self, conn: &mut Conn, line: &str) -> Result<()> {
         if let Some(cid) = self.asked.take() {
             if let Some(i) = self.questions.iter().position(|q| q.correlation_id == cid) {
+                if ask::is_ask(&self.questions[i]) {
+                    return self.on_ask_line(conn, i, line).await;
+                }
                 let q = self.questions.remove(i);
                 let a = parse_answer(line);
                 // `a` or `e`: approve, and take the offer, echoed (theseus-drjs).
@@ -758,11 +799,54 @@ impl Watch {
             params["opened_from"] = json!(from);
         }
         let id = conn.send(method::TURN_SUBMIT, params).await?;
-        self.pending.insert(id, Purpose::Turn);
+        self.pending.insert(id, Purpose::Turn(text.to_string()));
         self.print_tag();
         if let Some(rep) = &mut self.reporter {
             rep.working_now();
         }
+        Ok(())
+    }
+
+    /// A line typed to a question with options: a number answers with that option (`work.answer`,
+    /// the call `theseus answer` makes), other words are the owner's own (`other`, with the words
+    /// as the note), and a `y`, an `n` or a number out of range sends nothing and says the keys.
+    async fn on_ask_line(&mut self, conn: &mut Conn, i: usize, line: &str) -> Result<()> {
+        let q = self.questions.remove(i);
+        let ask::Said::Send { option, note } = ask::said(&q, line) else {
+            self.questions.insert(i, q);
+            self.asked = Some(self.questions[i].correlation_id.clone());
+            self.say_prompt();
+            return Ok(());
+        };
+        let params = serde_json::to_value(WorkAnswerParams {
+            question_id: q.correlation_id.clone(),
+            option,
+            note,
+            author: Some(AUTHOR.to_string()),
+            ..Default::default()
+        })?;
+        let id = conn.send(method::WORK_ANSWER, params).await?;
+        self.pending.insert(id, Purpose::Answer(Box::new(q)));
+        Ok(())
+    }
+
+    /// A message the task refused because it is over goes to the conversation that started it,
+    /// worded as every surface words it (`task_redirect_line`), and its reply is told here.
+    async fn redirect(&mut self, conn: &mut Conn) -> Result<()> {
+        let (Some(text), Some(task)) = (self.to_main.take(), &self.of_task) else {
+            return Ok(());
+        };
+        let short = &self.sid[self.sid.len().saturating_sub(6)..];
+        let line = task_redirect_line(&task.title, short, "the task is over");
+        self.printer.settle();
+        eprintln!("  ↪ {} → main", line.trim_end());
+        let mut params = json!({"session_id": task.parent, "input": format!("{line}{text}"),
+                                "author": AUTHOR});
+        if let Some(from) = theseus_client::client::job_session() {
+            params["opened_from"] = json!(from);
+        }
+        let id = conn.send(method::TURN_SUBMIT, params).await?;
+        self.pending.insert(id, Purpose::Main);
         Ok(())
     }
 
@@ -793,14 +877,27 @@ impl Watch {
                 }
                 self.ask();
             }
-            (Purpose::Turn, Some(e)) => {
+            (Purpose::Turn(text), Some(e)) if self.of_task.is_some() && task_is_over(&e) => {
+                self.to_main = Some(text);
+            }
+            (Purpose::Main, Some(e)) => {
+                self.printer.settle();
+                eprintln!("theseus: the message was not sent to main: {}", refused(e));
+            }
+            (Purpose::Main, None) => {
+                if let Some(out) = ask::reply_of(r.result) {
+                    self.printer.settle();
+                    eprintln!("  main › {out}");
+                }
+            }
+            (Purpose::Turn(_), Some(e)) => {
                 self.printer.settle();
                 eprintln!("theseus: the message was not sent: {}", refused(e));
                 if let Some(rep) = &mut self.reporter {
                     rep.restore();
                 }
             }
-            (Purpose::Turn, None) => self.opened(r.result),
+            (Purpose::Turn(_), None) => self.opened(r.result),
             (Purpose::ThreadRow, None) => self.thread_row(r.result),
             (Purpose::Info, None) => {
                 let info = r
