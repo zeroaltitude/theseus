@@ -171,6 +171,17 @@ pub fn tokens(s: &str) -> usize {
 /// first, then the plan's last steps, then the brief's tail; the trigger's
 /// line stays.
 pub fn text(brief: &str, plan: &[(String, &str)], loops: &[LoopLine], trigger: &Trigger) -> String {
+    text_within(brief, plan, loops, trigger, MAX_TOKENS * CHARS_PER_TOKEN)
+}
+
+/// [`text`] within `max` characters.
+fn text_within(
+    brief: &str,
+    plan: &[(String, &str)],
+    loops: &[LoopLine],
+    trigger: &Trigger,
+    max: usize,
+) -> String {
     let steps: Vec<String> = plan
         .iter()
         .take(MAX_STEPS)
@@ -194,7 +205,6 @@ pub fn text(brief: &str, plan: &[(String, &str)], loops: &[LoopLine], trigger: &
             }
         })
         .collect();
-    let max = MAX_TOKENS * CHARS_PER_TOKEN;
     let (mut from, mut steps_n, mut brief_n) = (0, steps.len(), BRIEF_CHARS);
     loop {
         let mut out = format!("Task: {}\n", cut(brief, brief_n));
@@ -586,5 +596,36 @@ mod tests {
             s,
             "Task: Fix the quay notice.\nPlan:\n- [done] find it\n- [doing] fix it\nRecent loops:\n- loop 1: Running the tests — failed: error: boom\nNow: before the report"
         );
+    }
+
+    /// Over a bound the text gives up the oldest loops first, then the plan's last
+    /// steps, then the brief's tail, and never its trigger line.
+    #[test]
+    fn a_tight_bound_cuts_the_oldest_loops_then_the_plan_then_the_brief() {
+        let plan: Vec<(String, &str)> = (1..=4).map(|n| (format!("step {n}"), "todo")).collect();
+        let loops: Vec<LoopLine> = (1..=6)
+            .map(|index| LoopLine {
+                index,
+                say: Some(format!("words of loop {index}")),
+                failed: None,
+            })
+            .collect();
+        let trigger = Trigger::Quiet(8);
+        let whole = text_within("Fix the quay notice.", &plan, &loops, &trigger, 10_000);
+        assert!(whole.contains("loop 1:") && whole.contains("step 4"));
+        let at = |max| text_within("Fix the quay notice.", &plan, &loops, &trigger, max);
+        let loops_cut = at(whole.chars().count() - 1);
+        assert!(
+            !loops_cut.contains("loop 1:") && loops_cut.contains("loop 2:"),
+            "{loops_cut}"
+        );
+        let tight = at(60);
+        assert!(
+            !tight.contains("- loop") && !tight.contains("- ["),
+            "{tight}"
+        );
+        assert!(tight.ends_with("Now: no progress for 8 loops"), "{tight}");
+        assert!(tight.chars().count() <= 60);
+        assert!(at(1).chars().count() <= 1, "never over, whatever the bound");
     }
 }
