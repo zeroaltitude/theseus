@@ -211,6 +211,23 @@ fn day_of(ms: u64) -> String {
     crate::judge::spend::local_day(ms)
 }
 
+/// The root of a task's tree, as [`Budget`] and the gate's own-tree rule
+/// (`own_tree`) read it: a bounded walk up, through the ancestors that have
+/// a session.
+pub(super) fn root_in(store: &Store, mut rec: crate::task_graph::TaskRecord) -> String {
+    use crate::task_graph as g;
+    for _ in 0..16 {
+        let Some(parent) = rec.parent.clone() else {
+            break;
+        };
+        match g::get(store, &parent).ok().flatten() {
+            Some(p) if p.session.is_some() => rec = p,
+            _ => break,
+        }
+    }
+    rec.id
+}
+
 #[derive(Default)]
 struct Inner {
     loaded: bool,
@@ -505,18 +522,8 @@ impl Budget {
     /// The root of a task's tree: a bounded walk up, through the ancestors
     /// that have a session (a parent with none, as the backlog's, is a
     /// folder of branches, not a branch).
-    fn root_of(&self, mut rec: crate::task_graph::TaskRecord) -> String {
-        use crate::task_graph as g;
-        for _ in 0..16 {
-            let Some(parent) = rec.parent.clone() else {
-                break;
-            };
-            match g::get(&self.store, &parent).ok().flatten() {
-                Some(p) if p.session.is_some() => rec = p,
-                _ => break,
-            }
-        }
-        rec.id
+    fn root_of(&self, rec: crate::task_graph::TaskRecord) -> String {
+        root_in(&self.store, rec)
     }
 
     /// The account as `self.log` and health show it: none while the mode is

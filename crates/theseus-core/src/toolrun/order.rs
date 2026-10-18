@@ -109,7 +109,14 @@ impl ToolRuntime {
         };
         let tightened = self.tightened.get(tool.name());
         let t = tightened.as_ref().map(crate::tighten::as_tightened);
-        let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
+        // A self task's file tools work in its own tree: the approve list's
+        // hold on the state dir does not reach it (theseus-pw1q.21.9).
+        let own_tree = at
+            .session
+            .filter(|_| tool.name().starts_with("fs."))
+            .and_then(|session| crate::rsi::own_tree::of(self, session));
+        let (decision, bound) =
+            crate::sandbox::unbrokered(self, tool, plan, input, t, own_tree.as_deref());
         seen(Layer::Policy, &decision);
         let decision = crate::policy::earned::gate(
             self,

@@ -224,6 +224,7 @@ pub(crate) fn unbrokered(
     plan: &Plan,
     input: &Value,
     tightened: Option<crate::policy::Tightened<'_>>,
+    own: Option<&std::path::Path>,
 ) -> (Decision, Bound) {
     let l1 = (tool.backend() == Backend::Job)
         .then(|| {
@@ -244,7 +245,7 @@ pub(crate) fn unbrokered(
             (d, bound)
         }
         None => (
-            rt.policy.decide_with(tool, plan, tightened),
+            rt.policy.decide_in(tool, plan, tightened, own),
             Bound::default(),
         ),
     }
