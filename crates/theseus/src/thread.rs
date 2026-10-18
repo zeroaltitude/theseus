@@ -94,12 +94,12 @@ pub enum ThreadCmd {
     Done { slug: String },
     /// Take a finished thread up again: its next message opens a successor session.
     Reopen { slug: String },
-    /// Make a thread this shell's current one (theseus-j0yh): prints the `export` line that sets
+    /// Make a thread this shell's current one: prints the `export` line that sets
     /// `THESEUS_THREAD`, which `ask` reads (`eval "$(theseus thread switch SLUG)"`), and tells the
     /// interactive loop and the TUI on this terminal. `home` clears it. A slug, a number from
     /// `theseus thread list`, or a unique start of a slug or title (four characters) names it.
     Switch { thread: String },
-    /// Candidate threads from your earlier harness (theseus-71ib): `--from openclaw` is the dry
+    /// Candidate threads from your earlier harness: `--from openclaw` is the dry
     /// run (a table and a plan file to tick, nothing written); `--apply 1,3,5` or `--apply
     /// all-ticked` makes those threads, each with a card written from its episodes (a Haiku call,
     /// under `[threads] import_day_usd`). `--vestige PATH` imports a Vestige dump as notes, once.

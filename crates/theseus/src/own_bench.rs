@@ -60,7 +60,7 @@ pub enum TurnCmd {
 /// The two commands, flattened into the CLI's own.
 #[derive(Subcommand, Debug)]
 pub enum OwnBench {
-    /// Your own benchmark (theseus-pw1q.12): which model your own turns need, measured by
+    /// Your own benchmark: which model your own turns need, measured by
     /// replaying them one rung down the routing table.
     Route {
         #[command(subcommand)]

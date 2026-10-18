@@ -49,7 +49,7 @@ pub enum PersonaCmd {
         #[arg(long)]
         confirm_card: bool,
     },
-    /// Carry an agent's workspace over as a persona, unchanged (theseus-a8n7): its persona files are copied
+    /// Carry an agent's workspace over as a persona, unchanged: its persona files are copied
     /// byte for byte into the state dir, `[personas.<name>]` is pointed at them, a specialization card is
     /// drafted for you to read, and the agent's feedback is proposed as standing records. Yours alone.
     Import {

@@ -259,7 +259,7 @@ enum Cmd {
     /// recently active. A read: nothing is recompiled or written. --json prints what the daemon
     /// answered.
     Context { session: Option<String> },
-    /// Open a turn in the cockpit's inspector (theseus-x9swu): its flame graph, each loop's request
+    /// Open a turn in the cockpit's inspector: its flame graph, each loop's request
     /// and thinking, each tool call. `theseus open turn [TURN]`: TURN is a turn's id, or a unique
     /// start or end of one (four characters at least); it defaults to the session's last. Prints
     /// the link (`[cockpit] public_url`) and opens it in a browser where one is found; --print
@@ -344,7 +344,7 @@ enum Cmd {
         #[arg(long, value_name = "NOTE")]
         note: Option<String>,
     },
-    /// Mark one node wrong (theseus-2ced): recall never serves it again, each live session that
+    /// Mark one node wrong: recall never serves it again, each live session that
     /// used it gets a correction note at its next turn, the syntheses that cite it go stale, one
     /// card names the tasks to re-run, and the table says every place it went. NODE is a node's
     /// id, the last six or more characters of one, or a recalled item's handle. Only you, from a
@@ -482,7 +482,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<tasks_forecast::TasksCmd>,
     },
-    /// Task: `task start BRIEF` starts a task from your word with no model turn (theseus-7oq0w): now,
+    /// Task: `task start BRIEF` starts a task from your word with no model turn: now,
     /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
     /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
     /// inside a job). `tasks` lists them.
@@ -636,59 +636,59 @@ enum Cmd {
         #[command(subcommand)]
         cmd: herdr_sync::HerdrCmd,
     },
-    /// The index (M6): `index status` says how far the index tender has read the store and what
+    /// The index: `index status` says how far the index tender has read the store and what
     /// it holds; `index search <QUERY>` finds what was said, run, and read, by its words and
     /// names (BM25, exact entities, and vectors once the model's files are installed).
     Index {
         #[command(subcommand)]
         cmd: IndexCmd,
     },
-    /// Recall (M6): `memory search <QUERY>` runs recall's pipeline for a query, writing nothing;
+    /// Recall: `memory search <QUERY>` runs recall's pipeline for a query, writing nothing;
     /// `memory recalled <SESSION>` shows what each of its turns would have recalled, in shadow.
     Memory {
         #[command(subcommand)]
         cmd: MemoryCmd,
     },
-    /// Jev's judgments (M5): `judge log` lists the recent ones, each with its pack, session,
+    /// Jev's judgments: `judge log` lists the recent ones, each with its pack, session,
     /// answers, and cost; `judge show <id>` shows one whole.
     Judge {
         #[command(subcommand)]
         cmd: JudgeCmd,
     },
-    /// The ladder (M5): each Jev pack's mode, share and why, its rollback rules and last rows;
+    /// The ladder: each Jev pack's mode, share and why, its rollback rules and last rows;
     /// `packs promote <pack> --canary <share> | --live` and `packs rollback <pack>` move one.
     Packs {
         #[command(subcommand)]
         cmd: Option<packs::PacksCmd>,
     },
-    /// The operator's past history (theseus-0lrr.6): `import openclaw <file>...` brings episode
+    /// The operator's past history: `import openclaw <file>...` brings episode
     /// files in as imported sessions, closed and private; `import erase --tag <tag>` and
     /// `import list`.
     Import {
         #[command(subcommand)]
         cmd: Option<import::ImportCmd>,
     },
-    /// The MCP servers the config attaches (M7): each server's state, and its tools with their
+    /// The MCP servers the config attaches: each server's state, and its tools with their
     /// postures and classes; `mcp restart <NAME>` starts one again, a failed one included.
     Mcp {
         #[command(subcommand)]
         cmd: Option<mcp::McpCmd>,
     },
-    /// Extensions (M7 43a, 43b): `extend list` shows each proposal with its state, its frozen
+    /// Extensions: `extend list` shows each proposal with its state, its frozen
     /// digest, its tools and tests, and the question `theseus confirm` answers, and each loaded
     /// one; `extend revoke <NAME>` stops a loaded one and drops its tools.
     Extend {
         #[command(subcommand)]
         cmd: extend::ExtendCmd,
     },
-    /// Self-improvement (theseus-pw1q): `self log` shows what Theseus changed about itself,
+    /// Self-improvement: `self log` shows what Theseus changed about itself,
     /// `self halt [WHY]` stops all self-directed work at once, `self resume` (the owner's) releases.
     #[command(name = "self")]
     SelfImprove {
         #[command(subcommand)]
         cmd: self_cmd::SelfCmd,
     },
-    /// The persona as data (theseus-slvl.2): `persona` shows every persona (name, emoji, voice,
+    /// The persona as data: `persona` shows every persona (name, emoji, voice,
     /// initiative, files with digest and edit time, the compiles that carried it, its places);
     /// `persona edit [NAME] [--name|--emoji|--card|--tts-voice|--avatar|--initiative VALUE]` sets
     /// short fields in the config file, or opens its file in $EDITOR; `persona history` lists
@@ -697,7 +697,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
     },
-    /// The speaking voice (theseus-slvl.7): `voice` shows the voice a call speaks in and where it
+    /// The speaking voice: `voice` shows the voice a call speaks in and where it
     /// comes from; `voice audition [--voices a,b,c] [--text WORDS] [--out DIR]` makes the
     /// greeting in several voices as WAV files and prints their paths and the cost (a few cents;
     /// yours alone). Pick with `persona edit --voice ID`.
@@ -705,14 +705,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<voice_cmd::VoiceCmd>,
     },
-    /// What Theseus said first (theseus-slvl.9): `notices rate up|down [ID]` is your 👍 or 👎 on
+    /// What Theseus said first: `notices rate up|down [ID]` is your 👍 or 👎 on
     /// the latest message it sent unprompted, or the one ID names; the week's totals are in
     /// `persona`. Yours alone (refused inside a job).
     Notices {
         #[command(subcommand)]
         cmd: notices_cmd::NoticesCmd,
     },
-    /// The owner's standing orders, preferences and facts (theseus-a7vi): kept in every prompt of
+    /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
     /// preference|fact] [--scope everywhere|place:T|session:ID | --surface NAME] TEXT` and `standing revoke ID` are
     /// yours alone (refused inside a job).
@@ -720,7 +720,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<standing_cmd::StandingCmd>,
     },
-    /// The owner card, proposed from your imported history (theseus-slvl.6): `card` lists what
+    /// The owner card, proposed from your imported history: `card` lists what
     /// waits as questions (Keep, Edit, Not this), what you kept and declined, and the spend;
     /// `card propose [--dry-run]` runs the job (under `[card] day_usd`); `card keep|edit|decline ID`
     /// answers one; `card done` stops the nightly run. Nothing is added without your answer; the
@@ -729,7 +729,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<card_cmd::CardCmd>,
     },
-    /// Watches (theseus-f2r2b): wait on the world with no model. `watches` lists them; `watches add
+    /// Watches: wait on the world with no model. `watches` lists them; `watches add
     /// TITLE --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED' [--every 5m]
     /// [--for 3d] [--then notice|turn|task]` checks on a timer until the condition holds, then tells
     /// you; `watches rm ID` ends one. (`watch SESSION` is the session follower.) Adding one is yours
@@ -738,7 +738,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<watch_cmd::WatchesCmd>,
     },
-    /// Threads (theseus-nhew): lines of work on virtual places `thread:<slug>`, each with a session
+    /// Threads: lines of work on virtual places `thread:<slug>`, each with a session
     /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
     /// resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone
     /// (refused inside a job).
@@ -746,23 +746,23 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<thread::ThreadCmd>,
     },
-    /// Routines (theseus-pvm5c): recurring work, each run a fresh task with its own budget, from a
+    /// Routines: recurring work, each run a fresh task with its own budget, from a
     /// month of its own. `routine` lists them; `routine add SCHEDULE BRIEF`, `runs`, `pause`,
     /// `resume`, `run`, `update`, `rm`. The writes are yours alone (refused inside a job).
     Routine {
         #[command(subcommand)]
         cmd: Option<routine::RoutineCmd>,
     },
-    /// Your own benchmark (theseus-pw1q.12): `route report [--week]`, and `turn replay`.
+    /// Your own benchmark: `route report [--week]`, and `turn replay`.
     #[command(flatten)]
     OwnBench(own_bench::OwnBench),
-    /// The prefix library (theseus-rr15): `prefix report`, its picks, the cache writes they saved,
+    /// The prefix library: `prefix report`, its picks, the cache writes they saved,
     /// and the false fits.
     Prefix {
         #[command(subcommand)]
         cmd: prefix_cmd::PrefixCmd,
     },
-    /// Projects (theseus-n5ui2; also `projects`): long-term work with a goal, dated milestones that
+    /// Projects (also `projects`): long-term work with a goal, dated milestones that
     /// remind you, a weekly review, and a slice in every session attached to it. `project` lists
     /// them (a bar of milestones done, the next one and its date, the review); `project show ID` (the tree with dates), `project new TITLE --milestone
     /// TITLE@WHEN`, `project attach SESSION ID`, `project detach SESSION`. The writes are yours alone
@@ -934,7 +934,7 @@ enum OntologyCmd {
     },
     /// Jev's unanswered proposals, newest first: a topic a session is not in, or a new topic,
     /// with Jev's confidence and band; people one row per person, with its sessions and bands,
-    /// a bare first name inside the one person whose name holds it (theseus-fvyx).
+    /// a bare first name inside the one person whose name holds it.
     Proposals {
         #[arg(long, value_name = "SESSION")]
         session: Option<String>,
@@ -974,7 +974,7 @@ enum OntologyCmd {
         #[arg(long, conflicts_with = "person")]
         note: Option<String>,
     },
-    /// People: declare one with its handles, or merge two who are one (theseus-wy7y).
+    /// People: declare one with its handles, or merge two who are one.
     Person {
         #[command(subcommand)]
         cmd: PersonCmd,
