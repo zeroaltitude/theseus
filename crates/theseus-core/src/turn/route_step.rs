@@ -479,7 +479,6 @@ impl TurnRunner {
         );
         let decision = match (&steering, &verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, compiled.est_tokens)),
-            (None, Some(v), None) if t.route.brief => Some(self.decide_brief(t, v)),
             (None, Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
         };
@@ -612,6 +611,9 @@ impl TurnRunner {
         v: &Verdict,
         est_tokens: u64,
     ) -> Decision {
+        if t.route.brief {
+            return self.decide_brief(t, v);
+        }
         let profiles = self.route_profiles();
         let cap = Self::place_cap(t, &profiles);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
