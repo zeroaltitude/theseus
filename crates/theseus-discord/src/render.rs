@@ -29,6 +29,7 @@ pub(crate) mod card_v2;
 pub(crate) mod cite;
 mod deferred;
 mod held;
+pub(crate) mod history;
 pub(crate) mod horizon;
 mod preview;
 pub(crate) mod process;
@@ -1002,7 +1003,7 @@ pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
 
 /// A task's report (DD7), as one message: the task by its short id and
 /// title, how it ended, its last message (clipped to fit), and what it spent.
-pub fn report(body: &Value, said: Option<&str>, guests: usize) -> String {
+pub fn report(body: &Value, said: Option<&str>, guests: usize, place: Option<u64>) -> String {
     let short = body["short"].as_str().unwrap_or("?");
     let title = body["title"]
         .as_str()
@@ -1033,6 +1034,11 @@ pub fn report(body: &Value, said: Option<&str>, guests: usize) -> String {
                 400
             )
         ),
+    };
+    // The task's own post or channel, so a tap opens it.
+    let head = match place {
+        Some(id) => format!("{head} · <#{id}>"),
+        None => head,
     };
     // A check's basis, beside its report (M5 28a).
     let head = match body["check"].as_str() {
@@ -2645,19 +2651,25 @@ mod tests {
                    "outcome": outcome, "reason": reason, "spent_usd": 0.0123, "limit_usd": 2.5,
                    "turns": 3, "elapsed_ms": 64_000})
         };
-        let done = report(&body("complete", None), Some("The gate passed."), 0);
+        let done = report(&body("complete", None), Some("The gate passed."), 0, None);
         assert_eq!(
             done,
             "📋 **Task `a1b2c3` finished** · Run the gate\nThe gate passed.\n\
              -# 3 turns · $0.0123 of $2.50 · 1 min 4 s"
         );
-        let long = report(&body("complete", None), Some(&"word ".repeat(2_000)), 0);
+        let long = report(
+            &body("complete", None),
+            Some(&"word ".repeat(2_000)),
+            0,
+            None,
+        );
         assert!(long.chars().count() <= DISCORD_LIMIT, "{}", long.len());
         assert!(long.ends_with("-# 3 turns · $0.0123 of $2.50 · 1 min 4 s"));
         let stopped = report(
             &body("cancelled", Some("cancelled by discord:zeroaltitude")),
             None,
             0,
+            None,
         );
         assert!(
             stopped.starts_with(
@@ -2665,7 +2677,12 @@ mod tests {
             ),
             "{stopped}"
         );
-        let failed = report(&body("failed", Some("provider_overloaded (529)")), None, 0);
+        let failed = report(
+            &body("failed", Some("provider_overloaded (529)")),
+            None,
+            0,
+            None,
+        );
         assert!(
             failed.starts_with("⚠️ **Task `a1b2c3` failed** · Run the gate: provider_overloaded"),
             "{failed}"
@@ -2675,11 +2692,31 @@ mod tests {
         checked["check"] =
             json!("🔍 check of task d4e5f6 · independent (excluded ses_…d4e5f6, glm-4.6)");
         assert_eq!(
-            report(&checked, Some("It holds."), 0),
+            report(&checked, Some("It holds."), 0, None),
             "📋 **Task `a1b2c3` finished** · Run the gate\n\
              -# 🔍 check of task d4e5f6 · independent (excluded ses_…d4e5f6, glm-4.6)\nIt holds.\n\
              -# 3 turns · $0.0123 of $2.50 · 1 min 4 s"
         );
+    }
+
+    /// A task that works in a forum post or a channel of its own has its
+    /// mention on the report's first line, so a tap opens it; one with
+    /// neither reports as before (theseus-ypnxt.5).
+    #[test]
+    fn a_report_links_the_tasks_own_post_or_channel() {
+        let body = json!({"kind": "report", "task": "ses_x", "short": "a1b2c3",
+            "title": "Run the gate", "outcome": "complete", "spent_usd": 0.0, "limit_usd": 2.0,
+            "turns": 1, "elapsed_ms": 1_000});
+        let plain = report(&body, None, 0, None);
+        let linked = report(&body, None, 0, Some(900_000_000_000_500_007));
+        assert!(
+            linked.starts_with(
+                "📋 **Task `a1b2c3` finished** · Run the gate · <#900000000000500007>\n"
+            ),
+            "{linked}"
+        );
+        assert_eq!(linked.replace(" · <#900000000000500007>", ""), plain);
+        assert!(!plain.contains("<#"));
     }
 
     /// A card's reason past 300 characters loses its middle, not its end, which

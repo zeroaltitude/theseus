@@ -41,6 +41,7 @@ pub mod loop_end;
 pub mod mark;
 pub mod memory;
 pub mod notice;
+pub mod offer;
 pub mod people;
 pub mod rerank;
 mod seal;
@@ -193,8 +194,9 @@ pub struct JudgeService {
     /// event (26a's `pins_per_day`). In memory, as `late` is.
     routed: Mutex<std::collections::HashMap<String, (u64, String)>>,
     /// Turns whose message `classify.v3` found to be deferrable work, each
-    /// with its brief, until the turn's reply takes it (theseus-bh3t.5).
-    offers: Mutex<std::collections::VecDeque<(String, String)>>,
+    /// with its brief, until the turn's reply takes it; and the replies
+    /// written before their batch landed (theseus-bh3t.5, `offer.rs`).
+    offers: Mutex<offer::Book>,
     /// The owner's corrections of routing, and the live layer (theseus-q31l).
     pub corrections: crate::correction::Corrections,
     /// A test's judge in Jev's place for the rerank (a channel for Jev).

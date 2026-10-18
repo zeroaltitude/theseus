@@ -193,3 +193,81 @@ async fn a_turn_that_made_a_task_offers_nothing() {
     let body = reply(&r, "dm:42", LATER).await;
     assert!(body.get("offer").is_none(), "{body}");
 }
+
+/// The posts of `kind` waiting for `place`.
+fn posts_of(r: &Rig, place: &str, kind: &str) -> Vec<Value> {
+    r.core
+        .outbox
+        .open_for(&format!("discord:{place}"))
+        .iter()
+        .map(|a| crate::outbox::body_of(a).clone())
+        .filter(|b| b["kind"] == kind)
+        .collect()
+}
+
+/// theseus-ypnxt.5: the reply goes out without its chip while the batch is
+/// slow (Jev's batch answers after the reply, its route question before it);
+/// when the batch lands, the core posts the offer to the same place for the
+/// binding to add by an edit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batch_that_lands_after_the_reply_posts_the_offer_late() {
+    let jev = FakeJev::start().unwrap();
+    offer(&jev, 0.95);
+    jev.set_latency(SLOW_BATCH, SLOW_BATCH);
+    let r = rig(&jev, crate::tests_judge::texts(1), false);
+    let body = reply(&r, "dm:42", LATER).await;
+    assert!(body.get("offer").is_none(), "{body}");
+    assert!(posts_of(&r, "dm:42", "offer").is_empty(), "nothing yet");
+    let turn = body["turn_id"].as_str().unwrap().to_string();
+    for _ in 0..200 {
+        if !posts_of(&r, "dm:42", "offer").is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    let late = posts_of(&r, "dm:42", "offer");
+    assert_eq!(late.len(), 1, "one late offer: {late:?}");
+    assert_eq!(late[0]["turn_id"], json!(turn));
+    assert_eq!(late[0]["brief"], json!(LATER));
+}
+
+/// A trivial or quick turn gets no chip, early or late: its route verdict
+/// lands before the reply, the batch after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trivial_or_quick_turn_gets_no_late_offer_either() {
+    for m in ["trivial", "quick"] {
+        let jev = FakeJev::start().unwrap();
+        offer(&jev, 0.95);
+        mode(&jev, m, 0.95);
+        jev.set_latency(SOON, SLOW_BATCH);
+        let r = rig(&jev, crate::tests_judge::texts(1), true);
+        let body = reply(&r, "dm:42", LATER).await;
+        assert_eq!(body["result"]["route"]["mode"], m, "{body}");
+        assert!(body.get("offer").is_none(), "{m}: {body}");
+        tokio::time::sleep(SLOW_BATCH + std::time::Duration::from_millis(1_000)).await;
+        assert!(posts_of(&r, "dm:42", "offer").is_empty(), "{m}");
+    }
+}
+
+/// A turn that made a task itself gets no late offer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_made_a_task_gets_no_late_offer() {
+    let jev = FakeJev::start().unwrap();
+    offer(&jev, 0.95);
+    jev.set_latency(SLOW_BATCH, SLOW_BATCH);
+    let script = vec![
+        Scripted::tools(
+            "Starting it.",
+            &[("t_task", "task_create", json!({"title": "Bench reports"}))],
+        ),
+        Scripted::text("Done."),
+    ];
+    let r = rig(&jev, script, false);
+    let body = reply(&r, "dm:42", LATER).await;
+    assert!(body.get("offer").is_none(), "{body}");
+    tokio::time::sleep(SLOW_BATCH + std::time::Duration::from_millis(1_000)).await;
+    assert!(posts_of(&r, "dm:42", "offer").is_empty());
+}
+
+const SOON: std::time::Duration = std::time::Duration::from_millis(10);
+const SLOW_BATCH: std::time::Duration = std::time::Duration::from_millis(850);

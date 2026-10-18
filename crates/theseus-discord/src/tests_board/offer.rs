@@ -160,3 +160,156 @@ async fn a_shared_place_shows_no_button() {
     .await;
     assert!(m.buttons.iter().all(|b| b.custom_id != BUTTON), "{m:?}");
 }
+
+/// The reply of `turn_offer` posted with no offer in it, as the core writes it
+/// when the judge's batch has not landed: the message it made.
+async fn plain_reply(r: &Rig) -> Msg {
+    let place = format!("dm:{ANA}");
+    let sid = r.core.outbox.place_session(&place).unwrap().unwrap();
+    let node = assistant(&r.core, &sid, "A reply that can become a task.");
+    let body = reply_body("turn_offer", &node, &sid, vec![]);
+    r.core
+        .outbox
+        .post(&sid, "", &format!("discord:dm:{ANA}"), body)
+        .unwrap();
+    r.until("the plain reply", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("can become a task"))
+    })
+    .await;
+    r.posted(ANA_DM)
+        .into_iter()
+        .find(|m| m.content.contains("can become a task"))
+        .unwrap()
+}
+
+/// theseus-ypnxt.5: the judge's batch lands after the reply; the core's `offer`
+/// post makes the lane edit the reply once, to add the button, and the press
+/// then opens the modal with the brief.
+#[tokio::test]
+async fn a_late_offer_adds_the_button_to_the_reply_by_one_edit() {
+    let r = offer_rig().await;
+    let m = plain_reply(&r).await;
+    assert!(m.buttons.iter().all(|b| b.custom_id != BUTTON), "{m:?}");
+    let sid = r
+        .core
+        .outbox
+        .place_session(&format!("dm:{ANA}"))
+        .unwrap()
+        .unwrap();
+    r.core
+        .outbox
+        .post(
+            &sid,
+            "",
+            &format!("discord:dm:{ANA}"),
+            json!({"kind": "offer", "turn_id": "turn_offer", "brief": LATER}),
+        )
+        .unwrap();
+    r.until("the button by an edit", || {
+        r.posted(ANA_DM)
+            .iter()
+            .find(|x| x.id == m.id)
+            .is_some_and(|x| x.buttons.iter().any(|b| b.custom_id == BUTTON))
+    })
+    .await;
+    let after = r.posted(ANA_DM).into_iter().find(|x| x.id == m.id).unwrap();
+    assert_eq!(after.edits, m.edits + 1, "one edit: {after:?}");
+    assert_eq!(after.content, m.content, "the words are the same");
+    assert_eq!(
+        r.posted(ANA_DM).len(),
+        r.posted(ANA_DM).iter().filter(|x| x.id != after.id).count() + 1,
+        "no message was added"
+    );
+    let iid = press(&r, &after, (ANA, "ana"));
+    let modal = answered(&r, &iid).await.modal.expect("the new-task modal");
+    let brief = modal["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["component"]["custom_id"] == "brief")
+        .unwrap();
+    assert_eq!(brief["component"]["value"], LATER);
+}
+
+/// A late offer for a reply this lane does not hold, or one that has its
+/// button, or in a shared place, changes nothing.
+#[tokio::test]
+async fn a_late_offer_changes_nothing_for_an_unknown_or_a_chipped_or_a_shared_reply() {
+    let r = offer_rig().await;
+    let sid = r
+        .core
+        .outbox
+        .place_session(&format!("dm:{ANA}"))
+        .unwrap()
+        .unwrap();
+    let late = |turn: &str| json!({"kind": "offer", "turn_id": turn, "brief": LATER});
+    // A turn the lane never replied to.
+    r.core
+        .outbox
+        .post(&sid, "", &format!("discord:dm:{ANA}"), late("turn_unknown"))
+        .unwrap();
+    // A reply that carried its offer already.
+    let m = offered(
+        &r,
+        (&format!("dm:{ANA}"), format!("discord:dm:{ANA}")),
+        ANA_DM,
+    )
+    .await;
+    r.core
+        .outbox
+        .post(&sid, "", &format!("discord:dm:{ANA}"), late("turn_offer"))
+        .unwrap();
+    // A shared place's reply.
+    let lab = r
+        .core
+        .outbox
+        .place_session(&format!("channel:{LAB}"))
+        .unwrap()
+        .unwrap();
+    let node = assistant(&r.core, &lab, "A shared reply.");
+    r.core
+        .outbox
+        .post(
+            &lab,
+            "",
+            &format!("discord:channel:{LAB}"),
+            reply_body("turn_shared", &node, &lab, vec![]),
+        )
+        .unwrap();
+    r.until("the shared reply", || {
+        r.posted(LAB)
+            .iter()
+            .any(|x| x.content.contains("A shared reply"))
+    })
+    .await;
+    r.core
+        .outbox
+        .post(
+            &lab,
+            "",
+            &format!("discord:channel:{LAB}"),
+            late("turn_shared"),
+        )
+        .unwrap();
+    let c = r.core.clone();
+    r.until("the outbox drains", move || {
+        c.outbox.open_for(&format!("discord:dm:{ANA}")).is_empty()
+            && c.outbox
+                .open_for(&format!("discord:channel:{LAB}"))
+                .is_empty()
+    })
+    .await;
+    let shared = r
+        .posted(LAB)
+        .into_iter()
+        .find(|x| x.content.contains("A shared reply"))
+        .unwrap();
+    assert!(
+        shared.buttons.iter().all(|b| b.custom_id != BUTTON),
+        "{shared:?}"
+    );
+    let same = r.posted(ANA_DM).into_iter().find(|x| x.id == m.id).unwrap();
+    assert_eq!(same.edits, m.edits, "no edit: {same:?}");
+}

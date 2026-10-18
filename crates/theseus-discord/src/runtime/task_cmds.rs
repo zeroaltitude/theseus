@@ -69,13 +69,14 @@ pub(super) fn tasks_command() -> Command {
         CommandType::ChatInput,
     )
     .option(
-        StringBuilder::new("show", "Which tasks (default: all)")
+        StringBuilder::new("show", "Which tasks (default: open)")
             .required(false)
             .choices([
+                ("Open: needs you, working, done since you looked", "open"),
                 ("Needs you", "needs_you"),
                 ("Working", "working"),
-                ("Done", "done"),
-                ("All", "all"),
+                ("Done, from the record", "done"),
+                ("All, with done from the record", "all"),
             ]),
     )
     .build()
@@ -392,10 +393,12 @@ impl Place {
         match what {
             What::Tasks(show) => {
                 let p = s.tasks.project(&self.session_id);
+                let history = self.history(show).await;
                 let parts = Parts {
                     needs: &p.needs,
                     working: &p.working,
                     done: &p.done,
+                    history: &history,
                 };
                 let comps = snapshot::render(show, &parts, theseus_protocol::now_unix_ms());
                 s.respond_v2(&i, 4, &comps, true).await;
@@ -415,6 +418,15 @@ impl Place {
             None,
             json!({"command": name, "by": who}),
         );
+    }
+
+    /// The finished tasks the store has for this place, for the shows that
+    /// read them (`done`, `all`).
+    async fn history(&self, show: Show) -> Vec<crate::render::history::Row> {
+        match show {
+            Show::Done | Show::All => super::tasks::finished(&self.shared, &self.target).await,
+            _ => Vec::new(),
+        }
     }
 
     /// `/task name:`: Details, or the new-task modal.
@@ -520,12 +532,14 @@ impl Place {
         }
         if let Some(show) = id.strip_prefix(snapshot::REFRESH) {
             let pr = s.tasks.project(&self.session_id);
+            let show = Show::parse(show).unwrap_or_default();
+            let history = self.history(show).await;
             let parts = Parts {
                 needs: &pr.needs,
                 working: &pr.working,
                 done: &pr.done,
+                history: &history,
             };
-            let show = Show::parse(show).unwrap_or_default();
             let comps = snapshot::render(show, &parts, theseus_protocol::now_unix_ms());
             s.respond_v2(&p.i, 7, &comps, true).await;
             return true;

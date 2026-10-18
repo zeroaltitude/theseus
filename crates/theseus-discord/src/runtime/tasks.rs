@@ -16,7 +16,9 @@
 //!   (`Counts`) are the whole model's, one number each.
 //! - **Nothing is stored.** The model is a projection of the engine's; what
 //!   "since you looked" means is one number a place, the time of its last
-//!   Clear, in memory (a restart shows today's done tasks again, once).
+//!   Clear, in memory (a restart shows today's done tasks again, once). Only
+//!   `/tasks show:done` and `show:all` read further back: `finished` asks
+//!   `task.list` for the tasks that reported to the place (theseus-ypnxt.5).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -410,6 +412,90 @@ impl Tasks {
         v.sort_by_key(|v| std::cmp::Reverse(v.started_at_ms));
         v
     }
+}
+
+/// The tasks that reported to `target` and have ended, newest first, from the
+/// store (`task.list`), each with its report's first line (read for the
+/// newest `history::SHOWN` alone) and the post or channel it worked in.
+pub(super) async fn finished(
+    shared: &Arc<Shared>,
+    target: &str,
+) -> Vec<crate::render::history::Row> {
+    use crate::render::history::{Ended, Row, SHOWN};
+    let listed = shared
+        .rpc
+        .call::<_, theseus_protocol::TaskListResult>(
+            theseus_protocol::method::TASK_LIST,
+            theseus_protocol::TaskListParams {
+                session_id: None,
+                target: Some(target.to_string()),
+            },
+        )
+        .await;
+    let Ok(listed) = listed else {
+        return Vec::new();
+    };
+    let mut ended: Vec<_> = listed
+        .tasks
+        .into_iter()
+        .filter(|t| {
+            matches!(
+                t.state.as_str(),
+                "complete" | "failed" | "budget_exhausted" | "cancelled"
+            )
+        })
+        .collect();
+    ended.sort_by_key(|t| std::cmp::Reverse(t.updated_at_ms));
+    let node_of = |session: &str| {
+        listed
+            .records
+            .iter()
+            .find(|r| r.session.as_deref() == Some(session))
+            .and_then(|r| r.evidence.iter().rev().find(|e| e.by == "report"))
+            .and_then(|e| e.node.clone())
+    };
+    let nodes: Vec<Option<String>> = ended
+        .iter()
+        .take(SHOWN)
+        .map(|t| node_of(&t.task_id))
+        .collect();
+    let core = shared.core.clone();
+    let said = tokio::task::spawn_blocking(move || {
+        nodes
+            .into_iter()
+            .map(|n| {
+                n.and_then(|n| core.outbox.said(&n)).and_then(|t| {
+                    t.lines()
+                        .find(|l| !l.trim().is_empty())
+                        .map(|l| l.trim().to_string())
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    ended
+        .into_iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let why = t.ended_reason.clone();
+            Row {
+                short: t.short.clone(),
+                title: t.title.clone().unwrap_or_default(),
+                ended: match t.state.as_str() {
+                    "complete" => Ended::Done,
+                    "cancelled" => Ended::Stopped(why),
+                    _ => Ended::Failed(why),
+                },
+                at_ms: t.updated_at_ms,
+                cost_usd: t.cost_usd,
+                said: said.get(i).cloned().flatten(),
+                link: shared
+                    .task_threads
+                    .place_of_task(&t.task_id, &t.execution_id),
+            }
+        })
+        .collect()
 }
 
 /// The execution at the top of the conversation `session_id`.

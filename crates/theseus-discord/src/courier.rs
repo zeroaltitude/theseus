@@ -25,6 +25,7 @@ mod ask;
 mod board;
 mod catchup;
 mod held;
+mod offer;
 mod persona;
 mod thread;
 pub(crate) mod v2;
@@ -765,6 +766,7 @@ impl Lane {
     }
 
     /// A post's writes, by its kind.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
@@ -813,6 +815,7 @@ impl Lane {
             }
             "failed" => self.failed_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
+            "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
             // key, so each new state of it edits the one message.
             "hands" => {
@@ -962,7 +965,10 @@ impl Lane {
             .as_str()
             .filter(|_| self.shared.is_private(&self.target));
         if let Some(brief) = offer {
-            self.shared.tasks.offers.keep(&turn_id, brief);
+            self.shared
+                .tasks
+                .offers
+                .keep(&self.shared.core.store, &turn_id, brief);
         }
         if let (Some(last), false) = (writes.last_mut(), srcs.is_empty() && offer.is_none()) {
             let session = result.as_ref().map(|r| r.session_id.clone());
@@ -971,6 +977,28 @@ impl Lane {
                 srcs,
                 offer.map(|_| turn_id.clone()),
             );
+        }
+        // Where a late offer's button would join (theseus-ypnxt.5).
+        if let (Some(last), true) = (writes.last(), offer.is_none()) {
+            let (session, sources) = match &last.buttons {
+                Buttons::Sources(s, srcs, _) => (s.clone(), srcs.clone()),
+                _ => (
+                    result
+                        .as_ref()
+                        .map(|r| r.session_id.clone())
+                        .unwrap_or_default(),
+                    vec![],
+                ),
+            };
+            self.shared
+                .tasks
+                .offers
+                .replied(crate::runtime::start_task::Replied {
+                    turn: turn_id.clone(),
+                    key: last.key.clone(),
+                    session,
+                    sources,
+                });
         }
         Plan {
             writes,
@@ -1316,7 +1344,12 @@ impl Lane {
         let guests = body["task"]
             .as_str()
             .map_or(0, |s| self.shared.comments_on_session(s));
-        let content = routine.unwrap_or_else(|| render::report(body, said.as_deref(), guests));
+        let place = self.shared.task_threads.place_of_task(
+            body["task"].as_str().unwrap_or(""),
+            body["execution_id"].as_str().unwrap_or(""),
+        );
+        let content =
+            routine.unwrap_or_else(|| render::report(body, said.as_deref(), guests, place));
         let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
         let ping = self.pings(policy::of_report(body));
         Ok(Plan {

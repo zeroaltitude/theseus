@@ -52,10 +52,6 @@ pub const CLASSIFY_PACK: &str = "classify.v3";
 pub const THREAD_QUESTION: &str = "thread";
 /// The question of `classify.v3` that finds work to offer as a task.
 pub const OFFER_QUESTION: &str = "offer_task";
-/// How many turns' offers wait for their reply, and how much of the message
-/// the offered brief keeps.
-const OFFERS_KEPT: usize = 64;
-const OFFER_BRIEF_CHARS: usize = 1_000;
 /// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v1`.
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
@@ -792,27 +788,6 @@ pub fn offer_answer(j: &theseus_judge::Judgment) -> bool {
         && j.actionable()
         && j.mode != theseus_judge::Mode::Shadow
         && j.answer(OFFER_QUESTION).is_some_and(|a| a.band.acts_true())
-}
-
-impl JudgeService {
-    /// The batch found `turn`'s message offerable: its reply may carry the
-    /// chip. Bounded; the oldest goes first.
-    fn note_offer(&self, turn: &str, text: &str) {
-        let brief: String = text.chars().take(OFFER_BRIEF_CHARS).collect();
-        let mut offers = self.offers.lock().unwrap_or_else(|e| e.into_inner());
-        if offers.len() == OFFERS_KEPT {
-            offers.pop_front();
-        }
-        offers.push_back((turn.to_string(), brief));
-    }
-
-    /// The brief of `turn`'s offer, taken, when the batch had landed by the
-    /// time the reply was written (it never waits).
-    pub fn take_offer(&self, turn: &str) -> Option<String> {
-        let mut offers = self.offers.lock().unwrap_or_else(|e| e.into_inner());
-        let at = offers.iter().position(|(t, _)| t == turn)?;
-        offers.remove(at).map(|(_, brief)| brief)
-    }
 }
 
 /// The urgency of a request whose asks run in `modes`: live when one acts

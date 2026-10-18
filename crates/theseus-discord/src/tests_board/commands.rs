@@ -138,7 +138,7 @@ async fn tasks_shows_this_places_snapshot_to_the_presser_alone_and_refresh_draws
         .buttons
         .iter()
         .any(|b| b.custom_id == "tb:refresh:working"));
-    // The default is everything.
+    // The default is the board (open).
     let all = r.fake.slash(&ana(), "tasks", &[]).unwrap();
     r.until("all of it", || r.fake.reply_message(&all).is_some())
         .await;
@@ -156,6 +156,78 @@ async fn tasks_shows_this_places_snapshot_to_the_presser_alone_and_refresh_draws
         .posted(ANA_DM)
         .iter()
         .all(|m| !m.content.contains("Tasks here")));
+}
+
+/// theseus-ypnxt.5: a finished task is on `/tasks show:done` and `show:all`
+/// from the store, with its title, how it ended, what it cost, the first line
+/// of its report and when, after the board has cleared it; `show:open` (the
+/// default, once `all`) is the board from memory and does not have it.
+#[tokio::test]
+async fn tasks_done_and_all_read_the_finished_tasks_from_the_store_after_the_board_forgot_them() {
+    let r = Rig::start_tweaked(
+        |_, _| {
+            model(
+                vec![start_all(&[BUOY]), Scripted::text("Started it.")],
+                vec![(BUOY, sleeps(1))],
+            )
+        },
+        guild(),
+        &bindings(),
+        &[],
+        tweak,
+    )
+    .await;
+    r.say((ANA, "ana"), None, ASK);
+    r.until("the task done and not yet seen", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| b.content.contains("✅ 1 done since you looked"))
+    })
+    .await;
+    // The board is cleared: its memory of the task goes with it.
+    let board = boards(&r, ANA_DM).remove(0);
+    r.press(&board.id, "✓ Clear done", (ANA, "ana"));
+    r.until("the board says all clear", || {
+        boards(&r, ANA_DM)
+            .first()
+            .is_some_and(|b| b.content.contains("all clear"))
+    })
+    .await;
+    async fn shown(r: &Rig, show: &[(&str, &str)]) -> String {
+        let iid = r.fake.slash(&ana(), "tasks", show).unwrap();
+        r.until("the answer", || r.fake.reply_message(&iid).is_some())
+            .await;
+        r.fake.reply_message(&iid).unwrap().content
+    }
+    // open (the default) is the board: nothing, as it was.
+    let open = shown(&r, &[]).await;
+    assert!(!open.contains("Buoy-paint"), "{open}");
+    let open = shown(&r, &[("show", "open")]).await;
+    assert!(!open.contains("Buoy-paint"), "{open}");
+    // done and all read the store.
+    for show in ["done", "all"] {
+        let c = shown(&r, &[("show", show)]).await;
+        assert!(
+            c.contains("Buoy-paint") && c.contains("done <t:"),
+            "{show}: {c}"
+        );
+        assert!(c.contains("1 finished"), "{show}: {c}");
+        assert!(c.contains('$'), "what it cost: {c}");
+    }
+    // The report's first line is there.
+    let c = shown(&r, &[("show", "done")]).await;
+    assert!(c.contains("Done."), "{c}");
+    // The refresh button keeps the show.
+    let iid = r.fake.slash(&ana(), "tasks", &[("show", "done")]).unwrap();
+    r.until("the answer", || r.fake.reply_message(&iid).is_some())
+        .await;
+    assert!(r
+        .fake
+        .reply_message(&iid)
+        .unwrap()
+        .buttons
+        .iter()
+        .any(|b| b.custom_id == "tb:refresh:done"));
 }
 
 #[tokio::test]

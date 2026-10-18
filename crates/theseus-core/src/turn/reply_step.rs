@@ -82,16 +82,14 @@ impl TurnRunner {
         if detour || t.tc.task.is_some() || !crate::capture::owner_alone(t.tc.class, Some(target)) {
             return None;
         }
-        let brief = self.judge.take_offer(t.tc.turn_id)?;
-        let nodes = t.tc.store.transcript(t.tc.session_id).ok()?;
-        let made = nodes.iter().any(|(_, n)| {
-            n.turn_id.as_deref() == Some(t.tc.turn_id)
-                && matches!(&n.body, Body::AssistantMessage { blocks, .. }
-                    if crate::provider::tool_uses_in(blocks)
-                        .iter()
-                        .any(|u| matches!(u.name.as_str(), "task_create" | "task.create")))
-        });
-        (!made).then_some(brief)
+        let brief = self.judge.take_offer(crate::judge::offer::Waiting {
+            turn: t.tc.turn_id,
+            session: t.tc.session_id,
+            execution: t.tc.execution_id,
+            target,
+        })?;
+        (crate::judge::offer::made_a_task(t.tc.store, t.tc.session_id, t.tc.turn_id) == Some(false))
+            .then_some(brief)
     }
 
     /// The wakes and reports an earlier attempt took, which this turn answers

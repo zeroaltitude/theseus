@@ -303,6 +303,15 @@ impl TaskThreads {
         i.made.iter().find(|m| m.thread == thread).cloned()
     }
 
+    /// The forum post or channel a task works in, by its session or its work id.
+    pub(crate) fn place_of_task(&self, session: &str, work: &str) -> Option<u64> {
+        let i = self.inner.lock().unwrap();
+        i.made
+            .iter()
+            .find(|m| m.session == session || (!work.is_empty() && m.task == work))
+            .map(|m| m.thread)
+    }
+
     /// Every thread in the list.
     pub(crate) fn all(&self) -> Vec<Made> {
         self.inner.lock().unwrap().made.clone()
