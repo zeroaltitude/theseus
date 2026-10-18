@@ -8,6 +8,9 @@ build.
 
 ## What's here
 
+- `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) and `<file>.gz` (level 9) beside
+  every built file but the fonts; theseusd embeds only those, and serves one by `Accept-Encoding` (theseus-rwpbg.5).
+
 - `src/views/`: the eighteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with

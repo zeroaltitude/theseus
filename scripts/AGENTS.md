@@ -340,7 +340,9 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the five binaries an
   install ships**, `theseusd`, `theseus`, `theseus-tui`, `theseus-sim`, and `theseus-index`, and what they link, and not
   the crates still waiting for their rows (theseus-o8nk; the gate's `features` phase reads the list). A `-p`, `--package`,
-  `--workspace`, or `--all` of your own replaces the five. Measured on 2026-10-03 (cold, no compile cache, `-j 4`,
+  `--workspace`, or `--all` of your own replaces the five. An install copies four (`--installed` prints them): `theseus-sim`
+  is built for the size check and the benches, which run the copy in `target/`. It adds `-C force-unwind-tables=no` (no
+  `.eh_frame`; the profiles abort on panic and are stripped; theseus-rwpbg.5). Measured on 2026-10-03 (cold, no compile cache, `-j 4`,
   `release-thin`): 1,139 CPU-seconds, about 4 min 50 s, against 1,395 and 5 min 55 s for the whole workspace with the
   voice crate, the install's build until then (18 % less; the voice crate's exit alone was 10 %). Built alone or with the
   whole workspace, from one tree, the five binaries are the same bytes.

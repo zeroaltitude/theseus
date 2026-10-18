@@ -6,6 +6,7 @@
 #
 #   scripts/build.sh [--profile release|release-thin] [cargo build arguments…]
 #   scripts/build.sh --shipped   (prints the five packages below, and builds nothing)
+#   scripts/build.sh --installed (prints the four binaries an install copies, and builds nothing)
 #
 #   release       fat LTO and one codegen unit: a tagged release (the default).
 #   release-thin  thin LTO and 16 codegen units: the install profile, for a chain's
@@ -25,6 +26,9 @@
 # and the feature is then named in the shipped crate that links it, as
 # theseus-discord names twilight-gateway's TLS roots.
 #
+# theseus-sim is built for the size check and the benches, which run the copy in target/, and is not installed
+# (theseus-rwpbg.5): an install copies the four `--installed` prints, and a bench tool is run from its target dir.
+#
 # After the build: the size check (`theseus-sim bench size --check`) on what was just built, below.
 #
 # A `-p`, `--package`, `--workspace`, or `--all` of your own replaces the five.
@@ -34,6 +38,11 @@
 #   - `--remap-path-prefix` for the source tree, the cargo home, the rustup home,
 #     and the target directory: rustc writes source paths into panic messages and
 #     `file!()`, and a build in another directory would differ in those bytes.
+#   - no `.eh_frame` (5.8 MB of theseusd, theseus-rwpbg.5): `-C force-unwind-tables=no` for the crates rustc compiles,
+#     and scripts/discard-eh-frame.ld at the link for the rest (std's, the C code's; the flag alone moves 0.05 MB).
+#     The release profiles are `panic = "abort"` and stripped, so nothing unwinds and a panic's record (crash.rs:
+#     thread, location, message) has no backtrace to lose. What goes: `perf record --call-graph dwarf`, gdb's `bt`, and eBPF stack walks of a
+#     live release daemon. (Frame-pointer walks, and a debug or `check` build, which this does not touch, stay.)
 #   - SOURCE_DATE_EPOCH, the commit's time, for any build script or tool that
 #     wants a clock.
 #   - rust-embed's `deterministic-timestamps` (theseusd's manifest): the embedded
@@ -49,6 +58,12 @@ export PATH="$HOME/.cargo/bin:$PATH"
 shipped=(theseusd theseus theseus-tui theseus-sim theseus-index)
 if [ "${1:-}" = --shipped ]; then
   printf '%s\n' "${shipped[@]}"
+  exit 0
+fi
+
+# The four an install copies: the shipped five less theseus-sim.
+if [ "${1:-}" = --installed ]; then
+  printf '%s\n' "${shipped[@]}" | grep -vx theseus-sim
   exit 0
 fi
 
@@ -72,7 +87,10 @@ target_dir="${CARGO_TARGET_DIR:-$root/target}"
 # Later mappings win, so the target directory, which usually sits inside the
 # tree, comes after it.
 flags="--remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$rustup_home=/rustup"
-flags="$flags --remap-path-prefix=$root=/theseus --remap-path-prefix=$target_dir=/target"
+flags="$flags --remap-path-prefix=$root=/theseus --remap-path-prefix=$target_dir=/target -C force-unwind-tables=no"
+# The flag reaches only the crates rustc compiles; the precompiled std and the C code keep theirs, so the link drops the
+# section whole (scripts/discard-eh-frame.ld).
+flags="$flags -C link-arg=$root/scripts/discard-eh-frame.ld"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
 # The commit's time; a tree with no history (a `git archive`) is given it.
 : "${SOURCE_DATE_EPOCH:=$(git log -1 --format=%ct 2>/dev/null || echo 0)}"

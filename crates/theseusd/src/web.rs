@@ -37,7 +37,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::{
-    body::Body,
     extract::{
         connect_info::Connected,
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
@@ -57,11 +56,17 @@ use theseus_core::webui::{clip, Why};
 use theseus_core::Core;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
+mod encoded;
+
 /// The app, the cockpit (theseus-45n5), served at `/`. It is built by `npm run build` in `cockpit/`, and the
 /// build is not committed (it is several MB and changes with every edit): a binary built without it answers each
-/// page with a 404 that says how to build it. `/ws` is the same either way.
+/// page with a 404 that says how to build it. `/ws` is the same either way. Only the compressed copies the cockpit's build
+/// writes beside each file are embedded, and the fonts, which are packed already (`encoded`).
 #[derive(Embed)]
 #[folder = "cockpit/dist/"]
+#[include = "*.br"]
+#[include = "*.gz"]
+#[include = "*.woff2"]
 #[allow_missing = true]
 struct Cockpit;
 
@@ -329,16 +334,18 @@ impl Connected<axum::serve::IncomingStream<'_, OwnUser>> for Ends {
     }
 }
 
-async fn index() -> Response {
-    serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING)
+async fn index(headers: HeaderMap) -> Response {
+    encoded::respond::<Cockpit>("index.html", &headers, COCKPIT_MISSING)
 }
 
-async fn asset(Path(path): Path<String>) -> Response {
-    match Cockpit::get(&path) {
-        Some(_) => serve_embedded::<Cockpit>(&path, COCKPIT_MISSING),
-        // The cockpit's own client-side routes (`/session/…`) fall back to its app shell.
-        None => serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING),
-    }
+async fn asset(Path(path): Path<String>, headers: HeaderMap) -> Response {
+    // The cockpit's own client-side routes (`/session/…`) fall back to its app shell.
+    let path = if encoded::exists::<Cockpit>(&path) {
+        path.as_str()
+    } else {
+        "index.html"
+    };
+    encoded::respond::<Cockpit>(path, &headers, COCKPIT_MISSING)
 }
 
 /// The cockpit's old address (theseus-vm3n.6): `/cockpit/<route>?<query>` moves for good to `/<route>?<query>`,
@@ -354,28 +361,6 @@ async fn moved(uri: Uri) -> Redirect {
 fn moved_to(old: &str) -> String {
     let rest = old.strip_prefix("/cockpit").unwrap_or(old);
     format!("/{}", rest.trim_start_matches(['/', '\\']))
-}
-
-fn serve_embedded<E: Embed>(path: &str, missing: &'static str) -> Response {
-    match E::get(path) {
-        Some(file) => {
-            let mime = mime_guess::from_path(path).first_or_octet_stream();
-            let cache = if path.starts_with("assets/") {
-                "public, max-age=31536000, immutable"
-            } else {
-                "no-cache"
-            };
-            (
-                [
-                    (header::CONTENT_TYPE, mime.as_ref().to_string()),
-                    (header::CACHE_CONTROL, cache.to_string()),
-                ],
-                Body::from(file.data.into_owned()),
-            )
-                .into_response()
-        }
-        None => (StatusCode::NOT_FOUND, missing).into_response(),
-    }
 }
 
 /// The protocol's WebSocket, for the UI's own page only: a browser sends
@@ -594,11 +579,11 @@ mod tests {
     /// client-side routes fall back to the shell.
     #[tokio::test]
     async fn the_cockpit_serves_its_shell_at_the_root_or_says_how_to_build_it() {
-        let built = Cockpit::get("index.html").is_some();
+        let built = Cockpit::get("index.html.br").is_some();
         for (r, what) in [
-            (index().await, "/"),
+            (index(HeaderMap::new()).await, "/"),
             (
-                asset(Path("session/ses_x".to_string())).await,
+                asset(Path("session/ses_x".to_string()), HeaderMap::new()).await,
                 "/session/ses_x",
             ),
         ] {
