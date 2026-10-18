@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use theseus_protocol::own_bench::{TestRun, TurnReplayParams, WholeReplay};
 
 use super::compare::{self, Facts};
-use super::hands::{Hands, InL1, Programs, Recorded};
+use super::hands::{Hands, InL1, Minted, Programs, Recorded};
 use super::scratch;
 use super::undo::{self, Recorded as Call};
 use crate::node::Body;
@@ -48,7 +48,7 @@ struct Turn {
 pub(crate) static TEST_PROGRAMS: std::sync::Mutex<Option<Arc<dyn Programs>>> =
     std::sync::Mutex::new(None);
 
-fn programs() -> Arc<dyn Programs> {
+pub(crate) fn programs() -> Arc<dyn Programs> {
     #[cfg(test)]
     if let Some(p) = TEST_PROGRAMS.lock().unwrap().clone() {
         return p;
@@ -137,6 +137,17 @@ fn results_by_id(
         }
     }
     results
+}
+
+/// The request, with arm B's minted tool listed beside the recorded tool set.
+/// The model is not told to use it.
+fn armed(
+    request: &crate::provider::ProviderRequest,
+    minted: Option<&Minted>,
+) -> crate::provider::ProviderRequest {
+    let mut request = request.clone();
+    request.tools.extend(minted.map(Minted::definition));
+    request
 }
 
 impl Core {
@@ -244,7 +255,7 @@ impl Core {
             &crate::provider::ProviderRequest,
         ),
         target: &crate::turn::Target,
-        left: Option<u64>,
+        (left, minted): (Option<u64>, Option<Minted>),
         spent: &mut u64,
     ) -> anyhow::Result<Done> {
         let route = &self.cfg.route_bench;
@@ -260,10 +271,11 @@ impl Core {
             (orig_cwd.clone(), scratch.dir.clone()),
             read.recorded.clone(),
             programs(),
-        );
+        )
+        .with_minted(minted.clone());
         let deadline = t0 + Duration::from_secs(route.whole_seconds);
         let usd_cap = theseus_kernel::usd_to_micros(route.whole_usd);
-        let mut request = request.clone();
+        let mut request = armed(request, minted.as_ref());
         let mut total = 0u64;
         let mut replay = Said::default();
         let mut capped: Option<String> = None;

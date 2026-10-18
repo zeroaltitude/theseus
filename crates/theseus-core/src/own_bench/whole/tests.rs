@@ -27,13 +27,13 @@ const ASK: &str = "Make the greeting say beta and run the check.";
 const DONE: &str = "Edited lib.txt; the check passes.";
 
 /// One test at a time sets the stand-in for L1: they share the static.
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A stand-in for L1 (which refuses a root daemon, and a test may run as
 /// one): `sh` in the directory it is given, recording where.
 #[derive(Default)]
-struct Sh {
-    cwds: std::sync::Mutex<Vec<PathBuf>>,
+pub(crate) struct Sh {
+    pub(crate) cwds: std::sync::Mutex<Vec<PathBuf>>,
 }
 
 impl Programs for Sh {
@@ -67,15 +67,15 @@ impl Programs for Sh {
     }
 }
 
-struct World {
-    rig: Rig,
-    work: PathBuf,
-    sid: String,
+pub(super) struct World {
+    pub(super) rig: Rig,
+    pub(super) work: PathBuf,
+    pub(super) sid: String,
     _dir: tempfile::TempDir,
 }
 
 /// Every file under `dir`, by relative path.
-fn snapshot(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+pub(super) fn snapshot(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     fn walk(base: &Path, at: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
         for e in std::fs::read_dir(at).unwrap() {
             let p = e.unwrap().path();
@@ -105,7 +105,7 @@ fn leftovers() -> Vec<String> {
         .collect()
 }
 
-fn world(tweak: impl FnOnce(&mut crate::Config)) -> World {
+pub(super) fn world(tweak: impl FnOnce(&mut crate::Config)) -> World {
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("proj").canonicalize().unwrap_or_else(|_| {
         std::fs::create_dir_all(dir.path().join("proj")).unwrap();
@@ -129,20 +129,20 @@ fn world(tweak: impl FnOnce(&mut crate::Config)) -> World {
     }
 }
 
-fn push(rig: &Rig, s: Scripted) {
+pub(super) fn push(rig: &Rig, s: Scripted) {
     rig.model.script.lock().unwrap().push_back(s);
 }
 
-fn edit(path: &Path) -> Value {
+pub(super) fn edit(path: &Path) -> Value {
     json!({"path": path.join("lib.txt"), "old_string": "alpha", "new_string": "beta"})
 }
 
-fn check() -> Value {
+pub(super) fn check() -> Value {
     json!({"argv": ["sh", "check.sh", "test"]})
 }
 
 /// The original turn: the edit, the check, and the answer.
-async fn original(w: &World) -> String {
+pub(super) async fn original(w: &World) -> String {
     push(
         &w.rig,
         Scripted::tools(
@@ -162,7 +162,7 @@ async fn original(w: &World) -> String {
     r.turn_id
 }
 
-fn params(w: &World, turn: &str) -> TurnReplayParams {
+pub(super) fn params(w: &World, turn: &str) -> TurnReplayParams {
     TurnReplayParams {
         session: w.sid.clone(),
         turn: turn.into(),
@@ -173,7 +173,7 @@ fn params(w: &World, turn: &str) -> TurnReplayParams {
     }
 }
 
-async fn replay(w: &World, turn: &str) -> anyhow::Result<TurnReplayResult> {
+pub(super) async fn replay(w: &World, turn: &str) -> anyhow::Result<TurnReplayResult> {
     w.rig.core.turn_replay(params(w, turn), "cli").await
 }
 

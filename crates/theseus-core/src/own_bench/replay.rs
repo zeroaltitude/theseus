@@ -201,6 +201,19 @@ impl Core {
         left: Option<u64>,
         spent: &mut u64,
     ) -> anyhow::Result<Replayed> {
+        self.replay_turn_with(p, by, left, spent, None).await
+    }
+
+    /// `replay_turn` with a minted flow loaded in the replayed model's tool
+    /// set (a whole-turn replay's arm B): the mint step's A/B replay.
+    pub(crate) async fn replay_turn_with(
+        self: &Arc<Self>,
+        p: &TurnReplayParams,
+        by: &str,
+        left: Option<u64>,
+        spent: &mut u64,
+        minted: Option<super::whole::hands::Minted>,
+    ) -> anyhow::Result<Replayed> {
         let t0 = Instant::now();
         let scope = p.scope.as_deref().unwrap_or(FIRST_LOOP);
         if scope != FIRST_LOOP && scope != super::whole::WHOLE_TURN {
@@ -248,7 +261,7 @@ impl Core {
                     &original,
                     (provider.as_ref(), &request),
                     &target,
-                    left,
+                    (left, minted),
                     spent,
                 )
                 .await?;

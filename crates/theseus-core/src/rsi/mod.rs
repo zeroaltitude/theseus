@@ -47,6 +47,7 @@ pub mod jail;
 pub mod join;
 mod log;
 pub mod mine;
+pub mod mint;
 pub mod narrow;
 pub mod pipeline;
 pub mod pr;

@@ -167,6 +167,14 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               saving. Shapes and numbers only, never a value.",
     },
     SelfRowKind {
+        name: "self.mint.validated",
+        fields: &["name", "kind", "digest", "tiers", "pass"],
+        doc: "A minted tool was checked against recorded instances it never saw: its name, \
+              kind and spec digest, each tier (fixtures, dry replay, model A/B, the writer's \
+              isolation) as a name and whether it passed, and whether all did. Nothing is \
+              loaded by it; deploying is a later step's.",
+    },
+    SelfRowKind {
         name: "self.halted",
         fields: &["by", "place"],
         doc: "The kill switch thrown: every self step stops before its next phase.",

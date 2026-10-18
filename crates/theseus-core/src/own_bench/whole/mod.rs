@@ -37,7 +37,9 @@ pub mod scratch;
 pub mod undo;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+#[cfg(test)]
+mod tests_minted;
 
 /// The scope that runs the whole turn.
 pub const WHOLE_TURN: &str = "whole_turn";
