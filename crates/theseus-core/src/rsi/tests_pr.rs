@@ -257,19 +257,63 @@ async fn a_session_that_is_not_self_cannot_call_it() {
     assert!(r.rows().is_empty(), "no row");
 }
 
+/// A self build runs its code in L1 (theseus-pw1q.21.1), below the floor that
+/// hides a sealed set, so a set being there no longer stops it: the branch
+/// builds, and the gate judges it.
 #[tokio::test]
-async fn a_sealed_set_stops_every_self_build() {
+async fn a_sealed_set_does_not_stop_a_self_build_that_runs_in_l1() {
     let sealed = tempfile::tempdir().unwrap();
     let dir = sealed.path().canonicalize().unwrap().display().to_string();
     let r = rig_with(SelfMode::Act, Some("origin"), |cfg| {
         cfg.self_improve.sealed_dir = Some(dir);
     });
     let sid = r.session("self");
+    let tree = r.open_and_edit(&sid, "sails.txt").await;
+    assert!(
+        tree.starts_with(r.f.place.trees()),
+        "a tree is open: {tree:?}"
+    );
     let said = r.turn(&sid, WIRE, propose()).await;
-    assert!(said.contains("sealed_dir is set"), "{said}");
+    assert!(said.contains("the gate is green"), "{said}");
+    assert_eq!(r.rows().len(), 1, "one attempt, one row");
+}
+
+/// A host that cannot run L1 builds nothing, and says so: no tree, no row,
+/// and the reason is L1's own (here the root daemon's refusal, theseus-pv6i).
+#[tokio::test]
+async fn a_host_that_cannot_run_l1_builds_nothing() {
+    let r = rig(SelfMode::Act, Some("origin"));
+    r.core.tools.self_pr.set_l1(Some(
+        "checking the job's process limit: the daemon runs as root",
+    ));
+    let sid = r.session("self");
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(
+        said.contains("L1 cannot run on this host: checking the job's process limit"),
+        "{said}"
+    );
     assert!(
         !r.f.place.trees().join("trim-the-sails").exists(),
         "no tree"
+    );
+    assert!(r.rows().is_empty(), "no row");
+}
+
+/// Halted, nothing begins, and the probe for L1 is not even run: the halt's
+/// words are the answer, not L1's.
+#[tokio::test]
+async fn a_halted_switch_does_not_probe_l1() {
+    let r = rig(SelfMode::Act, Some("origin"));
+    r.core.tools.self_pr.set_l1(Some("the probe must not run"));
+    r.core
+        .self_halt(&SelfHaltParams::default(), &Answerer::from("the CLI"))
+        .unwrap();
+    let sid = r.session("self");
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(!said.contains("the probe must not run"), "{said}");
+    assert!(
+        said.contains("halted") || said.contains("kill switch"),
+        "{said}"
     );
     assert!(r.rows().is_empty(), "no row");
 }

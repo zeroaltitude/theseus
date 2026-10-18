@@ -19,6 +19,8 @@ server in L1, M7 43a).
 - `view.rs`: the view (system binds, `ro_paths`, overlays over the workspace, HOME, `/tmp`, `/dev`, `/proc`,
   `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
   approve list's paths.
+- `Spec::rw` (theseus-pw1q.21.1): read-write binds at the same paths (`view.rs`'s `bind_rw`), the only writes that
+  persist. The kernel's `L1.rw` fills it, and only a self build sets that; the rest of the view is unchanged.
 - `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry; and `refuse_here`, a host's
   profile stood in for a test on its own thread: each listed call answers its errno, theseus-f7tz), `report.rs` (`Started`,
   `Exit`, `Scratch::summary`), `spec.rs`. No cgroup of its own (theseus-gyin, 2026-10-03): a job's processes are

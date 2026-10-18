@@ -182,8 +182,11 @@ fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<S
         .map(|(_, v)| PathBuf::from(v))
         .filter(|h| h.is_absolute() && h.parent().is_some());
     spec.env = env;
-    let (present, missing): (Vec<&PathBuf>, Vec<&PathBuf>) =
+    let (present, mut missing): (Vec<&PathBuf>, Vec<&PathBuf>) =
         l1.ro_paths.iter().partition(|p| p.exists());
+    // A read-write bind that is not a directory is skipped and said, as a
+    // read-only one is.
+    missing.extend(l1.rw.iter().filter(|p| !p.is_dir()));
     spec.ro_paths = present.into_iter().cloned().collect();
     spec.workspace = l1
         .workspace
@@ -191,6 +194,7 @@ fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<S
         .filter(|p| p.is_dir())
         .cloned()
         .collect();
+    spec.rw = l1.rw.iter().filter(|p| p.is_dir()).cloned().collect();
     spec.hidden = l1.hidden.clone();
     spec.limits = l1.limits;
     let skipped = missing.iter().map(|p| p.display().to_string()).collect();

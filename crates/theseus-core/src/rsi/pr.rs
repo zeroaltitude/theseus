@@ -13,7 +13,8 @@
 //!    workspace roots while `[self]` builds (`toolrun/guarded.rs`), so the
 //!    existing file tools edit it by absolute path.
 //! 2. The next call commits what the tree holds (the item's id in the
-//!    subject), runs main's gate on it through the door, writes the frozen
+//!    subject), runs main's gate on it through the door, in L1 (the branch's
+//!    code runs nowhere else, theseus-pw1q.21.1: `super::jail`), writes the frozen
 //!    report at `<state>/self/reports/<branch with / as ->.md` (what, why,
 //!    the numbers, the verdict, the cost; it ends `<!-- REPORT COMPLETE -->`
 //!    and is never written again), then pushes a green branch when
@@ -60,6 +61,12 @@ pub struct Board {
     state: PathBuf,
     /// Added to every git call and the gate's (a test's hermetic git).
     env: Mutex<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
+    /// A test's place runs its stand-in gate at L0 unless it asks for L1
+    /// (`set_jailed`); a daemon's never does (`Place::jail`).
+    #[cfg(test)]
+    jailed: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    l1: Mutex<Option<Option<String>>>,
 }
 
 impl Board {
@@ -79,6 +86,54 @@ impl Board {
         *self.env.lock().unwrap_or_else(PoisonError::into_inner) = env;
     }
 
+    /// Why L1 cannot run a self build here, or `None`: the refusal health
+    /// shows (a daemon that runs as root), else `theseusd check`'s own probe,
+    /// `/bin/true` started as a job starts.
+    #[cfg(not(test))]
+    async fn l1_unavailable(&self, core: &Core) -> Option<String> {
+        let sandbox = &core.tools.sandbox;
+        if let Some(why) = sandbox.refusal() {
+            return Some(why.to_string());
+        }
+        sandbox.self_test().await.why
+    }
+
+    /// A test's L1 works unless it says it does not: the unit tests' binary
+    /// cannot start a real one (the daemon's tests do).
+    #[cfg(test)]
+    #[allow(clippy::unused_async, reason = "the daemon's version awaits")]
+    async fn l1_unavailable(&self, _: &Core) -> Option<String> {
+        self.l1
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .flatten()
+    }
+
+    /// A test's answer to "can L1 run here", in place of the probe.
+    #[cfg(test)]
+    pub fn set_l1(&self, unavailable: Option<&str>) {
+        *self.l1.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(unavailable.map(str::to_string));
+    }
+
+    #[cfg(test)]
+    pub fn set_jailed(&self) {
+        self.jailed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// L1 for a self build: the daemon's sandbox (its floor and its sealed
+    /// sets hidden). A test's place has none unless it asks.
+    fn jail(&self) -> Option<super::jail::Jail> {
+        #[cfg(test)]
+        if !self.jailed.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        let core = self.core.get()?.upgrade()?;
+        Some(super::jail::Jail::new(core.tools.sandbox.clone()))
+    }
+
     pub(crate) fn place(&self, repo: &str) -> Place {
         Place {
             repo: crate::config::expand(repo),
@@ -88,6 +143,7 @@ impl Board {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone(),
+            jail: self.jail(),
         }
     }
 }
@@ -219,16 +275,17 @@ pub async fn propose(
     let Some(repo) = core.cfg.self_improve.repo.clone() else {
         return Err("Not run: [self] repo is unset, so there are no self branches.".into());
     };
-    // A self build's gate runs the tree's own code outside L1, where it could
-    // read a sealed holdout set (theseus-pw1q.5: out of reach is the owner's
-    // keel). While one is set, nothing is built.
-    if core.cfg.self_improve.sealed_dir.is_some() {
-        return Err(
-            "Not run: [self] sealed_dir is set, and a self build runs its code outside \
-                    L1, where it could read the sealed set; self branches wait until builds \
-                    run in L1, which is the owner's."
-                .into(),
-        );
+    // A self build's code (its gate, its tests, its build) runs in L1 and
+    // nowhere else (theseus-pw1q.21.1), so a sealed set is out of its reach:
+    // it builds whether or not one is set. A host that cannot run L1 builds
+    // nothing.
+    if halted_now.is_none() {
+        if let Some(why) = board.l1_unavailable(&core).await {
+            return Err(format!(
+                "Not run: a self build runs its code in L1 and nowhere else, and L1 cannot run on \
+             this host: {why}"
+            ));
+        }
     }
     let place = board.place(&repo);
     let (p, item) = (place.clone(), i.item.clone());

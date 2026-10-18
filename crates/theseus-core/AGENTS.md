@@ -994,8 +994,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
   a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.
   `self.branches` lists them (`theseus self branches`). Tests: `rsi/tests_tree.rs` (a throwaway repo and a stand-in
-  gate), `rsi/tests_pr.rs` (through the core). While `[self] sealed_dir` is set, `self.propose_change` builds nothing:
-  the gate runs the tree's own code outside L1, where it could read the sealed set.
+  gate), `rsi/tests_pr.rs` (through the core). **Every self-code run is in L1** (theseus-pw1q.21.1; `rsi/jail.rs`,
+  `sandbox/self_build.rs`): the branch's gate, the planted revert's test runs, the merge gate with its benches,
+  auto-revert's gate and the install's build go through `Jail`, over `Sandbox::self_build_view`: the tree and its build
+  tree the only read-write binds (`L1.rw`, set nowhere else, so no model input reaches it), the repo, `~/.cargo`,
+  `~/.npm` and `~/.cache/theseus` overlays whose writes vanish, `~/.rustup` and main's gate copy read-only, no network
+  (cargo runs `--offline`, so a branch that adds a crate the cache lacks fails its gate with the supply-chain reason,
+  `sandbox::supply_chain`), 8,192 processes (`BUILD_PIDS`; the job default of 512 stays), and the floor and the sealed
+  sets hidden as in every view. A `Place` carries its `Jail`: a daemon's always (`Board::place`), a unit test's none
+  (its stand-in gate runs at L0 in this crate's tests only; `Place::jail` is an error anywhere else). Main's own scripts
+  (`may-build.sh`, the keel guard, `scrub.sh`) still run at L0: they are main's, not the branch's. The install builds in
+  L1, then its L0 half (`install::script`) only copies the binaries and restarts the daemon. `self.propose_change`
+  refuses only when L1 cannot run on this host (`Board::l1_unavailable`: health's refusal, else `Sandbox::self_test`),
+  sealed set or not. Tests: `rsi/tests_jail.rs`, `tests_pr.rs`, `tests_sandbox.rs`'s `no_model_input_reaches_rw`, and
+  theseusd's `tests/self_build.rs` (real L1; an ordinary user runs them).
   **Graduation** (theseus-pw1q.13; `extend/usage.rs`, `rsi/backlog/graduate.rs`, `fact/rsi_graduate.rs`): `Core::extension_usage`
   counts an extension's calls, failures (an error result, a timeout, a crash, an unknown outcome) and p50/p95 from the
   ledger's `action.*` rows by kind (producer `async:mcp:ext-<name>/<tool>`); no counter on the call path. `extend.list

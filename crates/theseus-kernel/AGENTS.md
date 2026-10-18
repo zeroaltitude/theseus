@@ -51,7 +51,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   `job_l1.rs` (M4 17b): the wrapper's L1 path, when `WrapperArgs.sandbox` is set: the command below
   `theseus_sandbox`'s init, its scratch summary, and its stop by the init's pid namespace; and `job::self_test`,
   `/bin/true` started the same way, which `theseusd check` runs on demand (theseus-gyin). It never falls back
-  to L0. `job_egress.rs` (18c): for a job whose `L1.egress` is not empty, the listener in its namespace, the proxy's
+  to L0. `L1.rw` (theseus-pw1q.21.1) is the one writable bind a view can have, set only by
+  the core's self-build launcher; `probe_run::run_logged` runs a long command with its output on a file. `job_egress.rs` (18c): for a job whose `L1.egress` is not empty, the listener in its namespace, the proxy's
   variables, the proxy on the wrapper's threads, stopped once the job has ended (a stop and a deadline included), and
   its `Summary` in `detail.egress`. A job with no list gets none of it.
 - `mcp_l1.rs` (M7 43a): an MCP server in L1, `theseusd mcp-sandbox`: its `Server` (argv, environment, cwd, more

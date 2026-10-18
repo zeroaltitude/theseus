@@ -43,6 +43,7 @@ pub mod budget;
 pub mod capacity;
 mod digest;
 pub mod exams;
+pub mod jail;
 pub mod join;
 mod log;
 pub mod mine;
@@ -54,6 +55,8 @@ pub mod sealed;
 mod switch;
 #[cfg(test)]
 mod tests_budget;
+#[cfg(test)]
+mod tests_jail;
 #[cfg(test)]
 mod tests_narrow;
 #[cfg(test)]

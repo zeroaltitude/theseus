@@ -1,10 +1,13 @@
 //! The install and the notice (theseus-pw1q.9). Only with `[self] install
 //! = true` (the owner's standing OK, `false` by default) and only on the
-//! owner's machine: the joined merge is checked out in a tree of its own,
-//! built with `scripts/build.sh` as the install does, each shipped binary
-//! copied in by copy-then-rename, and the daemon restarted. All of it runs
-//! in a transient `systemd-run --user` unit, since the daemon must not kill
-//! itself mid-step: the unit outlives the restart it makes.
+//! owner's machine. The joined merge is checked out in a tree of its own and
+//! **built in L1** (theseus-pw1q.21.1: `scripts/build.sh` is the merged
+//! branch's code, so it runs below the same floor as its gate, with the tree
+//! and its build tree the only writable places and no network). The L0 half
+//! then runs no repository code: [`script`] only copies each shipped binary in
+//! by copy-then-rename and restarts the daemon, in a transient `systemd-run
+//! --user` unit, since the daemon must not kill itself mid-step: the unit
+//! outlives the restart it makes.
 //!
 //! The new daemon, once serving ([`Core::self_installed_after_serving`]),
 //! finds the `self.joined` row whose merge is the commit it was built from
@@ -20,7 +23,8 @@ use serde_json::{json, Value};
 use super::git;
 use crate::fact::rsi_join::SelfInstalled;
 use crate::rpc::Core;
-use crate::rsi::tree::Place;
+use crate::rsi::jail::Job;
+use crate::rsi::tree::{Place, Tree};
 
 /// The binaries an install swaps in (`scripts/build.sh --shipped`).
 pub const BINARIES: &[&str] = &[
@@ -38,19 +42,65 @@ pub trait Installer: Send + Sync {
     fn start(&self, p: &Place, merge: &str) -> Result<String>;
 }
 
-/// The script the unit runs, in `tree`, building into `target`.
-pub fn script(tree: &Path, target: &Path, merge: &str) -> String {
+/// The script the unit runs: the L0 half of an install, which touches no
+/// file of the repository but the binaries the L1 build made. Copy-then-
+/// rename each into the prefix, then restart. No `cd`, no `scripts/` of the
+/// tree, nothing it could have changed.
+pub fn script(target: &Path, merge: &str) -> String {
     format!(
-        "#!/bin/bash\n# A self-join's install (theseus-pw1q.9) of {merge}.\nset -euo pipefail\n\
-         cd {tree}\nexport CARGO_TARGET_DIR={target} THESEUS_COMMIT={merge}\n\
-         scripts/build.sh --profile release-thin\nprefix=\"$HOME/.local/bin\"\n\
-         for b in $(scripts/build.sh --shipped); do\n  \
-         cp \"$CARGO_TARGET_DIR/release-thin/$b\" \"$prefix/.$b.new\" && mv -f \"$prefix/.$b.new\" \"$prefix/$b\"\n\
+        "#!/bin/bash\n# A self-join's install (theseus-pw1q.9) of {merge}: the copy and the \
+         restart. The build ran in L1.\nset -euo pipefail\ntarget={target}\n\
+         prefix=\"$HOME/.local/bin\"\nfor b in {names}; do\n  \
+         cp \"$target/release-thin/$b\" \"$prefix/.$b.new\" && mv -f \"$prefix/.$b.new\" \"$prefix/$b\"\n\
          done\nsystemctl --user restart {SERVICE}\n",
-        tree = shell(&tree.to_string_lossy()),
         target = shell(&target.to_string_lossy()),
+        names = BINARIES.join(" "),
     )
 }
+
+/// The build, in L1: `scripts/build.sh --profile release-thin` in the merged
+/// tree, into its build tree, as the install always built it, at nice 19.
+fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
+    let jail = p
+        .jail()?
+        .context("an install builds in L1, and this place has none")?;
+    std::fs::create_dir_all(p.gates())?;
+    let log = p.gates().join(format!("install-{}.log", tree.slug));
+    let argv = [
+        "nice",
+        "-n",
+        "19",
+        "scripts/build.sh",
+        "--profile",
+        "release-thin",
+    ]
+    .map(Into::into)
+    .to_vec();
+    let code = jail.run_blocking(
+        p,
+        &Job {
+            tree,
+            ro: Vec::new(),
+            argv,
+            env: vec![("THESEUS_COMMIT".into(), merge.into())],
+            log: &log,
+            limit: BUILD_LIMIT,
+        },
+    )?;
+    if code != Some(0) {
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        let tail: Vec<&str> = text.lines().rev().take(5).collect();
+        bail!(
+            "the install's build in L1 failed (exit {code:?}); its log, {}, ends: {}",
+            log.display(),
+            tail.into_iter().rev().collect::<Vec<_>>().join(" | ")
+        );
+    }
+    Ok(())
+}
+
+/// The longest an install's build may take.
+const BUILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
 
 fn shell(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -77,8 +127,9 @@ impl Installer for Systemd {
     fn start(&self, p: &Place, merge: &str) -> Result<String> {
         let short = &merge[..merge.len().min(12)];
         let t = git::detached(p, "install", short, merge)?;
+        build(p, &t, merge)?;
         let script_path = p.root().join(format!("install-{short}.sh"));
-        std::fs::write(&script_path, script(&t.dir, &t.target, merge))?;
+        std::fs::write(&script_path, script(&t.target, merge))?;
         let unit = format!("theseus-self-install-{short}");
         let a = argv(&unit, &script_path);
         let mut c = std::process::Command::new(&a[0]);
@@ -203,19 +254,19 @@ fn notice(j: &Value, review: Option<&Value>, merge: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
 
     /// The unit outlives the daemon's restart: a transient user unit runs
-    /// the script, which builds as the install does and restarts last.
+    /// the script, which restarts last.
     #[test]
     fn the_install_is_a_transient_user_unit_that_restarts_last() {
         let a = argv("theseus-self-install-abc", Path::new("/s/install-abc.sh"));
         assert_eq!(&a[..2], ["systemd-run", "--user"]);
         assert!(a.contains(&"--unit=theseus-self-install-abc".to_string()));
-        let s = script(Path::new("/t/it's"), Path::new("/t/target"), "abc123");
-        assert!(s.contains("cd '/t/it'\\''s'\n"), "{s}");
-        assert!(s.contains("scripts/build.sh --profile release-thin\n"));
-        assert!(s.contains("THESEUS_COMMIT=abc123"));
+        let s = script(Path::new("/t/it's/target"), "abc123");
+        assert!(s.contains("target='/t/it'\\''s/target'\n"), "{s}");
         assert!(s
             .trim_end()
             .ends_with(&format!("systemctl --user restart {SERVICE}")));
@@ -223,6 +274,58 @@ mod tests {
         assert!(
             swap < s.find("systemctl").unwrap(),
             "copy-then-rename, then the restart"
+        );
+    }
+
+    /// The L0 half runs nothing of the repository (theseus-pw1q.21.1): against
+    /// a fake build output it copies each binary in, renames it into place and
+    /// restarts the service, and the only programs it runs are `cp`, `mv` and
+    /// `systemctl`. It names no `cd`, no `scripts/`, no cargo.
+    #[test]
+    fn the_l0_half_only_copies_and_restarts() {
+        let s = script(Path::new("/t/target"), "abc123");
+        for forbidden in ["cd ", "scripts/", "cargo", "build.sh", "bash -c", "eval"] {
+            assert!(!s.contains(forbidden), "{forbidden:?} in the L0 half:\n{s}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let out = root.join("target/release-thin");
+        let (home, bin) = (root.join("home"), root.join("bin"));
+        for d in [&out, &home.join(".local/bin"), &bin] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        for b in BINARIES {
+            std::fs::write(out.join(b), format!("fake {b}")).unwrap();
+            std::fs::write(home.join(".local/bin").join(b), "old").unwrap();
+        }
+        // A stand-in systemctl that records its arguments.
+        let calls = root.join("calls");
+        let ctl = bin.join("systemctl");
+        std::fs::write(
+            &ctl,
+            format!("#!/bin/sh\necho \"$@\" >> {}\n", calls.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&ctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = root.join("install.sh");
+        std::fs::write(&path, script(&root.join("target"), "abc123")).unwrap();
+        let st = std::process::Command::new("/bin/bash")
+            .arg(&path)
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .status()
+            .unwrap();
+        assert!(st.success());
+        for b in BINARIES {
+            let got = std::fs::read_to_string(home.join(".local/bin").join(b)).unwrap();
+            assert_eq!(got, format!("fake {b}"), "{b} is the build's");
+            assert!(!home.join(".local/bin").join(format!(".{b}.new")).exists());
+        }
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap(),
+            format!("--user restart {SERVICE}\n"),
+            "the one call: the restart"
         );
     }
 }

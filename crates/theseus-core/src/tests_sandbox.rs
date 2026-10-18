@@ -463,3 +463,56 @@ async fn four_l1_calls_of_one_response_are_four_jobs_each_with_its_view() {
         assert!(text.contains("[ran at once with 3 other calls"), "{text}");
     }
 }
+
+/// No model input reaches `L1.rw` (theseus-pw1q.21.1): the only writable bind
+/// an L1 job can have is a self build's, set by `Sandbox::self_build_view`
+/// alone. A `proc.run` with every field it takes, in L1, launches views with
+/// no `rw`; and a call that crafts a `sandbox` object (or any field) to name
+/// one is invalid input, which launches nothing.
+#[tokio::test]
+async fn no_model_input_reaches_rw() {
+    let root = |r: &Rig| r.root.display().to_string();
+    let r0 = Rig::new(vec![], |_, _| {});
+    let (cwd, other) = (root(&r0), r0.root.join("sub").display().to_string());
+    std::fs::create_dir_all(&other).unwrap();
+    let valid = [
+        json!({"argv": ["true"], "sandbox": true}),
+        json!({"argv": ["true", "a"], "cwd": cwd, "timeout_secs": 5, "env": {"RW": other},
+               "sandbox": {"egress": ["a.test:443"]}}),
+        json!({"command": "true", "sandbox": true}),
+        json!({"steps": [{"argv": ["true"], "cwd": other, "timeout_secs": 3}], "sandbox": true}),
+        json!({"argv": ["true"], "background": true, "sandbox": true}),
+    ];
+    let crafted = [
+        json!({"argv": ["true"], "sandbox": {"rw": [cwd], "egress": ["b.test:443"]}}),
+        json!({"argv": ["true"], "sandbox": {"workspace": [cwd]}}),
+        json!({"argv": ["true"], "rw": [cwd], "sandbox": true}),
+        json!({"argv": ["true"], "sandbox": {"egress": ["b.test:443"], "binds": ["/"]}}),
+    ];
+    let mut script = Vec::new();
+    for input in valid.iter().chain(&crafted) {
+        script.push(run(input.clone()));
+        script.push(Scripted::text("Done."));
+    }
+    let r = Rig::new(script, |cfg, _| {
+        cfg.sandbox.egress = vec!["a.test:443".into(), "b.test:443".into()];
+    });
+    for i in 0..valid.len() + crafted.len() {
+        r.turn(None, &format!("call {i}")).await;
+    }
+    let kept = r.kept.0.lock().unwrap().clone();
+    assert_eq!(
+        kept.len(),
+        valid.len(),
+        "the valid calls launched (a one-step batch is one job), and no crafted one: {:?}",
+        kept.iter().map(|a| &a.argv).collect::<Vec<_>>()
+    );
+    for a in &kept {
+        let view = a.sandbox.as_ref().expect("every call here asked for L1");
+        assert!(
+            view.rw.is_empty(),
+            "a model input reached rw: {:?}",
+            view.rw
+        );
+    }
+}
