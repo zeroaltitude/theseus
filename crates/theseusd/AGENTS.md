@@ -116,6 +116,17 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   set (it takes about 40 s, so it runs only then), writes the incident's ledger rows there as the fixture
   `crates/theseus/tests/fixtures/postmortem/incident.jsonl`. A real incident: `theseus postmortem --since 6h
   --rows-out incident.jsonl`, then read the file for names and paths before it is committed.
+- `tests/acceptance_journey.rs` (theseus-ypnxt.8, theseus-h9tu1) is the cross-surface journey on one daemon: the DM and
+  the CLI start two tasks; both appear (`theseus tasks`, a forum post and card, the pinned board, presence); each asks and
+  the question is on its Discord card and in `theseus tasks`; one is answered from the CLI and the other by a Discord press,
+  and each clears on the other surface; the owner joins a working task from its post, pauses it with the reaction and resumes
+  it; both report to the DM; `theseus digest` lists them. It counts the rings (only a question, a failure or a finish rings
+  among the task paths; the board, cards and pointers are created silent), a plain turn's frames, and each change's delay to a
+  watching client. The model is `theseus-sim fake-model` as a child (build `-p theseus-sim` first), Discord the in-process
+  stand-in. A working window is a job waiting at a gate file the test opens, never a timer. The steps another row builds are
+  ignored tests that assert that row's contract. `THESEUS_JOURNEY_SLOWDOWN=k` multiplies the time bounds and
+  `THESEUS_JOURNEY_REPORT=file` writes the measurements as JSON (`scripts/acceptance/journey.sh` reads it). The herdr steps are
+  the script's.
 - `tests/user_service_script.rs` runs `scripts/user-service.sh` and the real `theseusd install --user` against stand-in
   `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` in a scratch `HOME` (the config tests also stand in for
   `theseusd`'s plan). It touches no real unit or daemon.

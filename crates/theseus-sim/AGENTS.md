@@ -172,7 +172,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     model cite what its recall gave it (theseus-ejdk).
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
     for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
-    proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.
+    proof's scripted model), and `say`, `press`, `react` (a person's reaction: the gateway's `MESSAGE_REACTION_ADD`, in a channel or
+    the user's DM; `/_fake/react`, `fake_discord/reactions.rs`), `read` against a running `fake-discord`.
 - `src/lib.rs` exports `fake_discord`, `fake_gateway`, and `discord_proof` for other crates' tests.
   `src/fake_model.rs` stands in for the Messages API for the bench.
 
