@@ -1368,9 +1368,8 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
 # changes no turn. Today eight packs judge: loop.v1, at each turn that ends
-# with no tool calls (where does the work on the ask stand?); security.v1 and
-# security.v3, at each call that acts once the gate has decided (how risky is
-# it?); classify.v1 and role.v1, in one request, at each message a person sends
+# with no tool calls (where does the work on the ask stand?); security.v3, at
+# each call that acts once the gate has decided (how risky is it?); classify.v1 and role.v1, in one request, at each message a person sends
 # (what kind of message is it, and which working role does its reply need?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
 # turn; continue.v1, at a compile that appends although one of CONTINUE's

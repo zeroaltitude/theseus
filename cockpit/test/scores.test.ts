@@ -17,7 +17,9 @@ test('a push scores its call as it lands, and the row, once written, is the reco
   const both = scoresOf(rows, [push])
   assert.equal(scoreWords(both.get('act_1')!), 'risk 87% (shadow)')
   assert.equal(both.get('act_2'), undefined, 'a failed judgment has no score')
-  assert.equal(both.get('act_3'), undefined, 'only security.v1 scores a notice')
+  assert.equal(scoreWords(both.get('act_3')!), 'risk 90% (shadow)', 'security.v3 scores a notice')
+  const old = scoresOf([judged('act_4', 0.5, 'answered', 'security.v2')], [])
+  assert.equal(old.get('act_4'), undefined, 'only security.v1 (stored) and security.v3 score a notice')
 })
 
 test("Jev's notice: its push as it lands, its row (by: judge) once written, and the gate's own notices are not Jev's", () => {

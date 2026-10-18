@@ -1094,13 +1094,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     connection setup (theseus-ddbi; `tests_route_wait.rs`). A try that fails to connect, with nothing answered since, is `jev_unreachable`, and then
     no turn waits on route or rerank. The fake Jev answers a `HEAD` 405 and counts it as `warmups()`, apart from
     `connections()`, which stays the calls'.
-  - **At the gate** (step 24, `gate.rs`): `security.v1` and `security.v3` in shadow at every call that acts, and at
-    a fetch or a search in a holding session (Q12). `ToolRuntime::start` plans the call and sends its notice, then
-    `judge_at_gate` makes the choice and the marks, nothing else; the gate's decision never waits on Jev or changes
-    with it. A gate judgment's id is its pack and the call's correlation id hashed (`gate::judgment_id`), so the
-    turn's trace marks it (under the call's span) and a "should have asked" press labels it (`judge.label`, in the
-    press's frame) before its row is written. A notified call's score follows its notice as `judge.scored`.
-    Tests: `tests_security.rs`.
+  - **At the gate** (step 24, `gate.rs`): `security.v3` at every call that acts, and at a fetch or a search in a
+    holding session (Q12). `security.v1`, asked beside it until theseus-rwpbg.6, is unwired (still embedded in
+    `theseus-judge`'s packs, for replay and its stored judgments). `ToolRuntime::start` plans the call and sends its
+    notice, then `judge_at_gate` makes the choice and the mark, nothing else; the gate's decision never waits on Jev or
+    changes with it. A gate judgment's id is its pack and the call's correlation id hashed (`gate::judgment_id`), so
+    the turn's trace marks it (under the call's span) and a "should have asked" press labels it (`judge.label`, in the
+    press's frame) before its row is written. A notified call's score, v3's `risky` and the pack's mode, follows its
+    notice as `judge.scored`. Tests: `tests_security.rs`.
   - **v3's live notices** (step 24's notices, theseus-0j2.13; the owner's decision of 2026-10-04): `notice.rs`.
     `WIRED` gives `security.v3` `live` while `[judge.packs."security.v3"] notices` is on (the default;
     `JudgeService::given`/`mode`), so its judgments are marked and recorded `live`. When v3, live, answers `risky`
@@ -1108,7 +1109,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     judgments land, never on the call's path: one frame with the post to the owner (`Outbox::stage_to_operator`,
     kind `jev_notice`, which the Discord courier posts to the owner's DM alone) and its `tool.notified` row
     (`by: judge`, keyed `notice_<judgment>`, scoped `judge:security`), then `judge.noticed` to the turn's clients.
-    The brake is security.v1's `[[rollback]]` (`learn::check_all` over today's notices and the owner's `noise`
+    The brake is the `security` rollback rules (`notice::rules`: v3's, as the ladder reads them with its adoption
+    table's; `learn::check_all` over today's notices and the owner's `noise`
     labels on v3's judgments, at each notice and each such label, `JudgeService::after_label`): a fired rule
     writes one `judge.paused` row (`what: "notices"`), a `jev_paused` post and a META mark (`judge.notices`,
     health's read), and holds notices to the next local day. The first use in a run reads today's rows in

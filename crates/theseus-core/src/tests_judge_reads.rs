@@ -398,3 +398,58 @@ async fn the_brakes_page_begins_at_its_midnight() {
         "no row before the day's midnight is read: {cost:?}"
     );
 }
+
+/// `security.v1` is no longer asked at the gate (theseus-rwpbg.6), but the
+/// judgments it already made are read as they were: `judge.list` lists them
+/// by pack and by version, `judge.get` returns one, the pack stays embedded
+/// for replay (`tests_replay` replays it against `security.v2`), and the
+/// build wires it nowhere.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn v1_judgments_already_stored_still_read() {
+    let r = rig();
+    let c = &r.core;
+    let now = theseus_protocol::now_unix_ms();
+    let scope = crate::rpc::judge::scope_of("security.v1");
+    let frame: Vec<NewRecord> = (0..3)
+        .map(|i| {
+            let id = format!("jdg_v1_{i}");
+            let data = json!({"id": id, "pack": "security.v1", "mode": "shadow",
+                "outcome": {"outcome": "answered"}, "context": {"session": "ses_heron", "call": format!("act_{i}")},
+                "answers": [{"question": "risky", "band": {"value": 0.25}}]});
+            row(
+                LedgerKind::JudgeCall,
+                &scope,
+                Some("ses_heron"),
+                data,
+                now - i * 1000,
+                &id,
+            )
+        })
+        .collect();
+    c.store.append(&frame).unwrap();
+    for pack in ["security.v1", "security"] {
+        let listed = c
+            .judge_list(JudgeListParams {
+                pack: Some(pack.into()),
+                ..JudgeListParams::default()
+            })
+            .unwrap();
+        let mut ids: Vec<&str> = listed
+            .judgments
+            .iter()
+            .map(|e| e.data["id"].as_str().unwrap())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, ["jdg_v1_0", "jdg_v1_1", "jdg_v1_2"], "{pack}");
+    }
+    let got = c
+        .judge_get(theseus_protocol::judge::JudgeGetParams {
+            id: "jdg_v1_1".into(),
+        })
+        .unwrap();
+    assert_eq!(got.judgment.data["pack"], "security.v1");
+    assert_eq!(got.judgment.data["answers"][0]["band"]["value"], 0.25);
+    // Embedded for replay, wired nowhere.
+    assert!(theseus_judge::pack::by_name("security.v1").is_some());
+    assert!(crate::judge::WIRED.iter().all(|(p, _)| *p != "security.v1"));
+}

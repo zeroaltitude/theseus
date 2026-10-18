@@ -124,9 +124,9 @@ pub struct JudgeGetResult {
 }
 
 /// `judge.scored` (M5 step 24, design §2.8b): a notified call's
-/// `security.v1` judgment landed, after its notice. In shadow the score is
-/// uncalibrated and acts on nothing; a notice line shows it as
-/// `risk 12% (shadow)`. Live progress, best effort: the judgment's
+/// `security.v3` judgment landed, after its notice (`security.v1` made it
+/// until theseus-rwpbg.6). The score is uncalibrated and a notice line shows
+/// it as `risk 12% (live)`. Live progress, best effort: the judgment's
 /// `judge.call` row is the record.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -138,11 +138,11 @@ pub struct JudgeScored {
     pub tool_use_id: String,
     pub correlation_id: String,
     pub tool: String,
-    /// `security.v1`.
+    /// `security.v3`.
     pub pack: String,
     /// The judgment's id, its `judge.call` row's key.
     pub judgment: String,
-    /// `shadow`.
+    /// The judgment's mode: `live`, or `shadow` as the ladder had it.
     pub mode: String,
     /// `risky`'s probability, 0 to 1.
     pub risky: f64,
@@ -151,7 +151,7 @@ pub struct JudgeScored {
 }
 
 impl JudgeScored {
-    /// What a notice line adds: `risk 12% (shadow)`.
+    /// What a notice line adds: `risk 12% (live)`.
     pub fn line(&self) -> String {
         format!("risk {}% ({})", self.percent, self.mode)
     }

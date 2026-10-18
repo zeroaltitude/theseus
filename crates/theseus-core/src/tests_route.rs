@@ -37,9 +37,9 @@ pub(crate) struct Rig {
 /// only one; `route.v1` live, as the build gives it.
 fn routing_only(c: &mut Config) {
     c.judge.packs.insert("loop.v1".into(), off());
-    for p in crate::judge::gate::GATE_PACKS {
-        c.judge.packs.insert(p.into(), off());
-    }
+    c.judge
+        .packs
+        .insert(crate::judge::gate::SECURITY_PACK.into(), off());
     for p in [
         crate::judge::compile::CONTINUE_PACK,
         crate::judge::categorize::PACK,

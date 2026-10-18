@@ -217,7 +217,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
         json!([
             // Live at a turn's stop while `[judge] stop_nudge` is on (theseus-fh0u).
             "loop.v1: live",
-            "security.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v3: off",
             "role.v1: off",
@@ -358,22 +357,25 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
         "loop.v1: canary 1.0 (owner: forced by the owner)"
     );
     let card = rig
-        .call("pack.promote", json!({"pack": "security.v1", "to": "live"}))
+        .call("pack.promote", json!({"pack": "security.v2", "to": "live"}))
         .unwrap();
     let q = card["question"].as_str().unwrap().to_string();
     let listed = rig.call("confirm.list", Value::Null).unwrap();
     assert!(listed.to_string().contains(&q), "{listed}");
-    assert_eq!(
-        line(&rig, "security.v1"),
-        "security.v1: shadow",
-        "no mode yet"
-    );
+    // security.v2 is wired nowhere, so health has no line for it: its rows are the proof.
+    let moved = |rig: &Rig| {
+        rig.rows("pack.mode")
+            .iter()
+            .filter(|r| r.to_string().contains("security.v2"))
+            .count()
+    };
+    assert_eq!(moved(&rig), 0, "no mode yet");
     rig.call(
         "action.confirm",
         json!({"correlation_id": q, "approve": true}),
     )
     .unwrap();
-    assert!(line(&rig, "security.v1").starts_with("security.v1: live (owner: "));
+    assert_eq!(moved(&rig), 1, "the approved card wrote its mode");
     let rows = rig.rows("pack.mode").len();
     assert_eq!(
         rows, 5,

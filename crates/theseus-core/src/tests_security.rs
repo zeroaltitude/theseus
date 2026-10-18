@@ -1,4 +1,4 @@
-//! `security.v1` and `security.v3` in shadow at the gate (M5 step 24; design
+//! `security.v3` at the gate (M5 step 24; design
 //! §3's "24"), against the fake Jev: every call that acts is judged after the
 //! gate decides, and nothing the gate decides changes with it. A call Jev
 //! scores at 1% in a holding session still waits; the floor still asks; a
@@ -19,7 +19,7 @@ use theseus_protocol::{ExternalText, Message, SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::config::WebToolsConfig;
-use crate::judge::gate::{judgment_id, SECURITY_CANDIDATE, SECURITY_PACK};
+use crate::judge::gate::{judgment_id, SECURITY_PACK};
 use crate::ledger::LedgerRow;
 use crate::node::Body;
 use crate::policy::Posture;
@@ -323,7 +323,7 @@ fn same_decision(posture: Posture, held: bool, floor: bool, risky: f64) {
                 if judged && word == "first" {
                     // The second call is gated after the first's judgment
                     // has landed.
-                    until_judged(&core.store, 2).await;
+                    until_judged(&core.store, 1).await;
                 }
             }
             decisions.push(seen);
@@ -332,14 +332,18 @@ fn same_decision(posture: Posture, held: bool, floor: bool, risky: f64) {
             decisions[0], decisions[1],
             "{posture:?} held {held} floor {floor} risky {risky}"
         );
-        let rows = security_rows(&on.core.store, "judge.call");
+        let rows = until_judged(&on.core.store, 2).await;
         assert!(rows.len() >= 2);
-        let v1 = rows
+        let judged = rows
             .iter()
             .find(|r| r.data["pack"] == SECURITY_PACK)
             .unwrap();
-        assert_eq!(v1.data["outcome"]["outcome"], "answered", "{}", v1.data);
-        let p = v1.data["answers"]
+        assert_eq!(
+            judged.data["outcome"]["outcome"], "answered",
+            "{}",
+            judged.data
+        );
+        let p = judged.data["answers"]
             .as_array()
             .unwrap()
             .iter()
@@ -380,12 +384,12 @@ async fn in_a_holding_session_a_call_scored_one_percent_still_waits() {
     let sid = session(&r.core, Some(a_hold()));
     let res = turn(&r.core, &sid, "run it", None).await;
     let corr = res.awaiting_confirm.clone().expect("the run waits");
-    let rows = until_judged(&r.core.store, 2).await;
-    let v1 = rows
+    let rows = until_judged(&r.core.store, 1).await;
+    let judged = rows
         .iter()
         .find(|r| r.data["pack"] == SECURITY_PACK)
         .unwrap();
-    let c = &v1.data["context"];
+    let c = &judged.data["context"];
     assert_eq!(c["call"], corr.as_str());
     assert_eq!(
         (
@@ -397,8 +401,11 @@ async fn in_a_holding_session_a_call_scored_one_percent_still_waits() {
         (Some("approve"), Some(true), Some(true), Some(true)),
         "{c}"
     );
-    assert_eq!(v1.data["id"], judgment_id(SECURITY_PACK, &corr).as_str());
-    let risky = &v1.data["answers"]
+    assert_eq!(
+        judged.data["id"],
+        judgment_id(SECURITY_PACK, &corr).as_str()
+    );
+    let risky = &judged.data["answers"]
         .as_array()
         .unwrap()
         .iter()
@@ -407,7 +414,7 @@ async fn in_a_holding_session_a_call_scored_one_percent_still_waits() {
     assert_eq!(risky.as_f64(), Some(0.01));
     // Still waiting, whatever Jev said.
     assert_eq!(r.core.pending_confirms(&sid).unwrap().len(), 1);
-    assert!(rows.iter().any(|r| r.data["pack"] == SECURITY_CANDIDATE));
+    assert!(rows.iter().all(|r| r.data["pack"] == SECURITY_PACK));
 }
 
 /// The floor still asks, whatever the score: `op` waits at 1%.
@@ -426,7 +433,7 @@ async fn the_floor_still_asks() {
     let sid = session(&r.core, None);
     let res = turn(&r.core, &sid, "who am i", None).await;
     let corr = res.awaiting_confirm.clone().expect("the floor asks");
-    let rows = until_judged(&r.core.store, 2).await;
+    let rows = until_judged(&r.core.store, 1).await;
     let c = &rows[0].data["context"];
     assert_eq!(
         (
@@ -462,23 +469,23 @@ async fn a_search_is_judged_only_in_a_holding_session() {
     // Clean: the search is not judged, the run after it is.
     let clean = session(&r.core, None);
     turn(&r.core, &clean, "look it up, then run", None).await;
-    let rows = until_judged(&r.core.store, 2).await;
-    assert_eq!(rows.len(), 2, "the run's two judgments, and no more");
+    let rows = until_judged(&r.core.store, 1).await;
+    assert_eq!(rows.len(), 1, "the run's judgment, and no more");
     assert!(
         rows.iter().all(|r| r.data["context"]["tool"] == "proc.run"),
         "{rows:?}"
     );
     let (search_call, _) = the_call(&r.core, &clean, "web.search");
     assert!(r.core.runner.judge.of_call(&search_call).is_empty());
-    // Holding: the search is judged, by both packs.
+    // Holding: the search is judged.
     let held = session(&r.core, Some(a_hold()));
     turn(&r.core, &held, "look it up", None).await;
-    let rows = until_judged(&r.core.store, 4).await;
+    let rows = until_judged(&r.core.store, 2).await;
     let searched: Vec<&LedgerRow> = rows
         .iter()
         .filter(|r| r.data["context"]["tool"] == "web.search")
         .collect();
-    assert_eq!(searched.len(), 2, "{rows:?}");
+    assert_eq!(searched.len(), 1, "{rows:?}");
     for r in &searched {
         let c = &r.data["context"];
         assert_eq!(
@@ -492,7 +499,7 @@ async fn a_search_is_judged_only_in_a_holding_session() {
         assert_eq!(c["hold_raised"], false, "a read keeps its posture");
     }
     let (search_call, _) = the_call(&r.core, &held, "web.search");
-    assert_eq!(r.core.runner.judge.of_call(&search_call).len(), 2);
+    assert_eq!(r.core.runner.judge.of_call(&search_call).len(), 1);
 }
 
 /// "Should have asked" with `--call` labels each of the call's judgments in
@@ -533,20 +540,17 @@ async fn a_press_with_a_call_labels_its_judgments_in_its_frame() {
         "the tightening and its labels are one frame"
     );
     let labels = security_rows(&r.core.store, "judge.label");
-    assert_eq!(labels.len(), 2, "one for each pack's judgment");
+    assert_eq!(labels.len(), 1, "one for the call's judgment");
     // After the window: the tool is tightened already, and the press still
     // labels the second call's judgments, in a frame of their own.
-    let judged = until_judged(&r.core.store, 4).await;
+    let judged = until_judged(&r.core.store, 2).await;
     let f1 = frames();
     let again = r.core.tighten("proc.run", Some(&calls[1]), "test").unwrap();
     assert!(again.already);
     assert_eq!(frames() - f1, 1);
     let labels = security_rows(&r.core.store, "judge.label");
-    assert_eq!(labels.len(), 4);
-    for (call, l) in [&calls[0], &calls[0], &calls[1], &calls[1]]
-        .into_iter()
-        .zip(&labels)
-    {
+    assert_eq!(labels.len(), 2);
+    for (call, l) in [&calls[0], &calls[1]].into_iter().zip(&labels) {
         let d = &l.data;
         assert!(d["id"].as_str().unwrap().starts_with("lbl_"), "{d}");
         assert_eq!(d["correlation_id"], call.as_str());
@@ -568,10 +572,46 @@ async fn a_press_with_a_call_labels_its_judgments_in_its_frame() {
     }
 }
 
-/// A notified call's score follows its notice to the turn's clients, as
-/// `risk N% (shadow)`; an open call's is recorded and never told.
+/// The gate asks `security.v3` alone: one `risky` ask of Jev for each acting
+/// call, where `security.v1` beside it made two (theseus-rwpbg.6), and every
+/// judgment recorded is the one pack's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_notified_calls_score_follows_its_notice() {
+async fn the_gate_asks_v3_alone() {
+    let jev = FakeJev::start().unwrap();
+    let script = vec![
+        run("r1", &["echo", "one"]),
+        run("r2", &["echo", "two"]),
+        Scripted::text("Done."),
+    ];
+    let r = rig(script, Some(&jev), |_| {}).await;
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "run twice", None).await;
+    let rows = until_judged(&r.core.store, 2).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let rows_after = security_rows(&r.core.store, "judge.call");
+    assert_eq!(rows.len(), rows_after.len(), "no third judgment follows");
+    assert!(
+        rows_after.iter().all(|j| j.data["pack"] == SECURITY_PACK),
+        "{rows_after:?}"
+    );
+    // Each ask carries a pack's `risky` wording (v1's and v3's both match), once a call.
+    let asks = jev
+        .seen()
+        .iter()
+        .filter(|s| {
+            s.body
+                .to_string()
+                .to_lowercase()
+                .contains("could this tool call do harm")
+        })
+        .count();
+    assert_eq!(asks, 2, "one ask for each of the two calls");
+}
+
+/// A notified call's score follows its notice to the turn's clients, as
+/// `risk N% (live)`, v3's `risky`; an open call's is recorded and never told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_notified_call_is_scored_by_v3s_risky() {
     let jev = FakeJev::start().unwrap();
     jev.script("risky", Jev::Noul(0.37));
     let script = vec![run("r1", &["echo", "hi"]), Scripted::text("Done.")];
@@ -590,7 +630,7 @@ async fn a_notified_calls_score_follows_its_notice() {
     };
     let (h, i) = scored;
     let s: theseus_protocol::judge::JudgeScored = serde_json::from_value(h[i].2.clone()).unwrap();
-    assert_eq!(s.line(), "risk 37% (shadow)");
+    assert_eq!(s.line(), "risk 37% (live)");
     assert_eq!(
         (s.pack.as_str(), s.tool.as_str()),
         (SECURITY_PACK, "proc.run")
@@ -603,7 +643,7 @@ async fn a_notified_calls_score_follows_its_notice() {
         "the score follows its notice"
     );
     assert_eq!(s.judgment, judgment_id(SECURITY_PACK, &s.correlation_id));
-    // Only the incumbent's score is told.
+    // One score is told.
     assert_eq!(h.iter().filter(|(_, m, _)| m == "judge.scored").count(), 1);
 }
 
@@ -705,28 +745,22 @@ async fn a_judged_tool_loop_keeps_its_frame_budget_and_marks_its_trace() {
         frames[1]
     );
     let (trace, r, sid) = &traces[1];
-    // The gate's two marks; 23b's loop.v1 mark at the turn's end is a third.
+    // The gate's one mark; 23b's loop.v1 mark at the turn's end is a second.
     let marks = spans(trace, "mark")
         .into_iter()
         .filter(|s| s["name"] == "judge" && s["attrs"]["point"] == "gate")
         .collect::<Vec<_>>();
-    assert_eq!(marks.len(), 2, "{trace}");
+    assert_eq!(marks.len(), 1, "{trace}");
     let (call, _) = the_call(&r.core, sid, "fs.write");
-    // security.v3 is live as notices (step 24's notices); v1 in shadow.
-    for ((m, pack), mode) in marks
-        .iter()
-        .zip([SECURITY_PACK, SECURITY_CANDIDATE])
-        .zip(["shadow", "live"])
-    {
-        let a = &m["attrs"];
-        assert_eq!(
-            (a["pack"].as_str(), a["point"].as_str(), a["mode"].as_str()),
-            (Some(pack), Some("gate"), Some(mode))
-        );
-        assert_eq!(a["judgment"], judgment_id(pack, &call).as_str());
-        assert_eq!(m["start_us"], m["end_us"], "zero-length");
-    }
-    let rows = until_judged(&r.core.store, 2).await;
+    // security.v3 is live as notices (step 24's notices).
+    let a = &marks[0]["attrs"];
+    assert_eq!(
+        (a["pack"].as_str(), a["point"].as_str(), a["mode"].as_str()),
+        (Some(SECURITY_PACK), Some("gate"), Some("live"))
+    );
+    assert_eq!(a["judgment"], judgment_id(SECURITY_PACK, &call).as_str());
+    assert_eq!(marks[0]["start_us"], marks[0]["end_us"], "zero-length");
+    let rows = until_judged(&r.core.store, 1).await;
     for m in &marks {
         assert!(rows
             .iter()
