@@ -370,8 +370,7 @@ impl TurnRunner {
                     Some(v) => self.checkpoint_verdict(
                         t,
                         session,
-                        spec,
-                        provider,
+                        (spec, provider),
                         slots,
                         &mut a,
                         (&v, &f, answered.cost_micros),
@@ -390,13 +389,11 @@ impl TurnRunner {
     }
 
     /// The verdict's decision, its row, and the move it makes.
-    #[allow(clippy::too_many_arguments)]
     fn checkpoint_verdict<'a>(
         &self,
         t: &mut Turn<'a>,
         session: &mut SessionRecord,
-        spec: &mut RequestSpec,
-        provider: &mut Option<Arc<dyn Provider>>,
+        (spec, provider): (&mut RequestSpec, &mut Option<Arc<dyn Provider>>),
         slots: &'a Slots,
         a: &mut Active,
         (v, f, cost): (&Verdict, &Flight, u64),
