@@ -110,12 +110,18 @@ pub struct TestRun {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct WholeCall {
     pub tool: String,
-    /// `ran`, `stub` or `refused`.
+    /// `ran`, `stub`, `refused` (a policy's answer: the call was not allowed
+    /// here) or `failed` (a program that could not run: its start, its
+    /// deadline).
     pub how: String,
     /// A program's exit status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub exit: Option<i32>,
+    /// Why a program did not run, in the words that were sent back to the model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
 }
 
 /// The deterministic half of a whole-turn comparison, where the turn has

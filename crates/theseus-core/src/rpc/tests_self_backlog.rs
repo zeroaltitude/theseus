@@ -104,14 +104,13 @@ fn listed(c: &Core) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {
         .items
 }
 
-/// `listed` without the scores: a score decays with the wall clock, so two
-/// reads half a second apart can differ by one milli-point (theseus-w68w5).
-fn listed_unscored(c: &Core) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {
-    let mut items = listed(c);
-    for i in &mut items {
-        i.score = 0;
-    }
-    items
+/// `listed` with every score read at `now_ms`: a score decays with the clock,
+/// so two reads at the wall clock's two instants can differ by one
+/// milli-point (theseus-w68w5); at one instant they agree exactly.
+fn listed_at(c: &Core, now_ms: u64) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {
+    c.self_backlog_at(&SelfBacklogParams { all: true }, now_ms)
+        .unwrap()
+        .items
 }
 
 /// One day of the ledger: three failed turns (one cause), two invalid inputs
@@ -410,7 +409,8 @@ fn a_non_owners_drop_or_move_is_refused_and_ledgered() {
     seed_day(&c, t0);
     c.backlog_night(tick()).unwrap();
     let item = listed(&c)[0].id.clone();
-    let before = listed_unscored(&c);
+    let now = tick();
+    let before = listed_at(&c, now);
     let e = c
         .self_drop(
             &SelfDropParams {
@@ -449,7 +449,11 @@ fn a_non_owners_drop_or_move_is_refused_and_ledgered() {
         .filter(|r| r["act"] == "self.drop" || r["act"] == "self.move")
         .collect();
     assert_eq!(refused.len(), 3, "{refused:?}");
-    assert_eq!(listed_unscored(&c), before, "nothing changed");
+    assert_eq!(
+        listed_at(&c, now),
+        before,
+        "nothing changed, scores included"
+    );
     assert!(rows(&c, "self.backlog.dropped").is_empty());
 }
 

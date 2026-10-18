@@ -153,11 +153,22 @@ fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
         // L1 refuses a root daemon's job: the call says so, and the check did
         // not run anywhere else.
         assert_eq!(calls[1], ("proc.run", "refused"), "{r}");
+        assert!(
+            whole["calls"][1]["why"]
+                .as_str()
+                .is_some_and(|w| w.contains("runs as root")),
+            "a refusal says why: {r}"
+        );
         assert_eq!(whole["tests"][0]["exit"], Value::Null);
     } else {
-        assert_eq!(calls[1], ("proc.run", "ran"), "{r}");
+        assert_eq!(
+            calls[1],
+            ("proc.run", "ran"),
+            "the program did not run ({}): {r}",
+            whole["calls"][1]["why"]
+        );
         assert_eq!(whole["tests"][0]["exit"], 0, "{r}");
-        assert_eq!(whole["same"]["tests"], true);
+        assert_eq!(whole["same"]["tests"], true, "{r}");
     }
     let tail = s.call("ledger.tail", json!({"n": 500})).unwrap();
     let row = tail["rows"]

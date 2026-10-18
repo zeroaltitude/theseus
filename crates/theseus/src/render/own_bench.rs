@@ -153,9 +153,10 @@ fn whole_lines(w: &theseus_protocol::own_bench::WholeReplay) -> Vec<String> {
         } else {
             w.calls
                 .iter()
-                .map(|c| match c.exit {
-                    Some(e) => format!("{} {} (exit {e})", c.tool, c.how),
-                    None => format!("{} {}", c.tool, c.how),
+                .map(|c| match (c.exit, &c.why) {
+                    (Some(e), _) => format!("{} {} (exit {e})", c.tool, c.how),
+                    (None, Some(why)) => format!("{} {}: {why}", c.tool, c.how),
+                    (None, None) => format!("{} {}", c.tool, c.how),
                 })
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -293,17 +294,18 @@ mod tests {
                 WholeCall {
                     tool: "fs_edit".into(),
                     how: "ran".into(),
-                    exit: None,
+                    ..Default::default()
                 },
                 WholeCall {
                     tool: "proc_run".into(),
                     how: "ran".into(),
                     exit: Some(0),
+                    ..Default::default()
                 },
                 WholeCall {
                     tool: "wake_at".into(),
                     how: "stub".into(),
-                    exit: None,
+                    ..Default::default()
                 },
             ],
             changed: vec!["a.rs".into()],

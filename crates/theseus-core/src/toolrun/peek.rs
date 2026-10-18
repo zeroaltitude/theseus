@@ -112,10 +112,18 @@ fn plain(l: &str) -> String {
     out
 }
 
+/// The last *complete* line: what the job has ended with a newline, or with a
+/// carriage return (a progress bar's finished rewrite). The text after that
+/// is a line the job is still writing, and a sample taken mid-write would
+/// show half of it (`ch` of `chatty 41 …`, theseus-s8jod), so it is left for
+/// the next sample. A file with no terminated line yet has no last line.
 pub(super) fn last_line_from<R: Read + Seek>(mut r: R) -> std::io::Result<Option<String>> {
     let tail = super::job::read_tail(&mut r, LAST_LINE_BYTES)?;
-    let line = tail
+    let whole = tail
         .text
+        .rfind(['\n', '\r'])
+        .map_or("", |end| &tail.text[..=end]);
+    let line = whole
         .lines()
         .rev()
         .map(|l| l.rsplit('\r').find(|p| !p.trim().is_empty()).unwrap_or(""))
@@ -209,6 +217,30 @@ mod tests {
         );
         assert_eq!(last_line_from(Cursor::new(Vec::new())).unwrap(), None);
         assert_eq!(last_line(Path::new("/no/such/invented.out")), None);
+    }
+
+    /// A reader that ends mid-line (a job caught between two writes): the sample is the last
+    /// line that was finished, never the half of the one being written (theseus-s8jod). With no
+    /// finished line yet there is none to show.
+    #[test]
+    fn a_line_still_being_written_is_never_the_last_line() {
+        let said = |bytes: &[u8]| last_line_from(Cursor::new(bytes.to_vec())).unwrap();
+        assert_eq!(said(b"chatty 1\nchatty 2\nch").as_deref(), Some("chatty 2"));
+        assert_eq!(said(b"chatty 1\nchatty 2\n").as_deref(), Some("chatty 2"));
+        assert_eq!(said(b"chatty 1\n\n   \nch").as_deref(), Some("chatty 1"));
+        assert_eq!(said(b"chatty"), None);
+        assert_eq!(said(b"\nchatty"), None);
+        // A bar rewriting itself: the last finished rewrite shows, not the one being drawn.
+        assert_eq!(
+            said(b"fetch 10%\rfetch 55%\rfetch 9").as_deref(),
+            Some("fetch 55%")
+        );
+        // The sampler's own cut: a tail that starts inside a line still ends at a whole one.
+        let body: String = (1..=5000)
+            .map(|i| format!("line {i}\n"))
+            .collect::<String>()
+            + "li";
+        assert_eq!(said(body.as_bytes()).as_deref(), Some("line 5000"));
     }
 
     /// A reader that counts the bytes read from it.

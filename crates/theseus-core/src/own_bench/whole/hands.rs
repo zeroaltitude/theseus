@@ -176,10 +176,15 @@ impl<'a> Hands<'a> {
     }
 
     fn note(&mut self, tool: &str, how: &str, exit: Option<i32>) {
+        self.note_why(tool, how, exit, None);
+    }
+
+    fn note_why(&mut self, tool: &str, how: &str, exit: Option<i32>, why: Option<String>) {
         self.calls.push(WholeCall {
             tool: tool.into(),
             how: how.into(),
             exit,
+            why,
         });
     }
 
@@ -307,8 +312,19 @@ impl<'a> Hands<'a> {
                 stderr: String::new(),
                 failed: Some(format!("the program's run did not finish: {e}")),
             });
-            let how = if run.code.is_none() { "refused" } else { "ran" };
-            self.note(PROGRAM, how, run.code);
+            // `refused` is a policy's answer (L1 will not run a root daemon's job); a program
+            // that could not start, or ran out of time, `failed`, and says why.
+            let why = run.code.is_none().then(|| {
+                run.failed
+                    .clone()
+                    .unwrap_or_else(|| "ended by a signal".into())
+            });
+            let how = match &why {
+                None => "ran",
+                Some(w) if w.contains(theseus_sandbox::ROOT_REFUSED) => "refused",
+                Some(_) => "failed",
+            };
+            self.note_why(PROGRAM, how, run.code, why);
             self.ran.push(Ran {
                 argv: spec.argv.clone(),
                 exit: run.code,
