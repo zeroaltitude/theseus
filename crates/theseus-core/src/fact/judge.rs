@@ -333,9 +333,9 @@ impl Fact for JudgeShed {
     }
 }
 
-/// A notified call's `security.v1` score landed, after its notice
+/// A notified call's `security.v3` score landed, after its notice
 /// (`judge.scored`; step 24, design §2.8b): told to the turn's clients, who
-/// add `risk N% (shadow)` to the notice's line. No row: the judgment's
+/// add `risk N% (live)` to the notice's line. No row: the judgment's
 /// `judge.call` row is the record.
 pub struct JudgeScored<'a> {
     pub scored: &'a theseus_protocol::judge::JudgeScored,
@@ -554,7 +554,7 @@ impl Fact for JudgeNotified<'_> {
 }
 
 /// `security.v3`'s notices paused for the rest of the local day: a rule of
-/// `security.v1`'s `[[rollback]]` fired (design §2.7's brake). A
+/// the `security` pack's rollback rules fired (design §2.7's brake). A
 /// `judge.paused` row with `pack` and `what: "notices"`, unlike the shadow
 /// budget's, scoped `judge:security` by its writer; the pack still judges,
 /// in shadow. Step 26a's ladder reads it as the mode it sets.

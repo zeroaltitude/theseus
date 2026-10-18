@@ -624,5 +624,11 @@ mod tests {
         let s = cfg("[packs.\"loop.v1\"]\nsample = 0.25").unwrap();
         assert_eq!(s.sample_of("loop.v1", 1.0), 0.25);
         assert_eq!(s.sample_of("security.v1", 1.0), 1.0);
+        // A retired pack's table (security.v1 is no longer asked, theseus-rwpbg.6)
+        // still loads: it names a pack nothing wires, and is not an error.
+        cfg("[packs.\"security.v1\"]\nmode = \"shadow\"")
+            .unwrap()
+            .validate(&secrets)
+            .unwrap();
     }
 }

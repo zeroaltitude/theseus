@@ -22,11 +22,12 @@
 //! - **Priced, inside the shadow budget** (`spend`): an unpriced model is
 //!   never called, and a judgment that would pass the day's limit is skipped
 //!   and counted, never queued.
-//! - **At the gate** (step 24, `gate`): `security.v1` and `security.v3` in
-//!   shadow, asked of every call that acts once the gate has decided; the
-//!   call never waits on them. `security.v3` is live as notices (`notice`,
-//!   the owner's decision of 2026-10-04): after an open call it is sure was
-//!   risky, the owner hears of it, under `security.v1`'s brake.
+//! - **At the gate** (step 24, `gate`): `security.v3`, asked of every call
+//!   that acts once the gate has decided; the call never waits on it.
+//!   It is live as notices (`notice`, the owner's decision of 2026-10-04):
+//!   after an open call it is sure was risky, the owner hears of it, under
+//!   the `security` pack's brake. `security.v1` was asked beside it until
+//!   theseus-rwpbg.6 and is unwired.
 
 pub mod categorize;
 pub mod citation;
@@ -88,8 +89,7 @@ use spend::{Reserve, ShadowBudget};
 /// owner's D8 of 2026-10-10: live, not shadow).
 pub const WIRED: &[(&str, PackMode)] = &[
     (LOOP_PACK, PackMode::Live),
-    (gate::SECURITY_PACK, PackMode::Shadow),
-    (gate::SECURITY_CANDIDATE, PackMode::Live),
+    (gate::SECURITY_PACK, PackMode::Live),
     (inbound::CLASSIFY_PACK, PackMode::Live),
     (inbound::ROLE_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),

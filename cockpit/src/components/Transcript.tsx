@@ -420,7 +420,7 @@ function ToolItem({ call, result, asking, tightened, scores, noticed }: { call: 
             ? <Pill tone="idle" title="a /stop ended this call">stopped by {words.stoppedBy}</Pill>
             : <Pill tone={waiting ? 'wait' : tone}>{denied ? <OctagonX size={11} /> : failed ? <OctagonX size={11} /> : result ? <CircleCheck size={11} /> : null}{waiting ? 'waits for you' : denied ? 'not run' : failed ? 'error' : result ? (r.status ?? 'ok') : 'pending'}</Pill>}
         </button>
-        {notice && <div className="flex items-center gap-2 px-3 pb-1 pl-9">{score && <Pill tone="wait" title={`security.v1, in shadow: uncalibrated, and nothing acts on it\n${score.judgment}`}>{scoreWords(score)}</Pill>}<ShouldHaveAsked tool={tool} corr={corr} tightened={tightened?.get(tool)} /></div>}
+        {notice && <div className="flex items-center gap-2 px-3 pb-1 pl-9">{score && <Pill tone="wait" title={`security score: uncalibrated; the score only joins this notice\n${score.judgment}`}>{scoreWords(score)}</Pill>}<ShouldHaveAsked tool={tool} corr={corr} tightened={tightened?.get(tool)} /></div>}
         {jev && (
           <div className="flex flex-wrap items-center gap-2 px-3 pb-1 pl-9">
             <Pill tone="wait" title={`security.v3, live: posted to the owner after the call ran; the call never waited\n${jev.judgment}`}>🔔 {jev.line}</Pill>

@@ -282,7 +282,6 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         h.packs,
         [
             "loop.v1: shadow",
-            "security.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v3: off",
             "role.v1: off",
@@ -475,7 +474,6 @@ async fn an_off_judge_or_pack_calls_nothing() {
         pack_off.core.health().judge.unwrap().packs,
         [
             "loop.v1: off",
-            "security.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v3: off",
             "role.v1: off",

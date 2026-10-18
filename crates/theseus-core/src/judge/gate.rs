@@ -1,6 +1,6 @@
-//! `security.v1` and `security.v3` at `gate` (M5 step 24; design §2.4's
-//! `security.v1` row, §2.8b, §5's Q2 and Q12): the operator's "this is
-//! risky: 0-100%", asked of every call that acts, after the gate decides.
+//! `security.v3` at `gate` (M5 step 24; design §2.4's `security.v1` row,
+//! §2.8b, §5's Q2 and Q12): the operator's "this is risky: 0-100%", asked of
+//! every call that acts, after the gate decides.
 //!
 //! - **Which calls** ([`judged`]): every call whose class is not `read`, and
 //!   every `http.fetch` and `web.search` in a session that holds external
@@ -10,11 +10,13 @@
 //!   the marks, nothing else. The state's build (the session's nodes, the
 //!   hold, the last calls, v3's recent reads), its scrub and cap, the blobs,
 //!   the reservation, the call, and the record are the spawned task's. The
-//!   gate never waits on it, so a judgment changes no call's treatment: in
-//!   shadow it is recorded and shown, and nothing acts on it (Q2).
-//! - **One decision point**, `security.v1` (the incumbent) and `security.v3`
-//!   (the candidate: v2's questions with `steered` deciding beside `risky`).
-//!   v2 stays unwired: its questions are v3's, and would be asked twice.
+//!   gate never waits on it, so a judgment changes no call's treatment: it
+//!   is recorded and shown, and the one thing that acts on it is a notice,
+//!   after the call (Q2).
+//! - **One pack**, `security.v3` (v2's questions with `steered` deciding
+//!   beside `risky`). `security.v1`, which was asked beside it until
+//!   theseus-rwpbg.6, and v2 stay embedded for replay and for their stored
+//!   judgments, and are unwired.
 //! - **Ids minted here.** A judgment's id is the call's correlation id and
 //!   its pack, hashed ([`judgment_id`]), so the trace's mark names the row's
 //!   key before the row exists, and a "should have asked" press names the
@@ -23,11 +25,11 @@
 //! - **The record** names the call (its correlation id), its posture and
 //!   why, and whether the hold made it wait, so the hold's asks can be set
 //!   beside the scores (theseus-hnc8).
-//! - **The score** of a notified call follows its notice: `security.v1`'s
+//! - **The score** of a notified call follows its notice: `security.v3`'s
 //!   `risky`, as `judge.scored`, to the turn's clients (best effort, as live
 //!   progress is; the `judge.call` row is the record).
 //! - **A notice** follows an open call `security.v3`, live, answered
-//!   `risky` in its act band (`notice`): posted once the judgments land,
+//!   `risky` in its act band (`notice`): posted once the judgment lands,
 //!   beside the running call, never on its path.
 
 use std::sync::{Arc, Weak};
@@ -45,18 +47,15 @@ use crate::bus::EventSink;
 use crate::config::PackMode;
 use crate::node::{Body, Node, Origin, ResultStatus};
 
-/// The incumbent: the owner's `risky`, whose score the notice shows.
-pub const SECURITY_PACK: &str = "security.v1";
-/// The candidate: v2's state and questions, with `steered` deciding.
-pub const SECURITY_CANDIDATE: &str = "security.v3";
-/// The packs asked at `gate`, in the decision point's order.
-pub const GATE_PACKS: [&str; 2] = [SECURITY_PACK, SECURITY_CANDIDATE];
+/// The pack asked at `gate`: v2's state and questions, with `steered`
+/// deciding beside `risky`.
+pub const SECURITY_PACK: &str = "security.v3";
 
 /// The headline question whose probability a notice shows.
 pub const RISKY: &str = "risky";
 
-/// The session's calls before this one a state is built from: v1 shows the
-/// newest five, v3 computes its facts over the tail.
+/// The session's calls before this one a state is built from: the pack
+/// computes its facts over the tail.
 const LAST_CALLS: usize = 20;
 /// The reads v3's state may show (it keeps the newest three).
 const RECENT_READS: usize = 6;
@@ -141,74 +140,68 @@ pub fn marks(judged: &[Mark], at: impl Fn(Instant) -> u64) -> Vec<theseus_protoc
 }
 
 impl JudgeService {
-    /// Any pack at `gate` is on: false with the judge off, so the call's
+    /// The pack at `gate` is on: false with the judge off, so the call's
     /// path reads nothing more.
     pub fn gate_on(&self) -> bool {
-        GATE_PACKS.iter().any(|p| self.pack_on(p))
+        self.pack_on(SECURITY_PACK)
     }
 
     /// `security.v3` is live as notices in `session`, as the ladder gives it
     /// there (26a): its judgments are marked and recorded `live`, and the
     /// gate hands it the turn's clients.
     pub fn notices_live(&self, session: &str) -> bool {
-        let name = self.placed(SECURITY_CANDIDATE, session);
+        let name = self.placed(SECURITY_PACK, session);
         self.mode_for(&name, session).mode == PackMode::Live
     }
 
-    /// A gated call, planned and its notice sent: each gate pack that is on
-    /// and samples it gets a judgment, minted and marked here and made in a
-    /// task of its own. Returns at once with the marks, whatever Jev does.
+    /// A gated call, planned and its notice sent: the gate pack, when it is
+    /// on and samples the call, gets a judgment, minted and marked here and
+    /// made in a task of its own. Returns at once with the mark, whatever Jev
+    /// does.
     pub fn at_gate(&self, call: GateCall, sink: Option<EventSink>) -> Vec<Mark> {
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             return Vec::new();
         };
-        let mut asks = Vec::new();
-        let mut marks = Vec::new();
-        for name in GATE_PACKS {
-            // The version standing in the root's place (25f); the
-            // judgment's id stays the root's, so a press finds it.
-            let placed = self.placed(name, &call.session_id);
-            let given = self.mode_for(&placed, &call.session_id);
-            if !given.on() {
-                continue;
-            }
-            let Some(pack) = self.pack(&placed) else {
-                continue;
-            };
-            if !super::sampled(&call.correlation_id, self.cfg.sample_of(name, pack.sample)) {
-                continue;
-            }
-            let id = judgment_id(name, &call.correlation_id);
-            marks.push(Mark {
-                at: Instant::now(),
-                attrs: json!({"pack": placed, "point": "gate", "mode": super::mark::mode_str(given.judge_mode()),
-                    "judgment": id, "call": call.correlation_id}),
-            });
-            asks.push((pack, id, given));
+        // The version standing in the root's place (25f); the judgment's id
+        // stays the root's, so a press finds it.
+        let placed = self.placed(SECURITY_PACK, &call.session_id);
+        let given = self.mode_for(&placed, &call.session_id);
+        let Some(pack) = given.on().then(|| self.pack(&placed)).flatten() else {
+            return Vec::new();
+        };
+        if !super::sampled(
+            &call.correlation_id,
+            self.cfg.sample_of(SECURITY_PACK, pack.sample),
+        ) {
+            return Vec::new();
         }
-        if asks.is_empty() {
-            return marks;
-        }
-        self.pending_insert(asks.iter().map(|(_, id, _)| id.clone()));
-        rt.spawn(judge_gate(self.me.clone(), call, asks, sink));
-        marks
+        let id = judgment_id(SECURITY_PACK, &call.correlation_id);
+        let mark = Mark {
+            at: Instant::now(),
+            attrs: json!({"pack": placed, "point": "gate", "mode": super::mark::mode_str(given.judge_mode()),
+                "judgment": id, "call": call.correlation_id}),
+        };
+        self.pending_insert([id.clone()]);
+        rt.spawn(judge_gate(
+            self.me.clone(),
+            call,
+            vec![(pack, id, given)],
+            sink,
+        ));
+        vec![mark]
     }
 
     /// The judgments made of a call at `gate`, by pack: those whose rows are
     /// written, and those still in the sink's window.
     pub fn of_call(&self, correlation_id: &str) -> Vec<(&'static str, String)> {
-        GATE_PACKS
-            .iter()
-            .map(|p| (*p, judgment_id(p, correlation_id)))
-            .filter(|(_, id)| {
-                self.pending_has(id)
-                    || self
-                        .store
-                        .inner()
-                        .latest_by_key(theseus_store::kinds::LEDGER, id)
-                        .is_ok_and(|r| r.is_some())
-            })
-            .collect()
+        let id = judgment_id(SECURITY_PACK, correlation_id);
+        let made = self.pending_has(&id)
+            || self
+                .store
+                .inner()
+                .latest_by_key(theseus_store::kinds::LEDGER, &id)
+                .is_ok_and(|r| r.is_some());
+        made.then_some((SECURITY_PACK, id)).into_iter().collect()
     }
 
     /// "Should have asked" on a call (`theseus policy tighten TOOL --call
@@ -269,7 +262,7 @@ impl JudgeService {
             .ok()
             .flatten();
         let now = theseus_protocol::now_unix_ms();
-        let v1 = input(call, &nodes, hold.as_ref(), now);
+        let base = input(call, &nodes, hold.as_ref(), now);
         let scrub = ScrubWith(self.scrubber.clone());
         let built = self
             .built()
@@ -277,13 +270,10 @@ impl JudgeService {
             .ok()?;
         let mut out = Vec::new();
         for (pack, id, given) in asks {
-            let i = match pack.builder {
-                theseus_judge::pack::Builder::Security => Input::Security(v1.clone()),
-                _ => Input::Security2(SecurityInput {
-                    recent_reads: recent_reads(&nodes, &call.tool_use_id),
-                    ..v1.clone()
-                }),
-            };
+            let i = Input::Security2(SecurityInput {
+                recent_reads: recent_reads(&nodes, &call.tool_use_id),
+                ..base.clone()
+            });
             let Ok(state) = theseus_judge::prepare(&pack, &i, &scrub) else {
                 continue;
             };
@@ -412,7 +402,7 @@ async fn judge_gate(
                 tool: call.tool.clone(),
                 pack: j.pack.clone(),
                 judgment: j.id.clone(),
-                mode: "shadow".into(),
+                mode: super::mark::mode_str(j.mode).into(),
                 risky,
                 percent: theseus_protocol::judge::percent(risky),
             },
@@ -420,9 +410,10 @@ async fn judge_gate(
     }
 }
 
-/// `security.v1`'s input for the call, from its session's nodes: the call
+/// The pack's input for the call, from its session's nodes: the call
 /// (tool, class, posture and why, argv, paths, URL, other arguments), the
-/// operator's last ask, the hold, and the calls before it.
+/// operator's last ask, the hold, and the calls before it (the reads are
+/// added by the caller).
 pub fn input(
     call: &GateCall,
     nodes: &[Node],
@@ -465,7 +456,7 @@ pub fn input(
         }),
         last_calls: last_calls(nodes, &call.tool_use_id),
         recent_reads: Vec::new(),
-        // File provenance waits for v3's shadow data (Item 95).
+        // File provenance waits for the pack's shadow data (Item 95).
         tainted_paths: Vec::new(),
     }
 }
@@ -597,7 +588,7 @@ mod tests {
     fn a_judgments_id_is_its_pack_and_call() {
         let a = judgment_id(SECURITY_PACK, "act_1");
         assert_eq!(a, judgment_id(SECURITY_PACK, "act_1"));
-        assert_ne!(a, judgment_id(SECURITY_CANDIDATE, "act_1"));
+        assert_ne!(a, judgment_id("security.v2", "act_1"));
         assert_ne!(a, judgment_id(SECURITY_PACK, "act_2"));
         assert!(a.starts_with("jdg_") && a.len() == 36, "{a}");
     }

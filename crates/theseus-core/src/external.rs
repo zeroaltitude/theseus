@@ -2,7 +2,7 @@
 //! outside Theseus, a call that acts waits for the operator's approval, until
 //! the operator trusts the session again. It is the interim, deterministic
 //! floor for web text, before provenance labels (§3.9 "Exposure") and Jev's
-//! `security.v1` (M5).
+//! `security.v3` (M5).
 //!
 //! - **Reading.** A session reads external text when a result node marked
 //!   `external` (DD5) enters its context: `http.fetch` and `web.search` today.

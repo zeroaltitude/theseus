@@ -2,9 +2,9 @@
 
 /**
  * `judge.scored` (M5 step 24, design §2.8b): a notified call's
- * `security.v1` judgment landed, after its notice. In shadow the score is
- * uncalibrated and acts on nothing; a notice line shows it as
- * `risk 12% (shadow)`. Live progress, best effort: the judgment's
+ * `security.v3` judgment landed, after its notice (`security.v1` made it
+ * until theseus-rwpbg.6). The score is uncalibrated and a notice line shows
+ * it as `risk 12% (live)`. Live progress, best effort: the judgment's
  * `judge.call` row is the record.
  */
 export type JudgeScored = { session_id: string, turn_id: string, 
@@ -13,7 +13,7 @@ export type JudgeScored = { session_id: string, turn_id: string,
  */
 tool_use_id: string, correlation_id: string, tool: string, 
 /**
- * `security.v1`.
+ * `security.v3`.
  */
 pack: string, 
 /**
@@ -21,7 +21,7 @@ pack: string,
  */
 judgment: string, 
 /**
- * `shadow`.
+ * The judgment's mode: `live`, or `shadow` as the ladder had it.
  */
 mode: string, 
 /**

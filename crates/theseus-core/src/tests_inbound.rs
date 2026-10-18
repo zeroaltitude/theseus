@@ -74,9 +74,9 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
         .packs
         .insert(crate::judge::inbound::ROUTE_PACK.into(), off());
     c.judge.packs.insert("loop.v1".into(), off());
-    for p in crate::judge::gate::GATE_PACKS {
-        c.judge.packs.insert(p.into(), off());
-    }
+    c.judge
+        .packs
+        .insert(crate::judge::gate::SECURITY_PACK.into(), off());
     c.judge
         .packs
         .insert(crate::judge::compile::CONTINUE_PACK.into(), off());
@@ -98,9 +98,8 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 16] = [
+const INBOUND_ALONE: [&str; 15] = [
     "loop.v1: off",
-    "security.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v3: live",
     "role.v1: shadow",

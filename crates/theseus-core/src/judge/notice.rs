@@ -14,7 +14,8 @@
 //!   Discord binding posts to the owner's DM alone, never a shared place)
 //!   and its `tool.notified` row (`by: judge`, keyed `notice_<judgment>`,
 //!   scoped `judge:security`); then `judge.noticed` to the turn's clients.
-//! - **The brake** ([`Brake`]): `security.v1`'s `[[rollback]]` rules (more
+//! - **The brake** ([`Brake`]): the `security` pack's rollback rules, from
+//!   the ladder's adoption table (more
 //!   than 30 notices in a day, or 3 labeled `noise` in a day), run by
 //!   `theseus_judge::learn::check_all` over the local day's notices and the
 //!   owner's `noise` labels on v3's judgments, from any surface, as each
@@ -37,7 +38,7 @@ use theseus_protocol::judge::{percent, JudgeNoticed};
 use theseus_protocol::{Notice, PolicyNotified};
 use theseus_store::{kinds, NewRecord};
 
-use super::gate::{GateCall, RISKY, SECURITY_CANDIDATE, SECURITY_PACK};
+use super::gate::{GateCall, RISKY, SECURITY_PACK};
 use super::{spend, JudgeService};
 use crate::bus::EventSink;
 use crate::config::PackMode;
@@ -83,7 +84,7 @@ pub fn flagged(call: &GateCall, judgments: &[Judgment]) -> Option<JudgeNoticed> 
         // Live, or canary in a canary's arm: the ladder records an acting
         // canary so (26a).
         .find(|j| {
-            (j.pack == SECURITY_CANDIDATE || j.context["root"] == SECURITY_CANDIDATE)
+            (j.pack == SECURITY_PACK || j.context["root"] == SECURITY_PACK)
                 && matches!(j.mode, Mode::Live | Mode::Canary)
                 && j.actionable()
         })?;
@@ -169,11 +170,13 @@ impl Brake {
     }
 }
 
-/// `security.v1`'s rollback rules, the design's brake on these notices.
+/// The design's brake on these notices (§2.7): `security.v3`'s rules as
+/// the ladder reads them (its file's, then the `security` adoption table's:
+/// more than 30 notices in a day, or 3 judgments labeled `noise`), so the
+/// brake and the ladder's rollback check can never disagree. These were
+/// `security.v1`'s `[[rollback]]` until theseus-rwpbg.6 (theseus-w4f).
 fn rules() -> Vec<RollbackRule> {
-    theseus_judge::pack::by_name(SECURITY_PACK)
-        .map(|p| p.rollback.clone())
-        .unwrap_or_default()
+    super::ladder::rules::rules_of(SECURITY_PACK)
 }
 
 /// The day's events as the rules read them, with one more notice when a
@@ -346,7 +349,7 @@ fn count(d: &mut Day, row: &LedgerRow) {
         "tool.notified" | "judge.label" if spend::local_day(row.at_unix_ms) != d.day => {}
         "tool.notified" if x["by"] == "judge" => d.notices += 1,
         "judge.label"
-            if (x["pack"] == SECURITY_CANDIDATE || learned_v3(x["pack"].as_str()))
+            if (x["pack"] == SECURITY_PACK || learned_v3(x["pack"].as_str()))
                 && x["label"] == "noise"
                 && x["source"] == "operator" =>
         {
@@ -455,7 +458,7 @@ impl JudgeService {
         let day = self.today();
         // Counted on the version standing in v3's place (25f), whose rules
         // are v3's.
-        let placed = self.placed(SECURITY_CANDIDATE, &n.session_id);
+        let placed = self.placed(SECURITY_PACK, &n.session_id);
         self.land(&placed, CanaryEvent::Notice { day });
         let f = JudgeNotified {
             notice: &notice,
@@ -482,7 +485,7 @@ impl JudgeService {
     /// says so, and the META mark.
     fn pause_notices(&self, core: &crate::rpc::Core, session: Option<&str>, p: &Paused) {
         let f = JudgeNoticesPaused {
-            pack: SECURITY_CANDIDATE,
+            pack: SECURITY_PACK,
             day: &p.day,
             until: &p.until,
             rule: &p.rule,
@@ -520,11 +523,10 @@ impl JudgeService {
     /// on a noticed judgment shows on its post, whose buttons go.
     pub(crate) fn after_label(&self, core: &crate::rpc::Core, label: &Labeled<'_>) {
         let session = label.session.unwrap_or_default();
-        let v3_line =
-            label.pack == SECURITY_CANDIDATE || self.root_of(label.pack) == SECURITY_CANDIDATE;
+        let v3_line = label.pack == SECURITY_PACK || self.root_of(label.pack) == SECURITY_PACK;
         if !v3_line
             || self
-                .mode_for(&self.placed(SECURITY_CANDIDATE, session), session)
+                .mode_for(&self.placed(SECURITY_PACK, session), session)
                 .mode
                 != PackMode::Live
         {
@@ -577,7 +579,7 @@ impl JudgeService {
         // health never reads it itself. A pause today reads as paused,
         // though the ladder takes it as a day's brake; any other move down
         // as off (26a).
-        if self.cfg.mode_of(SECURITY_CANDIDATE, PackMode::Live) != PackMode::Live {
+        if self.cfg.mode_of(SECURITY_PACK, PackMode::Live) != PackMode::Live {
             return "off".into();
         }
         let today = spend::local_day(self.brake.now_ms());
@@ -597,7 +599,7 @@ impl JudgeService {
         let acts = !self.ladder().is_loaded()
             || self
                 .ladder()
-                .standing(&self.placed(SECURITY_CANDIDATE, ""))
+                .standing(&self.placed(SECURITY_PACK, ""))
                 .rung
                 .acts();
         match paused {
@@ -632,4 +634,27 @@ fn learned_v3(pack: Option<&str>) -> bool {
     pack.and_then(|p| p.strip_prefix("security.v"))
         .and_then(|v| v.parse::<u32>().ok())
         .is_some_and(theseus_judge::propose::is_learned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The brake's rules are v3's, as the ladder reads them, and are the
+    /// numbers `security.v1`'s file gave it: nothing was lost in the move.
+    #[test]
+    fn the_brake_reads_v3s_rollback_rules() {
+        assert_eq!(
+            rules(),
+            [
+                RollbackRule::NoticesPerDay { max: 30 },
+                RollbackRule::LabelsPerDay {
+                    label: "noise".into(),
+                    count: 3
+                },
+            ]
+        );
+        let v1 = theseus_judge::pack::by_name("security.v1").unwrap();
+        assert_eq!(rules(), v1.rollback, "the same rules v1 gave it");
+    }
 }

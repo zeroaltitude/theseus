@@ -1040,8 +1040,8 @@ impl ToolRuntime {
         Ok((outcome, judged))
     }
 
-    /// `security.v1` and `security.v3` at `gate` (M5 step 24): the choice
-    /// to judge the call, and the marks. Everything else is the judge's own
+    /// `security.v3` at `gate` (M5 step 24): the choice to judge the call,
+    /// and the mark. Everything else is the judge's own
     /// task: the gate's decision stands as it was made.
     fn judge_at_gate(
         &self,

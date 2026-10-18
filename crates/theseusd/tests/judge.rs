@@ -217,7 +217,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
         json!([
             // Live at a turn's stop while `[judge] stop_nudge` is on (theseus-fh0u).
             "loop.v1: live",
-            "security.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v3: off",
             "role.v1: off",
@@ -358,14 +357,17 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
         "loop.v1: canary 1.0 (owner: forced by the owner)"
     );
     let card = rig
-        .call("pack.promote", json!({"pack": "security.v1", "to": "live"}))
+        .call(
+            "pack.promote",
+            json!({"pack": "security.v3", "to": "canary", "share": 0.5}),
+        )
         .unwrap();
     let q = card["question"].as_str().unwrap().to_string();
     let listed = rig.call("confirm.list", Value::Null).unwrap();
     assert!(listed.to_string().contains(&q), "{listed}");
     assert_eq!(
-        line(&rig, "security.v1"),
-        "security.v1: shadow",
+        line(&rig, "security.v3"),
+        "security.v3: live (owner: decision of 2026-10-04)",
         "no mode yet"
     );
     rig.call(
@@ -373,7 +375,7 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
         json!({"correlation_id": q, "approve": true}),
     )
     .unwrap();
-    assert!(line(&rig, "security.v1").starts_with("security.v1: live (owner: "));
+    assert!(line(&rig, "security.v3").starts_with("security.v3: canary 0.5 (owner: "));
     let rows = rig.rows("pack.mode").len();
     assert_eq!(
         rows, 5,

@@ -14,7 +14,7 @@ use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
 use theseus_protocol::learning::JudgeLabelParams;
 
 use crate::config::{JudgePackConfig, PackMode};
-use crate::judge::gate::{judgment_id, SECURITY_CANDIDATE};
+use crate::judge::gate::{judgment_id, SECURITY_PACK};
 use crate::judge::notice::notice_key;
 use crate::ledger::LedgerRow;
 use crate::outbox::{body_of, kind_of, OPERATOR_TARGET};
@@ -112,7 +112,7 @@ async fn an_open_call_jev_is_sure_was_risky_posts_one_notice_after_it_started() 
     .await;
     settle().await;
     let (corr, _) = the_call(&r.core, &sid, "proc.run");
-    let id = judgment_id(SECURITY_CANDIDATE, &corr);
+    let id = judgment_id(SECURITY_PACK, &corr);
     let rows = notices(&r.core.store);
     assert_eq!(rows.len(), 1, "one notice: {rows:?}");
     let n = &rows[0].data;
@@ -155,16 +155,16 @@ async fn an_open_call_jev_is_sure_was_risky_posts_one_notice_after_it_started() 
         told.line(),
         "Jev: 95% risky (sends data out 92%, beyond the ask 71%)"
     );
-    // v3 is live; v1 stays in shadow.
-    let judged = until_judged(&r.core.store, 2).await;
+    // v3 is live; v1 is not asked.
+    let judged = until_judged(&r.core.store, 1).await;
     let mode = |pack: &str| {
         judged
             .iter()
             .find(|j| j.data["pack"] == pack)
             .map(|j| j.data["mode"].clone())
     };
-    assert_eq!(mode(SECURITY_CANDIDATE), Some(json!("live")));
-    assert_eq!(mode("security.v1"), Some(json!("shadow")));
+    assert_eq!(mode(SECURITY_PACK), Some(json!("live")));
+    assert_eq!(mode("security.v1"), None);
     let h = r.core.health().judge.unwrap();
     assert_eq!(h.notices, "on");
     assert!(
@@ -194,7 +194,7 @@ async fn an_open_call_jev_is_sure_was_risky_posts_one_notice_after_it_started() 
     jev.script("steered", Jev::Noul(0.99));
     let quiet = session(&r.core, None);
     turn(&r.core, &quiet, "say hi again", None).await;
-    until_judged(&r.core.store, 4).await;
+    until_judged(&r.core.store, 2).await;
     settle().await;
     assert_eq!(notices(&r.core.store).len(), 1, "0.89 posts none");
 }
@@ -215,7 +215,7 @@ async fn a_call_that_had_its_say_posts_nothing_new() {
         let sid = session(&r.core, held.then(a_hold));
         let res = turn(&r.core, &sid, "say hi", None).await;
         assert_eq!(res.awaiting_confirm.is_some(), p != Posture::Notify || held);
-        until_judged(&r.core.store, 2).await;
+        until_judged(&r.core.store, 1).await;
         settle().await;
         assert!(notices(&r.core.store).is_empty(), "{p:?} held {held}");
         assert!(posts(&r.core, "jev_notice").is_empty(), "{p:?} held {held}");
@@ -231,7 +231,7 @@ async fn a_failed_judgment_posts_nothing() {
     let r = rig_with(echoes(), Some(&jev), posture(Posture::Open)).await;
     let sid = session(&r.core, None);
     turn(&r.core, &sid, "say hi", None).await;
-    let rows = until_judged(&r.core.store, 2).await;
+    let rows = until_judged(&r.core.store, 1).await;
     assert!(
         rows.iter()
             .all(|j| j.data["outcome"]["outcome"] == "failed"),
@@ -247,7 +247,7 @@ async fn started_after(jev: &FakeJev, on: bool) -> Duration {
         c.policy.tools.insert("proc.run".into(), Posture::Open);
         c.judge.total_secs = 6;
         c.judge.packs.insert(
-            SECURITY_CANDIDATE.into(),
+            SECURITY_PACK.into(),
             JudgePackConfig {
                 notices: Some(on),
                 ..Default::default()
@@ -309,7 +309,7 @@ async fn the_31st_notice_of_a_day_trips_the_brake_until_the_next_day() {
     flag(c, 1).await;
     until("the pause", || pauses(&c.store).len() == 1).await;
     flag(c, 2).await;
-    until_judged(&c.store, 66).await;
+    until_judged(&c.store, 33).await;
     settle().await;
     assert_eq!(
         notices(&c.store).len(),
@@ -322,7 +322,7 @@ async fn the_31st_notice_of_a_day_trips_the_brake_until_the_next_day() {
     assert_eq!(
         (d["pack"].as_str(), d["rule"].as_str(), d["short"].as_str()),
         (
-            Some(SECURITY_CANDIDATE),
+            Some(SECURITY_PACK),
             Some("notices_per_day"),
             Some("31 notices today")
         )
@@ -403,7 +403,7 @@ async fn three_noise_labels_trip_the_brake_and_a_restart_keeps_it() {
         .unwrap()
         .contains("paused until tomorrow: 3 labeled noise today"));
     flag(&core, 1).await;
-    until_judged(&core.store, 10).await;
+    until_judged(&core.store, 5).await;
     settle().await;
     assert_eq!(notices(&core.store).len(), 4, "paused: nothing posts");
     // A restart mid-pause: still paused, in health before any judgment,
@@ -413,7 +413,7 @@ async fn three_noise_labels_trip_the_brake_and_a_restart_keeps_it() {
     let h = core.health().judge.unwrap();
     assert!(h.notices.contains("3 labeled noise today"), "{}", h.notices);
     flag(&core, 1).await;
-    until_judged(&core.store, 12).await;
+    until_judged(&core.store, 6).await;
     settle().await;
     assert_eq!(
         notices(&core.store).len(),
@@ -464,7 +464,7 @@ async fn each_switch_keeps_v3_in_shadow_and_posts_nothing() {
         move |c: &mut Config| {
             c.policy.tools.insert("proc.run".into(), Posture::Open);
             c.judge.packs.insert(
-                SECURITY_CANDIDATE.into(),
+                SECURITY_PACK.into(),
                 JudgePackConfig {
                     notices,
                     mode,
@@ -485,13 +485,13 @@ async fn each_switch_keeps_v3_in_shadow_and_posts_nothing() {
     for (i, r) in rigs.iter().enumerate() {
         let sid = session(&r.core, None);
         turn(&r.core, &sid, "say hi", None).await;
-        let judged = until_judged(&r.core.store, 2).await;
+        let judged = until_judged(&r.core.store, 1).await;
         settle().await;
         assert!(notices(&r.core.store).is_empty(), "switch {i}");
         assert!(posts(&r.core, "jev_notice").is_empty(), "switch {i}");
         let v3 = judged
             .iter()
-            .find(|j| j.data["pack"] == SECURITY_CANDIDATE)
+            .find(|j| j.data["pack"] == SECURITY_PACK)
             .unwrap();
         assert_eq!(v3.data["mode"], "shadow", "switch {i}");
         let h = r.core.health().judge.unwrap();
@@ -552,7 +552,7 @@ async fn a_ladder_rollback_of_v3_stops_its_notices() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: SECURITY_CANDIDATE.into(),
+                pack: SECURITY_PACK.into(),
                 why: None,
                 off: false,
             },
@@ -561,13 +561,13 @@ async fn a_ladder_rollback_of_v3_stops_its_notices() {
         .unwrap();
     let sid = session(&r.core, None);
     turn(&r.core, &sid, "say hi", None).await;
-    let judged = until_judged(&r.core.store, 2).await;
+    let judged = until_judged(&r.core.store, 1).await;
     settle().await;
     assert!(notices(&r.core.store).is_empty(), "no notice");
     assert!(posts(&r.core, "jev_notice").is_empty(), "no post");
     let v3 = judged
         .iter()
-        .find(|j| j.data["pack"] == SECURITY_CANDIDATE)
+        .find(|j| j.data["pack"] == SECURITY_PACK)
         .unwrap();
     assert_eq!(v3.data["mode"], "shadow");
     let h = r.core.health().judge.unwrap();

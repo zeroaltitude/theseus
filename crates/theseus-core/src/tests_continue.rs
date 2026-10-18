@@ -486,7 +486,6 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
         h.packs,
         [
             "loop.v1: shadow",
-            "security.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v3: off",
             "role.v1: off",

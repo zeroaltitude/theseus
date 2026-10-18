@@ -94,14 +94,13 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
 
     let res = turn(&c, None, "Say hi, then tell me.").await;
     assert_eq!(res.tool_calls, 1, "{res:?}");
-    // Every point judged: the inbound batch's three, the gate's two, and
+    // Every point judged: the inbound batch's three, the gate's one, and
     // the loop's end. The compile's point is on too; continue.v1 judges
     // only a compile whose signal fired, and this turn's fires none.
     let want = [
         "classify.v3",
         "role.v1",
         "route.v6",
-        "security.v1",
         "security.v3",
         "loop.v1",
     ];
