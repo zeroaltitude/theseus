@@ -109,7 +109,10 @@ impl TurnRunner {
         };
         let mut loaded = offer(&extra);
         if mechanism == Mechanism::Find {
-            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded, fit.system);
+            // A family the message names is counted on the tools alone, as before trim-tokens: counting the
+            // system too would leave a named family one `tools_find` away at the cli, a change waiting on the
+            // owner's word (theseus-rwpbg.3's join). The learned loads are held to the whole request (`fit`).
+            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded, 0);
             if !wanted.is_empty() {
                 extra.extend(wanted);
                 loaded = offer(&extra);

@@ -636,19 +636,21 @@ fn rig_haiku() -> Rig {
 
 #[tokio::test]
 async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_message_names() {
-    // The cli's request is 7,350 tokens of its 8,000 with the system counted (theseus-buz3h), so the
-    // terminals (1,264 tokens) a message names do not fit there: they stay one `tools_find` away.
-    // `tests_route_defer` holds the family that does fit, loaded.
     let r = rig_haiku();
     let sid = session(&r.core, None);
-    say(&r.core, &sid, "open a terminal and run true").await;
+    let res = say(&r.core, &sid, "open a terminal and run true").await;
     let req = &r.requests()[0];
     assert!(
-        !offered(req).contains(&"term_open".to_string())
-            && offered(req).contains(&"tools_find".to_string()),
-        "a family that would pass the place's budget is not added: {:?}",
+        offered(req).contains(&"term_open".to_string()),
+        "{:?}",
         offered(req)
     );
+    assert_eq!(res.tool_calls, 1, "the call reached the tool");
+    assert!(rows(&r.core, "tools.missed").is_empty());
+    // The conversation's next turn holds the set still: no cache rewrite.
+    let first = tool_bytes(req);
+    say(&r.core, &sid, "and another terminal").await;
+    assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
 }
 
 /// install #30's live check (theseus-ezad2): asked "Call the thread_read tool once", Haiku on the owner's cli
