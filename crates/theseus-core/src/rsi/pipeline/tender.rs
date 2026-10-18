@@ -22,10 +22,12 @@ pub const EVERY: Duration = Duration::from_secs(120);
 
 impl Core {
     /// The self-improvement tenders after serving, in their order: the
-    /// join's, the revert watch's (theseus-pw1q.10) and the pipeline's.
+    /// join's, the revert watch's (theseus-pw1q.10), the minted tools' tender
+    /// (theseus-pw1q.21.8) and the pipeline's.
     pub fn self_after_serving(self: &Arc<Self>) {
         self.self_join_after_serving();
         self.self_revert_after_serving();
+        self.mint_tender_after_serving();
         self.pipeline_after_serving();
     }
 

@@ -75,7 +75,7 @@ use theseus_store::{kinds, NewRecord};
 use crate::store::Store;
 
 pub use digest::{capped as digest_capped, line as digest_line};
-pub use digest::{digest_text, week_of, DIGEST_KEY, WEEK_MS};
+pub use digest::{digest_text, week_of, DIGEST_KEY, NOTICE_KEY, WEEK_MS};
 pub use log::{entry_of, TODAY};
 
 /// The principal of every self-directed task and its sessions (S1): a reserved
@@ -172,6 +172,9 @@ pub struct Switch {
     /// When the weekly digest last went to the owner's DM (`digest.rs`):
     /// `None` until read, while `[self]` posts it.
     pub(crate) digest_at: Mutex<Option<u64>>,
+    /// The local day the morning notice was last settled for, `2026-10-18`
+    /// (`digest/notice.rs`): `None` until read.
+    pub(crate) notice_day: Mutex<Option<String>>,
     /// One backlog move at a time: a night, a drop, a move (`backlog.rs`).
     pub(crate) backlog: Mutex<()>,
     /// The self pipeline's one tick at a time, its one self-join pass at a

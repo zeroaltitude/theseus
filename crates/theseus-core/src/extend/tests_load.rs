@@ -683,3 +683,5 @@ async fn its_posture_is_the_policy_lines_and_its_loads_ceiling_floors_it() {
 mod floor;
 
 mod usage;
+
+mod self_load;

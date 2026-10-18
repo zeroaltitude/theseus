@@ -4,7 +4,13 @@
 //! cost, and every change, newest first. `theseus self digest` prints it;
 //! the Discord binding posts it to the owner's DM once a week while
 //! `[self] mode = "act"` and `digest = "weekly"` (`SelfImproveConfig::posts_digest`),
-//! and never while the mode is off.
+//! and never while the mode is off. The morning's notice of what the night
+//! landed is [`notice`] (theseus-pw1q.21.8), posted the same way.
+
+mod notice;
+pub use notice::NOTICE_KEY;
+#[cfg(test)]
+mod tests_notice;
 
 use std::collections::BTreeMap;
 

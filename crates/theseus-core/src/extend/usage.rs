@@ -105,6 +105,18 @@ impl Core {
     /// Every extension call that ended in `(now - window, now]`, by
     /// extension name, from the ledger's rows by kind.
     pub fn extension_calls(&self, now_ms: u64, window_days: u32) -> Result<Calls> {
+        self.tool_calls(now_ms, window_days, |t| name_of(t).map(str::to_string))
+    }
+
+    /// Every call that ended in `(now - window, now]` and that `name_of` names
+    /// (by whatever key it returns), counted as an extension's are (theseus-pw1q.21.8:
+    /// the retire tender counts a flow's the same way).
+    pub fn tool_calls(
+        &self,
+        now_ms: u64,
+        window_days: u32,
+        name_of: fn(&str) -> Option<String>,
+    ) -> Result<Calls> {
         let since = now_ms.saturating_sub(u64::from(window_days) * DAY_MS);
         let tags: Vec<String> = KINDS.iter().map(|k| ledger_kind(k)).collect();
         let mut out = Calls::default();
@@ -130,7 +142,7 @@ impl Core {
                 if row.at_unix_ms < since || row.at_unix_ms > now_ms {
                     continue;
                 }
-                if let Some((name, call)) = self.extension_call(&row) {
+                if let Some((name, call)) = self.counted_call(&row, name_of) {
                     out.by_name.entry(name).or_default().push(call);
                 }
             }
@@ -146,8 +158,12 @@ impl Core {
         Ok(out)
     }
 
-    /// The extension call one row ends, if it is one.
-    fn extension_call(&self, row: &LedgerRow) -> Option<(String, Call)> {
+    /// The call one row ends, if `name_of` names its tool.
+    fn counted_call(
+        &self,
+        row: &LedgerRow,
+        name_of: fn(&str) -> Option<String>,
+    ) -> Option<(String, Call)> {
         let d = &row.data;
         let tool = match row.kind.as_str() {
             "action.outcome_unknown" => {
@@ -156,7 +172,7 @@ impl Core {
             }
             _ => d["producer"].as_str()?.to_string(),
         };
-        let name = name_of(&tool)?.to_string();
+        let name = name_of(&tool)?;
         let failed = row.kind != "action.succeeded";
         Some((
             name,

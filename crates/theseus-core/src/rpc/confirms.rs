@@ -370,7 +370,7 @@ impl Core {
                 true => crate::extend::answer::Answer::Ack,
                 false => crate::extend::answer::Answer::Decline(note),
             };
-            let done = self.answer_extension(&a, answer, by, &via)?;
+            let done = self.answer_extension(&a, answer, by, &via, None)?;
             self.admission.notify_waiters();
             return Ok(done);
         }
@@ -595,7 +595,7 @@ impl Core {
         if a.tool == crate::extend::ACK {
             let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
             let answer = crate::extend::answer::Answer::Expired(&why);
-            self.answer_extension(a, answer, EXPIRY, EXPIRY)?;
+            self.answer_extension(a, answer, EXPIRY, EXPIRY, None)?;
             return Ok(());
         }
         if a.tool == super::packs::PROMOTE {

@@ -100,14 +100,20 @@ pub struct ExtendAcked<'a> {
     pub correlation_id: &'a str,
     pub by: &'a str,
     pub via: &'a str,
+    /// The mint it self-loaded for (`by` is `self`); none for an owner's ack.
+    pub mint: Option<&'a str>,
 }
 
 impl Fact for ExtendAcked<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ExtendAcked);
 
     fn row(&self) -> Value {
-        json!({"name": self.name, "digest": self.digest,
-            "correlation_id": self.correlation_id, "by": self.by, "via": self.via})
+        let mut row = json!({"name": self.name, "digest": self.digest,
+            "correlation_id": self.correlation_id, "by": self.by, "via": self.via});
+        if let Some(mint) = self.mint {
+            row["mint"] = json!(mint);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

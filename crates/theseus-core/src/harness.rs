@@ -140,6 +140,8 @@ pub async fn drive(core: Arc<Core>) {
         core.due_and_routines().await;
         // The week's self-improvement digest, while `[self]` posts it (theseus-pw1q.4).
         core.post_self_digest_if_due();
+        // The morning's notice of what the night landed (theseus-pw1q.21.8).
+        core.post_self_notice_if_due();
         // The queued executions and those a due time may wake, by their
         // terms: a tick reads none of the parked ones (theseus-lv2).
         let Some(execs) = unlisted.runnable(&core) else {

@@ -520,6 +520,8 @@ facts![
     rsi_graduate::GraduateProposed,
     rsi_mine::MineRan,
     rsi_mint::MintValidated,
+    rsi_mint::MintDeployed,
+    rsi_mint::MintRetired,
     rsi_pr::SelfBranchBuilt<'static>,
     rsi_exams::ExamCounted<'static>,
     rsi_exams::ExamRejected<'static>,

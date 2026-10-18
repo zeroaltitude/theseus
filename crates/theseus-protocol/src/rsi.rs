@@ -193,6 +193,20 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               loaded by it; deploying is a later step's.",
     },
     SelfRowKind {
+        name: "self.mint.deployed",
+        fields: &["name", "kind", "digest", "tool", "bench_born"],
+        doc: "A minted tool went live: a flow loaded, a no-network no-secret extension \
+              self-loaded, or a Rust mint filed through self-pr. Its name, kind and digest, the \
+              numbers it was validated on, and the one verb that undoes it.",
+    },
+    SelfRowKind {
+        name: "self.mint.retired",
+        fields: &["name", "kind", "digest", "tool", "bench_born", "rule"],
+        doc: "A live minted tool was unloaded by the keep-or-retire rule that named it (failure \
+              rate, a write outside its scope, a red signal, no use, no saving, or graduation), \
+              with the numbers it fired on. The frozen copy is never deleted.",
+    },
+    SelfRowKind {
         name: "self.halted",
         fields: &["by", "place"],
         doc: "The kill switch thrown: every self step stops before its next phase.",

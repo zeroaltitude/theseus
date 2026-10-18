@@ -16,7 +16,10 @@
 //!   as they were at the ack, are recorded with the load, and that ceiling's
 //!   floor holds every call of its tools, wherever it is called (`floor`).
 //!   Where its tools are offered is where MCP tools are: private places,
-//!   within each place's own ceiling (`mcp:ext-<name>`).
+//!   within each place's own ceiling (`mcp:ext-<name>`). A **minted**
+//!   extension (self-loaded, `rsi/mint/deploy.rs`) loads under [`minted_ceiling`]
+//!   instead: the proposing place's ceiling, and a floor of at least `notify`
+//!   ("read-only, no network"), held on every call the same way.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -30,7 +33,7 @@ use super::{Capabilities, Manifest, ProposedBy, SERVER_PREFIX};
 use crate::ceiling::Ceiling;
 use crate::config::McpServerConfig;
 use crate::mcp::StoredList;
-use crate::policy::Decision;
+use crate::policy::{Decision, Posture};
 
 /// The META key of the loaded extensions.
 pub const RECORD: &str = "extensions";
@@ -100,6 +103,20 @@ impl Loaded {
         let place = self.place_name.as_deref().unwrap_or("the proposing place");
         Ceiling::new(place, self.ceiling.as_ref()?)
     }
+}
+
+/// The ceiling a minted extension loads under (RSI loop 1 §5.2): the
+/// minimum of the proposing place's ceiling and "read-only, no network". The
+/// place's tools, spend limit and profile stay as they are, and the floor is
+/// the place's or `notify`, whichever is stricter: so no call of a minted tool
+/// runs looser than a notice, in any place.
+pub fn minted_ceiling(place: Option<&PlaceCeiling>) -> PlaceCeiling {
+    let mut c = place.cloned().unwrap_or_default();
+    let own = c.posture_floor.as_deref().map_or(Posture::Open, |f| {
+        Posture::parse(f).unwrap_or(Posture::Approve)
+    });
+    c.posture_floor = Some(own.max(Posture::Notify).as_str().into());
+    c
 }
 
 pub fn server_name(name: &str) -> String {
@@ -279,6 +296,11 @@ impl crate::rpc::Core {
                 }),
             None => None,
         };
+        // A self-load never loads wider than "read-only, no network".
+        let ceiling = match by == crate::rsi::pr::PRINCIPAL {
+            true => Some(minted_ceiling(view.ceiling.map(|c| &c.wire))),
+            false => view.ceiling.map(|c| c.wire.clone()),
+        };
         let loaded = Loaded {
             name: m.name.clone(),
             digest: m.digest.clone(),
@@ -296,8 +318,13 @@ impl crate::rpc::Core {
             place_name: view
                 .ceiling
                 .map(|c| c.place.clone())
-                .or_else(|| m.proposed_by.place.clone()),
-            ceiling: view.ceiling.map(|c| c.wire.clone()),
+                .or_else(|| m.proposed_by.place.clone())
+                .or_else(|| {
+                    ceiling
+                        .is_some()
+                        .then(|| "minted: read-only, no network".into())
+                }),
+            ceiling,
             replaced: old.map(|o| o.digest.clone()),
         };
         set.loaded.insert(m.name.clone(), loaded.clone());
