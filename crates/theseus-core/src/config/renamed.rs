@@ -23,6 +23,7 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("cache.keep_warm_minutes", "cache.keep_warm_every_minutes"),
     ("threads.keep_warm_hours", "cache.threads_keep_warm_hours"),
     ("watches", "watch_for"),
+    ("self.sealed_dir", "self.sealed.dir"),
 ];
 
 /// The message for the first old key `text` has, or none (also for text that is not TOML: its own error stands).
@@ -118,6 +119,10 @@ mod tests {
         (
             "[watches]\nmax_days = 10\n",
             "`[watches]` was renamed to `[watch_for]`",
+        ),
+        (
+            "[self]\nsealed_dir = \"/srv/theseus-sealed\"\n",
+            "`[self] sealed_dir` was renamed to `[self.sealed] dir`",
         ),
     ];
 

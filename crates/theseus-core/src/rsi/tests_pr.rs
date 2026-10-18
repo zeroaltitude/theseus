@@ -262,11 +262,11 @@ async fn a_sealed_set_stops_every_self_build() {
     let sealed = tempfile::tempdir().unwrap();
     let dir = sealed.path().canonicalize().unwrap().display().to_string();
     let r = rig_with(SelfMode::Act, Some("origin"), |cfg| {
-        cfg.self_improve.sealed_dir = Some(dir);
+        cfg.self_improve.sealed.dir = Some(dir);
     });
     let sid = r.session("self");
     let said = r.turn(&sid, WIRE, propose()).await;
-    assert!(said.contains("sealed_dir is set"), "{said}");
+    assert!(said.contains("[self.sealed] dir is set"), "{said}");
     assert!(
         !r.f.place.trees().join("trim-the-sails").exists(),
         "no tree"

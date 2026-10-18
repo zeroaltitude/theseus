@@ -409,7 +409,7 @@ fn acting_with(edit: impl FnOnce(&mut crate::Config)) -> Arc<Core> {
 async fn a_sealed_store_keeps_the_sealed_half() {
     let sealed = tempfile::tempdir().unwrap();
     let dir = sealed.path().canonicalize().unwrap().display().to_string();
-    let c = acting_with(|cfg| cfg.self_improve.sealed_dir = Some(dir));
+    let c = acting_with(|cfg| cfg.self_improve.sealed.dir = Some(dir));
     let now = theseus_protocol::now_unix_ms();
     seed(&c, now);
     let now = theseus_protocol::now_unix_ms();

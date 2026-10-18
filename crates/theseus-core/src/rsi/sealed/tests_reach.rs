@@ -1,6 +1,6 @@
 //! Out of reach (theseus-pw1q.5): no tool call, job's shell, extension or
 //! link can open the sealed dir. Each is the gate's or the L1 view's own
-//! refusal, read off a real core built with `[self] sealed_dir` set.
+//! refusal, read off a real core built with `[self.sealed] dir` set.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,7 +36,7 @@ fn rig() -> Rig {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.self_improve.sealed_dir = Some(sealed.to_string_lossy().into_owned());
+    cfg.self_improve.sealed.dir = Some(sealed.to_string_lossy().into_owned());
     cfg.validate().unwrap();
     let store = Store::open(&state.join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(vec![]));

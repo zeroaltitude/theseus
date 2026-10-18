@@ -358,7 +358,7 @@ fn the_config_names_the_guard_and_the_store() {
         "unset: no sealed set"
     );
     let d = tempfile::tempdir().unwrap();
-    cfg.self_improve.sealed_dir = Some(d.path().join("s").to_string_lossy().into_owned());
+    cfg.self_improve.sealed.dir = Some(d.path().join("s").to_string_lossy().into_owned());
     assert!(!guard_of(&cfg).unwrap().is_none());
     assert!(open(&cfg).is_some());
 }

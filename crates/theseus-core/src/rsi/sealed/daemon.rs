@@ -10,7 +10,7 @@ use crate::fact::rsi_sealed::SelfExamCounted;
 use crate::rpc::Core;
 
 impl Core {
-    /// The sealed store, when `[self] sealed_dir` is set.
+    /// The sealed store, when `[self.sealed] dir` is set.
     pub fn sealed(&self) -> Option<&Arc<Sealed>> {
         self.sealed.as_ref()
     }
@@ -27,7 +27,7 @@ impl Core {
         reviewer: &str,
     ) -> Result<ItemId> {
         let sealed = self.sealed.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("[self] sealed_dir is not set: there is no sealed set")
+            anyhow::anyhow!("[self.sealed] dir is not set: there is no sealed set")
         })?;
         let id = sealed.put(set, family, item)?;
         let fact = SelfExamCounted {

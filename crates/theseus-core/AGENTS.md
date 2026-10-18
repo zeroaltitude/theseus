@@ -923,7 +923,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `origin.principal == rsi::SELF_PRINCIPAL` reserves each model call in `turn/self_budget_step.rs` (its branch is the
   root task's id; a failure of class `self_budget` ends the turn with the budget's words); other sessions pay one
   `Option` test. Mode off: every call refuses, reads and writes nothing. Tests: `rsi/tests_budget.rs`, `tests_self_budget.rs`.
-  **Sealed holdout sets** (theseus-pw1q.5; the hard keel: Theseus gets a score, never an item): `[self] sealed_dir`
+  **Sealed holdout sets** (theseus-pw1q.5; the hard keel: Theseus gets a score, never an item): `[self.sealed] dir`
   (unset: none; checked at load to sit outside every root, `cwd`, the state dir, the repository and `[sandbox]
   ro_paths`, neither inside nor holding one: `config/self_improve.rs`). `rsi/sealed.rs`: `Sealed::put(set, family, bytes) ->
   ItemId` (a keyed hash; write-only, no call returns an item) and `score(set, &dyn Runner) -> Scores` (per-family
@@ -963,7 +963,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
   a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.
   `self.branches` lists them (`theseus self branches`). Tests: `rsi/tests_tree.rs` (a throwaway repo and a stand-in
-  gate), `rsi/tests_pr.rs` (through the core). While `[self] sealed_dir` is set, `self.propose_change` builds nothing:
+  gate), `rsi/tests_pr.rs` (through the core). While `[self.sealed] dir` is set, `self.propose_change` builds nothing:
   the gate runs the tree's own code outside L1, where it could read the sealed set.
   **Graduation** (theseus-pw1q.13; `extend/usage.rs`, `rsi/backlog/graduate.rs`, `fact/rsi_graduate.rs`): `Core::extension_usage`
   counts an extension's calls, failures (an error result, a timeout, a crash, an unknown outcome) and p50/p95 from the
@@ -980,7 +980,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   versioned format (`self-exam-v1`; theseus-exam's check language), scrubbed (the daemon's scrubber, handle shapes,
   held people's names). A keyed hash (META `self.exams.key`) splits each family into an open half (written to
   `<state>/self/exams/open/<family>/<id>.json`, `Shelf`) and a sealed half (a `SealedSink`: the sealed store when
-  `[self] sealed_dir` is set, which refuses a regex check; with none, sealed items are dropped with a count,
+  `[self.sealed] dir` is set, which refuses a regex check; with none, sealed items are dropped with a count,
   unreviewed and unwritten). An item counts only after a reviewer on another model (`CoreReviewer`, profile `fable`,
   held on the self budget's day line) calls it fair; then `self.exam.counted`, else
   `self.exam.rejected` with the reason (a sealed item's reason names the failed questions only). `[self]

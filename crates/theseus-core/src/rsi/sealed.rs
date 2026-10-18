@@ -3,8 +3,8 @@
 //! exam. Theseus gets a score, never an item: not a prompt, not an expected
 //! answer, not a diff of one.
 //!
-//! **Out of reach, by the sandbox and the gate, not by trust.** `[self]
-//! sealed_dir` is checked at load to sit outside every workspace root, the
+//! **Out of reach, by the sandbox and the gate, not by trust.** `[self.sealed]
+//! dir` is checked at load to sit outside every workspace root, the
 //! state dir, the repository and every `[sandbox] ro_paths` entry
 //! (`config/self_improve.rs`). Then, three ways:
 //! - the gate refuses any call that names it (`Guard`, run first in
@@ -518,18 +518,19 @@ fn scan(dir: &Path) -> BTreeMap<String, u64> {
     out
 }
 
-/// The sealed store for `cfg`: none while `[self] sealed_dir` is unset.
+/// The sealed store for `cfg`: none while `[self.sealed] dir` is unset.
 pub fn open(cfg: &crate::Config) -> Option<std::sync::Arc<Sealed>> {
-    let dir = cfg.self_improve.sealed_dir.as_deref()?;
+    let dir = cfg.self_improve.sealed.dir.as_deref()?;
     Some(std::sync::Arc::new(Sealed::new(
         theseus_tools::paths::canonical_best_effort(&crate::config::expand(dir)),
     )))
 }
 
-/// The gate's guard for `cfg`: none while `[self] sealed_dir` is unset.
+/// The gate's guard for `cfg`: none while `[self.sealed] dir` is unset.
 pub fn guard_of(cfg: &crate::Config) -> Option<Guard> {
     cfg.self_improve
-        .sealed_dir
+        .sealed
+        .dir
         .as_deref()
         .map(|d| Guard::new(&crate::config::expand(d)))
 }
