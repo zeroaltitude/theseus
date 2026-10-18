@@ -35,7 +35,9 @@ effort?: string,
  * Why the turn ran at its effort, beside `effort`: `applied`, `clamped`
  * (to `[routing] effort_bounds`), `unsure`, `unclear`, `fixed` (the
  * profile's `effort_fixed`), `no_effort` (its model takes none),
- * `carried` (a late verdict's), or `recorded` (shadow, or a pin).
+ * `carried` (a late verdict's), `recorded` (shadow, or a pin), or
+ * `sticky` (a one-step change held at the previous request's level to
+ * keep the cache: `effort_applied` is the level sent).
  */
 effort_reason?: string, 
 /**

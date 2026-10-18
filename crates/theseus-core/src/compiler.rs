@@ -1021,7 +1021,7 @@ fn render_kept(
         extra,
         image_tokens,
     };
-    let tail_from = effort::place(&mut req, &rendered.efforts, spec, tail_from);
+    let tail_from = effort::place(&mut req, &rendered.efforts, spec, entry, tail_from);
     Rendered {
         request: req,
         prefix_nodes: prefix.len(),

@@ -368,13 +368,14 @@ impl TurnRunner {
         let Some(e) = t.route.effort.filter(EffortDecision::applied) else {
             return;
         };
-        if crate::compiler::effort::takes(spec, &c.request.model) {
+        let entry = self.catalog.get(&c.request.model);
+        if crate::compiler::effort::takes(spec, entry, &c.request.model) {
             spec.turn_effort = e.ran;
-            crate::compiler::effort::retarget(&mut c.request, spec);
+            crate::compiler::effort::retarget(&mut c.request, spec, entry);
             c.messages = c.request.messages.len();
         } else {
-            spec.effort = e.ran;
-            let entry = self.catalog.get(&c.request.model);
+            // `sent` is the previous request's level when the sticky rule held it.
+            spec.effort = e.sent.or(e.ran);
             c.request.output_config = crate::compiler::output_config(entry, spec.effort);
         }
         // The request changed after its compile: what the turn records of it,
@@ -390,6 +391,7 @@ impl TurnRunner {
         t: &Turn<'_>,
         v: &Verdict,
         d: Option<&Decision>,
+        (spec, tokens): (&RequestSpec, u64),
         acts: bool,
     ) -> Option<EffortDecision> {
         let answer = v.effort.as_ref()?;
@@ -407,14 +409,15 @@ impl TurnRunner {
         let carried = v.turn != t.tc.turn_id;
         let r = &self.cfg.routing;
         let bounds = r.effort_bounds;
-        Some(effort::decide(
+        let decided = effort::decide(
             bounds,
             r.high_effort_confidence,
             answer,
             runs,
             acts,
             carried,
-        ))
+        );
+        Some(self.stick(t, spec, decided, model, tokens))
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
@@ -476,9 +479,10 @@ impl TurnRunner {
             (None, Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
         };
-        t.route.effort = verdict
-            .as_ref()
-            .and_then(|v| self.route_effort(t, v, decision.as_ref(), reason.is_none()));
+        t.route.effort = verdict.as_ref().and_then(|v| {
+            let spent = (&*spec, compiled.est_tokens);
+            self.route_effort(t, v, decision.as_ref(), spent, reason.is_none())
+        });
         self.engage_verdict(t, verdict.as_ref());
         Self::record_route(
             t,
@@ -662,7 +666,9 @@ impl TurnRunner {
         let profile = decision.map_or(base.clone(), |d| d.profile.clone());
         let answer = verdict.and_then(|v| v.effort.as_ref());
         let e = t.route.effort;
-        let applied = e.filter(EffortDecision::applied).and_then(|e| e.ran);
+        let applied = e
+            .filter(EffortDecision::applied)
+            .and_then(|e| e.sent.or(e.ran));
         t.record(&fact::route::RouteDecided {
             mode: verdict.map(|v| v.mode.as_str()),
             confidence: verdict.map(|v| v.confidence),
@@ -683,6 +689,7 @@ impl TurnRunner {
             effort_reason: e.map(|e| e.reason.as_str()),
             effort_applied: applied.is_some(),
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
+            effort_sent: e.and_then(|e| e.sent).map(effort::name),
         });
         let persona_shown = t.route.result.take().and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {

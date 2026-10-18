@@ -258,6 +258,8 @@ mod tests_defer;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
+mod tests_effort_sticky;
+#[cfg(test)]
 mod tests_egress;
 #[cfg(test)]
 mod tests_engage;

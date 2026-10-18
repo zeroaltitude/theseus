@@ -20,6 +20,11 @@
 //!   answer, the reason is the gate's.
 //! - **Only a model that takes effort** (its catalog row's `effort`): for any
 //!   other the answer is recorded and the request carries none, as before.
+//! - **Sticky on a model without per-message effort** ([`sticky`], theseus-rwpbg.4):
+//!   there a change of the top-level effort restarts the messages' cache, so on a
+//!   long conversation the request keeps the previous request's level unless
+//!   Jev's differs from it by two steps or more. The decision keeps both: `ran`
+//!   is the level Jev's answer came to, `sent` the one the request carries.
 //! - **The confidence rules are route.v2's**: below the question's `confirm`
 //!   bar (its band, the pack's own thresholds), on `unclear`, for a verdict
 //!   in shadow or a pinned turn, and for a late verdict (one asked for the
@@ -65,6 +70,10 @@ pub enum EffortReason {
     Carried,
     /// Recorded only: routing in shadow, or a turn the owner pinned.
     Recorded,
+    /// Jev's level (`ran`) differs from the previous request's by one step on
+    /// a long conversation, and the model has no per-message effort: the
+    /// request keeps the previous level (`sent`), so its cache is read.
+    Sticky,
 }
 
 impl EffortReason {
@@ -79,6 +88,7 @@ impl EffortReason {
             EffortReason::NoEffort => "no_effort",
             EffortReason::Carried => "carried",
             EffortReason::Recorded => "recorded",
+            EffortReason::Sticky => "sticky",
         }
     }
 }
@@ -101,6 +111,9 @@ pub struct EffortDecision {
     /// The effort the request carries: Jev's when applied, else the
     /// profile's own; none for a model that takes no effort.
     pub ran: Option<Effort>,
+    /// The level the request carries when [`sticky`] held it at the previous
+    /// request's, else none (it carries `ran`).
+    pub sent: Option<Effort>,
 }
 
 impl EffortDecision {
@@ -108,7 +121,10 @@ impl EffortDecision {
     pub fn applied(&self) -> bool {
         matches!(
             self.reason,
-            EffortReason::Applied | EffortReason::Clamped | EffortReason::HeldHigh
+            EffortReason::Applied
+                | EffortReason::Clamped
+                | EffortReason::HeldHigh
+                | EffortReason::Sticky
         )
     }
 }
@@ -150,7 +166,11 @@ pub fn decide(
     carried: bool,
 ) -> EffortDecision {
     let own = runs.takes.then_some(runs.own).flatten();
-    let stand = |reason| EffortDecision { reason, ran: own };
+    let stand = |reason| EffortDecision {
+        reason,
+        ran: own,
+        sent: None,
+    };
     if !acts {
         return stand(EffortReason::Recorded);
     }
@@ -184,7 +204,19 @@ pub fn decide(
             (false, false) => EffortReason::Clamped,
         },
         ran: Some(ran),
+        sent: None,
     }
+}
+
+/// The sticky rule. A model without per-message effort pays a rewrite of its
+/// messages' cache for every change of the top-level effort, so `asked` (Jev's
+/// level after the bounds) is held at `previous`, the level the session's last
+/// request carried, when it differs by one step. It is not held when there is
+/// no previous level (a first request, or a model switch, which rewrites
+/// anyway), when the request is under `floor` tokens (little cache to lose), or
+/// when `asked` is two steps or more away. Returns the level held at.
+pub fn sticky(asked: Effort, previous: Option<Effort>, tokens: u64, floor: u64) -> Option<Effort> {
+    previous.filter(|p| *p != asked && tokens >= floor && (*p as i8).abs_diff(asked as i8) < 2)
 }
 
 #[cfg(test)]
