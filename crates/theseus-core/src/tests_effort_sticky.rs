@@ -34,9 +34,36 @@ fn long(c: &mut Config) {
     c.cache.keep_warm_min_tokens = 1;
 }
 
+/// Sonnet 5.5 as a model without per-message effort, the case sticky
+/// effort is for (the built-in row takes it since the live probe).
+fn no_per_message(c: &mut Config) {
+    let row = CatalogRow {
+        per_message_effort: Some(false),
+        ..Default::default()
+    };
+    c.catalog.extend([("claude-sonnet-5-5".to_string(), row)]);
+}
+
+/// `talk_on` with Sonnet 5.5 taking no per-message effort.
+async fn talk(
+    levels: &[&str],
+    tweak: impl FnOnce(&mut Config),
+) -> (
+    Rig,
+    Vec<ProviderRequest>,
+    Vec<Value>,
+    theseus_protocol::TurnSubmitResult,
+) {
+    talk_on(levels, |c| {
+        no_per_message(c);
+        tweak(c);
+    })
+    .await
+}
+
 /// One conversation on the live profile (Sonnet 5.5), a turn for each level
 /// Jev answers; the requests, the `route.decided` rows and the last result.
-async fn talk(
+async fn talk_on(
     levels: &[&str],
     tweak: impl FnOnce(&mut Config),
 ) -> (
@@ -218,8 +245,9 @@ async fn keep_warm_replays_the_last_effort() {
 }
 
 /// Which models take per-message effort is catalog data: one row's field
-/// flips Sonnet 5.5 to an effort-only message with the top-level effort
-/// left alone, and takes it from Fable 5.1, with no other change.
+/// takes Sonnet 5.5's effort-only message away (the top-level effort then
+/// carries the level), and takes it from Fable 5.1, with no other change.
+/// Built in, Fable 5.1 and Sonnet 5.5 take it and Opus 5.5 does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn per_message_effort_is_catalog_data() {
     let flip = |model: &str, on: bool| {
@@ -230,21 +258,25 @@ async fn per_message_effort_is_catalog_data() {
         (model.to_string(), row)
     };
     let carries = |q: &ProviderRequest| q.messages.iter().any(|m| m["role"] == "system");
-    // Sonnet 5.5 as the built-in has it: the level is the top-level one.
-    let (_r, reqs, _, _) = talk(&["low"], |_| {}).await;
-    assert!(!carries(&reqs[0]) && !reqs[0].betas.iter().any(|b| b == BETA_TURN_EFFORT));
-    assert_eq!(top(&reqs[0]).as_deref(), Some("low"));
-    // The same turn with the row turned on.
-    let (_r, reqs, _, _) = talk(&["low"], |c| {
-        c.catalog.extend([flip("claude-sonnet-5-5", true)]);
-    })
-    .await;
+    let built = crate::catalog::Catalog::builtin();
+    let takes = |id: &str| built.get(id).unwrap().per_message_effort;
+    assert!(takes("claude-fable-5-1") && takes("claude-sonnet-5-5"));
+    assert!(!takes("claude-opus-5-5"), "Opus 5.5's effort stays sticky");
+    // Sonnet 5.5 as the built-in has it: an effort-only message.
+    let (_r, reqs, _, _) = talk_on(&["low"], |_| {}).await;
     assert!(carries(&reqs[0]) && reqs[0].betas.iter().any(|b| b == BETA_TURN_EFFORT));
     assert_ne!(
         top(&reqs[0]).as_deref(),
         Some("low"),
         "the profile's own stays on top"
     );
+    // The same turn with the row turned off: the level is the top-level one.
+    let (_r, reqs, _, _) = talk_on(&["low"], |c| {
+        c.catalog.extend([flip("claude-sonnet-5-5", false)]);
+    })
+    .await;
+    assert!(!carries(&reqs[0]) && !reqs[0].betas.iter().any(|b| b == BETA_TURN_EFFORT));
+    assert_eq!(top(&reqs[0]).as_deref(), Some("low"));
     // Fable 5.1 with it turned off.
     let (_r, reqs, _, _) = talk(&["low"], |c| {
         c.model.live = "fable".into();

@@ -774,6 +774,9 @@ impl Catalog {
                          since Haiku 5.5's launch (Anthropic's Haiku 5.5 page, 2026-10-10)"
                     .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
+                // The live probe of 2026-10-17: a per-message change keeps the
+                // cache, a top-level one restarts it (theseus-rwpbg.4).
+                per_message_effort: true,
                 ..claude(m, 128_000, 2.0, 10.0, 0.10, 2.50, Adaptive, false, 512)
             },
         );
