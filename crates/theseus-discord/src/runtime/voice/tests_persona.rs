@@ -22,7 +22,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::super::tests::core_with;
 use super::tests::{place, LOUNGE, OWNER};
-use super::{begin, Metered, VoicePlace};
+use super::{begin, greet, Metered, VoicePlace, GREETING_WAIT};
 
 /// A stand-in Deepgram: it logs each request's query and answers every
 /// `/v1/speak` with 20 ms of linear16 silence.
@@ -232,6 +232,7 @@ async fn the_greeting_is_spoken_before_anything_heard_is_answered() {
         Box::new(io),
         said.clone(),
         greeting,
+        None,
     );
     let run = tokio::spawn(engine.run());
     let mut order = Vec::new();
@@ -261,8 +262,43 @@ async fn the_greeting_is_spoken_before_anything_heard_is_answered() {
         Box::new(WavIo::new(Duration::from_secs(1))),
         Arc::new(StandInSpeech::new()),
         None,
+        None,
     );
     assert!(handle.events.try_recv().is_err());
+}
+
+/// The greeting waits for the call's audio to flow (theseus-sro04): what
+/// plays while DAVE's group forms reaches the others garbled. It goes once
+/// the audio flows, after `GREETING_WAIT` when nobody talks, and at once
+/// when the call is gone.
+#[tokio::test(start_paused = true)]
+async fn the_greeting_waits_for_the_calls_audio_to_flow_within_a_bound() {
+    use tokio::sync::{mpsc, watch};
+    use tokio::time::Instant;
+    let hi = || Command::Report { text: "Hi.".into() };
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (flows, flowing) = watch::channel(false);
+    let t0 = Instant::now();
+    let waiting = tokio::spawn(greet(tx.clone(), flowing, "Hi.".into()));
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert!(rx.try_recv().is_err(), "not before the audio flows");
+    flows.send_replace(true);
+    waiting.await.unwrap();
+    assert_eq!(rx.try_recv(), Ok(hi()));
+    assert_eq!(t0.elapsed(), Duration::from_millis(1200));
+
+    let (_flows, flowing) = watch::channel(false);
+    let t0 = Instant::now();
+    greet(tx.clone(), flowing, "Hi.".into()).await;
+    assert_eq!(rx.try_recv(), Ok(hi()));
+    assert_eq!(t0.elapsed(), GREETING_WAIT, "nobody talks: the bound");
+
+    let (flows, flowing) = watch::channel(false);
+    drop(flows);
+    let t0 = Instant::now();
+    greet(tx, flowing, "Hi.".into()).await;
+    assert_eq!(rx.try_recv(), Ok(hi()));
+    assert_eq!(t0.elapsed(), Duration::ZERO, "the call is gone");
 }
 
 /// The greeting's words are `[voice] greeting` with the persona's name in;

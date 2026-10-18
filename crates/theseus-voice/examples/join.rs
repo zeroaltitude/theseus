@@ -233,12 +233,13 @@ mod voice {
                 None => Audio::chime(),
             };
             let t = std::time::Instant::now();
-            let call = self.0.join(guild, channel).await?;
+            // Attached before the join, so the handshake's speaking events
+            // are heard (theseus-sro04).
+            let mut io = SongbirdIo::join(&self.0, guild, channel).await?;
             eprintln!(
                 "joined channel {channel} in guild {guild} in {} ms",
                 t.elapsed().as_millis()
             );
-            let mut io = SongbirdIo::attach(call).await;
             let stay = Duration::from_secs(join.seconds);
             if join.echo.is_empty() {
                 listen(&mut io, stay, clip).await;

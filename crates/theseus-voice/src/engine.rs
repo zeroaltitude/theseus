@@ -316,6 +316,9 @@ pub struct Engine {
     /// Each open utterance's start: what it was over.
     opening: BTreeMap<Speaker, Opening>,
     unlisted: BTreeSet<Speaker>,
+    /// The listed speakers whose audio has come, said once each in the
+    /// journal (theseus-sro04).
+    listened: BTreeSet<Speaker>,
     pending: VecDeque<Pending>,
     next_utterance: u64,
     turn: Option<Turn>,
@@ -534,6 +537,7 @@ impl Engine {
             vads: BTreeMap::new(),
             opening: BTreeMap::new(),
             unlisted: BTreeSet::new(),
+            listened: BTreeSet::new(),
             pending: VecDeque::new(),
             next_utterance: 0,
             turn: None,
@@ -629,6 +633,12 @@ impl Engine {
         if self.playing.is_some() {
             self.io.stop().await;
         }
+        tracing::info!(
+            ticks = self.ticks,
+            listened = self.listened.len(),
+            utterances = self.next_utterance,
+            "voice: the engine's call ended"
+        );
     }
 
     fn emit(&self, event: Event) {
@@ -641,16 +651,7 @@ impl Engine {
     fn tick(&mut self, frames: &[Frame], now: Instant) {
         let tick = self.ticks;
         self.ticks += 1;
-        let mut heard: BTreeMap<Speaker, &[i16]> = BTreeMap::new();
-        for frame in frames {
-            if self.config.listed.contains(&frame.speaker) {
-                heard.insert(frame.speaker, &frame.samples);
-            } else if self.unlisted.insert(frame.speaker) {
-                self.emit(Event::Unlisted {
-                    speaker: frame.speaker,
-                });
-            }
-        }
+        let heard = self.at_the_door(frames, tick);
         let talking = self.playing.is_some() && !self.stopping && self.hold.is_none();
         let open = self
             .vads
@@ -718,6 +719,29 @@ impl Engine {
         if barge {
             self.hold(now);
         }
+    }
+
+    /// A tick's frames at the door: the listed speakers' kept, anyone
+    /// else's dropped, each unlisted speaker told once.
+    fn at_the_door<'a>(&mut self, frames: &'a [Frame], tick: u64) -> BTreeMap<Speaker, &'a [i16]> {
+        let mut heard = BTreeMap::new();
+        for frame in frames {
+            if self.config.listed.contains(&frame.speaker) {
+                if self.listened.insert(frame.speaker) {
+                    tracing::info!(
+                        speaker = frame.speaker.0,
+                        tick,
+                        "voice: the first audio from a listed speaker"
+                    );
+                }
+                heard.insert(frame.speaker, frame.samples.as_slice());
+            } else if self.unlisted.insert(frame.speaker) {
+                self.emit(Event::Unlisted {
+                    speaker: frame.speaker,
+                });
+            }
+        }
+        heard
     }
 
     /// What an utterance whose first speech frame comes now is over.
@@ -789,6 +813,13 @@ impl Engine {
     ) {
         let seq = self.next_utterance;
         self.next_utterance += 1;
+        if seq == 0 {
+            tracing::info!(
+                speaker = speaker.0,
+                ms = audio.duration().as_millis() as u64,
+                "voice: the call's first utterance closed, sent to be transcribed"
+            );
+        }
         self.pending.push_back(Pending {
             seq,
             speaker,

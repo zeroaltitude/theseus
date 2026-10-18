@@ -7,6 +7,18 @@
 //! users. With DAVE, expect a short silent start while the map and the keys
 //! arrive (the 44a spike, Q1).
 //!
+//! Discord sends a speaking event once per SSRC, and with DAVE it sends one
+//! for each member already talking during the voice handshake. songbird
+//! fires those the moment its connection starts, before `Songbird::join`
+//! returns, so handlers added after the join miss them, and that SSRC's audio
+//! is dropped for the whole call (theseus-sro04). [`SongbirdIo::join`]
+//! attaches first, then joins.
+//!
+//! The call's audio flows ([`SongbirdIo::flowing`]) once one SSRC's packets
+//! have decoded for [`STEADY_TICKS`] ticks in a row: what plays before that,
+//! while DAVE's group is still forming, may reach the others garbled, so the
+//! binding holds its greeting for it.
+//!
 //! Send: each clip is a songbird track, in songbird's raw container, which
 //! its codec registry decodes with symphonia's `pcm` codec.
 //!
@@ -19,7 +31,8 @@
 //! packet is songbird concealing a loss, and is neither). [`Link`] reads
 //! both, and rejoins the call in place.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,7 +48,7 @@ use songbird::packet::rtcp::RtcpPacket;
 use songbird::shards::TwilightMap;
 use songbird::tracks::TrackHandle;
 use songbird::{Call, Songbird};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::audio::{Audio, FRAME_SAMPLES, SAMPLE_RATE};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
@@ -87,16 +100,34 @@ pub struct SsrcCount {
     pub reports: u64,
 }
 
+/// Ticks in a row with a decoded packet from one SSRC that say the call's
+/// audio flows: 200 ms. While DAVE's group forms, a member's frames come
+/// unmarked and most fail to decode (theseus-sro04: 52 of the first 80), so
+/// a run this long is the transition over, not a stray frame that decoded.
+pub const STEADY_TICKS: u32 = 10;
+
 #[derive(Default)]
 struct Ssrcs {
     users: HashMap<u32, Speaker>,
     counts: BTreeMap<u32, SsrcCount>,
+    /// Each SSRC's decoded packets in a row, up to the last tick.
+    streak: HashMap<u32, u32>,
+    /// Some SSRC's run reached [`STEADY_TICKS`].
+    steady: bool,
+    /// The SSRCs whose audio was dropped for want of a user, said once each.
+    unmapped: HashSet<u32>,
 }
 
 impl Ssrcs {
     /// A speaking event: `ssrc` is `user`'s.
     fn speaking(&mut self, ssrc: u32, user: Speaker) {
-        self.users.insert(ssrc, user);
+        if self.users.insert(ssrc, user) != Some(user) {
+            tracing::info!(
+                ssrc,
+                user = user.0,
+                "voice: a speaking event mapped an SSRC to its user"
+            );
+        }
         self.counts.entry(ssrc).or_default().user = Some(user);
     }
 
@@ -112,26 +143,57 @@ impl Ssrcs {
         packets: impl IntoIterator<Item = (u32, Option<&'a [i16]>, bool)>,
     ) -> Vec<Frame> {
         let mut frames = Vec::new();
+        let mut streak = HashMap::new();
         for (ssrc, pcm, arrived) in packets {
             let user = self.users.get(&ssrc).copied();
             let count = self.counts.entry(ssrc).or_default();
             if arrived {
                 count.frames += 1;
             }
-            if let Some(pcm) = pcm {
-                if arrived {
-                    count.decoded += 1;
-                }
-                if let Some(speaker) = user {
-                    frames.push(Frame {
-                        speaker,
-                        samples: mono(pcm),
-                    });
-                }
+            let Some(pcm) = pcm else {
+                continue;
+            };
+            if arrived {
+                count.decoded += 1;
+                let run = self.streak.get(&ssrc).copied().unwrap_or(0) + 1;
+                streak.insert(ssrc, run);
+                self.steadied(ssrc, run);
+            }
+            match user {
+                Some(speaker) => frames.push(Frame {
+                    speaker,
+                    samples: mono(pcm),
+                }),
+                None if arrived => self.dropped(ssrc),
+                None => {}
             }
         }
+        // An SSRC missing from this tick (a decode error, a loss) starts again.
+        self.streak = streak;
         frames.sort_by_key(|f| f.speaker);
         frames
+    }
+
+    /// `ssrc`'s decoded packets in a row are `run`: the call's audio flows
+    /// at [`STEADY_TICKS`].
+    fn steadied(&mut self, ssrc: u32, run: u32) {
+        if !self.steady && run >= STEADY_TICKS {
+            self.steady = true;
+            tracing::info!(
+                ssrc,
+                "voice: the call's audio flows (an SSRC decoded {run} packets in a row)"
+            );
+        }
+    }
+
+    /// `ssrc`'s decoded audio went no further: no speaking event mapped it.
+    fn dropped(&mut self, ssrc: u32) {
+        if self.unmapped.insert(ssrc) {
+            tracing::warn!(
+                ssrc,
+                "voice: audio from an SSRC no speaking event mapped to a user is dropped"
+            );
+        }
     }
 
     /// An RTCP sender report from `ssrc`.
@@ -146,6 +208,7 @@ impl Ssrcs {
 
     /// A fresh connection: every count from zero, the users kept.
     fn restart(&mut self) {
+        self.streak.clear();
         for c in self.counts.values_mut() {
             *c = SsrcCount {
                 user: c.user,
@@ -172,6 +235,8 @@ pub struct SongbirdIo {
     rejoining: Arc<AtomicBool>,
     /// Why the connection dropped, once it did.
     gone: Option<String>,
+    /// Whether the call's audio flows (`Ssrcs::steady`).
+    flowing: watch::Receiver<bool>,
 }
 
 /// A joined call's counts and its rejoin, apart from the engine that owns
@@ -244,14 +309,46 @@ impl Link {
 }
 
 impl SongbirdIo {
-    /// Listen to a call songbird has joined. songbird's own tasks run
-    /// already; this adds its event handlers, and spawns nothing.
+    /// Join `channel` in `guild` with handlers that hear the connection
+    /// from its start: attached to the guild's call first, then the join
+    /// (theseus-sro04). songbird fires the speaking events Discord sends
+    /// during the handshake as its connection starts, before its join
+    /// returns; attached after, the call never learns whose SSRC is whose.
+    /// The caller bounds the wait; a join that fails or times out leaves
+    /// songbird's call for the caller to remove, as `Songbird::join` does.
+    pub async fn join(
+        songbird: &Songbird,
+        guild: NonZeroU64,
+        channel: NonZeroU64,
+    ) -> songbird::error::JoinResult<Self> {
+        Self::join_call(songbird.get_or_insert(guild), channel).await
+    }
+
+    async fn join_call(
+        call: Arc<tokio::sync::Mutex<Call>>,
+        channel: NonZeroU64,
+    ) -> songbird::error::JoinResult<Self> {
+        let io = Self::attach(Arc::clone(&call)).await;
+        // songbird hands the gateway's voice updates to the call under its
+        // lock while the join's connection waits for them: drop it first.
+        let join = call.lock().await.join(channel).await?;
+        join.await?;
+        Ok(io)
+    }
+
+    /// Listen to `call`. songbird's own tasks run already; this replaces any
+    /// handlers an earlier call on it left (a `/leave` keeps songbird's
+    /// `Call`) with its own, and spawns nothing. Attached after the call has
+    /// joined, it misses the speaking events of anyone already talking:
+    /// [`SongbirdIo::join`] attaches before.
     pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let ssrcs = Arc::new(Mutex::new(Ssrcs::default()));
         let rejoining = Arc::new(AtomicBool::new(false));
+        let (flows, flowing) = watch::channel(false);
         {
             let mut c = call.lock().await;
+            c.remove_all_global_events();
             if !matches!(c.config().decode_mode, DecodeMode::Decode(_)) {
                 tracing::warn!(
                     "the call was joined without decoding, so it hears no audio until it reconnects; build songbird's manager with songbird_config()"
@@ -263,6 +360,7 @@ impl SongbirdIo {
                 tx: tx.clone(),
                 ssrcs: Arc::clone(&ssrcs),
                 rejoining: Arc::clone(&rejoining),
+                flows: Arc::new(flows),
             };
             for event in [
                 CoreEvent::SpeakingStateUpdate,
@@ -282,7 +380,16 @@ impl SongbirdIo {
             ssrcs,
             rejoining,
             gone: None,
+            flowing,
         }
+    }
+
+    /// Turns true once the call's audio flows: one SSRC's packets decoded
+    /// [`STEADY_TICKS`] ticks in a row, so DAVE's group has formed and what
+    /// is played now is heard. Never true in a call where nobody talks: a
+    /// waiter bounds its wait.
+    pub fn flowing(&self) -> watch::Receiver<bool> {
+        self.flowing.clone()
     }
 
     /// The call's counts and its rejoin, for the binding's deaf check.
@@ -302,6 +409,42 @@ impl SongbirdIo {
             .counts
             .clone()
     }
+}
+
+/// The call's end, in the journal: per SSRC, whose it was and what it sent,
+/// so a call that heard nothing says why (theseus-sro04). No audio.
+impl Drop for SongbirdIo {
+    fn drop(&mut self) {
+        let Ok(ssrcs) = self.ssrcs.lock() else {
+            return;
+        };
+        let lines: Vec<String> = ssrcs
+            .counts
+            .iter()
+            .map(|(ssrc, c)| summary(*ssrc, c))
+            .collect();
+        let lines = lines.join("; ");
+        if ssrcs.unmapped.is_empty() {
+            tracing::info!(flowed = ssrcs.steady, "voice: the call ended: {lines}");
+        } else {
+            tracing::warn!(
+                flowed = ssrcs.steady,
+                unmapped = ssrcs.unmapped.len(),
+                "voice: the call ended with audio dropped for want of a speaking event: {lines}"
+            );
+        }
+    }
+}
+
+/// One SSRC's part of the call's end.
+fn summary(ssrc: u32, c: &SsrcCount) -> String {
+    let user = c
+        .user
+        .map_or_else(|| "no user".to_string(), |u| format!("user {}", u.0));
+    format!(
+        "ssrc {ssrc} ({user}): {} packets, {} decoded, {} sender reports",
+        c.frames, c.decoded, c.reports
+    )
 }
 
 impl VoiceIo for SongbirdIo {
@@ -355,6 +498,7 @@ struct Receive {
     tx: mpsc::UnboundedSender<Signal>,
     ssrcs: Arc<Mutex<Ssrcs>>,
     rejoining: Arc<AtomicBool>,
+    flows: Arc<watch::Sender<bool>>,
 }
 
 #[async_trait]
@@ -372,11 +516,14 @@ impl EventHandler for Receive {
                     let arrived = data.packet.is_some();
                     (*ssrc, data.decoded_voice.as_deref(), arrived)
                 });
-                let frames = self
-                    .ssrcs
-                    .lock()
-                    .expect("the SSRC map's lock")
-                    .tick(packets);
+                let (frames, steady) = {
+                    let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
+                    (ssrcs.tick(packets), ssrcs.steady)
+                };
+                if steady {
+                    // Once: a watch that already says so is left alone.
+                    self.flows.send_if_modified(|f| !std::mem::replace(f, true));
+                }
                 let _ = self.tx.send(Signal::Heard(Heard::Tick(frames)));
             }
             EventContext::RtcpPacket(r) => {
@@ -522,6 +669,63 @@ mod tests {
         );
     }
 
+    /// An SSRC no speaking event mapped (the handshake's event missed,
+    /// theseus-sro04): its audio is counted, goes no further, and is said
+    /// once; a speaking event later maps it and its audio is heard.
+    #[test]
+    fn an_unmapped_ssrcs_audio_is_counted_and_dropped_until_a_speaking_event() {
+        let mut ssrcs = Ssrcs::default();
+        let pcm = vec![7i16; FRAME_SAMPLES];
+        for _ in 0..3 {
+            assert!(ssrcs.tick([(3986, Some(pcm.as_slice()), true)]).is_empty());
+        }
+        assert_eq!(ssrcs.unmapped, HashSet::from([3986]));
+        assert_eq!(
+            (ssrcs.counts[&3986].frames, ssrcs.counts[&3986].decoded),
+            (3, 3)
+        );
+        assert_eq!(
+            summary(3986, &ssrcs.counts[&3986]),
+            "ssrc 3986 (no user): 3 packets, 3 decoded, 0 sender reports"
+        );
+        ssrcs.speaking(3986, Speaker(101));
+        let frames = ssrcs.tick([(3986, Some(pcm.as_slice()), true)]);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].speaker, Speaker(101));
+    }
+
+    /// The call's audio flows only after one SSRC decoded STEADY_TICKS
+    /// packets in a row, mapped or not: a frame that decodes among failures
+    /// (DAVE's transition), a concealed loss, or a short run is not it.
+    #[test]
+    fn the_audio_flows_after_a_steady_run_not_a_stray_decoded_frame() {
+        let mut ssrcs = Ssrcs::default();
+        let pcm = vec![7i16; FRAME_SAMPLES];
+        let pcm = Some(pcm.as_slice());
+        // A decode error leaves the SSRC out of the tick's speaking map.
+        for _ in 0..20 {
+            ssrcs.tick([(5, pcm, true)]);
+            ssrcs.tick(std::iter::empty());
+        }
+        assert!(
+            !ssrcs.steady,
+            "a frame in two decodes, as in the transition"
+        );
+        for _ in 0..STEADY_TICKS - 1 {
+            ssrcs.tick([(5, pcm, true)]);
+        }
+        ssrcs.tick([(5, pcm, false)]);
+        ssrcs.tick([(5, None, true)]);
+        assert!(
+            !ssrcs.steady,
+            "a loss and an undecoded packet break the run"
+        );
+        for n in 1..=STEADY_TICKS {
+            ssrcs.tick([(5, pcm, true), (6, None, true)]);
+            assert_eq!(ssrcs.steady, n == STEADY_TICKS, "after {n} in a row");
+        }
+    }
+
     /// A sender report counts as a packet from its SSRC, with no audio; a
     /// rejoin's fresh connection counts from zero and keeps who is who
     /// (theseus-d93y).
@@ -577,6 +781,26 @@ mod tests {
             self.0.lock().unwrap().push(channel.map(|c| c.0.get()));
             Ok(())
         }
+    }
+
+    /// A join attaches, then asks the gateway for the channel
+    /// (theseus-sro04): the handlers are on the call before any voice
+    /// connection can fire an event. With no voice server here, the join
+    /// fails at songbird's gateway timeout, its one request sent.
+    #[tokio::test(start_paused = true)]
+    async fn a_join_attaches_then_asks_for_the_channel() {
+        let id = |n| std::num::NonZeroU64::new(n).unwrap();
+        let sent = Arc::new(Sent::default());
+        let shard = songbird::shards::Shard::Generic(sent.clone());
+        let guild = songbird::id::GuildId::from(id(1));
+        let call = Arc::new(tokio::sync::Mutex::new(Call::new(
+            guild,
+            shard,
+            UserId::from(id(2)),
+        )));
+        let r = SongbirdIo::join_call(Arc::clone(&call), id(3)).await;
+        assert!(r.is_err(), "no voice server answers here");
+        assert_eq!(*sent.0.lock().unwrap(), [Some(3)]);
     }
 
     /// A rejoin leaves the channel and joins it again, its counts from zero;

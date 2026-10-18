@@ -44,7 +44,7 @@ use theseus_voice::{
     Failure, HeardAs, Over, SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken,
     Synthesis, Transcript, TurnId, Utterance, VoiceIo,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use twilight_gateway::{Event as Gateway, Intents, Shard};
 use twilight_model::application::command::Command as SlashCommand;
 use twilight_model::application::command::CommandType;
@@ -94,6 +94,10 @@ pub(crate) const HELD_TURN: &str = "I need your answer in the text channel.";
 
 /// How long a join may take: songbird's own connect, then DAVE's handshake.
 const JOIN_WAIT: Duration = Duration::from_secs(20);
+/// How long the greeting waits for the call's audio to flow, once joined
+/// (theseus-sro04): DAVE's group forms in the first second or so, and what
+/// plays before it may reach the others garbled.
+const GREETING_WAIT: Duration = Duration::from_secs(3);
 
 /// A voice channel the bindings file binds (`voice = true`).
 #[derive(Clone, Debug)]
@@ -414,15 +418,17 @@ impl Place {
             NonZeroU64::new(place.guild).ok_or("no guild")?,
             NonZeroU64::new(channel).ok_or("no channel")?,
         );
-        let call = match tokio::time::timeout(JOIN_WAIT, songbird.join(guild, chan)).await {
-            Ok(Ok(call)) => call,
+        // Its handlers attach before the join, so the speaking events Discord
+        // sends in the handshake are heard (theseus-sro04).
+        let joined = SongbirdIo::join(&songbird, guild, chan);
+        let io = match tokio::time::timeout(JOIN_WAIT, joined).await {
+            Ok(Ok(io)) => io,
             Ok(Err(e)) => return Err(self.join_failed(&songbird, &place, format!("{e}")).await),
             Err(_) => {
                 let why = format!("no voice connection in {} s", JOIN_WAIT.as_secs());
                 return Err(self.join_failed(&songbird, &place, why).await);
             }
         };
-        let io = SongbirdIo::attach(call).await;
         Ok(self.start_call(io, speech, channel, place, by).await)
     }
 
@@ -494,11 +500,17 @@ impl Place {
             key: place.key.clone(),
         };
         let config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
-        // In the persona's voice, once the join has succeeded: the call is up
-        // (this runs after songbird's join), and the greeting is the engine's
-        // first command, so it is spoken before anything heard is answered.
+        // In the persona's voice, once the join has succeeded and the call's
+        // audio flows (theseus-sro04), or after `GREETING_WAIT`.
         let greeting = shared.core.greeting_for(Some(&self.session_id));
-        let (engine, handle) = begin(config, Box::new(io), Arc::new(metered), greeting.clone());
+        let flowing = io.flowing();
+        let (engine, handle) = begin(
+            config,
+            Box::new(io),
+            Arc::new(metered),
+            greeting.clone(),
+            Some(flowing),
+        );
         let serial = voice
             .calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -839,19 +851,39 @@ fn waits_on_operator(r: &TurnSubmitResult) -> bool {
     r.awaiting_confirm.is_some() || matches!(r.stop_reason.as_str(), "awaiting_confirm" | "budget")
 }
 
-/// The engine for a call, with its greeting queued as its first command
-/// (theseus-slvl.7): the call is joined already, and nothing has been heard.
+/// The engine for a call, with its greeting (theseus-slvl.7): queued as its
+/// first command at once with no `flowing` to wait for; else once the call's
+/// audio flows, or `GREETING_WAIT` after the join, whichever comes first
+/// (theseus-sro04). The wait is a task of its own, off the receive path.
 fn begin(
     config: EngineConfig,
     io: Box<dyn VoiceIo>,
     speech: Arc<dyn Speech>,
     greeting: Option<String>,
+    flowing: Option<watch::Receiver<bool>>,
 ) -> (Engine, theseus_voice::EngineHandle) {
     let (engine, handle) = Engine::new(config, io, speech);
-    if let Some(text) = greeting {
-        let _ = handle.commands.send(Command::Report { text });
+    match (greeting, flowing) {
+        (Some(text), None) => {
+            let _ = handle.commands.send(Command::Report { text });
+        }
+        (Some(text), Some(flowing)) => {
+            tokio::spawn(greet(handle.commands.clone(), flowing, text));
+        }
+        (None, _) => {}
     }
     (engine, handle)
+}
+
+/// The greeting, once `flowing` says the call's audio flows, or after
+/// `GREETING_WAIT`; at once when the call is gone.
+async fn greet(
+    commands: mpsc::UnboundedSender<Command>,
+    mut flowing: watch::Receiver<bool>,
+    text: String,
+) {
+    let _ = tokio::time::timeout(GREETING_WAIT, flowing.wait_for(|f| *f)).await;
+    let _ = commands.send(Command::Report { text });
 }
 
 /// The voice settings as Deepgram takes them.
