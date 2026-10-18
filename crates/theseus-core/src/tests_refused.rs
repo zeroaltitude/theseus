@@ -13,14 +13,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use theseus_kernel::{ExecState, Execution};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 use theseus_store::{kinds, NewRecord, Store as _};
 
-use crate::bus::EventSink;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+use crate::test_support::turn;
 use crate::{Config, Core};
 
 fn config(state: &Path) -> Config {
@@ -43,30 +42,6 @@ fn core(state: &Path, script: Vec<Scripted>) -> (Arc<Core>, Arc<FakeProvider>) {
     ))
     .unwrap();
     (core, fake)
-}
-
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
 }
 
 /// A session that has taken one turn, and its execution's id.

@@ -6,8 +6,8 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use common::{table, Fixture, FAKE_OP_FLAT};
+
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -16,18 +16,16 @@ use common::model::FakeModel;
 use common::Daemon;
 use serde_json::{json, Value};
 
-/// A fake `op`: every reference reads as the same test value.
-const FAKE_OP: &str = "#!/bin/sh\n\
-    case \"$1\" in\n\
-    \x20 inject) sed -e 's/{{ [^}]* }}/test-secret-value-0000/g' ;;\n\
-    \x20 read) printf '%s' test-secret-value-0000 ;;\n\
-    \x20 *) exit 1 ;;\n\
-    esac\n";
-
 struct Rig {
     dir: tempfile::TempDir,
     _daemon: Daemon,
     model: FakeModel,
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }
 
 impl Rig {
@@ -40,18 +38,12 @@ impl Rig {
             std::fs::create_dir_all(path(d)).unwrap();
         }
         let op = path("bin/op");
-        std::fs::write(&op, FAKE_OP).unwrap();
+        std::fs::write(&op, FAKE_OP_FLAT).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
             .unwrap();
-        fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-            t.entry(key)
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap()
-        }
         let model_t = table(&mut t, "model");
         model_t.insert("api_base".into(), model.base.clone().into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
@@ -116,26 +108,6 @@ impl Rig {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s =
-            UnixStream::connect(self.dir.path().join("sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
     }
 
     fn submit(&self, session: &Value, input: &str) {

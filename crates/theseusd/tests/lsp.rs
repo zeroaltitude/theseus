@@ -7,6 +7,8 @@
 
 mod common;
 
+use common::table;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -94,12 +96,6 @@ fn served(fake: &Path, base: &str) -> (Served, tempfile::TempDir) {
             std::fs::write(p.join("a.fake"), "def total\nlet x = total\n").unwrap();
         },
         |t| {
-            fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-                t.entry(key)
-                    .or_insert_with(|| toml::Value::Table(Default::default()))
-                    .as_table_mut()
-                    .unwrap()
-            }
             table(t, "model").insert("api_base".into(), base.clone().into());
             for (_, p) in table(t, "providers").iter_mut() {
                 p.as_table_mut()

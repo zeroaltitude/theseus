@@ -48,6 +48,36 @@ impl Drop for Daemon {
     }
 }
 
+/// The table at `key`, made if it is not there.
+pub fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
+    t.entry(key)
+        .or_insert_with(|| toml::Value::Table(Default::default()))
+        .as_table_mut()
+        .unwrap()
+}
+
+/// The last `n` lines of `s`.
+pub fn tail(s: &str, n: usize) -> String {
+    let lines: Vec<&str> = s.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// A fake `op`: every reference's value is `tv-<its item>`.
+pub const FAKE_OP: &str = "#!/bin/sh\n\
+    case \"$1\" in\n\
+    \x20 inject) sed -E 's#\\{\\{ op://Test/([^/]+)/[^}]* \\}\\}#tv-\\1#g' ;;\n\
+    \x20 read) for a; do ref=\"$a\"; done; printf 'tv-%s' \"$(echo \"$ref\" | cut -d/ -f4)\" ;;\n\
+    \x20 *) exit 1 ;;\n\
+    esac\n";
+
+/// A fake `op`: every reference reads as the same test value.
+pub const FAKE_OP_FLAT: &str = "#!/bin/sh\n\
+    case \"$1\" in\n\
+    \x20 inject) sed -e 's/{{ [^}]* }}/test-secret-value-0000/g' ;;\n\
+    \x20 read) printf '%s' test-secret-value-0000 ;;\n\
+    \x20 *) exit 1 ;;\n\
+    esac\n";
+
 /// The template, made safe to serve in a test: the web UI, Discord, and the
 /// index tender off, no GitHub token, every secret a reference to the vault
 /// `Test`, the model endpoints on a port nothing answers, and `projects` as
@@ -59,12 +89,6 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
         .output()
         .unwrap();
     let mut t: toml::Table = String::from_utf8(out.stdout).unwrap().parse().unwrap();
-    fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-        t.entry(key)
-            .or_insert_with(|| toml::Value::Table(Default::default()))
-            .as_table_mut()
-            .unwrap()
-    }
     table(&mut t, "model").insert("api_base".into(), "http://127.0.0.1:9".into());
     for (_, p) in table(&mut t, "providers").iter_mut() {
         p.as_table_mut()
@@ -216,5 +240,8 @@ impl Served {
     }
 }
 
+pub mod fixture;
+pub use fixture::Fixture;
 pub mod model;
+pub mod rpc;
 pub mod stdio;

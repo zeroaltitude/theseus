@@ -17,10 +17,10 @@ use theseus_protocol::TurnSubmitParams;
 use super::tests::test_core;
 use super::{Core, Parts};
 use crate::approval::{Answerer, Client, Surface};
-use crate::ledger::LedgerRow;
 use crate::places::{BoundPlace, PlaceClass};
 use crate::provider::FakeProvider;
 use crate::session::SessionRecord;
+use crate::test_support::ledger_rows_2k as rows;
 
 const LAB: u64 = 314_159_265_358_979_323;
 const STRANGER: u64 = 777;
@@ -69,16 +69,6 @@ fn new(core: &Core, slug: &str) -> theseus_protocol::threads::ThreadRow {
         cli(),
     )
     .unwrap()
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(2000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 /// The frames `f` wrote on this thread: the writes are synchronous.

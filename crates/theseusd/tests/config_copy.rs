@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::Fixture;
+
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -32,6 +34,12 @@ const OP_MS: u64 = 500;
 struct Rig {
     theseusd: PathBuf,
     dir: tempfile::TempDir,
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }
 
 impl Rig {
@@ -56,10 +64,6 @@ impl Rig {
         std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::create_dir_all(r.path("projects")).unwrap();
         r
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     fn command(&self) -> Command {
@@ -167,9 +171,7 @@ impl Rig {
     }
 
     fn log(&self) -> String {
-        let s = std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default();
-        let lines: Vec<&str> = s.lines().collect();
-        lines[lines.len().saturating_sub(30)..].join("\n")
+        self.log_tail()
     }
 
     /// The copy as the daemon keeps one, its digest in the store

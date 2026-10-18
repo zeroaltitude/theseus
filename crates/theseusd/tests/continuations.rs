@@ -11,29 +11,25 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use common::rpc::call;
+use common::{table, Fixture, FAKE_OP};
+
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::{Duration, Instant};
 
 use common::model::FakeModel;
-use common::Daemon;
 use serde_json::{json, Value};
-
-/// A fake `op`: every reference's value is `tv-<its item>`.
-const FAKE_OP: &str = "#!/bin/sh\n\
-    case \"$1\" in\n\
-    \x20 inject) sed -E 's#\\{\\{ op://Test/([^/]+)/[^}]* \\}\\}#tv-\\1#g' ;;\n\
-    \x20 read) for a; do ref=\"$a\"; done; printf 'tv-%s' \"$(echo \"$ref\" | cut -d/ -f4)\" ;;\n\
-    \x20 *) exit 1 ;;\n\
-    esac\n";
 
 const GLM: &str = "glm-5.3-flash";
 
 struct Rig {
     dir: tempfile::TempDir,
     model: FakeModel,
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }
 
 impl Rig {
@@ -63,12 +59,6 @@ impl Rig {
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
             .unwrap();
-        fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-            t.entry(key)
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap()
-        }
         table(&mut t, "model").insert("api_base".into(), model.base.clone().into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
             p.as_table_mut()
@@ -79,68 +69,6 @@ impl Rig {
         table(&mut t, "tools").insert("proc_sync_secs".into(), (proc_sync_secs as i64).into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         Self { dir, model }
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
-    }
-
-    fn spawn(&self) -> Daemon {
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.path("theseusd.log"))
-            .unwrap();
-        let d = Daemon::spawn(
-            std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
-                .arg("--config")
-                .arg(self.path("config.toml"))
-                .arg("--state-dir")
-                .arg(self.path("state"))
-                .arg("--socket")
-                .arg(self.path("sock"))
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        self.path("bin").display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
-                .env_remove("THESEUS_OP_TOKEN_FILE")
-                .env_remove("THESEUS_CONFIG")
-                .env_remove("THESEUS_STATE_DIR")
-                .env_remove("THESEUS_SOCKET")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(log),
-        );
-        self.wait("the socket", || self.call("health", Value::Null).ok());
-        d
-    }
-
-    fn log(&self) -> String {
-        std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
-    }
-
-    fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
-        let t0 = Instant::now();
-        loop {
-            if let Some(v) = f() {
-                return v;
-            }
-            assert!(
-                t0.elapsed() < Duration::from_secs(40),
-                "no {what} in 40 s; the daemon's log ends:\n{}",
-                tail(&self.log(), 30)
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        call(&self.path("sock"), method, params)
     }
 
     fn rows(&self, kind: &str) -> Vec<Value> {
@@ -191,25 +119,6 @@ impl Rig {
     }
 }
 
-fn call(sock: &Path, method: &str, params: Value) -> Result<Value, Value> {
-    let s = UnixStream::connect(sock).map_err(|e| json!(e.to_string()))?;
-    s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-    let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-    (&s).write_all(format!("{req}\n").as_bytes())
-        .map_err(|e| json!(e.to_string()))?;
-    for line in BufReader::new(&s).lines() {
-        let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-            .map_err(|e| json!(e.to_string()))?;
-        if v["id"] == 1 {
-            return match v.get("error") {
-                Some(e) if !e.is_null() => Err(e.clone()),
-                _ => Ok(v["result"].clone()),
-            };
-        }
-    }
-    Err(json!("the connection closed"))
-}
-
 /// A turn asked on `glm`, on a new session.
 fn ask_glm(sock: &Path, prompt: &str) -> Result<Value, Value> {
     call(
@@ -232,11 +141,6 @@ fn late_text(req: &Value) -> bool {
                     .is_some_and(|t| t.contains("Background result"))
             })
         })
-}
-
-fn tail(s: &str, n: usize) -> String {
-    let lines: Vec<&str> = s.lines().collect();
-    lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
 /// A job that outlives `proc_sync_secs` is answered `background`, and its

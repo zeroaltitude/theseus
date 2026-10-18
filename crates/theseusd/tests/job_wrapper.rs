@@ -6,6 +6,9 @@
 //! a cancel stops its whole tree (M4 18a): the wrapper is asked alone, and
 //! stops every descendant, one in its own session too.
 
+mod common;
+
+use common::Fixture;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -17,15 +20,17 @@ struct Rig {
     spool: Spool,
 }
 
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+}
+
 impl Rig {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let spool = Spool::open(&dir.path().join("spool")).unwrap();
         Self { dir, spool }
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     /// Start `sh -c script` under a detached wrapper, in the rig's directory,

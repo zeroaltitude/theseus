@@ -7,14 +7,12 @@
 //! the check's own pieces. The pure rules' own tests are `check::tests`.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution};
 use theseus_protocol::{SessionKind, TaskCheck};
 
 use crate::bus::EventSink;
-use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::{
@@ -22,6 +20,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
+pub(crate) use crate::test_support::{ledger_rows_100k as rows, until_within_10ms as until};
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
@@ -222,17 +221,6 @@ pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
         .unwrap();
 }
 
-pub(crate) async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(
-            t0.elapsed() < Duration::from_secs(secs),
-            "no {what} in {secs} s"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
 fn nodes(core: &Core, sid: &str) -> Vec<Node> {
     core.store
         .session_nodes(sid)
@@ -262,16 +250,6 @@ fn last_create(core: &Core, sid: &str) -> (ResultStatus, String, Value) {
 
 fn tasks(core: &Core) -> Vec<Execution> {
     core.kernel.tasks(None).unwrap()
-}
-
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(100_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 pub(crate) async fn finished(core: &Core, e: &Execution) {

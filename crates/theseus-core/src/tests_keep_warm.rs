@@ -17,6 +17,7 @@ use crate::keep_warm::{Outcome, LINE, MAX_TOKENS};
 use crate::provider::{FakeProvider, ProviderRequest};
 use crate::session::SessionRecord;
 use crate::store::Store;
+pub(crate) use crate::test_support::ledger_rows_5k as rows;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
@@ -89,14 +90,6 @@ pub(crate) fn reads(fake: &FakeProvider) -> Vec<ProviderRequest> {
     fake.requests()
         .into_iter()
         .filter(|r| r.max_tokens == MAX_TOKENS)
-        .collect()
-}
-
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<crate::ledger::LedgerRow> {
-    let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(5000).unwrap();
-    rows.into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
         .collect()
 }
 

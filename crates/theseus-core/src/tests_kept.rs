@@ -10,18 +10,17 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use serde_json::json;
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 use theseus_tools::Tool;
 
-use crate::bus::EventSink;
 use crate::node::{Body, ResultStatus};
 use crate::outputs::Outputs;
 use crate::policy::Posture;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
+use crate::test_support::turn;
 use crate::toolrun::order::At;
-use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
 /// The value the job prints, which the scrubber knows: it must reach no
@@ -71,34 +70,6 @@ fn session(core: &Core) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     r.session_id
-}
-
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec = core
-        .store
-        .get_session::<SessionRecord>(sid)
-        .unwrap()
-        .unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
 }
 
 /// Each result: its tool, status, content, whether it was cut, and the file

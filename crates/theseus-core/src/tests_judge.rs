@@ -11,10 +11,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
-use theseus_protocol::TurnSubmitResult;
 use theseus_store::Record;
 
-use crate::bus::EventSink;
 use crate::config::PackMode;
 use crate::judge::{JudgeService, LoopEnd};
 use crate::ledger::LedgerRow;
@@ -23,9 +21,8 @@ use crate::rpc::{Core, Parts};
 use crate::secrets::{Secret, SecretBoard};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+pub(crate) use crate::test_support::turn_in as turn;
 use crate::Config;
-use theseus_protocol::SessionKind;
 
 pub(crate) struct Rig {
     pub(crate) core: Arc<Core>,
@@ -139,41 +136,6 @@ pub(crate) fn texts(n: usize) -> Vec<Scripted> {
     (0..n)
         .map(|i| Scripted::text(&format!("Done: answer {i}.")))
         .collect()
-}
-
-pub(crate) async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
-    let rec = match session {
-        Some(id) => core
-            .store
-            .get_session::<SessionRecord>(id)
-            .unwrap()
-            .unwrap(),
-        None => {
-            let r = SessionRecord::new(SessionKind::Conversation, None);
-            core.store.put_session(&r.session_id, &r).unwrap();
-            r
-        }
-    };
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
 }
 
 /// The `judge:loop` scope's rows, decoded.

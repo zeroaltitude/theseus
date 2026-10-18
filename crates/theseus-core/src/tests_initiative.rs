@@ -24,6 +24,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
+use crate::test_support::rows_100k as rows;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
@@ -182,16 +183,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
         })
         .await
         .unwrap();
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
-        .unwrap()
-        .into_iter()
-        .filter(|(_, r)| r.is_kind(kind))
-        .map(|(_, r)| r.data)
-        .collect()
 }
 
 async fn until(what: &str, mut f: impl FnMut() -> bool) {

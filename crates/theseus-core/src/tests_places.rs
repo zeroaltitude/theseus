@@ -21,6 +21,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
+pub(crate) use crate::test_support::rows;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
@@ -595,17 +596,6 @@ async fn health_names_each_place_and_a_private_channel_others_can_view() {
     );
     let row = &rows(&r.core, "place.viewed")[0];
     assert_eq!(row["others"], json!(["alice"]), "{row}");
-}
-
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .map(|r| r.data)
-        .collect()
 }
 
 /// Who publishes from Discord: `user`, in `channel` (a guild's) or their DM.

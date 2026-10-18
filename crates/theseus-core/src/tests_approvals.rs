@@ -6,14 +6,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_protocol::{SessionKind, Span, TurnSubmitResult};
+use theseus_protocol::{Span, TurnSubmitResult};
 
-use crate::bus::EventSink;
 use crate::node::{Body, ResultStatus};
 use crate::provider::{FakeProvider, Scripted};
-use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+use crate::test_support::turn_in as turn;
 use crate::{Config, Core};
 
 struct Rig {
@@ -57,41 +55,6 @@ fn rig(script: impl FnOnce(&Path, &Path) -> Vec<Scripted>) -> Rig {
         guarded,
         _dir: dir,
     }
-}
-
-async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
-    let rec = match session {
-        Some(id) => core
-            .store
-            .get_session::<SessionRecord>(id)
-            .unwrap()
-            .unwrap(),
-        None => {
-            let r = SessionRecord::new(SessionKind::Conversation, None);
-            core.store.put_session(&r.session_id, &r).unwrap();
-            r
-        }
-    };
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
 }
 
 /// Answer the question `res` parked on, and run the continuation.

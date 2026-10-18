@@ -19,6 +19,7 @@ use super::{Core, Parts};
 use crate::approval::{Answerer, Refusal, Surface};
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
+use crate::test_support::rows;
 
 const OWNER: u64 = 271_828_182_845_904_523;
 const SOMEONE: u64 = 314_159_265_358_979_323;
@@ -95,17 +96,6 @@ fn invalid_input(c: &Core, tool: &str, at: u64) {
 /// time, so a night reads the rows written before it.
 fn tick() -> u64 {
     theseus_protocol::now_unix_ms()
-}
-
-fn rows(c: &Core, kind: &str) -> Vec<Value> {
-    c.store
-        .ledger_tail::<LedgerRow>(10_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .map(|r| r.data)
-        .collect()
 }
 
 fn listed(c: &Core) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {

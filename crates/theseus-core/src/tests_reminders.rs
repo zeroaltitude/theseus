@@ -8,7 +8,7 @@
 //! max_wake_ahead_days`.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use theseus_protocol::{Message, Request, WakeNoticed};
@@ -18,6 +18,7 @@ use crate::approval::{Client, Surface};
 use crate::provider::{
     DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
 };
+use crate::test_support::{rows, until_within as until};
 use crate::{Config, Core};
 
 const DM: &str = "dm:42";
@@ -176,17 +177,6 @@ async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, Str
     out
 }
 
-async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(
-            t0.elapsed() < Duration::from_secs(secs),
-            "no {what} in {secs} s"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
 /// The reminders the outbox holds: (target, body).
 fn posts(core: &Core) -> Vec<(String, Value)> {
     core.kernel
@@ -200,17 +190,6 @@ fn posts(core: &Core) -> Vec<(String, Value)> {
                 crate::outbox::body_of(&a).clone(),
             )
         })
-        .collect()
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .map(|r| r.data)
         .collect()
 }
 

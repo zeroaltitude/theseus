@@ -7,19 +7,14 @@
 
 mod common;
 
+use common::table;
+
 use std::time::{Duration, Instant};
 
 use common::Served;
 use serde_json::Value;
 
 const KEY: &str = "stop-checkpoint-key-0000";
-
-fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
-    t.entry(key)
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .unwrap()
-}
 
 /// The services the owner's config turns on, but for Discord and voice.
 fn services_on(t: &mut toml::Table) {

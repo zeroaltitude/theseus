@@ -18,14 +18,14 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Wake};
-use theseus_protocol::{SessionKind, TurnSubmitResult, Usage};
+use theseus_protocol::{SessionKind, Usage};
 
-use crate::bus::EventSink;
 use crate::node::Body;
 use crate::provider::{FakeProvider, ProviderError, Scripted, WINDOW_EXCEEDED};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::{TurnError, TurnRequest, WINDOW_CLASS};
+use crate::test_support::try_turn as turn;
+use crate::turn::{TurnError, WINDOW_CLASS};
 use crate::{Config, Core};
 
 struct Rig {
@@ -65,29 +65,6 @@ fn session(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     rec.session_id
-}
-
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None)?;
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
 }
 
 /// The ledger rows of `kind`, oldest first.

@@ -7,15 +7,13 @@
 //! `task_graph::tests`.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{json, Value};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 use theseus_store::{kinds, NewRecord, Store as _};
 
 use crate::approval::Answerer;
-use crate::bus::EventSink;
-use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::{
@@ -24,7 +22,7 @@ use crate::provider::{
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::task_graph::{self as graph, TaskRecord, TaskState};
-use crate::turn::TurnRequest;
+pub(crate) use crate::test_support::{ledger_rows_100k as rows, turn, until};
 use crate::{Config, Core};
 
 const PLACE: &str = "dm:42";
@@ -155,30 +153,6 @@ pub(crate) fn session(core: &Arc<Core>) -> String {
     rec.session_id
 }
 
-pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
-}
-
 impl Rig {
     /// The next turn's calls: (wire name, input) each, each with an id of
     /// its own.
@@ -229,24 +203,6 @@ pub(crate) fn results(core: &Core, sid: &str, tool: &str) -> Vec<(ResultStatus, 
             _ => None,
         })
         .collect()
-}
-
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(100_000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
-}
-
-pub(crate) async fn until(what: &str, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(t0.elapsed() < Duration::from_secs(20), "no {what} in 20 s");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
 }
 
 /// Every stored version of a task, oldest first: the WAL keeps each.

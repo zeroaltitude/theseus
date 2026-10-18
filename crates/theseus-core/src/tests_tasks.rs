@@ -10,9 +10,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution, Wake};
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::SessionKind;
 
-use crate::bus::EventSink;
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::{
@@ -20,7 +19,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+pub(crate) use crate::test_support::{rows_100k as rows, turn, until};
 use crate::{Config, Core};
 
 /// The place the parent sessions post to.
@@ -168,30 +167,6 @@ pub(crate) fn parent_session(core: &Arc<Core>) -> String {
     rec.session_id
 }
 
-pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
-}
-
 /// What the operator says to start a task, and the quote of it every
 /// scripted `task.create` makes (M5 27).
 pub(crate) const ASK: &str = "START: run this as a background task, please";
@@ -243,14 +218,6 @@ pub(crate) fn only_task(core: &Core, parent_sid: &str) -> Execution {
     let tasks = core.kernel.tasks(rec.execution_id.as_deref()).unwrap();
     assert_eq!(tasks.len(), 1, "{tasks:?}");
     tasks.into_iter().next().unwrap()
-}
-
-pub(crate) async fn until(what: &str, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(t0.elapsed() < Duration::from_secs(20), "no {what} in 20 s");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
 }
 
 pub(crate) fn exec(core: &Core, id: &str) -> Execution {
@@ -625,17 +592,6 @@ async fn a_cancel_stops_the_task_and_reports_once() {
 }
 
 // ---------------------------------------------------------------- the report's wake (W1, theseus-lji)
-
-/// The ledger's rows of one kind, oldest first.
-pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
-    core.store
-        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
-        .unwrap()
-        .into_iter()
-        .filter(|(_, r)| r.is_kind(kind))
-        .map(|(_, r)| r.data)
-        .collect()
-}
 
 /// A task opened with `wake_parent` starts one parent turn when it reports:
 /// the turn runs by itself, its input is the report, and its reply, posted

@@ -10,8 +10,8 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use common::Fixture;
+
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -22,6 +22,16 @@ use serde_json::{json, Value};
 struct Rig {
     dir: tempfile::TempDir,
     _daemon: Daemon,
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    fn sock(&self) -> std::path::PathBuf {
+        self.path("projects/sock")
+    }
 }
 
 impl Rig {
@@ -68,10 +78,6 @@ impl Rig {
         r
     }
 
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
-    }
-
     fn wait(&self, what: &str, f: impl Fn() -> bool) {
         let t0 = Instant::now();
         while !f() {
@@ -82,26 +88,6 @@ impl Rig {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s =
-            UnixStream::connect(self.path("projects/sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
     }
 
     /// The operator's own `theseus`, or a job's shell when `job` names one.
@@ -141,11 +127,8 @@ impl Rig {
             .map(|r| r["data"].clone())
             .collect()
     }
-
     fn log(&self) -> String {
-        let s = std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default();
-        let lines: Vec<&str> = s.lines().collect();
-        lines[lines.len().saturating_sub(30)..].join("\n")
+        self.log_tail()
     }
 }
 

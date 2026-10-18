@@ -12,8 +12,8 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use common::{tail, Fixture, FAKE_OP};
+
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -22,19 +22,17 @@ use common::stdio::StdioClient;
 use common::Daemon;
 use serde_json::{json, Value};
 
-/// A fake `op`: every reference's value is `tv-<its item>`.
-const FAKE_OP: &str = "#!/bin/sh\n\
-    case \"$1\" in\n\
-    \x20 inject) sed -E 's#\\{\\{ op://Test/([^/]+)/[^}]* \\}\\}#tv-\\1#g' ;;\n\
-    \x20 read) for a; do ref=\"$a\"; done; printf 'tv-%s' \"$(echo \"$ref\" | cut -d/ -f4)\" ;;\n\
-    \x20 *) exit 1 ;;\n\
-    esac\n";
-
 /// The fixture's last position: 121 records.
 const LAST: u64 = 121;
 
 struct Rig {
     dir: tempfile::TempDir,
+}
+
+impl Fixture for Rig {
+    fn dir(&self) -> &std::path::Path {
+        self.dir.path()
+    }
 }
 
 impl Rig {
@@ -63,10 +61,6 @@ impl Rig {
             std::fs::copy(fixture.join(f), path("state/store").join(f)).unwrap();
         }
         Self { dir }
-    }
-
-    fn path(&self, p: &str) -> PathBuf {
-        self.dir.path().join(p)
     }
 
     fn command(&self) -> std::process::Command {
@@ -105,44 +99,6 @@ impl Rig {
         let d = Daemon::spawn(&mut self.command());
         self.wait("the socket", || self.call("health", Value::Null).ok());
         d
-    }
-
-    fn log(&self) -> String {
-        std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
-    }
-
-    fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
-        let t0 = Instant::now();
-        loop {
-            if let Some(v) = f() {
-                return v;
-            }
-            assert!(
-                t0.elapsed() < Duration::from_secs(40),
-                "no {what} in 40 s; the daemon's log ends:\n{}",
-                tail(&self.log(), 30)
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        let s = UnixStream::connect(self.path("sock")).map_err(|e| json!(e.to_string()))?;
-        s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        (&s).write_all(format!("{req}\n").as_bytes())
-            .map_err(|e| json!(e.to_string()))?;
-        for line in BufReader::new(&s).lines() {
-            let v: Value = serde_json::from_str(&line.map_err(|e| json!(e.to_string()))?)
-                .map_err(|e| json!(e.to_string()))?;
-            if v["id"] == 1 {
-                return match v.get("error") {
-                    Some(e) if !e.is_null() => Err(e.clone()),
-                    _ => Ok(v["result"].clone()),
-                };
-            }
-        }
-        Err(json!("the connection closed"))
     }
 
     /// Health's `store.verify` phase, once it has ended.
@@ -206,11 +162,6 @@ impl Rig {
             })
             .collect()
     }
-}
-
-fn tail(s: &str, n: usize) -> String {
-    let lines: Vec<&str> = s.lines().collect();
-    lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
 /// Every file under `dir` with its bytes: what "nothing was written"

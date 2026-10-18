@@ -17,10 +17,10 @@ use crate::approval::Answerer;
 use crate::config::memory::MemoryArm;
 use crate::config::MemoryMode;
 use crate::graph::Edge;
-use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
 use crate::provider::ProviderRequest;
 use crate::recall::AskFuture;
+use crate::test_support::recall_rows as rows;
 use crate::tests_recall::{
     dropped_for, index_of, recalls, rig, rig_with, session, turn, Rig, OWNER, PIER,
 };
@@ -50,17 +50,6 @@ fn recall_nodes(core: &Core, sid: &str) -> Vec<(u64, Node)> {
     nodes(core, sid)
         .into_iter()
         .filter(|(_, n)| matches!(n.body, Body::Recall { .. }))
-        .collect()
-}
-
-/// The session's recall-scoped rows of `kind`.
-fn rows(core: &Core, sid: &str, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .scope_after(&crate::fact::recall::scope(sid), 0)
-        .unwrap()
-        .iter()
-        .map(|r| r.decode::<LedgerRow>().unwrap())
-        .filter(|r| r.kind == kind)
         .collect()
 }
 

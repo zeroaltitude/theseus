@@ -8,7 +8,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_protocol::{Message, Request};
@@ -20,6 +19,7 @@ use crate::provider::{
     DeltaSink, FakeProvider, Provider, ProviderError, ProviderFuture, ProviderRequest, Scripted,
 };
 use crate::session::SessionRecord;
+use crate::test_support::until_within as until;
 use crate::web::tests::{serve, web};
 use crate::{Config, Core};
 
@@ -206,17 +206,6 @@ async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, Str
     drop(lines);
     let _ = srv.await;
     out
-}
-
-async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(
-            t0.elapsed() < Duration::from_secs(secs),
-            "no {what} in {secs} s"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
 }
 
 fn rows(core: &Core, kind: &str) -> Vec<Value> {

@@ -12,12 +12,10 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use theseus_protocol::{ExternalText, SessionKind, TurnSubmitResult};
+use theseus_protocol::{ExternalText, SessionKind};
 
-use crate::bus::EventSink;
 use crate::config::WebToolsConfig;
 use crate::node::{Body, ResultStatus};
 use crate::policy::Posture;
@@ -26,7 +24,7 @@ use crate::provider::{
 };
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::turn::TurnRequest;
+use crate::test_support::{turn, until};
 use crate::web::tests::{serve, web};
 use crate::{Config, Core};
 
@@ -162,30 +160,6 @@ fn session(core: &Core) -> String {
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
-}
-
 fn ledgered(core: &Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
@@ -248,14 +222,6 @@ fn assert_waits_for(reason: &str, url: &str) {
     let (head, tail) = waits_because(url);
     assert!(reason.contains(&head), "{reason}");
     assert!(reason.ends_with(tail), "{reason}");
-}
-
-async fn until(what: &str, mut f: impl FnMut() -> bool) {
-    let t0 = Instant::now();
-    while !f() {
-        assert!(t0.elapsed() < Duration::from_secs(20), "no {what} in 20 s");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
 }
 
 /// The brief's first two tests, and the hold's records: a fetch, then

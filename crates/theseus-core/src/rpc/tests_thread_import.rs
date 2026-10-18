@@ -24,6 +24,7 @@ use crate::import::tests::{call, lines};
 use crate::ledger::LedgerRow;
 use crate::provider::{FakeProvider, Scripted};
 use crate::store::Store;
+use crate::test_support::ledger_rows_2k as rows;
 use crate::threads_import::card::TOOL;
 use crate::threads_import::fixture::{self, SECRET, SECRET_REPO};
 
@@ -88,16 +89,6 @@ async fn run(c: &Arc<Core>, p: &ThreadImportParams) -> ThreadImportResult {
 
 fn card_for(lines: Value) -> Scripted {
     Scripted::tools("", &[("tu", TOOL, json!({ "lines": lines }))])
-}
-
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
-    core.store
-        .ledger_tail::<LedgerRow>(2000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == kind)
-        .collect()
 }
 
 fn sent(fake: &FakeProvider) -> Vec<String> {
