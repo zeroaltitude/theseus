@@ -1906,6 +1906,7 @@ impl FakeDiscord {
                 Err(e) => (400, json!({"error": e.to_string()})),
             },
             ("POST", ["interact"]) => self.control_interact(body),
+            ("POST", ["react"]) => self.control_react(body),
             ("GET", ["messages"]) => (200, json!(self.all_messages())),
             ("GET", ["replies"]) => (200, json!(self.replies())),
             ("GET", ["gateway"]) => (200, json!(self.gateway_state())),
