@@ -76,6 +76,9 @@ mod tests {
         hits(text, &names)
     }
 
+    /// The owner's list, as the template has it.
+    const OWNER: [&str; 4] = ["bighat", "bighatbio", "bh-ai", "neuron-utils"];
+
     #[test]
     fn sensitive_name_matching() {
         let acme = ["Acme"];
@@ -103,6 +106,14 @@ mod tests {
             ),
             ("anything", &[], &[]),
             ("a - b -- c", &["--", "-"], &[]),
+            // The owner's list (theseus-oejh3's join): a hyphenated name matches
+            // as a unit, so the bare word "neuron" does not.
+            ("BigHat Biosciences", &OWNER, &["bighat"]),
+            ("ask the bh-ai team", &OWNER, &["bh-ai"]),
+            ("neuron-utils 0.4", &OWNER, &["neuron-utils"]),
+            ("someone@bighatbio.com", &OWNER, &["bighatbio"]),
+            ("bighatter", &OWNER, &[]),
+            ("a neuron fires", &OWNER, &[]),
             (
                 "Widgetco and Acme",
                 &["Acme", "Widgetco", "Nobody"],

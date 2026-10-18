@@ -1527,19 +1527,31 @@ mod tests {
         assert!(v6.description.contains("outside the owner's trust"));
     }
 
-    /// No pack's text names an organisation. The real list is the operator's
-    /// `[privacy] sensitive_names`, which the repository never holds: the
-    /// daemon checks every embedded pack against it at start (`names::packs_naming`,
-    /// theseus-oejh3). Here the matcher runs over every pack against the
-    /// template's placeholder names, which must not hit, and the mechanism is
-    /// proved on a planted text.
+    /// No pack's text names an organisation: the matcher runs over every pack
+    /// against the template's `[privacy] sensitive_names` line, the owner's
+    /// company and repository names (the owner, 2026-10-17: "just use the
+    /// config", not a hashed name), and the mechanism is proved on a planted
+    /// text. The daemon also checks every embedded pack against the operator's
+    /// own list at start (`names::packs_naming`, theseus-oejh3).
     #[test]
     fn the_pack_text_names_no_organisation() {
-        let placeholders = ["Examplecorp".to_string(), "Project Placeholder".to_string()];
+        let template = include_str!("../../theseus-core/config/theseus.example.toml");
+        let line = template
+            .lines()
+            .find_map(|l| l.strip_prefix("# sensitive_names = "))
+            .expect("the template's [privacy] sensitive_names line");
+        let names: Vec<String> = toml::from_str::<toml::Table>(&format!("n = {line}")).unwrap()
+            ["n"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, ["bighat", "bighatbio", "bh-ai", "neuron-utils"]);
         for (name, text) in EMBEDDED {
-            assert_eq!(hits(text, &placeholders), Vec::<String>::new(), "{name}");
+            assert_eq!(hits(text, &names), Vec::<String>::new(), "{name}");
         }
-        let planted = format!("{}\nExamplecorp private plans", EMBEDDED[0].1);
-        assert_eq!(hits(&planted, &placeholders), ["Examplecorp"]);
+        let planted = format!("{}\nBigHat's private plans", EMBEDDED[0].1);
+        assert_eq!(hits(&planted, &names), ["bighat"]);
     }
 }

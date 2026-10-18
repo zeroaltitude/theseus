@@ -23,6 +23,7 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("cache.keep_warm_minutes", "cache.keep_warm_every_minutes"),
     ("threads.keep_warm_hours", "cache.threads_keep_warm_hours"),
     ("watches", "watch_for"),
+    ("routing.data.private_topics", "privacy.sensitive_names"),
 ];
 
 /// The message for the first old key `text` has, or none (also for text that is not TOML: its own error stands).
@@ -119,6 +120,10 @@ mod tests {
             "[watches]\nmax_days = 10\n",
             "`[watches]` was renamed to `[watch_for]`",
         ),
+        (
+            "[routing.data]\nprivate_topics = [\"Acme\"]\n",
+            "`[routing.data] private_topics` was renamed to `[privacy] sensitive_names`",
+        ),
     ];
 
     #[test]
@@ -214,6 +219,7 @@ mod tests {
             "{secrets}\n[model]\nmax_loops_mode = \"end\"\ncache_ttl = \"1h\"\nkeep_warm_hours = 12\n\
              [profiles.sonnet]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\nmax_loops_mode = \"notify\"\n\
              [routing]\nmode = \"shadow\"\n[routing.modes.chat]\nprofiles = [\"sonnet\"]\n\
+             [routing.data]\nprivate_topics = [\"Acme\"]\n\
              [judge.packs.\"loop.v1\"]\nmode = \"off\"\n\
              [route]\nreplay_day_usd = 2.0\n\
              [persona]\nimport_files = [\"SOUL.md\"]\nown_boost = 1.5\n\
@@ -224,6 +230,7 @@ mod tests {
             "{secrets}\n[model]\non_max_loops = \"end\"\n\
              [profiles.sonnet]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\non_max_loops = \"notify\"\n\
              [routing]\nrung = \"shadow\"\n[routing.classes.chat]\nprofiles = [\"sonnet\"]\n\
+             [privacy]\nsensitive_names = [\"Acme\"]\n\
              [judge.packs.\"loop.v1\"]\nrung = \"off\"\n\
              [route_bench]\nreplay_day_usd = 2.0\n\
              [persona_import]\nimport_files = [\"SOUL.md\"]\nown_boost = 1.5\n\

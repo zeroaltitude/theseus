@@ -49,7 +49,7 @@ async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitRes
 /// name to keep off restricted models.
 fn listed(c: &mut Config) {
     c.privacy.sensitive_names = vec!["Examplecorp".into()];
-    c.routing.modes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+    c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
 }
 
 /// A plain message runs on the first profile of the list, the restricted one;
