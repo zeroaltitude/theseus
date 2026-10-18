@@ -1146,9 +1146,16 @@ fn a_task_started_in_the_chat_has_a_short_id_and_a_title() {
         false
     });
     let t = r.task("Count the terns").expect("the task exists");
+    assert_eq!(t["title"], "Count the terns");
     let short = t["short"].as_str().unwrap().to_string();
+    assert_eq!(short.chars().count(), 6, "a short id: {short}");
     within("the chat says what it started", 10_000, || {
         let screen = tmux.screen();
         screen.contains("started Count the terns") && screen.contains(&short)
     });
+    let screen = tmux.screen();
+    assert!(
+        screen.contains(&format!("started Count the terns ({short})")),
+        "{screen}"
+    );
 }
