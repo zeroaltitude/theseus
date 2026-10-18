@@ -55,6 +55,12 @@ impl Core {
     }
 }
 
+/// The sealed score of a branch in a line, `sealed 38/40 → 39/40`: what the
+/// self log, the notice and the cockpit say of it (theseus-pw1q.21.7).
+pub fn sealed_line(before: u64, after: u64, total: u64) -> String {
+    format!("sealed {before}/{total} → {after}/{total}")
+}
+
 /// Every kind the log reads.
 fn tags() -> Vec<String> {
     SELF_ROWS

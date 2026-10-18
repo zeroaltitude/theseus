@@ -4,6 +4,7 @@
 use anyhow::Result;
 use serde_json::Value;
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
+use theseus_store::NewRecord;
 
 use super::planted::{self, Outcome};
 use super::review::Ask;
@@ -175,6 +176,28 @@ impl Run<'_> {
         })
     }
 
+    /// The item back on the backlog, `proposed` again with `note` among its
+    /// evidence under `identity`: its record, for the caller's frame; none
+    /// when the item is not on the backlog.
+    pub(super) fn reopened(&self, identity: String, note: String) -> Result<Option<NewRecord>> {
+        let Some(mut t) = crate::task_graph::get(&self.core.store, &self.b.item)? else {
+            return Ok(None);
+        };
+        let now = theseus_protocol::now_unix_ms();
+        t.state = TaskState::Proposed;
+        t.session = None;
+        t.version += 1;
+        t.updated_at_ms = now;
+        t.evidence.push(TaskEvidence {
+            node: None,
+            identity,
+            note: Some(note),
+            by: "self-join".into(),
+            at_ms: now,
+        });
+        Ok(Some(crate::task_graph::record(&t)?))
+    }
+
     /// The verdict's row; a reject puts the item back on the backlog in its
     /// frame.
     fn verdict(&mut self, v: Said) -> Result<()> {
@@ -193,26 +216,13 @@ impl Run<'_> {
         let rec = self.core.rec(None);
         let mut frame = vec![rec.row(&fact)?];
         if v.verdict == "reject" {
-            if let Some(mut t) = crate::task_graph::get(&self.core.store, &self.b.item)? {
-                let now = theseus_protocol::now_unix_ms();
-                t.state = TaskState::Proposed;
-                t.session = None;
-                t.version += 1;
-                t.updated_at_ms = now;
-                let note: String = reasons.join("; ").chars().take(1_000).collect();
-                t.evidence.push(TaskEvidence {
-                    node: None,
-                    identity: format!(
-                        "review:{}@{}",
-                        self.b.branch,
-                        &self.b.head[..self.b.head.len().min(12)]
-                    ),
-                    note: Some(format!("rejected by {}: {note}", v.reviewer)),
-                    by: "self-join".into(),
-                    at_ms: now,
-                });
-                frame.push(crate::task_graph::record(&t)?);
-            }
+            let identity = format!(
+                "review:{}@{}",
+                self.b.branch,
+                &self.b.head[..self.b.head.len().min(12)]
+            );
+            let note: String = reasons.join("; ").chars().take(1_000).collect();
+            frame.extend(self.reopened(identity, format!("rejected by {}: {note}", v.reviewer))?);
         }
         self.core.store.append(&frame)?;
         rec.announce(&fact);

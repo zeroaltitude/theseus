@@ -17,10 +17,10 @@ enum Try {
 }
 
 /// A merge made in its tree: the tree, the main it is on, its commit.
-struct Merged {
-    t: Tree,
-    base: String,
-    merge: String,
+pub(super) struct Merged {
+    pub(super) t: Tree,
+    pub(super) base: String,
+    pub(super) merge: String,
 }
 
 impl Run<'_> {
@@ -173,6 +173,10 @@ impl Run<'_> {
             close(self);
             return Ok(Try::Stopped);
         };
+        if !self.sealed_clear(&m).await {
+            close(self);
+            return Ok(Try::Stopped);
+        }
         let Some(signed) = self.signed(&m.t).await else {
             close(self);
             return Ok(Try::Stopped);

@@ -101,6 +101,24 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               item, a reply or a task's text.",
     },
     SelfRowKind {
+        name: "self.sealed.checked",
+        fields: &[
+            "branch", "head", "outcome", "before", "after", "total", "cached", "holds", "reported",
+            "broken",
+        ],
+        doc: "A self branch's sealed check before its merge (theseus-pw1q.21.7): passed, held, or \
+              skipped with its reason; the sealed score as `sealed 38/40 → 39/40`, the losses, and \
+              the opaque ids of the items that newly fail; never an item.",
+    },
+    SelfRowKind {
+        name: "self.sealed.drift",
+        fields: &["set", "family", "before", "after", "items", "baseline"],
+        doc:
+            "The weekly drift check (theseus-pw1q.21.7): the installed main scored worse than the \
+              first score after switch-on, in a family or a set's total. One row each; the backlog \
+              files one `sealed.drift:<family>` cause. Nothing is reverted.",
+    },
+    SelfRowKind {
         name: "self.exam.counted",
         fields: &["item", "family", "sealed", "reviewer"],
         doc: "An exam item counted after its independent review; a sealed one names no text.",

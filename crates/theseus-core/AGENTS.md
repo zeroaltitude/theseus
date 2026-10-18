@@ -986,6 +986,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   An item's cost is the relay's meter, a call refused at a line makes the item `RunFailed`. The live run in L1 needs a
   non-root daemon with a job cgroup; the tests run the item through a stand-in `Launch`. Tests: `tests_relay.rs`,
   `tests_runner.rs`, the config's `the_sealed_table_has_its_defaults_and_the_old_key_is_renamed`.
+  **The sealed hold** (theseus-pw1q.21.7; no store format change: two ledger kinds and META keys; `rsi/sealed/hold.rs`,
+  `rsi/join/sealing.rs`, `fact/rsi_sealed.rs`): the self-join's `sealed` phase. On each try's merge, after main's gate has
+  built it in the merge's tree and before the signature, a branch whose diff touches a behaviour path
+  (`hold::BEHAVIOUR`, patterns with `*`: prompt and system-text assembly, tool descriptions and schemas, routing and the
+  profiles' defaults, Jev's pack code, recall/rerank/memory ranking, context assembly and the compiler, the turn loop's
+  stop rules; a test file is none; a test holds that each pattern matches a file) or any branch with `[self.sealed]
+  every_branch` is scored on every sealed set (`Seams.sealed`, a `Scorer`: `Scratch` runs `Core::sealed_score`, the scratch
+  runner over each set, on the merge's `target/debug`) beside main's score (`Core::sealed_main`: the installed binaries,
+  one META record for each (main commit, `Sealed::digest`), the first ever kept also as the drift baseline). `hold::judge`
+  holds when a family of 5 or more items loses more than 1 item or a set's total falls at all; smaller families and
+  one-item losses are reported. A hold is `self.join.stopped {phase: "sealed"}` (`numbers.held`: that head is not tried
+  again) with the numbers and the opaque ids of the items that newly fail, plus the item back to `proposed` with the same
+  evidence (`Run::reopened`, shared with a review's reject); a check that could not run is a stop tried again. Every pass
+  writes one `self.sealed.checked` row (`passed`, `held`, or `skipped` with its reason when there is no `dir` or no item),
+  its text checked by `Sealed::allows` first, and its `what` is `rsi::log::sealed_line`'s `sealed 38/40 → 39/40`, which
+  `theseus self log` and the cockpit's self rows show as written. **The weekly drift check** (`Core::sealed_drift`, from the
+  join tender every `[self.sealed] drift_every_days`): the installed main against the baseline; a family (or a set's
+  total) that fell is one `self.sealed.drift` row, which the backlog night files as one `sealed.drift:<family>` cause
+  (`backlog/read.rs`); nothing is reverted, and a changed set is a new baseline. Tests: `rsi/sealed/tests_hold.rs`,
+  `rsi/join/tests_sealed.rs`.
 - **The self backlog** (theseus-pw1q.7; `rsi/backlog.rs` and `rsi/backlog/`): the nightly read (`backlog_night`; its
   tender, `backlog_after_serving`, runs an hour after consolidation, only with `[self] mode = "act"`) asks `rsi::gate`
   first and between its phases, reads the last day's ledger by kind (failed calls and turns, provider errors, invalid

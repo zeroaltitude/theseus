@@ -38,6 +38,7 @@
 mod check;
 mod daemon;
 mod filter;
+pub mod hold;
 pub mod relay;
 pub mod runner;
 
@@ -321,6 +322,51 @@ impl Sealed {
             "a sealed set was scored"
         );
         Ok(out)
+    }
+
+    /// A digest of the sets: the keyed hash of every item's set, family and
+    /// id, sorted. An item's id is a keyed hash of its bytes, so a changed,
+    /// added or removed item changes it, and it says nothing of any item.
+    /// What a cached score of main is keyed by (theseus-pw1q.21.7).
+    pub fn digest(&self) -> Result<String, SealedError> {
+        let key = self.key()?;
+        let mut names = Vec::new();
+        for set in scan(&self.dir).into_keys() {
+            for fam in std::fs::read_dir(self.dir.join(&set))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|f| f.file_type().is_ok_and(|t| t.is_dir()))
+            {
+                let family = fam.file_name().to_string_lossy().into_owned();
+                for f in std::fs::read_dir(fam.path())
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                {
+                    names.push(format!(
+                        "{set}/{family}/{}",
+                        f.file_name().to_string_lossy()
+                    ));
+                }
+            }
+        }
+        names.sort();
+        Ok(mac(&key, &[b"digest", names.join("\n").as_bytes()]))
+    }
+
+    /// Whether `text` holds none of the strings of any set: what a row that
+    /// leaves the daemon is checked by, as the scorer's output is.
+    pub fn allows(&self, text: &str) -> Result<bool, SealedError> {
+        let mut items = Vec::new();
+        for set in self.counts().into_keys() {
+            items.extend(self.load(&set)?);
+        }
+        let filter = Filter::new(
+            items.iter().flat_map(Loaded::strings),
+            items.iter().filter_map(|i| i.file.canary.clone()),
+        );
+        Ok(filter.allows(text))
     }
 
     /// The set's items, by id.
@@ -661,6 +707,8 @@ pub const REFUSAL: &str = "sealed: the sealed holdout set is out of reach of eve
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) mod tests_hold;
 #[cfg(test)]
 mod tests_reach;
 #[cfg(test)]

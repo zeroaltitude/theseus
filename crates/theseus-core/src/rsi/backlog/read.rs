@@ -43,6 +43,7 @@ const KINDS: &[&str] = &[
     "approval.refused",
     "secrets.failed",
     "mcp.failed",
+    "self.sealed.drift",
 ];
 
 /// One piece of evidence for a cause.
@@ -251,6 +252,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.title = format!("Refused acts: {a}");
             o.note = format!("{a} refused for {}", word(&d["who"]));
         }
+        "self.sealed.drift" => of_drift(&mut o, d),
         "secrets.failed" | "mcp.failed" => {
             o.key = kind.into();
             o.title = format!("{kind} rows keep coming");
@@ -260,6 +262,21 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         _ => return None,
     }
     Some(o)
+}
+
+/// The installed main fell below the sealed baseline in a family
+/// (theseus-pw1q.21.7); the row holds counts and a family's name, never text.
+fn of_drift(o: &mut Obs, d: &Value) {
+    let fam = d["family"]
+        .as_str()
+        .map_or_else(|| "_total".into(), |f| word(&Value::from(f)));
+    o.key = format!("sealed.drift:{fam}");
+    o.title = format!("The sealed score drifted down in {fam}");
+    o.note = format!(
+        "{} of {} items, from {}",
+        d["after"], d["items"], d["before"]
+    );
+    o.work = 3;
 }
 
 /// A label that says the judgment was wrong.
