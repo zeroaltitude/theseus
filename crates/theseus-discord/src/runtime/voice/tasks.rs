@@ -14,6 +14,11 @@
 //!   A task that reports to the voice place's own session is not told here
 //!   at its end: its report wakes that session, and `voice_heard` speaks that
 //!   turn's reply.
+//! - **Held by voice** (theseus-ypnxt.5): a whole utterance of the owner that is
+//!   "pause it" or "go on" (`held_words`) is `task.pause` or `task.resume` as the
+//!   speaker, for the task the last question named while it is pending, else the
+//!   private place's only running task (only paused one, to go on); with two to
+//!   choose from it is an ordinary voice turn. The RPC's answer is said back once.
 //! - **Answered by voice**: the question last said is pending for
 //!   `PENDING_FOR`. While it is, a whole utterance of the owner that is
 //!   "approve", "the second one" or "stop it" (`matched`, a table) is
@@ -22,12 +27,13 @@
 //!   Anything else is an ordinary voice turn. A bare "yes" is a backchannel
 //!   (`theseus_voice::heard`), so the spoken question asks for "approve".
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use theseus_core::Core;
 use theseus_protocol::answer::{approves, WorkAnswerParams, WorkAnswerResult};
+use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult, PAUSED_AT_MS};
 use theseus_protocol::work::{answer_options, AnswerOption, Question, QuestionKind, WorkKind};
 use theseus_protocol::work::{WorkState, WorkView};
 use theseus_protocol::{method, DiscordOrigin, PlaceClass, TaskCancelParams, TaskCancelResult};
@@ -56,6 +62,16 @@ pub(in crate::runtime) struct Tasks {
     seen: HashSet<String>,
     order: VecDeque<String>,
     pub(super) pending: Option<Pending>,
+    /// The tasks of this private place that have not ended, by execution id.
+    live: HashMap<String, Live>,
+}
+
+/// A task the call could pause or resume.
+struct Live {
+    /// What `task.pause` takes: its session, else its execution.
+    task: String,
+    running: bool,
+    held: bool,
 }
 
 /// The question last said.
@@ -89,6 +105,7 @@ impl Tasks {
             seen: HashSet::new(),
             order: VecDeque::new(),
             pending: None,
+            live: HashMap::new(),
         }
     }
 
@@ -117,6 +134,7 @@ impl Tasks {
 
     /// A view from the watch: a new question or a task's end is said.
     pub(in crate::runtime) fn see(&mut self, core: &Core, v: &WorkView) {
+        self.track(core, v);
         let Some(key) = key_of(v) else {
             // A question settled elsewhere is no longer the one to answer.
             self.settled(v);
@@ -151,6 +169,61 @@ impl Tasks {
                 }
             }
         }
+    }
+
+    /// Keep the private place's open tasks, for "pause it" and "go on".
+    fn track(&mut self, core: &Core, v: &WorkView) {
+        if v.kind != WorkKind::Task {
+            return;
+        }
+        let to = v.session_id.as_deref().and_then(|s| core.outbox.target(s));
+        let private =
+            |t: Option<&str>| core.runner.place_rule.class(&core.cfg, t) == PlaceClass::Private;
+        if v.state.ended() || !private(Some(&self.target)) || !private(to.as_deref()) {
+            self.live.remove(&v.id);
+            return;
+        }
+        self.live.insert(
+            v.id.clone(),
+            Live {
+                task: v.session_id.clone().unwrap_or_else(|| v.id.clone()),
+                running: v.state.working(),
+                held: v.paused || v.next_at_ms == Some(PAUSED_AT_MS),
+            },
+        );
+    }
+
+    /// (running, held) among the open tasks, for tests.
+    #[cfg(test)]
+    pub(super) fn open_counts(&self) -> (usize, usize) {
+        let held = self.live.values().filter(|l| l.held).count();
+        (
+            self.live.values().filter(|l| l.running && !l.held).count(),
+            held,
+        )
+    }
+
+    /// The task "pause it" (`pause`) or "go on" means, if `words` say one and
+    /// the speaker is the owner: the task the last question named while it is
+    /// pending, else the only one running (to pause) or paused (to go on).
+    pub(super) fn hold(&self, words: &str, owner: bool, now: Instant) -> Option<(bool, String)> {
+        let pause = held_words(words)?;
+        if !owner {
+            return None;
+        }
+        if let Some(p) = self
+            .pending
+            .as_ref()
+            .filter(|p| now.duration_since(p.at) <= PENDING_FOR)
+        {
+            return Some((pause, p.task.clone()));
+        }
+        let mut open = self
+            .live
+            .values()
+            .filter(|l| if pause { l.running && !l.held } else { l.held });
+        let only = open.next()?;
+        open.next().is_none().then(|| (pause, only.task.clone()))
     }
 
     /// Say a task's question, and wait for the answer to it.
@@ -437,6 +510,20 @@ const ORDINALS: &[(&str, usize)] = &[
 /// Words before an ordinal that change nothing: "the second one", "option two".
 const BEFORE: &[&str] = &["the", "option", "number", "choice", "please"];
 
+const PAUSE: &[&str] = &["pause it", "pause that", "pause the task"];
+const RESUME: &[&str] = &["go on", "resume it", "resume that", "resume the task"];
+
+/// Whether `words`, a whole utterance, pause a task (true) or let it go on.
+pub(super) fn held_words(words: &str) -> Option<bool> {
+    let heard = normal(words);
+    let heard = heard.as_str();
+    match (PAUSE.contains(&heard), RESUME.contains(&heard)) {
+        (true, _) => Some(true),
+        (_, true) => Some(false),
+        _ => None,
+    }
+}
+
 /// What `words`, a whole utterance, asks of a question with `options`.
 pub(super) fn matched(words: &str, options: &[AnswerOption]) -> Option<Said> {
     let heard = normal(words);
@@ -486,6 +573,7 @@ impl Place {
     /// owner: `work.answer` or `task.cancel` as the speaker, the transcript
     /// posted as any voice turn's is, and a short word back. True when they
     /// did, and no voice turn is made of them.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) fn voice_answered(&mut self, t: &VoiceTurn) -> bool {
         let Some(first) = t.utterances.first() else {
             return false;
@@ -517,14 +605,22 @@ impl Place {
             };
             (tasks, c.commands.clone(), c.guild, c.channel)
         };
-        let taken = tasks.lock().unwrap().take(&words, owner, Instant::now());
-        let Some((said, pending)) = taken else {
-            return false;
+        let now = Instant::now();
+        let (taken, held) = {
+            let mut tasks = tasks.lock().unwrap();
+            match tasks.take(&words, owner, now) {
+                Some(t) => (Some(t), None),
+                None => (None, tasks.hold(&words, owner, now)),
+            }
         };
+        if taken.is_none() && held.is_none() {
+            return false;
+        }
         let name = self.shared.voice.name(speaker);
         for u in &t.utterances {
             self.say(&format!("🎙️ **{name}**: {}", u.text), None);
         }
+        let held_by = held;
         let origin = DiscordOrigin {
             user_id: speaker.to_string(),
             channel_id: channel.to_string(),
@@ -538,6 +634,15 @@ impl Place {
         );
         let author = Some(format!("discord:{name}"));
         tokio::spawn(async move {
+            let Some((said, pending)) = taken else {
+                if let Some((pause, task)) = held_by {
+                    let (rpc, shared, sid, target) = (rpc, shared, sid, target);
+                    let text =
+                        hold(&rpc, pause, task, author, origin, (&shared, &sid, &target)).await;
+                    let _ = commands.send(Command::Report { text });
+                }
+                return;
+            };
             let (said, refused) = match said {
                 Said::Answer { option, ack } => {
                     let params = WorkAnswerParams {
@@ -570,16 +675,60 @@ impl Place {
                 }
             };
             if let Some(why) = refused {
-                let body = serde_json::json!({"kind": "notice", "text": format!("🔐 Your answer did not count: {why}")});
-                if let Err(e) = shared.core.outbox.post(&sid, "", &target, body) {
-                    shared
-                        .board
-                        .error("post notice", Some(&sid), format!("{e:#}"));
-                }
+                refuse(&shared, &sid, &target, &why);
             }
             let _ = commands.send(Command::Report { text: said });
         });
         true
+    }
+}
+
+/// `task.pause` or `task.resume` as the speaker; the words to say back. A
+/// refusal is told in the place, as an answer's is.
+async fn hold(
+    rpc: &crate::rpc_client::RpcClient,
+    pause: bool,
+    task: String,
+    author: Option<String>,
+    origin: DiscordOrigin,
+    (shared, sid, target): (&crate::runtime::Shared, &str, &str),
+) -> String {
+    let params = TaskPauseParams {
+        task,
+        author,
+        discord: Some(origin),
+    };
+    let m = if pause {
+        method::TASK_PAUSE
+    } else {
+        method::TASK_RESUME
+    };
+    match rpc.call::<_, TaskPauseResult>(m, params).await {
+        Ok(r) => hold_words(pause, r.changed).to_string(),
+        Err(e) => {
+            refuse(shared, sid, target, &why(&e));
+            REFUSED.to_string()
+        }
+    }
+}
+
+/// What is said back for `task.pause` (`pause`) or `task.resume`.
+fn hold_words(pause: bool, changed: bool) -> &'static str {
+    match (pause, changed) {
+        (true, true) => "Paused.",
+        (true, false) => "It was already paused.",
+        (false, true) => "Going on.",
+        (false, false) => "It was not paused.",
+    }
+}
+
+/// The owner's DM hears why an answer did not count.
+fn refuse(shared: &crate::runtime::Shared, sid: &str, target: &str, why: &str) {
+    let body = serde_json::json!({"kind": "notice", "text": format!("🔐 Your answer did not count: {why}")});
+    if let Err(e) = shared.core.outbox.post(sid, "", target, body) {
+        shared
+            .board
+            .error("post notice", Some(sid), format!("{e:#}"));
     }
 }
 
