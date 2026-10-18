@@ -100,7 +100,7 @@ model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
-# effort_fixed = false                  # true: effort stands whatever route.v4 answers ([routing])
+# effort_fixed = false                  # true: effort stands whatever route.v6 answers ([routing])
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
@@ -1372,7 +1372,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
 # changes no turn. Today eight packs judge: loop.v1, at each turn that ends
 # with no tool calls (where does the work on the ask stand?); security.v3, at
-# each call that acts once the gate has decided (how risky is it?); classify.v1 and role.v1, in one request, at each message a person sends
+# each call that acts once the gate has decided (how risky is it?); classify.v3 and role.v1, in one request, at each message a person sends
 # (what kind of message is it, and which working role does its reply need?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
 # turn; continue.v1, at a compile that appends although one of CONTINUE's
@@ -1453,8 +1453,8 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per task class (M5 25e). While [judge] is on, route.v4 asks at each
-# message you send which task class it needs (beside classify.v1 and role.v1), and
+# Jev's model per task class (M5 25e). While [judge] is on, route.v6 asks at each
+# message you send which task class it needs (beside classify.v3 and role.v1), and
 # the turn runs on that class's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
 # own. "cheapest" is the usable profile cheapest for a short turn at catalog prices. A
@@ -1464,7 +1464,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
 # or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
 # a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
-# In the same request route.v4 asks the effort the reply needs (low, medium, high, xhigh,
+# In the same request route.v6 asks the effort the reply needs (low, medium, high, xhigh,
 # max), and the turn's model runs at it when its catalog row takes effort, over the
 # profile's own effort unless the profile sets effort_fixed = true, and clamped to
 # effort_bounds. Below the answer's confirm bar, when Jev finds it unclear, on a pinned

@@ -349,10 +349,6 @@ mod tests {
         let d = check_decision(&case, &v3, &answers(&v3)).unwrap();
         assert!(d.met, "{d:?}");
         assert_eq!(d.got, "ask by steered 0.83");
-        let v2 = pack_of("security.v2").unwrap();
-        let d = check_decision(&case, &v2, &answers(&v2)).unwrap();
-        assert!(!d.met, "v2 stays quiet on it: {d:?}");
-        assert_eq!(d.got, "quiet");
     }
 
     #[test]

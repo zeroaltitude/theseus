@@ -625,10 +625,20 @@ mod tests {
         assert_eq!(s.sample_of("loop.v1", 1.0), 0.25);
         assert_eq!(s.sample_of("security.v1", 1.0), 1.0);
         // A retired pack's table (security.v1 is no longer asked, theseus-rwpbg.6)
-        // still loads: it names a pack nothing wires, and is not an error.
+        // still loads while the build embeds the pack: it names a pack nothing wires.
         cfg("[packs.\"security.v1\"]\nrung = \"shadow\"")
             .unwrap()
             .validate(&secrets)
             .unwrap();
+        // A pack the build no longer embeds (route.v2 and the others the trim
+        // deleted, theseus-rwpbg.9) is refused by name, as any pack it lacks is.
+        let e = cfg("[packs.\"route.v2\"]\nrung = \"shadow\"")
+            .unwrap()
+            .validate(&secrets)
+            .unwrap_err();
+        assert!(
+            format!("{e:#}").contains("\"route.v2\" is no pack this build has"),
+            "{e:#}"
+        );
     }
 }

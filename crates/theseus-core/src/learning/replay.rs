@@ -304,7 +304,12 @@ pub fn candidate_of(p: &JudgeReplayParams) -> anyhow::Result<(Arc<Pack>, String)
                 .iter()
                 .find(|(n, _)| *n == name)
                 .map(|(_, t)| (*t).to_string())
-                .with_context(|| format!("this build embeds no pack {name}"))?;
+                .with_context(|| {
+                    format!(
+                        "this build embeds no pack {name}; a version it no longer embeds replays from its file, \
+                         with --pack-file"
+                    )
+                })?;
             let pack = theseus_judge::pack::by_name(name)
                 .with_context(|| format!("the embedded pack {name} does not load"))?;
             Ok((pack, text))

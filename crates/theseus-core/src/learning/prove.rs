@@ -336,7 +336,7 @@ pub fn jsonl(records: &[TaskRecord]) -> String {
 }
 
 /// `classify.v1`, whose decision the prove compares with its baseline's.
-pub const CLASSIFY_PACK: &str = "classify.v1";
+pub const CLASSIFY_V1: &str = "classify.v1";
 
 /// Classification's decision quality (§2.9): `classify.v1`'s lean on
 /// `should_promote` against the baseline's decision, the model's own
@@ -360,7 +360,7 @@ pub fn classify_quality(
     // reverse.
     let (mut only_jev, mut only_base) = (0u32, 0u32);
     // v1's, v2's (theseus-rha2) and v3's judgments: the same `should_promote`.
-    let judgments = [CLASSIFY_PACK, "classify.v2", "classify.v3"]
+    let judgments = [CLASSIFY_V1, "classify.v2", "classify.v3"]
         .into_iter()
         .flat_map(|p| scope.judgments.get(p).map_or(&[][..], Vec::as_slice));
     for s in judgments {
@@ -415,7 +415,7 @@ pub fn classify_quality(
         true => "no_difference",
     };
     theseus_protocol::judge_runs::ClassifyQuality {
-        pack: CLASSIFY_PACK.into(),
+        pack: CLASSIFY_V1.into(),
         question: Q.into(),
         labeled,
         compared,

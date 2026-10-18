@@ -45,8 +45,8 @@ use crate::trace::Trace;
 
 /// CLASSIFY (§2.4), at `inbound`: `classify.v3` since theseus-bh3t.5, v2's
 /// questions and the `offer_task` question, which finds work described for
-/// later; v2 added the `thread` question (theseus-rha2). `classify.v1` and
-/// `v2` stay embedded for their history.
+/// later; v2 added the `thread` question (theseus-rha2). `classify.v2` stays
+/// embedded for its history.
 pub const CLASSIFY_PACK: &str = "classify.v3";
 /// The question of `classify` that names a thread.
 pub const THREAD_QUESTION: &str = "thread";
@@ -56,7 +56,7 @@ pub const OFFER_QUESTION: &str = "offer_task";
 /// the offered brief keeps.
 const OFFERS_KEPT: usize = 64;
 const OFFER_BRIEF_CHARS: usize = 1_000;
-/// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v1`.
+/// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v3`.
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.

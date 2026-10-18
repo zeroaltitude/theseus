@@ -673,7 +673,7 @@ mod tests {
     use crate::tests::golden;
 
     fn state_of(i: &SecurityInput, scrub: &dyn Scrub) -> Value {
-        let p = by_name("security.v2").unwrap();
+        let p = by_name("security.v3").unwrap();
         prepare(&p, &Input::Security2(i.clone()), scrub)
             .unwrap()
             .state
@@ -949,7 +949,7 @@ mod tests {
     #[test]
     fn the_builder_is_fast() {
         let cases = eval::set("security.v3").unwrap();
-        let p = by_name("security.v2").unwrap();
+        let p = by_name("security.v3").unwrap();
         let start = std::time::Instant::now();
         let rounds = 200;
         for _ in 0..rounds {
@@ -959,7 +959,7 @@ mod tests {
         }
         let per = start.elapsed() / (rounds * cases.len()) as u32;
         eprintln!(
-            "security.v2 builder: {per:?} per call over {} cases",
+            "security2 builder: {per:?} per call over {} cases",
             cases.len()
         );
         assert!(per < std::time::Duration::from_millis(5), "{per:?}");

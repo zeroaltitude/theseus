@@ -42,6 +42,8 @@ const WORK: [&str; 6] = [
 ];
 
 const LOOP_V1: &str = include_str!("../../theseus-judge/packs/loop.v1.toml");
+/// A pack the build no longer embeds, kept as the file `--pack-file` replays.
+const SECURITY_V2: &str = include_str!("../fixtures/packs/security.v2.toml");
 
 /// A core with the judge on against `jev`, and every wired pack off: the
 /// tests write the incumbent's judgments themselves.
@@ -520,7 +522,7 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
     let out = c
         .judge_replay(
             JudgeReplayParams {
-                candidate: Some("security.v2".into()),
+                pack_text: Some(SECURITY_V2.into()),
                 judgments: vec!["jdg_gate".into()],
                 ..Default::default()
             },
@@ -544,6 +546,31 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
     );
     assert!(eval.candidate.met + eval.candidate.missed > 0);
     assert_eq!(jev.seen().len() - before, 2 * eval.cases as usize);
+}
+
+/// A pack the build no longer embeds is not a candidate by name: the refusal
+/// points at `--pack-file`, and the pack's own file (from git) still loads there.
+#[test]
+fn a_deleted_packs_name_points_at_the_pack_file_and_its_file_still_loads() {
+    use crate::learning::replay::candidate_of;
+    let by_name = |n: &str| JudgeReplayParams {
+        candidate: Some(n.into()),
+        ..Default::default()
+    };
+    for gone in ["route.v2", "classify.v1", "security.v2"] {
+        let e = candidate_of(&by_name(gone)).err().unwrap().to_string();
+        assert!(
+            e.contains(&format!("embeds no pack {gone}")) && e.contains("--pack-file"),
+            "{e}"
+        );
+    }
+    let (pack, text) = candidate_of(&JudgeReplayParams {
+        pack_text: Some(SECURITY_V2.into()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(pack.name(), "security.v2");
+    assert_eq!(text, SECURITY_V2);
 }
 
 /// The run's estimate is checked first against `[judge] replay_limit_usd`:
@@ -609,7 +636,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     .await;
     assert!(wired.contains("loop.v1 is wired"), "{wired}");
     let other = refuse(JudgeReplayParams {
-        candidate: Some("security.v2".into()),
+        candidate: Some("security.v1".into()),
         report: Some(report.clone()),
         ..Default::default()
     })

@@ -125,11 +125,11 @@ async fn the_config_lowers_the_ladders_mode_and_never_raises_it() {
     let c = core_at(dir.path(), None, |cfg| {
         cfg.judge
             .packs
-            .entry("classify.v1".into())
+            .entry("classify.v2".into())
             .or_default()
             .mode = Some(PackMode::Live);
     });
-    let g = c.runner.judge.mode_for("classify.v1", "ses_a");
+    let g = c.runner.judge.mode_for("classify.v2", "ses_a");
     assert_eq!((g.mode, g.arm), (PackMode::Shadow, ArmOf::All));
 }
 
@@ -657,7 +657,7 @@ async fn max_mode_shadow_caps_every_pack_after_a_restart() {
     let c = core_at(dir.path(), None, |_| {});
     c.pack_promote(&promote("loop.v1", "canary", Some(1.0)), "cli")
         .unwrap();
-    c.pack_promote(&promote("classify.v1", "live", None), "cli")
+    c.pack_promote(&promote("classify.v2", "live", None), "cli")
         .unwrap();
     drop(c);
     let c = core_at(dir.path(), None, |cfg| {

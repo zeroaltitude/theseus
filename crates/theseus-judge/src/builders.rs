@@ -1138,9 +1138,7 @@ mod tests {
             "probe.v1",
             "loop.v1",
             "security.v1",
-            "security.v2",
             "security.v3",
-            "classify.v1",
             "classify.v2",
             "classify.v3",
             "route.v5",
@@ -1208,27 +1206,16 @@ mod tests {
 
     #[test]
     fn classify_and_role_build_byte_identical_states() {
-        let (_, c) = prepared("classify.v1");
+        let (_, c) = prepared("classify.v2");
         let (_, r) = prepared("role.v1");
         assert_eq!(c.state.json, r.state.json);
         assert_eq!(c.state.sha256, r.state.sha256);
-        // route.v1 (25e), route.v2 (theseus-3okf), route.v3 (theseus-qe3v)
-        // and route.v4 (theseus-p8dy) ride the same request, as does
+        // classify.v3 and the route packs ride the same request, as does
         // directive.v1 (theseus-slvl.5): the same state, byte for byte.
-        let cp = crate::pack::by_name("classify.v1").unwrap();
-        let (_, c2) = prepared("classify.v2");
-        assert_eq!(c.state.json, c2.state.json, "classify.v2");
+        let cp = crate::pack::by_name("classify.v2").unwrap();
         let (_, c3) = prepared("classify.v3");
         assert_eq!(c.state.json, c3.state.json, "classify.v3");
-        for route in [
-            "route.v1",
-            "route.v2",
-            "route.v3",
-            "route.v4",
-            "route.v5",
-            "route.v6",
-            "directive.v1",
-        ] {
+        for route in ["route.v5", "route.v6", "directive.v1"] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");
             assert_eq!(
@@ -1269,7 +1256,7 @@ mod tests {
 
     #[test]
     fn dynamic_questions_expand_from_the_inputs() {
-        let (p, classify) = prepared("classify.v1");
+        let (p, classify) = prepared("classify.v2");
         let asked = p.ask(&classify.dynamic);
         let task = asked.iter().find(|a| a.id == "addressed_task").unwrap();
         let Question::Choice { options, .. } = &task.question else {
@@ -1454,10 +1441,9 @@ mod tests {
                 }),
             ),
             ("security.v1", Input::Security(sec.clone())),
-            ("security.v2", Input::Security2(sec.clone())),
             ("security.v3", Input::Security2(sec)),
             (
-                "classify.v1",
+                "classify.v2",
                 Input::Inbound(InboundInput {
                     message: big.clone(),
                     author: big.clone(),

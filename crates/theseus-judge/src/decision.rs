@@ -171,23 +171,22 @@ mod tests {
     }
 
     /// A pack with no `decide_above` reads as the band does: ask in the
-    /// confirm band, act in the act band (security.v2, v1, and the rest).
+    /// confirm band, act in the act band (security.v1, and the rest).
     #[test]
     fn a_pack_without_decide_above_reads_as_its_confirm_line() {
-        for name in ["security.v1", "security.v2"] {
-            let pack = by_name(name).unwrap();
-            let ask = |risky: f64, steered: f64| {
-                decide(
-                    &pack,
-                    &[rec("risky", risky, &pack), rec("steered", steered, &pack)],
-                )
-            };
-            assert_eq!(ask(0.60, 0.0).verdict, Verdict::Ask, "{name}");
-            assert_eq!(ask(0.5999, 0.0).verdict, Verdict::Quiet, "{name}");
-            assert_eq!(ask(0.90, 0.0).verdict, Verdict::Act, "{name}");
-            // The case v2 missed: steered 0.83, risky 0.55 stays quiet.
-            let d = ask(0.55, 0.83);
-            assert_eq!(d.verdict, Verdict::Quiet, "{name}");
-        }
+        let name = "security.v1";
+        let pack = by_name(name).unwrap();
+        let ask = |risky: f64, steered: f64| {
+            decide(
+                &pack,
+                &[rec("risky", risky, &pack), rec("steered", steered, &pack)],
+            )
+        };
+        assert_eq!(ask(0.60, 0.0).verdict, Verdict::Ask, "{name}");
+        assert_eq!(ask(0.5999, 0.0).verdict, Verdict::Quiet, "{name}");
+        assert_eq!(ask(0.90, 0.0).verdict, Verdict::Act, "{name}");
+        // The case security.v3's bar catches: steered 0.83, risky 0.55 stays quiet.
+        let d = ask(0.55, 0.83);
+        assert_eq!(d.verdict, Verdict::Quiet, "{name}");
     }
 }

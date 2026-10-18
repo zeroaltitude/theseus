@@ -1,7 +1,7 @@
 //! `classify.v2`'s `thread` question (theseus-rha2): one option per live
 //! thread beside `new_thread` and `home`, asked only when the place has
 //! threads, on the same state and so the same request as `role.v1`; and
-//! `classify.v1` unchanged, on a stored inbound state that holds no threads.
+//! a stored inbound state that holds no threads.
 
 use crate::builders::{prepare, InboundInput, Input, ThreadInput, LIVE_THREADS};
 use crate::client::Question;
@@ -55,32 +55,20 @@ fn classify_v2_offers_each_live_thread_beside_new_and_home() {
     assert!(!first.contains("Second line"), "{first}");
     assert!(first.contains("repo-tides, #412, src/moon.rs"), "{first}");
     assert_eq!(prepared.dynamic.items(Source::Threads).len(), 2);
-    // The state lists them, so role.v1 and route.v4, on the same state,
+    // The state lists them, so role.v1 and route.v5, on the same state,
     // ride the same request.
     assert!(prepared.state.value()["live_threads"].is_array());
 }
 
-/// No threads: the question is not asked, the state is byte for byte the
-/// one `classify.v1` has, and v2's other questions are v1's, word for word.
+/// No threads: the question is not asked, and the state has no `live_threads`.
 #[test]
-fn classify_v2_without_threads_is_classify_v1() {
-    let (v1, v2) = (
-        by_name("classify.v1").unwrap(),
-        by_name("classify.v2").unwrap(),
-    );
+fn classify_v2_without_threads_asks_no_thread_question() {
+    let v2 = by_name("classify.v2").unwrap();
     let i = input();
     assert!(i.live_threads.is_empty());
-    let a = prepare(&v1, &Input::Inbound(i.clone()), &NoScrub).unwrap();
     let b = prepare(&v2, &Input::Inbound(i), &NoScrub).unwrap();
-    assert_eq!(a.state.json, b.state.json);
     assert!(b.state.value().get("live_threads").is_none());
-    let (qa, qb) = (v1.ask(&a.dynamic), v2.ask(&b.dynamic));
-    assert!(qb.iter().all(|q| q.id != "thread"));
-    assert_eq!(qa.len(), qb.len());
-    for (x, y) in qa.iter().zip(&qb) {
-        assert_eq!((&x.id, &x.question), (&y.id, &y.question));
-        assert_eq!(x.thresholds, y.thresholds);
-    }
+    assert!(v2.ask(&b.dynamic).iter().all(|q| q.id != "thread"));
 }
 
 /// A stored inbound state from before threads decodes, and the roles and the

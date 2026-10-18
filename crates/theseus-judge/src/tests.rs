@@ -903,10 +903,9 @@ fn every_live_call_fits_inside_its_reservation() {
     .unwrap();
     let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
     let p = price::JevPrice::jev_1_13_0();
-    let calls: [(&[&str], &str, u64, u64); 8] = [
+    let calls: [(&[&str], &str, u64, u64); 7] = [
         (&["loop.v1"], "loop", 1_435, 194),
         (&["security.v1"], "security", 1_258, 207),
-        (&["classify.v1", "role.v1"], "inbound", 1_353, 297),
         (&["classify.v2", "role.v1"], "inbound", 1_353, 297),
         (&["classify.v3", "role.v1"], "inbound", 1_353, 297),
         (&["continue.v1"], "continue", 804, 113),

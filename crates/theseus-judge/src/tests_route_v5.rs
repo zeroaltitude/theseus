@@ -170,24 +170,16 @@ fn the_state_stays_within_its_cap_and_carries_no_persona_file() {
     assert!(last.as_str().unwrap().chars().count() <= 481, "{last}");
 }
 
-/// route.v5 on a stored inbound state (no personas, no thread) reads the
-/// state byte for byte as route.v4 did, and its `mode` and `reply_effort`
-/// questions are v4's.
+/// An inbound state stored before the personas and the thread (none of either)
+/// still reads, and writes back without them.
 #[test]
-fn v5_on_a_stored_state_asks_v4s_questions() {
-    let (v4, v5) = (by_name("route.v4").unwrap(), by_name("route.v5").unwrap());
+fn a_stored_state_reads_with_no_personas_or_thread() {
+    let v5 = by_name("route.v5").unwrap();
     let text = include_str!("../fixtures/inputs/inbound.json");
     assert!(!text.contains("personas") && !text.contains("thread_now"));
     let i: InboundInput = serde_json::from_str(text).unwrap();
-    let a = prepare(&v4, &Input::Inbound(i.clone()), &NoScrub).unwrap();
-    let b = prepare(&v5, &Input::Inbound(i), &NoScrub).unwrap();
-    assert_eq!(a.state.json, b.state.json);
-    let (qa, qb) = (v4.ask(&a.dynamic), v5.ask(&b.dynamic));
-    assert_eq!(qa.len(), qb.len());
-    for (x, y) in qa.iter().zip(&qb) {
-        assert_eq!((&x.id, &x.question), (&y.id, &y.question));
-        assert_eq!(x.thresholds, y.thresholds);
-    }
+    let prepared = prepare(&v5, &Input::Inbound(i), &NoScrub).unwrap();
+    assert!(prepared.state.value().get("personas").is_none());
     let back = serde_json::to_string(&serde_json::from_str::<InboundInput>(text).unwrap()).unwrap();
     assert!(!back.contains("personas") && !back.contains("speaker"));
 }

@@ -35,24 +35,16 @@ use crate::client::{
 };
 use crate::learn::RollbackRule;
 
-/// Every pack version this build knows, by file name: the test pack,
-/// §2.4's six, `security.v2` and `security.v3`, candidates beside `security.v1`,
-/// `rerank.v1`, recall's `+rerank` arm (M6 step 32c), and `route.v1`, the
-/// model per interaction mode (M5 step 25e), with `route.v2`, its successor
-/// with a `quick` mode (theseus-3okf), `route.v3`, which asks the reply's
-/// effort beside v2's mode (theseus-qe3v), `route.v4`, which adds a
-/// `review` mode to v3's (theseus-p8dy), and `classify.v2`, which adds the
-/// `thread` question to v1's (theseus-rha2), `classify.v3`, which adds the
-/// `offer_task` question to v2's (theseus-bh3t.5), `route.v5`, which adds the
-/// `persona` and `seal` questions to v4's (theseus-c1uz), and `route.v6`, which
-/// adds the `data` question to v5's (theseus-a1wvq.2).
+/// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
+/// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` and `classify.v3`
+/// (the `thread` and `offer_task` questions, theseus-rha2 and theseus-bh3t.5), and `route.v5` and `route.v6`
+/// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2). Older versions
+/// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
     ("security.v1", include_str!("../packs/security.v1.toml")),
-    ("security.v2", include_str!("../packs/security.v2.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
-    ("classify.v1", include_str!("../packs/classify.v1.toml")),
     ("classify.v2", include_str!("../packs/classify.v2.toml")),
     ("classify.v3", include_str!("../packs/classify.v3.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
@@ -65,10 +57,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "attribution.v1",
         include_str!("../packs/attribution.v1.toml"),
     ),
-    ("route.v1", include_str!("../packs/route.v1.toml")),
-    ("route.v2", include_str!("../packs/route.v2.toml")),
-    ("route.v3", include_str!("../packs/route.v3.toml")),
-    ("route.v4", include_str!("../packs/route.v4.toml")),
     ("route.v5", include_str!("../packs/route.v5.toml")),
     ("route.v6", include_str!("../packs/route.v6.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
@@ -108,9 +96,9 @@ pub enum Builder {
     Probe,
     Loop,
     Security,
-    /// `security.v2`'s: `security.v1`'s state, and facts computed for Jev.
+    /// `security.v3`'s: `security.v1`'s state, and facts computed for Jev.
     Security2,
-    /// `classify.v1`, `role.v1` and `directive.v1` share it, so they batch.
+    /// `classify.v2`, `role.v1` and `directive.v1` share it, so they batch.
     Inbound,
     Continue,
     Categorize,
@@ -147,7 +135,7 @@ pub enum Baseline {
     Fused,
     /// The memory pass's deterministic labels and attribution (M6 31a).
     Rules,
-    /// The turn runs on the session's own profile (`route.v1`, 25e).
+    /// The turn runs on the session's own profile (`route.v5`).
     SessionProfile,
 }
 
@@ -159,7 +147,7 @@ pub enum Action {
     NudgeTask,
     Notice,
     RoleHint,
-    /// Runs the turn on the mode's profile (`route.v1`, 25e).
+    /// Runs the turn on the mode's profile (`route.v5`).
     Route,
     /// Routes an unaddressed message to the thread the `thread` question
     /// names (`classify.v2`, theseus-rha2).
@@ -1164,21 +1152,6 @@ mod tests {
                 ],
             ),
             (
-                "security.v2",
-                &[
-                    "Gate Security2 Posture None",
-                    "beyond_ask Noul",
-                    "destructive Noul",
-                    "exfiltrates Noul",
-                    "kind Choice [read_only local_edit local_exec remote_write publish credentials_or_config other]",
-                    "risky Noul decides",
-                    "safe Noul",
-                    "steered Noul",
-                    "touches_credentials Noul",
-                    "rollback []",
-                ],
-            ),
-            (
                 "security.v3",
                 &[
                     "Gate Security2 Posture None",
@@ -1190,19 +1163,6 @@ mod tests {
                     "safe Noul",
                     "steered Noul decides above 0.75",
                     "touches_credentials Noul",
-                    "rollback []",
-                ],
-            ),
-            (
-                "classify.v1",
-                &[
-                    "Inbound Inbound Conversation None",
-                    "addressed_task Choice from Tasks + [none] only_when Tasks",
-                    "fragment Noul",
-                    "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
-                    "mentions_other_conversation Noul",
-                    "should_promote Noul decides",
-                    "wants_fresh_look Noul",
                     "rollback []",
                 ],
             ),
@@ -1280,40 +1240,6 @@ mod tests {
                 ],
             ),
             (
-                "route.v1",
-                &[
-                    "Inbound Inbound SessionProfile Route",
-                    "mode Choice decides [trivial chat sophisticated deep_coding routine_coding other]",
-                    "rollback [labels_per_day on_path_p95]",
-                ],
-            ),
-            (
-                "route.v2",
-                &[
-                    "Inbound Inbound SessionProfile Route",
-                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding other]",
-                    "rollback [labels_per_day on_path_p95]",
-                ],
-            ),
-            (
-                "route.v3",
-                &[
-                    "Inbound Inbound SessionProfile Route",
-                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding other]",
-                    "reply_effort Choice decides [low medium high xhigh max unclear]",
-                    "rollback [labels_per_day on_path_p95]",
-                ],
-            ),
-            (
-                "route.v4",
-                &[
-                    "Inbound Inbound SessionProfile Route",
-                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
-                    "reply_effort Choice decides [low medium high xhigh max unclear]",
-                    "rollback [labels_per_day on_path_p95]",
-                ],
-            ),
-            (
                 "route.v5",
                 &[
                     "Inbound Inbound SessionProfile Route",
@@ -1384,7 +1310,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            rules("route.v1"),
+            rules("route.v5"),
             vec![
                 RollbackRule::LabelsPerDay {
                     label: "wrong model".into(),
@@ -1397,29 +1323,9 @@ mod tests {
             ]
         );
         assert_eq!(
-            rules("route.v2"),
-            rules("route.v1"),
-            "route.v2 keeps v1's rules"
-        );
-        assert_eq!(
-            rules("route.v3"),
-            rules("route.v1"),
-            "route.v3 keeps v1's rules"
-        );
-        assert_eq!(
-            rules("route.v4"),
-            rules("route.v1"),
-            "route.v4 keeps v1's rules"
-        );
-        assert_eq!(
-            rules("route.v5"),
-            rules("route.v1"),
-            "route.v5 keeps v1's rules"
-        );
-        assert_eq!(
             rules("route.v6"),
-            rules("route.v1"),
-            "route.v6 keeps v1's rules"
+            rules("route.v5"),
+            "route.v6 keeps v5's rules"
         );
         assert_eq!(
             rules("classify.v2"),
@@ -1458,9 +1364,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            24,
-            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1, v2, \
-             v3, v4, v5 and v6, citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1 and directive.v1"
+            18,
+            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 and v6, \
+             citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1 and directive.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1570,68 +1476,12 @@ mod tests {
         }
     }
 
-    /// route.v3 (theseus-qe3v) asks route.v2's mode word for word, and the
-    /// reply's effort on the five levels Anthropic's models take, `unclear`
-    /// its no-match option; the effort sorts after the mode, so the mode
-    /// stays the judgment's first deciding answer (its headline).
+    /// route.v5 (theseus-c1uz) asks two questions that decide nothing for the
+    /// pack's promotion: `persona`, whose options are the personas and whose
+    /// no-match is `prior`, and `seal`, a yes or no.
     #[test]
-    fn route_v3_asks_v2s_mode_and_the_replys_effort() {
-        let (v2, v3) = (by_name("route.v2").unwrap(), by_name("route.v3").unwrap());
-        assert_eq!(v3.question("mode"), v2.question("mode"), "word for word");
-        let effort = v3.question("reply_effort").unwrap();
-        let ids: Vec<&str> = effort.options.iter().map(|o| o.id.as_str()).collect();
-        assert_eq!(ids, ["low", "medium", "high", "xhigh", "max", "unclear"]);
-        assert_eq!(effort.no_match.as_deref(), Some("unclear"));
-        assert!(effort.decides && effort.kind == Kind::Choice);
-        let order: Vec<&str> = v3.questions.iter().map(|q| q.id.as_str()).collect();
-        assert_eq!(order, ["mode", "reply_effort"]);
-    }
-
-    /// route.v4 (theseus-p8dy) is route.v3 with one more option of `mode`,
-    /// `review`, before `other`; every other option's words and the effort
-    /// question are v3's, byte for byte, so a label on either version reads
-    /// the same.
-    #[test]
-    fn route_v4_adds_a_review_mode_to_v3s_and_changes_nothing_else() {
-        let (v3, v4) = (by_name("route.v3").unwrap(), by_name("route.v4").unwrap());
-        assert_eq!(v4.question("reply_effort"), v3.question("reply_effort"));
-        let (m3, m4) = (v3.question("mode").unwrap(), v4.question("mode").unwrap());
-        let ids: Vec<&str> = m4.options.iter().map(|o| o.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            [
-                "trivial",
-                "quick",
-                "chat",
-                "sophisticated",
-                "deep_coding",
-                "routine_coding",
-                "review",
-                "other"
-            ]
-        );
-        let kept: Vec<_> = m4.options.iter().filter(|o| o.id != "review").collect();
-        assert_eq!(
-            kept,
-            m3.options.iter().collect::<Vec<_>>(),
-            "v3's options, word for word"
-        );
-        assert_eq!(m4.instructions, m3.instructions);
-        assert_eq!(m4.thresholds, m3.thresholds, "the same bars");
-        assert_eq!(m4.no_match, m3.no_match);
-        let order: Vec<&str> = v4.questions.iter().map(|q| q.id.as_str()).collect();
-        assert_eq!(order, ["mode", "reply_effort"]);
-    }
-
-    /// route.v5 (theseus-c1uz) is route.v4 whole, and two questions that decide
-    /// nothing for the pack's promotion: `persona`, whose options are the
-    /// personas and whose no-match is `prior`, and `seal`, a yes or no.
-    #[test]
-    fn route_v5_is_v4_and_a_persona_and_a_seal_question() {
-        let (v4, v5) = (by_name("route.v4").unwrap(), by_name("route.v5").unwrap());
-        for q in ["mode", "reply_effort"] {
-            assert_eq!(v5.question(q), v4.question(q), "{q} word for word");
-        }
+    fn route_v5_has_a_persona_and_a_seal_question() {
+        let v5 = by_name("route.v5").unwrap();
         let persona = v5.question("persona").unwrap();
         assert!(!persona.decides && persona.kind == Kind::Choice);
         assert_eq!(persona.no_match.as_deref(), Some("prior"));
@@ -1640,11 +1490,6 @@ mod tests {
         assert!(!seal.decides);
         assert_eq!(seal.no_match.as_deref(), Some("no"));
         assert_eq!(seal.only_when, Some(Source::ThreadNow));
-        assert_eq!(
-            (v5.point, v5.builder, v5.baseline, v5.action),
-            (v4.point, v4.builder, v4.baseline, v4.action)
-        );
-        assert_eq!(v5.state_cap_tokens, v4.state_cap_tokens);
     }
 
     /// route.v6 (theseus-a1wvq.2) is route.v5 word for word, its rules and its
