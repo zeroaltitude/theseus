@@ -16,6 +16,7 @@ mod aws;
 mod context;
 pub use context::ContextConfig;
 mod cache;
+mod inherit;
 pub use cache::{CacheConfig, CacheTtl};
 pub mod calendar;
 pub mod discord;
@@ -1743,7 +1744,8 @@ impl Config {
     fn from_toml(text: &str) -> Result<Self, toml::de::Error> {
         let mut cfg: Config = toml::from_str(text)?;
         let m = &cfg.model;
-        let mut profiles = cfg.profiles.clone();
+        let doc: toml::Table = text.parse()?;
+        let mut profiles = inherit::profiles(&doc)?;
         profiles
             .entry("default".into())
             .or_insert_with(|| ProfileConfig {
@@ -1976,5 +1978,7 @@ mod tests;
 mod tests_card;
 #[cfg(test)]
 mod tests_fresh;
+#[cfg(test)]
+mod tests_inherit;
 #[cfg(test)]
 mod tests_persona;
