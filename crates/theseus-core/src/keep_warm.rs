@@ -318,6 +318,16 @@ impl KeepWarm {
     }
 }
 
+/// Hours after a conversation's last message past which its reads cost more
+/// than the rewrite they avoid (theseus-rwpbg.3, M3): a read costs the model's
+/// cache-read price on the prefix and a return after the entry expired one
+/// 1-hour write, so a read every `every_minutes` pays for `write_1h / read`
+/// of them. None for a model whose catalog row prices no cache.
+pub fn break_even_hours(prices: &crate::catalog::CatalogEntry, every_minutes: f64) -> Option<f64> {
+    (prices.cache_read_per_mtok > 0.0 && prices.cache_write_1h_per_mtok > 0.0)
+        .then(|| prices.cache_write_1h_per_mtok / prices.cache_read_per_mtok * every_minutes / 60.0)
+}
+
 /// Today's local date, as the day ceiling names it.
 pub fn today(kernel: &theseus_kernel::Kernel) -> String {
     let c = kernel.day_ceiling();
@@ -522,6 +532,11 @@ impl TurnRunner {
             .get(&b.target.profile)
             .map_or(0.0, |p| p.keep_warm_hours());
         let hours = thread_hours.map_or(hours, |t| hours.min(t));
+        let hours = self
+            .catalog
+            .get(&b.target.model)
+            .and_then(|e| break_even_hours(e, self.cfg.cache.keep_warm_minutes))
+            .map_or(hours, |cap| hours.min(cap));
         let window = Duration::from_secs_f64(hours * 3600.0);
         if kw.since_message(session_id).is_none_or(|ago| ago >= window) {
             kw.forget(session_id);
