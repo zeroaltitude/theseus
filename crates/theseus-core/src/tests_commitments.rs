@@ -409,7 +409,7 @@ const NEXT_SUN: u64 = 1_792_944_000_000;
 const END: u64 = 1_793_408_400_000;
 
 const HEAD_ONE: &str = "[Your pending wakes in this conversation, ";
-const HEAD_REST: &str = ": to change one, move it with wake.move or end it with wake.cancel, \
+const HEAD_REST: &str = ": to change one, move it with wake_move or end it with wake_cancel, \
                          never set a second.]";
 
 fn series(days: Vec<theseus_kernel::Day>, until_ms: Option<u64>) -> theseus_kernel::Repeat {

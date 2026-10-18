@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use theseus_protocol::defer::{DeferFamily, DeferHealth, DeferListResult, DeferPlace};
 
+use super::board::Offer;
 use super::family::{self, PlaceKind};
 use super::select::DAY_MS;
 use super::Mechanism;
@@ -94,7 +95,17 @@ impl crate::rpc::Core {
             .iter()
             .map(|&kind| {
                 let stats = board.stats(kind);
-                let sel = board.select("", kind, cfg, now, &known, &BTreeSet::new());
+                let sel = board.select(
+                    "",
+                    kind,
+                    cfg,
+                    now,
+                    &Offer {
+                        known: &known,
+                        extra: &BTreeSet::new(),
+                        fit: None,
+                    },
+                );
                 let used = stats.sum_since(since, |d| &d.used);
                 let searched = stats.sum_since(since, |d| &d.searched);
                 let missed = stats.sum_since(since, |d| &d.missed);

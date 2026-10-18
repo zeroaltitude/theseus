@@ -28,6 +28,7 @@ const PLAIN: &[&str] = &[
     "code",
     "self",
     "tasks",
+    "reminders",
     "threads",
     "web",
     "memory",
@@ -69,15 +70,16 @@ pub fn named(ask: &str, hidden: &[HiddenTool]) -> Vec<String> {
 }
 
 /// The families to add to `loaded` for a message: those it names that are
-/// hidden and hideable, best first, each kept only while the request's tools
-/// stay within the place kind's budget (estimated as the request does, bytes
-/// at 2.4 to the token). Nothing when `ask` names nothing, or the tools
-/// already exceed the budget.
+/// hidden and hideable, best first, each kept only while the system (`system`
+/// tokens) and the request's tools stay within the place kind's budget (the
+/// tools estimated as the request does, bytes at 2.4 to the token). Nothing
+/// when `ask` names nothing, or the request already exceeds the budget.
 pub fn extra(
     ask: &str,
     kind: PlaceKind,
     catalog: &[Value],
     loaded: &BTreeSet<String>,
+    system: u64,
 ) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     if ask.trim().is_empty() {
@@ -87,7 +89,7 @@ pub fn extra(
         .into_iter()
         .filter(|h| family::hideable(&h.family) && !loaded.contains(&h.family))
         .collect();
-    let budget = kind.tools_budget_tokens();
+    let budget = kind.tools_budget_tokens().saturating_sub(system);
     let mut now = loaded.clone();
     for fam in named(ask, &hidden) {
         now.insert(fam.clone());
@@ -195,16 +197,27 @@ mod tests {
         let catalog = vec![def("fs_read", 100), def("aws_call", 25_000)];
         let loaded: BTreeSet<String> = ["files".to_string()].into();
         let ask = "who am I on aws";
-        assert!(extra(ask, PlaceKind::Cli, &catalog, &loaded).is_empty());
-        assert!(extra(ask, PlaceKind::Task, &catalog, &loaded).is_empty());
+        assert!(extra(ask, PlaceKind::Cli, &catalog, &loaded, 0).is_empty());
+        assert!(extra(ask, PlaceKind::Task, &catalog, &loaded, 0).is_empty());
         assert_eq!(
-            extra(ask, PlaceKind::Dm, &catalog, &loaded),
+            extra(ask, PlaceKind::Dm, &catalog, &loaded, 0),
             ["aws".to_string()].into()
         );
         // A small one fits anywhere, and an already loaded family adds nothing.
         let small = vec![def("fs_read", 100), def("aws_call", 500)];
-        assert_eq!(extra(ask, PlaceKind::Cli, &small, &loaded).len(), 1);
+        assert_eq!(extra(ask, PlaceKind::Cli, &small, &loaded, 0).len(), 1);
         let both: BTreeSet<String> = ["files".to_string(), "aws".to_string()].into();
-        assert!(extra(ask, PlaceKind::Cli, &small, &both).is_empty());
+        assert!(extra(ask, PlaceKind::Cli, &small, &both, 0).is_empty());
+    }
+
+    /// The budget is the whole request's: the system's tokens come off it before the tools are counted.
+    #[test]
+    fn the_systems_tokens_come_off_the_budget() {
+        // About 7,300 tokens of tools in all: under 8,000 alone, over it beside a 1,300-token system.
+        let catalog = vec![def("fs_read", 100), def("aws_call", 17_300)];
+        let loaded: BTreeSet<String> = ["files".to_string()].into();
+        let ask = "who am I on aws";
+        assert_eq!(extra(ask, PlaceKind::Cli, &catalog, &loaded, 0).len(), 1);
+        assert!(extra(ask, PlaceKind::Cli, &catalog, &loaded, 1_300).is_empty());
     }
 }

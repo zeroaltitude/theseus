@@ -349,7 +349,7 @@ pub fn move_to(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), Strin
     if w.probe().is_some() {
         return Err(format!(
             "Wake {short} is a watch: it checks on its own interval until it gives up, and its \
-             time is not moved. Cancel it (`wake.cancel`) and set another if it should differ."
+             time is not moved. Cancel it (`wake_cancel`) and set another if it should differ."
         ));
     }
     let now = tc.kernel.now_ms();

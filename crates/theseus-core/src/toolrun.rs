@@ -55,6 +55,7 @@ mod late;
 mod mcp_floor;
 pub mod misroute;
 mod not_started;
+pub(crate) mod note;
 mod operands;
 pub(crate) mod order;
 mod parallel;
@@ -720,23 +721,21 @@ impl ToolRuntime {
         let offered = |n: &str| place.offered(n, &self.public_roots);
         let floor = place.ceiling.and_then(|c| c.floor).unwrap_or_default();
         let ceiling_note = place.ceiling.map(|c| c.note()).unwrap_or_default();
-        // Each tool's posture, grouped in ladder order: "open: fs.glob, …; notify: …".
-        let postures: Vec<String> = crate::policy::Posture::ALL
-            .iter()
-            .filter_map(|p| {
-                let names: Vec<&str> = self
-                    .registry
-                    .all()
-                    .map(|t| t.name())
-                    .filter(|n| {
-                        offered(n)
-                            && crate::tools_defer::listed(n)
-                            && self.policy.posture(n).0.max(floor) == *p
-                    })
-                    .collect();
-                (!names.is_empty()).then(|| format!("{}: {}", p.as_str(), names.join(", ")))
-            })
-            .collect();
+        // Each tool's posture, said as exceptions to the one most tools share.
+        let postures = note::say(
+            &self
+                .registry
+                .all()
+                .map(|t| t.name())
+                .filter(|n| offered(n) && crate::tools_defer::listed(n))
+                .map(|n| {
+                    (
+                        theseus_tools::wire_name(n),
+                        self.policy.posture(n).0.max(floor),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
         if class == crate::places::PlaceClass::Shared {
             let files = match self.public_roots.is_empty() {
                 true => "no files".to_string(),
@@ -750,7 +749,7 @@ impl ToolRuntime {
                  - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: nothing of the operator's own (their other files, programs, AWS) reaches this place.\n\
                  - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.\n\
                  - A declined call is final for that request: tell the operator and do not route around it.{}",
-                postures.join("; "),
+                postures,
                 ceiling_note,
             );
         }
@@ -766,16 +765,13 @@ impl ToolRuntime {
              - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
              - Relative paths resolve against the session's directory, which its own block names.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
-             - Prefer fs_read, fs_edit, fs_grep, fs_glob, fs_list, git_diff, and git_log over proc_run.\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
              - {}\n\
-             - A declined call is final for that request: tell the operator and do not route around it.\n\
-             - proc_run calls that take longer than {} seconds continue in the background; their result arrives in a later message.{}",
+             - A declined call is final for that request: tell the operator and do not route around it.{}",
             roots.join(", "),
-            postures.join("; "),
+            postures,
             if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
             crate::task_graph::PLAN_NOTE,
-            self.proc_sync_secs,
             self.mcp_note(offered) + &ceiling_note,
         )
     }

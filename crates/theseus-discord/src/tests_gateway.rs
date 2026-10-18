@@ -237,6 +237,8 @@ fn core_at(
     tweak: impl FnOnce(&mut Config),
 ) -> Arc<Core> {
     let mut cfg = Config::example();
+    // These scripts call `task_create` in a DM, which defers the tasks by default (theseus-rwpbg.3).
+    cfg.tools.defer.always_loaded.push("tasks".into());
     cfg.discord.digest_at = vec![];
     cfg.discord.app_emojis = false;
     cfg.server.state_dir = dir.to_string_lossy().into_owned();

@@ -20,7 +20,7 @@ pub const MIN_TURNS: u32 = 10;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Day {
     pub turns: u32,
-    /// Turns in which the family was called or searched for.
+    /// Turns in which the family was called. A search alone is not use: it is `searched`.
     pub used: BTreeMap<String, u32>,
     /// Turns in which the family was loaded.
     pub loaded: BTreeMap<String, u32>,
@@ -37,7 +37,7 @@ pub struct Day {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Stats {
     pub days: BTreeMap<u64, Day>,
-    /// When each family was last used (a call, or a search for it).
+    /// When each family was last called.
     pub last_used: BTreeMap<String, u64>,
     /// The earliest row: how long the ledger has watched this kind.
     pub first_ms: Option<u64>,
@@ -86,12 +86,15 @@ pub enum Why {
     Always,
     /// This place kind's committed default.
     Default,
-    /// Used in at least `load_share` of the kind's turns.
+    /// Called in at least `load_share` of the kind's turns.
     Learned { share: f64 },
     /// Asked for by a search of this conversation (the fallback's).
     Wanted,
     /// Offered per message by the caller (a seam: Jev's branches).
     Extra,
+    /// Used enough to load, but the request would pass the place's budget with it: deferred
+    /// (`fit`).
+    OverBudget { share: f64 },
     /// A default, unused for this many days: hidden.
     Unused { days: u64 },
     /// Not a default, and not used enough: deferred.
@@ -100,7 +103,10 @@ pub enum Why {
 
 impl Why {
     pub fn loads(&self) -> bool {
-        !matches!(self, Why::Unused { .. } | Why::Deferred)
+        !matches!(
+            self,
+            Why::Unused { .. } | Why::Deferred | Why::OverBudget { .. }
+        )
     }
 
     pub fn words(&self) -> String {
@@ -110,6 +116,12 @@ impl Why {
             Why::Learned { share } => format!("used in {:.0}% of turns", share * 100.0),
             Why::Wanted => "asked for by a search".into(),
             Why::Extra => "offered for this message".into(),
+            Why::OverBudget { share } => {
+                format!(
+                    "used in {:.0}% of turns, deferred to keep the request in budget",
+                    share * 100.0
+                )
+            }
             Why::Unused { days } => format!("unused for {days} days"),
             Why::Deferred => "deferred".into(),
         }

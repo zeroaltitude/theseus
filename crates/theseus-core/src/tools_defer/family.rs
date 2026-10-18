@@ -32,9 +32,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "memory",
         "look things up in your memory of past conversations",
     ),
+    ("tasks", "tasks and sub-sessions, and the task graph"),
     (
-        "tasks",
-        "tasks and sub-sessions, wakes and reminders, and the task graph",
+        "reminders",
+        "wakes and reminders: set one, move it, cancel it",
     ),
     (
         "routines",
@@ -111,7 +112,8 @@ pub fn of_wire(wire: &str) -> String {
             "fs" | "git" | "text" => "files",
             "job" => "commands",
             "web" | "http" => "web",
-            "task" | "wake" => "tasks",
+            "task" => "tasks",
+            "wake" => "reminders",
             "routine" | "watch" => "routines",
             "thread" => "threads",
             "project" => "projects",
@@ -242,7 +244,7 @@ impl PlaceKind {
             // its 8,000; a search loads them, and the ledger's use puts them
             // back where a place calls them.
             PlaceKind::Cli => &["memory"],
-            // A person's message: memory, tasks and reminders, the web. Posting
+            // A person's message: memory, reminders, the web. Posting
             // to and reading other places is deferred (theseus-to0xw): a
             // direct message answers in itself, and the family is 855 tokens
             // of the DM's 15,000 budget; a search loads it, and the ledger's
@@ -251,8 +253,13 @@ impl PlaceKind {
             // owner's "Go for it!"): `routine_create`, `watch` and
             // `thread_read` had no call in 30 days across every session
             // (install #30's census), 1,167 tokens of the DM's request.
-            PlaceKind::Dm => &["memory", "tasks", "web"],
-            PlaceKind::Channel => &["memory", "tasks", "web", "channels"],
+            //
+            // The tasks themselves are deferred there (theseus-rwpbg.3, the owner's rule of
+            // 2026-10-14): `task_create`, `task_update`, `task_close`, `task_claim` and
+            // `task_split` had no call in 30 days, and with them the DM's request read 13,290
+            // tokens; `wake_at` had one, so the reminders stay. A shared channel keeps both.
+            PlaceKind::Dm => &["memory", "reminders", "web"],
+            PlaceKind::Channel => &["memory", "tasks", "reminders", "web", "channels"],
             // A task's session works: the files and commands. Its wakes and
             // sub-tasks, and the language servers, load once its place kind
             // has used them.
@@ -283,7 +290,9 @@ mod tests {
             ("web_search", "web"),
             ("memory_lookup", "memory"),
             ("task_create", "tasks"),
-            ("wake_at", "tasks"),
+            ("wake_at", "reminders"),
+            ("wake_move", "reminders"),
+            ("wake_cancel", "reminders"),
             ("routine_create", "routines"),
             ("watch", "routines"),
             ("project_attach", "projects"),

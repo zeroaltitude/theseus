@@ -232,7 +232,7 @@ impl Tool for TaskCreate {
          and start the next task of a chain; leave it off for work the person will ask about. A \
          task cannot start tasks. For work on a day that needs judgment, give `start_after` or \
          `start_at`: the task sleeps, its budget is carved now, and it starts then; a reminder \
-         to the owner is a `wake.at` instead.\n\n\
+         to the owner is a `wake_at` instead.\n\n\
          Every task needs an `arrangement`: quote the messages of this conversation that define \
          the work, rather than paraphrasing them into the brief. Each piece is an exact quote \
          from one message (the person's, your own earlier replies, or a tool result) with its \
@@ -247,7 +247,7 @@ impl Tool for TaskCreate {
          Every task is a record in the task graph, which you see each turn. Without `brief`, \
          the call records a plan item (a `title`, and `objective`, `acceptance`, `parent`, and \
          `deps` if you have them): no session works on it, and it needs no arrangement. Edit \
-         the graph with task.update, task.split, and task.close.\n\n\
+         the graph with task_update, task_split, and task_close.\n\n\
          To check a task's work independently, start a check: `check_of` names a task this \
          conversation started that has reported. The check reads its brief, that task's \
          objective and acceptance pieces, and its report as a claim, and nothing else of its \
@@ -761,7 +761,7 @@ pub fn create<'a>(
         format!(
             "Scheduled task {s} (\"{title}\") to start {} with a budget of {budget}, carved \
              from this session now. It sleeps until then, takes no turn before, and reports \
-             here when it finishes{}. Cancel it before then with task.close, and the budget \
+             here when it finishes{}. Cancel it before then with task_close, and the budget \
              comes back. Its id is {}.",
             crate::task_start::day_hm(at),
             if task.wake_parent {

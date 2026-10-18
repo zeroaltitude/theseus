@@ -180,7 +180,7 @@ impl Stale {
     pub fn message(&self) -> String {
         format!(
             "Refused: task {} changed since you read it: v{} → v{}. It is now: {}\nRead it \
-             again (the task graph below, or task.update with the new version) and decide.",
+             again (the task graph below, or task_update with the new version) and decide.",
             self.now.id,
             self.named,
             self.now.version,

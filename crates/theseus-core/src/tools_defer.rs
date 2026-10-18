@@ -37,6 +37,7 @@ use crate::compiler::{CompileInput, RequestSpec};
 pub mod board;
 pub mod family;
 pub mod find;
+pub mod fit;
 pub mod list;
 pub mod scan;
 pub mod select;
