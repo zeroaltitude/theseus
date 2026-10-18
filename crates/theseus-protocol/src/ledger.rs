@@ -75,7 +75,6 @@ ledger_kinds! {
     BudgetAsked = "budget.asked",
     BudgetCarved = "budget.carved",
     BudgetLimitChanged = "budget.limit_changed",
-    BudgetMigrated = "budget.migrated",
     BudgetOverLimit = "budget.over_limit",
     BudgetReached = "budget.reached",
     BudgetReopened = "budget.reopened",

@@ -117,16 +117,14 @@ mod tests {
     }
 
     /// A value equal to its default goes, and one that differs stays, with
-    /// its table; a retired key goes, and its warning with it.
+    /// its table.
     #[test]
     fn a_default_value_goes_and_a_different_one_stays() {
         let text = format!(
             "{SECRETS}\n[kernel]\nadmission_ceiling = 8\nspend_limit_usd = 25.0\n\
-             default_budget = 1000000\n\n[web]\nenabled = true\nport = 7433\n\n\
+             \n[web]\nenabled = true\nport = 7433\n\n\
              [discord]\nenabled = false\n"
         );
-        let (_, warnings) = Config::parse(&text).unwrap();
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
         let note = round_trip(&text);
         assert_eq!(
             note,

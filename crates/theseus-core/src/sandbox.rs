@@ -78,11 +78,6 @@ pub struct SandboxConfig {
     /// that does not exist is skipped, and the result says so.
     #[serde(default)]
     pub ro_paths: Vec<String>,
-    /// Retired (theseus-gyin): an L1 job's memory, from the delegated cgroup
-    /// L1 no longer has. Still loads, so an older config starts, with one
-    /// warning, and is never honored.
-    #[serde(default, skip_serializing)]
-    pub memory_mb: Option<toml::Value>,
     /// An L1 job's processes.
     #[serde(default = "default_pids")]
     pub pids: u64,
@@ -117,7 +112,6 @@ impl Default for SandboxConfig {
             default: Class::L0,
             l1_argv: Vec::new(),
             ro_paths: Vec::new(),
-            memory_mb: None,
             pids: default_pids(),
             scratch_mb: default_scratch_mb(),
             output_mb: default_output_mb(),
@@ -154,16 +148,6 @@ impl SandboxConfig {
             }
         }
         Ok(())
-    }
-
-    /// The warning for a retired key this section still sets, which
-    /// `Config::parse` gives once per load (theseus-gyin).
-    pub fn retired(&self) -> Option<String> {
-        self.memory_mb.is_some().then(|| {
-            "sandbox.memory_mb is retired and ignored (theseus-gyin): an L1 job has no cgroup, so \
-             no memory limit, as an L0 job has none; remove it"
-                .into()
-        })
     }
 }
 
@@ -738,7 +722,7 @@ pub(crate) fn the_templates_sandbox_section(s: &SandboxConfig) {
     assert_eq!(s.default, Class::L0);
     assert_eq!(s.l1_argv[0], ["npm", "install"]);
     assert_eq!(s.ro_paths, ["~/.cargo", "~/.rustup"]);
-    assert_eq!((s.memory_mb.as_ref(), s.pids), (None, 512));
+    assert_eq!(s.pids, 512);
     let egress = crate::egress::check(&s.egress).unwrap();
     for (host, port) in [
         ("index.crates.io", 443),
@@ -925,23 +909,5 @@ mod tests {
         }
         .validate()
         .unwrap();
-    }
-
-    /// A config pasted from an older template still sets `[sandbox]
-    /// memory_mb`, which L1's cgroup took (theseus-gyin). It loads with one
-    /// warning, and `theseusd config` no longer shows it.
-    #[test]
-    fn the_retired_memory_key_loads_with_one_warning() {
-        let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
-                    [sandbox]\nmemory_mb = 2048\npids = 512\n";
-        let (cfg, warnings) = crate::Config::parse(text).unwrap();
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(
-            warnings[0].starts_with("sandbox.memory_mb is retired and ignored (theseus-gyin)"),
-            "{warnings:?}"
-        );
-        let shown = toml::to_string(&cfg.sandbox).unwrap();
-        assert!(!shown.contains("memory_mb"), "{shown}");
-        assert_eq!(cfg.sandbox.pids, 512);
     }
 }

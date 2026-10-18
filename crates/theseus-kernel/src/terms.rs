@@ -7,8 +7,8 @@
 //!
 //! An execution's terms:
 //! - `s:<state>`, always (`s:waiting`, `s:queued`, …);
-//! - `legacy`, stored before theseus-0sg (a unit budget), which the start
-//!   rewrites once;
+//! - `legacy`, stored before theseus-0sg (a unit budget): read in dollars by
+//!   `Execution::from_stored`, and no longer rewritten at the start;
 //! - `due`, waiting, and a due time or a task's report may wake it
 //!   (`wakes::due_now`'s cases): what the driver's tick and the reconcile
 //!   look at, beside the queued ones;

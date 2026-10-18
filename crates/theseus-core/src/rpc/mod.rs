@@ -193,7 +193,6 @@ use crate::narrative::{narrate, Narrator};
 use crate::provider::{Anthropic, Provider};
 use crate::scrub::Scrubber;
 use crate::secrets::{SecretBoard, SecretState};
-use crate::session::SessionRecord;
 use crate::startup::StartupLog;
 use crate::store::Store;
 use crate::telemetry::Telemetry;
@@ -654,24 +653,15 @@ impl Core {
         let cfg = Arc::new(cfg);
         // The kernel shares the store. Its spool sits beside the store dir.
         let spool = Spool::open(&spool_dir(store.dir())).context("opening completion spool")?;
-        // An execution stored with a unit budget takes its dollar spend from
-        // its session's recorded cost when startup rewrites it (theseus-0sg).
-        let sessions = store.clone();
-        let legacy_spend: theseus_kernel::LegacySpend = Arc::new(move |sid: &str| {
-            sessions
-                .get_session::<SessionRecord>(sid)
-                .ok()
-                .flatten()
-                .map_or(0, |s| theseus_kernel::usd_to_micros(s.cost_usd))
-        });
-        let kernel = Arc::new(
-            Kernel::new(store.shared(), Arc::new(theseus_kernel::RealClock), {
+        let kernel = Arc::new(Kernel::new(
+            store.shared(),
+            Arc::new(theseus_kernel::RealClock),
+            {
                 let mut kc = cfg.kernel.to_kernel_config();
                 kc.wakes.max_routines = cfg.routines.max_routines;
                 kc
-            })
-            .with_legacy_spend(legacy_spend),
-        );
+            },
+        ));
         let startup = kernel
             .startup(
                 Some(&spool),

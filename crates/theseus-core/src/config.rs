@@ -240,12 +240,8 @@ pub struct Config {
     /// `[judge]`: Jev's judgments, in shadow (M5 23a), in `config/judge.rs`.
     #[serde(default)]
     pub judge: JudgeConfig,
-    /// `[approval]`, retired (theseus-zmgb): an answer counts only from a private place, by the
-    /// owner (the place rule). A config with the section loads, with a warning; nothing reads it.
-    #[serde(default, skip_serializing)]
-    pub approval: Option<toml::Table>,
-    /// `[places]` (the place rule; `[labels]`, its old name, still reads).
-    #[serde(default, alias = "labels")]
+    /// `[places]` (the place rule).
+    #[serde(default)]
     #[serde(skip_serializing_if = "PlacesConfig::is_empty")]
     pub places: PlacesConfig,
     /// The 1Password token file this daemon was pointed at (`--op-token-file` or
@@ -367,12 +363,6 @@ fn default_bindings_file() -> String {
 fn default_edit_interval_ms() -> u64 {
     1200
 }
-
-/// The warning a config with `[approval]` loads with (theseus-zmgb).
-pub const APPROVAL_RETIRED: &str = "[approval] is retired, and nothing reads it: an answer counts \
-     only from a private place (the CLI, the web UI, a DM with the owner, or a channel bound \
-     private = true), by the owner ([places] owner, else the person of a DM the bindings file \
-     binds). Delete the section";
 
 impl DiscordConfig {
     pub fn bindings_path(&self, state_dir: &std::path::Path) -> PathBuf {
@@ -739,14 +729,6 @@ pub struct KernelSection {
     /// minutes reaches this; 0 never.
     #[serde(default = "limits::default_runaway_per_10min_usd")]
     pub runaway_usd_per_10min: f64,
-    /// Retired (theseus-0sg): budget units, and the units kept back as a
-    /// control reserve. Both still load, so an older config starts, and are
-    /// never honored: budgets are dollars, and nothing reserves for control
-    /// (a cancel never spends, and the limit asks instead of ending).
-    #[serde(default, skip_serializing)]
-    pub default_budget: Option<toml::Value>,
-    #[serde(default, skip_serializing)]
-    pub control_reserve: Option<toml::Value>,
     /// Heartbeat reconciler cadence.
     #[serde(default = "default_heartbeat_secs")]
     pub heartbeat_secs: u64,
@@ -820,8 +802,6 @@ impl Default for KernelSection {
             daily_runaway_usd: limits::default_daily_runaway_usd(),
             daily_notice_step_usd: limits::default_daily_notice_step_usd(),
             runaway_usd_per_10min: limits::default_runaway_per_10min_usd(),
-            default_budget: None,
-            control_reserve: None,
             heartbeat_secs: default_heartbeat_secs(),
             default_deadline_secs: default_deadline_secs(),
             confirm_ttl_secs: default_confirm_ttl_secs(),
@@ -837,17 +817,6 @@ impl Default for KernelSection {
 }
 
 impl KernelSection {
-    /// The retired unit keys this config still sets.
-    pub fn retired(&self) -> Vec<&'static str> {
-        [
-            ("default_budget", self.default_budget.is_some()),
-            ("control_reserve", self.control_reserve.is_some()),
-        ]
-        .into_iter()
-        .filter_map(|(k, set)| set.then_some(k))
-        .collect()
-    }
-
     /// The admission queue's stuck window: at least a second.
     pub fn admission_stuck(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.admission_stuck_secs.max(1))
@@ -1335,30 +1304,12 @@ impl Config {
             .map(|(key, _)| key)
     }
 
-    /// Parse and validate a config document. The warnings name the retired
-    /// keys it still uses; the caller logs them at startup.
+    /// Parse and validate a config document. The warnings name what it sets
+    /// that does nothing; the caller logs them at startup.
     pub fn parse(text: &str) -> Result<(Self, Vec<String>)> {
         let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
         let mut warnings = Vec::new();
-        // One warning for the unit budget however many of its keys remain:
-        // they retire together, and the fix is one edit.
-        let units = cfg.kernel.retired();
-        if !units.is_empty() {
-            warnings.push(format!(
-                "{} {} budget units, retired and ignored (theseus-0sg): budgets are dollars, \
-                 and each session's limit is kernel.spend_limit_usd (now ${}); remove {}",
-                units
-                    .iter()
-                    .map(|k| format!("kernel.{k}"))
-                    .collect::<Vec<_>>()
-                    .join(" and "),
-                if units.len() == 1 { "is" } else { "are" },
-                cfg.kernel.spend_limit_usd,
-                if units.len() == 1 { "it" } else { "them" },
-            ));
-        }
-        warnings.extend(cfg.sandbox.retired());
         if cfg.context.default_persona.is_none() && !cfg.personas.is_empty() {
             warnings.push(format!(
                 "[personas] defines {}, but context.default_persona names none of them, so no \
@@ -1366,9 +1317,6 @@ impl Config {
                  context.default_persona is the only choice",
                 cfg.persona_names()
             ));
-        }
-        if cfg.approval.is_some() {
-            warnings.push(APPROVAL_RETIRED.into());
         }
         Ok((cfg, warnings))
     }

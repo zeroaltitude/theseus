@@ -607,7 +607,7 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded) · {} unit budgets read in dollars · 37a: {} wakes set, {} repeating; {} taken, {} series put back, {} occurrences passed over ({} crashes down for minutes), {} ended by until; {} wakes cancelled · {} · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded) · 37a: {} wakes set, {} repeating; {} taken, {} series put back, {} occurrences passed over ({} crashes down for minutes), {} ended by until; {} wakes cancelled · {} · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
                     rep.one_frame_dispatches, rep.batches, rep.batch_actions, rep.batch_crashes,
                     rep.authorized_and_dispatched, rep.input_admits, rep.own_results, rep.faults,
@@ -618,7 +618,6 @@ fn main() -> Result<()> {
                     rep.budget_questions, rep.budget_resets, rep.budget_declines,
                     rep.asked, rep.asked_declined, rep.one_frame_answers, rep.ended_unsent,
                     rep.limit_changes, rep.limit_raises, rep.limits_followed, rep.limit_proceeds,
-                    rep.legacy_migrated,
                     rep.wakes_set, rep.repeats_set, rep.wakes_fired, rep.repeats_rearmed,
                     rep.wakes_missed, rep.long_downs, rep.wakes_ended, rep.wakes_cancelled,
                     rep.sim2, rep.reconciles, rep.invariant_checks, rep.final_positions, rep.wall_ms

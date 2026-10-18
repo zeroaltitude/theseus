@@ -109,8 +109,7 @@ pub use earlier::EARLIER_PROCESS;
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
     Accepted, Cancel, Committed, Ending, Evidence, Kernel, KernelConfig, KernelError, KernelStats,
-    LegacySpend, LimitFollowed, NoEvidence, Observer, Probe, ReconcileReport, StartupReport,
-    TurnEnd, TurnGuard,
+    LimitFollowed, NoEvidence, Observer, Probe, ReconcileReport, StartupReport, TurnEnd, TurnGuard,
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use overdraw::{default_hard_multiple, HardStop};

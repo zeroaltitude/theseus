@@ -166,7 +166,6 @@ pub struct SimReport {
     /// frame with its wake (theseus-jj9f).
     pub race_frames: u64,
     pub one_frame_answers: u64,
-    pub legacy_migrated: u64,
     /// Restarts onto a changed spend limit (theseus-3pj), and how many
     /// raised it; the open executions that took a new limit; the budget waits
     /// a raise let proceed.
@@ -261,57 +260,13 @@ struct World {
     queues: queues::Queues,
 }
 
-/// Executions stored with unit budgets before theseus-0sg, seeded into the
-/// store before the first startup: (execution, session, state, extra JSON).
-const LEGACY: &[(&str, &str, &str)] = &[
-    (
-        "exe_legacy_waiting",
-        "ses_legacy_waiting",
-        r#""state":"waiting","wake":{"on":"input"},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
-    ),
-    (
-        "exe_legacy_running",
-        "ses_legacy_running",
-        r#""state":"running","budget":{"limit":1000000,"spent":5000,"reserved":133351,"held_unknown":2000,"control_reserve":10000,"reservations":{"rsv_old":133351}}"#,
-    ),
-    (
-        "exe_legacy_exhausted",
-        "ses_legacy_exhausted",
-        r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
-    ),
-];
-
-/// What each legacy session's record says it spent (the core's lookup).
-fn legacy_spend(session: &str) -> Micros {
-    match session {
-        "ses_legacy_waiting" => 20_000,
-        "ses_legacy_running" => 5_000,
-        "ses_legacy_exhausted" => 90_000,
-        _ => 0,
-    }
-}
-
-fn legacy_records() -> Result<Vec<theseus_store::NewRecord>> {
-    LEGACY
-        .iter()
-        .map(|(id, session, rest)| {
-            let json = format!(
-                r#"{{"id":"{id}","schema":1,"session_id":"{session}","kind":"conversation","authority":{{"principal":"operator","ceilings":{{}}}},"outstanding":[],"queued_results":[],"turns":4,"interrupted":0,"resume_pending":false,"created_at_ms":1690000000000,"updated_at_ms":1690000000000,{rest}}}"#
-            );
-            let v: serde_json::Value = serde_json::from_str(&json)?;
-            Ok(theseus_store::NewRecord::json(theseus_store::kinds::EXECUTION, Some(id), &v)?
-                .scoped(session))
-        })
-        .collect()
-}
-
 fn new_kernel(
     store: Arc<dyn Store>,
     clock: Arc<VirtualClock>,
     c: KernelConfig,
     q: &queues::Queues,
 ) -> Kernel {
-    let k = Kernel::new(store, clock, c).with_legacy_spend(Arc::new(legacy_spend));
+    let k = Kernel::new(store, clock, c);
     k.observe(q.observer());
     k
 }
@@ -374,7 +329,6 @@ pub fn run(p: SimParams) -> Result<SimReport> {
     let clock = VirtualClock::new(1_700_000_000_000);
     let spool = Spool::open(&dir.join("spool"))?;
     let store = open_store(&dir, &p)?;
-    store.append(&legacy_records()?)?;
     let queues = queues::Queues::default();
     let kernel = new_kernel(store, clock.clone(), cfg(&p, FIRST_LIMIT), &queues);
     kernel.startup(
@@ -415,20 +369,6 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         s2: counts::Sim2::default(),
         queues,
     };
-    w.rep.legacy_migrated = w
-        .kernel
-        .executions()?
-        .iter()
-        .filter(|e| e.budget.units_before.is_some())
-        .count() as u64;
-    if w.rep.legacy_migrated != LEGACY.len() as u64 {
-        bail!(
-            "{} of {} unit-budget executions read after startup",
-            w.rep.legacy_migrated,
-            LEGACY.len()
-        );
-    }
-
     // The first check reads every execution as startup left it: the limits
     // a later change is measured from.
     w.check_invariants("after the first startup")?;
@@ -2046,8 +1986,7 @@ impl World {
                     );
                 }
             }
-            if e.state == ExecState::BudgetExhausted && !LEGACY.iter().any(|(id, _, _)| *id == e.id)
-            {
+            if e.state == ExecState::BudgetExhausted {
                 bail!(
                     "{at}: {} ended budget_exhausted; a budget waits instead",
                     e.id

@@ -1873,12 +1873,8 @@ fn rows_stored_before_the_session_model_cut_still_read() {
         ])
         .unwrap();
     let (w, _) = crash(w, KernelConfig::default());
-    // Startup rewrote the unit budget once, in dollars (theseus-0sg).
-    let expected = Execution {
-        schema: SCHEMA,
-        ..e.clone()
-    };
-    assert_eq!(w.kernel.execution(&e.id).unwrap().unwrap(), expected);
+    // The unit budget reads in dollars, as the reader gave it.
+    assert_eq!(w.kernel.execution(&e.id).unwrap().unwrap(), e);
     assert_eq!(w.kernel.action(&a.correlation_id).unwrap().unwrap(), a);
 }
 

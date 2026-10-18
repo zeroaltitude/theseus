@@ -494,25 +494,15 @@ fn an_otlp_endpoint_loads_quietly_now_that_every_build_exports() {
 }
 
 /// The owner's vault config (its [kernel] keys checked 2026-09-29, by name
-/// only) still sets the unit budget, `default_budget` and
-/// `control_reserve` (theseus-0sg). It loads with exactly one warning,
-/// which names both; the session limit is the $100 default; and
-/// `theseusd config` shows `spend_limit_usd` and neither old key.
+/// only) loads with no warning; the session limit is the $100 default; and
+/// `theseusd config` shows `spend_limit_usd`.
 #[test]
-fn the_vault_config_with_its_unit_budget_loads_with_one_warning() {
+fn the_vault_config_loads_with_the_default_spend_limit() {
     let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
-                    [kernel]\nadmission_ceiling = 8\ndefault_budget = 20000000\n\
-                    control_reserve = 10000\nheartbeat_secs = 60\n\
+                    [kernel]\nadmission_ceiling = 8\nheartbeat_secs = 60\n\
                     default_deadline_secs = 600\nconfirm_ttl_secs = 900\n";
     let (cfg, warnings) = Config::parse(text).unwrap();
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(
-        warnings[0].starts_with(
-            "kernel.default_budget and kernel.control_reserve are budget units, retired \
-                 and ignored (theseus-0sg)"
-        ) && warnings[0].contains("kernel.spend_limit_usd (now $100)"),
-        "{warnings:?}"
-    );
+    assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(cfg.kernel.spend_limit_usd, 100.0);
     assert_eq!(
         cfg.kernel.to_kernel_config().spend_limit_micros,
@@ -520,17 +510,6 @@ fn the_vault_config_with_its_unit_budget_loads_with_one_warning() {
     );
     let shown = toml::to_string(&cfg.kernel).unwrap();
     assert!(shown.contains("spend_limit_usd = 100.0"), "{shown}");
-    assert!(
-        !shown.contains("default_budget") && !shown.contains("control_reserve"),
-        "{shown}"
-    );
-    // One key alone is named alone; the template sets neither.
-    let one = text.replace("control_reserve = 10000\n", "");
-    let (_, w) = Config::parse(&one).unwrap();
-    assert!(
-        w.len() == 1 && w[0].starts_with("kernel.default_budget is budget units"),
-        "{w:?}"
-    );
     let (t, w) = Config::parse(Config::EXAMPLE_TOML).unwrap();
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(t.kernel.spend_limit_usd, 100.0);
@@ -834,43 +813,30 @@ fn a_catalog_table_names_what_it_changes_and_a_new_model_names_everything() {
     assert!(Config::parse(&format!("{base}[catalog.\"glm-5.3\"]\nprice = 1.0\n")).is_err());
 }
 
-/// `[approval]` is retired (theseus-zmgb). The owner's vault config without it
-/// loads with no warning, and `theseusd config` prints no such section;
-/// the template has none. A config that still has one, his three lines
-/// among them, loads with one warning that it is retired, whatever it
-/// holds, and prints none.
+/// `[approval]` was retired (theseus-zmgb) and its key is gone: a config that
+/// still has the section fails to load, and the error names it. That is
+/// deliberate, and so it is for the other keys retired with it (`[labels]`,
+/// `kernel.default_budget`, `kernel.control_reserve`, `sandbox.memory_mb`).
+/// The owner's vault config without it loads with no warning, and the template
+/// has none.
 #[test]
-fn an_approval_section_is_retired_and_loads_with_a_warning() {
+fn a_retired_approval_section_fails_to_load() {
     let vault = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
                      [kernel]\nadmission_ceiling = 8\nheartbeat_secs = 60\n\n\
                      [discord]\nenabled = true\ntoken_secret = \"discord_bot_token\"\n\
                      bindings_file = \"bindings.toml\"\nedit_interval_ms = 1200\n\n\
                      [web]\nenabled = true\nbind = \"127.0.0.1\"\nport = 7433\n";
-    let (cfg, warnings) = Config::parse(vault).unwrap();
+    let (_, warnings) = Config::parse(vault).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
-    assert!(cfg.approval.is_none());
-    assert!(Config::example().approval.is_none());
     assert!(
         !Config::EXAMPLE_TOML.contains("[approval]"),
         "the template has no section"
     );
-    for section in [
-            "trusted_users = [\"discord:271828182845904523\"]\nchannels = [\"cli\", \"web\", \"discord:dm\"]",
-            "",
-            "channels = [\"discord:general\"]\nusers = []",
-        ] {
-            let (cfg, w) = Config::parse(&format!("{vault}\n[approval]\n{section}\n")).unwrap();
-            assert_eq!(w, [APPROVAL_RETIRED], "{section}");
-            assert!(cfg.approval.is_some());
-            let shown = toml::to_string_pretty(&cfg).unwrap();
-            // The retired section is not written back: no `[approval]` table
-            // and no `approval` key (`[policy.earned] min_approvals` is no such key).
-            assert!(
-                !shown.contains("[approval")
-                    && !shown.lines().any(|l| l.trim_start().starts_with("approval")),
-                "{shown}"
-            );
-        }
+    let e = format!(
+        "{:#}",
+        Config::parse(&format!("{vault}\n[approval]\nchannels = [\"cli\"]\n")).unwrap_err()
+    );
+    assert!(e.contains("unknown field `approval`"), "{e}");
 }
 
 /// `[web] bind` is a loopback address or the config fails to load, since

@@ -12,6 +12,7 @@ use theseus_protocol::{
 use super::*;
 use crate::node::{Body, Node};
 use crate::provider::{FakeProvider, Provider};
+use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::Authority;
 use theseus_protocol::{notify, Notification, TurnSubmitResult};
@@ -1181,14 +1182,11 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
 
 /// A store the previous binary wrote, whose executions carry unit budgets
 /// (theseus-0sg): one ended `budget_exhausted` at 877,683 of 1,000,000
-/// units, as the owner's Discord session did on 2026-09-29 for $0.45; one ended
-/// the same way whose session spent its whole $100; and one waits on input.
-/// It serves at once. `session.list`, `session.history`, and
+/// units, as the owner's Discord session did on 2026-09-29, and one waits on
+/// input. It serves at once. `session.list`, `session.history`, and
 /// `execution.list` answer, each read in dollars at the configured limit
-/// with its units kept, and each takes its session's recorded cost as its
-/// spend. The one ended at $0.45 of $100 reopens, and its next turn runs
-/// (theseus-3ebd); the one at its dollar limit stays ended and refuses a
-/// turn; the waiting one's next turn runs.
+/// with its units kept. The ended one reopens, and its next turn runs
+/// (theseus-3ebd); the waiting one's next turn runs.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
@@ -1196,19 +1194,12 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
     let store = Store::open(&dir.join("store")).unwrap();
     let mut ended = SessionRecord::new(SessionKind::Conversation, None);
-    ended.cost_usd = 0.45;
     ended.turns = 15;
     ended.execution_id = Some("exe_old_exhausted".into());
-    let mut spent = SessionRecord::new(SessionKind::Conversation, None);
-    spent.cost_usd = 100.0;
-    spent.turns = 40;
-    spent.execution_id = Some("exe_old_spent".into());
     let mut open = SessionRecord::new(SessionKind::Conversation, None);
-    open.cost_usd = 0.012;
     open.turns = 3;
     open.execution_id = Some("exe_old_waiting".into());
     store.put_session(&ended.session_id, &ended).unwrap();
-    store.put_session(&spent.session_id, &spent).unwrap();
     store.put_session(&open.session_id, &open).unwrap();
     let exec = |id: &str, session: &str, rest: &str| {
         let json = format!(
@@ -1224,11 +1215,6 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
             exec(
                 "exe_old_exhausted",
                 &ended.session_id,
-                r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
-            ),
-            exec(
-                "exe_old_spent",
-                &spent.session_id,
                 r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
             ),
             exec(
@@ -1284,11 +1270,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     assert_eq!(
         state(&ended.session_id).as_deref(),
         Some("waiting"),
-        "reopened: $0.45 of $100 (theseus-3ebd)"
-    );
-    assert_eq!(
-        state(&spent.session_id).as_deref(),
-        Some("budget_exhausted")
+        "reopened under its dollar limit (theseus-3ebd)"
     );
     assert_eq!(state(&open.session_id).as_deref(), Some("waiting"));
     let h: theseus_protocol::SessionHistoryResult =
@@ -1303,30 +1285,14 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
         .find(|e| e.execution_id == "exe_old_exhausted")
         .unwrap();
     assert_eq!(x.state, "waiting", "reopened under its dollar limit");
-    assert_eq!((x.budget.limit_usd, x.budget.spent_usd), (100.0, 0.45));
+    assert_eq!(x.budget.limit_usd, 100.0);
     assert_eq!(x.budget.units_before["spent"], 877_683);
-    let s = execs
-        .executions
-        .iter()
-        .find(|e| e.execution_id == "exe_old_spent")
-        .unwrap();
-    assert_eq!(s.state, "budget_exhausted", "at its dollar limit");
-    assert_eq!((s.budget.limit_usd, s.budget.spent_usd), (100.0, 100.0));
     let y = execs
         .executions
         .iter()
         .find(|e| e.execution_id == "exe_old_waiting")
         .unwrap();
-    assert_eq!((y.state.as_str(), y.budget.spent_usd), ("waiting", 0.012));
-    let migrated: Vec<LedgerRow> = core
-        .store
-        .ledger_tail::<LedgerRow>(500)
-        .unwrap()
-        .into_iter()
-        .map(|(_, r)| r)
-        .filter(|r| r.kind == "budget.migrated")
-        .collect();
-    assert_eq!(migrated.len(), 3);
+    assert_eq!(y.state, "waiting");
     let reopened: Vec<LedgerRow> = core
         .store
         .ledger_tail::<LedgerRow>(500)
@@ -1338,8 +1304,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     assert_eq!(reopened.len(), 1, "{reopened:?}");
     assert_eq!(reopened[0].session_id.as_ref(), Some(&ended.session_id));
 
-    // The session at its dollar limit refuses a turn as before; the
-    // reopened one and the waiting one run.
+    // The reopened one and the waiting one run.
     let submit = |id: u64, session: &str| {
         Request::new(
             Id::Num(id),
@@ -1365,15 +1330,6 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
             },
         )
     };
-    let msgs = roundtrip(core.clone(), vec![submit(5, &spent.session_id)]).await;
-    let refused = responses(&msgs)[0]
-        .error
-        .clone()
-        .expect("an ended execution takes no turn");
-    assert_eq!(
-        refused.data["class"], "execution_budget_exhausted",
-        "{refused:?}"
-    );
     let msgs = roundtrip(core.clone(), vec![submit(7, &ended.session_id)]).await;
     let reopened: TurnSubmitResult = serde_json::from_value(
         responses(&msgs)[0]
@@ -1388,11 +1344,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
         serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap();
     assert_eq!(ok.output, "Still here.");
     let e = core.kernel.execution("exe_old_waiting").unwrap().unwrap();
-    assert!(
-        e.budget.spent_micros > 12_000,
-        "the old spend, then the new call: {:?}",
-        e.budget
-    );
+    assert!(e.budget.spent_micros > 0, "the new call: {:?}", e.budget);
 }
 
 /// Rows stored before theseus-8az renamed the decline vocabulary: a tool

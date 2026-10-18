@@ -107,7 +107,7 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
     let out = sim(&[
         "kernel-sim",
         "--seed",
-        "1",
+        "2",
         "--seeds",
         "2",
         "--steps",

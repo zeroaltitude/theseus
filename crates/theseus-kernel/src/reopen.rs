@@ -1,6 +1,5 @@
 //! Reopening an execution the old unit budget ended (theseus-3ebd, the owner's
-//! option (a), 2026-10-01): startup's step 2 does it, once, beside the unit
-//! budget's migration to dollars (theseus-0sg).
+//! option (a), 2026-10-01): startup's step 2 does it, once.
 
 use anyhow::Result;
 use serde_json::json;
@@ -12,7 +11,7 @@ use crate::types::*;
 /// An execution the old unit budget ended whose dollar spend is under its
 /// limit: startup reopens it to wait on input, as if the operator had reset
 /// it. Budgets in dollars end nothing (a call that does not fit asks the
-/// operator), so only a budget migrated from units (`units_before`) can be
+/// operator), so only a budget read from units (`units_before`) can be
 /// here, and one at or over its dollar limit stays ended.
 pub(crate) fn reopens(e: &Execution) -> bool {
     e.state == ExecState::BudgetExhausted
@@ -23,9 +22,8 @@ pub(crate) fn reopens(e: &Execution) -> bool {
 impl Kernel {
     /// Reopen `e`, read under its lock in step 2, when it `reopens`: it waits
     /// on input, its ended reason cleared, and a `budget.reopened` row, which
-    /// keeps that reason, joins the step's frame (`rows`). It runs after the
-    /// migration, so its spend is in dollars, and before the limit is
-    /// followed, which an open execution does.
+    /// keeps that reason, joins the step's frame (`rows`). It runs before the
+    /// limit is followed, which an open execution does.
     pub(crate) fn reopen(
         &self,
         e: &mut Execution,

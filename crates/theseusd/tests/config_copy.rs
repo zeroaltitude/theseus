@@ -346,32 +346,9 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
     );
     r.stop(daemon);
 
-    // A store that still holds a unit budget (from before theseus-0sg) is
-    // migrated by the start from the copy, which acts at once.
-    {
-        use theseus_store::{kinds, NewRecord};
-        let store = theseus_core::store::Store::open(&r.path("state").join("store")).unwrap();
-        let legacy = json!({"id": "exe_old", "schema": 1, "session_id": "ses_old", "kind": "conversation",
-            "authority": {"principal": "operator", "ceilings": {}}, "outstanding": [], "queued_results": [],
-            "turns": 3, "interrupted": 0, "resume_pending": false, "created_at_ms": 1_790_000_000_000u64,
-            "updated_at_ms": 1_790_000_500_000u64, "state": "waiting", "wake": {"on": "input"},
-            "budget": {"limit": 20_000_000, "spent": 154_321, "reserved": 0, "held_unknown": 0,
-                "control_reserve": 10_000, "reservations": {}}});
-        store
-            .append(
-                &[NewRecord::json(kinds::EXECUTION, Some("exe_old"), &legacy)
-                    .unwrap()
-                    .scoped("ses_old")],
-            )
-            .unwrap();
-    }
+    // The next start serves from the copy, which acts at once.
     let (mut daemon, h, _) = r.start();
     assert_eq!(h["config"]["started_from"], "copy", "{}", h["config"]);
-    assert_eq!(
-        r.ledger("budget.migrated").len(),
-        1,
-        "migrated under the copy's config"
-    );
     r.until(&mut daemon, "confirmed", |h| {
         h["config"]["state"] == "confirmed"
     });

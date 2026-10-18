@@ -440,10 +440,6 @@ pub struct KernelStats {
     pub accepting: bool,
 }
 
-/// A session's recorded spend in micro-dollars, by session id: what an
-/// execution stored with a unit budget had spent in dollars (theseus-0sg).
-pub type LegacySpend = Arc<dyn Fn(&str) -> Micros + Send + Sync>;
-
 /// A frame the kernel committed, as its observer sees it (theseus-in3): the
 /// records, with the WAL position of each, once the append has returned, so
 /// nothing observed is a state the WAL does not hold.
@@ -466,7 +462,6 @@ pub struct Kernel {
     locks: Arc<ExecLocks>,
     /// 0..=4 while starting; 5 once accepting events. Shared with every view.
     phase: Arc<Mutex<u8>>,
-    legacy_spend: Option<LegacySpend>,
     /// When this process's startup began (0 before it): a wake due before
     /// then fell due while the daemon was down (DD8). Shared with every view.
     pub(crate) started_at_ms: Arc<AtomicU64>,
@@ -555,7 +550,6 @@ impl Kernel {
             held: Arc::new(Mutex::new(HashSet::new())),
             locks: Arc::default(),
             phase: Arc::new(Mutex::new(0)),
-            legacy_spend: None,
             started_at_ms: Arc::default(),
             own: None,
             observer: Arc::default(),
@@ -579,7 +573,6 @@ impl Kernel {
             held: self.held.clone(),
             locks: self.locks.clone(),
             phase: self.phase.clone(),
-            legacy_spend: self.legacy_spend.clone(),
             started_at_ms: self.started_at_ms.clone(),
             own: None,
             observer: self.observer.clone(),
@@ -600,7 +593,6 @@ impl Kernel {
             held: self.held.clone(),
             locks: self.locks.clone(),
             phase: self.phase.clone(),
-            legacy_spend: self.legacy_spend.clone(),
             started_at_ms: self.started_at_ms.clone(),
             own: self.own.clone(),
             observer: Arc::default(),
@@ -665,14 +657,6 @@ impl Kernel {
         self.own
             .as_ref()
             .map_or(0, |o| o.settled.load(std::sync::atomic::Ordering::SeqCst))
-    }
-
-    /// Where startup finds the dollar spend of an execution stored with a
-    /// unit budget: the session's own record, which the core keeps. Without
-    /// one, such an execution starts again from $0.
-    pub fn with_legacy_spend(mut self, f: LegacySpend) -> Self {
-        self.legacy_spend = Some(f);
-        self
     }
 
     pub fn store(&self) -> &Arc<dyn Store> {
@@ -2827,24 +2811,21 @@ impl Kernel {
         )?);
         step(1, "store", t)?;
 
-        // 2. load executions; requeue interrupted turns; rewrite, once, the
-        //    executions stored with a unit budget (theseus-0sg), reopening those
-        //    under their dollar limit (theseus-3ebd); and give every open
-        //    execution that follows the config a changed spend limit
+        // 2. load executions; requeue interrupted turns; reopen those a unit
+        //    budget ended under their dollar limit (theseus-3ebd); and give
+        //    every open execution that follows the config a changed spend limit
         //    (theseus-3pj). The rewrites share one frame: the first start under this
         //    binary, or under a changed limit, pays one fsync for them, and
         //    every later start finds none. It reads only those executions,
-        //    by their terms (theseus-lv2): a turn running, a unit budget or
-        //    one a unit budget ended (dollars end none), a limit other than
-        //    the config's. A parked one is read by none.
+        //    by their terms (theseus-lv2): a turn running, one a unit budget
+        //    ended (dollars end none), a limit other than the config's. A
+        //    parked one is read by none.
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 2;
         let now = self.now_ms();
         let mut migrated = Vec::new();
-        let mut rewritten = 0u32;
         let mut wanted = vec![
             terms::one(&terms::state(ExecState::Running)),
-            terms::one("legacy"),
             terms::one(&terms::state(ExecState::BudgetExhausted)),
         ];
         wanted.extend(terms::limits_other_than(self.cfg.spend_limit_micros));
@@ -2852,12 +2833,8 @@ impl Kernel {
         // The executions this step rewrites are read again under their locks,
         // taken together in id order and held to the step's end, so the scan
         // decides nothing it writes. A clean start reads and rewrites none.
-        let rewrites = |e: &Execution| {
-            e.state == ExecState::Running
-                || e.schema < SCHEMA
-                || reopens(e)
-                || self.follows_limit(e)
-        };
+        let rewrites =
+            |e: &Execution| e.state == ExecState::Running || reopens(e) || self.follows_limit(e);
         let ids: Vec<&str> = all
             .iter()
             .filter(|e| rewrites(e))
@@ -2871,16 +2848,6 @@ impl Kernel {
                 e
             };
             let mut rows = Vec::new();
-            if e.schema < SCHEMA {
-                e.budget.spent_micros = self.legacy_spend.as_ref().map_or(0, |f| f(&e.session_id));
-                e.schema = SCHEMA;
-                rows.push(self.ledger(
-                    LedgerKind::BudgetMigrated,
-                    Some(&e.session_id),
-                    json!({"execution_id": e.id, "state": e.state, "limit_usd": micros_to_usd(e.budget.limit_micros), "spent_usd": micros_to_usd(e.budget.spent_micros), "units_before": e.budget.units_before}),
-                )?);
-                rewritten += 1;
-            }
             self.reopen(&mut e, now, &mut rows, &mut rep.reopened)?;
             let interrupted = e.state == ExecState::Running;
             if interrupted {
@@ -2931,7 +2898,7 @@ impl Kernel {
         step_rows.push(self.ledger(
             LedgerKind::StartupStep,
             None,
-            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_in_dollars": rewritten, "budgets_reopened": rep.reopened, "limits_followed": rep.limits_followed.len()}),
+            json!({"step": 2, "name": "load", "requeued": rep.requeued_interrupted, "budgets_reopened": rep.reopened, "limits_followed": rep.limits_followed.len()}),
         )?);
         step(2, "load", t)?;
 

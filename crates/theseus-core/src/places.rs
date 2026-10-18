@@ -745,18 +745,15 @@ mod tests {
                 ("/w/open/README.md".to_string(), true)
             ]
         );
-        for section in ["places", "labels"] {
-            let named = format!(
-                "{base}\n[{section}]\nowner = [\"discord:314159265358979323\"]\npublic_paths = [\"~/w/open\"]\n"
-            );
-            let (cfg, _) = Config::parse(&named).unwrap();
-            assert_eq!(
-                rule.owners(&cfg).into_iter().collect::<Vec<_>>(),
-                ["discord:314159265358979323"],
-                "[{section}]"
-            );
-            assert_eq!(cfg.places.public_paths, ["~/w/open"]);
-        }
+        let named = format!(
+            "{base}\n[places]\nowner = [\"discord:314159265358979323\"]\npublic_paths = [\"~/w/open\"]\n"
+        );
+        let (cfg, _) = Config::parse(&named).unwrap();
+        assert_eq!(
+            rule.owners(&cfg).into_iter().collect::<Vec<_>>(),
+            ["discord:314159265358979323"]
+        );
+        assert_eq!(cfg.places.public_paths, ["~/w/open"]);
         for (bad, says) in [
             ("[places]\nowner = [\"zeroaltitude\"]", "places.owner"),
             (
