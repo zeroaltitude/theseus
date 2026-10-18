@@ -25,6 +25,7 @@ mod ask;
 mod board;
 mod catchup;
 mod held;
+mod offer;
 mod persona;
 mod thread;
 pub(crate) mod v2;
@@ -782,10 +783,7 @@ impl Lane {
             };
         let reply_to = body["reply_to"].as_str().and_then(|s| s.parse().ok());
         match kind_of(a) {
-            "reply" => {
-                let channel = self.place_channel().await?;
-                Ok(self.reply(&body, channel))
-            }
+            "reply" => self.reply_in_place(&body).await,
             "card" => self.card(&body).await,
             "settle" => Ok(self.settled(&body)),
             "notice" => {
@@ -813,6 +811,7 @@ impl Lane {
             }
             "failed" => self.failed_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
+            "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
             // key, so each new state of it edits the one message.
             "hands" => {
@@ -872,8 +871,9 @@ impl Lane {
             // hand role and the red after its apply (theseus-pw1q.15): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" | "standing_card" => self.jev_post(a, &body).await,
-            "digest" => self.jev_post(a, &body).await,
+            | "self_narrow_red" | "initiative" | "standing_card" | "digest" => {
+                self.jev_post(a, &body).await
+            }
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -884,6 +884,11 @@ impl Lane {
                 "a post of kind {other:?} is not one this binding knows"
             ))),
         }
+    }
+
+    async fn reply_in_place(&mut self, body: &Value) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        Ok(self.reply(body, channel))
     }
 
     /// A turn's reply: its loops' final text under the stream's keys, which
@@ -962,7 +967,10 @@ impl Lane {
             .as_str()
             .filter(|_| self.shared.is_private(&self.target));
         if let Some(brief) = offer {
-            self.shared.tasks.offers.keep(&turn_id, brief);
+            self.shared
+                .tasks
+                .offers
+                .keep(&self.shared.core.store, &turn_id, brief);
         }
         if let (Some(last), false) = (writes.last_mut(), srcs.is_empty() && offer.is_none()) {
             let session = result.as_ref().map(|r| r.session_id.clone());
@@ -971,6 +979,28 @@ impl Lane {
                 srcs,
                 offer.map(|_| turn_id.clone()),
             );
+        }
+        // Where a late offer's button would join (theseus-ypnxt.5).
+        if let (Some(last), true) = (writes.last(), offer.is_none()) {
+            let (session, sources) = match &last.buttons {
+                Buttons::Sources(s, srcs, _) => (s.clone(), srcs.clone()),
+                _ => (
+                    result
+                        .as_ref()
+                        .map(|r| r.session_id.clone())
+                        .unwrap_or_default(),
+                    vec![],
+                ),
+            };
+            self.shared
+                .tasks
+                .offers
+                .replied(crate::runtime::start_task::Replied {
+                    turn: turn_id.clone(),
+                    key: last.key.clone(),
+                    session,
+                    sources,
+                });
         }
         Plan {
             writes,
@@ -1316,7 +1346,12 @@ impl Lane {
         let guests = body["task"]
             .as_str()
             .map_or(0, |s| self.shared.comments_on_session(s));
-        let content = routine.unwrap_or_else(|| render::report(body, said.as_deref(), guests));
+        let place = self.shared.task_threads.place_of_task(
+            body["task"].as_str().unwrap_or(""),
+            body["execution_id"].as_str().unwrap_or(""),
+        );
+        let content =
+            routine.unwrap_or_else(|| render::report(body, said.as_deref(), guests, place));
         let key = format!("report:{}", body["task"].as_str().unwrap_or(corr));
         let ping = self.pings(policy::of_report(body));
         Ok(Plan {

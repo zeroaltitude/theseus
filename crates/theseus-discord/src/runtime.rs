@@ -98,7 +98,7 @@ mod answer_cmd;
 mod follow;
 pub(crate) mod horizon;
 mod horizon_cmds;
-mod start_task;
+pub(crate) mod start_task;
 mod steer;
 mod succession;
 pub(crate) mod task_channels;

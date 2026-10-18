@@ -2,7 +2,9 @@
 //!
 //! - **`/tasks [show:]`**: the board's parts for one place as an ephemeral V2
 //!   message, with `↻` (`tb:refresh:<show>`) that draws it again where it is,
-//!   and the board's select to open a task.
+//!   and the board's select to open a task. `open` (the default) is the board
+//!   from memory; `done` and `all` take the finished tasks from the store
+//!   (`history`), whatever the board has cleared or a restart forgot.
 //! - **`/task name:`'s autocomplete**: a place's tasks as at most 25 choices,
 //!   the ones that need you first, then the working, then the ended, each by
 //!   its title and short id; what was typed narrows them (title, id or its
@@ -15,6 +17,7 @@ use super::board_v2::{
     ago, ask_line, done_line, headline, short, title_of, working_line, OPEN, PICK,
 };
 use super::clip;
+use super::history::{self, Row};
 use super::v2::{button, container, row, section, select, separator, text, validate, Look};
 use crate::runtime::emoji::state;
 
@@ -28,16 +31,22 @@ pub const MAX_CHOICES: usize = 25;
 /// Which parts `/tasks` shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Show {
+    /// The board from memory: what needs you, what works, what ended since the
+    /// place looked.
     #[default]
-    All,
+    Open,
     NeedsYou,
     Working,
+    /// The finished tasks from the store.
     Done,
+    /// What needs you and works, and the finished tasks from the store.
+    All,
 }
 
 impl Show {
     pub fn parse(s: &str) -> Option<Show> {
         Some(match s {
+            "open" => Show::Open,
             "all" => Show::All,
             "needs_you" => Show::NeedsYou,
             "working" => Show::Working,
@@ -48,6 +57,7 @@ impl Show {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Show::Open => "open",
             Show::All => "all",
             Show::NeedsYou => "needs_you",
             Show::Working => "working",
@@ -61,19 +71,31 @@ pub struct Parts<'a> {
     pub needs: &'a [WorkView],
     pub working: &'a [WorkView],
     pub done: &'a [WorkView],
+    /// The finished tasks the store has, newest first, for `done` and `all`.
+    pub history: &'a [Row],
 }
 
 fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value> {
-    let want = |s: Show| show == Show::All || show == s;
+    let stored = matches!(show, Show::Done | Show::All);
+    let want = |s: Show| matches!(show, Show::Open | Show::All) || show == s;
     let (needs, working, done) = (
         if want(Show::NeedsYou) { p.needs } else { &[] },
         if want(Show::Working) { p.working } else { &[] },
-        if want(Show::Done) { p.done } else { &[] },
+        if want(Show::Done) && !stored {
+            p.done
+        } else {
+            &[]
+        },
     );
-    let mut inner = vec![text(format!(
-        "📋 **Tasks here** · {}",
-        headline(needs.len(), working.len(), done.len())
-    ))];
+    let finished = if stored { p.history.len() } else { 0 };
+    let mut head = headline(needs.len(), working.len(), done.len());
+    if finished > 0 {
+        head = match head.as_str() {
+            "all clear" => format!("{finished} finished"),
+            _ => format!("{head} · {finished} finished"),
+        };
+    }
+    let mut inner = vec![text(format!("📋 **Tasks here** · {head}"))];
     let [cn, cw, cd] = caps;
     if !needs.is_empty() {
         inner.push(separator());
@@ -105,6 +127,10 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
         lines.extend(done.iter().take(cd).map(done_line));
         inner.push(text(lines.join("\n")));
     }
+    if stored {
+        inner.push(separator());
+        inner.push(text(history::lines(p.history, cd).join("\n")));
+    }
     inner.push(separator());
     inner.push(row(vec![button(
         format!("{REFRESH}{}", show.as_str()),
@@ -130,7 +156,8 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
 /// `/tasks`' message for `show`, within Discord's limits (the parts' tails
 /// fold as they do on the board).
 pub fn render(show: Show, p: &Parts<'_>, now_ms: u64) -> Vec<Value> {
-    let mut caps = [7, 12, 8];
+    let stored = matches!(show, Show::Done | Show::All);
+    let mut caps = [7, 12, if stored { history::SHOWN } else { 8 }];
     loop {
         let c = build(show, p, caps, now_ms);
         if validate(&c).is_ok() {
@@ -139,7 +166,12 @@ pub fn render(show: Show, p: &Parts<'_>, now_ms: u64) -> Vec<Value> {
         let shown = [
             p.needs.len().min(caps[0]),
             p.working.len().min(caps[1]),
-            p.done.len().min(caps[2]),
+            if stored {
+                p.history.len()
+            } else {
+                p.done.len()
+            }
+            .min(caps[2]),
         ];
         match (0..3).max_by_key(|&i| shown[i]).filter(|&i| shown[i] > 0) {
             Some(i) => caps[i] -= 1,
@@ -303,6 +335,7 @@ mod tests {
             needs: &needs,
             working: &working,
             done: &[],
+            history: &[],
         };
         let now = 1_790_000_100_000;
         let only = render(Show::Working, &p, now);
@@ -313,12 +346,38 @@ mod tests {
             "{t}"
         );
         assert!(custom_ids(&only).contains(&"tb:refresh:working".to_string()));
-        let all = render(Show::All, &p, now);
+        let all = render(Show::Open, &p, now);
         let t = texts(&all).join("\n");
         assert!(
             t.contains("Paint the buoy") && t.contains("Count the tides"),
             "{t}"
         );
+        // The store's finished tasks join `done` and `all`, and `open` never shows them.
+        let past = [Row {
+            short: "c7d8e9".into(),
+            title: "Chart the reef".into(),
+            ended: history::Ended::Done,
+            at_ms: now - 3 * 86_400_000,
+            cost_usd: 0.42,
+            said: Some("The reef is charted.".into()),
+            link: None,
+        }];
+        let p = Parts {
+            history: &past,
+            ..p
+        };
+        for (show, wants) in [(Show::Done, true), (Show::All, true), (Show::Open, false)] {
+            let c = render(show, &p, now);
+            assert_eq!(validate(&c), Ok(()));
+            let t = texts(&c).join("\n");
+            assert_eq!(t.contains("Chart the reef"), wants, "{show:?}: {t}");
+        }
+        let done = texts(&render(Show::Done, &p, now)).join("\n");
+        assert!(
+            !done.contains("Paint the buoy") && done.contains("1 finished"),
+            "{done}"
+        );
+        assert_eq!(Show::parse("open"), Some(Show::Open));
         assert_eq!(Show::parse("needs_you"), Some(Show::NeedsYou));
         assert_eq!(Show::parse("nope"), None);
     }

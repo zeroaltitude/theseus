@@ -14,8 +14,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - `src/render/preview.rs` (theseus-z6au): an edit's approval card carries its hunk, the question's `preview`, as a
   ```` ```diff ```` block of at most 800 characters with a marker where it was cut. The tool lines are unchanged:
   `summarize` is `theseus_protocol::term::words::argument`.
-- A reply's footer ends with `[inspect](<url>)` (theseus-x9swu): a masked link whose angle brackets keep Discord from drawing an embed,
-  from the result's `inspect_url` (`[cockpit] public_url`), on the footer's one line: no part, message or ping is added.
+- A task's report (`render::report`) names the task's own forum post or channel on its first line as `<#id>` when it has one (`TaskThreads::place_of_task`, theseus-ypnxt.5), so a tap opens it on the phone. A reply's footer ends with `[inspect](<url>)` (theseus-x9swu): a masked link whose angle brackets keep Discord from drawing an embed,
+  from the result's `inspect_url` (`[cockpit] public_url`, else `http://localhost:<[web] port>`), on the footer's one line: no part, message or ping is added.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out. A reply's footer gives
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a
@@ -197,7 +197,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   - **The task commands** (theseus-a5uds; `runtime/task_cmds.rs`, `answer_cmd.rs`, `follow.rs`, `start_task.rs`, `render/snapshot.rs`,
     `render/answer_v2.rs`). Every one answers ephemerally or edits, so it adds no noise, and its callback goes out on `Shared.interact`,
     a second HTTP client with no rate limiter, so a busy lane never delays a three-second deadline.
-    `/tasks [show: needs_you|working|done|all]`: the place's snapshot (`snapshot::render`) with `↻` (`tb:refresh:<show>`, edits it in place).
+    `/tasks [show: open|needs_you|working|done|all]`: the place's snapshot (`snapshot::render`) with `↻` (`tb:refresh:<show>`, edits it in place). `open` (the default) is the board from memory; `done` and `all` take the finished tasks from the store (`task.list` for the place's target, `tasks::finished`, `render/history.rs`: the ten newest with how they ended, when, `$`, the report's first line and the post or channel, then a count), whatever the board cleared or a restart forgot (theseus-ypnxt.5).
     `/task name:` (autocomplete from `Tasks`, in memory: the place's tasks, needs-you first, then working, then ended, at most 25, `new` first
     when it matches): Details (`task_view::detail`, which now also has **Follow** and, for a failure, **Retry**/**Dismiss**); Stop asks once more
     (`[Stop d4e5f6] [Keep it]`) then `task.cancel`. `task`, `cancel` and `answer` autocompletes are answered from
@@ -223,8 +223,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     as the presser, homed in this place's session; `quotes` hold the new session as outside text. A shared place is told where to start it.
     **A reply that offers a task** (theseus-bh3t.5): the core's reply post carries `offer {brief}` when Jev found the owner's message to be
     work for later; in a private place the reply's last message gets `➕ Make this a task` (`tb:offer:<turn>`, on the sources' row,
-    `Buttons::Sources`' third field), and the brief waits in `Tasks.offers` (64, in memory). The owner's press opens the same
-    modal with the brief filled (`start_task::modal(quote, brief)`, custom id `nt:<turn>`; after a restart it opens empty); a guest's is
+    `Buttons::Sources`' third field), and the brief waits in `Tasks.offers` (the newest 64, kept in META `discord.offers`, so a restart keeps them). When the judge was slower than the reply, the core's `offer` post makes the lane edit the reply once to add the button (`courier/offer.rs`; nothing when the lane no longer holds the reply). The owner's press opens the same
+    modal with the brief filled (`start_task::modal(quote, brief)`, custom id `nt:<turn>`); a guest's is
     told "Only the owner can start a task here." A submit that started a task edits the button off the reply. Tests: `tests_board/offer.rs`.
     Tests: `tests_board/commands.rs` (the fake gateway's `slash`, `autocomplete`, `message_command`, `submit_modal` and `pick_in_reply`, in
     `theseus_sim::fake_discord::commands`).
@@ -452,7 +452,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each (title and a sentence or two, no code, links, paths or tool lines, 220 characters), said once (a set of 256), never what was
   there at the join, nothing in a shared voice place or about a task of a shared place, and no end of a task that reports to the voice
   place's own session (`voice_heard` speaks that turn). The last question said is pending 5 minutes: `voice_turn` first asks
-  `voice_answered`, and an owner's whole utterance of "approve", "deny", "the second one" or "stop it" (`matched`) is `work.answer` /
+  `voice_answered`, and an owner's whole utterance of "pause it" or "go on" (`held_words`) is `task.pause` / `task.resume` as the speaker for the task the question named while it is pending, else the private place's only running (or only paused) task, with two to choose from an ordinary turn (theseus-ypnxt.5), and one of "approve", "deny", "the second one" or "stop it" (`matched`) is `work.answer` /
   `task.cancel` as the speaker with the voice channel's ids (the core judges; a refusal is "I can't take that here." and the core's
   words in text), posts the transcript line, and makes no turn. A bare "yes" is the engine's backchannel, so the question asks for
   "approve". Tests: `runtime/voice/tests_tasks.rs`.

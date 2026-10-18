@@ -272,6 +272,15 @@ async fn a_task_in_a_guild_channel_gets_a_thread_where_its_stream_lands_and_one_
         })
     })
     .await;
+    // The report's first line links the task's own thread, so a tap opens it
+    // (theseus-ypnxt.5).
+    let report = r
+        .posted(LAB)
+        .into_iter()
+        .find(|m| m.content.contains("finished") && m.content.contains("Reef charted"))
+        .unwrap();
+    let first = report.content.lines().next().unwrap_or_default();
+    assert!(first.contains(&format!("<#{}>", t.id)), "{first}");
     assert!(
         !r.posted(LAB).iter().any(|m| m.content.contains("sleep")),
         "none of the task's tool lines are in the channel: {:#?}",

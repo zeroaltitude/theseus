@@ -461,7 +461,7 @@ fn a_turn_nothing_routed_shows_the_target_it_started_on() {
 #[tokio::test]
 async fn a_turns_result_links_to_it_at_the_configured_address() {
     let core = test_core_with("ok", |c| {
-        c.cockpit.public_url = "http://localhost:17433".into();
+        c.cockpit.public_url = Some("http://localhost:17433".into());
     });
     let out = roundtrip(core.clone(), vec![submit(1, "hello")]).await;
     let Some(theseus_protocol::Message::Response(r)) = out

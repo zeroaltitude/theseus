@@ -754,3 +754,172 @@ async fn nothing_is_said_once_the_call_has_ended() {
     let heard = tokio::time::timeout(Duration::from_millis(300), r.spoken.recv()).await;
     assert!(heard.is_err(), "{heard:?}");
 }
+
+/// The ledger rows of `kind` that name `session`.
+fn rows_of(core: &Core, kind: &str, session: &str) -> usize {
+    core.store
+        .ledger_tail::<theseus_core::ledger::LedgerRow>(4000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == kind && r.data["session_id"] == session)
+        .count()
+}
+
+/// A task started for real, and the execution id its view carries.
+fn started_task(core: &Arc<Core>, brief: &str) -> (String, String) {
+    let owner = Answerer {
+        label: "the CLI".into(),
+        surface: Surface::Cli,
+        discord: None,
+    };
+    let s = core
+        .task_start(
+            &TaskStartParams {
+                brief: brief.into(),
+                ..Default::default()
+            },
+            owner,
+        )
+        .unwrap();
+    let exec = s.session_id.replacen("ses_", "exe_", 1);
+    (s.session_id, exec)
+}
+
+/// "pause it" after a question pauses the task that asked, with no voice turn,
+/// and the question stays pending; the RPC's word comes back once
+/// (theseus-ypnxt.5).
+#[tokio::test]
+async fn pause_it_after_a_question_pauses_that_task() {
+    let mut r = rig(vec![]).await;
+    let (session, exec) = started_task(&r.core, "Count the boats");
+    let (_other, _) = started_task(&r.core, "Count the gulls");
+    r.publish(vec![question(
+        "act_q1",
+        &exec,
+        "approval",
+        "x",
+        Some("proc.run"),
+        &[],
+    )]);
+    let _ = r.said().await;
+    r.say("pause it");
+    assert!(!r.place.inflight, "no turn was made of it");
+    assert_eq!(r.said().await, "Paused.");
+    assert_eq!(rows_of(&r.core, "task.paused", &session), 1);
+    assert!(
+        r.tasks.lock().unwrap().pending.is_some(),
+        "the question still waits for its answer"
+    );
+}
+
+/// With no question pending, the place's only running task is the one; "go on"
+/// lets the only paused one go.
+#[tokio::test]
+async fn pause_it_and_go_on_take_the_places_only_running_or_paused_task() {
+    let mut r = rig(vec![]).await;
+    let (session, _exec) = started_task(&r.core, "Count the boats");
+    // The core's own board tells the watch of the task it started.
+    let tasks = Arc::clone(&r.tasks);
+    until("the task is open on the watch", move || {
+        tasks.lock().unwrap().open_counts() == (1, 0)
+    })
+    .await;
+    r.say("Pause it.");
+    assert!(!r.place.inflight);
+    assert_eq!(r.said().await, "Paused.");
+    assert_eq!(rows_of(&r.core, "task.paused", &session), 1);
+    // The board shows it held; "go on" lets it go.
+    let tasks = Arc::clone(&r.tasks);
+    until("the board shows it held", move || {
+        tasks.lock().unwrap().open_counts() == (0, 1)
+    })
+    .await;
+    r.say("go on");
+    assert!(!r.place.inflight);
+    assert_eq!(r.said().await, "Going on.");
+    assert_eq!(rows_of(&r.core, "task.resumed", &session), 1);
+}
+
+/// Two running and none pending: there is no one task, so it is an ordinary
+/// voice turn.
+#[tokio::test]
+async fn pause_it_with_two_running_and_none_pending_is_an_ordinary_turn() {
+    let mut r = rig(vec![Scripted::text("Which one?")]).await;
+    let (a, _) = started_task(&r.core, "Count the boats");
+    let (b, _) = started_task(&r.core, "Count the gulls");
+    let mut va = task("exe_a", "Boats", "running", None, "", Some(&a));
+    let mut vb = task("exe_b", "Gulls", "running", None, "", Some(&b));
+    va.ended_at_ms = None;
+    vb.ended_at_ms = None;
+    r.publish(vec![va, vb]);
+    let _ = r.all_said().await;
+    r.say("pause it");
+    assert!(r.place.inflight, "a voice turn");
+    assert_eq!(rows_of(&r.core, "task.paused", &a), 0);
+    assert_eq!(rows_of(&r.core, "task.paused", &b), 0);
+}
+
+/// A guest's words hold nothing: only the owner pauses a task by voice.
+#[tokio::test]
+async fn a_guests_pause_it_does_nothing() {
+    let mut r = rig(vec![Scripted::text("Sure.")]).await;
+    let (session, exec) = started_task(&r.core, "Count the boats");
+    r.publish(vec![question(
+        "act_q1",
+        &exec,
+        "approval",
+        "x",
+        Some("proc.run"),
+        &[],
+    )]);
+    let _ = r.said().await;
+    r.core
+        .bind_places(bound(true).into_iter().skip(1).collect());
+    r.say("pause it");
+    assert!(r.place.inflight, "a stranger's pause is a voice turn");
+    assert_eq!(rows_of(&r.core, "task.paused", &session), 0);
+}
+
+/// The table of words, and the rule for the task.
+#[test]
+fn only_whole_utterances_pause_or_resume_and_the_pending_question_names_the_task() {
+    for s in ["pause it", "Pause it.", "pause that", "pause the task"] {
+        assert_eq!(super::tasks::held_words(s), Some(true), "{s}");
+    }
+    for s in ["go on", "Go on!", "resume it", "resume the task"] {
+        assert_eq!(super::tasks::held_words(s), Some(false), "{s}");
+    }
+    for s in [
+        "pause it and tell me why",
+        "go on then",
+        "pause",
+        "please go on with the story",
+        "",
+    ] {
+        assert_eq!(super::tasks::held_words(s), None, "{s}");
+    }
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut t = Tasks::new(tx, LOUNGE, 0);
+    let now = Instant::now();
+    assert!(t.hold("pause it", true, now).is_none(), "no task at all");
+    t.pending = Some(Pending {
+        question: "q".into(),
+        task: "exe_asked".into(),
+        options: options(),
+        at: now,
+    });
+    assert_eq!(
+        t.hold("pause it", true, now),
+        Some((true, "exe_asked".into()))
+    );
+    assert_eq!(
+        t.hold("go on", true, now),
+        Some((false, "exe_asked".into()))
+    );
+    assert!(t.hold("pause it", false, now).is_none(), "an owner's alone");
+    assert!(
+        t.hold("pause it", true, now + Duration::from_secs(301))
+            .is_none(),
+        "stale, and no other task"
+    );
+}

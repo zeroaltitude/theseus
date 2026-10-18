@@ -390,8 +390,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`inbound::offer_answer`), the batch notes the turn and the first 1,000 characters of the message (`JudgeService::note_offer`,
   64 kept in memory); the reply's post takes them (`turn/reply_step.rs::offer_for`) as `"offer": {"brief"}` when the turn was no
   trivial or quick detour, no task's, in the owner's DM (`capture::owner_alone`), and made no `task_create`. It never waits for
-  the judge: a batch that has not landed by the reply costs the reply nothing. Discord turns it into a button
-  (`runtime/start_task.rs`). Judging the reply's own text is a point of its own, not built. Tests: `tests_offer.rs`.
+  the judge: a batch that has not landed by the reply costs the reply nothing, and the turn is left waiting
+  (`judge/offer.rs`, theseus-ypnxt.5): when the batch lands within two minutes of the reply, the core posts an `offer`
+  (`{turn_id, brief}`, one frame, only then) to the reply's place, and the Discord binding adds the button by one edit of
+  the reply (`courier/offer.rs`); a later one is dropped, as is one for a turn that made a task. The binding keeps the
+  briefs in META (`discord.offers`, the newest 64). Discord turns it into a button (`runtime/start_task.rs`). Judging the reply's own text is a point of its own, not built. Tests: `tests_offer.rs`.
 - **Threads** (theseus-nhew; store format 33; `threads.rs`, `rpc/threads.rs`, `fact/thread.rs`, `config/threads.rs`): a thread is
   a durable record bound to a virtual place `thread:<slug>`, so it reuses what a place has. The record is
   `theseus_protocol::threads::ThreadInfo` as a META key `thread:<slug>` (an edit writes the key again, in one frame with
@@ -2212,7 +2215,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `context.explain`, which says whether they are still the bytes the turn saw. Thinking, a prompt, a tool's input and
   result, gate records, rows' data and the spans' attributes go to a private place only (`Surface::reads_private`): any
   other surface gets shapes, sizes and times and `withheld` says why. The link in a footer is `TurnSubmitResult.inspect_url`,
-  set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; the default `http://localhost:7433`);
+  set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; left out, `http://localhost:<[web] port>`, settled once at load by `CockpitConfig::resolve`, theseus-ypnxt.5);
   every renderer shows that string. Tests: `rpc/tests_inspect.rs` (a multi-loop turn with parallel calls, thinking, a
   compaction and a floor question; the privacy; the 20-loop, 40-call read, p95 under 150 ms in a debug build; no frame
   written), `config/cockpit.rs`'s.

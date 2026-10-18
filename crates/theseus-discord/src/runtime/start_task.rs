@@ -11,14 +11,18 @@
 //!
 //! A reply to a message that described work for later offers it too
 //! (theseus-bh3t.5): `➕ Make this a task` (`tb:offer:<turn>`) opens the same
-//! modal with the message as the brief; the briefs wait in `Offers`, 64 of
-//! them, in memory, so after a restart the modal opens empty. The submit drops
-//! the button from the reply.
+//! modal with the message as the brief; the briefs wait in `Offers`, the
+//! newest 64, kept in the store's META (`discord.offers`, theseus-ypnxt.5), so
+//! a press after a restart opens the modal with its brief. The submit drops
+//! the button from the reply. When the judge is slow the reply goes out first
+//! and the core's `offer` post adds the button by one edit (`Offers::replied`
+//! remembers the reply's last part).
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
+use theseus_core::store::Store;
 use theseus_protocol::task_start::{Expect, ReportTo, TaskStartParams, TaskStartResult};
 use twilight_model::application::interaction::modal::{
     ModalInteractionComponent, ModalInteractionData,
@@ -46,24 +50,77 @@ const INPUT_MAX: usize = 4000;
 pub(super) const OFFER: &str = "tb:offer:";
 /// How many replies' briefs wait for their button's press.
 const OFFERS_KEPT: usize = 64;
+/// The META key holding them, newest last.
+const META_KEY: &str = "discord.offers";
+/// How many replies' last parts are remembered for a late offer.
+const REPLIED_KEPT: usize = 16;
 
-/// The briefs of the replies that offered a task, by turn.
+/// A reply's last message, as its offer button joins it.
+pub(crate) struct Replied {
+    pub turn: String,
+    pub key: String,
+    pub session: String,
+    pub sources: Vec<crate::render::cite::Source>,
+}
+
+/// The briefs of the replies that offered a task, by turn: read from META at
+/// the first use, written back whole at each change.
 #[derive(Default)]
-pub(crate) struct Offers(Mutex<VecDeque<(String, String)>>);
+pub(crate) struct Offers {
+    briefs: Mutex<Option<VecDeque<(String, String)>>>,
+    replied: Mutex<VecDeque<Replied>>,
+}
 
 impl Offers {
-    pub(crate) fn keep(&self, turn: &str, brief: &str) {
-        let mut q = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        q.retain(|(t, _)| t != turn);
-        if q.len() == OFFERS_KEPT {
-            q.pop_front();
-        }
-        q.push_back((turn.to_string(), brief.to_string()));
+    fn with<R>(&self, store: &Store, f: impl FnOnce(&mut VecDeque<(String, String)>) -> R) -> R {
+        let mut g = self.briefs.lock().unwrap_or_else(|e| e.into_inner());
+        let q = g.get_or_insert_with(|| {
+            store
+                .get_meta::<VecDeque<(String, String)>>(META_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        });
+        f(q)
     }
 
-    fn brief(&self, turn: &str) -> Option<String> {
-        let q = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        q.iter().find(|(t, _)| t == turn).map(|(_, b)| b.clone())
+    pub(crate) fn keep(&self, store: &Store, turn: &str, brief: &str) {
+        self.with(store, |q| {
+            q.retain(|(t, _)| t != turn);
+            while q.len() >= OFFERS_KEPT {
+                q.pop_front();
+            }
+            q.push_back((turn.to_string(), brief.to_string()));
+            if let Err(e) = store.put_meta(META_KEY, q) {
+                tracing::warn!(error = %format!("{e:#}"), "the task offers were not kept");
+            }
+        });
+    }
+
+    pub(crate) fn brief(&self, store: &Store, turn: &str) -> Option<String> {
+        self.with(store, |q| {
+            q.iter().find(|(t, _)| t == turn).map(|(_, b)| b.clone())
+        })
+    }
+
+    /// A reply's last message, the one its button would join.
+    pub(crate) fn replied(&self, r: Replied) {
+        let mut q = self.replied.lock().unwrap_or_else(|e| e.into_inner());
+        q.retain(|x| x.turn != r.turn);
+        if q.len() == REPLIED_KEPT {
+            q.pop_front();
+        }
+        q.push_back(r);
+    }
+
+    pub(crate) fn reply_of(
+        &self,
+        turn: &str,
+    ) -> Option<(String, String, Vec<crate::render::cite::Source>)> {
+        let q = self.replied.lock().unwrap_or_else(|e| e.into_inner());
+        q.iter()
+            .find(|x| x.turn == turn)
+            .map(|x| (x.key.clone(), x.session.clone(), x.sources.clone()))
     }
 }
 
@@ -294,7 +351,7 @@ impl Place {
                 .await;
             return;
         }
-        let mut m = modal(None, s.tasks.offers.brief(turn).as_deref());
+        let mut m = modal(None, s.tasks.offers.brief(&s.core.store, turn).as_deref());
         m["data"]["custom_id"] = json!(format!("{MODAL}{turn}"));
         s.respond_modal(i, &m).await;
     }
@@ -327,6 +384,32 @@ impl Place {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The briefs outlive the process: a fresh `Offers` over the same store (a
+    /// restart) finds them, the newest 64 only (theseus-ypnxt.5).
+    #[test]
+    fn the_briefs_are_kept_in_the_store_so_a_restart_finds_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let before = Offers::default();
+        for n in 0..(OFFERS_KEPT + 3) {
+            before.keep(&store, &format!("turn_{n}"), &format!("brief {n}"));
+        }
+        let after = Offers::default();
+        assert_eq!(after.brief(&store, "turn_0"), None, "the oldest went");
+        assert_eq!(after.brief(&store, "turn_3").as_deref(), Some("brief 3"));
+        let last = format!("turn_{}", OFFERS_KEPT + 2);
+        assert_eq!(
+            after.brief(&store, &last).as_deref(),
+            Some(&*format!("brief {}", OFFERS_KEPT + 2))
+        );
+        // Kept again for the same turn: one entry, the newer brief.
+        after.keep(&store, &last, "brief again");
+        assert_eq!(
+            Offers::default().brief(&store, &last).as_deref(),
+            Some("brief again")
+        );
+    }
 
     #[test]
     fn the_modal_has_a_brief_a_budget_select_a_report_select_and_an_expected_select() {

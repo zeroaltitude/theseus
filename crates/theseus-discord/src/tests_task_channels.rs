@@ -539,11 +539,24 @@ async fn an_ended_tasks_channel_moves_to_the_done_category_and_closes_to_the_own
         .expect("the owner");
     assert_ne!(ana.deny & SEND_MESSAGES, 0, "read-only: {ana:?}");
     assert_ne!(ana.allow & VIEW_CHANNEL, 0, "still readable: {ana:?}");
-    // The report is in the channel.
+    // The report's first line links the channel (theseus-ypnxt.5).
     until(&r, "the report in the channel", || {
         said(&r, id).contains("done")
     })
     .await;
+    until(&r, "the report in the DM", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("finished"))
+    })
+    .await;
+    let report = r
+        .posted(ANA_DM)
+        .into_iter()
+        .find(|m| m.content.contains("finished"))
+        .unwrap();
+    let first = report.content.lines().next().unwrap_or_default();
+    assert!(first.contains(&format!("<#{id}>")), "{}", report.content);
 }
 
 /// (h) At the cap, the next qualifier goes on as before, silently.
