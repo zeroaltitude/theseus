@@ -6,11 +6,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { CircleCheck, ListChecks, OctagonX, Pause, Play, Plus, Search, Send } from 'lucide-react'
 import type { ConfirmRequest, SessionInfo, TaskListResult, TaskStartParams, TaskStartResult } from '@protocol'
+import { useQueries } from '@tanstack/react-query'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useThreadBoard } from '@/lib/threadwatch'
 import { progressLine } from '@/lib/progressLine'
-import { rowsOf, split, type Section, type TaskRow } from '@/lib/taskboard'
+import { reportLineOf, rowsOf, split, type Section, type TaskRow } from '@/lib/taskboard'
 import { ago, cn, short, usd } from '@/lib/format'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
 import { ConfirmCard, useAct } from '@/components/ConfirmCard'
@@ -26,7 +27,13 @@ export default function Tasks() {
   const [params] = useSearchParams()
   const [fresh, setFresh] = useState<string | null>(null)
   const focus = fresh ?? params.get('sel')
-  const rows = useMemo(() => rowsOf(Object.values(board.views), tl?.tasks ?? []), [board.views, tl])
+  const views = useMemo(() => Object.values(board.views), [board.views])
+  // An ended task the board no longer holds has its report in its session: read the first fifty once each, the page
+  // being opened for them (the daemon's `query` over the report line comes with task.list's own filters).
+  const ended = useMemo(() => rowsOf(views, tl?.tasks ?? []).filter((r) => r.section === 'done' && !r.view?.report).slice(0, PAGE), [views, tl])
+  const read = useQueries({ queries: ended.map((r) => ({ queryKey: ['task.report', r.id], staleTime: Infinity, queryFn: async () => reportLineOf((await call<{ nodes: { kind: string; text?: string }[] }>('session.history', { session_id: r.id, n: 3 })).nodes) ?? null })) })
+  const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
+  const rows = useMemo(() => rowsOf(views, tl?.tasks ?? [], lines), [views, tl, lines])
   const sections = useMemo(() => split(rows, query), [rows, query])
   const quiet = !rows.length
   return (
@@ -79,7 +86,7 @@ function TaskCard({ r, confirms, focused }: { r: TaskRow; confirms: ConfirmReque
       {alive && (line || r.view?.doing) && (
         <div className="num mt-1 flex flex-wrap gap-x-3 text-[11.5px]">
           {line && <span className="text-ink" data-testid="progress-line">{line}</span>}
-          {r.view?.doing && <span className="truncate text-ink-dim">{r.view.doing.label}</span>}
+          {r.view?.doing && r.section !== 'needs' && <span className="truncate text-ink-dim">{r.view.doing.label}</span>}
         </div>
       )}
       {r.section === 'done' && (

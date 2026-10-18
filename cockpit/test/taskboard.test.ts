@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { TaskInfo, WorkView } from '../src/protocol.gen/index.ts'
-import { noticeTarget, placeName, rowsOf, split, workingCount } from '../src/lib/taskboard.ts'
+import { noticeTarget, placeName, reportLineOf, rowsOf, split, workingCount } from '../src/lib/taskboard.ts'
 
 const view = (n: number, state: string, extra: object = {}, level = 'working'): WorkView => ({
   id: `exe_${n}`, kind: 'task', position: n, at_ms: n * 1000, root: 'ses_r', session_id: `ses_t${n}`, title: `Task ${n}`, state,
@@ -83,4 +83,15 @@ test('the page is routed and in the rail, the header counts tasks, Actions links
   assert.match(src('components/DesktopNotices.tsx'), /noticeTarget\(/)
   assert.doesNotMatch(src('views/Tasks.tsx'), /setInterval|refetchInterval/, 'the board and the push keep it fresh')
   assert.match(src('components/TaskHeader.tsx'), /progressLine\(/)
+})
+
+test('a report line the board no longer holds is read from the session’s last assistant message', () => {
+  const nodes = [{ kind: 'user_message', text: '[Task a1b2c3: …]' }, { kind: 'assistant_message', text: '\n  Mapped the quay walls.\nThen more.' }]
+  assert.equal(reportLineOf(nodes), 'Mapped the quay walls.')
+  assert.equal(reportLineOf([nodes[0]]), undefined)
+  assert.equal(reportLineOf(undefined), undefined)
+  const [r] = rowsOf([], [info(1, 'complete', { ended_reason: 'reported' })], { ses_t1: 'Mapped the quay walls.' })
+  assert.equal(r.reportLine, 'Mapped the quay walls.')
+  assert.deepEqual(split([r], 'quay').done.length, 1)
+  assert.equal(rowsOf([], [info(1, 'complete', { ended_reason: 'reported' })])[0].reportLine, 'reported')
 })

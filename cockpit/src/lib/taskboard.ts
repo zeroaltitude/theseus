@@ -41,8 +41,9 @@ const sectionOf = (view: WorkView | undefined, info: TaskInfo | undefined): Sect
   return ENDED_INFO.includes(info.state) ? 'done' : info.pending_confirms > 0 ? 'needs' : 'working'
 }
 
-/** Every task, once: the board's task views joined to `task.list`'s records by session, newest activity first. */
-export function rowsOf(views: WorkView[], tasks: TaskInfo[]): TaskRow[] {
+/** Every task, once: the board's task views joined to `task.list`'s records by session, newest activity first. `lines`
+ *  are report lines read from ended tasks' sessions (`reportLineOf`), for those the board no longer holds. */
+export function rowsOf(views: WorkView[], tasks: TaskInfo[], lines: Readonly<Record<string, string>> = {}): TaskRow[] {
   const bySession = new Map(views.filter((v) => v.kind === 'task' && v.session_id).map((v) => [v.session_id as string, v]))
   const rows: TaskRow[] = []
   const row = (id: string, view?: WorkView, info?: TaskInfo): TaskRow => ({
@@ -55,7 +56,7 @@ export function rowsOf(views: WorkView[], tasks: TaskInfo[]): TaskRow[] {
     target: info?.target,
     view,
     info,
-    reportLine: view?.report?.first_line ?? view?.report?.reason ?? info?.ended_reason,
+    reportLine: view?.report?.first_line ?? view?.report?.reason ?? lines[id] ?? info?.ended_reason,
     activityMs: Math.max(view?.at_ms ?? 0, info?.updated_at_ms ?? 0),
   })
   for (const t of tasks) {
@@ -64,6 +65,13 @@ export function rowsOf(views: WorkView[], tasks: TaskInfo[]): TaskRow[] {
   }
   for (const [id, v] of bySession) rows.push(row(id, v))
   return rows.sort((a, b) => b.activityMs - a.activityMs || (a.id < b.id ? -1 : 1))
+}
+
+/** The first line of a task's report, from the tail of its session: its last assistant message, which is the report it
+ *  ended with. For an ended task the live board no longer holds (a page opened after it ended). */
+export function reportLineOf(nodes: ReadonlyArray<{ kind: string; text?: string | null }> | undefined): string | undefined {
+  const last = [...(nodes ?? [])].reverse().find((n) => n.kind === 'assistant_message' && n.text)
+  return last?.text?.split('\n').map((l) => l.trim()).find(Boolean)
 }
 
 /** A search over title, report line and short id: every word must be found, in any case. */
