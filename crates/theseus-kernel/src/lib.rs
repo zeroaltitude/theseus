@@ -20,7 +20,7 @@ pub mod gate;
 pub mod gone;
 mod held;
 pub mod job;
-mod job_egress;
+pub mod job_egress;
 mod job_l1;
 mod job_wait;
 pub mod kernel;
