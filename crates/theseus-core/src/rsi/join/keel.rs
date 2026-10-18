@@ -176,7 +176,10 @@ pub fn classify(paths: &[String], diff: &str) -> Vec<Hit> {
                 });
             }
         }
-        if crate::rsi::sealed::KEEL_PATHS.contains(&path.as_str()) {
+        if crate::rsi::sealed::KEEL_PATHS
+            .iter()
+            .any(|k| path == k || (k.ends_with('/') && path.starts_with(k)))
+        {
             hits.push(Hit {
                 class: SEALED.into(),
                 at: path.clone(),
@@ -428,6 +431,12 @@ mod tests {
     #[test]
     fn the_sealed_dirs_code_is_the_owners() {
         let c = classes(&["crates/theseus-core/src/rsi/sealed/filter.rs"], "");
+        assert_eq!(c, ["sealed"]);
+    }
+
+    #[test]
+    fn the_exam_set_in_the_repository_is_the_sealed_class_too() {
+        let c = classes(&["crates/theseus-exam/exam/exam-v2.toml"], "");
         assert_eq!(c, ["sealed"]);
     }
 

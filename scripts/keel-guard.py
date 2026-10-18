@@ -82,6 +82,13 @@ The rules, by the name the report and the ack use:
   keel-file       any change to the guard itself when it exists at the base: this script, scripts/keel-signers,
                   scripts/test_keel_guard.py, and scripts/gate.sh's lines that name the keel or its door; and a
                   phase of scripts/gate.sh gone (by name). Adding them is not one; adding a key to keel-signers is.
+                  The same for the sealed scorer's code, its runner and relay, and the exam set (theseus-pw1q.21.2):
+                  the files of KEEL_FILES after the guard's three (`sealed::KEEL_PATHS` in theseus-core lists them
+                  too, and a Rust test holds the lists together) and any file under KEEL_PREFIXES
+                  (crates/theseus-exam/exam/); there a file added is a finding too.
+  sealed-reach    an added line, in a Rust file outside those and outside cfg(test) code, that names the sealed set:
+                  `sealed_dir`, `.sealed.dir` (`[self.sealed] dir`), `sealed::` or `Sealed::`. Defence in depth (L1 is
+                  the boundary for a candidate's code): how a self branch linked into the daemon could read the set.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
@@ -98,8 +105,26 @@ import time
 from collections import Counter, defaultdict
 
 RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "allow-added", "budget-raised",
-         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file")
-KEEL_FILES = ("scripts/keel-guard.py", "scripts/keel-signers", "scripts/test_keel_guard.py")
+         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file", "sealed-reach")
+# The first three are the guard itself; the rest are the sealed scorer's code, its runner and relay, and the exam set,
+# which `sealed::KEEL_PATHS` lists too (a Rust test holds the two lists together: theseus-pw1q.21.2).
+KEEL_FILES = (
+    "scripts/keel-guard.py",
+    "scripts/keel-signers",
+    "scripts/test_keel_guard.py",
+    "crates/theseus-core/src/rsi/sealed.rs",
+    "crates/theseus-core/src/rsi/sealed/check.rs",
+    "crates/theseus-core/src/rsi/sealed/filter.rs",
+    "crates/theseus-core/src/rsi/sealed/daemon.rs",
+    "crates/theseus-core/src/rsi/sealed/runner.rs",
+    "crates/theseus-core/src/rsi/sealed/relay.rs",
+    "crates/theseus-core/src/toolrun/guarded.rs",
+    "crates/theseus-core/src/config/self_improve.rs",
+    "crates/theseus-core/src/rsi/sealed/tests.rs",
+    "crates/theseus-core/src/rsi/sealed/tests_reach.rs",
+)
+KEEL_PREFIXES = ("crates/theseus-exam/exam/",)
+GUARD_ITSELF = KEEL_FILES[:3]
 SIGNERS = "scripts/keel-signers"
 
 
@@ -1330,6 +1355,11 @@ def keel_rule(tree, path, out):
             if name not in after:
                 out.append(Finding("keel-file", path, line, f"phase {name}", "(gone)"))
         return
+    if old is None and new is not None and path not in GUARD_ITSELF:
+        # The sealed scorer's code and the exam set: a file added there is the owner's too (the runner and the relay
+        # are born under this rule).
+        out.append(Finding("keel-file", path, 1, "(none)", "(added)"))
+        return
     if old is None or old == new:
         return
     if new is None:
@@ -1339,6 +1369,77 @@ def keel_rule(tree, path, out):
     line = next((i + 1 for i, (x, y) in enumerate(zip(ol, nl)) if x != y), min(len(ol), len(nl)) + 1)
     out.append(Finding("keel-file", path, line, ol[line - 1] if line <= len(ol) else "(end)",
                        nl[line - 1] if line <= len(nl) else "(end)"))
+
+
+# The sealed set's reach (theseus-pw1q.21.2). Defence in depth: L1 is the boundary for running a candidate's code, and
+# the in-daemon reach (a self branch's code linked into the daemon) is what this watches. A line added outside the
+# keel files and outside cfg(test) code that names the sealed dir's config (`sealed_dir`, `.sealed.dir` for
+# `[self.sealed] dir`) or the sealed module or type (`sealed::`, `Sealed::`: its `open`, `guard_of`, `Sealed::new`,
+# `put`, `score`, `counts`, `Guard`) is how such a branch could quietly read the set. Comments and strings are not
+# code; a hit moved within a file is no new hit.
+SEALED_REACH = re.compile(r"\bsealed_dir\b|\.sealed\.dir\b|\b[Ss]ealed::")
+CFG_TEST = re.compile(r"#(!?)\[\s*cfg\(\s*test\s*\)\s*\]")
+TEST_FILE = re.compile(r"(^|/)(tests?(_\w+)?\.rs|tests/[^/]+\.rs)$")
+
+
+def code_only(src):
+    """src with comments and string literals blanked, lines kept."""
+    out, last = [], 0
+    for m in RUST_TOKEN.finditer(src):
+        t = m.group(0)
+        if t.startswith(("//", "/*", '"', "b\"", "r", "br")) and not m.group("attr"):
+            out.append(src[last:m.start()])
+            out.append(re.sub(r"[^\n]", " ", t))
+            last = m.end()
+    out.append(src[last:])
+    return "".join(out)
+
+
+def reach_hits(path, src):
+    """Counter of the normalized lines of src's code that name the sealed set, outside cfg(test) items."""
+    hits = {}
+    if not src or TEST_FILE.search(path):
+        return hits
+    code = code_only(src)
+    skip = []
+    for m in CFG_TEST.finditer(code):
+        if m.group(1):
+            return hits  # #![cfg(test)]: the whole file
+        i = m.end()
+        while True:  # past any further attributes, to the item's first `{` or `;`
+            i = re.compile(r"\s*").match(code, i).end()
+            if not code.startswith("#[", i):
+                break
+            depth = 0
+            while i < len(code):
+                depth += {"[": 1, "]": -1}.get(code[i], 0)
+                i += 1
+                if depth == 0:
+                    break
+        j = re.compile(r"[{;]").search(code, i)
+        if not j:
+            continue
+        end, depth = j.end(), 1 if j.group() == "{" else 0
+        while depth and end < len(code):
+            depth += {"{": 1, "}": -1}.get(code[end], 0)
+            end += 1
+        skip.append((m.start(), end))
+    for m in SEALED_REACH.finditer(code):
+        if any(a <= m.start() < b for a, b in skip):
+            continue
+        n = line_of(code, m.start())
+        hits.setdefault(" ".join(src.split("\n")[n - 1].split()), []).append(n)
+    return hits
+
+
+def sealed_reach_rule(tree, paths, out):
+    for p in paths:
+        if p in KEEL_FILES:
+            continue  # already the owner's, as a keel-file
+        before, after = reach_hits(p, tree.old(p)), reach_hits(p, tree.new(p))
+        for text, lines in sorted(after.items(), key=lambda kv: kv[1]):
+            if len(lines) > len(before.get(text, [])):
+                out.append(Finding("sealed-reach", p, lines[len(before.get(text, []))], "(none)", text))
 
 
 def judge(tree, paths):
@@ -1366,8 +1467,9 @@ def judge(tree, paths):
             clippy_toml_rule(tree, p, out)
         if CI_FILE.match(p):
             ci_rule(tree, p, out)
-        if p in KEEL_FILES or p == "scripts/gate.sh":
+        if p in KEEL_FILES or p.startswith(KEEL_PREFIXES) or p == "scripts/gate.sh":
             keel_rule(tree, p, out)
+    sealed_reach_rule(tree, [p for p in paths if p.endswith(".rs")], out)
     return out
 
 

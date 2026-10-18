@@ -4,6 +4,7 @@ base and a head, and runs scripts/keel-guard.py over the range. Standard library
 and are skipped, saying so, where there is no gpg.
 """
 
+import importlib.util
 import os
 import re
 import shutil
@@ -806,6 +807,107 @@ class Door(GateCase):
         self.assertIn("scripts/long-files.txt:2: ceiling-raised", out)
         self.assertIn("gate: FAILED in keel", out)
 
+class SealedWatch(Case):
+    """The sealed scorer's code, its runner and relay, and the exam set are the keel's (theseus-pw1q.21.2)."""
+
+    EXAM = "crates/theseus-exam/exam/exam-v2.toml"
+    CORE = "crates/theseus-core/src/"
+    # a Rust file outside the keel files, with its sealed-set line already in it
+    USER = CORE + "rsi/pr.rs"
+    HAS = "fn old() {\n    let d = cfg.self_improve.sealed_dir.is_some();\n}\n"
+
+    def setUp(self):
+        super().setUp()
+        guard = importlib.util.spec_from_file_location("keel_guard", GUARD)
+        self.mod = importlib.util.module_from_spec(guard)
+        guard.loader.exec_module(self.mod)
+        self.watched = self.mod.KEEL_FILES[3:] + (self.EXAM,)
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({**{p: "// the code\n" for p in self.watched if "runner" not in p and "relay" not in p},
+                          self.USER: self.HAS}, "the sealed set")
+        self.repo.git("checkout", "-q", "-B", "lane")
+
+    def test_every_sealed_path_is_watched(self):
+        for want in ("rsi/sealed.rs", "rsi/sealed/check.rs", "rsi/sealed/filter.rs", "rsi/sealed/daemon.rs",
+                     "rsi/sealed/runner.rs", "rsi/sealed/relay.rs", "toolrun/guarded.rs", "config/self_improve.rs",
+                     "rsi/sealed/tests.rs", "rsi/sealed/tests_reach.rs"):
+            self.assertIn(self.CORE + want, self.mod.KEEL_FILES)
+        self.assertEqual(self.mod.KEEL_PREFIXES, ("crates/theseus-exam/exam/",))
+
+    def test_an_edit_to_each_watched_path_is_a_finding(self):
+        for path in self.watched:
+            with self.subTest(path=path):
+                self.repo.git("checkout", "-q", "-B", "lane", "main")
+                self.repo.commit({path: "// the code, weakened\n"}, f"edit {path}")
+                code, out = self.findings()
+                self.assertEqual(code, 1, out)
+                self.assertRegex(out, rf"{path}:\d+: keel-file: ")
+                self.assertIn(f"Keel: keel-file {path}", out)
+
+    def test_a_file_added_under_the_exam_set_is_a_finding(self):
+        self.assertCaught("keel-file", "crates/theseus-exam/exam/exam-v3.toml",
+                          {"crates/theseus-exam/exam/exam-v3.toml": "name = 'v3'\n"})
+
+    def test_the_runner_and_the_relay_are_caught_when_added(self):
+        for name in ("runner", "relay"):
+            with self.subTest(name=name):
+                self.repo.git("checkout", "-q", "-B", "lane", "main")
+                path = f"{self.CORE}rsi/sealed/{name}.rs"
+                self.repo.commit({path: "// new\n"}, f"add {name}")
+                code, out = self.findings()
+                self.assertEqual(code, 1, out)
+                self.assertRegex(out, rf"{path}:\d+: keel-file: ")
+
+    def test_a_file_elsewhere_in_the_exam_crate_is_not_watched(self):
+        self.assertClean({"crates/theseus-exam/src/lib.rs": "// not the exam set\n"})
+
+    def test_a_new_use_of_the_sealed_dir_is_a_reach(self):
+        for line in ("let d = cfg.self_improve.sealed_dir.clone();", "let d = &cfg.self_improve.sealed.dir;",
+                     "let s = crate::rsi::sealed::open(&cfg);", "let s = Sealed::new(dir);",
+                     "use crate::rsi::sealed::{Guard, Sealed};"):
+            with self.subTest(line=line):
+                self.repo.git("checkout", "-q", "-B", "lane", "main")
+                self.repo.commit({self.CORE + "rsi/mine.rs": f"fn peek() {{\n    {line}\n}}\n"}, "reach")
+                code, out = self.findings()
+                self.assertEqual(code, 1, out)
+                self.assertRegex(out, rf"{self.CORE}rsi/mine.rs:2: sealed-reach: ")
+                self.assertIn(f"Keel: sealed-reach {self.CORE}rsi/mine.rs", out)
+
+    def test_a_second_copy_of_a_line_already_there_is_a_reach(self):
+        self.assertCaught("sealed-reach", self.USER, {self.USER: self.HAS + self.HAS})
+
+    def test_misses(self):
+        cases = {
+            "cfg(test) module": "fn a() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n"
+                                "        let s = Sealed::new(d);\n    }\n}\nfn b() {}\n",
+            "cfg(test) fn": "#[cfg(test)]\n#[inline]\nfn helper() {\n    let d = cfg.sealed_dir;\n}\n",
+            "a doc comment": "/// Reads `sealed_dir` and `Sealed::open`.\n//! also `rsi::sealed::open`\n"
+                              "// cfg.self_improve.sealed.dir\nfn a() {}\n",
+            "a string": 'fn a() -> &\'static str {\n    "[self] sealed_dir is set; see sealed::open"\n}\n',
+            "an unrelated word": "fn a() {\n    let sealed = true;\n    let unsealed_dirty = 1;\n}\n",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.repo.git("checkout", "-q", "-B", "lane", "main")
+                self.repo.commit({self.CORE + "rsi/mine.rs": text}, name)
+                code, out = self.findings()
+                self.assertEqual(code, 0, out)
+
+    def test_a_test_file_and_a_whole_file_cfg_test_are_misses(self):
+        self.assertClean({self.CORE + "rsi/tests_mine.rs": "fn t() { let s = Sealed::new(d); }\n",
+                          self.CORE + "rsi/other.rs": "#![cfg(test)]\nfn t() { let s = Sealed::new(d); }\n"})
+
+    def test_a_line_moved_within_a_file_is_a_miss(self):
+        self.assertClean({self.USER: "fn first() {}\n" + self.HAS})
+
+    def test_a_keel_path_file_is_a_keel_file_not_a_reach(self):
+        self.head({self.CORE + "rsi/sealed/check.rs": "fn a() { let s = Sealed::new(d); }\n"})
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertIn("keel-file", out)
+        self.assertNotIn("sealed-reach", out)
+
+
 def gpg_key(home, name):
     subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", f"{name} <{name}@example.invalid>",
                     "ed25519", "sign", "never"], env={**os.environ, "GNUPGHOME": home}, check=True,
@@ -855,6 +957,17 @@ class Acks(unittest.TestCase):
         code, out = self.repo.guard()
         self.assertEqual(code, 1, out)
         self.assertIn(f"signed by {self.stranger}", out)
+
+    def test_a_signed_ack_passes_a_sealed_reach_and_a_watched_path(self):
+        path = "crates/theseus-core/src/rsi/sealed/runner.rs"
+        self.repo.commit({path: "// the runner\n", "crates/demo/src/peek.rs": "fn a() { Sealed::new(d); }\n"}, "runner")
+        self.repo.commit({}, "ack\n\nKeel: ceiling-raised scripts/long-files.txt — x\n"
+                             f"Keel: keel-file {path} — the runner\n"
+                             "Keel: sealed-reach crates/demo/src/peek.rs — the runner's reach\n", sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"keel: acked: {path}:1: keel-file", out)
+        self.assertIn("keel: acked: crates/demo/src/peek.rs:1: sealed-reach", out)
 
     def test_an_ack_signed_by_a_listed_key_passes(self):
         self.repo.commit({}, self.ACK, sign=self.listed)
