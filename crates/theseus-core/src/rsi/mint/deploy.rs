@@ -164,6 +164,28 @@ impl Core {
         Ok(())
     }
 
+    /// Refuse a name an owner's tool holds: a load of the same name replaces
+    /// it, and a retire or revert then leaves none. The owner's card is theirs.
+    pub(crate) fn mint_not_owned(&self, kind: Kind, name: &str) -> Result<()> {
+        let by = match kind {
+            Kind::Flow => crate::flow::load::LoadedSet::read(&self.store)?
+                .loaded
+                .get(name)
+                .map(|s| s.by.clone()),
+            _ => crate::extend::load::LoadedSet::read(&self.store)?
+                .loaded
+                .get(name)
+                .map(|l| l.acked_by.clone()),
+        };
+        match by {
+            Some(by) if by != PRINCIPAL => bail!(
+                "{name} is not loaded by a mint: an owner's tool of that name is loaded ({by}), \
+                 and a mint would replace it: the owner's card"
+            ),
+            _ => Ok(()),
+        }
+    }
+
     pub(super) fn mint_report_of(&self, placeholder: &str) -> Result<ValidateReport> {
         let bytes = std::fs::read(self.tools.flows.root().join(placeholder).join(REPORT))
             .map_err(|e| anyhow!("no validation report for {placeholder}: {e}"))?;
@@ -187,6 +209,7 @@ impl Core {
         if pending.kind != Kind::Flow || report.kind != Kind::Flow || !report.pass {
             bail!("{placeholder} is not a flow that passed its checks: nothing is loaded");
         }
+        self.mint_not_owned(Kind::Flow, &report.name)?;
         self.mint_room(theseus_protocol::now_unix_ms())?;
         let hex = report.digest.trim_start_matches("sha256:");
         let spec = self
@@ -239,6 +262,7 @@ impl Core {
         if let Some(why) = self_load_refusal(&m) {
             bail!("{name} is not self-loaded: {why}");
         }
+        self.mint_not_owned(Kind::Mcp, name)?;
         self.mint_room(theseus_protocol::now_unix_ms())?;
         let question = m
             .question
@@ -301,22 +325,30 @@ impl Core {
         Ok(())
     }
 
-    /// Validated flows that found no room: tried again, oldest first, until
-    /// the room is gone. Under the tender's gate; nothing with the mode off.
-    pub(crate) fn mint_deploy_waiting(&self) -> Result<Vec<Deployed>> {
-        self.mint_allowed()?;
+    /// The placeholders of validated flows whose report passed and which no
+    /// deploy or retire row names, oldest report first.
+    pub(crate) fn mint_waiting(&self) -> Result<Vec<String>> {
         let root = self.tools.flows.root().to_path_buf();
         let Ok(dirs) = std::fs::read_dir(&root) else {
             return Ok(vec![]);
         };
         let now = theseus_protocol::now_unix_ms();
+        // All the rows there are: a vetoed or retired flow stays gone. A few a
+        // year; the rows hold `sha256:<hex>` or bare hex, which are one digest.
         let seen = rows::between(
             &self.store,
             &["self.mint.deployed", "self.mint.retired"],
-            now.saturating_sub(90 * DAY_MS),
+            0,
             now,
         )?;
-        let has = |d: &str| seen.iter().any(|r| r.data["digest"] == d);
+        let has = |d: &str| {
+            let d = d.trim_start_matches("sha256:");
+            seen.iter().any(|r| {
+                r.data["digest"]
+                    .as_str()
+                    .is_some_and(|x| x.trim_start_matches("sha256:") == d)
+            })
+        };
         let mut waiting: Vec<(std::time::SystemTime, String)> = Vec::new();
         for e in dirs.flatten() {
             let report = e.path().join(REPORT);
@@ -331,8 +363,15 @@ impl Core {
             }
         }
         waiting.sort();
+        Ok(waiting.into_iter().map(|(_, p)| p).collect())
+    }
+
+    /// Validated flows that found no room: tried again, oldest first, until
+    /// the room is gone. Under the tender's gate; nothing with the mode off.
+    pub(crate) fn mint_deploy_waiting(&self) -> Result<Vec<Deployed>> {
+        self.mint_allowed()?;
         let mut out = Vec::new();
-        for (_, placeholder) in waiting {
+        for placeholder in self.mint_waiting()? {
             match self.mint_deploy_flow(&placeholder) {
                 Ok(d) => out.push(d),
                 Err(e) => {

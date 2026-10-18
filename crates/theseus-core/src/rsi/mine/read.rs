@@ -17,7 +17,7 @@
 //! the shape's text, a digest per slot, and a constant's text only when it is
 //! safe (short, clean to the scrubber, and passing the shape check).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{bail, Result};
@@ -362,6 +362,8 @@ struct Folding<'a> {
     runs: Vec<Building>,
     by_key: HashMap<(String, String, String, String), usize>,
     pending: HashMap<(String, String), Pending>,
+    /// A session's flow calls seen so far: a flow's steps are not by-hand calls.
+    flows: HashSet<(String, String)>,
     assistant: HashMap<String, ([u64; 4], u64)>,
     sessions: HashMap<String, Option<SessionInfo>>,
     scopes: HashMap<String, (String, Option<String>)>,
@@ -400,6 +402,9 @@ impl Folding<'_> {
                 gate,
                 ..
             } => {
+                if self.of_a_flow(&node.session_id, tool_use_id, tool) {
+                    return;
+                }
                 let cwd = gate
                     .as_ref()
                     .and_then(|g| g.proposal.policy_context.get("cwd"))
@@ -452,6 +457,22 @@ impl Folding<'_> {
             }
             _ => {}
         }
+    }
+
+    /// Whether this call is a flow step (`<flow call id>.<n>`, written as the
+    /// model's own call would be): it is not by hand. A flow's own call is
+    /// remembered for its steps.
+    fn of_a_flow(&mut self, session: &str, id: &str, tool: &str) -> bool {
+        if tool.starts_with("flow:") || tool.starts_with("flow__") {
+            self.flows.insert((session.to_string(), id.to_string()));
+            return false;
+        }
+        id.rsplit_once('.').is_some_and(|(flow, n)| {
+            n.bytes().all(|b| b.is_ascii_digit())
+                && self
+                    .flows
+                    .contains(&(session.to_string(), flow.to_string()))
+        })
     }
 
     /// A tool call: its run, its loop, and a call for each shape it has.
@@ -550,6 +571,7 @@ pub fn fold(
         runs: Vec::new(),
         by_key: HashMap::new(),
         pending: HashMap::new(),
+        flows: HashSet::new(),
         assistant: HashMap::new(),
         sessions: HashMap::new(),
         scopes: HashMap::new(),

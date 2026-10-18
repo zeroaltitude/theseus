@@ -42,6 +42,8 @@ pub mod validate;
 #[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
+mod tests_owned;
+#[cfg(test)]
 mod tests_retire;
 
 pub use validate::ValidateReport;

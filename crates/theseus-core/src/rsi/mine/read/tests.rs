@@ -2,6 +2,7 @@
 //! the repository's key, and the shape of a day's record.
 
 use super::*;
+use crate::node::{Body, Node};
 
 #[test]
 fn secret_shapes_are_found_by_prefix_and_by_look() {
@@ -129,4 +130,82 @@ fn the_window_is_the_last_days() {
     assert_eq!(d.len(), 14);
     assert_eq!(d[0], date_of(now));
     assert_eq!(d[13], date_of(now - 13 * 86_400_000));
+}
+
+/// A turn's nodes: a flow's own call, its steps (`<id>.<n>`, written as the
+/// model's calls would be), and one call by hand.
+fn flow_turn(store: &Store, steps: bool) {
+    let (sid, tid) = ("s1", "t1");
+    let mut a = Node::assistant(
+        sid,
+        tid,
+        0,
+        Body::AssistantMessage {
+            blocks: vec![],
+            model: "claude-test".into(),
+            provider: "anthropic".into(),
+            stop_reason: None,
+            usage: theseus_protocol::Usage::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    a.created_at_ms = 1_000;
+    let mut recs = vec![a.record().unwrap()];
+    let mut ids = vec![("flow:run_scripts", "F1"), ("proc.run", "H1")];
+    if steps {
+        ids.extend([("proc.run", "F1.1"), ("proc.run", "F1.2")]);
+    }
+    for (i, (tool, id)) in ids.into_iter().enumerate() {
+        let mut call = Node::tool_call(
+            sid,
+            Some(tid),
+            Some(0),
+            Body::ToolCall {
+                tool_use_id: id.into(),
+                tool: tool.into(),
+                wire_name: tool.replace(['.', ':'], "_"),
+                input: serde_json::json!({"argv": ["git", "merge", "--no-ff", format!("feat/job-{i}")]}),
+                assistant_node: a.id.clone(),
+                correlation_id: Some(id.into()),
+                gate: None,
+            },
+        );
+        call.created_at_ms = 1_001 + i as u64;
+        recs.push(call.record().unwrap());
+    }
+    store.append(&recs).unwrap();
+}
+
+/// A flow's own steps are no by-hand calls (theseus-pw1q.21.8): the miner
+/// reads the same calls with the steps in the ledger as without them, and
+/// still reads the call made by hand.
+#[test]
+fn a_flows_steps_are_not_by_hand_calls() {
+    let read = |steps: bool| {
+        let dir = std::env::temp_dir().join(format!("theseus-flow-steps-{}", crate::new_id("s")));
+        let store = Store::open(&dir.join("store")).unwrap();
+        flow_turn(&store, steps);
+        let clean = |_: &str| true;
+        let session = |_: &str| {
+            Some(SessionInfo {
+                dir: Some(dir.display().to_string()),
+                place: "cli".into(),
+            })
+        };
+        let env = Env {
+            key: b"k".to_vec(),
+            clean: &clean,
+            session: &session,
+        };
+        fold(&store, &env, 0, None, 1 << 60, 1000).unwrap().calls
+    };
+    let without = read(false);
+    assert!(without >= 1, "the call by hand is read: {without}");
+    assert_eq!(read(true), without, "the steps add no call");
 }

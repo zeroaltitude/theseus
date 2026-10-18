@@ -304,7 +304,8 @@ impl Core {
         let fact = MintRetired {
             name: name.into(),
             kind: kind.name().into(),
-            digest: digest.into(),
+            // As the reports and the deploy rows write it, so the rows agree.
+            digest: format!("sha256:{}", digest.trim_start_matches("sha256:")),
             tool: match kind {
                 Kind::Flow => format!("flow:{name}"),
                 _ => format!("ext-{name}"),
