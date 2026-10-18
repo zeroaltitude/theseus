@@ -1081,6 +1081,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   revert still keeps the item dropped), and an already-reverted merge answers `changed: false`. Tests:
   `rsi/revert/tests.rs` (a throwaway origin, a stand-in gate and gpg, and a "world" clone that lands merges),
   `signals.rs`'s own.
+  **The pattern miner** (theseus-pw1q.21.3; `rsi/mine/`, `config/self_mint.rs`, `fact/rsi_mine.rs`, wire `theseus_protocol::patterns`;
+  no model call, no store format change: META keys and one ledger kind): the nightly read of recurring tool-call work, off by
+  default (`[self.mint] mine = false`; the night also asks `rsi::gate`). `read.rs` folds the NODE tool calls and results
+  after a cursor (META `self.mine.cursor`, up to ten minutes ago, at most `MAX_CALLS`) into runs (a turn's calls) of
+  `shape.rs`'s tokens: tool, program, subcommand words, flags as a sorted set, typed slots (`$PATH:crates/**.rs`, `$REF`,
+  `$NUM`, `$URLHOST`, `$CRATE`, `$STR`), the result's class and features; raw values live in locals for one fold and leave as
+  a keyed digest per slot, with a constant's text kept only when it recurs, passes the scrubber and the shape check
+  (`constant_ok`). Days are META `self.mine.shapes.<date>`, names `self.mine.vocab`. `motif.rs` splits a run at authored and
+  never-mined calls (`shape::NEVER`), counts 3-to-16-grams once per run, keeps the closed ones that reach the thresholds,
+  `align.rs` aligns them to the medoid (core at 60%, optional at 25%), `slots.rs` classifies slots, `cost.rs` attributes
+  loops and scores (§2.6). `bench.rs` reads Harbor's ATIF into `bench:<suite>` runs. The types R7 reads (`Motif`, `Shape`,
+  `SlotKind`, `Occurrence`, `Motif::spec`) are public and stable. The backlog night files a motif as a cause
+  `pattern:<scope>:<digest>` (`backlog/read.rs::of_motif`, `Meta.pattern`, `rank::pattern_score`) and never starts it;
+  `theseus self patterns` (`Core::self_patterns`, the owner's, works with the mode off) runs the same pass in memory and
+  writes nothing. Tests: `rsi/mine/*/tests.rs`, `rpc/tests_self_patterns.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

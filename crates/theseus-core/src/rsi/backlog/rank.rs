@@ -20,7 +20,7 @@
 //! rest fill the other places by score, so the order is a function of the
 //! items and the clock alone.
 
-use super::state::Meta;
+use super::state::{Meta, PatternScore};
 
 /// Evidence counted at most this many times.
 pub const COUNT_CAP: u64 = 100;
@@ -29,6 +29,9 @@ const DAY_MS: f64 = 86_400_000.0;
 
 /// An item's score, in milli-points, at `now_ms`.
 pub fn score(m: &Meta, now_ms: u64) -> u64 {
+    if let Some(p) = &m.pattern {
+        return pattern_score(p, m.last_ms, now_ms);
+    }
     let freq = (1.0 + m.count.min(COUNT_CAP) as f64).ln();
     let cost = 1.0
         + if m.person { 2.0 } else { 0.0 }
@@ -38,6 +41,25 @@ pub fn score(m: &Meta, now_ms: u64) -> u64 {
     let recency = 1.0 / (1.0 + age_days);
     let work = f64::from(m.work.clamp(1, 4));
     (1000.0 * freq * cost * (0.5 + recency) / work).round() as u64
+}
+
+/// A pattern cause's score on the same scale (theseus-pw1q.21.3, §2.6):
+///
+/// ```text
+/// 1000 × ln(1 + occurrences) × (1 + usd_saved/2 + secs_saved/600 + decisions/2)
+///      × (0.5 + recency) ÷ work
+/// ```
+///
+/// with the saving summed over the occurrences; `work` is 1 for a flow, 2 for
+/// an MCP extension, 3 for a Rust built-in.
+pub fn pattern_score(p: &PatternScore, last_ms: u64, now_ms: u64) -> u64 {
+    let saving = crate::rsi::mine::Saving {
+        usd: p.usd,
+        model_secs: p.secs,
+        decisions: p.decisions,
+        ..Default::default()
+    };
+    crate::rsi::mine::cost::score(p.occurrences, &saving, last_ms, now_ms, 0, p.work)
 }
 
 /// The items' order, best first: `(id, key, score, pin)` in, ids out.
@@ -82,6 +104,7 @@ mod tests {
             score: 0,
             rank: 0,
             pin: None,
+            pattern: None,
         }
     }
 
@@ -121,5 +144,93 @@ mod tests {
             order(&items),
             "the input's order changes nothing"
         );
+    }
+
+    /// A fix cause scores as it always did (a hand-computed golden), and a
+    /// pattern cause scores by §2.6 on the same scale, so one ordered list
+    /// holds both and a pin still takes its place.
+    #[test]
+    fn fix_causes_rank_exactly_as_before_and_a_pattern_ranks_beside_them() {
+        let now = 10 * 86_400_000;
+        // 1000 × ln 4 × 1 × (0.5 + 1) ÷ 2.
+        assert_eq!(score(&meta(3, false, now, 2), now), 1040);
+        assert_eq!(score(&meta(30, true, now - 86_400_000, 3), now), {
+            let f = 31f64.ln();
+            (1000.0 * f * 3.0 * (0.5 + 0.5) / 3.0).round() as u64
+        });
+        let mut p = meta(1, false, now, 1);
+        p.source = "pattern".into();
+        p.pattern = Some(PatternScore {
+            occurrences: 10,
+            usd: 0.1,
+            secs: 20.0,
+            decisions: 3.0,
+            work: 1,
+        });
+        let ps = score(&p, now);
+        // 0.1 dollars × 10 occurrences saved, 20 s × 10, 3 decisions.
+        let gain = 1.0 + 1.0 / 2.0 + 200.0 / 600.0 + 3.0 / 2.0;
+        assert_eq!(ps, (1000.0 * 11f64.ln() * gain * 1.5).round() as u64);
+        let fix = score(&meta(3, false, now, 2), now);
+        let big = {
+            let mut m = p;
+            m.pattern.as_mut().unwrap().occurrences = 200;
+            score(&m, now)
+        };
+        let items = [
+            ("fix".to_string(), "k1".to_string(), fix, None),
+            ("pat".to_string(), "pattern:r:1:aa".to_string(), ps, None),
+            ("big".to_string(), "pattern:r:1:bb".to_string(), big, None),
+            ("low".to_string(), "k0".to_string(), 10, None),
+        ];
+        let by_score = {
+            let mut v: Vec<_> = items.iter().map(|i| (i.2, i.0.clone())).collect();
+            v.sort_by(|a, b| b.cmp(a));
+            v.into_iter().map(|x| x.1).collect::<Vec<_>>()
+        };
+        assert_eq!(order(&items), by_score);
+        assert_eq!(order(&items)[3], "low");
+        // A mixed list's order does not depend on its input order.
+        let mut rev = items.to_vec();
+        rev.reverse();
+        assert_eq!(order(&rev), order(&items));
+    }
+
+    /// A pattern's score rises with its occurrences, its saving and its
+    /// recency, and falls with the work its kind needs.
+    #[test]
+    fn a_patterns_score_follows_its_terms() {
+        let now = 30 * 86_400_000;
+        let p = PatternScore {
+            occurrences: 10,
+            usd: 0.1,
+            secs: 20.0,
+            decisions: 3.0,
+            work: 1,
+        };
+        let base = pattern_score(&p, now, now);
+        assert!(
+            pattern_score(
+                &PatternScore {
+                    occurrences: 40,
+                    ..p
+                },
+                now,
+                now
+            ) > base
+        );
+        assert!(pattern_score(&PatternScore { usd: 0.5, ..p }, now, now) > base);
+        assert!(
+            pattern_score(
+                &PatternScore {
+                    decisions: 9.0,
+                    ..p
+                },
+                now,
+                now
+            ) > base
+        );
+        assert!(pattern_score(&p, now - 10 * 86_400_000, now) < base);
+        assert!(pattern_score(&PatternScore { work: 3, ..p }, now, now) < base);
     }
 }

@@ -24,6 +24,20 @@ pub struct Dropped {
     pub by: String,
 }
 
+/// A pattern cause's terms (theseus-pw1q.21.3), as the miner's last night
+/// gave them: the score's inputs, which `rank::pattern_score` reads. A fix
+/// cause has none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PatternScore {
+    pub occurrences: u32,
+    /// Saved per occurrence: dollars, model seconds, decisions removed.
+    pub usd: f64,
+    pub secs: f64,
+    pub decisions: f64,
+    /// 1 flow, 2 MCP, 3 Rust.
+    pub work: u8,
+}
+
 /// What a night learned about one item's cause, summed over every night.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Meta {
@@ -54,6 +68,9 @@ pub struct Meta {
     /// The rank the owner moved it to; it keeps it until moved again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<u32>,
+    /// Set on a pattern cause alone: the terms of its score.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<PatternScore>,
 }
 
 /// The record.

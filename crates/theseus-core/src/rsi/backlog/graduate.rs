@@ -266,6 +266,7 @@ impl Core {
                 task_failed: false,
                 work: 3,
                 graduate: None,
+                pattern: None,
             };
             out.push(Obs {
                 graduate: Some(g),

@@ -24,6 +24,8 @@ mod exams;
 
 mod narrow;
 
+mod patterns;
+
 mod revert;
 
 mod pipeline;
@@ -83,6 +85,14 @@ pub enum SelfCmd {
     Revert {
         /// The self-join's merge commit, as `self log` prints it (7 characters or more).
         merge: String,
+    },
+    /// The recurring tool-call sequences the pattern miner finds in the last two weeks of the
+    /// ledger and the bench: support, scope, cost and the saving a tool would make. Read-only,
+    /// the owner's, and it works while self-improvement is off; it writes nothing.
+    Patterns {
+        /// How many to show, best first.
+        #[arg(long, default_value_t = 10)]
+        top: u32,
     },
     /// The self pipeline: ready, building, reviewing and joining, what holds the next start
     /// and why, and today's spend and rows. `drop`, `move` and `halt` act on it at once.
@@ -177,6 +187,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
             })
         }
         SelfCmd::Backlog { all } => backlog::list(conn, json, all).await,
+        SelfCmd::Patterns { top } => patterns::run(conn, json, top).await,
         SelfCmd::Drop { item } => backlog::drop_item(conn, json, item).await,
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Branches => branches::run(conn, json).await,

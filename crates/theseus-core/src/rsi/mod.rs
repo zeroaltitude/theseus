@@ -45,6 +45,7 @@ mod digest;
 pub mod exams;
 pub mod join;
 mod log;
+pub mod mine;
 pub mod narrow;
 pub mod pipeline;
 pub mod pr;

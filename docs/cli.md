@@ -189,6 +189,6 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 ## Daemon and admin
 
 - **`health`**: server health: version, live profile, providers, sessions, turns, errors, token totals. `theseus health`.
-- **`self`**: self-improvement: what Theseus changed about itself, halt and resume. `theseus self log`; `self halt`.
+- **`self`**: self-improvement: what Theseus changed about itself, halt and resume. `theseus self log`; `self halt`; `self patterns [--top N]` (the pattern miner's recurring tool-call sequences, read-only).
 - **`rpc`**: send a raw JSON-RPC request. `theseus rpc health`.
 - **`help`**: print the command list or a command's help. `theseus help ask`.
