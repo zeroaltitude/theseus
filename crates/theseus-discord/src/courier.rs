@@ -980,8 +980,11 @@ impl Lane {
                 offer.map(|_| turn_id.clone()),
             );
         }
-        // Where a late offer's button would join (theseus-ypnxt.5).
-        if let (Some(last), true) = (writes.last(), offer.is_none()) {
+        // Where a late offer's button would join (theseus-ypnxt.5): a private
+        // place's reply only, as `offer_post` acts there alone, so a shared
+        // place's replies never push one out of the short list.
+        let private = self.shared.is_private(&self.target);
+        if let (Some(last), true) = (writes.last(), offer.is_none() && private) {
             let (session, sources) = match &last.buttons {
                 Buttons::Sources(s, srcs, _) => (s.clone(), srcs.clone()),
                 _ => (
