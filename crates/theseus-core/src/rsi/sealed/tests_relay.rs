@@ -30,7 +30,12 @@ pub(super) enum Answers {
     Whole { input: u64, output: u64 },
     /// A stream that stops after its first event.
     Cut,
+    /// A whole answer (1000 in, 200 out) given once `HELD` is notified.
+    Held,
 }
+
+/// Releases the answer an `Answers::Held` provider is holding.
+pub(super) static HELD: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// A request the stand-in provider saw.
 pub(super) struct Seen {
@@ -80,8 +85,15 @@ pub(super) async fn upstream(answers: Answers) -> Upstream {
                     .map(|v| v.trim().to_string());
                 log.lock().unwrap().push(Seen { key, body });
                 let event = |kind: &str, data: Value| format!("event: {kind}\ndata: {data}\n\n");
+                if matches!(answers, Answers::Held) {
+                    HELD.notified().await;
+                }
+                let (input, output) = match answers {
+                    Answers::Whole { input, output } => (input, output),
+                    _ => (1000, 200),
+                };
                 let events = match answers {
-                    Answers::Whole { input, output } => [
+                    Answers::Whole { .. } | Answers::Held => [
                         event("message_start", json!({"type": "message_start", "message": {"id": "msg_1", "model": "stand-in", "role": "assistant", "content": [], "usage": {"input_tokens": input}}})),
                         event("content_block_start", json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})),
                         event("content_block_delta", json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "HELLO"}})),
@@ -405,4 +417,31 @@ async fn a_call_whose_answer_never_ends_settles_at_its_worst_case() {
         "{} vs {worst} micros",
         m.usd
     );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_call_that_outlives_its_item_is_not_charged_to_the_next() {
+    let r = rig(Answers::Held, |_| {}).await;
+    let relay = new_relay(&r);
+    relay.begin(1.0);
+    let late = tokio::task::spawn_blocking({
+        let (relay, model) = (relay.clone(), r.model.clone());
+        move || ask(&relay, &request(&model, "slow"))
+    });
+    // The candidate's deadline passes with its call still open.
+    while r.up.seen.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let first = relay.finish();
+    assert_eq!((first.usd, first.calls), (0.0, 0));
+    relay.begin(1.0);
+    HELD.notify_one();
+    assert_eq!(late.await.unwrap().0, 200);
+    let second = relay.finish();
+    assert_eq!(
+        (second.usd, second.calls),
+        (0.0, 0),
+        "the late call is not this item's"
+    );
+    assert!(relay.spent_usd() > 0.0, "but the run's meter has it");
 }

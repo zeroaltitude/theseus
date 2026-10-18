@@ -88,6 +88,7 @@ pub struct Metered {
 
 /// The item being run: the relay serves one at a time.
 struct Item {
+    id: u64,
     cap_micros: u64,
     spent_micros: u64,
     /// Held by calls in flight.
@@ -99,8 +100,15 @@ struct Item {
 #[derive(Default)]
 struct State {
     item: Option<Item>,
+    items: u64,
     total_micros: u64,
     log: Vec<UsageLine>,
+}
+
+/// What a call holds on the item it began under.
+struct Hold {
+    item: u64,
+    micros: u64,
 }
 
 /// A request the relay refuses: the status, the API's error type, and a fixed
@@ -231,7 +239,10 @@ impl Relay {
 
     /// Open an item whose calls may spend `cap_usd` in all.
     pub fn begin(&self, cap_usd: f64) {
-        self.state().item = Some(Item {
+        let mut st = self.state();
+        st.items += 1;
+        st.item = Some(Item {
+            id: st.items,
             cap_micros: theseus_kernel::usd_to_micros(cap_usd),
             spent_micros: 0,
             open_micros: 0,
@@ -303,7 +314,7 @@ impl Relay {
             u32::try_from(max_tokens).unwrap_or(u32::MAX),
             req.body.len().div_ceil(BYTES_PER_TOKEN) as u64,
         );
-        self.hold_on_item(worst)?;
+        let hold = self.hold_on_item(worst)?;
         let reservation =
             match core
                 .runner
@@ -312,7 +323,7 @@ impl Relay {
             {
                 Ok(Reserved::Granted(r)) => r,
                 Ok(Reserved::Stopped(_)) | Err(_) => {
-                    self.release_on_item(worst, 0, false);
+                    self.release_on_item(hold, 0, false);
                     return Err(BUDGET_LINE);
                 }
             };
@@ -321,7 +332,7 @@ impl Relay {
             Ok(sent) => sent,
             Err(r) => {
                 let _ = core.runner.self_budget.settle(reservation, 0.0);
-                self.release_on_item(worst, 0, false);
+                self.release_on_item(hold, 0, false);
                 return Err(r);
             }
         };
@@ -335,7 +346,7 @@ impl Relay {
             .runner
             .self_budget
             .settle(reservation, micros_usd(paid));
-        self.release_on_item(worst, paid, true);
+        self.release_on_item(hold, paid, true);
         self.record(UsageLine {
             model: self.model.clone(),
             usd: micros_usd(paid),
@@ -347,7 +358,7 @@ impl Relay {
     }
 
     /// Hold `worst` on the item's line, or refuse.
-    fn hold_on_item(&self, worst: u64) -> Result<(), Refusal> {
+    fn hold_on_item(&self, worst: u64) -> Result<Hold, Refusal> {
         let mut st = self.state();
         let Some(item) = st.item.as_mut() else {
             return Err(NO_ITEM);
@@ -356,15 +367,20 @@ impl Relay {
             return Err(ITEM_LINE);
         }
         item.open_micros += worst;
-        Ok(())
+        Ok(Hold {
+            item: item.id,
+            micros: worst,
+        })
     }
 
-    /// A call is over: its hold goes, and what it paid (when it counted) is spent.
-    fn release_on_item(&self, held: u64, paid: u64, counted: bool) {
+    /// A call is over: its hold goes, and what it paid (when it counted) is
+    /// spent. What a call that outlived its item paid is in the run's total
+    /// and in no later item.
+    fn release_on_item(&self, hold: Hold, paid: u64, counted: bool) {
         let mut st = self.state();
         st.total_micros += paid;
-        if let Some(item) = st.item.as_mut() {
-            item.open_micros = item.open_micros.saturating_sub(held);
+        if let Some(item) = st.item.as_mut().filter(|i| i.id == hold.item) {
+            item.open_micros = item.open_micros.saturating_sub(hold.micros);
             item.spent_micros += paid;
             item.calls += u64::from(counted);
         }
