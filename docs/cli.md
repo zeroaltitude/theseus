@@ -133,13 +133,15 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 ## Models
 
 - **`profile`**: model profiles: list, or switch the live one. `theseus profile use glm`.
-- **`model catalog`**: the model catalog: context windows, output limits, prices per million tokens. `theseus model catalog`.
-- **`route`**: your own benchmark: which model your own turns need, measured by replaying them one rung down the
-  routing table. `theseus model bench --week`.
-- **`model replay`**: a past turn: rebuild its first request byte for byte and send it to another profile.
-  `theseus model replay SESSION TURN -P sonnet`.
-- **`model prefix`**: the prefix library: its report, picks, the cache writes they saved and the false fits.
-  `theseus model prefix`.
+- **`model`**: models and what they cost, one group:
+  - `model catalog`: the model catalog: context windows, output limits, prices per million tokens.
+    `theseus model catalog`.
+  - `model bench`: your own benchmark: which model your own turns need, measured by replaying them one rung down
+    the routing table. `theseus model bench --week`.
+  - `model replay`: a past turn: rebuild its first request byte for byte and send it to another profile.
+    `theseus model replay SESSION TURN -P sonnet`.
+  - `model prefix`: the prefix library: its report, picks, the cache writes they saved and the false fits.
+    `theseus model prefix`.
 - **`judge`**: Jev's judgments: the recent ones with pack, session, answers and cost. `theseus judge log`;
   `judge show ID`.
 - **`packs`**: the ladder: each Jev pack's rung, share and why, its rollback rules and last rows.

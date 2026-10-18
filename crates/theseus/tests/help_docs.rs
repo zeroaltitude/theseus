@@ -29,9 +29,32 @@ fn commands(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Every top-level command with its one-line purpose, as `theseus help all` lists them: the everyday screen
+/// (`theseus --help`) shows 19 of them (theseus-rwpbg.10).
+fn top() -> Vec<(String, String)> {
+    let out = Command::new(THESEUS)
+        .args(["help", "all"])
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
+        .filter_map(|l| {
+            let (name, about) = l.trim_start().split_once(' ')?;
+            Some((name.to_string(), about.trim().to_string()))
+        })
+        .collect()
+}
+
 /// Every command at every depth, with its path and one-line purpose.
 fn walk(path: &mut Vec<String>, found: &mut Vec<(String, String)>) {
-    for (name, about) in commands(&help(path)) {
+    let here = if path.is_empty() {
+        top()
+    } else {
+        commands(&help(path))
+    };
+    for (name, about) in here {
         if name == "help" {
             continue;
         }
@@ -81,7 +104,7 @@ fn no_commands_one_line_help_carries_an_internal_id() {
 fn the_cli_guide_names_every_top_level_command() {
     let guide =
         std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/cli.md")).unwrap();
-    let top = commands(&help(&[]));
+    let top = top();
     assert!(top.len() > 60, "found only {} commands", top.len());
     let missing: Vec<_> = top
         .iter()

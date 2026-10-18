@@ -39,7 +39,7 @@ narrative = true
 # The defaults every profile inherits: a profile that leaves a setting out takes
 # this section's (provider, max_output_tokens, system, effort, thinking_display,
 # max_loops, on_max_loops, refusal_fallbacks; cache_ttl and keep_warm_hours come from
-# [cache]'s ttl and keep_warm_hours), and the implicit "default" profile is built from it. `live` names the
+# the cache section's ttl and keep_warm_hours), and the implicit "default" profile is built from it. `live` names the
 # profile that is live at startup; a runtime switch (`theseus profile use`)
 # persists in the store and wins over this value on restart.
 [model]
