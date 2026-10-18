@@ -66,10 +66,6 @@ impl Core {
             }),
             method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             method::SELF_PIPELINE => route(params, |p| Ok(self.self_pipeline(&p)?)),
-            method::SELF_PATTERNS => route(params, |p: SelfPatternsParams| {
-                let who = conn.answerer(p.author.clone(), p.discord.clone());
-                self.self_patterns(&p, &who).map_err(word_refused)
-            }),
             method::SELF_EXAMS => route(params, |p| {
                 Ok(self.self_exams(&p, conn.surface.reads_private())?)
             }),
@@ -90,6 +86,25 @@ impl Core {
         let p: theseus_protocol::rsi::SelfNarrowParams = super::server::parse(or_empty(params))?;
         let who = conn.answerer(p.author.clone(), p.discord.clone());
         let r = self.self_narrow(&p, &who).await.map_err(narrow_refused)?;
+        super::server::reply(r)
+    }
+}
+
+impl Core {
+    /// `self.patterns`: the owner's read of the pattern miner's night. It
+    /// mines the window from the store, so it runs on the blocking pool, not
+    /// on the request's runtime worker.
+    pub(super) async fn rpc_self_patterns(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: SelfPatternsParams = super::server::parse(or_empty(params))?;
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        let r = tokio::task::spawn_blocking(move || self.self_patterns(&p, &who))
+            .await
+            .map_err(|e| RpcFailure::invalid(anyhow::anyhow!("the mining did not finish: {e}")))?
+            .map_err(word_refused)?;
         super::server::reply(r)
     }
 }

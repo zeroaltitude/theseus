@@ -108,6 +108,9 @@ impl Core {
         if name == method::SELF_REVERT {
             return self.rpc_self_revert(params, conn).await;
         }
+        if name == method::SELF_PATTERNS {
+            return self.rpc_self_patterns(params, conn).await;
+        }
         if super::rsi::OWN.contains(&name) {
             return self.rpc_self(name, params, conn);
         }
