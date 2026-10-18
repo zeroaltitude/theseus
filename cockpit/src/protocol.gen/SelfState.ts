@@ -31,7 +31,7 @@ gate: string,
  */
 day_spent_usd?: number, day_line_usd?: number, 
 /**
- * The sealed holdout sets (theseus-pw1q.5): present when `[self]
- * sealed_dir` is set, as counts only.
+ * The sealed holdout sets (theseus-pw1q.5): present when `[self.sealed]
+ * dir` is set, as counts only.
  */
 sealed?: SealedState, };

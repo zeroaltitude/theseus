@@ -291,7 +291,7 @@ async fn a_step_refused_by_policy_stops_the_flow() {
             // Beside the work tree: a relative path reaches it.
             let sealed = std::path::Path::new(&c.server.state_dir).join("sealed");
             std::fs::create_dir_all(&sealed).unwrap();
-            c.self_improve.sealed_dir = Some(sealed.to_string_lossy().into_owned());
+            c.self_improve.sealed.dir = Some(sealed.to_string_lossy().into_owned());
         },
         calls_named("flow__peek", json!({})),
     );

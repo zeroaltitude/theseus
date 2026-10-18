@@ -265,7 +265,7 @@ async fn a_sealed_set_does_not_stop_a_self_build_that_runs_in_l1() {
     let sealed = tempfile::tempdir().unwrap();
     let dir = sealed.path().canonicalize().unwrap().display().to_string();
     let r = rig_with(SelfMode::Act, Some("origin"), |cfg| {
-        cfg.self_improve.sealed_dir = Some(dir);
+        cfg.self_improve.sealed.dir = Some(dir);
     });
     let sid = r.session("self");
     let tree = r.open_and_edit(&sid, "sails.txt").await;

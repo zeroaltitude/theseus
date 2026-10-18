@@ -19,7 +19,7 @@
 //!   or the sealed half, so the split is stable and the writer cannot steer an
 //!   item. The open half is written to `<state>/self/exams/open/<family>/`
 //!   (`shelf.rs`). The sealed half goes through a [`SealedSink`], the
-//!   sealed store when `[self] sealed_dir` is set; with none, a sealed item
+//!   sealed store when `[self.sealed] dir` is set; with none, a sealed item
 //!   is held in memory for the pass and dropped with a count, never written
 //!   where Theseus can read.
 //! - **The review** (`review.rs`): an item counts only after a reviewer on

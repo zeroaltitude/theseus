@@ -65,7 +65,7 @@ impl Rig {
             std::fs::create_dir_all(p(d)).unwrap();
         }
         let mut cfg = theseus_core::Config::example();
-        cfg.self_improve.sealed_dir = Some(p("repo/sealed").to_string_lossy().into_owned());
+        cfg.self_improve.sealed.dir = Some(p("repo/sealed").to_string_lossy().into_owned());
         let sandbox = theseus_core::toolrun::sandbox_for(&cfg, &repo.join("state"));
         let tree = Tree {
             slug: "t".into(),

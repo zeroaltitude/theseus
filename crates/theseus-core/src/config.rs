@@ -44,6 +44,7 @@ pub(crate) mod routing;
 mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
+mod self_sealed;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
 mod persona_settings;

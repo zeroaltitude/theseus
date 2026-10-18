@@ -1260,7 +1260,7 @@ impl Accumulator {
     }
 }
 
-fn apply_usage(u: &mut Usage, v: &Value) {
+pub(crate) fn apply_usage(u: &mut Usage, v: &Value) {
     let g = |k: &str| v.get(k).and_then(Value::as_u64);
     if let Some(x) = g("input_tokens") {
         u.input_tokens = x;

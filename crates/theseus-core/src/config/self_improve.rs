@@ -12,11 +12,10 @@
 //!   self-improvement. `branch_usd` ($10) is a self-branch's line, `day_usd`
 //!   ($30) the local day's, across every self loop together. Part of the
 //!   hard keel: raising either is the owner's.
-//! - `sealed_dir` (theseus-pw1q.5): where sealed holdout sets live, out of
-//!   Theseus's reach (`crate::rsi::sealed`). Unset (the default) means no
-//!   sealed set. It must be an absolute path outside every workspace root,
-//!   the state dir, the repository and every `[sandbox] ro_paths` entry
-//!   (neither inside one nor holding one), refused at load by the key's name.
+//! - `[self.sealed]` (theseus-pw1q.5, `config/self_sealed.rs`): the sealed
+//!   holdout sets, out of Theseus's reach (`crate::rsi::sealed`): `dir` (unset:
+//!   none; absolute and apart from every place a job can reach, refused at load
+//!   by the key's name), `every_branch`, `item_usd` and `drift_every_days`.
 //! - `backlog_starts` (1) and `backlog_max_open` (20): the nightly backlog
 //!   (`crate::rsi::backlog`, theseus-pw1q.7) starts at most this many top
 //!   unmarked items a night, and keeps at most this many open.
@@ -58,6 +57,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 pub use theseus_protocol::rsi::SelfMode;
 
+pub use super::self_sealed::SelfSealedConfig;
+
 /// `[self]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,8 +75,8 @@ pub struct SelfImproveConfig {
     pub repo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sealed_dir: Option<String>,
+    #[serde(default)]
+    pub sealed: SelfSealedConfig,
     /// Items the nightly backlog starts a night (0 files and ranks only).
     #[serde(default = "default_backlog_starts")]
     pub backlog_starts: u32,
@@ -189,7 +190,7 @@ impl Default for SelfImproveConfig {
             mint: Default::default(),
             repo: None,
             remote: None,
-            sealed_dir: None,
+            sealed: SelfSealedConfig::default(),
             backlog_starts: default_backlog_starts(),
             backlog_max_open: default_backlog_max_open(),
             exams_day_max: EXAMS_DAY_MAX,
@@ -258,18 +259,25 @@ impl SelfImproveConfig {
 }
 
 impl SelfImproveConfig {
-    /// `[self] sealed_dir` against the config it sits in: absolute, and
-    /// apart from every place Theseus or a job may reach (theseus-pw1q.5).
+    /// `[self.sealed]` against the config it sits in: `dir` absolute, and
+    /// apart from every place Theseus or a job may reach (theseus-pw1q.5),
+    /// and an item's line above zero.
     pub fn validate(&self, cfg: &crate::Config) -> anyhow::Result<()> {
-        let Some(raw) = self.sealed_dir.as_deref() else {
+        if !(self.sealed.item_usd.is_finite() && self.sealed.item_usd > 0.0) {
+            anyhow::bail!(
+                "[self.sealed] item_usd must be above 0, not {}",
+                self.sealed.item_usd
+            );
+        }
+        let Some(raw) = self.sealed.dir.as_deref() else {
             return Ok(());
         };
         if raw.trim().is_empty() {
-            anyhow::bail!("[self] sealed_dir is empty: leave it out for no sealed set");
+            anyhow::bail!("[self.sealed] dir is empty: leave it out for no sealed set");
         }
         let expanded = crate::config::expand(raw);
         if !expanded.is_absolute() {
-            anyhow::bail!("[self] sealed_dir must be an absolute path, not {raw:?}");
+            anyhow::bail!("[self.sealed] dir must be an absolute path, not {raw:?}");
         }
         let canon = |p: &std::path::Path| theseus_tools::paths::canonical_best_effort(p);
         let sealed = canon(&expanded);
@@ -304,11 +312,11 @@ impl SelfImproveConfig {
         for (what, p) in near {
             if theseus_tools::paths::within(&sealed, &p) {
                 anyhow::bail!(
-                    "[self] sealed_dir is inside {what}: the sealed set must sit outside it"
+                    "[self.sealed] dir is inside {what}: the sealed set must sit outside it"
                 );
             }
             if theseus_tools::paths::within(&p, &sealed) {
-                anyhow::bail!("[self] sealed_dir holds {what}: the sealed set must sit outside it");
+                anyhow::bail!("[self.sealed] dir holds {what}: the sealed set must sit outside it");
             }
         }
         Ok(())
@@ -412,7 +420,7 @@ mod tests {
         assert!(Config::from_toml("[self.budget]\nweek_usd = 1.0\n").is_err());
     }
 
-    /// `[self] sealed_dir` is unset by default, the template carries the key
+    /// `[self.sealed] dir` is unset by default, the template carries the key
     /// commented, and a path inside a workspace root, the state dir or the
     /// repository (or holding one) is refused at load, by the key's name.
     #[test]
@@ -429,7 +437,7 @@ mod tests {
             cfg.tools.roots = vec![];
             cfg.tools.cwd = Some(repo.join("src").to_string_lossy().into_owned());
             cfg.sandbox.ro_paths = ro.to_vec();
-            cfg.self_improve.sealed_dir = Some(sealed.to_string());
+            cfg.self_improve.sealed.dir = Some(sealed.to_string());
             match cfg.validate() {
                 Ok(()) => "ok".to_string(),
                 Err(e) => format!("{e:#}"),
@@ -438,9 +446,10 @@ mod tests {
         assert!(Config::from_toml("")
             .unwrap()
             .self_improve
-            .sealed_dir
+            .sealed
+            .dir
             .is_none());
-        assert!(Config::EXAMPLE_TOML.contains("# sealed_dir = \"/srv/theseus-sealed\""));
+        assert!(Config::EXAMPLE_TOML.contains("# dir = \"/srv/theseus-sealed\""));
         let outside = base.join("sealed");
         assert_eq!(load(outside.to_str().unwrap(), &[]), "ok");
         for (path, what) in [
@@ -452,29 +461,86 @@ mod tests {
         ] {
             let e = load(path.to_str().unwrap(), &[]);
             assert!(
-                e.contains("[self] sealed_dir ") && e.contains(what),
+                e.contains("[self.sealed] dir ") && e.contains(what),
                 "{path:?}: {e}"
             );
         }
         // Holding a place is as bad as sitting in one.
         let e = load(base.to_str().unwrap(), &[]);
-        assert!(e.contains("[self] sealed_dir holds"), "{e}");
+        assert!(e.contains("[self.sealed] dir holds"), "{e}");
         // A link into a root resolves first.
         std::os::unix::fs::symlink(&work, base.join("via")).unwrap();
         let e = load(base.join("via").join("deep").to_str().unwrap(), &[]);
-        assert!(e.contains("[self] sealed_dir is inside"), "{e}");
+        assert!(e.contains("[self.sealed] dir is inside"), "{e}");
         // A read-only mount of the sealed dir is a bind into it.
         let ro = [outside.join("core").to_string_lossy().into_owned()];
         let e = load(outside.to_str().unwrap(), &ro);
         assert!(
-            e.contains("[self] sealed_dir holds a [sandbox] ro_paths entry"),
+            e.contains("[self.sealed] dir holds a [sandbox] ro_paths entry"),
             "{e}"
         );
         // Relative, empty.
         let e = load("sealed/here", &[]);
         assert!(e.contains("must be an absolute path"), "{e}");
         let e = load(" ", &[]);
-        assert!(e.contains("[self] sealed_dir is empty"), "{e}");
+        assert!(e.contains("[self.sealed] dir is empty"), "{e}");
+    }
+
+    /// `[self.sealed]` (theseus-pw1q.21.5): no set, no scoring of every branch,
+    /// a quarter-dollar item and a weekly drift check by default, all in the
+    /// template; `[self] sealed_dir` is refused, naming its new place; an
+    /// item's line must be above zero.
+    #[test]
+    fn the_sealed_table_has_its_defaults_and_the_old_key_is_renamed() {
+        let none = Config::from_toml("").unwrap().self_improve.sealed;
+        assert_eq!(none, SelfSealedConfig::default());
+        assert_eq!(
+            (
+                none.dir,
+                none.every_branch,
+                none.item_usd,
+                none.drift_every_days
+            ),
+            (None, false, 0.25, 7)
+        );
+        let t = Config::EXAMPLE_TOML;
+        for k in [
+            "# [self.sealed]",
+            "# every_branch = false",
+            "# item_usd = 0.25",
+            "# drift_every_days = 7",
+        ] {
+            assert!(t.contains(k), "the template names {k}");
+        }
+        let c = Config::from_toml(
+            "[self.sealed]\nevery_branch = true\nitem_usd = 0.5\ndrift_every_days = 3\n",
+        )
+        .unwrap()
+        .self_improve
+        .sealed;
+        assert_eq!(
+            (c.every_branch, c.item_usd, c.drift_every_days),
+            (true, 0.5, 3)
+        );
+        assert!(Config::from_toml("[self.sealed]\nweekly = true\n").is_err());
+        let e = format!(
+            "{:#}",
+            Config::parse("[self]\nsealed_dir = \"/srv/sealed\"\n").unwrap_err()
+        );
+        assert!(
+            e.contains("`[self] sealed_dir` was renamed to `[self.sealed] dir`"),
+            "{e}"
+        );
+        for bad in ["0", "-1.0"] {
+            let e = format!(
+                "{:#}",
+                Config::parse(&format!(
+                    "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n[self.sealed]\nitem_usd = {bad}\n"
+                ))
+                .unwrap_err()
+            );
+            assert!(e.contains("[self.sealed] item_usd must be above 0"), "{e}");
+        }
     }
 
     /// The backlog's two keys default to one start and twenty open items,

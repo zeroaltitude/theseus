@@ -192,7 +192,7 @@ impl Core {
         Ok(k)
     }
 
-    /// Where sealed items go: the sealed store when `[self] sealed_dir` is
+    /// Where sealed items go: the sealed store when `[self.sealed] dir` is
     /// set (theseus-pw1q.5), else none, and a sealed item is held in memory
     /// for the pass and dropped with a count.
     fn sealed_sink(&self) -> Option<&dyn SealedSink> {

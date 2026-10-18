@@ -416,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run the set")
     r.add_argument("--set", choices=("open", "sealed"), default="open")
-    r.add_argument("--sealed-dir", default=None, help=f"[self] sealed_dir; else ${gaps_mod.SEALED_ENV}")
+    r.add_argument("--sealed-dir", default=None, help=f"[self.sealed] dir; else ${gaps_mod.SEALED_ENV}")
     r.add_argument("--arm", choices=("theseus", "claude-code", "both"), default="both")
     r.add_argument("--budget", type=float, default=DEFAULT_BUDGET, help="the run's line in dollars, across its arms")
     r.add_argument("--per-gap", type=float, default=None, help="one gap's cap (default: twice an equal share)")

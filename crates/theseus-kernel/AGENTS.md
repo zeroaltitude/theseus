@@ -54,7 +54,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   to L0. `L1.rw` (theseus-pw1q.21.1) is the one writable bind a view can have, set only by
   the core's self-build launcher; `probe_run::run_logged` runs a long command with its output on a file. `job_egress.rs` (18c): for a job whose `L1.egress` is not empty, the listener in its namespace, the proxy's
   variables, the proxy on the wrapper's threads, stopped once the job has ended (a stop and a deadline included), and
-  its `Summary` in `detail.egress`. A job with no list gets none of it.
+  its `Summary` in `detail.egress`. A job with no list gets none of it. A daemon can `register` a `Local` service for a
+  `host:port` (theseus-pw1q.21.5, the sealed scorer's model relay): a job in the daemon's own process (`probe_run`) whose
+  list is that one name is served by it on the listener, in place of the proxy; a wrapper process has no registry.
 - `mcp_l1.rs` (M7 43a): an MCP server in L1, `theseusd mcp-sandbox`: its `Server` (argv, environment, cwd, more
   read-only binds, the job's `L1` view) rides in `THESEUS_MCP_L1`; it hands its own stdin, stdout, and stderr to
   the init and keeps no end of the pipes, runs `job_egress`'s proxy for a server with a list, and waits on the

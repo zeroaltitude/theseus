@@ -86,7 +86,7 @@ These are assumptions about rows that have not landed; the live check says wheth
 Its score is never reported as the bench's: the report says so.
 
 **The sealed set** (twelve gaps, one per family): `<sealed_dir>/self-bench/<gap>/`, where `sealed_dir` is the value of
-`[self] sealed_dir` (seam S5). The driver reads it only when handed that directory (`--sealed-dir`, else
+`[self.sealed] dir` (seam S5). The driver reads it only when handed that directory (`--sealed-dir`, else
 `$THESEUS_SELF_SEALED_DIR`) **and** run with `--set sealed`; an open run never touches it. It refuses a set that is
 not twelve gaps covering the twelve families (unless `--gap` names some). It runs outside Theseus, so it may read the
 sealed directory; code inside Theseus never can. A sealed gap is named `sealed-NN` (its place in the sorted

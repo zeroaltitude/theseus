@@ -39,6 +39,8 @@ and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the ma
   item (`theseus_memory::recall::excerpt`), read from the exam's store. Never format it by hand.
 - **A daemon never lives across runs**: it indexes the turns it serves, so a second run on it would recall the
   first run's answers.
+- **The environment a daemon is started without** is `theseus_core::rsi::sealed::runner::SCRATCH_UNSET`, the list the sealed
+  scorer's runner shares (it starts its daemon in L1 instead, so only that list is common to both).
 - **Nothing is left running**: a `Daemon` stops when dropped, and `arms::run` fails when any process still names
   its work directory.
 - **The held-out half is run once**, after every choice is made (`--half out`).

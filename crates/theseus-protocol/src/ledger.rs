@@ -257,6 +257,7 @@ ledger_kinds! {
     SelfExamPass = "self.exam.pass",
     SelfGraduateProposed = "self.graduate.proposed",
     SelfMineRan = "self.mine.ran",
+    SelfSealedScored = "self.sealed.scored",
     SelfExamRejected = "self.exam.rejected",
     SelfInstalled = "self.installed",
     SelfJoinStopped = "self.join.stopped",

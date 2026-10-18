@@ -954,7 +954,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `origin.principal == rsi::SELF_PRINCIPAL` reserves each model call in `turn/self_budget_step.rs` (its branch is the
   root task's id; a failure of class `self_budget` ends the turn with the budget's words); other sessions pay one
   `Option` test. Mode off: every call refuses, reads and writes nothing. Tests: `rsi/tests_budget.rs`, `tests_self_budget.rs`.
-  **Sealed holdout sets** (theseus-pw1q.5; the hard keel: Theseus gets a score, never an item): `[self] sealed_dir`
+  **Sealed holdout sets** (theseus-pw1q.5; the hard keel: Theseus gets a score, never an item): `[self.sealed] dir`
   (unset: none; checked at load to sit outside every root, `cwd`, the state dir, the repository and `[sandbox]
   ro_paths`, neither inside nor holding one: `config/self_improve.rs`). `rsi/sealed.rs`: `Sealed::put(set, family, bytes) ->
   ItemId` (a keyed hash; write-only, no call returns an item) and `score(set, &dyn Runner) -> Scores` (per-family
@@ -967,6 +967,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   no L1 view (a job's, an MCP server's, a proposed extension's) shows it. An L0 job can still build the path from
   pieces: L1 is the boundary, as for the socket. Health's `self` line gives counts per set (`SelfState.sealed`).
   The paths the keel guard should hold are `sealed::KEEL_PATHS`. Tests: `rsi/sealed/tests.rs`, `tests_reach.rs`.
+  **The scorer's Runner and the model relay** (theseus-pw1q.21.5; no store format change: one ledger kind; `rsi/sealed/runner.rs`,
+  `relay.rs`, `config/self_sealed.rs`): `[self.sealed]` holds `dir` (it was `[self] sealed_dir`, now refused with the rename
+  message), `every_branch`, `item_usd` (0.25) and `drift_every_days` (7). `Core::sealed_score_branch(set, Candidate { branch,
+  bins, profile }, head)` asks `rsi::gate` first (off or halted: nothing is read, run or written), then runs `Sealed::score`
+  over a `ScratchRunner` on the blocking pool and writes one `self.sealed.scored` row (counts, rates per family, the relay's
+  metered cost, opaque failure ids). `ScratchRunner::new` copies the candidate's `theseusd` and `theseus` read-only into
+  `<state>/self/runner/<branch>/bin/` with their SHA-256 digests, writes a generated config beside them (memory, judge,
+  channels, web, index and MCP server off; no AWS, no hands, no extension; `model.api_base` the relay; a placeholder key), and
+  runs each item as one L1 job, `theseus --spawn theseusd ask --json`, over `runner_view`: the system and that directory
+  read-only, no workspace, no production state or sealed dir, and the relay's name as the whole egress list. The daemon's
+  state lives in the job's tmpfs and goes with its pid namespace; the directory is removed when the runner drops. The job's
+  environment is bare (`DAEMON_ENV` only; `SCRATCH_UNSET` is the list theseus-exam's `start` strips too). `Relay` is served in
+  process on the job's egress listener (`theseus_kernel::job_egress::register`), speaks `/v1/messages`, injects the
+  production key, serves only the profile's model, is refused while `rsi::gate` says off or halted, reserves each call
+  (worst case from `max_tokens` and an input estimate) on the item's line and on `[self.budget]` before forwarding, settles to
+  the provider's usage (a stream that never ended at its worst case), and logs usage lines only (`UsageLine`; never a body).
+  An item's cost is the relay's meter, a call refused at a line makes the item `RunFailed`. The live run in L1 needs a
+  non-root daemon with a job cgroup; the tests run the item through a stand-in `Launch`. Tests: `tests_relay.rs`,
+  `tests_runner.rs`, the config's `the_sealed_table_has_its_defaults_and_the_old_key_is_renamed`.
 - **The self backlog** (theseus-pw1q.7; `rsi/backlog.rs` and `rsi/backlog/`): the nightly read (`backlog_night`; its
   tender, `backlog_after_serving`, runs an hour after consolidation, only with `[self] mode = "act"`) asks `rsi::gate`
   first and between its phases, reads the last day's ledger by kind (failed calls and turns, provider errors, invalid
@@ -1023,7 +1042,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   versioned format (`self-exam-v1`; theseus-exam's check language), scrubbed (the daemon's scrubber, handle shapes,
   held people's names). A keyed hash (META `self.exams.key`) splits each family into an open half (written to
   `<state>/self/exams/open/<family>/<id>.json`, `Shelf`) and a sealed half (a `SealedSink`: the sealed store when
-  `[self] sealed_dir` is set, which refuses a regex check; with none, sealed items are dropped with a count,
+  `[self.sealed] dir` is set, which refuses a regex check; with none, sealed items are dropped with a count,
   unreviewed and unwritten). An item counts only after a reviewer on another model (`CoreReviewer`, profile `fable`,
   held on the self budget's day line) calls it fair; then `self.exam.counted`, else
   `self.exam.rejected` with the reason (a sealed item's reason names the failed questions only). `[self]

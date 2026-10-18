@@ -24,6 +24,7 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("threads.keep_warm_hours", "cache.threads_keep_warm_hours"),
     ("watches", "watch_for"),
     ("routing.data.private_topics", "privacy.sensitive_names"),
+    ("self.sealed_dir", "self.sealed.dir"),
 ];
 
 /// The message for the first old key `text` has, or none (also for text that is not TOML: its own error stands).
@@ -123,6 +124,10 @@ mod tests {
         (
             "[routing.data]\nprivate_topics = [\"Acme\"]\n",
             "`[routing.data] private_topics` was renamed to `[privacy] sensitive_names`",
+        ),
+        (
+            "[self]\nsealed_dir = \"/srv/theseus-sealed\"\n",
+            "`[self] sealed_dir` was renamed to `[self.sealed] dir`",
         ),
     ];
 

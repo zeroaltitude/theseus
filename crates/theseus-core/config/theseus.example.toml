@@ -1282,12 +1282,6 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self]
 # mode = "off"                            # "off" or "act"
 # digest = "weekly"                       # "weekly" or "off"
-# sealed_dir = "/srv/theseus-sealed"      # unset: no sealed set. Where sealed holdout sets live, out of
-#                                         # Theseus's reach: an absolute path outside every workspace root,
-#                                         # the state dir, the repository and [sandbox] ro_paths (refused at
-#                                         # load otherwise). No tool, job, extension or hand can open it; the
-#                                         # daemon writes items in and gets scores back, never an item. Seeded
-#                                         # by you; changing a set or the scorer is the owner's call.
 # backlog_starts = 1                      # top backlog items started a night (0: file and rank only)
 # backlog_max_open = 20                   # open backlog items kept; the lowest-ranked past it are dropped
 # repo = "/home/me/projects/theseus"     # Theseus's own checkout, self branches cut from its
@@ -1328,6 +1322,16 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # retire_after_days = 30                  # read by the retire step: days unused before a minted tool retires
 # hint = false                            # read by the deploy step: a one-line hint in a result that matches a minted tool's motif
 # kinds = ["flow"]                        # read by the mint step: the kinds it may mint (flow, mcp, rust)
+# [self.sealed]                           # sealed holdout sets: exams kept out of Theseus's reach (the owner's)
+# dir = "/srv/theseus-sealed"             # unset: no sealed set. Where the sets live, out of Theseus's reach:
+#                                         # an absolute path outside every workspace root, the state dir, the
+#                                         # repository and [sandbox] ro_paths (refused at load otherwise). No
+#                                         # tool, job, extension or hand can open it; the daemon writes items
+#                                         # in and gets scores back, never an item. Seeded by you; changing a
+#                                         # set or the scorer is the owner's call. (It was [self] sealed_dir.)
+# every_branch = false                    # true: the self-join scores each behaviour-path branch against the sets
+# item_usd = 0.25                         # what one item's run may spend, metered by the model relay
+# drift_every_days = 7                    # main is scored again this often, to tell drift from a candidate
 
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own

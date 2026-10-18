@@ -509,6 +509,7 @@ facts![
     rsi_budget::BudgetSettled<'static>,
     rsi_budget::BudgetStopped<'static>,
     rsi_sealed::SelfExamCounted<'static>,
+    rsi_sealed::SelfSealedScored<'static>,
     rsi_backlog::BacklogFiled,
     rsi_backlog::BacklogRanked,
     rsi_backlog::BacklogStarted,

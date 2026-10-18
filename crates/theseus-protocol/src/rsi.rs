@@ -91,6 +91,16 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "The owner's veto: a join reverted by the owner's word.",
     },
     SelfRowKind {
+        name: "self.sealed.scored",
+        fields: &[
+            "set", "branch", "head", "items", "passed", "failed", "errors", "rate", "cost_usd",
+            "families", "failures",
+        ],
+        doc: "A sealed set scored against a candidate's build (theseus-pw1q.21.5): counts, rates \
+              per family, the model relay's metered cost, and an opaque id per failure; never an \
+              item, a reply or a task's text.",
+    },
+    SelfRowKind {
         name: "self.exam.counted",
         fields: &["item", "family", "sealed", "reviewer"],
         doc: "An exam item counted after its independent review; a sealed one names no text.",
@@ -290,8 +300,8 @@ pub struct SelfState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub day_line_usd: Option<f64>,
-    /// The sealed holdout sets (theseus-pw1q.5): present when `[self]
-    /// sealed_dir` is set, as counts only.
+    /// The sealed holdout sets (theseus-pw1q.5): present when `[self.sealed]
+    /// dir` is set, as counts only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub sealed: Option<SealedState>,
@@ -452,7 +462,7 @@ pub struct SelfBranchSpend {
 
 // sealed-holdouts (theseus-pw1q.5): health's view of the sealed sets.
 
-/// `[self] sealed_dir` is set: how many items each sealed set holds. Counts
+/// `[self.sealed] dir` is set: how many items each sealed set holds. Counts
 /// only: an item's text, its id and its family never ride the wire.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

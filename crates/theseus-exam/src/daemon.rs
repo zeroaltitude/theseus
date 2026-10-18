@@ -10,8 +10,8 @@
 //!   runs no index tender (it asks the index nothing); the others run one.
 //! - **The start.** `theseusd --config … --state-dir … --socket …`, with
 //!   `THESEUS_CONFIG`, `THESEUS_STATE_DIR`, `THESEUS_SOCKET` and
-//!   `THESEUS_SESSION` taken out of its environment, its stderr in
-//!   `<dir>/theseusd.log`.
+//!   `THESEUS_SESSION` taken out of its environment (`SCRATCH_UNSET`, the list
+//!   the sealed scorer's runner shares), its stderr in `<dir>/theseusd.log`.
 //! - **The stop.** `shutdown` over the socket, then a kill after
 //!   [`STOP_WAIT`]; then any process left whose command line names the
 //!   daemon's directory (its tender, which a clean stop sends SIGTERM) gets
@@ -25,6 +25,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+
+use theseus_core::rsi::sealed::runner::SCRATCH_UNSET;
 
 use crate::client::Client;
 
@@ -106,13 +108,12 @@ pub fn start(
         .arg(&state)
         .arg("--socket")
         .arg(&socket)
-        .env_remove("THESEUS_CONFIG")
-        .env_remove("THESEUS_STATE_DIR")
-        .env_remove("THESEUS_SOCKET")
-        .env_remove("THESEUS_SESSION")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(logf);
+    for k in SCRATCH_UNSET {
+        cmd.env_remove(k);
+    }
     for (k, v) in env {
         match v {
             Some(v) => cmd.env(k, v),
