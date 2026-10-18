@@ -153,6 +153,34 @@ impl Place {
         Ok(child.wait_with_output()?)
     }
 
+    /// Who a self commit is by: the repo's `user.name` and `user.email`, which
+    /// the switch-on sets so GitHub can show a self-join Verified. Each falls
+    /// back to Theseus's own when the repo names none.
+    pub fn identity(&self) -> (String, String) {
+        let read = |key: &str, fallback: &str| {
+            self.git_ok(&self.repo, &["config", "--get", key])
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| fallback.to_string())
+        };
+        (
+            read("user.name", "Theseus"),
+            read("user.email", "theseus@localhost"),
+        )
+    }
+
+    /// [`Place::identity`] as the `-c` pairs that put it on a git call; they
+    /// beat the repo's config, which is why they carry the repo's own.
+    pub fn ident_args(&self) -> Vec<String> {
+        let (name, email) = self.identity();
+        vec![
+            "-c".into(),
+            format!("user.name={name}"),
+            "-c".into(),
+            format!("user.email={email}"),
+        ]
+    }
+
     /// `git` that must succeed: its stdout, trimmed.
     pub fn git_ok(&self, dir: &Path, args: &[&str]) -> Result<String> {
         let o = self.git(dir, args)?;
@@ -341,7 +369,8 @@ pub fn next_branch(p: &Place, tree: &mut Tree) -> Result<()> {
     }
 }
 
-/// Commit everything the tree holds that is not committed, as Theseus, with
+/// Commit everything the tree holds that is not committed, as the repo's
+/// identity ([`Place::identity`]), with
 /// `subject` and `body`. Its head, or none when there was nothing to commit.
 pub fn commit(p: &Place, tree: &Tree, subject: &str, body: &str) -> Result<Option<String>> {
     p.git_ok(&tree.dir, &["add", "-A"])?;
@@ -353,22 +382,18 @@ pub fn commit(p: &Place, tree: &Tree, subject: &str, body: &str) -> Result<Optio
         return Ok(None);
     }
     let msg = format!("{subject}\n\n{body}\n");
-    p.git_ok(
-        &tree.dir,
-        &[
-            "-c",
-            "user.name=Theseus",
-            "-c",
-            "user.email=theseus@localhost",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-q",
-            "--no-verify",
-            "-m",
-            &msg,
-        ],
-    )?;
+    let ident = p.ident_args();
+    let mut args: Vec<&str> = ident.iter().map(String::as_str).collect();
+    args.extend([
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-q",
+        "--no-verify",
+        "-m",
+        &msg,
+    ]);
+    p.git_ok(&tree.dir, &args)?;
     Ok(Some(p.git_ok(&tree.dir, &["rev-parse", "HEAD"])?))
 }
 

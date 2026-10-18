@@ -302,6 +302,39 @@ async fn a_planted_regression_after_a_self_join_is_reverted_and_noticed() {
     assert!(again.reverted.is_empty() && again.watched == 1, "{again:?}");
 }
 
+/// The revert's commit is by the self repo's identity, which is what lets
+/// GitHub show it Verified, and by Theseus's own when the repo names none
+/// (theseus-smi8m). The environment's own identity would beat either, so the
+/// rig gives git none.
+#[tokio::test]
+async fn a_revert_is_by_the_self_repos_identity() {
+    const OWNER: &str = "102749+zeroaltitude@users.noreply.github.com";
+    for configured in [true, false] {
+        let r = rig(SelfMode::Act);
+        r.core
+            .tools
+            .self_pr
+            .set_env(crate::rsi::tests_identity::bare());
+        let want = if configured {
+            git(&r.f.place.repo, &["config", "user.email", OWNER]);
+            git(&r.f.place.repo, &["config", "user.name", "The Owner"]);
+            format!("The Owner <{OWNER}>")
+        } else {
+            "Theseus <theseus@localhost>".to_string()
+        };
+        let bad = r.land("trim-mast", &[("broken.txt", "oops\n")]);
+        r.joined("trim-mast", &bad);
+        r.red("gate", &bad);
+        let pass = r.pass().await;
+        assert_eq!(pass.reverted.len(), 1, "{pass:?}");
+        let now = r.upstream_main();
+        assert_ne!(now, bad);
+        let up = &r.f.upstream;
+        assert_eq!(git(up, &["log", "-1", "--format=%an <%ae>", &now]), want);
+        assert_eq!(git(up, &["log", "-1", "--format=%cn <%ce>", &now]), want);
+    }
+}
+
 /// The install is the self-join's path, handed the revert's commit, and only
 /// with `[self] install`.
 #[tokio::test]

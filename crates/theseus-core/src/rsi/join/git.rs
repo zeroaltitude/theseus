@@ -144,27 +144,24 @@ pub(super) fn dry_run_in_tree(p: &Place, base: &str, head: &str) -> Result<Resul
     r
 }
 
-/// A plain `--no-ff` merge of `head` into a detached tree at `base`, as
-/// Theseus, unsigned (the signature comes after the gate). Its commit.
+/// A plain `--no-ff` merge of `head` into a detached tree at `base`, as the
+/// repo's identity ([`Place::identity`]), unsigned (the signature comes after
+/// the gate). Its commit.
 pub fn merge(p: &Place, t: &Tree, head: &str, message: &str) -> Result<String> {
-    p.git_ok(
-        &t.dir,
-        &[
-            "-c",
-            "user.name=Theseus",
-            "-c",
-            "user.email=theseus@localhost",
-            "-c",
-            "commit.gpgsign=false",
-            "merge",
-            "-q",
-            "--no-ff",
-            "--no-verify",
-            "-m",
-            message,
-            head,
-        ],
-    )?;
+    let ident = p.ident_args();
+    let mut args: Vec<&str> = ident.iter().map(String::as_str).collect();
+    args.extend([
+        "-c",
+        "commit.gpgsign=false",
+        "merge",
+        "-q",
+        "--no-ff",
+        "--no-verify",
+        "-m",
+        message,
+        head,
+    ]);
+    p.git_ok(&t.dir, &args)?;
     p.git_ok(&t.dir, &["rev-parse", "HEAD"])
 }
 
@@ -176,25 +173,22 @@ pub fn signing_key(p: &Place) -> Option<String> {
 }
 
 /// Sign the tree's merge (the same tree and parents, so the gate's verdict
-/// holds) with `key`; the signed commit, which must carry its signature.
+/// holds, and the repo's identity, so the signature matches the key's user ID) with `key`; the signed commit, which must carry its signature.
 pub fn sign(p: &Place, t: &Tree, key: &str) -> Result<String> {
-    p.git_ok(
-        &t.dir,
-        &[
-            "-c",
-            "user.name=Theseus",
-            "-c",
-            "user.email=theseus@localhost",
-            "-c",
-            &format!("user.signingkey={key}"),
-            "commit",
-            "-q",
-            "--amend",
-            "--no-edit",
-            "--no-verify",
-            "-S",
-        ],
-    )?;
+    let ident = p.ident_args();
+    let mut args: Vec<&str> = ident.iter().map(String::as_str).collect();
+    let signingkey = format!("user.signingkey={key}");
+    args.extend([
+        "-c",
+        &signingkey,
+        "commit",
+        "-q",
+        "--amend",
+        "--no-edit",
+        "--no-verify",
+        "-S",
+    ]);
+    p.git_ok(&t.dir, &args)?;
     let head = p.git_ok(&t.dir, &["rev-parse", "HEAD"])?;
     if !signed(p, &head)? {
         bail!("the merge {head} carries no signature after signing");

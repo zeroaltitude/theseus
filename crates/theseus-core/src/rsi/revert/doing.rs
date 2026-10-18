@@ -343,15 +343,10 @@ fn make(p: &Place, remote: &str, j: &Joined) -> Result<std::result::Result<Made,
         return Ok(Err(format!("{} is not on main", short(&j.merge))));
     }
     let t = git::detached(p, "revert", &j.branch, &base)?;
-    let ident = [
-        "-c",
-        "user.name=Theseus",
-        "-c",
-        "user.email=theseus@localhost",
-        "-c",
-        "commit.gpgsign=false",
-    ];
-    let mut args = ident.to_vec();
+    let who = p.ident_args();
+    let mut ident: Vec<&str> = who.iter().map(String::as_str).collect();
+    ident.extend(["-c", "commit.gpgsign=false"]);
+    let mut args = ident.clone();
     args.extend(["revert", "-m", "1", "--no-commit", &j.merge]);
     let reverted = p.git(&t.dir, &args)?;
     if !reverted.status.success() {
@@ -370,7 +365,7 @@ fn make(p: &Place, remote: &str, j: &Joined) -> Result<std::result::Result<Made,
         "Revert \"Merge {}\" ({})\n\nA self-revert (theseus-pw1q.10): undoes the self-join {}.",
         j.branch, j.item, j.merge
     );
-    let mut args = ident.to_vec();
+    let mut args = ident.clone();
     args.extend([
         "commit",
         "-q",
