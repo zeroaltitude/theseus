@@ -476,6 +476,8 @@ struct Journey {
     gulls: String,
     post: Option<FakeThread>,
     ms: std::collections::BTreeMap<&'static str, u64>,
+    /// What the surfaces showed at the steps, for the script's report.
+    captures: std::collections::BTreeMap<&'static str, String>,
 }
 
 impl Journey {
@@ -504,11 +506,13 @@ impl Journey {
             gulls,
             post: None,
             ms: Default::default(),
+            captures: Default::default(),
         }
     }
 
     /// Step 2, appear: each task is in `theseus tasks`, and the quay task has its forum post, its card
-    /// and its row on the pinned board, each within 2 s.
+    /// and its row on the pinned board, each within 2 s (2.5 s for the board, which is edited at
+    /// most once in `BOARD_EVERY`, 2 s, so a row can follow an edit by just over that).
     fn appear(&mut self) {
         let (r, quay, gulls) = (&self.r, &self.quay, &self.gulls);
         let cli = within("both tasks in theseus tasks", 2000, || {
@@ -521,13 +525,13 @@ impl Journey {
         let card = within("its card", 2000, || {
             r.post(quay).is_some_and(|p| r.card(&p).contains(quay))
         });
-        let board = within("its row on the pinned board", 2000, || {
+        let board = within("its row on the pinned board", 2500, || {
             r.board().contains(quay)
         });
         let gulls_post = within("the gulls task's forum post", 2000, || {
             r.post(gulls).is_some()
         });
-        let gulls_board = within("its row on the pinned board", 2000, || {
+        let gulls_board = within("its row on the pinned board", 2500, || {
             r.board().contains(gulls)
         });
         self.ms
@@ -589,6 +593,16 @@ impl Journey {
             ("quay_card", quay_ms),
             ("gulls_card", gulls_ms),
             ("presence", presence),
+        ]);
+        let (_, tasks, _) = r.cli(&["tasks"]);
+        let card = r.question_card("Which pace").unwrap();
+        self.captures.extend([
+            ("theseus tasks, both asking", tasks),
+            (
+                "the quay question's card",
+                card.versions.join("\n--- edited to ---\n"),
+            ),
+            ("the pinned board, both asking", r.board()),
         ]);
         r.mark("3 ask");
     }
@@ -711,6 +725,7 @@ impl Journey {
                 && r.latest(&format!("Task `{gulls}` finished")).is_some()
         });
         let report = r.latest(&format!("Task `{quay}` finished")).unwrap();
+        let quay_text = report.versions[0].clone();
         assert_eq!(report.channel, DM.to_string(), "step 7: reported to the DM");
         assert!(
             report.versions[0].contains(&format!("finished** · {QUAY}"))
@@ -719,6 +734,15 @@ impl Journey {
             report.versions[0]
         );
         let report = r.latest(&format!("Task `{gulls}` finished")).unwrap();
+        let post_card = r.card(&r.post(quay).unwrap());
+        self.captures.extend([
+            ("the quay task's report in the DM", quay_text),
+            (
+                "the gulls task's report in the DM",
+                report.versions[0].clone(),
+            ),
+            ("the quay task's forum card at the end", post_card),
+        ]);
         assert!(
             report.versions[0].contains("Gulls counted: nine."),
             "step 7: the report: {}",
@@ -735,7 +759,7 @@ impl Journey {
     /// Step 8, digest: `theseus digest` lists both finished tasks. 9. Find: with nothing open,
     /// `theseus tasks` shows nothing open (that it also points at the ended tasks is the ignored
     /// test below).
-    fn digest_and_find(&self) {
+    fn digest_and_find(&mut self) {
         let r = &self.r;
         let (code, digest, err) = r.cli(&["digest"]);
         assert_eq!(code, 0, "step 8: {err}");
@@ -745,12 +769,14 @@ impl Journey {
                 "step 8: the digest names {title}:\n{digest}"
             );
         }
+        self.captures.insert("theseus digest", digest);
         r.mark("8 digest");
         let (_, none, _) = r.cli(&["tasks"]);
         assert!(
             !none.contains("needs you") && !none.contains("working"),
             "step 9: nothing open:\n{none}"
         );
+        self.captures.insert("theseus tasks, nothing open", none);
         r.mark("9 find");
     }
 
@@ -878,7 +904,8 @@ impl Journey {
             .iter()
             .map(|(n, t)| json!({"step": n, "at_ms": t}))
             .collect();
-        let report = json!({"steps": steps, "ms": self.ms, "interrupts": interrupts, "fast": fast});
+        let report = json!({"steps": steps, "ms": self.ms, "interrupts": interrupts, "fast": fast,
+            "captures": self.captures});
         std::fs::write(path, report.to_string()).unwrap();
     }
 }
