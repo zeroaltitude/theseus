@@ -25,8 +25,9 @@ impl TurnRunner {
     }
 
     /// The request names a sensitive name in any string the chokepoint reads
-    /// (`data_gate::names_in`), so the route keeps it off a model that would
-    /// refuse it there.
+    /// (`data_gate::names_in`): a name said earlier in the conversation, or in
+    /// a recalled memory or a tool's text, keeps the route off a model that
+    /// would refuse it there, not the message's own words alone.
     pub(super) fn sensitive_request(&self, req: &crate::provider::ProviderRequest) -> bool {
         let names = self.cfg.privacy.names();
         !names.is_empty() && crate::data_gate::names_in(req, &names)

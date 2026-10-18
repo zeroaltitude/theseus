@@ -473,10 +473,6 @@ impl TurnRunner {
             Ok(c) => c,
             Err(f) => return Ok(Err(f)),
         };
-        // A name said earlier in the conversation, or in a recalled memory or
-        // a tool's text, is in what a restricted model would be sent: the
-        // floor reads the whole request, not the message alone.
-        t.route.sensitive = t.route.sensitive || self.sensitive_request(&compiled.request);
         let base = t.target.profile.clone();
         let (verdict, reason) = self.read_verdict(
             t,
@@ -487,7 +483,7 @@ impl TurnRunner {
             unreachable,
         );
         let ask = (&steering, &verdict, reason);
-        let decision = match self.decide_floored(t, session, ask, compiled.est_tokens) {
+        let decision = match self.decide_floored(t, session, ask, &compiled) {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
@@ -609,14 +605,16 @@ impl TurnRunner {
     }
 
     /// The decision the turn's verdict (or steer) makes, kept off restricted
-    /// profiles when the message names a sensitive name (theseus-oejh3).
+    /// profiles when the request names a sensitive name (theseus-oejh3).
     fn decide_floored(
         &self,
-        t: &Turn<'_>,
+        t: &mut Turn<'_>,
         session: &SessionRecord,
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
-        est_tokens: u64,
+        compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
+        t.route.sensitive |= self.sensitive_request(&compiled.request);
+        let est_tokens = compiled.est_tokens;
         let decision = match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
             (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
