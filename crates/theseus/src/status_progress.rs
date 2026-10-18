@@ -1,5 +1,5 @@
 //! The long form's progress column (theseus-xlias): each task's line from the
-//! daemon's work board, `3/5 · Running the tests again with the fix…`, the
+//! daemon's work board, `step 4 of 5 · Running the tests again with the fix…`, the
 //! same wording `theseus work` shows (`Progress::line`). One `work.watch`
 //! snapshot, read on the connection the board already holds; a daemon that
 //! predates the method, or one that does not answer, leaves the column out.
@@ -67,7 +67,10 @@ mod tests {
             view(json!({"session_id": "ses_c"})),
         ];
         let got = of_views(&views);
-        assert_eq!(got["ses_a"], "3/5 · Running the tests again with the fix…");
+        assert_eq!(
+            got["ses_a"],
+            "step 4 of 5 · Running the tests again with the fix…"
+        );
         assert_eq!(got["ses_b"], "Reading the config");
         assert!(!got.contains_key("ses_c"));
     }

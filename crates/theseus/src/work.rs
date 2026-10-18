@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(
             tree_lines(&views, 7 + 5_400),
             vec![
-                "◐ Beta summary  turn 3  [1/3]  (1 need you, 1 working, 0 done, 0 failed)",
+                "◐ Beta summary  turn 3  [step 2 of 3]  (1 need you, 1 working, 0 done, 0 failed)",
                 "  ◐ Read the buoys  turn 1",
                 "    ◐ cargo test -p core  running  [job 0:05 of usual 1:34]  › test result: 41 passed",
                 "  ● fs.write notes.txt  confirm fs.write: notes.txt",

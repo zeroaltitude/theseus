@@ -7,7 +7,7 @@ use crate::{utc_hm, PendingConfirm};
 
 const AT: u64 = 1_790_000_000_000;
 
-fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkView {
+pub(crate) fn view(kind: WorkKind, state: WorkState, question: Option<Question>) -> WorkView {
     WorkView {
         id: "exe_0000a1b2c3".into(),
         kind,
@@ -486,4 +486,29 @@ fn a_task_is_joinable_until_it_ends_and_the_redirect_line_is_one_wording() {
         task_redirect_line("Sound the north channel", "a1b2c3", "the task is over"),
         "[Written to the task “Sound the north channel” (…a1b2c3), and the task is over] "
     );
+}
+
+fn plan(done: u32, total: u32, said: Option<&str>) -> Progress {
+    Progress {
+        steps_done: done,
+        steps_total: total,
+        current: None,
+        said: said.map(str::to_string),
+        at_ms: AT,
+    }
+}
+
+#[test]
+fn a_progress_line_keeps_the_models_words_after_the_count() {
+    // Before theseus-ypnxt.2 these read `3/5 · Running the tests`, `0/3`,
+    // and the line alone.
+    let said = Some("Running the tests again with the fix…");
+    assert_eq!(
+        plan(2, 5, said).line().as_deref(),
+        Some("step 3 of 5 · Running the tests again with the fix…")
+    );
+    assert_eq!(plan(0, 3, None).line().as_deref(), Some("step 1 of 3"));
+    assert_eq!(plan(3, 3, None).line().as_deref(), Some("step 3 of 3"));
+    assert_eq!(plan(0, 0, said).line().as_deref(), said);
+    assert_eq!(plan(0, 0, Some("")).line(), None);
 }

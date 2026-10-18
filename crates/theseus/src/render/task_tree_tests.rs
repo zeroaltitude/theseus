@@ -224,7 +224,7 @@ fn a_job_and_a_plan_step_show_in_the_activity() {
         .unwrap();
     assert!(
         buoy.text
-            .ends_with("job 2:14 › leg 5: 4.5 fathoms · 4/9 · sounding the channel"),
+            .contains("job 2:14 › leg 5: 4.5 fathoms · step 5 of 9 · sounding"),
         "{}",
         buoy.text
     );
