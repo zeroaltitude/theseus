@@ -86,6 +86,8 @@ pub enum Purpose {
     Cancel(String),
     /// `task.start`, from `N` (theseus-7oq0w).
     NewTask,
+    /// `task.pause` or `task.resume`, from `P` (theseus-ypnxt.4).
+    Hold,
     /// `action.confirm`: an answer to a question.
     Answer {
         correlation_id: String,
@@ -871,6 +873,7 @@ impl App {
             Purpose::ThreadAct(_) => return self.thread_acted(v),
             Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
+            Purpose::Hold => self.task_held(v),
             Purpose::HorizonAct(_) => self.horizon_answered(purpose),
             Purpose::FollowFind | Purpose::FollowPeek => return self.follow_answered(&purpose, v),
             Purpose::Digest => self.digest_said(v),
@@ -992,6 +995,7 @@ impl App {
             Purpose::Stop(_) => method::EXECUTION_STOP,
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::NewTask => method::TASK_START,
+            Purpose::Hold => "task.pause or task.resume",
             Purpose::Answer { .. } => method::WORK_ANSWER,
             Purpose::Dismiss { .. } => method::EXECUTION_DISMISS,
             Purpose::Retry { .. } => method::TASK_RETRY,
@@ -1214,7 +1218,7 @@ impl App {
                 }
             }
             KeyCode::Char('p') => return self.parent_key().unwrap_or_else(|| self.standing_key()),
-            KeyCode::Char('I') => return self.inspect_key(),
+            KeyCode::Char(c @ ('I' | 'P')) => return self.row_key(c),
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
             KeyCode::Enter => {

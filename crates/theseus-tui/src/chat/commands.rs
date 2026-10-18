@@ -66,8 +66,19 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "task",
-        help: "/task [ID]: look at a task (ctrl+t picks one); esc or /back returns",
-        run: |chat, args| chat.task_cmd(args, false),
+        help:
+            "/task [ID]: look at a task (ctrl+t picks, type to search); /task new BRIEF starts one",
+        run: |chat, args| chat.task_command(args),
+    },
+    Command {
+        name: "pause",
+        help: "/pause [ID]: hold a task at its next loop (the one shown, or the only one running)",
+        run: |chat, args| chat.hold_cmd(args, true),
+    },
+    Command {
+        name: "resume",
+        help: "/resume [ID]: let a paused task go on",
+        run: |chat, args| chat.hold_cmd(args, false),
     },
     Command {
         name: "join",

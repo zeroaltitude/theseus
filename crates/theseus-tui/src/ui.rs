@@ -778,7 +778,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 27] = [
+    const KEYS: [&str; 28] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -790,6 +790,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " S          stop it and cancel every task under it (S or y to confirm)",
         " c          cancel the open task (c twice)",
         " N          start a task (no model turn) under the conversation under the cursor",
+        " P          pause the task under the cursor, or resume it if it is paused (no model turn)",
         " l          follow the running job of the session under the cursor (esc closes)",
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",

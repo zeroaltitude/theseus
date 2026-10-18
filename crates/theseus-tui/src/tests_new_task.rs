@@ -94,3 +94,48 @@ async fn a_refused_start_says_why_in_the_footer() {
     rig.shows("task.start: a task start from discord:777 does not count")
         .await;
 }
+
+// ------------------------------------------------------------ P
+
+fn held_view(paused: bool, position: u64) -> theseus_protocol::work::WorkView {
+    serde_json::from_value(json!({
+        "id": "exe_tide01", "kind": "task", "position": position, "at_ms": 1, "root": "exe_dm",
+        "parent": "exe_dm", "session_id": "ses_tide01", "title": "Tide tables",
+        "state": if paused { "waiting" } else { "running" }, "paused": paused,
+        "attention": {"level": "working", "label": "turn 1", "since_ms": 1},
+        "started_at_ms": 1, "state_since_ms": 1
+    }))
+    .unwrap()
+}
+
+/// `P` on a task's row holds it; with the board saying it is held, the same key
+/// lets it go on. Anywhere but a task it sends nothing and says so.
+#[tokio::test]
+async fn shift_p_pauses_a_running_task_and_resumes_a_paused_one() {
+    let world = harbour_world();
+    {
+        let mut w = world.lock().unwrap();
+        let ok = |paused| json!({"task_id": "ses_tide01", "paused": paused, "changed": true});
+        w.answers.insert("task.pause".into(), Ok(ok(true)));
+        w.answers.insert("task.resume".into(), Ok(ok(false)));
+    }
+    let mut rig = Rig::new(100, 24, script(world));
+    rig.shows("ready  DM +1").await;
+    // Nothing selected, or a conversation: nothing is sent.
+    rig.press(&[KeyCode::Char('P')]).await;
+    rig.shows("P pauses or resumes a task: select one").await;
+    rig.runner.app.selected = Some("ses_tide01".into());
+    rig.runner.app.board.work_views(&[held_view(false, 9)]);
+    rig.press(&[KeyCode::Char('P')]).await;
+    rig.asked("task.pause", 1).await;
+    assert_eq!(
+        rig.daemon().asked("task.pause"),
+        [json!({"task": "ses_tide01", "author": "the TUI"})]
+    );
+    rig.shows("pausing task").await;
+    rig.runner.app.board.work_views(&[held_view(true, 10)]);
+    rig.press(&[KeyCode::Char('P')]).await;
+    rig.asked("task.resume", 1).await;
+    assert_eq!(rig.daemon().asked("task.pause").len(), 1);
+    rig.shows("resuming task").await;
+}

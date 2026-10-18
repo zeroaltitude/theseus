@@ -123,7 +123,10 @@ impl Chat {
             | Purpose::Cancel(_)
             | Purpose::TaskSubmit { .. }
             | Purpose::TaskInspect
-            | Purpose::FollowUp) => self.answered_view(p, v),
+            | Purpose::FollowUp
+            | Purpose::TaskStart { .. }
+            | Purpose::Hold { .. }) => self.answered_view(p, v),
+            Purpose::PickerTasks => self.picker_tasks(v),
             Purpose::RewindPoints => self.rewind_points(v),
             Purpose::RewindRestore(going) => self.rewind_restored(going, v),
             Purpose::RewindFork(going) => self.rewind_forked(going, v),
@@ -181,6 +184,11 @@ impl Chat {
                 self.say_words(Sty::Red, &format!("✗ refused: {}", e.message));
                 Vec::new()
             }
+            Purpose::TaskStart { .. } | Purpose::Hold { .. } => {
+                self.held_refused(e);
+                Vec::new()
+            }
+            Purpose::PickerTasks => self.picker_tasks_failed(),
             Purpose::Answer | Purpose::TaskAnswer { .. } => {
                 self.answer_refused();
                 self.say_words(
@@ -331,6 +339,9 @@ impl Chat {
     pub(super) fn node_line(&mut self, n: &NodeInfo) {
         match n.kind.as_str() {
             "user_message" if !n.text.trim().is_empty() => {
+                if self.view.is_none() {
+                    self.last_said = Some(n.text.clone());
+                }
                 self.gap();
                 let mut first = true;
                 for raw in super::reopen::folded(&n.text) {

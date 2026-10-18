@@ -323,6 +323,7 @@ impl Chat {
                 let short = task_tree::short_id(id);
                 self.say_plain(Sty::Dim, &format!("  follow-up task {short} started"));
             }
+            p @ (Purpose::TaskStart { .. } | Purpose::Hold { .. }) => self.held_answer(p, v),
             _ => {}
         }
         Vec::new()
