@@ -36,7 +36,7 @@ and `theseus help COMMAND` prints that page. clap's own `help` subcommand is dis
 Internal ids (`theseus-xxxx`, `(M7)`) are out of main.rs's about lines.
 
 `theseus help`: 71 listed commands before (one page of 160+ lines with the quick start), 19 now (80 lines of golden,
-of which the long intro is the old `long_about`). `theseus help all`: 83 lines, one per command (all 76 including `help`).
+of which the long intro is the old `long_about`). `theseus help all`: 83 lines, one per command: 62 commands (19 everyday and 43 more, `help` among them; the base had 71 variants, 9 of them folded away).
 Tests: `help_cmd::tests::the_everyday_help_lists_exactly_the_everyday_commands`, `help_all_lists_every_command` (from the clap
 tree), `a_hidden_command_still_has_its_page`, and `tests/help.rs` (goldens of both screens, a hidden command's page,
 `help nonesuch` exits 2). **Plants:** removing `hide` from `ledger` fails the first; dropping `ledger` from the renderer fails
@@ -198,7 +198,7 @@ theseus --socket <scratch> why --short                      # the fill
 theseusd --config <a file with [model] max_loops_mode = "end"> check   # fails naming the file: `[model] max_loops_mode` was renamed to `[model] on_max_loops`
 theseusd --config /etc/theseus/theseus.toml config --sparse | grep -n "ttl\|classes"   # after you migrate the file
 ```
-Each should show: the 19 everyday commands; one line per command (76); the page of a hidden command; the wake verbs
+Each should show: the 19 everyday commands; one line per command (62); the page of a hidden command; the wake verbs
 working; the snooze answered; the fill lines; the rename message; the new key names.
 
 ## What is left or uncertain
