@@ -24,6 +24,14 @@ impl TurnRunner {
         !names.is_empty() && !names.hits(text).is_empty()
     }
 
+    /// The request names a sensitive name in any string the chokepoint reads
+    /// (`data_gate::names_in`), so the route keeps it off a model that would
+    /// refuse it there.
+    pub(super) fn sensitive_request(&self, req: &crate::provider::ProviderRequest) -> bool {
+        let names = self.cfg.privacy.names();
+        !names.is_empty() && crate::data_gate::names_in(req, &names)
+    }
+
     /// Whether `profile` is of restricted origin.
     pub(super) fn restricted_profile(&self, profile: &str) -> bool {
         self.cfg.profile_origin(profile, &self.catalog).restricted()

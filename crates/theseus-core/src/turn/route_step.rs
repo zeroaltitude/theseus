@@ -473,6 +473,10 @@ impl TurnRunner {
             Ok(c) => c,
             Err(f) => return Ok(Err(f)),
         };
+        // A name said earlier in the conversation, or in a recalled memory or
+        // a tool's text, is in what a restricted model would be sent: the
+        // floor reads the whole request, not the message alone.
+        t.route.sensitive = t.route.sensitive || self.sensitive_request(&compiled.request);
         let base = t.target.profile.clone();
         let (verdict, reason) = self.read_verdict(
             t,

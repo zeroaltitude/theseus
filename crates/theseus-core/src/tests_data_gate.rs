@@ -77,6 +77,26 @@ async fn a_sensitive_name_skips_restricted_profiles() {
     assert_eq!(decided(&r.core.store).len(), 1);
 }
 
+/// A name said earlier in the conversation is in the request a restricted
+/// model would be sent, so the next turn keeps off it too, though its own
+/// words name nothing (the join's fix: the route read the message alone, and
+/// the chokepoint then failed the turn).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_said_earlier_keeps_the_next_turn_off_restricted_profiles() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "routine_coding", 0.95);
+    let r = rig(Some(&jev), 2, listed);
+    let first = turn(&r.core, None, NAMED, None).await;
+    assert_eq!(first.profile, "sonnet");
+    let next = turn(&r.core, Some(&first.session_id), PLAIN, None).await;
+    assert_eq!(next.profile, "sonnet", "{}", next.output);
+    assert!(
+        r.zai.requests().is_empty(),
+        "nothing went to the restricted model"
+    );
+    assert_eq!(r.claude.requests().len(), 2);
+}
+
 /// The owner's pin of a restricted profile does not carry a named message
 /// there either: the `[model]` default runs, and the row says `data_gate`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
