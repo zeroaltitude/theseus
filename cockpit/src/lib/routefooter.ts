@@ -7,7 +7,12 @@ import type { RouteCorrectionInfo, RouteCorrectionsResult, TurnRoute } from '@pr
  *  none when routing read nothing for the turn. */
 export function routeLine(route: TurnRoute | undefined, profile: string): string | null {
   if (!route) return null
-  const what = route.source === 'correction' ? 'correction' : (route.mode ?? route.reason)
+  const what =
+    route.source === 'correction'
+      ? 'correction'
+      : route.source === 'task brief' && route.mode
+        ? `${route.mode} (task brief)`
+        : (route.mode ?? route.reason)
   const from = route.from && route.from !== profile ? ` (from ${route.from})` : ''
   const who = personaWords(route)
   if (!what) return who ? `answered by: ${who}` : null

@@ -271,6 +271,17 @@ impl JudgeService {
     /// router waits on the thread answer before it knows which session's turn
     /// this is).
     pub fn inbound_early(&self, msg: Inbound) -> Option<Early> {
+        self.inbound_early_of(msg, false)
+    }
+
+    /// A task's brief, whose first turn has no message of its own: route.v6
+    /// alone judges it (no `classify`, no `role`), so the verdict can pick
+    /// the task's model (theseus-ypnxt.7, `turn/brief_step.rs`).
+    pub fn at_brief(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
+        self.inbound_early_of(msg, true)?.adopt(trace, None)
+    }
+
+    fn inbound_early_of(&self, msg: Inbound, route_only: bool) -> Option<Early> {
         if slash_command(&msg.text) {
             return None;
         }
@@ -289,6 +300,7 @@ impl JudgeService {
             .map(|(p, root)| (mode_of(&p), p, root))
             .filter(|(m, _, _)| *m != PackMode::Off)
             .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
+            .filter(|(_, _, root)| !route_only || *root == ROUTE_PACK)
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
             .map(|(p, m, _)| (p, m))
@@ -635,8 +647,12 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         Some(i) => (&nodes[..i], Some(&nodes[i])),
         None => (nodes, None),
     };
-    let text = match message.map(|n| &n.body) {
-        Some(Body::UserMessage { text, .. }) => text.clone(),
+    // A task's brief is judged by its own words, not the preamble around it.
+    let text = match message.map(|n| (n, &n.body)) {
+        Some((n, Body::UserMessage { .. })) if msg.task && crate::task::is_brief(n) => {
+            brief_of(n).unwrap_or_default()
+        }
+        Some((_, Body::UserMessage { text, .. })) => text.clone(),
         _ => msg.text.clone(),
     };
     let previous_human_message = before.iter().rev().find_map(|n| match &n.body {

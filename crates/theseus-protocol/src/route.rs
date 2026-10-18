@@ -23,7 +23,8 @@ pub struct TurnRoute {
     pub from: String,
     /// `correction` when the owner's correction (or the live layer's entry
     /// close to this message) placed the turn ahead of the verdict
-    /// (theseus-q31l); absent when the verdict did.
+    /// (theseus-q31l), or `task brief` when the verdict on a task's brief picked
+    /// its model (theseus-ypnxt.7); absent when the verdict on a message did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub source: Option<String>,

@@ -65,7 +65,9 @@ impl Fact for RouteDecided<'_> {
         }
         if let Some(s) = self.source {
             row["source"] = json!(s);
-            row["follows"] = json!(self.follows);
+            if self.follows.is_some() {
+                row["follows"] = json!(self.follows);
+            }
         }
         row
     }
@@ -76,7 +78,10 @@ impl Fact for RouteDecided<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let mode = match self.source {
-            Some(s) => format!(" ({s}, following {})", self.follows.unwrap_or("?")),
+            Some(s) => match self.follows {
+                Some(f) => format!(" ({s}, following {f})"),
+                None => format!(" ({s})"),
+            },
             None => self.mode.map_or(String::new(), |m| format!(" ({m})")),
         };
         let effort = match (self.effort_applied, self.effort_ran, self.effort_sent) {

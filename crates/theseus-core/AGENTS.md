@@ -1225,6 +1225,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     switch (`Reason::StepDown`), at any context size; a dearer verdict or one under its bar breaks the row, a detour
     leaves it, and never below the base (`routing::step_down`). The owner's correction passes no base, so this path
     never steps it down; a session an owner's correction raised is not told apart from Jev's (no stored field).
+    **A task's base from its brief** (theseus-ypnxt.7; `turn/brief_step.rs`, `routing/brief.rs`): a task the owner starts
+    with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks route.v6 alone about its
+    brief on its first turn (`JudgeService::at_brief`), waits for it as a message does, and `brief_base` makes the class's
+    first usable profile, under the cap, the task's base (`last_target`, no `routed`), a detour's class included; no verdict
+    in time, under the bar, or no usable profile leaves the parent's. A profile asked for pins. The row says `source: task brief`.
     The dear tier's guard (`[routing] dear_tier_max_tokens`, 200,000): over it, a `sophisticated` or `review`
     verdict skips a profile whose catalog input price is above the next usable one's (`Reason::ContextGuard`).
     Tests: `tests_route_down.rs`, `routing::tests`.
