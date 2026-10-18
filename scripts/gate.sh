@@ -754,6 +754,8 @@ phase shape scripts/shape.sh
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
 phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
+# jev-probe and its module are behind the judge crate's `probe` feature, which the workspace build leaves off.
+phase clippy-probe cargo clippy -p theseus-judge --features probe --all-targets -q -- -D warnings
 # The cockpit before the suite, which reads its build at / (theseus-vm3n.6).
 phase cockpit cockpit
 # Every compile first, without the lock: the test binaries (what the suite runs), and with them the binaries
