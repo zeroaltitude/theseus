@@ -295,6 +295,9 @@ pub fn runner_view(base: &L1, root: &Path, relay: &str) -> L1 {
         limits: base.limits,
         egress: vec![relay.to_string()],
         egress_dns: None,
+        // An item's job keeps no write: only a self build's view binds
+        // read-write (theseus-pw1q.21.1).
+        rw: Vec::new(),
     }
 }
 

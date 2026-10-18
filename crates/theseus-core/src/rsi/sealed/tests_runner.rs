@@ -547,11 +547,13 @@ async fn the_runner_view_holds_neither_the_sealed_dir_nor_the_production_state()
     let base = L1 {
         hidden: vec![PathBuf::from("/srv/x"), PathBuf::from("/srv")],
         workspace: vec!["/w".into()],
+        rw: vec!["/w".into()],
         ..L1::default()
     };
     let v = runner_view(&base, Path::new("/srv/run"), "n:80");
     assert_eq!(v.hidden, vec![PathBuf::from("/srv/x")]);
     assert!(v.workspace.is_empty());
+    assert!(v.rw.is_empty(), "an item's job binds nothing read-write");
 }
 
 /// The maintainer's live check: this tree's own build, in a real L1, through
