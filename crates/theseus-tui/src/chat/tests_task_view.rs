@@ -556,3 +556,21 @@ async fn the_header_is_a_golden_inspecting_joined_and_ended() {
         &format!("{inspect}\n\n{join}\n\n{ended}\n"),
     );
 }
+
+/// The header carries the one progress line's words (theseus-ypnxt.2): a
+/// paused task says `paused` first, and the step, dollars and time left follow.
+#[tokio::test(start_paused = true)]
+async fn the_header_says_paused_and_what_the_progress_line_says() {
+    let mut r = ready(false).await;
+    inspecting(&mut r).await;
+    let mut v = running();
+    v.position = 30;
+    v.paused = true;
+    v.progress =
+        serde_json::from_value(json!({"steps_done": 2, "steps_total": 5, "at_ms": 1})).ok();
+    v.cost = serde_json::from_value(json!({"spent_usd": 0.4, "limit_usd": 2.0})).ok();
+    push(&r, 30, vec![v]);
+    r.shows("paused · running").await;
+    let head = dock(&r).lines().next().unwrap().to_string();
+    assert!(head.contains("step 3 of 5 · $0.40 of $2"), "{head}");
+}

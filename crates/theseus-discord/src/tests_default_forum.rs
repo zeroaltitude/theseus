@@ -205,7 +205,7 @@ fn cli() -> Answerer {
 // ------------------------------------------------------------------ finding
 
 /// The forum is made once when the guild has none: private, with the owners'
-/// and the bot's overwrites and the four tags; a second start makes none.
+/// and the bot's overwrites and the six state tags; a second start makes none.
 #[tokio::test]
 async fn the_forum_is_made_once_private_with_its_tags_and_found_again() {
     let r = rig(vec![], |_| vec![], &bindings(true, ""), |_| {}, |_| {}).await;
@@ -223,7 +223,17 @@ async fn the_forum_is_made_once_private_with_its_tags_and_found_again() {
         .iter()
         .filter_map(|t| t["name"].as_str())
         .collect();
-    assert_eq!(tags, ["needs you", "running", "done", "failed"]);
+    assert_eq!(
+        tags,
+        [
+            "needs you",
+            "running",
+            "done",
+            "failed",
+            "paused",
+            "stopped"
+        ]
+    );
     let ows = b["permission_overwrites"].as_array().unwrap();
     assert_eq!(ows.len(), 3, "everyone, the owner, the bot: {ows:#?}");
     let of = |id: String| {

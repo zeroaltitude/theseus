@@ -389,14 +389,15 @@ async fn a_footer_row_says_what_its_task_has_spent() {
     r.shows("◐ tasks · 2 working").await;
     let screen = r.screen();
     let spent = screen.iter().find(|l| l.contains("Buoy survey")).unwrap();
-    assert!(spent.contains("$0.31"), "{spent}");
-    // A task that has spent nothing has no figure, and the tree has none either.
+    assert!(spent.contains("$0.31 of $5"), "{spent}");
+    // A task with no cost on its view has no figure.
     let idle = screen.iter().find(|l| l.contains("Tide tables")).unwrap();
     assert!(!idle.contains('$'), "{idle}");
     r.type_text("/tasks").await;
     r.press(KeyCode::Enter).await;
     r.shows("2 working").await;
-    assert_eq!(r.text().matches("$0.31").count(), 1, "{}", r.text());
+    // The tree has it now too (theseus-ypnxt.2): the footer's row and the tree's.
+    assert_eq!(r.text().matches("$0.31 of $5").count(), 2, "{}", r.text());
 }
 
 #[tokio::test(start_paused = true)]

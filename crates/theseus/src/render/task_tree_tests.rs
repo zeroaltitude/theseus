@@ -224,7 +224,7 @@ fn a_job_and_a_plan_step_show_in_the_activity() {
         .unwrap();
     assert!(
         buoy.text
-            .ends_with("job 2:14 › leg 5: 4.5 fathoms · 4/9 · sounding the channel"),
+            .contains("job 2:14 › leg 5: 4.5 fathoms · step 5 of 9 · sounding"),
         "{}",
         buoy.text
     );
@@ -312,15 +312,95 @@ fn spent(views: &mut [WorkView], id: &str, usd: f64) {
 }
 
 #[test]
-fn the_footer_shows_what_a_running_task_has_spent_and_the_tree_does_not() {
+fn a_row_ends_with_its_progress_line_in_the_tree_and_the_footer() {
     let mut views = regatta();
     spent(&mut views, "exe_buoy", 1.2);
     spent(&mut views, "exe_tide", 0.0042);
     let f = footer(&views, NOW, 100, 5);
     golden("footer_cost_100.txt", &text(&f.rows));
-    // The tree's columns are the ones it always had.
-    let tree_lines = tree(&views, NOW, 120, 0);
-    assert!(tree_lines.iter().all(|l| !l.text.contains('$')));
+    // The tree says it too, once a row.
+    let tree_lines = tree(&views, NOW, 200, 0);
+    let buoy = tree_lines
+        .iter()
+        .find(|l| l.text.contains("5a877c"))
+        .unwrap();
+    assert_eq!(buoy.text.matches('$').count() / 2, 1, "{}", buoy.text);
+    assert!(
+        buoy.text.contains("step 5 of 9 · $1.20 of $5"),
+        "{}",
+        buoy.text
+    );
+}
+
+#[test]
+fn a_paused_task_says_so_first_in_its_row() {
+    let mut views = regatta();
+    views
+        .iter_mut()
+        .find(|v| v.id == "exe_tide")
+        .unwrap()
+        .paused = true;
+    let f = footer(&views, NOW, 60, 5);
+    let row = f.rows.iter().find(|l| l.text.contains("77c0de")).unwrap();
+    assert!(row.text.contains("paused · model"), "{}", row.text);
+}
+
+fn moved(v: &WorkView, f: impl FnOnce(&mut WorkView)) -> WorkView {
+    let mut n = v.clone();
+    n.position += 1;
+    f(&mut n);
+    n
+}
+
+fn told(prev: &WorkView, next: &WorkView) -> Vec<String> {
+    events(Some(prev), next)
+        .iter()
+        .map(|e| event_line(e).text)
+        .collect()
+}
+
+#[test]
+fn a_step_change_prints_one_line_and_a_frame_that_changes_nothing_none() {
+    let views = regatta();
+    let buoy = &views[2];
+    let mut a = buoy.clone();
+    a.cost = Some(theseus_protocol::work::Cost {
+        spent_usd: 0.4,
+        limit_usd: 2.0,
+        turn_usd: None,
+    });
+    let b = moved(&a, |v| v.progress.as_mut().unwrap().steps_done += 1);
+    assert_eq!(told(&a, &b), ["◐ Buoy survey: step 6 of 9 · $0.40 of $2"]);
+    assert!(told(&b, &moved(&b, |_| {})).is_empty());
+    // Spending alone is not a step.
+    let c = moved(&b, |v| v.cost.as_mut().unwrap().spent_usd = 0.5);
+    assert!(told(&b, &c).is_empty());
+}
+
+#[test]
+fn past_its_usual_time_is_told_once() {
+    let views = regatta();
+    let a = views[2].clone();
+    let forecast = |past| {
+        serde_json::from_value(json!({
+            "usd_p50": 1.0, "usd_p90": 2.0, "min_p50": 5.0, "min_p90": 9.0, "n": 4, "past": past
+        }))
+        .unwrap()
+    };
+    let b = moved(&a, |v| v.forecast = Some(forecast(false)));
+    let c = moved(&b, |v| v.forecast = Some(forecast(true)));
+    assert_eq!(told(&b, &c), ["◐ Buoy survey is past its usual time"]);
+    assert!(told(&c, &moved(&c, |_| {})).is_empty());
+}
+
+#[test]
+fn paused_then_resumed_print_two_lines() {
+    let views = regatta();
+    let a = views[2].clone();
+    let b = moved(&a, |v| v.paused = true);
+    let c = moved(&b, |v| v.paused = false);
+    assert_eq!(told(&a, &b), ["⏸ Buoy survey paused"]);
+    assert_eq!(told(&b, &c), ["▶ Buoy survey resumed"]);
 }
 
 #[test]

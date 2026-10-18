@@ -1,0 +1,16 @@
+[
+  {"case": "nothing but a title", "elapsed_min": 0, "expect": null},
+  {"case": "cost alone", "elapsed_min": 0, "cost": {"spent": 0.4, "limit": 2}, "expect": "$0.40 of $2"},
+  {"case": "step and cost", "elapsed_min": 0, "progress": {"done": 2, "total": 5}, "cost": {"spent": 0.4, "limit": 2},
+   "expect": "step 3 of 5 · $0.40 of $2"},
+  {"case": "time left from the median", "elapsed_min": 4, "progress": {"done": 2, "total": 5}, "cost": {"spent": 0.4, "limit": 2},
+   "forecast": {"min_p50": 10, "min_p90": 20, "n": 4}, "expect": "step 3 of 5 · $0.40 of $2 · ~6 min left"},
+  {"case": "past the median, time left from the p90", "elapsed_min": 15, "progress": {"done": 2, "total": 5}, "cost": {"spent": 0.4, "limit": 2},
+   "forecast": {"min_p50": 10, "min_p90": 20, "n": 4}, "expect": "step 3 of 5 · $0.40 of $2 · ~5 min left"},
+  {"case": "past the p90", "elapsed_min": 25, "progress": {"done": 2, "total": 5}, "cost": {"spent": 0.4, "limit": 2},
+   "forecast": {"min_p50": 10, "min_p90": 20, "n": 4}, "expect": "step 3 of 5 · $0.40 of $2 · past its usual time"},
+  {"case": "paused comes first", "elapsed_min": 4, "paused": true, "progress": {"done": 2, "total": 5}, "cost": {"spent": 0.4, "limit": 2},
+   "forecast": {"min_p50": 10, "min_p90": 20, "n": 4}, "expect": "paused · step 3 of 5 · $0.40 of $2 · ~6 min left"},
+  {"case": "last step, no forecast, no cost", "elapsed_min": 4, "progress": {"done": 5, "total": 5},
+   "forecast": {"min_p50": 10, "min_p90": 20, "n": 0}, "expect": "step 5 of 5"}
+]

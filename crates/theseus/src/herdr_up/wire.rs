@@ -230,9 +230,9 @@ fn gone(e: &anyhow::Error) -> bool {
         .is_some_and(|h| matches!(h.code.as_str(), "workspace_not_found" | "tab_not_found"))
 }
 
-/// The Space row: `needs ●2`, `working ◐5`, `done ◆1`, `spend $1.24`, and the
+/// The Space row: `needs ●2`, `working ◐5`, `done ◆1`, `paused ⏸2`, `spend $1.24`, and the
 /// horizon's: `since ↺3` (what happened since you looked), `next ⏰16:52` (the next
-/// reminder) and `routines 🔁2` (due now). The three are empty when there is nothing
+/// reminder) and `routines 🔁2` (due now). The four are empty when there is nothing
 /// to say, so a token herdr kept from before is cleared.
 pub fn counts_params(workspace_id: &str, c: &Counts) -> Value {
     let since = if c.since > 0 {
@@ -243,6 +243,11 @@ pub fn counts_params(workspace_id: &str, c: &Counts) -> Value {
     let next = c.next_ms.map_or_else(String::new, |ms| {
         format!("⏰{}", crate::status::local_hm(ms))
     });
+    let paused = if c.paused > 0 {
+        format!("⏸{}", c.paused)
+    } else {
+        String::new()
+    };
     let routines = if c.routines_due > 0 {
         format!("🔁{}", c.routines_due)
     } else {
@@ -252,7 +257,7 @@ pub fn counts_params(workspace_id: &str, c: &Counts) -> Value {
            "tokens": {"needs": format!("●{}", c.needs), "working": format!("◐{}", c.working),
                       "done": format!("◆{}", c.done),
                       "spend": format!("${}.{:02}", c.spend_cents / 100, c.spend_cents % 100),
-                      "since": since, "next": next, "routines": routines}})
+                      "paused": paused, "since": since, "next": next, "routines": routines}})
 }
 
 /// Needs-you first in herdr's agent view (the view is the server's, not a workspace's).
@@ -364,6 +369,7 @@ mod tests {
                 needs: 2,
                 working: 5,
                 done: 1,
+                paused: 2,
                 spend_cents: 124,
                 since: 3,
                 next_ms: Some(0),
@@ -373,6 +379,7 @@ mod tests {
         assert_eq!(p["tokens"]["needs"], "●2");
         assert_eq!(p["tokens"]["working"], "◐5");
         assert_eq!(p["tokens"]["done"], "◆1");
+        assert_eq!(p["tokens"]["paused"], "⏸2");
         assert_eq!(p["tokens"]["spend"], "$1.24");
         assert_eq!(p["tokens"]["since"], "↺3");
         assert_eq!(
@@ -381,7 +388,7 @@ mod tests {
         );
         assert_eq!(p["tokens"]["routines"], "🔁2");
         let quiet = counts_params("w1", &Counts::default());
-        for k in ["since", "next", "routines"] {
+        for k in ["paused", "since", "next", "routines"] {
             assert_eq!(
                 quiet["tokens"][k], "",
                 "{k} is cleared when there is nothing"

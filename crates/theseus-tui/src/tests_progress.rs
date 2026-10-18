@@ -1,5 +1,5 @@
 //! A task's progress line in the sidebar (theseus-xlias): the work board's
-//! `3/5 · line`, by the position rule, on the row of the session it names.
+//! `step 4 of 5 · line`, by the position rule, on the row of the session it names.
 
 use serde_json::json;
 use theseus_protocol::work::WorkView;
@@ -24,17 +24,17 @@ fn a_rows_line_follows_the_work_board_by_position() {
     b.work_views(&[view(5, (0, 3), Some("Laying out the plan."))]);
     assert_eq!(
         b.progress_line("ses_task").as_deref(),
-        Some("0/3 · Laying out the plan.")
+        Some("step 1 of 3 · Laying out the plan.")
     );
     b.work_views(&[view(9, (3, 3), Some("Closing the last step."))]);
     assert_eq!(
         b.progress_line("ses_task").as_deref(),
-        Some("3/3 · Closing the last step.")
+        Some("step 3 of 3 · Closing the last step.")
     );
     // An older view, heard late, changes nothing.
     b.work_views(&[view(7, (1, 3), None)]);
     assert_eq!(
         b.progress_line("ses_task").as_deref(),
-        Some("3/3 · Closing the last step.")
+        Some("step 3 of 3 · Closing the last step.")
     );
 }

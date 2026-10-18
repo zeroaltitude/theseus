@@ -387,7 +387,11 @@ fn task_event_is_ours(e: &TaskEvent) -> bool {
         | TaskEvent::Asked(v, _)
         | TaskEvent::Reported(v)
         | TaskEvent::Failed(v)
-        | TaskEvent::Cancelled(v) => v.kind == WorkKind::Task,
+        | TaskEvent::Cancelled(v)
+        | TaskEvent::Step(v)
+        | TaskEvent::PastUsual(v)
+        | TaskEvent::Paused(v)
+        | TaskEvent::Resumed(v) => v.kind == WorkKind::Task,
     }
 }
 

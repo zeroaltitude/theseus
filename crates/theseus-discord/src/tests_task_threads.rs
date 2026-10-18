@@ -682,12 +682,19 @@ async fn a_forum_post_is_the_tasks_live_card_and_its_tags_follow_its_state() {
         post.names
     );
     assert!(post.names[0].contains("Reef-chart"), "{:?}", post.names);
-    // The four tags exist, made once.
+    // The six tags exist, made once.
     let tags = r.fake.forum_tags(FORUM);
     let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(
         names,
-        ["needs you", "running", "done", "failed"],
+        [
+            "needs you",
+            "running",
+            "done",
+            "failed",
+            "paused",
+            "stopped"
+        ],
         "{tags:?}"
     );
     let id_of = |n: &str| tags.iter().find(|t| t.name == n).unwrap().id.clone();

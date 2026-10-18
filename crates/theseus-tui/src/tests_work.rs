@@ -195,7 +195,12 @@ async fn each_row_says_what_its_task_is_doing_and_for_how_long() {
         let s = rig.screen();
         eprintln!("{width}:\n{}", s.join("\n"));
         assert!(
-            row(&s, "Sound").contains("3/5 job 2:14 of usual 2:40"),
+            row(&s, "Sound").contains(if width < 100 {
+                "step 4 of 5 · job 2:14 of usual 2:40"
+            } else {
+                // The wider screen has a narrower sidebar.
+                "step 4 of 5 · job 2:14 of usua"
+            }),
             "{s:#?}"
         );
         assert!(row(&s, "Fetch").contains("model 0:31"), "{s:#?}");
@@ -397,4 +402,36 @@ async fn lost_work_events_ask_the_board_again() {
     rig.daemon()
         .notify("events.lost", json!({"dropped": 3, "streams": ["work"]}));
     rig.asked("work.watch", 2).await;
+}
+
+fn facts(paused: bool, minutes_run: u64) -> (crate::work::Facts, u64) {
+    let started = T0 - minutes_run * 60_000;
+    let forecast = serde_json::from_value(json!({
+        "usd_p50": 1.0, "usd_p90": 2.0, "min_p50": 10.0, "min_p90": 20.0, "n": 4
+    }))
+    .unwrap();
+    let f = crate::work::Facts {
+        steps: Some((2, 5)),
+        paused,
+        timing: Some((forecast, started)),
+        form: crate::work::Form::Text("waiting".into()),
+        report: None,
+    };
+    (f, T0)
+}
+
+/// A row says `paused` first and the time left last (theseus-ypnxt.2), and a
+/// row cut from its right end keeps `paused`.
+#[test]
+fn a_row_says_paused_and_time_left() {
+    let (f, now) = facts(true, 4);
+    let said = crate::work::doing(&f, now, &utc_hm);
+    assert_eq!(said, "paused · step 3 of 5 · waiting · ~6 min left");
+    let (_, cut) = crate::work::fit("Sound the north channel", "", &said, 24);
+    assert!(cut.starts_with("paused"), "{cut}");
+    let (f, now) = facts(false, 25);
+    assert_eq!(
+        crate::work::doing(&f, now, &utc_hm),
+        "step 3 of 5 · waiting · past its usual time"
+    );
 }

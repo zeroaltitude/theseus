@@ -102,6 +102,8 @@ pub struct Counts {
     pub needs: usize,
     pub working: usize,
     pub done: usize,
+    /// Tasks the owner paused (theseus-ypnxt.2).
+    pub paused: usize,
     pub spend_cents: u64,
     /// What happened since the owner last looked (`work.digest`), 0 when nothing did.
     pub since: u32,
@@ -430,6 +432,9 @@ impl Follower {
         let mut spend = 0.0;
         for t in self.tasks.values() {
             spend += t.spent;
+            if !t.ended() && t.last.as_ref().is_some_and(|v| v.paused) {
+                c.paused += 1;
+            }
             match t.level {
                 Level::NeedsYou => c.needs += 1,
                 Level::Working => c.working += 1,
@@ -681,6 +686,19 @@ mod tests {
                 ..Counts::default()
             }
         );
+    }
+
+    /// A paused task is counted for the Space row, and an ended one is not.
+    #[test]
+    fn paused_tasks_are_counted() {
+        let now = Instant::now();
+        let mut f = Follower::new(G);
+        let mut paused = view("exe_1", "ses_t1", "task", "running", "working", 1);
+        paused.paused = true;
+        let mut ended = view("exe_2", "ses_t2", "task", "done", "idle", 1);
+        ended.paused = true;
+        f.apply(&[paused, ended], &[], false, now, 0);
+        assert_eq!(f.counts(0).paused, 1);
     }
 
     /// A pinned session's tab stays whatever its task does: finished, seen,

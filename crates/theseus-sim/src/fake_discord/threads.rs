@@ -149,6 +149,19 @@ impl FakeDiscord {
         self.state.lock().unwrap().forums.contains(&c)
     }
 
+    /// A forum that already has these tags (one made before a build added
+    /// more), without a request.
+    pub fn seed_forum_tags(&self, forum: u64, names: &[&str]) {
+        let tags: Vec<FakeTag> = names
+            .iter()
+            .map(|n| FakeTag {
+                id: self.next_big().to_string(),
+                name: (*n).to_string(),
+            })
+            .collect();
+        self.state.lock().unwrap().forum_tags.insert(forum, tags);
+    }
+
     /// A forum's tags now, in order.
     pub fn forum_tags(&self, forum: u64) -> Vec<FakeTag> {
         self.state

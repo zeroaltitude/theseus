@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use theseus_protocol::notices::name_of;
 use theseus_protocol::term::words::clip;
-use theseus_protocol::usd;
+use theseus_protocol::work::progress_line::{cost_words, progress_rest, step_words};
 use theseus_protocol::work::{DoingKind, Question, QuestionKind, WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
 
@@ -221,7 +221,7 @@ pub fn activity(v: &WorkView, kids: &[&WorkView], now_ms: u64, clock: fn(u64) ->
     let running_job = kids
         .iter()
         .find(|k| k.kind == WorkKind::Job && !k.state.ended());
-    let mut s = match (running_job, v.doing.as_ref()) {
+    let s = match (running_job, v.doing.as_ref()) {
         (Some(j), _) => {
             // The job's own last line, sampled by the daemon (job-follow).
             let last = j
@@ -243,22 +243,26 @@ pub fn activity(v: &WorkView, kids: &[&WorkView], now_ms: u64, clock: fn(u64) ->
         },
         (None, None) => v.attention.label.clone(),
     };
-    // The plan's count and the model's own line, in the one wording every
-    // surface shares (`Progress::line`); the plan's current step when it has
-    // no line yet.
-    let plan = v.progress.as_ref().and_then(|p| {
-        p.line().or_else(|| {
-            p.current
-                .as_deref()
-                .map(first_line)
-                .filter(|c| !c.is_empty())
-                .map(str::to_string)
-        })
+    // `paused` first, so a clipped row never loses it; then the one progress
+    // line every surface shares (step, dollars, time left), then the model's
+    // own words, or the plan's current step when it has none yet.
+    let said = v.progress.as_ref().and_then(|p| {
+        p.said
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or(p.current.as_deref())
+            .map(first_line)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
     });
-    if let Some(plan) = plan {
-        s.push_str(&format!(" · {plan}"));
+    let mut parts = Vec::new();
+    if v.paused {
+        parts.push("paused".to_string());
     }
-    s
+    parts.push(s);
+    parts.extend(progress_rest(v, now_ms));
+    parts.extend(said);
+    parts.join(" · ")
 }
 
 /// What a routine, a watch or a project waits for: `routine · next Fri
@@ -438,7 +442,7 @@ pub fn tree(views: &[WorkView], now_ms: u64, width: usize, more: u64) -> Vec<Lin
     }
     let cells: Vec<Cells> = all
         .iter()
-        .map(|(r, _)| Cells::of(r, now_ms, self::clock, false))
+        .map(|(r, _)| Cells::of(r, now_ms, self::clock))
         .collect();
     let layout = Layout::of(&all, &cells, width);
     for ((row, header), cell) in all.iter().zip(&cells) {
@@ -482,24 +486,16 @@ struct Cells {
     id: String,
     title: String,
     elapsed: String,
-    /// What it has spent: blank in the tree, shown in the footer.
-    cost: String,
     activity: String,
 }
 
 impl Cells {
-    fn of(r: &Row, now_ms: u64, clock: fn(u64) -> String, with_cost: bool) -> Self {
+    fn of(r: &Row, now_ms: u64, clock: fn(u64) -> String) -> Self {
         let sid = r.v.session_id.as_deref().unwrap_or(&r.v.id);
-        let spent = r.v.cost.map_or(0.0, |c| c.spent_usd);
         Cells {
             id: short_id(sid),
             title: name(r.v),
             elapsed: elapsed(r.v, now_ms, clock),
-            cost: if with_cost && spent > 0.0 {
-                usd(spent)
-            } else {
-                String::new()
-            },
             activity: activity(r.v, r.kids, now_ms, clock),
         }
     }
@@ -509,8 +505,6 @@ impl Cells {
 struct Layout {
     title_w: usize,
     elapsed_w: usize,
-    /// 0 when no row shows a cost: the column is then absent.
-    cost_w: usize,
     activity_w: usize,
 }
 
@@ -518,7 +512,6 @@ impl Layout {
     fn of(rows: &[(&Row, bool)], cells: &[Cells], width: usize) -> Self {
         let widest = |f: &dyn Fn(&Cells) -> usize| cells.iter().map(f).max().unwrap_or(0);
         let elapsed_w = widest(&|c| c.elapsed.chars().count());
-        let cost_w = widest(&|c| c.cost.chars().count());
         let mut title_w = widest(&|c| c.title.chars().count());
         let mut activity_w = widest(&|c| c.activity.chars().count()).min(ACTIVITY_MAX);
         let prefix = rows
@@ -526,9 +519,8 @@ impl Layout {
             .map(|(r, _)| r.indent + 2 + 6 + 2)
             .max()
             .unwrap_or(10);
-        // title, two spaces, elapsed, two spaces, [cost, two spaces,] activity.
-        let cost_room = if cost_w > 0 { cost_w + 2 } else { 0 };
-        let room = width.saturating_sub(prefix + 2 + elapsed_w + 2 + cost_room);
+        // title, two spaces, elapsed, two spaces, activity.
+        let room = width.saturating_sub(prefix + 2 + elapsed_w + 2);
         if title_w + activity_w > room {
             // The titles give way first, down to a floor.
             title_w = title_w.min(room.saturating_sub(activity_w).max(TITLE_FLOOR));
@@ -541,7 +533,6 @@ impl Layout {
         Layout {
             title_w,
             elapsed_w,
-            cost_w,
             activity_w,
         }
     }
@@ -560,13 +551,8 @@ impl Layout {
             // you or work, where a task has its time and its doing.
             format!("{lead}{mark} {}  {title}", c.id)
         } else {
-            let cost = if self.cost_w > 0 {
-                format!("{:>cw$}  ", c.cost, cw = self.cost_w)
-            } else {
-                String::new()
-            };
             format!(
-                "{lead}{mark} {}  {title:<tw$}  {:>ew$}  {cost}{}",
+                "{lead}{mark} {}  {title:<tw$}  {:>ew$}  {}",
                 c.id,
                 c.elapsed,
                 clip(&c.activity, self.activity_w),
@@ -621,10 +607,7 @@ pub fn footer(views: &[WorkView], now_ms: u64, width: usize, max: usize) -> Foot
     let more = all.len().saturating_sub(max);
     all.truncate(max);
     let shown: Vec<(&Row, bool)> = all.iter().map(|r| (r, false)).collect();
-    let cells: Vec<Cells> = all
-        .iter()
-        .map(|r| Cells::of(r, now_ms, coarse, true))
-        .collect();
+    let cells: Vec<Cells> = all.iter().map(|r| Cells::of(r, now_ms, coarse)).collect();
     let layout = Layout::of(&shown, &cells, width);
     let rows = shown
         .iter()
@@ -672,6 +655,18 @@ pub enum Event<'a> {
     /// A task failed or is blocked, with why.
     Failed(&'a WorkView),
     Cancelled(&'a WorkView),
+    /// The plan moved to another step.
+    Step(&'a WorkView),
+    /// The forecast says the task has run past its usual time (once).
+    PastUsual(&'a WorkView),
+    Paused(&'a WorkView),
+    Resumed(&'a WorkView),
+}
+
+/// The plan's step a view shows: `(step, of)`.
+fn step_of(v: &WorkView) -> Option<(u32, u32)> {
+    let p = v.progress.as_ref().filter(|p| p.steps_total > 0)?;
+    Some(((p.steps_done + 1).min(p.steps_total), p.steps_total))
 }
 
 /// The events one view's change makes, `prev` being the last view of the
@@ -694,6 +689,22 @@ pub fn events<'a>(prev: Option<&WorkView>, next: &'a WorkView) -> Vec<Event<'a>>
     if let Some(q) = next.question.as_ref().filter(|_| !next.state.ended()) {
         if was_q != Some(q.id.as_str()) {
             out.push(Event::Asked(next, q));
+        }
+    }
+    if let Some(p) = prev.filter(|_| task && !next.state.ended()) {
+        if step_of(p) != step_of(next) && step_of(next).is_some() {
+            out.push(Event::Step(next));
+        }
+        let past = |v: &WorkView| v.forecast.as_ref().is_some_and(|f| f.past);
+        if past(next) && !past(p) {
+            out.push(Event::PastUsual(next));
+        }
+        if next.paused != p.paused {
+            out.push(if next.paused {
+                Event::Paused(next)
+            } else {
+                Event::Resumed(next)
+            });
         }
     }
     let was = prev.map(|p| p.state);
@@ -762,6 +773,26 @@ pub fn event_line(e: &Event) -> Line {
             )
         }
         Event::Cancelled(v) => Line::new(Tag::Warn, format!("✗ {} cancelled", name(v))),
+        Event::Step(v) => {
+            let mut parts = v
+                .progress
+                .as_ref()
+                .and_then(|p| step_words(p.steps_done, p.steps_total))
+                .into_iter()
+                .collect::<Vec<_>>();
+            parts.extend(v.cost.as_ref().map(cost_words));
+            Line::new(
+                Tag::Level(Level::Working),
+                format!("◐ {}: {}", name(v), parts.join(" · ")),
+            )
+        }
+        Event::PastUsual(v) => {
+            Line::new(Tag::Warn, format!("◐ {} is past its usual time", name(v)))
+        }
+        Event::Paused(v) => Line::new(Tag::Warn, format!("⏸ {} paused", name(v))),
+        Event::Resumed(v) => {
+            Line::new(Tag::Level(Level::Working), format!("▶ {} resumed", name(v)))
+        }
     }
 }
 

@@ -27,6 +27,8 @@ use theseus_protocol::{
 
 use super::dock::DockCtx;
 use super::editor::Taken;
+use theseus_protocol::work::progress_line::progress_rest;
+
 use super::live::Live;
 use super::reopen::REPLAY_NODES;
 use super::state::{call, Chat, Effect, Purpose, AUTHOR};
@@ -729,13 +731,16 @@ pub fn header_rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
             s => s.as_str(),
         };
         let end = w.ended_at_ms.unwrap_or(ctx.now_ms);
+        // `paused` first, then the state and its clock, then the one progress
+        // line's step, dollars and time left (theseus-ypnxt.2).
+        if w.paused {
+            facts.push("paused".to_string());
+        }
         facts.push(format!(
             "{state} {}",
             task_tree::coarse(end.saturating_sub(w.started_at_ms))
         ));
-        if let Some(c) = &w.cost {
-            facts.push(theseus_protocol::usd(c.spent_usd));
-        }
+        facts.extend(progress_rest(w, ctx.now_ms));
     }
     let keys = match (v.join, ended) {
         (false, false) => "j join · i inspector · Esc back to main",

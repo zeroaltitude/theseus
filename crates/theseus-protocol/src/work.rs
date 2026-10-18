@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod horizon;
+pub mod progress_line;
 
 use crate::push::clip;
 use crate::work::horizon::{ProjectView, RoutineView, Series, WatchView};
@@ -319,12 +320,11 @@ pub struct Progress {
 
 impl Progress {
     /// The one wording every surface shows (theseus-xlias): the plan's count,
-    /// then the model's own line: `3/5 · Running the tests again with the
+    /// then the model's own line: `step 4 of 5 · Running the tests again with the
     /// fix…`. A task with no plan shows its line alone, a plan with no line
     /// its count alone; none when it has neither.
     pub fn line(&self) -> Option<String> {
-        let count =
-            (self.steps_total > 0).then(|| format!("{}/{}", self.steps_done, self.steps_total));
+        let count = progress_line::step_words(self.steps_done, self.steps_total);
         let said = self.said.as_deref().filter(|s| !s.is_empty());
         match (count, said) {
             (Some(c), Some(s)) => Some(format!("{c} · {s}")),

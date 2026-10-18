@@ -14,6 +14,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use theseus_protocol::forecast::WorkForecast;
+use theseus_protocol::work::progress_line::{step_words, time_left};
 use theseus_protocol::work::{DoingKind, WorkKind, WorkState, WorkView};
 use unicode_width::UnicodeWidthStr;
 
@@ -55,10 +57,14 @@ pub enum Form {
 }
 
 /// What a row knows besides its session's name.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Facts {
     /// Plan steps done and in all, when the task has a plan.
     pub steps: Option<(u32, u32)>,
+    pub paused: bool,
+    /// The forecast and the start of a task that has not ended: what its
+    /// time left is made from (theseus-ypnxt.2).
+    pub timing: Option<(WorkForecast, u64)>,
     pub form: Form,
     /// A finished task's first report line.
     pub report: Option<String>,
@@ -199,6 +205,12 @@ impl Work {
                 .as_ref()
                 .filter(|p| p.steps_total > 0)
                 .map(|p| (p.steps_done, p.steps_total)),
+            paused: v.paused,
+            timing: v
+                .forecast
+                .clone()
+                .filter(|_| !v.state.ended())
+                .map(|f| (f, v.started_at_ms)),
             form: form_of(v, jobs.get(v.id.as_str()).copied()),
             report: (v.state == WorkState::Done && v.kind == WorkKind::Task)
                 .then(|| {
@@ -274,7 +286,7 @@ pub fn clock(ms: u64) -> String {
 }
 
 /// What a row says its session is doing, at `now_ms`; `hm` writes a time of
-/// day. The plan's `3/5` comes first.
+/// day. `paused` and the plan's `step 3 of 5` come first, the time left last.
 pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
     let since = |t: u64| clock(now_ms.saturating_sub(t));
     let body = match &f.form {
@@ -299,10 +311,17 @@ pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
         Form::Done { at_ms } => format!("done {}", hm(*at_ms)),
         Form::Text(t) => t.clone(),
     };
-    match f.steps {
-        Some((done, total)) => format!("{done}/{total} {body}"),
-        None => body,
-    }
+    // `paused` first, so a cut row keeps it; then the step, what it does, and
+    // the time left.
+    let parts = [
+        f.paused.then(|| "paused".to_string()),
+        f.steps.and_then(|(done, total)| step_words(done, total)),
+        Some(body),
+        f.timing
+            .as_ref()
+            .and_then(|(fc, started)| time_left(fc, *started, now_ms)),
+    ];
+    parts.into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
 /// A row's title and doing cut to `room` columns, two apart: the title first,

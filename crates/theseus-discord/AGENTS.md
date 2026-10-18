@@ -183,7 +183,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     draws its own board. Nothing is stored; "since you looked" is one in-memory time a place (`Clear done`).
   - **The board** (`render/board_v2.rs`, `render/v2.rs`, `runtime/live_board.rs`, `courier/v2.rs`): one Components V2
     message a place, pinned, **edited and never posted anew**, so it never pings; a header with the counts, **Needs you**
-    (title, short id, the question, `[ Answer ↗ ]`), **Now** (what it does, turn, `$spent of $limit`), **Done, not yet
+    (title, short id, the question, `[ Answer ↗ ]`), **Now** (what it does, then the one progress line: `step 3 of 5 · $0.42 of $2 · ~6 min left`; `turn N` only with no plan; a paused task shows ⏸️ and `paused` first; theseus-ypnxt.2), **Done, not yet
     seen** (24 h, until Clear), `[ ✓ Clear done ] [ 🔕 Quiet 1 h ]` and a select "Open a task…". Times are Discord's
     `<t:…:R>`, which tick by themselves, so a quiet board is never edited for the clock. At most 40 components and 4,000
     characters (`v2::validate`): a part folds its tail into `+N more · /tasks` (needs you keeps the longest waiting
@@ -326,8 +326,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     (`↩ back to <#channel>`). `/new` in a task's thread is refused: the thread is the task's.
   - **The forum.** The worker (`forum::run`) is the only thing that talks to a forum. Each task of an eligible place is a post
     (`takes`: a private forum shows every task, a shared one only the shared places' of its own guild): the first message is the
-    task's card (`task_view::post_card`, no button that acts; a link to its thread), edited on change at most once in 2 s; the four
-    tags `needs you`, `running`, `done`, `failed` are made once if the forum lacks them; a tag edit is made at most once in 5 minutes
+    task's card (`task_view::post_card`, no button that acts; a link to its thread), edited on change at most once in 2 s; the six
+    tags `needs you`, `running`, `done`, `failed`, `paused` (a paused task, `running` again on resume) and `stopped` (cancelled or expired) are made once if the forum lacks them, so a forum made before them gains the last two at its first use; a tag edit is made at most once in 5 minutes
     (`Pace`/`wait`) and the final state at once. The DM's board row, and a channel's, link to the task's post or thread
     (`Parts.links`). Open posts: META `discord.task_posts`. Tests: `forum.rs`'s and `tests_task_threads.rs`.
   - **The busy day** (10 tasks, 200 transitions): a thread costs one `GET` of its channel, one `POST`, one quiet notice and one
@@ -372,7 +372,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `Shared::ensure_forum`, at the start and at each READY, finds it (the META record `discord.default_forum`, kept while `forum_channel` is
   what it was resolved from, so a renamed forum is still the forum; else a configured id, which must be a forum of the guild; else
   the first forum of that name) or makes it: type 15, `@everyone` denied View Channel, each owner and the bot allowed (`OWNER_BITS`,
-  `BOT_BITS`), the four state tags. A 403, or an id that is no forum, turns it off for the run with one quiet line to the owner
+  `BOT_BITS`), the six state tags. A 403, or an id that is no forum, turns it off for the run with one quiet line to the owner
   (`to_operator`); a network failure is tried again. The state is a `watch` (`Stand`): a task that would be homed waits at most 30 s for it.
   **Every task gets one post**, made only by the forum worker (`forum.rs`). `home_of(forum_homed, is_channel_place)` says where a new task
   works: `Post` (the DM's and a private channel's tasks: the post is a row of `TaskThreads` as a thread is, so steering, `/new`'s refusal,
