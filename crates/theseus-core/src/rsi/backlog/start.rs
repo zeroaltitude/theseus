@@ -224,9 +224,17 @@ impl Core {
                         tracing::warn!(item = %id, %why, "self mint: not started");
                         continue;
                     }
-                    if let Some(s) = self.mint_open(w, (&id, rank), motif, kind)? {
-                        night.started.push(s);
-                        started += 1;
+                    match self.mint_open(w, (&id, rank), motif, kind) {
+                        Ok(Some(s)) => {
+                            night.started.push(s);
+                            started += 1;
+                        }
+                        Ok(None) => {}
+                        // A motif that cannot be prepared (its skeleton is no
+                        // valid flow, its check half could not be written)
+                        // fails its own item, saying why, and nothing else:
+                        // the night's fix starts still run.
+                        Err(e) => Self::mint_unprepared(w, &id, &format!("{e:#}")),
                     }
                 }
             }
@@ -249,6 +257,27 @@ impl Core {
             note: Some(format!(
                 "{why}: a minted tool never asks for either on its own"
             )),
+            by: "self-mint".into(),
+            at_ms: now,
+        });
+        w.touch(id);
+    }
+
+    /// An item whose mint could not be prepared: `failed`, with the reason.
+    /// A later night does not try it again (the owner can reopen it).
+    fn mint_unprepared(w: &mut Work, id: &str, why: &str) {
+        tracing::warn!(item = %id, %why, "self mint: not started");
+        let now = w.now;
+        let Some(t) = w.tasks.get_mut(id) else {
+            return;
+        };
+        t.state = TaskState::Failed;
+        t.version += 1;
+        t.updated_at_ms = now;
+        t.evidence.push(TaskEvidence {
+            node: None,
+            identity: "mint:failed".into(),
+            note: Some(format!("the mint could not be prepared: {why}")),
             by: "self-mint".into(),
             at_ms: now,
         });

@@ -187,6 +187,10 @@ impl GitFixtures {
             && git(&work, &["init", "-q", "-b", "main"])
             && git(&work, &["config", "rerere.enabled", "true"])
             && git(&work, &["config", "rerere.autoupdate", "true"])
+            // No detached auto-maintenance: its `rerere gc` takes
+            // MERGE_RR.lock in the fixture while it is copied or snapshotted.
+            && git(&work, &["config", "gc.auto", "0"])
+            && git(&work, &["config", "maintenance.auto", "false"])
             && git(
                 &work,
                 &["remote", "add", "origin", &up.display().to_string()],

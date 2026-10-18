@@ -466,3 +466,52 @@ async fn the_check_half_replays_dry_from_recorded_sessions() {
     );
     drop(_guards);
 }
+
+/// A mint that cannot be prepared (here its check half cannot be written)
+/// fails its own item with the reason, and the night still ends `Ok`: a
+/// bad motif never costs the night its other starts, and it is not tried
+/// again every night (a join fix).
+#[test]
+fn a_mint_that_cannot_be_prepared_fails_its_item_and_the_night_goes_on() {
+    let c = minting(|m| m.per_night = 1);
+    let dir = repo();
+    let t = now();
+    seed(&c, &dir, t, None);
+    // A file where each motif's mint directory would go.
+    let root = c.tools.flows.root().to_path_buf();
+    std::fs::create_dir_all(&root).unwrap();
+    let mined = c.mine_run(t, false).unwrap().mined;
+    assert!(!mined.motifs.is_empty());
+    for m in &mined.motifs {
+        std::fs::write(
+            root.join(crate::rsi::mint::spec::placeholder_name(m)),
+            "not a directory",
+        )
+        .unwrap();
+    }
+    let night = c.backlog_night(t).unwrap();
+    assert!(
+        night.started.iter().all(|s| s.mint.is_none()),
+        "{:?}",
+        night.started
+    );
+    let failed: Vec<_> = all_items(&c)
+        .into_iter()
+        .filter(|i| i.state == "failed")
+        .collect();
+    assert_eq!(failed.len(), 1, "{:?}", all_items(&c));
+    let again = c.backlog_night(t + 1000).unwrap();
+    assert!(again.started.iter().all(|s| s.mint.is_none()));
+    // The failed item is not tried again (the next motif may be).
+    let first = all_items(&c)
+        .into_iter()
+        .find(|i| i.id == failed[0].id)
+        .unwrap();
+    assert_eq!(first.state, "failed");
+}
+
+fn all_items(c: &Core) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {
+    c.self_backlog(&SelfBacklogParams { all: true })
+        .unwrap()
+        .items
+}
