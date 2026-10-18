@@ -4,7 +4,7 @@
 #   1. preflight  Linux, not root; your systemd user manager (and linger); cgroup v2; the pinned toolchain
 #                 (rust-toolchain.toml) and node 22+ with npm, to build; `op` when the config names op://
 #                 references; the token file, if one is named. A FAIL stops the run before anything changes.
-#   2. build      the cockpit (npm ci, npm run build: the web UI the daemon embeds), then the five binaries
+#   2. build      the cockpit (npm ci, npm run build: the web UI the daemon embeds), then the five binaries (four are installed)
 #                 (scripts/build.sh --profile release-thin, the install profile: the host's glibc).
 #   3. install    each binary into the prefix (default ~/.local/bin) by copy-then-rename, so a running daemon
 #                 keeps its image until it restarts. A binary that matches the build is left alone.
@@ -57,7 +57,7 @@ case ${XDG_CONFIG_HOME:-} in
 /*) CONFIG_HOME=$XDG_CONFIG_HOME ;;
 *) CONFIG_HOME=$HOME/.config ;;
 esac
-SHIPPED=(theseusd theseus theseus-tui theseus-sim theseus-index) # scripts/build.sh --shipped
+INSTALLED=(theseusd theseus theseus-tui theseus-index) # scripts/build.sh --installed (theseus-sim is built, not installed)
 DEFAULT_CONFIG_FILE=/etc/theseus/theseus.toml
 DRY=0
 BUILD=1
@@ -463,7 +463,7 @@ else
   dry && note "cargo builds what changed; a second run finds everything fresh"
 fi
 if ! dry; then
-  for b in "${SHIPPED[@]}"; do
+  for b in "${INSTALLED[@]}"; do
     [ -x "$TARGET/$b" ] || stop_here 1 "Not set up: $TARGET/$b is missing: build first (scripts/build.sh --profile release-thin)."
   done
 fi
@@ -472,7 +472,7 @@ fi
 step "3. install: the binaries into $PREFIX, each by copy-then-rename"
 if [ ! -d "$PREFIX" ]; then run mkdir -p "$PREFIX" || exit 1; fi
 same=0
-for b in "${SHIPPED[@]}"; do
+for b in "${INSTALLED[@]}"; do
   if dry; then
     show install -m 0755 "$TARGET/$b" "$PREFIX/.$b.new"
     show mv -f "$PREFIX/.$b.new" "$PREFIX/$b"
@@ -489,7 +489,7 @@ done
 if dry; then
   note "each one only if it differs from the build (cmp): a binary that matches is left alone"
 elif [ $CHANGED_BINS = 0 ]; then
-  ok "all ${#SHIPPED[@]} match the build: nothing to install"
+  ok "all ${#INSTALLED[@]} match the build: nothing to install"
 else
   ok "installed $CHANGED_BINS ($same already matched): $("$PREFIX/theseusd" --version 2>/dev/null)"
 fi

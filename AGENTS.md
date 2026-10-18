@@ -204,7 +204,7 @@ Each traces to the Part III item that taught it.
   `docs/status.md` (its "Updated" line, the recently landed step, the roadmap's row). Take every time you write from
   `date`, never a guess.
 - **Installing** a reviewed build (`scripts/build.sh --profile release-thin`): copy-then-rename each of `theseus`,
-  `theseusd`, `theseus-sim`, `theseus-tui`, and `theseus-index` into `~/.local/bin` (`cp target/release-thin/$b
+  `theseusd`, `theseus-tui`, and `theseus-index` (`build.sh --installed`; `theseus-sim` stays in `target/`) into `~/.local/bin` (`cp target/release-thin/$b
   ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b`). A running daemon survives the swap. The daemon
   runs the `theseus-index` beside its own binary as its index tender, and only that one; a running tender keeps its old
   image until it restarts. `scripts/setup.sh` does all of it, from a checkout to a running service (`docs/setup.md`).

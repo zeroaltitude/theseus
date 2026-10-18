@@ -37,8 +37,8 @@ Each step prints one line per thing it checks or does, and the commands it runs 
 2. **Build**: in `cockpit/`, `npm ci` (skipped when `node_modules` matches the lock file) and `npm run build`
    (skipped when its output is newer than every source), then `scripts/build.sh --profile release-thin`, the
    install profile: the host's glibc build of the five shipped binaries (`theseusd`, `theseus`, `theseus-tui`,
-   `theseus-sim`, `theseus-index`). Cargo rebuilds only what changed.
-3. **Install**: each binary into `~/.local/bin` (`--prefix`), by a copy to a temporary name and a rename over the
+   `theseus-sim`, `theseus-index`; `theseus-sim` is built for the benches and the size check, and stays in `target/`). Cargo rebuilds only what changed.
+3. **Install**: each of the four binaries but `theseus-sim` into `~/.local/bin` (`--prefix`), by a copy to a temporary name and a rename over the
    old one, so a running daemon keeps its image until it restarts. A binary that matches the build is left alone.
 4. **Config**: when `/etc/theseus/theseus.toml` (`--config`) does not exist, the script writes it from the
    template: `theseusd example-config`, cut by `theseusd config --sparse` to what differs from the defaults, with
@@ -128,7 +128,7 @@ The same steps, one at a time:
 ```bash
 (cd cockpit && npm ci && npm run build)          # the cockpit first: it is embedded in theseusd
 scripts/build.sh --profile release-thin
-for b in theseusd theseus theseus-tui theseus-sim theseus-index; do
+for b in theseusd theseus theseus-tui theseus-index; do
   cp target/release-thin/$b ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b
 done
 sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 /etc/theseus
