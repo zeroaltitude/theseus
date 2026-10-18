@@ -564,7 +564,7 @@ impl TurnRunner {
         let hours = self
             .catalog
             .get(&b.target.model)
-            .and_then(|e| break_even_hours(e, self.cfg.cache.keep_warm_minutes))
+            .and_then(|e| break_even_hours(e, self.cfg.cache.keep_warm_every_minutes))
             .map_or(hours, |cap| hours.min(cap));
         let window = Duration::from_secs_f64(hours * 3600.0);
         if kw.since_message(session_id).is_none_or(|ago| ago >= window) {

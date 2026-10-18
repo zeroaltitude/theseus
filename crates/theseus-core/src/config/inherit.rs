@@ -5,18 +5,17 @@ use std::collections::BTreeMap;
 
 use super::ProfileConfig;
 
-/// The fields `[model]` and a profile share, bar `model`, which a profile always names.
-const SHARED: [&str; 10] = [
+/// The fields `[model]` and a profile share, bar `model`, which a profile always names. A profile's
+/// `cache_ttl` and `keep_warm_hours` come from `[cache]` (`cache::inherit`, theseus-rwpbg.10).
+const SHARED: [&str; 8] = [
     "provider",
     "max_output_tokens",
     "system",
     "effort",
     "thinking_display",
     "max_loops",
-    "max_loops_mode",
+    "on_max_loops",
     "refusal_fallbacks",
-    "cache_ttl",
-    "keep_warm_hours",
 ];
 
 /// The profiles of the document `doc`, each with the `[model]` values it leaves unset written in.

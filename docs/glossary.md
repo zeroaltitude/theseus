@@ -35,8 +35,8 @@ committed. A *private* place.
 (`crates/theseus-protocol/src/lib.rs`). A person talks in it; a task works for it. It is also a kind of execution.
 
 **conversation mode**: one of `ask`, `edits`, `plan`, `auto` (`SessionMode`, `crates/theseus-protocol/src/modes.rs`),
-set with Shift+Tab or `theseus mode`. It changes how a conversation's tool postures act. One of the several *modes*
-(see *mode*).
+set with Shift+Tab or `theseus mode`. It changes how a conversation's tool postures act. The only thing the word *mode*
+names (see *mode*).
 
 ## E
 
@@ -66,19 +66,19 @@ acts. `theseus judge log` lists them.
 
 ## K
 
-**keep-warm**: after a conversation's last turn, one small request every `[cache] keep_warm_minutes` that reads the
+**keep-warm**: after a conversation's last turn, one small request every `[cache] keep_warm_every_minutes` that reads the
 cached prefix and so keeps it from expiring (`crates/theseus-core/src/keep_warm.rs`).
 
 ## M
 
-**mode**: the word has many meanings. (1) *Conversation mode*: `ask`, `edits`, `plan`, `auto`. (2) *Routing mode*: the
-interaction mode the route pack decides a message needs (`trivial`, `quick`, `chat`, `sophisticated`, and others;
-`[routing.modes.<mode>]`, `crates/theseus-protocol/src/route.rs`); `[routing] mode` is a different value, `live` or
-`shadow`. (3) *Pack mode*: `off`, `shadow`, `canary`, `live` (`PackMode`). (4) `[memory] mode`: `off`, `shadow`,
-`canary`, `live`, for recall (`MemoryMode`). (5) `max_loops_mode`: `notify` or `end` (`[profiles.*]`). (6) The spend-limit
-mode `[kernel] spend_limit_mode` (`notify` or `ask`) and the daily ceiling's `daily_spend_ceiling_mode` (`notify` or
-`stop`), both in `crates/theseus-core/src/config/limits.rs`. (7) Self mode, `[self] mode`: `off` or `act` (`SelfMode`,
-`crates/theseus-protocol/src/rsi.rs`).
+**mode**: a conversation's mode: `ask`, `edits`, `plan`, `auto`. The word used to name more: a routing *task class*
+(`[routing.classes.<name>]`), a pack's *rung* (`[routing] rung`, `[judge.packs.*] rung`), and `on_max_loops` are the new names.
+That leaves `[memory] mode` (`off`, `shadow`, `canary`, `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
+(`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later.
+
+**task class**: what the route pack decides a message needs (`trivial`, `quick`, `chat`, `sophisticated`, `deep_coding`,
+`routine_coding`, `review`, `other`), with the profiles that serve it in `[routing.classes.<name>]`; `[routing] rung` is a
+different value, `live` or `shadow`. `theseus why` prints it as "task class".
 
 ## N
 
@@ -89,9 +89,9 @@ mode `[kernel] spend_limit_mode` (`notify` or `ask`) and the daily ceiling's `da
 
 **pack**: a Jev question as versioned TOML data (`crates/theseus-judge/src/pack.rs`). Each pack has a mode.
 
-**pack mode**: what a pack may do: `off` (not called), `shadow` (called and recorded), `canary` (acts for a share of
-sessions) or `live` (acts everywhere). The ladder moves a pack between them; the config's `max_mode` is a ceiling
-(`crates/theseus-core/src/config/judge.rs`, `crates/theseus-core/src/judge/ladder/`). `theseus packs` shows each pack's mode.
+**rung** (a pack's mode): what a pack may do: `off` (not called), `shadow` (called and recorded), `canary` (acts for a share of
+sessions) or `live` (acts everywhere). The ladder moves a pack between them; the config's `max_mode` is a ceiling; a pack's own `rung` lowers it
+(`crates/theseus-core/src/config/judge.rs`, `crates/theseus-core/src/judge/ladder/`). `theseus packs` shows each pack's rung.
 
 **persona**: who Theseus speaks as: a name, voice and files, chosen by session, place or `[context] default_persona`
 (`crates/theseus-core/src/persona.rs`). `theseus persona`.
@@ -141,10 +141,11 @@ preference or fact) and a scope (everywhere, a place, a session, or a surface). 
 **store format**: the one number, `MANIFEST_FORMAT` (`crates/theseus-store/src/store.rs`), that a step bumps when it
 changes a stored record. A build refuses a store newer than it knows.
 
-**surface**: where a person wrote from. It has two sets of names. `approval::Surface` is the listener that accepted a
-connection: `cli`, `web`, `discord`, `mcp`, and `unnamed` (`crates/theseus-core/src/approval.rs`). A standing order's
-scope uses `terminal`, `cockpit`, `voice`, `discord`, `mcp` (`standing::surface_name`); `terminal` is the CLI and the
-TUI, `cockpit` the web UI, `voice` Discord's voice. A message node records a short code for it (`surface.rs`).
+**surface**: where a person wrote from. A person reads one spelling: `terminal` (the CLI and the TUI), `cockpit` (the web
+UI), `discord`, `voice` (Discord's voice) and `mcp` (`standing::surface_name`, which `standing add --surface` takes).
+`approval::Surface` is the listener that accepted a connection and stores `cli`, `web`, `discord`, `mcp` and `unnamed`
+(`crates/theseus-core/src/approval.rs`); `approval::display_name` is the one function that turns a stored `cli` or `web`
+into `terminal` or `cockpit`. A message node records a short code for it (`surface.rs`).
 
 ## T
 

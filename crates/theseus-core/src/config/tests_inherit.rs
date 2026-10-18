@@ -55,18 +55,26 @@ const KEY: &str = "[secrets]\nanthropic_api_key = \"env:THESEUS_TEST_KEY\"\nzai_
     [providers.zai]\napi_base = \"https://api.z.ai/api/anthropic\"\napi_key_secret = \"zai_api_key\"\n";
 
 fn load(model: &str, profile: &str) -> Config {
-    let text =
-        format!("{KEY}[model]\n{model}\n[profiles.p]\nmodel = \"claude-sonnet-5-5\"\n{profile}\n");
+    load_cached("", model, profile)
+}
+
+/// `load` with a `[cache]` section, where a profile's cache defaults live (theseus-rwpbg.10).
+fn load_cached(cache: &str, model: &str, profile: &str) -> Config {
+    let text = format!(
+        "{KEY}[cache]\n{cache}\n[model]\n{model}\n[profiles.p]\nmodel = \"claude-sonnet-5-5\"\n{profile}\n"
+    );
     Config::parse(&text).unwrap().0
 }
 
-/// Each field `[model]` shares with a profile reaches a profile that says nothing of it.
+/// Each field `[model]` shares with a profile reaches a profile that says nothing of it, and so do
+/// `[cache]`'s two.
 #[test]
 fn a_model_field_reaches_every_profile_that_leaves_it_unset() {
-    let cfg = load(
+    let cfg = load_cached(
+        "ttl = \"1h\"\nkeep_warm_hours = 3.0",
         "provider = \"zai\"\nmax_output_tokens = 9000\nsystem = \"Be brief.\"\neffort = \"low\"\n\
-         thinking_display = \"omitted\"\nmax_loops = 7\nmax_loops_mode = \"end\"\n\
-         refusal_fallbacks = false\ncache_ttl = \"1h\"\nkeep_warm_hours = 3.0",
+         thinking_display = \"omitted\"\nmax_loops = 7\non_max_loops = \"end\"\n\
+         refusal_fallbacks = false",
         "",
     );
     let p = cfg.profile("p").unwrap();
@@ -75,7 +83,7 @@ fn a_model_field_reaches_every_profile_that_leaves_it_unset() {
     assert_eq!(p.system.as_deref(), Some("Be brief."));
     assert_eq!(p.effort, Some(Effort::Low));
     assert_eq!(p.thinking_display, ThinkingDisplay::Omitted);
-    assert_eq!((p.max_loops, p.max_loops_mode), (7, MaxLoopsMode::End));
+    assert_eq!((p.max_loops, p.on_max_loops), (7, MaxLoopsMode::End));
     assert!(!p.refusal_fallbacks);
     assert_eq!(
         (p.cache_ttl, p.keep_warm_hours),
@@ -83,30 +91,31 @@ fn a_model_field_reaches_every_profile_that_leaves_it_unset() {
     );
 }
 
-/// The bug the review found: `[model] max_loops_mode` was ignored by every named profile.
+/// The bug the review found: `[model] max_loops_mode` (now `on_max_loops`) was ignored by every named profile.
 #[test]
-fn max_loops_mode_in_model_is_inherited() {
-    let cfg = load("max_loops_mode = \"end\"", "");
-    assert_eq!(cfg.profile("p").unwrap().max_loops_mode, MaxLoopsMode::End);
+fn on_max_loops_in_model_is_inherited() {
+    let cfg = load("on_max_loops = \"end\"", "");
+    assert_eq!(cfg.profile("p").unwrap().on_max_loops, MaxLoopsMode::End);
 }
 
 /// What a profile says is its own, whatever `[model]` says.
 #[test]
 fn a_profile_value_wins_over_model() {
-    let cfg = load(
-        "max_loops = 7\nmax_loops_mode = \"end\"\ncache_ttl = \"1h\"",
-        "max_loops = 90\nmax_loops_mode = \"notify\"\ncache_ttl = \"5m\"",
+    let cfg = load_cached(
+        "ttl = \"1h\"",
+        "max_loops = 7\non_max_loops = \"end\"",
+        "max_loops = 90\non_max_loops = \"notify\"\ncache_ttl = \"5m\"",
     );
     let p = cfg.profile("p").unwrap();
-    assert_eq!((p.max_loops, p.max_loops_mode), (90, MaxLoopsMode::Notify));
+    assert_eq!((p.max_loops, p.on_max_loops), (90, MaxLoopsMode::Notify));
     assert_eq!(p.cache_ttl, Some(CacheTtl::FiveMinutes));
 }
 
-const OWNER: &str = "[model]\ncache_ttl = \"1h\"\nmax_loops = 40\n\
+const OWNER: &str = "[cache]\nttl = \"1h\"\n[model]\nmax_loops = 40\n\
     [profiles.a]\nmodel = \"claude-sonnet-5-5\"\ncache_ttl = \"1h\"\nmax_loops = 40\n\
     [profiles.b]\nmodel = \"claude-sonnet-5-5\"\ncache_ttl = \"1h\"\nmax_loops = 12\n";
 
-/// A key a profile restates from `[model]` is not written by `--sparse`; one that differs stays.
+/// A key a profile restates from `[model]` or `[cache]` is not written by `--sparse`; one that differs stays.
 #[test]
 fn sparse_drops_inherited_profile_keys() {
     let note = sparse::sparse_note(&format!("{KEY}{OWNER}")).unwrap();
