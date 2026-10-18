@@ -122,6 +122,7 @@ impl WorkBoard {
             q.asked_by.title = ei.title.clone();
             q.may_answer = true;
         }
+        self.own_ask(&mut v, ei);
         v.doing = self.doing_of(ei, &v);
         v.progress = super::progress::said_only(ei.said.as_deref(), 0);
         v.report = self.report_of(ei, &v);
@@ -130,6 +131,24 @@ impl WorkBoard {
         v.paused = ei.paused;
         v.ended_at_ms = v.state.ended().then_some(ei.x.at_ms);
         Some(v)
+    }
+
+    /// An execution that waits on an `owner_ask` carries that question whole:
+    /// `from_execution` only knows a pending call in brief (an approval with
+    /// approve and decline), which would hide the choices from every reader
+    /// of the task's own view (`theseus tasks`, the board's needs-you row).
+    fn own_ask(&self, v: &mut WorkView, ei: &ExecIn) {
+        let Some(id) = v.question.as_ref().map(|q| q.id.as_str()) else {
+            return;
+        };
+        let Some(ai) = self
+            .acts
+            .get(id)
+            .filter(|ai| ai.a.awaits_confirm() && crate::ask::input_of(&ai.a).is_some())
+        else {
+            return;
+        };
+        v.question = self.question_view(ai, ei, None).question;
     }
 
     /// The wake an execution was queued for, while the wake is still on its
