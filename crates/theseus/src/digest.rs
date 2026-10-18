@@ -14,7 +14,9 @@ use anyhow::Result;
 use clap::Args;
 use theseus_client::{seen, Conn};
 use theseus_protocol::work::Question;
-use theseus_protocol::{digest_summary, method, now_unix_ms, WorkDigestParams, WorkDigestResult};
+use theseus_protocol::{
+    digest_more, digest_summary, method, now_unix_ms, WorkDigestParams, WorkDigestResult,
+};
 
 use crate::{postmortem, status::local_hm};
 use theseus_client::client;
@@ -146,6 +148,7 @@ pub fn lines(res: &WorkDigestResult, since_ms: u64, hm: &dyn Fn(u64) -> String) 
     for l in &res.lines {
         out.push(format!("  {}  {}", hm(l.at_ms), l.words));
     }
+    out.extend(digest_more(res, hm).map(|m| format!("  {m}")));
     let n = &res.now;
     let mut now = Vec::new();
     for (count, word) in [

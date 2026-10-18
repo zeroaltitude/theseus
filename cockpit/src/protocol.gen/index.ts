@@ -128,6 +128,7 @@ export type * from './DeferPlace';
 export type * from './Delivery';
 export type * from './DigestKind';
 export type * from './DigestLine';
+export type * from './DigestMore';
 export type * from './DiscordOrigin';
 export type * from './DiscordSource';
 export type * from './DiskStatus';

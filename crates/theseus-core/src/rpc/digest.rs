@@ -6,9 +6,13 @@
 //!   is read from memory, and one that starts before them (or before the
 //!   board existed) is read from the ledger by kind (`task.ended`,
 //!   `action.confirm_answered`, `execution.failed`, `wake.fired`,
-//!   `tool.late_result`), at most 2,000 rows, on the blocking pool. The result
-//!   says which (`from_ledger`). Both make the same `Raw` lines and word them
-//!   with the protocol's one function.
+//!   `tool.late_result`) over the whole window, a page of each kind at a time
+//!   from the window's start, on the blocking pool, to at most `HARD_ROWS`
+//!   (20,000): past that the lines reach the time the read got to and the
+//!   result's `more` says so. The result says which source (`from_ledger`).
+//!   Both make the same `Raw` lines and word them with the protocol's one
+//!   function; a task that reported carries the first line of its report
+//!   (`Core::report_text`, the one reader `task.list` uses too).
 //! - **Seen stays the client's.** The daemon keeps no position per surface: a
 //!   surface passes the `to` of its last digest, or a time.
 //! - **The place rule** (`work.watch`'s): a connection that reads no private
@@ -25,8 +29,8 @@ use theseus_memory::recall::Place;
 use theseus_protocol::notices::Why;
 use theseus_protocol::work::{WorkKind, WorkRef};
 use theseus_protocol::{
-    digest_line, error_code, fold_digest, DigestKind, DigestLine, LedgerKind, WorkDigestParams,
-    WorkDigestResult,
+    digest_line_with, error_code, fold_digest, DigestKind, DigestLine, DigestMore, LedgerKind,
+    WorkDigestParams, WorkDigestResult,
 };
 use theseus_store::kinds;
 use theseus_store::pages::ledger_kind;
@@ -40,8 +44,15 @@ use crate::push::{WorkDigestRead, WorkScope};
 use crate::scrub::Scrubber;
 use crate::session::SessionRecord;
 
-/// The ledger rows one digest reads, at most.
-pub const LEDGER_ROWS: usize = 2000;
+/// The ledger rows one digest reads, at most, over every kind. A window that holds more is cut at
+/// the time the read reached, and the result says so (`WorkDigestResult.more`).
+pub const HARD_ROWS: usize = 20_000;
+
+/// The ledger rows of a window, oldest first, and where the read stopped when it was cut.
+type Window = (Vec<(u64, LedgerRow)>, Option<DigestMore>);
+
+/// The rows of one kind read at a time.
+const PAGE_ROWS: usize = 500;
 
 /// The ledger kinds the fallback reads.
 const KINDS: [LedgerKind; 5] = [
@@ -60,6 +71,8 @@ pub(crate) struct Raw {
     pub work: WorkRef,
     /// The execution id of the root it happened under.
     pub root: String,
+    /// For a task that reported: the first line of its report.
+    pub report: Option<String>,
 }
 
 impl Core {
@@ -180,16 +193,18 @@ impl Core {
         let scrubber: &Scrubber = &self.tools.scrubber;
         let read = self.push.work_digest_read(since, scope, named, scrubber);
         let mut raws: Vec<Raw>;
+        let mut more = None;
         let from_ledger = ledger_only || !read.complete;
         if !from_ledger {
             raws = ring_raws(&read);
             raws.extend(self.fired_raws(&read, scope, named, scrubber));
         } else {
-            raws = self.ledger_raws(since, scope, named, &read, scrubber)?;
+            (raws, more) = self.ledger_raws(since, scope, named, &read, scrubber)?;
         }
         if let Some(ms) = since_ms {
             raws.retain(|r| r.at_ms >= ms);
         }
+        self.with_reports(&mut raws, scope, scrubber);
         raws.sort_by(|a, b| (a.at_ms, &a.work.id).cmp(&(b.at_ms, &b.work.id)));
         let mut roots: HashMap<String, WorkRef> = HashMap::new();
         let entries = raws
@@ -199,7 +214,7 @@ impl Core {
                     .entry(r.root.clone())
                     .or_insert_with(|| self.root_ref(&r.root, &read, scope, scrubber))
                     .clone();
-                (digest_line(r.kind, r.at_ms, r.work), root)
+                (digest_line_with(r.kind, r.at_ms, r.work, r.report), root)
             })
             .collect();
         let lines: Vec<DigestLine> = fold_digest(entries);
@@ -210,6 +225,7 @@ impl Core {
             from_ledger,
             now: read.now,
             questions: read.questions,
+            more,
         })
     }
 
@@ -269,7 +285,8 @@ impl Core {
         e.id
     }
 
-    /// The ledger's rows of the digest's kinds after `since`, newest 2,000.
+    /// The ledger's rows of the digest's kinds after `since`, as lines, and where the read stopped
+    /// when the window held more than `HARD_ROWS`.
     fn ledger_raws(
         &self,
         since: u64,
@@ -277,13 +294,8 @@ impl Core {
         named: &HashSet<String>,
         read: &WorkDigestRead,
         scrubber: &Scrubber,
-    ) -> Result<Vec<Raw>, RpcFailure> {
-        let mut rows: Vec<(u64, LedgerRow)> = Vec::new();
-        for kind in KINDS {
-            rows.extend(self.ledger_rows_of(kind, since)?);
-        }
-        rows.sort_by_key(|(p, _)| std::cmp::Reverse(*p));
-        rows.truncate(LEDGER_ROWS);
+    ) -> Result<(Vec<Raw>, Option<DigestMore>), RpcFailure> {
+        let (rows, more) = self.digest_window(since, HARD_ROWS)?;
         let mut out = Vec::new();
         for (_, row) in rows {
             let Some(raw) = self.raw_of(&row, scope, scrubber) else {
@@ -293,7 +305,106 @@ impl Core {
                 out.push(raw);
             }
         }
-        Ok(out)
+        Ok((out, more))
+    }
+
+    /// The first line of a reported task's report, for each such line: the one reader `task.list`
+    /// uses, scrubbed as the title is. Only a task that reported is read, so a plain window reads
+    /// nothing.
+    fn with_reports(&self, raws: &mut [Raw], scope: &WorkScope, scrubber: &Scrubber) {
+        for r in raws
+            .iter_mut()
+            .filter(|r| r.kind == DigestKind::Reported && r.work.kind == WorkKind::Task)
+        {
+            let session = r.work.session_id.clone().or_else(|| {
+                self.kernel
+                    .execution(&r.work.id)
+                    .ok()
+                    .flatten()
+                    .map(|e| e.session_id)
+            });
+            let Some(session) = session else { continue };
+            let rec = crate::task_graph::get(&self.store, &crate::task_graph::of_session(&session))
+                .ok()
+                .flatten();
+            r.report = self
+                .report_text(rec.as_ref(), None)
+                .and_then(|t| super::task_history::first_line(&t))
+                .map(|l| shown(scope, scrubber, l));
+        }
+    }
+
+    /// The window's rows of the digest's kinds after `since`, oldest first, a page of each kind at a
+    /// time. At `cap` (`HARD_ROWS`) rows the read stops: rows after the time the slowest kind reached are left
+    /// out, so the lines are whole up to it, and `more` says when and what lists the rest.
+    pub(crate) fn digest_window(&self, since: u64, cap: usize) -> Result<Window, RpcFailure> {
+        struct Lane {
+            tag: String,
+            cursor: u64,
+            at_ms: u64,
+            more: bool,
+        }
+        let mut lanes: Vec<Lane> = KINDS
+            .iter()
+            .map(|k| Lane {
+                tag: ledger_kind(k.as_str()),
+                cursor: since,
+                at_ms: 0,
+                more: true,
+            })
+            .collect();
+        let mut rows: Vec<(u64, LedgerRow)> = Vec::new();
+        let mut read = 0usize;
+        while read < cap && lanes.iter().any(|l| l.more) {
+            for l in lanes.iter_mut().filter(|l| l.more) {
+                let page = Page {
+                    kind: kinds::LEDGER,
+                    tags: vec![l.tag.clone()],
+                    after: Some(l.cursor),
+                    before: None,
+                    since_ms: None,
+                    until_ms: None,
+                    limit: PAGE_ROWS,
+                };
+                // The index's shape is built after serving: a scan of the tail.
+                let Some(out) = self.store.ledger_page(&page)? else {
+                    return Ok((self.ledger_tail_window(since)?, None));
+                };
+                for r in out.records {
+                    read += 1;
+                    if let Ok(row) = r.decode::<LedgerRow>() {
+                        l.at_ms = row.at_unix_ms;
+                        rows.push((r.position, row));
+                    }
+                }
+                l.cursor = out.last.unwrap_or(l.cursor);
+                l.more = out.more;
+            }
+        }
+        let stopped = lanes.iter().filter(|l| l.more).min_by_key(|l| l.cursor);
+        let more = stopped.map(|l| {
+            let (stop, at_ms) = (l.cursor, l.at_ms);
+            rows.retain(|(p, _)| *p <= stop);
+            DigestMore {
+                since_ms: at_ms,
+                command: format!(
+                    "theseus tasks --ended --since {}",
+                    age_arg(theseus_protocol::now_unix_ms().saturating_sub(at_ms))
+                ),
+            }
+        });
+        rows.sort_by_key(|(p, _)| *p);
+        Ok((rows, more))
+    }
+
+    /// The last `HARD_ROWS` ledger rows of the digest's kinds after `since`, while the index's shape
+    /// is still being built.
+    fn ledger_tail_window(&self, since: u64) -> Result<Vec<(u64, LedgerRow)>, RpcFailure> {
+        let tail: Vec<(u64, LedgerRow)> = self.store.ledger_tail(HARD_ROWS)?;
+        Ok(tail
+            .into_iter()
+            .filter(|(p, r)| *p > since && KINDS.iter().any(|k| r.is_kind(k.as_str())))
+            .collect())
     }
 
     /// Whether a line is one this connection may see and the caller asked for.
@@ -341,44 +452,6 @@ impl Core {
         }
     }
 
-    /// One kind's rows after `since`, the newest `LEDGER_ROWS`.
-    fn ledger_rows_of(
-        &self,
-        kind: LedgerKind,
-        since: u64,
-    ) -> Result<Vec<(u64, LedgerRow)>, RpcFailure> {
-        let page = Page {
-            kind: kinds::LEDGER,
-            tags: vec![ledger_kind(kind.as_str())],
-            after: None,
-            before: None,
-            since_ms: None,
-            until_ms: None,
-            limit: LEDGER_ROWS,
-        };
-        let mut out = Vec::new();
-        match self.store.ledger_page(&page)? {
-            Some(page) => {
-                for r in page.records {
-                    if r.position > since {
-                        if let Ok(row) = r.decode::<LedgerRow>() {
-                            out.push((r.position, row));
-                        }
-                    }
-                }
-            }
-            // The index's shape is built after serving: a scan of the tail.
-            None => {
-                let tail: Vec<(u64, LedgerRow)> = self.store.ledger_tail(LEDGER_ROWS * 4)?;
-                out.extend(
-                    tail.into_iter()
-                        .filter(|(p, r)| *p > since && r.is_kind(kind.as_str())),
-                );
-            }
-        }
-        Ok(out)
-    }
-
     /// A ledger row as a digest line, or none: not every row of these kinds
     /// is something the owner would want told.
     fn raw_of(&self, row: &LedgerRow, scope: &WorkScope, scrubber: &Scrubber) -> Option<Raw> {
@@ -424,6 +497,7 @@ impl Core {
                 title,
             },
             root,
+            report: None,
         })
     }
 
@@ -446,6 +520,7 @@ impl Core {
                 title: d.show(action.tool),
             },
             root: self.root_exec(exec),
+            report: None,
         })
     }
 
@@ -467,6 +542,7 @@ impl Core {
                 title,
             },
             root: exec.id,
+            report: None,
         })
     }
 
@@ -495,6 +571,7 @@ impl Core {
                 title,
             },
             root: self.root_exec(exec),
+            report: None,
         })
     }
 
@@ -516,6 +593,7 @@ impl Core {
                 title: d.show(d.s("tool").unwrap_or_default().to_string()),
             },
             root: self.root_exec(exec),
+            report: None,
         })
     }
 }
@@ -572,6 +650,7 @@ fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
             at_ms: n.at_ms,
             work: n.work.clone(),
             root: n.root.id.clone(),
+            report: None,
         });
     }
     for v in &read.cancelled {
@@ -580,7 +659,18 @@ fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
             at_ms: v.at_ms,
             work: v.work_ref(),
             root: v.root.clone(),
+            report: None,
         });
     }
     out
+}
+
+/// An age for `--since`: whole hours (at least one), or days from two days up.
+fn age_arg(ms: u64) -> String {
+    let hours = ms.div_ceil(3_600_000).max(1);
+    if hours >= 48 {
+        format!("{}d", hours.div_ceil(24))
+    } else {
+        format!("{hours}h")
+    }
 }

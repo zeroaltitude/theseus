@@ -294,3 +294,147 @@ async fn the_report_line_costs_this_much_on_5000_tasks() {
         read_reports / N as u32
     );
 }
+
+// ---- the digest names each task (D) ---------------------------------------------------------
+
+use std::collections::HashSet;
+
+use theseus_protocol::{DigestKind, WorkDigestResult};
+use theseus_store::{kinds, NewRecord};
+
+use crate::ledger::LedgerRow;
+use crate::push::WorkScope;
+use theseus_protocol::LedgerKind;
+
+fn digest(r: &Rig) -> WorkDigestResult {
+    r.core
+        .digest_blocking(0, None, &WorkScope::default(), &HashSet::new(), true)
+        .unwrap()
+}
+
+fn reported(d: &WorkDigestResult) -> Vec<String> {
+    d.lines
+        .iter()
+        .filter(|l| l.kind == DigestKind::Reported)
+        .map(|l| l.words.clone())
+        .collect()
+}
+
+/// Before: three finished tasks were `📋 3 tasks reported to <root>`. Now each is named, with its
+/// report's first line.
+#[tokio::test]
+async fn three_reported_tasks_are_three_titled_lines() {
+    let (r, _) = three().await;
+    let d = digest(&r);
+    let mut words = reported(&d);
+    words.sort();
+    assert_eq!(
+        words,
+        [
+            "📋 Chart the buoys reported: Charted 41 buoys; two were adrift.",
+            "📋 Paint the quay reported: Painted the quay railings green.",
+            "📋 Sound the channel reported: Soundings done.",
+        ]
+    );
+    assert!(d.more.is_none());
+}
+
+/// Seven under one root: five are told, and the other two named together.
+#[tokio::test]
+async fn seven_reported_tasks_are_five_lines_and_the_rest_named() {
+    let r = rig();
+    let s = session(&r.core);
+    for i in 1..=7 {
+        finish(
+            &r,
+            &s,
+            &format!("Survey {i}"),
+            &format!("survey the number {i} berth of the quay"),
+            "Surveyed.",
+        )
+        .await;
+    }
+    let words = reported(&digest(&r));
+    assert_eq!(words.len(), 6, "{words:?}");
+    assert_eq!(
+        words[..5]
+            .iter()
+            .filter(|w| w.ends_with("reported: Surveyed."))
+            .count(),
+        5
+    );
+    assert!(
+        words[5].starts_with("📋 and 2 more: Survey "),
+        "{}",
+        words[5]
+    );
+}
+
+/// `n` ledger rows of a kind the digest reads, written after whatever is there.
+fn rows_after(r: &Rig, n: usize) {
+    for chunk in (0..n).collect::<Vec<_>>().chunks(500) {
+        let frame: Vec<NewRecord> = chunk
+            .iter()
+            .map(|_| {
+                let row = LedgerRow::new(
+                    LedgerKind::WakeFired,
+                    Some("ses_nobody"),
+                    None,
+                    serde_json::json!({"execution_id": "exe_nobody", "purpose": "check"}),
+                );
+                NewRecord::json(kinds::LEDGER, None, &row).unwrap()
+            })
+            .collect();
+        r.core.store.append(&frame).unwrap();
+    }
+}
+
+/// Before: the fallback read the newest 2,000 rows, so a task reported at the start of a window
+/// with 2,500 rows after it was gone. Now the window is read from its start.
+#[tokio::test]
+async fn a_window_of_2500_rows_still_finds_the_task_reported_at_its_start() {
+    let r = rig();
+    let s = session(&r.core);
+    finish(
+        &r,
+        &s,
+        "Chart the buoys",
+        "chart every buoy of the outer harbour",
+        "Charted them.",
+    )
+    .await;
+    rows_after(&r, 2_500);
+    let d = digest(&r);
+    assert_eq!(reported(&d), ["📋 Chart the buoys reported: Charted them."]);
+    assert!(d.more.is_none(), "{:?}", d.more);
+}
+
+/// Past the hard stop the window is cut at the time the read reached, and the digest says so.
+#[tokio::test]
+async fn past_the_hard_stop_the_digest_says_where_it_stopped() {
+    let r = rig();
+    let s = session(&r.core);
+    finish(
+        &r,
+        &s,
+        "Chart the buoys",
+        "chart every buoy of the outer harbour",
+        "Charted them.",
+    )
+    .await;
+    rows_after(&r, 2_500);
+    let (rows, more) = r.core.digest_window(0, 1_000).unwrap();
+    let more = more.expect("the read stopped short");
+    assert!(
+        more.command.starts_with("theseus tasks --ended --since "),
+        "{}",
+        more.command
+    );
+    assert!(rows.len() < 2_500 + 50, "{}", rows.len());
+    assert!(
+        rows.iter().any(|(_, row)| row.is_kind("task.ended")),
+        "the first rows are kept"
+    );
+    // With room for all of it, nothing is cut.
+    assert!(r.core.digest_window(0, 20_000).unwrap().1.is_none());
+}

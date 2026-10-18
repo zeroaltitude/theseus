@@ -56,6 +56,10 @@ pub struct DigestLine {
     /// How many things the line stands for: 1 unless a burst was folded.
     #[serde(default = "one")]
     pub count: u32,
+    /// For a task that reported: the first line of its report, which `words` carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub report: Option<String>,
 }
 
 fn one() -> u32 {
@@ -101,15 +105,50 @@ pub struct WorkDigestResult {
     pub now: Rollup,
     /// What waits for an answer now, the longest waiting first.
     pub questions: Vec<Question>,
+    /// Set when the ledger read stopped at its row limit: the lines are complete up to this time
+    /// and not after it (`digest_more` words it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub more: Option<DigestMore>,
 }
 
-/// A line's words: `📋 Beta summary reported`. `root` is the name of the
-/// conversation a folded burst happened under.
-pub fn digest_words(kind: DigestKind, work: &WorkRef, count: u32, root: &str) -> String {
+/// Where a digest read from the ledger stopped (`WorkDigestResult.more`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct DigestMore {
+    /// The time the lines reach, unix ms: the rows after it were not read.
+    pub since_ms: u64,
+    /// The command that lists what ended since then, with the age that command takes.
+    pub command: String,
+}
+
+/// The note under a digest the ledger read cut short, or none.
+pub fn digest_more(res: &WorkDigestResult, hm: &dyn Fn(u64) -> String) -> Option<String> {
+    let m = res.more.as_ref()?;
+    Some(format!(
+        "… and more since {}; {}",
+        hm(m.since_ms),
+        m.command
+    ))
+}
+
+/// A line's words: `📋 Beta summary reported: the first line of its report`. `root` is the name of the
+/// conversation a folded burst happened under. A task that reported is never folded without its title
+/// (`fold_digest`), so the count words below are for the other kinds.
+pub fn digest_words(
+    kind: DigestKind,
+    work: &WorkRef,
+    count: u32,
+    root: &str,
+    report: Option<&str>,
+) -> String {
     let name = name_of(work);
     if count <= 1 {
         return match kind {
-            DigestKind::Reported => format!("📋 {name} reported"),
+            DigestKind::Reported => match report.map(str::trim).filter(|r| !r.is_empty()) {
+                Some(r) => format!("📋 {name} reported: {r}"),
+                None => format!("📋 {name} reported"),
+            },
             DigestKind::Failed => format!("✗ {name} failed"),
             DigestKind::Answered => format!("✓ you answered: {name}"),
             DigestKind::Cancelled => format!("⊘ {name} was cancelled"),
@@ -118,7 +157,7 @@ pub fn digest_words(kind: DigestKind, work: &WorkRef, count: u32, root: &str) ->
         };
     }
     match kind {
-        DigestKind::Reported => format!("📋 {count} tasks reported to {root}"),
+        DigestKind::Reported => format!("📋 {count} reported to {root}"),
         DigestKind::Failed => format!("✗ {count} tasks failed under {root}"),
         DigestKind::Answered => format!("✓ you answered {count} questions under {root}"),
         DigestKind::Cancelled => format!("⊘ {count} tasks were cancelled under {root}"),
@@ -129,13 +168,49 @@ pub fn digest_words(kind: DigestKind, work: &WorkRef, count: u32, root: &str) ->
 
 /// A line for one thing.
 pub fn digest_line(kind: DigestKind, at_ms: u64, work: WorkRef) -> DigestLine {
-    let words = digest_words(kind, &work, 1, "");
+    digest_line_with(kind, at_ms, work, None)
+}
+
+/// A line for one thing, with the first line of its report when it is a task that reported.
+pub fn digest_line_with(
+    kind: DigestKind,
+    at_ms: u64,
+    work: WorkRef,
+    report: Option<String>,
+) -> DigestLine {
+    let report = report.filter(|r| !r.trim().is_empty());
+    let words = digest_words(kind, &work, 1, "", report.as_deref());
     DigestLine {
         at_ms,
         kind,
         work,
         words,
         count: 1,
+        report,
+    }
+}
+
+/// Reported tasks a burst names one by one before it names the rest together.
+pub const NAMED_MAX: usize = 5;
+/// The titles the line for the rest lists before it ends `, …`.
+const REST_NAMES: usize = 12;
+
+/// The line for the reported tasks past `NAMED_MAX` in a burst: `📋 and 4 more: A, B, C, D`.
+fn rest_line(rest: &[DigestLine], root: WorkRef) -> DigestLine {
+    let last = rest.last().expect("a rest has members");
+    let names: Vec<String> = rest
+        .iter()
+        .take(REST_NAMES)
+        .map(|l| name_of(&l.work))
+        .collect();
+    let more = if rest.len() > REST_NAMES { ", …" } else { "" };
+    DigestLine {
+        at_ms: last.at_ms,
+        kind: DigestKind::Reported,
+        work: root,
+        words: format!("📋 and {} more: {}{more}", rest.len(), names.join(", ")),
+        count: rest.iter().map(|l| l.count).sum(),
+        report: None,
     }
 }
 
@@ -154,10 +229,27 @@ pub fn fold_digest(entries: Vec<(DigestLine, WorkRef)>) -> Vec<DigestLine> {
     let mut out: Vec<(u64, usize, DigestLine)> = Vec::new();
     let mut seq = 0usize;
     let mut close = |group: Vec<(DigestLine, WorkRef)>, out: &mut Vec<(u64, usize, DigestLine)>| {
-        if group.len() >= BURST_MIN && group[0].0.kind != DigestKind::Reminder {
+        if group.len() >= BURST_MIN && group[0].0.kind == DigestKind::Reported {
+            // Never folded without titles: the first few each told, the rest named together.
+            let root = group
+                .last()
+                .map(|(_, r)| r.clone())
+                .expect("a burst has members");
+            let lines: Vec<DigestLine> = group.into_iter().map(|(l, _)| l).collect();
+            let (named, rest) = lines.split_at(lines.len().min(NAMED_MAX));
+            for l in named {
+                out.push((l.at_ms, seq, l.clone()));
+                seq += 1;
+            }
+            if !rest.is_empty() {
+                let l = rest_line(rest, root);
+                out.push((l.at_ms, seq, l));
+                seq += 1;
+            }
+        } else if group.len() >= BURST_MIN && group[0].0.kind != DigestKind::Reminder {
             let (last, root) = group.last().cloned().expect("a burst has members");
             let n: u32 = group.iter().map(|(l, _)| l.count).sum();
-            let words = digest_words(last.kind, &last.work, n, &name_of(&root));
+            let words = digest_words(last.kind, &last.work, n, &name_of(&root), None);
             out.push((
                 last.at_ms,
                 seq,
@@ -165,6 +257,7 @@ pub fn fold_digest(entries: Vec<(DigestLine, WorkRef)>) -> Vec<DigestLine> {
                     work: root,
                     words,
                     count: n,
+                    report: None,
                     ..last
                 },
             ));
@@ -289,6 +382,7 @@ pub fn digest_text(
         out.push(format!("… and {from} earlier"));
     }
     out.extend(lines[from..].iter().cloned());
+    out.extend(digest_more(res, hm));
     out.extend(tail);
     out.join("\n")
 }

@@ -39,18 +39,139 @@ fn a_line_is_worded_once() {
 }
 
 #[test]
-fn a_burst_of_three_folds_into_one_line_under_its_root() {
+fn a_burst_of_three_failures_folds_into_one_line_under_its_root() {
     let harbour = root("exe_h", "harbour survey");
     let lines = fold_digest(vec![
-        entry(DigestKind::Reported, 1_000, "a", &harbour),
-        entry(DigestKind::Reported, 2_000, "b", &harbour),
-        entry(DigestKind::Reported, 3_000, "c", &harbour),
+        entry(DigestKind::Failed, 1_000, "a", &harbour),
+        entry(DigestKind::Failed, 2_000, "b", &harbour),
+        entry(DigestKind::Failed, 3_000, "c", &harbour),
     ]);
     assert_eq!(lines.len(), 1);
-    assert_eq!(lines[0].words, "📋 3 tasks reported to harbour survey");
+    assert_eq!(lines[0].words, "✗ 3 tasks failed under harbour survey");
     assert_eq!(lines[0].count, 3);
     assert_eq!(lines[0].at_ms, 3_000);
     assert_eq!(lines[0].work.id, "exe_h");
+}
+
+fn reported(
+    at_ms: u64,
+    id: &str,
+    title: &str,
+    report: Option<&str>,
+    under: &WorkRef,
+) -> (DigestLine, WorkRef) {
+    (
+        digest_line_with(
+            DigestKind::Reported,
+            at_ms,
+            task(id, title),
+            report.map(String::from),
+        ),
+        under.clone(),
+    )
+}
+
+/// Before (theseus-ypnxt.1): three reported tasks under one root folded to
+/// `📋 3 tasks reported to harbour survey`, no title and no report line. Now each is told.
+#[test]
+fn three_reported_tasks_are_three_titled_lines_with_their_reports() {
+    let harbour = root("exe_h", "harbour survey");
+    let lines = fold_digest(vec![
+        reported(
+            1_000,
+            "a",
+            "Chart the buoys",
+            Some("Charted 41 buoys."),
+            &harbour,
+        ),
+        reported(
+            2_000,
+            "b",
+            "Sound the channel",
+            Some("9 m at low tide."),
+            &harbour,
+        ),
+        reported(3_000, "c", "Paint the quay", None, &harbour),
+    ]);
+    let words: Vec<&str> = lines.iter().map(|l| l.words.as_str()).collect();
+    assert_eq!(
+        words,
+        [
+            "📋 Chart the buoys reported: Charted 41 buoys.",
+            "📋 Sound the channel reported: 9 m at low tide.",
+            "📋 Paint the quay reported",
+        ]
+    );
+    assert!(lines.iter().all(|l| l.count == 1));
+}
+
+#[test]
+fn past_five_the_rest_are_named_together() {
+    let harbour = root("exe_h", "harbour survey");
+    let seven: Vec<_> = (1..=7u64)
+        .map(|i| {
+            reported(
+                i * 1_000,
+                &format!("t{i}"),
+                &format!("Task {i}"),
+                Some("ok"),
+                &harbour,
+            )
+        })
+        .collect();
+    let lines = fold_digest(seven);
+    assert_eq!(lines.len(), 6, "{lines:?}");
+    assert_eq!(lines[4].words, "📋 Task 5 reported: ok");
+    assert_eq!(lines[5].words, "📋 and 2 more: Task 6, Task 7");
+    assert_eq!(lines[5].count, 2);
+    assert_eq!(lines[5].at_ms, 7_000);
+    // The summary counts every task, named or not.
+    assert_eq!(
+        digest_summary(&lines, 0, &hm).as_deref(),
+        Some("◆ 7 reported")
+    );
+    // A long rest lists its first names and says it goes on.
+    let many: Vec<_> = (1..=30u64)
+        .map(|i| {
+            reported(
+                i * 1_000,
+                &format!("t{i}"),
+                &format!("T{i}"),
+                None,
+                &harbour,
+            )
+        })
+        .collect();
+    let rest = fold_digest(many).pop().unwrap();
+    assert!(
+        rest.words.starts_with("📋 and 25 more: T6, T7,"),
+        "{}",
+        rest.words
+    );
+    assert!(rest.words.ends_with("T17, …"), "{}", rest.words);
+}
+
+#[test]
+fn the_ledger_note_says_where_the_read_stopped() {
+    let mut res = WorkDigestResult {
+        from: 0,
+        to: 9,
+        lines: vec![],
+        from_ledger: true,
+        now: Default::default(),
+        questions: vec![],
+        more: None,
+    };
+    assert_eq!(digest_more(&res, &hm), None);
+    res.more = Some(DigestMore {
+        since_ms: 6 * 3_600_000 + 12 * 60_000,
+        command: "theseus tasks --ended --since 14h".into(),
+    });
+    assert_eq!(
+        digest_more(&res, &hm).as_deref(),
+        Some("… and more since 06:12; theseus tasks --ended --since 14h")
+    );
+    assert!(digest_text(&res, 0, &hm, 2000).contains("… and more since 06:12;"));
 }
 
 #[test]
@@ -82,15 +203,15 @@ fn two_do_not_fold_and_neither_do_other_kinds_or_roots_or_a_long_gap() {
 fn a_burst_keeps_the_order_of_the_other_lines() {
     let h = root("exe_h", "harbour survey");
     let lines = fold_digest(vec![
-        entry(DigestKind::Reported, 10, "a", &h),
+        entry(DigestKind::Cancelled, 10, "a", &h),
         entry(DigestKind::Failed, 20, "x", &h),
-        entry(DigestKind::Reported, 30, "b", &h),
-        entry(DigestKind::Reported, 40, "c", &h),
+        entry(DigestKind::Cancelled, 30, "b", &h),
+        entry(DigestKind::Cancelled, 40, "c", &h),
     ]);
     let order: Vec<(DigestKind, u32)> = lines.iter().map(|l| (l.kind, l.count)).collect();
     assert_eq!(
         order,
-        vec![(DigestKind::Failed, 1), (DigestKind::Reported, 3)]
+        vec![(DigestKind::Failed, 1), (DigestKind::Cancelled, 3)]
     );
 }
 
