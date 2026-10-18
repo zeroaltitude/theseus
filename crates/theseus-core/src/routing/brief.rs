@@ -35,7 +35,10 @@ pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Deci
     let mut d = match fresh.verdict.mode.as_str() {
         "routine_coding" => {
             let mut c = cfg.clone();
-            c.classes.routine_coding.profiles.retain(|p| p != CODING_BASE);
+            c.classes
+                .routine_coding
+                .profiles
+                .retain(|p| p != CODING_BASE);
             c.classes
                 .routine_coding
                 .profiles
@@ -100,7 +103,10 @@ mod tests {
             ("haiku", "claude-haiku-5-5"),
             ("haikuhi", "claude-haiku-5-5"),
         ] {
-            let e = crate::catalog::Catalog::builtin().get(model).unwrap().clone();
+            let e = crate::catalog::Catalog::builtin()
+                .get(model)
+                .unwrap()
+                .clone();
             ps.insert(
                 name.into(),
                 Profile {
@@ -123,7 +129,10 @@ mod tests {
         let mut moved = RoutingConfig::default();
         moved.classes.routine_coding.profiles = vec!["haikuhi".into()];
         let v = verdict("routine_coding", 0.9);
-        assert_eq!(brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile, "sonnet");
+        assert_eq!(
+            brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile,
+            "sonnet"
+        );
     }
 
     /// A detour's class is a base: "thanks" does not leave the task on Fable.

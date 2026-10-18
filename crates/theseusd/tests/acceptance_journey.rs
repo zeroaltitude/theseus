@@ -1066,7 +1066,11 @@ struct Tmux {
 impl Tmux {
     /// None when there is no tmux to run a terminal in.
     fn start(cmd: &[&str], env: &[(&str, &str)]) -> Option<Self> {
-        let name = format!("jtui{}-{}", std::process::id(), UNIQ.fetch_add(1, Ordering::Relaxed));
+        let name = format!(
+            "jtui{}-{}",
+            std::process::id(),
+            UNIQ.fetch_add(1, Ordering::Relaxed)
+        );
         let mut shell = String::from("env -u THESEUS_SESSION TERM=xterm-256color");
         for (k, v) in env {
             shell.push_str(&format!(" {k}={v}"));
@@ -1075,7 +1079,16 @@ impl Tmux {
             shell.push_str(&format!(" '{c}'"));
         }
         let ok = Command::new("tmux")
-            .args(["-L", &name, "-f", "/dev/null", "new-session", "-d", "-s", "chat"])
+            .args([
+                "-L",
+                &name,
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                "chat",
+            ])
             .args(["-x", "140", "-y", "40", &shell])
             .status()
             .is_ok_and(|s| s.success());
@@ -1123,7 +1136,12 @@ fn a_task_started_in_the_chat_has_a_short_id_and_a_title() {
     let sock = r.s.path("sock");
     let state = r.s.path("xdg-state");
     let Some(tmux) = Tmux::start(
-        &[&bin.to_string_lossy(), "--socket", &sock.to_string_lossy(), "chat"],
+        &[
+            &bin.to_string_lossy(),
+            "--socket",
+            &sock.to_string_lossy(),
+            "chat",
+        ],
         &[("XDG_STATE_HOME", &state.to_string_lossy())],
     ) else {
         eprintln!("skipped: no tmux to give the chat a terminal");

@@ -93,7 +93,11 @@ pub fn forecast_cost(f: &WorkForecast, spent_usd: f64) -> Option<String> {
 /// else `$0.40 of $2`; nothing without a cost.
 pub fn cost_part(v: &WorkView) -> Option<String> {
     let c = v.cost.as_ref()?;
-    match v.forecast.as_ref().and_then(|f| forecast_cost(f, c.spent_usd)) {
+    match v
+        .forecast
+        .as_ref()
+        .and_then(|f| forecast_cost(f, c.spent_usd))
+    {
         Some(f) => Some(format!("{f} (limit {})", usd(c.limit_usd))),
         None => Some(cost_words(c)),
     }

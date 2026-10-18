@@ -417,7 +417,11 @@ async fn a_question_pings_though_a_chat_message_used_the_window_first() {
     )
     .await;
     r.say((ANA, "ana"), Some(LAB), "Write the tide file.");
-    let card = || r.posted(LAB).into_iter().find(|m| m.versions[0].contains("**Approve?**"));
+    let card = || {
+        r.posted(LAB)
+            .into_iter()
+            .find(|m| m.versions[0].contains("**Approve?**"))
+    };
     r.until("the card", || card().is_some()).await;
     let card = card().unwrap();
     r.fake
@@ -449,7 +453,11 @@ async fn a_question_pings_though_a_chat_message_used_the_window_first() {
             .clone()
     };
     assert_eq!(
-        (card.silent(), of("confirm:")["ping"].clone(), of("confirm:")["held"].clone()),
+        (
+            card.silent(),
+            of("confirm:")["ping"].clone(),
+            of("confirm:")["held"].clone()
+        ),
         (false, true.into(), false.into()),
         "the question pings inside the window"
     );

@@ -427,7 +427,10 @@ fn facts(paused: bool, minutes_run: u64) -> (crate::work::Facts, u64) {
 fn a_row_says_paused_and_time_left() {
     let (f, now) = facts(true, 4);
     let said = crate::work::doing(&f, now, &utc_hm);
-    assert_eq!(said, "paused · step 3 of 5 · waiting · $0.40 of ~$1 · ~6 min left");
+    assert_eq!(
+        said,
+        "paused · step 3 of 5 · waiting · $0.40 of ~$1 · ~6 min left"
+    );
     let (_, cut) = crate::work::fit("Sound the north channel", "", &said, 24);
     assert!(cut.starts_with("paused"), "{cut}");
     let (f, now) = facts(false, 25);

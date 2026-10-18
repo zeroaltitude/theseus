@@ -355,7 +355,16 @@ impl Tasks {
             .filter(|s| !s.is_empty())
             .cloned()
             .collect();
-        roots.extend(shared.tasks.model.lock().unwrap().home.as_ref().map(|h| h.0.clone()));
+        roots.extend(
+            shared
+                .tasks
+                .model
+                .lock()
+                .unwrap()
+                .home
+                .as_ref()
+                .map(|h| h.0.clone()),
+        );
         roots
     }
 
@@ -554,7 +563,10 @@ fn project(
     now_ms: u64,
 ) -> Projection {
     let mut p = Projection::default();
-    for v in views.values().filter(|v| roots.contains(&v.root) && counted(v)) {
+    for v in views
+        .values()
+        .filter(|v| roots.contains(&v.root) && counted(v))
+    {
         if v.state == WorkState::NeedsYou {
             p.needs.push(v.clone());
         } else if v.state.working() {

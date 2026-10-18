@@ -793,7 +793,11 @@ fn boot_from_the_startup_hook_closes_the_focused_restored_shell_too() {
             None => c.env_remove("HERDR_PLUGIN_EVENT"),
         };
         let out = c.output().unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         herdr.requests("pane.close").len()
     };
     assert_eq!(go(Some("startup")), 2, "the hook runs in no pane: both go");
