@@ -68,6 +68,8 @@ pub struct SelfImproveConfig {
     pub digest: SelfDigest,
     #[serde(default)]
     pub budget: SelfBudgetConfig,
+    #[serde(default)]
+    pub mint: super::self_mint::SelfMintConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -184,6 +186,7 @@ impl Default for SelfImproveConfig {
             mode: SelfMode::default(),
             digest: SelfDigest::default(),
             budget: SelfBudgetConfig::default(),
+            mint: Default::default(),
             repo: None,
             remote: None,
             sealed_dir: None,

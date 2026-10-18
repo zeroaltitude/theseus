@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use theseus_protocol::patterns::SelfPatternsParams;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfDropParams, SelfHaltParams, SelfMoveParams, SelfResumeParams,
     SelfRevertParams,
@@ -18,7 +19,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 12] = [
+pub(super) const OWN: [&str; 13] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
@@ -31,6 +32,7 @@ pub(super) const OWN: [&str; 12] = [
     method::SELF_NARROW,
     method::SELF_REVERT,
     method::SELF_PIPELINE,
+    method::SELF_PATTERNS,
 ];
 
 impl Core {
@@ -64,6 +66,10 @@ impl Core {
             }),
             method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             method::SELF_PIPELINE => route(params, |p| Ok(self.self_pipeline(&p)?)),
+            method::SELF_PATTERNS => route(params, |p: SelfPatternsParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.self_patterns(&p, &who).map_err(word_refused)
+            }),
             method::SELF_EXAMS => route(params, |p| {
                 Ok(self.self_exams(&p, conn.surface.reads_private())?)
             }),

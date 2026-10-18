@@ -1313,6 +1313,20 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day
+# [self.mint]                             # the pattern miner (nightly, no model): recurring tool-call work found in the ledger and the bench
+# mine = false                            # true: with [self] mode = "act", mine the window each night and file the motifs on the backlog
+# bench_dirs = []                         # directories of bench trials (Harbor jobs) mined too; absolute or ~/…
+# window_days = 14                        # the mining window
+# min_occurrences = 5                     # a motif needs this many runs ...
+# min_sessions = 3                        # ... in this many sessions ...
+# min_days = 2                            # ... on this many days, in one repository
+# per_night = 1                           # read by the mint step: motifs started a night
+# max_live = 10                           # read by the deploy step: minted tools live at once
+# usd = 2.0                               # read by the mint step: dollars one motif may spend, on the self budget
+# replay_turns = 5                        # read by the mint step: check-half turns replayed with a model
+# retire_after_days = 30                  # read by the retire step: days unused before a minted tool retires
+# hint = false                            # read by the deploy step: a one-line hint in a result that matches a minted tool's motif
+# kinds = ["flow"]                        # read by the mint step: the kinds it may mint (flow, mcp, rust)
 
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own

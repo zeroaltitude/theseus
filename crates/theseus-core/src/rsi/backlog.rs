@@ -55,6 +55,7 @@ mod state;
 mod tender;
 mod word;
 
+pub use read::{of_motif, Obs};
 pub use word::BadItem;
 
 use std::collections::BTreeMap;
@@ -141,6 +142,9 @@ fn objective_of(c: &Candidate, item: &str) -> String {
     if let Some(g) = &c.graduate {
         return g.brief.replace("{item}", item);
     }
+    if let Some(p) = &c.pattern {
+        return p.brief.clone();
+    }
     format!(
         "Fix the cause `{}`: {}.\n\nSeen {} times; the evidence is on this task. Find the root \
          cause, fix it with a test that fails without the fix, and call \
@@ -197,6 +201,9 @@ impl Work {
         m.person |= fresh.iter().any(|o| o.person);
         m.task_failed |= fresh.iter().any(|o| o.task_failed);
         m.work = m.work.max(fresh.iter().map(|o| o.work).max().unwrap_or(1));
+        if let Some(p) = fresh.iter().rev().find_map(|o| o.pattern.as_ref()) {
+            m.pattern = Some(p.score.clone());
+        }
         m.last_ms = m
             .last_ms
             .max(fresh.iter().map(|o| o.at_ms).max().unwrap_or(0));
@@ -272,6 +279,7 @@ impl Work {
             score: 0,
             rank: 0,
             pin: None,
+            pattern: c.pattern.as_ref().map(|p| p.score.clone()),
         };
         self.said.push(Spoken::Filed(BacklogFiled {
             item: id.clone(),
@@ -474,6 +482,7 @@ impl Core {
         let mut obs = read::from_ledger(&self.store, since, now_ms)?;
         obs.extend(read::from_health(&self.health(), now_ms, &date(now_ms)));
         obs.extend(self.graduate_obs(&st, now_ms));
+        obs.extend(self.mine_obs(now_ms, &date(now_ms)));
         let cands = read::group(obs);
         night.candidates = cands.len();
         st.read_ms = Some(now_ms);

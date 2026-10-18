@@ -64,6 +64,16 @@ pub struct Obs {
     pub work: u8,
     /// An extension's graduation, on its observations alone.
     pub graduate: Option<super::graduate::Graduation>,
+    /// A recurring tool-call sequence, on a pattern's observations alone.
+    pub pattern: Option<Pattern>,
+}
+
+/// What the pattern miner saw (theseus-pw1q.21.3): the terms of its score,
+/// and the words the item's objective carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pattern {
+    pub score: super::state::PatternScore,
+    pub brief: String,
 }
 
 /// Every observation of one cause in a night.
@@ -75,6 +85,8 @@ pub struct Candidate {
     pub obs: Vec<Obs>,
     /// An extension's graduation: its counts and the port's brief.
     pub graduate: Option<super::graduate::Graduation>,
+    /// The newest night's pattern terms.
+    pub pattern: Option<Pattern>,
 }
 
 impl Candidate {
@@ -106,9 +118,13 @@ pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
                 source: o.source.clone(),
                 obs: vec![],
                 graduate: o.graduate.clone(),
+                pattern: None,
             })
             .obs
             .push(o);
+    }
+    for c in by.values_mut() {
+        c.pattern = c.obs.iter().rev().find_map(|o| o.pattern.clone());
     }
     by.into_values().collect()
 }
@@ -146,6 +162,7 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
         task_failed: false,
         work: 2,
         graduate: None,
+        pattern: None,
     }
 }
 
@@ -362,6 +379,7 @@ pub fn from_health(h: &theseus_protocol::HealthResult, now_ms: u64, date: &str) 
             task_failed: false,
             work,
             graduate: None,
+            pattern: None,
         });
     };
     if h.disk.state != "ok" {
@@ -390,4 +408,47 @@ pub fn from_health(h: &theseus_protocol::HealthResult, now_ms: u64, date: &str) 
         add("import_sync", "The import sync is failing".into(), w, 2);
     }
     out
+}
+
+/// A motif as an observation (theseus-pw1q.21.3): a cause keyed
+/// `pattern:<scope>:<digest>`, one piece of evidence a night, carrying the
+/// terms of its score. The motif's evidence is positions and numbers, never a
+/// value.
+pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
+    let cause = m.cause_key();
+    let words: Vec<&str> = m.steps.iter().map(|s| s.id.as_str()).collect();
+    let flow = words.join(" → ");
+    let bench = if m.bench_born { " (bench-born)" } else { "" };
+    let note = format!(
+        "{} occurrences in {} sessions over {} days{bench}; ${:.2} and {:.0} s of model time saved per occurrence",
+        m.support.occurrences, m.support.sessions, m.support.days, m.saving.usd, m.saving.model_secs
+    );
+    Obs {
+        key: cause.clone(),
+        title: format!("Recurring sequence: {flow}"),
+        source: "pattern".into(),
+        id: format!("{cause}:{date}"),
+        note: note.clone(),
+        at_ms: m.last_ms.max(1).min(now_ms),
+        usd: 0.0,
+        person: false,
+        task_failed: false,
+        work: 1,
+        graduate: None,
+        pattern: Some(Pattern {
+            score: super::state::PatternScore {
+                occurrences: m.support.occurrences,
+                usd: m.saving.usd,
+                secs: m.saving.model_secs,
+                decisions: m.saving.decisions,
+                work: 1,
+            },
+            brief: format!(
+                "A recurring sequence of tool calls (`{cause}`, spec digest {}): {flow}. {note}. \
+                 The miner wrote its skeleton; nothing starts from this item yet: minting a tool \
+                 from it is a later step.",
+                m.digest
+            ),
+        }),
+    }
 }

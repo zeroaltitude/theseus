@@ -150,6 +150,13 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               keel class that holds the port for the owner, if any.",
     },
     SelfRowKind {
+        name: "self.mine.ran",
+        fields: &["window", "runs", "calls_read", "motifs", "top"],
+        doc: "One night of the pattern miner: the window in days, the runs and the calls it \
+              read, the motifs it found, and the top few as digest, support and projected \
+              saving. Shapes and numbers only, never a value.",
+    },
+    SelfRowKind {
         name: "self.halted",
         fields: &["by", "place"],
         doc: "The kill switch thrown: every self step stops before its next phase.",

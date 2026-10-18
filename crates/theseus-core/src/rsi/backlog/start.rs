@@ -85,6 +85,8 @@ impl Core {
             .values()
             .filter(|t| t.state == TaskState::Proposed)
             .filter(|t| only.is_none_or(|o| o == t.id))
+            // A pattern is minted by a later step, never started as a fix.
+            .filter(|t| w.st.items.get(&t.id).is_some_and(|m| m.pattern.is_none()))
             .filter_map(|t| w.st.items.get(&t.id).map(|m| (m.rank, t.id.clone())))
             .filter(|(rank, _)| *rank > 0 || only.is_some())
             .collect();
