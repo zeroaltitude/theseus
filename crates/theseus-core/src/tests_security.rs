@@ -414,6 +414,7 @@ async fn in_a_holding_session_a_call_scored_one_percent_still_waits() {
     assert_eq!(risky.as_f64(), Some(0.01));
     // Still waiting, whatever Jev said.
     assert_eq!(r.core.pending_confirms(&sid).unwrap().len(), 1);
+    assert!(rows.iter().all(|r| r.data["pack"] == SECURITY_PACK));
 }
 
 /// The floor still asks, whatever the score: `op` waits at 1%.
