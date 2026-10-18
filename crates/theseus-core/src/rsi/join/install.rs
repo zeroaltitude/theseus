@@ -26,14 +26,9 @@ use crate::rpc::Core;
 use crate::rsi::jail::Job;
 use crate::rsi::tree::{Place, Tree};
 
-/// The binaries an install swaps in (`scripts/build.sh --shipped`).
-pub const BINARIES: &[&str] = &[
-    "theseusd",
-    "theseus",
-    "theseus-tui",
-    "theseus-sim",
-    "theseus-index",
-];
+/// The binaries an install swaps in (`scripts/build.sh --installed`):
+/// theseus-sim is built, never installed (theseus-rwpbg.5).
+pub const BINARIES: &[&str] = &["theseusd", "theseus", "theseus-tui", "theseus-index"];
 /// The service the restart names (`scripts/user-service.sh`'s default unit).
 pub const SERVICE: &str = "theseusd.service";
 
@@ -257,6 +252,25 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+
+    /// The L0 half copies what the owner's install copies: the list
+    /// `scripts/build.sh --installed` prints, in its order.
+    #[test]
+    fn the_binaries_are_what_build_sh_installs() {
+        let build = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/build.sh");
+        let out = std::process::Command::new("bash")
+            .arg(&build)
+            .arg("--installed")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let listed: Vec<String> = String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(listed, BINARIES);
+    }
 
     /// The unit outlives the daemon's restart: a transient user unit runs
     /// the script, which restarts last.
