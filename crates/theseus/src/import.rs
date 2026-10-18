@@ -71,7 +71,7 @@ pub enum ImportCmd {
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
-    /// Sync OpenClaw's own session stores (theseus-pjmj7): what changed since the last run, read
+    /// Sync OpenClaw's own session stores: what changed since the last run, read
     /// read-only by the built-in exporter (Python, standard library only), each OpenClaw session
     /// one imported session that grows by append, scrubbed by the daemon as it is written. Then
     /// the people steps: the touched tags' handles, and the new messages read for people under
@@ -79,7 +79,7 @@ pub enum ImportCmd {
     /// in the config. The first run starts after the 2026-10-06 import (or --since); a nightly
     /// systemd user timer runs it (`scripts/user-service.sh sync-timer install`).
     Sync(crate::import_sync::SyncArgs),
-    /// Import Claude Code's sessions (theseus-o73y): each session file under DIR (default
+    /// Import Claude Code's sessions: each session file under DIR (default
     /// ~/.claude/projects) an imported session, closed and private, its text scrubbed of secrets
     /// by the daemon as it is written. Thinking, bookkeeping lines and subagent files are left
     /// out and counted; a tool result is cut at 2,000 characters, saying so. A second run writes
@@ -94,7 +94,7 @@ pub enum ImportCmd {
         #[arg(long)]
         tag: Option<String>,
     },
-    /// Import Codex's sessions (theseus-o73y): each rollout under DIR (default ~/.codex/sessions)
+    /// Import Codex's sessions: each rollout under DIR (default ~/.codex/sessions)
     /// as `import claude-code` imports Claude Code's. TAG defaults to the tag an earlier run
     /// made, else codex-<today>.
     Codex {
@@ -119,7 +119,7 @@ pub enum ImportCmd {
         #[arg(long)]
         tag: String,
     },
-    /// Make a tag's sessions' people the ontology's (theseus-wy7y): each message author who is
+    /// Make a tag's sessions' people the ontology's: each message author who is
     /// a person and each DM's other party, one person each with their handles (found by an
     /// exact handle first, never by a display name alone), and each session they spoke in or
     /// were the DM of, a membership. From the stored records, no model call; a second run

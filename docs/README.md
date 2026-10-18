@@ -29,6 +29,8 @@
   - the phase designs: Stage 2 (the operator's surfaces), the AWS toolset, M4 boundaries, M5 judgment, M6 memory,
     and M7 surface;
   - Review 2, a read-only review of complexity, speed, and hardening, whose findings became fix batches.
+- **[cli.md](cli.md)** and **[glossary.md](glossary.md)**: every `theseus` command by the job it does, and the words
+  Theseus uses (thread, mode, place, surface and the rest) as the code uses them.
 - **[setup.md](setup.md)**: one command from a checkout to a running daemon (`scripts/setup.sh`): what it needs,
   what each step does, where the config lives and the order theseusd looks for it, a second daemon beside yours,
   and the same steps by hand.
