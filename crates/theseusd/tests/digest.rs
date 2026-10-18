@@ -197,6 +197,43 @@ impl Rig {
     }
 }
 
+/// The same tasks are found later (theseus-ypnxt.1): by their report's words, among the ended,
+/// by the real CLI's list and by `task show`.
+fn found_later(r: &Rig) {
+    let found = r
+        .call(
+            "task.list",
+            json!({"ended": true, "query": "nothing to do"}),
+        )
+        .unwrap();
+    assert_eq!(found["tasks"].as_array().unwrap().len(), 3, "{found}");
+    assert!(found["details"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["report_line"] == json!("Nothing to do.")));
+    let stopped = r.call("task.list", json!({"ended": true})).unwrap();
+    assert_eq!(stopped["tasks"].as_array().unwrap().len(), 4, "{stopped}");
+    if let Some(out) = r.cli(&["tasks", "--ended", "--since", "10m", "nothing"]) {
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert_eq!(text.lines().count(), 3, "{text}");
+        assert!(
+            text.lines()
+                .all(|l| l.starts_with('✓') && l.ends_with("Nothing to do.")),
+            "{text}"
+        );
+        let short = found["tasks"][0]["short"].as_str().unwrap();
+        let shown = r.cli(&["task", "show", short]).unwrap();
+        let text = String::from_utf8_lossy(&shown.stdout).into_owned();
+        assert!(text.contains("Count to three.  ·  done"), "{text}");
+        assert!(text.contains("Report\n  Nothing to do."), "{text}");
+        assert!(
+            text.contains(&format!("theseus chat --task {short}")),
+            "{text}"
+        );
+    }
+}
+
 #[test]
 fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
     let r = Rig::new();
@@ -252,40 +289,7 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         "{words:?}"
     );
 
-    // The same tasks are found later (theseus-ypnxt.1): by their report's words, among the ended,
-    // by the real CLI's list and by `task show`.
-    let found = r
-        .call(
-            "task.list",
-            json!({"ended": true, "query": "nothing to do"}),
-        )
-        .unwrap();
-    assert_eq!(found["tasks"].as_array().unwrap().len(), 3, "{found}");
-    assert!(found["details"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|d| d["report_line"] == json!("Nothing to do.")));
-    let stopped = r.call("task.list", json!({"ended": true})).unwrap();
-    assert_eq!(stopped["tasks"].as_array().unwrap().len(), 4, "{stopped}");
-    if let Some(out) = r.cli(&["tasks", "--ended", "--since", "10m", "nothing"]) {
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
-        assert_eq!(text.lines().count(), 3, "{text}");
-        assert!(
-            text.lines()
-                .all(|l| l.starts_with('✓') && l.ends_with("Nothing to do.")),
-            "{text}"
-        );
-        let short = found["tasks"][0]["short"].as_str().unwrap();
-        let shown = r.cli(&["task", "show", short]).unwrap();
-        let text = String::from_utf8_lossy(&shown.stdout).into_owned();
-        assert!(text.contains("Count to three.  ·  done"), "{text}");
-        assert!(text.contains("Report\n  Nothing to do."), "{text}");
-        assert!(
-            text.contains(&format!("theseus chat --task {short}")),
-            "{text}"
-        );
-    }
+    found_later(&r);
 
     // The daemon restarts: its board is seeded past the look, so the same window is read
     // from the ledger, and the same things happened, each once.

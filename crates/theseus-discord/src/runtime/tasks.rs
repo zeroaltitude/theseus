@@ -427,8 +427,8 @@ pub(super) async fn finished(
         .call::<_, theseus_protocol::TaskListResult>(
             theseus_protocol::method::TASK_LIST,
             theseus_protocol::TaskListParams {
-                session_id: None,
                 target: Some(target.to_string()),
+                ..Default::default()
             },
         )
         .await;
