@@ -1827,7 +1827,10 @@ impl TurnRunner {
             // A multiple the call's settle crossed, whatever its outcome (theseus-jse4).
             self.spend_checked(t, session)?;
             let (resp, node) = match called {
-                Called::Answered(called) => *called,
+                Called::Answered(called) => {
+                    self.note_sent(t, &spec, &compiled.request.model);
+                    *called
+                }
                 Called::Failed(failure) => {
                     if self.retry_after(t, &failure, &mut retried).await? {
                         continue;

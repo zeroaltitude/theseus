@@ -85,6 +85,8 @@ pub struct KeepWarm {
     /// A turn's last request while its response's `job_wait` runs
     /// (`keep_warm_wait`), by session.
     pub(crate) waits: Mutex<HashMap<String, Arc<crate::keep_warm_wait::Stash>>>,
+    /// The model and effort each session's last request carried (`sent`).
+    sent: Mutex<HashMap<String, (String, Option<crate::config::Effort>)>>,
     /// Where `theseus.keep_warm.reads` counts, once telemetry exports.
     pub telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
@@ -156,6 +158,28 @@ impl KeepWarm {
             k.call_at = Instant::now();
             self.wake.notify_one();
         }
+    }
+
+    /// A real request of `session_id` went out on `model` at `effort`: a
+    /// keep-warm read replays it, and the sticky rule holds to it
+    /// (theseus-rwpbg.4). In memory: a restart forgets it, and the first
+    /// request after applies Jev's level as asked.
+    pub fn sent(&self, session_id: &str, model: &str, effort: Option<crate::config::Effort>) {
+        let mut sent = self.sent.lock().unwrap();
+        match sent.get_mut(session_id) {
+            Some(last) => *last = (model.to_string(), effort),
+            None => {
+                sent.insert(session_id.to_string(), (model.to_string(), effort));
+            }
+        }
+    }
+
+    /// The effort `session_id`'s last request carried, if it went to `model`.
+    pub fn last_effort(&self, session_id: &str, model: &str) -> Option<crate::config::Effort> {
+        let sent = self.sent.lock().unwrap();
+        sent.get(session_id)
+            .filter(|(m, _)| m == model)
+            .and_then(|(_, e)| *e)
     }
 
     /// A session as a restart finds it: its person's message and its last
@@ -368,6 +392,11 @@ impl TurnRunner {
         let paths = self.cfg.context_paths(target.persona.as_deref());
         let mut spec = self.spec_of(&target, rec.kind, place, self.context_files.peek(&paths));
         spec.walk = self.walk(sid, place.class);
+        // The effort the last request carried, not the profile's (Jev's level
+        // changes it): the read must reproduce that request's prefix.
+        if let Some(e) = self.keep_warm.last_effort(sid, &spec.model) {
+            spec.effort = Some(e);
+        }
         // The session's directory block, as the turn puts it (theseus-aab7).
         spec.session_text = self.session_block(rec.dir.as_deref(), place);
         self.thread_spec(&mut spec, sid, rec.compilation_id.as_deref());

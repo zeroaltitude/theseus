@@ -1,5 +1,5 @@
 //! A model that refuses per-message effort, found out at run time
-//! (theseus-posww). `compiler::effort::default_of` names only the model seen
+//! (theseus-posww). `compiler::effort::default_of` names the models (the catalog's `per_message_effort`) seen
 //! to accept the effort-only system messages, but a provider can change what
 //! it accepts: on 2026-10-11 Sonnet 5.5 answered one with a 400 (`messages.190.
 //! output_config: Extra inputs are not permitted`), and every request of a
@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 use std::sync::Mutex;
 
 use super::*;
+use crate::routing::effort::{self, EffortDecision, EffortReason};
 
 /// The models this daemon found to refuse per-message effort.
 #[derive(Default)]
@@ -71,5 +72,51 @@ impl TurnRunner {
             decision: "effort_refused",
         });
         true
+    }
+
+    /// Jev's decided effort made sticky (theseus-rwpbg.4) for a model that
+    /// takes no per-message effort: a one-step change from the level the
+    /// session's last request carried is held at that level, on a request of
+    /// at least `[cache] keep_warm_min_tokens`, since a change of the top-level
+    /// level restarts the messages' cache. `tokens` is the compile's own
+    /// estimate of the whole request, the measure keep-warm applies to the same
+    /// floor, so no token count is added. The decision says `sticky` and keeps
+    /// both levels.
+    pub(super) fn stick(
+        &self,
+        t: &Turn<'_>,
+        spec: &RequestSpec,
+        d: EffortDecision,
+        model: &str,
+        tokens: u64,
+    ) -> EffortDecision {
+        let entry = self.catalog.get(model);
+        let held = d
+            .applied()
+            .then_some(d.ran)
+            .flatten()
+            .filter(|_| entry.is_some_and(|e| e.caches))
+            .filter(|_| !crate::compiler::effort::takes(spec, entry, model))
+            .and_then(|asked| {
+                let previous = self.keep_warm.last_effort(t.tc.session_id, model);
+                effort::sticky(asked, previous, tokens, self.cfg.cache.keep_warm_min_tokens)
+            });
+        match held {
+            Some(sent) => EffortDecision {
+                reason: EffortReason::Sticky,
+                sent: Some(sent),
+                ..d
+            },
+            None => d,
+        }
+    }
+
+    /// Records the level a call's request carried: what the next turn's
+    /// sticky rule and a keep-warm read of this session replay. A detour's
+    /// request is outside the session's compilation and records none.
+    pub(super) fn note_sent(&self, t: &Turn<'_>, spec: &RequestSpec, model: &str) {
+        if t.route.keeps.is_none() {
+            self.keep_warm.sent(t.tc.session_id, model, spec.effort);
+        }
     }
 }

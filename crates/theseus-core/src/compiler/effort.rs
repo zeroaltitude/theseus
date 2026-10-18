@@ -8,7 +8,7 @@
 //! minutes after the turn before it read all of it.
 //!
 //! On a model that takes per-message effort (beta
-//! `mid-conversation-output-config-2026-07-01`; [`default_of`]), the top-level
+//! `mid-conversation-output-config-2026-07-01`; the catalog's `per_message_effort`), the top-level
 //! effort stays the profile's own, and a turn that runs at another level says
 //! so in an effort-only system message (`{"role": "system", "content": [],
 //! "output_config": {"effort": …}}`) just before its user message. The level
@@ -28,9 +28,10 @@
 //!   one that opens with tool results stays next to its calls, and the turn
 //!   runs at the level in force.
 //! - **Any other model** gets no such message: the top-level effort, as
-//!   before, and the history's messages are left out. Only Fable 5.1 is
-//!   named ([`default_of`]); a 400 that names `output_config` marks any other
-//!   model refusing for the daemon's life (theseus-posww).
+//!   before, and the history's messages are left out; Jev's level there is
+//!   sticky instead (`routing::effort::sticky`). The catalog names the models
+//!   that take messages ([`default_of`]); a 400 that names `output_config`
+//!   marks any other model refusing for the daemon's life (theseus-posww).
 
 use serde_json::{json, Value};
 
@@ -42,27 +43,25 @@ use crate::provider::ProviderRequest;
 /// Per-message effort's beta.
 pub const BETA_TURN_EFFORT: &str = "mid-conversation-output-config-2026-07-01";
 
-/// The level a model that takes per-message effort runs at without one.
-/// Only a model seen to accept the message live is named: Claude Fable 5.1,
-/// whose default is `high`. On 2026-10-11 Claude Sonnet 5.5 answered the
-/// message with a 400 (`messages.190.output_config: Extra inputs are not
-/// permitted`) and every request of a conversation that held one failed; Opus
-/// 5.5 and Opus 5 are unproven, and a model added here needs a live check
-/// first (theseus-posww). A model named here that still refuses it is
-/// found out at run time ([`refused_by`]).
-pub fn default_of(model: &str) -> Option<Effort> {
-    match model {
-        "claude-fable-5-1" => Some(Effort::High),
-        _ => None,
-    }
+/// The level a model that takes per-message effort runs at without one:
+/// `high`, every such model's default. Which models take it is the catalog's
+/// (`CatalogEntry::per_message_effort`, so a row's edit enables one with no
+/// code): Fable 5.1 alone is seen to accept the message live. On 2026-10-11
+/// Claude Sonnet 5.5 answered it with a 400 (`messages.190.output_config:
+/// Extra inputs are not permitted`) and every request of a conversation that
+/// held one failed; a row that turns it on needs a live check first
+/// (theseus-posww). One that still refuses it is found out at run time
+/// ([`refused_by`]).
+pub fn default_of(entry: Option<&CatalogEntry>) -> Option<Effort> {
+    entry.filter(|e| e.per_message_effort).map(|_| Effort::High)
 }
 
 /// The request's model takes per-message effort: Anthropic's own API (the beta
-/// is not confirmed elsewhere), a model [`default_of`] knows, and one this
+/// is not confirmed elsewhere), a catalog row that says so, and one this
 /// daemon has not found to refuse it (`spec.effort_refused`).
-pub fn takes(spec: &RequestSpec, model: &str) -> bool {
+pub fn takes(spec: &RequestSpec, entry: Option<&CatalogEntry>, model: &str) -> bool {
     spec.first_party
-        && default_of(model).is_some()
+        && default_of(entry).is_some()
         && !spec.effort_refused.iter().any(|m| m == model)
 }
 
@@ -139,9 +138,10 @@ pub fn place(
     req: &mut ProviderRequest,
     answers: &[(usize, Effort)],
     spec: &RequestSpec,
+    entry: Option<&CatalogEntry>,
     tail_from: usize,
 ) -> usize {
-    if !takes(spec, &req.model) {
+    if !takes(spec, entry, &req.model) {
         return tail_from;
     }
     let mut tail_from = tail_from;
@@ -157,7 +157,7 @@ pub fn place(
             tail_from += usize::from(at - 1 < tail_from);
         }
     }
-    if let Some(at) = retarget(req, spec) {
+    if let Some(at) = retarget(req, spec, entry) {
         tail_from += usize::from(at < tail_from);
     }
     tail_from
@@ -167,8 +167,12 @@ pub fn place(
 /// in force, replacing one placed before (route.v3 decides after the first
 /// compile); none for any other model, or after the turn's first answer.
 /// Where a message went in.
-pub fn retarget(req: &mut ProviderRequest, spec: &RequestSpec) -> Option<usize> {
-    let default = default_of(&req.model).filter(|_| takes(spec, &req.model))?;
+pub fn retarget(
+    req: &mut ProviderRequest,
+    spec: &RequestSpec,
+    entry: Option<&CatalogEntry>,
+) -> Option<usize> {
+    let default = default_of(entry).filter(|_| takes(spec, entry, &req.model))?;
     let mut at = req.messages.len().checked_sub(1)?;
     if !opens_turn(&req.messages[at]) {
         return None;

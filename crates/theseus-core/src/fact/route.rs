@@ -42,6 +42,9 @@ pub struct RouteDecided<'a> {
     pub effort_reason: Option<&'a str>,
     pub effort_applied: bool,
     pub effort_ran: Option<&'a str>,
+    /// The effort the request carried when `sticky` held it at the previous
+    /// request's (`effort_reason`): `effort_ran` then is Jev's level.
+    pub effort_sent: Option<&'a str>,
 }
 
 impl Fact for RouteDecided<'_> {
@@ -57,6 +60,9 @@ impl Fact for RouteDecided<'_> {
             "effort_reason": self.effort_reason, "effort_applied": self.effort_applied,
             "effort_ran": self.effort_ran,
         });
+        if let Some(s) = self.effort_sent {
+            row["effort_sent"] = json!(s);
+        }
         if let Some(s) = self.source {
             row["source"] = json!(s);
             row["follows"] = json!(self.follows);
@@ -73,8 +79,9 @@ impl Fact for RouteDecided<'_> {
             Some(s) => format!(" ({s}, following {})", self.follows.unwrap_or("?")),
             None => self.mode.map_or(String::new(), |m| format!(" ({m})")),
         };
-        let effort = match (self.effort_applied, self.effort_ran) {
-            (true, Some(e)) => format!(" Jev set its effort to {e}."),
+        let effort = match (self.effort_applied, self.effort_ran, self.effort_sent) {
+            (true, Some(e), Some(s)) => format!(" Jev asked for effort {e}; it stays at {s}."),
+            (true, Some(e), None) => format!(" Jev set its effort to {e}."),
             _ => String::new(),
         };
         let line = match (self.detour, self.switch) {

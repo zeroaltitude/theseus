@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-10-17.1";
+pub const BUILTIN_VERSION: &str = "2026-10-18.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -172,6 +172,11 @@ pub struct CatalogEntry {
     /// `output_config.effort` is accepted.
     #[serde(default)]
     pub effort: bool,
+    /// The model takes an effort-only system message in its history
+    /// (per-message effort, theseus-o719), so a turn's level changes no top-level
+    /// effort and the messages' cache stays; without it Jev's level is sticky.
+    #[serde(default)]
+    pub per_message_effort: bool,
     /// Server-side refusal fallbacks (`fallbacks: "default"`) are supported.
     #[serde(default)]
     pub refusal_fallbacks: bool,
@@ -469,6 +474,8 @@ pub struct CatalogRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_message_effort: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal_fallbacks: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal_fallback_model: Option<String>,
@@ -548,6 +555,7 @@ impl CatalogRow {
                     caches: true,
                     thinking: ThinkingMode::None,
                     effort: false,
+                    per_message_effort: false,
                     refusal_fallbacks: false,
                     refusal_fallback_model: None,
                     cache_min_tokens: 0,
@@ -576,6 +584,7 @@ impl CatalogRow {
             caches: r.caches.unwrap_or(entry.caches),
             thinking: r.thinking.unwrap_or(entry.thinking),
             effort: r.effort.unwrap_or(entry.effort),
+            per_message_effort: r.per_message_effort.unwrap_or(entry.per_message_effort),
             refusal_fallbacks: r.refusal_fallbacks.unwrap_or(entry.refusal_fallbacks),
             refusal_fallback_model: r.refusal_fallback_model.or(entry.refusal_fallback_model),
             cache_min_tokens: r.cache_min_tokens.unwrap_or(entry.cache_min_tokens),
@@ -620,6 +629,7 @@ fn claude(
         caches: true,
         thinking,
         effort: thinking != ThinkingMode::Budget,
+        per_message_effort: false,
         refusal_fallbacks: fallbacks,
         refusal_fallback_model: None,
         cache_min_tokens: cache_min,
@@ -655,6 +665,7 @@ fn glm(
         // GLM always thinks, and `thinking: disabled` fails (docs.z.ai).
         thinking: ThinkingMode::Implicit,
         effort: true,
+        per_message_effort: false,
         refusal_fallbacks: false,
         refusal_fallback_model: None,
         cache_min_tokens: 0,
@@ -688,6 +699,7 @@ fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str
         caches: true,
         thinking: ThinkingMode::Implicit,
         effort: true,
+        per_message_effort: false,
         refusal_fallbacks: false,
         refusal_fallback_model: None,
         cache_min_tokens: 0,
@@ -730,7 +742,11 @@ impl Catalog {
         let m = 1_000_000;
         e.insert(
             "claude-fable-5-1".into(),
-            claude(m, 128_000, 10.0, 50.0, 0.25, 12.50, Always, true, 512),
+            CatalogEntry {
+                // The one model seen to take it live (theseus-posww).
+                per_message_effort: true,
+                ..claude(m, 128_000, 10.0, 50.0, 0.25, 12.50, Always, true, 512)
+            },
         );
         e.insert(
             "claude-fable-5".into(),
@@ -1449,7 +1465,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-10-17.1");
+        assert_eq!(c.version, "2026-10-18.1");
         // Sonnet 5.5's cache read fell to $0.10 on Haiku 5.5's launch day.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
