@@ -1,0 +1,290 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1021" viewBox="0 0 720 1021" role="img" aria-labelledby="t-curve t-curve-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-curve">Recall by distance from the fact</title>
+<desc id="t-curve-d">How fast does recall fall as the fact recedes, for each arm and salience?</desc>
+<rect width="720" height="1021" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Recall by distance from the fact</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#d95926"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="142.8" cy="50.0" r="5" fill="#d55181"/>
+<text x="157.8" y="54.0" font-size="12" fill="#c3c2b7">Pi</text>
+<circle cx="195.3" cy="50.0" r="5" fill="#3987e5"/>
+<text x="210.3" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<line x1="214.3" y1="72.0" x2="214.3" y2="942.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="281.5" y1="72.0" x2="281.5" y2="942.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="348.8" y1="72.0" x2="348.8" y2="942.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="416.1" y1="72.0" x2="416.1" y2="942.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="483.4" y1="72.0" x2="483.4" y2="942.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="550.6" y1="72.0" x2="550.6" y2="942.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="89.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">incidental facts</text>
+<text x="18.0" y="509.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">central facts</text>
+<text x="200.3" y="116.0" font-size="12" fill="#ffffff" text-anchor="end">near · claude-code</text>
+<g><title>near · claude-code: 91.7%  [64.6%, 98.5%] (11 of 12; 3 turns since)</title>
+<line x1="431.6" y1="112.0" x2="545.6" y2="112.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="431.6" y1="107.0" x2="431.6" y2="117.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="545.6" y1="107.0" x2="545.6" y2="117.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="522.6" cy="112.0" r="12" fill="transparent"/>
+<circle cx="522.6" cy="112.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="116.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">91.7%  [64.6%, 98.5%]</text>
+<text x="200.3" y="144.0" font-size="12" fill="#ffffff" text-anchor="end">topic_shift · claude-code</text>
+<g><title>topic_shift · claude-code: 75.0%  [46.8%, 91.1%] (9 of 12; 27 turns since)</title>
+<line x1="371.6" y1="140.0" x2="520.7" y2="140.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="371.6" y1="135.0" x2="371.6" y2="145.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="520.7" y1="135.0" x2="520.7" y2="145.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="466.5" cy="140.0" r="12" fill="transparent"/>
+<circle cx="466.5" cy="140.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="144.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.0%  [46.8%, 91.1%]</text>
+<text x="200.3" y="172.0" font-size="12" fill="#ffffff" text-anchor="end">compaction · claude-code</text>
+<g><title>compaction · claude-code: 75.0%  [46.8%, 91.1%] (9 of 12; 88 turns since)</title>
+<line x1="371.6" y1="168.0" x2="520.7" y2="168.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="371.6" y1="163.0" x2="371.6" y2="173.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="520.7" y1="163.0" x2="520.7" y2="173.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="466.5" cy="168.0" r="12" fill="transparent"/>
+<circle cx="466.5" cy="168.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="172.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.0%  [46.8%, 91.1%]</text>
+<text x="200.3" y="200.0" font-size="12" fill="#ffffff" text-anchor="end">session · claude-code</text>
+<g><title>session · claude-code: 0.0%  [0.0%, 24.2%] (0 of 12; 209 turns since)</title>
+<line x1="214.3" y1="196.0" x2="295.8" y2="196.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="191.0" x2="214.3" y2="201.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="191.0" x2="295.8" y2="201.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="196.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="196.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="200.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="228.0" font-size="12" fill="#ffffff" text-anchor="end">days · claude-code</text>
+<g><title>days · claude-code: 0.0%  [0.0%, 24.2%] (0 of 12; 338 turns since)</title>
+<line x1="214.3" y1="224.0" x2="295.8" y2="224.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="219.0" x2="214.3" y2="229.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="219.0" x2="295.8" y2="229.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="224.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="224.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="228.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="256.0" font-size="12" fill="#ffffff" text-anchor="end">near · pi</text>
+<g><title>near · pi: 100.0%  [75.8%, 100.0%] (12 of 12; 3 turns since)</title>
+<line x1="469.1" y1="252.0" x2="550.6" y2="252.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="469.1" y1="247.0" x2="469.1" y2="257.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="247.0" x2="550.6" y2="257.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="252.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="252.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="256.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [75.8%, 100.0%]</text>
+<text x="200.3" y="284.0" font-size="12" fill="#ffffff" text-anchor="end">topic_shift · pi</text>
+<g><title>topic_shift · pi: 95.8%  [79.8%, 99.3%] (23 of 24; 58 turns since)</title>
+<line x1="482.5" y1="280.0" x2="548.1" y2="280.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="482.5" y1="275.0" x2="482.5" y2="285.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="548.1" y1="275.0" x2="548.1" y2="285.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="536.6" cy="280.0" r="12" fill="transparent"/>
+<circle cx="536.6" cy="280.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="284.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">95.8%  [79.8%, 99.3%]</text>
+<text x="200.3" y="312.0" font-size="12" fill="#ffffff" text-anchor="end">session · pi</text>
+<g><title>session · pi: 0.0%  [0.0%, 24.2%] (0 of 12; 209 turns since)</title>
+<line x1="214.3" y1="308.0" x2="295.8" y2="308.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="303.0" x2="214.3" y2="313.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="303.0" x2="295.8" y2="313.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="308.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="308.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="312.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="340.0" font-size="12" fill="#ffffff" text-anchor="end">days · pi</text>
+<g><title>days · pi: 8.3%  [1.5%, 35.4%] (1 of 12; 338 turns since)</title>
+<line x1="219.3" y1="336.0" x2="333.3" y2="336.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="219.3" y1="331.0" x2="219.3" y2="341.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="333.3" y1="331.0" x2="333.3" y2="341.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="242.3" cy="336.0" r="12" fill="transparent"/>
+<circle cx="242.3" cy="336.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="340.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">8.3%  [1.5%, 35.4%]</text>
+<text x="200.3" y="368.0" font-size="12" fill="#ffffff" text-anchor="end">near · theseus/baseline</text>
+<g><title>near · theseus/baseline: 100.0%  [74.1%, 100.0%] (11 of 11; 3 turns since)</title>
+<line x1="463.6" y1="364.0" x2="550.6" y2="364.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="463.6" y1="359.0" x2="463.6" y2="369.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="359.0" x2="550.6" y2="369.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="364.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="364.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="368.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [74.1%, 100.0%]</text>
+<text x="200.3" y="396.0" font-size="12" fill="#ffffff" text-anchor="end">topic_shift · theseus/baseline</text>
+<g><title>topic_shift · theseus/baseline: 100.0%  [64.6%, 100.0%] (7 of 7; 28 turns since)</title>
+<line x1="431.4" y1="392.0" x2="550.6" y2="392.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="431.4" y1="387.0" x2="431.4" y2="397.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="387.0" x2="550.6" y2="397.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="392.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="392.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="396.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [64.6%, 100.0%]</text>
+<text x="200.3" y="424.0" font-size="12" fill="#ffffff" text-anchor="end">compaction · theseus/baseline</text>
+<g><title>compaction · theseus/baseline: 92.9%  [68.5%, 98.7%] (13 of 14; 80 turns since)</title>
+<line x1="444.8" y1="420.0" x2="546.4" y2="420.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="444.8" y1="415.0" x2="444.8" y2="425.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="546.4" y1="415.0" x2="546.4" y2="425.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="526.6" cy="420.0" r="12" fill="transparent"/>
+<circle cx="526.6" cy="420.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="424.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">92.9%  [68.5%, 98.7%]</text>
+<text x="200.3" y="452.0" font-size="12" fill="#ffffff" text-anchor="end">session · theseus/baseline</text>
+<g><title>session · theseus/baseline: 63.6%  [35.4%, 84.8%] (7 of 11; 200 turns since)</title>
+<line x1="333.3" y1="448.0" x2="499.6" y2="448.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="333.3" y1="443.0" x2="333.3" y2="453.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="499.6" y1="443.0" x2="499.6" y2="453.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="428.3" cy="448.0" r="12" fill="transparent"/>
+<circle cx="428.3" cy="448.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="452.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">63.6%  [35.4%, 84.8%]</text>
+<text x="200.3" y="480.0" font-size="12" fill="#ffffff" text-anchor="end">days · theseus/baseline</text>
+<g><title>days · theseus/baseline: 54.5%  [28.0%, 78.7%] (6 of 11; 330 turns since)</title>
+<line x1="308.5" y1="476.0" x2="479.1" y2="476.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="308.5" y1="471.0" x2="308.5" y2="481.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="479.1" y1="471.0" x2="479.1" y2="481.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="397.7" cy="476.0" r="12" fill="transparent"/>
+<circle cx="397.7" cy="476.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="480.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">54.5%  [28.0%, 78.7%]</text>
+<text x="200.3" y="536.0" font-size="12" fill="#ffffff" text-anchor="end">near · claude-code</text>
+<g><title>near · claude-code: 83.3%  [55.2%, 95.3%] (10 of 12; 3 turns since)</title>
+<line x1="399.9" y1="532.0" x2="534.8" y2="532.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="399.9" y1="527.0" x2="399.9" y2="537.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="534.8" y1="527.0" x2="534.8" y2="537.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="494.6" cy="532.0" r="12" fill="transparent"/>
+<circle cx="494.6" cy="532.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="536.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">83.3%  [55.2%, 95.3%]</text>
+<text x="200.3" y="564.0" font-size="12" fill="#ffffff" text-anchor="end">topic_shift · claude-code</text>
+<g><title>topic_shift · claude-code: 100.0%  [75.8%, 100.0%] (12 of 12; 26 turns since)</title>
+<line x1="469.1" y1="560.0" x2="550.6" y2="560.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="469.1" y1="555.0" x2="469.1" y2="565.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="555.0" x2="550.6" y2="565.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="560.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="560.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="564.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [75.8%, 100.0%]</text>
+<text x="200.3" y="592.0" font-size="12" fill="#ffffff" text-anchor="end">compaction · claude-code</text>
+<g><title>compaction · claude-code: 91.7%  [64.6%, 98.5%] (11 of 12; 116 turns since)</title>
+<line x1="431.6" y1="588.0" x2="545.6" y2="588.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="431.6" y1="583.0" x2="431.6" y2="593.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="545.6" y1="583.0" x2="545.6" y2="593.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="522.6" cy="588.0" r="12" fill="transparent"/>
+<circle cx="522.6" cy="588.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="592.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">91.7%  [64.6%, 98.5%]</text>
+<text x="200.3" y="620.0" font-size="12" fill="#ffffff" text-anchor="end">session · claude-code</text>
+<g><title>session · claude-code: 0.0%  [0.0%, 24.2%] (0 of 12; 195 turns since)</title>
+<line x1="214.3" y1="616.0" x2="295.8" y2="616.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="611.0" x2="214.3" y2="621.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="611.0" x2="295.8" y2="621.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="616.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="616.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="620.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="648.0" font-size="12" fill="#ffffff" text-anchor="end">days · claude-code</text>
+<g><title>days · claude-code: 0.0%  [0.0%, 24.2%] (0 of 12; 259 turns since)</title>
+<line x1="214.3" y1="644.0" x2="295.8" y2="644.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="639.0" x2="214.3" y2="649.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="639.0" x2="295.8" y2="649.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="644.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="644.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="648.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="676.0" font-size="12" fill="#ffffff" text-anchor="end">near · pi</text>
+<g><title>near · pi: 100.0%  [75.8%, 100.0%] (12 of 12; 3 turns since)</title>
+<line x1="469.1" y1="672.0" x2="550.6" y2="672.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="469.1" y1="667.0" x2="469.1" y2="677.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="667.0" x2="550.6" y2="677.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="672.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="672.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="676.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [75.8%, 100.0%]</text>
+<text x="200.3" y="704.0" font-size="12" fill="#ffffff" text-anchor="end">topic_shift · pi</text>
+<g><title>topic_shift · pi: 100.0%  [85.7%, 100.0%] (23 of 23; 70 turns since)</title>
+<line x1="502.5" y1="700.0" x2="550.6" y2="700.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="502.5" y1="695.0" x2="502.5" y2="705.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="695.0" x2="550.6" y2="705.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="700.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="700.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="704.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [85.7%, 100.0%]</text>
+<text x="200.3" y="732.0" font-size="12" fill="#ffffff" text-anchor="end">compaction · pi</text>
+<g><title>compaction · pi: 100.0%  [20.7%, 100.0%] (1 of 1; 89 turns since)</title>
+<line x1="283.7" y1="728.0" x2="550.6" y2="728.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="283.7" y1="723.0" x2="283.7" y2="733.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="723.0" x2="550.6" y2="733.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="728.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="728.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="732.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [20.7%, 100.0%]</text>
+<text x="200.3" y="760.0" font-size="12" fill="#ffffff" text-anchor="end">session · pi</text>
+<g><title>session · pi: 0.0%  [0.0%, 24.2%] (0 of 12; 195 turns since)</title>
+<line x1="214.3" y1="756.0" x2="295.8" y2="756.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="751.0" x2="214.3" y2="761.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="751.0" x2="295.8" y2="761.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="756.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="756.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="760.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="788.0" font-size="12" fill="#ffffff" text-anchor="end">days · pi</text>
+<g><title>days · pi: 0.0%  [0.0%, 24.2%] (0 of 12; 259 turns since)</title>
+<line x1="214.3" y1="784.0" x2="295.8" y2="784.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="214.3" y1="779.0" x2="214.3" y2="789.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="295.8" y1="779.0" x2="295.8" y2="789.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="214.3" cy="784.0" r="12" fill="transparent"/>
+<circle cx="214.3" cy="784.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="788.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 24.2%]</text>
+<text x="200.3" y="816.0" font-size="12" fill="#ffffff" text-anchor="end">near · theseus/baseline</text>
+<g><title>near · theseus/baseline: 100.0%  [72.2%, 100.0%] (10 of 10; 3 turns since)</title>
+<line x1="457.3" y1="812.0" x2="550.6" y2="812.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="457.3" y1="807.0" x2="457.3" y2="817.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="807.0" x2="550.6" y2="817.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="812.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="812.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="816.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [72.2%, 100.0%]</text>
+<text x="200.3" y="844.0" font-size="12" fill="#ffffff" text-anchor="end">topic_shift · theseus/baseline</text>
+<g><title>topic_shift · theseus/baseline: 100.0%  [61.0%, 100.0%] (6 of 6; 19 turns since)</title>
+<line x1="419.3" y1="840.0" x2="550.6" y2="840.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="419.3" y1="835.0" x2="419.3" y2="845.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="550.6" y1="835.0" x2="550.6" y2="845.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="550.6" cy="840.0" r="12" fill="transparent"/>
+<circle cx="550.6" cy="840.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="844.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">100.0%  [61.0%, 100.0%]</text>
+<text x="200.3" y="872.0" font-size="12" fill="#ffffff" text-anchor="end">compaction · theseus/baseline</text>
+<g><title>compaction · theseus/baseline: 81.2%  [57.0%, 93.4%] (13 of 16; 79 turns since)</title>
+<line x1="406.0" y1="868.0" x2="528.5" y2="868.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="406.0" y1="863.0" x2="406.0" y2="873.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="528.5" y1="863.0" x2="528.5" y2="873.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="487.6" cy="868.0" r="12" fill="transparent"/>
+<circle cx="487.6" cy="868.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="872.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">81.2%  [57.0%, 93.4%]</text>
+<text x="200.3" y="900.0" font-size="12" fill="#ffffff" text-anchor="end">session · theseus/baseline</text>
+<g><title>session · theseus/baseline: 75.0%  [46.8%, 91.1%] (9 of 12; 195 turns since)</title>
+<line x1="371.6" y1="896.0" x2="520.7" y2="896.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="371.6" y1="891.0" x2="371.6" y2="901.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="520.7" y1="891.0" x2="520.7" y2="901.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="466.5" cy="896.0" r="12" fill="transparent"/>
+<circle cx="466.5" cy="896.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="900.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">75.0%  [46.8%, 91.1%]</text>
+<text x="200.3" y="928.0" font-size="12" fill="#ffffff" text-anchor="end">days · theseus/baseline</text>
+<g><title>days · theseus/baseline: 41.7%  [19.3%, 68.0%] (5 of 12; 259 turns since)</title>
+<line x1="279.3" y1="924.0" x2="443.2" y2="924.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="279.3" y1="919.0" x2="279.3" y2="929.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="443.2" y1="919.0" x2="443.2" y2="929.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="354.4" cy="924.0" r="12" fill="transparent"/>
+<circle cx="354.4" cy="924.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="564.6" y="928.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">41.7%  [19.3%, 68.0%]</text>
+<line x1="214.3" y1="942.0" x2="550.6" y2="942.0" stroke="#383835" stroke-width="1"/>
+<text x="214.3" y="958.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="281.5" y="958.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="348.8" y="958.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="416.1" y="958.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="483.4" y="958.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="550.6" y="958.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="382.5" y="976.0" font-size="12" fill="#c3c2b7" text-anchor="middle">probes answered right (95% Wilson)</text>
+<text x="18.0" y="998.0" font-size="11" fill="#c3c2b7">Buckets nearest first; scored probes only (undelivered and failed turns are counted apart, never as misses).</text>
+</svg>

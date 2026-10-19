@@ -158,6 +158,70 @@
    ]
   },
   {
+   "name": "frontier-v1-high",
+   "form": "scatter",
+   "title": "v1: Theseus as shipped and the top three harnesses, all 89 Terminal-Bench tasks at high effort (Oct 18)",
+   "question": "At the v1 freeze, which harness solves the most for the least?",
+   "answer": "Claude Code solves the most (75.3%) and Theseus as shipped the most per dollar (73.0% at $0.100 a trial); paired by task the two are level, and OpenCode and Pi follow.",
+   "sources": [
+    "2026-10-18-terminal-bench-v1-high.md"
+   ],
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "Theseus as shipped (routed)",
+     "x": 0.0996,
+     "xlo": 0.0823,
+     "xhi": 0.1193,
+     "y": 0.7303,
+     "ylo": 0.6741,
+     "yhi": 0.78
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "x": 0.1304,
+     "xlo": 0.1114,
+     "xhi": 0.1524,
+     "y": 0.7528,
+     "ylo": 0.6977,
+     "yhi": 0.8007
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35",
+     "x": 0.1192,
+     "xlo": 0.0993,
+     "xhi": 0.1429,
+     "y": 0.7079,
+     "ylo": 0.6507,
+     "yhi": 0.7592
+    },
+    {
+     "arm": "pi",
+     "label": "Pi 1.0.4",
+     "x": 0.1057,
+     "xlo": 0.0859,
+     "xhi": 0.129,
+     "y": 0.7041,
+     "ylo": 0.6468,
+     "yhi": 0.7557
+    }
+   ],
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.0
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0.6,
+    "max": 0.85
+   },
+   "rows": []
+  },
+  {
    "name": "frontier-89",
    "form": "scatter",
    "title": "Four harnesses on all 89 Terminal-Bench tasks: trials solved against dollars (Oct 13)",
@@ -1439,9 +1503,21 @@
      "run": "TB: local partial pass and EC2 smoke",
      "usd": 20.83,
      "source": "2026-10-13-terminal-bench-r0.md"
+    },
+    {
+     "date": "Oct 18",
+     "run": "v1: TB HIGH, four harnesses, 89 x 3",
+     "usd": 121.47,
+     "source": "2026-10-18-terminal-bench-v1-high.md"
+    },
+    {
+     "date": "Oct 18",
+     "run": "v1: recall full run and the kill family",
+     "usd": 27.4,
+     "source": "2026-10-18-recall-full-run.md"
     }
    ]
   }
  ],
- "total_usd": 367.3641
+ "total_usd": 516.2341
 }

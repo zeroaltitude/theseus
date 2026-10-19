@@ -1,0 +1,1067 @@
+{
+ "report": "2026-10-18-gate-bench-v1",
+ "title": "Gate bench: the v1 freeze's release build, every speed bench once more",
+ "suite": "gate-bench",
+ "date": "2026-10-18",
+ "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+ "arms": [
+  "theseus"
+ ],
+ "summary": {
+  "lifecycle_release": {
+   "cold": {
+    "runs": 4,
+    "p50_median": 21.67,
+    "p50_range": [
+     19.9,
+     30.41
+    ],
+    "p95_median": 31.32,
+    "p95_max": 39.28
+   },
+   "vault": {
+    "runs": 4,
+    "p50_median": 22.28,
+    "p50_range": [
+     19.06,
+     29.14
+    ],
+    "p95_median": 29.25,
+    "p95_max": 32.73
+   },
+   "shutdown": {
+    "runs": 4,
+    "p50_median": 47.85,
+    "p50_range": [
+     39.89,
+     103.88
+    ],
+    "p95_median": 67.02,
+    "p95_max": 118.3
+   },
+   "inflight": {
+    "runs": 4,
+    "p50_median": 95.55,
+    "p50_range": [
+     90.79,
+     102.54
+    ],
+    "p95_median": 119.17,
+    "p95_max": 165.69
+   },
+   "kill": {
+    "runs": 4,
+    "p50_median": 30.7,
+    "p50_range": [
+     24.51,
+     38.18
+    ],
+    "p95_median": 40.62,
+    "p95_max": 77.23
+   },
+   "swap": {
+    "runs": 4,
+    "p50_median": 63.77,
+    "p50_range": [
+     58.07,
+     75.41
+    ],
+    "p95_median": 89.73,
+    "p95_max": 114.69
+   },
+   "restore": {
+    "runs": 4,
+    "p50_median": 205.57,
+    "p50_range": [
+     167.62,
+     238.71
+    ],
+    "p95_median": 226.38,
+    "p95_max": 314.25
+   },
+   "seed": {
+    "runs": 4,
+    "p50_median": 0.35,
+    "p50_range": [
+     0.33,
+     0.59
+    ],
+    "p95_median": 1.1,
+    "p95_max": 4.46
+   },
+   "health": {
+    "runs": 4,
+    "p50_median": 0.94,
+    "p50_range": [
+     0.87,
+     2.25
+    ],
+    "p95_median": 2.72,
+    "p95_max": 4.15
+   },
+   "cancel": {
+    "runs": 4,
+    "p50_median": 26.76,
+    "p50_range": [
+     24.42,
+     30.19
+    ],
+    "p95_median": 39.66,
+    "p95_max": 46.09
+   },
+   "push": {
+    "runs": 4,
+    "p50_median": 0.02,
+    "p50_range": [
+     0.02,
+     0.03
+    ],
+    "p95_median": 0.07,
+    "p95_max": 0.08
+   }
+  },
+  "lifecycle_release_verdicts": [
+   [
+    {
+     "phase": "cold",
+     "p95": 28.717094,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "vault",
+     "p95": 26.007367,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 65.27896199999999,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 36.205159,
+     "budget": 150.07999999999998,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 76.865194,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 0.612734,
+     "budget": 2.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 2.453873,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "cancel",
+     "p95": 32.024347,
+     "budget": 100.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "push",
+     "p95": 0.058343000000000006,
+     "budget": 0.1,
+     "margin": 0.0,
+     "ok": true
+    }
+   ],
+   [
+    {
+     "phase": "cold",
+     "p95": 33.920799,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "vault",
+     "p95": 28.708361,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 68.76604999999999,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 77.229309,
+     "budget": 150.07999999999998,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 102.591694,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 0.778087,
+     "budget": 2.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 2.982503,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "cancel",
+     "p95": 41.889935,
+     "budget": 100.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "push",
+     "p95": 0.06852599999999999,
+     "budget": 0.1,
+     "margin": 0.0,
+     "ok": true
+    }
+   ],
+   [
+    {
+     "phase": "cold",
+     "p95": 39.280300999999994,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "vault",
+     "p95": 32.728497000000004,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 118.304456,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": false
+    },
+    {
+     "phase": "kill",
+     "p95": 45.035846,
+     "budget": 150.07999999999998,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 114.693429,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 4.4575819999999995,
+     "budget": 2.0,
+     "margin": 0.0,
+     "ok": false
+    },
+    {
+     "phase": "health",
+     "p95": 4.150314000000001,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "cancel",
+     "p95": 37.429921,
+     "budget": 100.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "push",
+     "p95": 0.076208,
+     "budget": 0.1,
+     "margin": 0.0,
+     "ok": true
+    }
+   ],
+   [
+    {
+     "phase": "cold",
+     "p95": 23.358866,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "vault",
+     "p95": 29.788502,
+     "budget": 50.08,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 57.56919499999999,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 33.260383999999995,
+     "budget": 150.07999999999998,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 63.542269999999995,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 1.4191900000000002,
+     "budget": 2.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 2.281663,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "cancel",
+     "p95": 46.085209,
+     "budget": 100.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "push",
+     "p95": 0.066116,
+     "budget": 0.1,
+     "margin": 0.0,
+     "ok": true
+    }
+   ]
+  ],
+  "lifecycle_10k": {
+   "cold": {
+    "runs": 4,
+    "p50_median": 24.45,
+    "p50_range": [
+     19.33,
+     28.28
+    ],
+    "p95_median": 43.47,
+    "p95_max": 53.45
+   },
+   "shutdown": {
+    "runs": 4,
+    "p50_median": 44.81,
+    "p50_range": [
+     39.77,
+     61.93
+    ],
+    "p95_median": 65.44,
+    "p95_max": 79.85
+   },
+   "kill": {
+    "runs": 4,
+    "p50_median": 31.32,
+    "p50_range": [
+     24.06,
+     53.55
+    ],
+    "p95_median": 40.48,
+    "p95_max": 63.65
+   },
+   "swap": {
+    "runs": 4,
+    "p50_median": 61.55,
+    "p50_range": [
+     54.54,
+     106.48
+    ],
+    "p95_median": 74.24,
+    "p95_max": 204.45
+   },
+   "seed": {
+    "runs": 4,
+    "p50_median": 4.73,
+    "p50_range": [
+     3.13,
+     6.8
+    ],
+    "p95_median": 12.99,
+    "p95_max": 14.92
+   },
+   "health": {
+    "runs": 4,
+    "p50_median": 1.71,
+    "p50_range": [
+     1.0,
+     2.13
+    ],
+    "p95_median": 3.26,
+    "p95_max": 6.76
+   }
+  },
+  "lifecycle_10k_verdicts": [
+   [
+    {
+     "phase": "cold",
+     "p95": 41.667089,
+     "budget": 250.0,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 79.846016,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 43.641457,
+     "budget": 350.0,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 83.810873,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 14.915401,
+     "budget": 50.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 6.760192,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": false
+    }
+   ],
+   [
+    {
+     "phase": "cold",
+     "p95": 45.272523,
+     "budget": 250.0,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 64.912805,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 28.173523999999997,
+     "budget": 350.0,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 64.66003400000001,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 14.156278,
+     "budget": 50.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 2.450734,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    }
+   ],
+   [
+    {
+     "phase": "cold",
+     "p95": 53.449576,
+     "budget": 250.0,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 65.962112,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 63.65042,
+     "budget": 350.0,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 204.44843400000002,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": false
+    },
+    {
+     "phase": "seed",
+     "p95": 11.823176,
+     "budget": 50.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 4.061374000000001,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    }
+   ],
+   [
+    {
+     "phase": "cold",
+     "p95": 26.892819,
+     "budget": 250.0,
+     "margin": 7.0,
+     "ok": true
+    },
+    {
+     "phase": "shutdown",
+     "p95": 59.506528,
+     "budget": 100.0,
+     "margin": 4.0,
+     "ok": true
+    },
+    {
+     "phase": "kill",
+     "p95": 37.318711,
+     "budget": 350.0,
+     "margin": 25.0,
+     "ok": true
+    },
+    {
+     "phase": "swap",
+     "p95": 59.518983,
+     "budget": 200.0,
+     "margin": 2.0,
+     "ok": true
+    },
+    {
+     "phase": "seed",
+     "p95": 5.0983540000000005,
+     "budget": 50.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "health",
+     "p95": 2.355553,
+     "budget": 5.0,
+     "margin": 0.0,
+     "ok": true
+    }
+   ]
+  ],
+  "ab_oct12_same_window": {
+   "cold": {
+    "new": {
+     "p50_median": 18.48,
+     "p50s": [
+      18.13,
+      17.89,
+      19.41,
+      18.84
+     ],
+     "p95_median": 28.41
+    },
+    "old": {
+     "p50_median": 19.73,
+     "p50s": [
+      19.25,
+      19.14,
+      20.2,
+      20.51
+     ],
+     "p95_median": 24.95
+    }
+   },
+   "shutdown": {
+    "new": {
+     "p50_median": 41.22,
+     "p50s": [
+      38.12,
+      88.75,
+      41.43,
+      41.01
+     ],
+     "p95_median": 56.62
+    },
+    "old": {
+     "p50_median": 36.86,
+     "p50s": [
+      35.88,
+      36.66,
+      38.41,
+      37.07
+     ],
+     "p95_median": 52.98
+    }
+   },
+   "kill": {
+    "new": {
+     "p50_median": 23.65,
+     "p50s": [
+      23.3,
+      23.72,
+      26.61,
+      23.58
+     ],
+     "p95_median": 30.56
+    },
+    "old": {
+     "p50_median": 24.38,
+     "p50s": [
+      22.95,
+      23.21,
+      25.79,
+      25.55
+     ],
+     "p95_median": 31.4
+    }
+   },
+   "swap": {
+    "new": {
+     "p50_median": 54.16,
+     "p50s": [
+      50.46,
+      55.62,
+      58.1,
+      52.7
+     ],
+     "p95_median": 65.04
+    },
+    "old": {
+     "p50_median": 52.98,
+     "p50s": [
+      52.12,
+      49.74,
+      56.39,
+      53.85
+     ],
+     "p95_median": 59.01
+    }
+   },
+   "seed": {
+    "new": {
+     "p50_median": 0.33,
+     "p50s": [
+      0.39,
+      0.28,
+      0.37,
+      0.28
+     ],
+     "p95_median": 1.08
+    },
+    "old": {
+     "p50_median": 0.29,
+     "p50s": [
+      0.26,
+      0.29,
+      0.36,
+      0.29
+     ],
+     "p95_median": 1.19
+    }
+   },
+   "health": {
+    "new": {
+     "p50_median": 0.92,
+     "p50s": [
+      0.8,
+      0.81,
+      1.02,
+      1.17
+     ],
+     "p95_median": 2.33
+    },
+    "old": {
+     "p50_median": 0.86,
+     "p50s": [
+      0.72,
+      0.93,
+      0.93,
+      0.79
+     ],
+     "p95_median": 1.95
+    }
+   }
+  },
+  "turn": {
+   "plain": {
+    "turns": 40,
+    "wall_p50": 56.23,
+    "wall_p90": 88.17,
+    "wall_max": 102.1,
+    "daemon_p50_median": 41.5,
+    "frames": [
+     4
+    ]
+   },
+   "tool": {
+    "turns": 40,
+    "wall_p50": 131.25,
+    "wall_p90": 155.22,
+    "wall_max": 275.41,
+    "daemon_p50_median": 114.5,
+    "frames": [
+     8
+    ]
+   },
+   "batch": {
+    "turns": 6,
+    "wall_p50": 2167.12,
+    "wall_p90": 2181.85,
+    "wall_max": 2186.78,
+    "daemon_p50_median": 2147.5,
+    "frames": [
+     14
+    ]
+   }
+  },
+  "burst": {
+   "rss_start": {
+    "rss_kb": 49376,
+    "hwm_kb": 49376,
+    "threads": 25,
+    "cpu_ns": 19553663,
+    "wakeups": 202
+   },
+   "rss_burst": {
+    "rss_kb": 91652,
+    "hwm_kb": 91652,
+    "threads": 26,
+    "cpu_ns": 1095471404,
+    "wakeups": 6416
+   },
+   "burst": {
+    "turns": 30,
+    "sessions": 6,
+    "tool_turns": 6,
+    "wall_ms": 3158.362748,
+    "per_turn_ms": 105.27875826666667,
+    "frames": 150
+   }
+  },
+  "jobs": {
+   "l0": [
+    "total p50 10.13 ms, p95 15.49 ms; notified p50 10.40 ms, p95 15.92 ms",
+    "total p50 9.87 ms, p95 11.92 ms; notified p50 9.87 ms, p95 11.93 ms"
+   ],
+   "l1": [
+    "start p50 5.60 ms, p95 7.87 ms (target under 25 ms: ok); total p50 16.57 ms, p95 21.11 ms; notified p50 16.58 ms, p95 21.11 ms",
+    "start p50 5.00 ms, p95 7.18 ms (target under 25 ms: ok); total p50 15.75 ms, p95 18.76 ms; notified p50 15.76 ms, p95 18.84 ms"
+   ]
+  },
+  "idle": {
+   "theseusd": "<bins>/glibc/theseusd",
+   "store": "empty",
+   "sessions": 0,
+   "window_s": 30.000082938,
+   "settled_s": 2.503318128,
+   "settled": true,
+   "settle_trace": [],
+   "cpu_ms": 2.41595,
+   "cpu_percent": 0.00805314440294365,
+   "wakeups": 44,
+   "wakeups_per_s": 1.4666626119312098,
+   "frames": 0,
+   "frame_shapes": [],
+   "threads": 20,
+   "rss": {
+    "rss_kb": 49056,
+    "hwm_kb": 49056,
+    "threads": 20,
+    "cpu_ns": 26393162,
+    "wakeups": 255
+   },
+   "tender_kb": 10168,
+   "active": 0,
+   "rss_active": null,
+   "tender_active_kb": 0,
+   "wall_ms": 32612.682415000003
+  },
+  "idle10k": {
+   "theseusd": "<bins>/glibc/theseusd",
+   "store": "synthetic, 10000 parked sessions",
+   "sessions": 10000,
+   "window_s": 20.000080628,
+   "settled_s": 2.503002754,
+   "settled": true,
+   "settle_trace": [],
+   "cpu_ms": 74.694348,
+   "cpu_percent": 0.3734702343920971,
+   "wakeups": 85,
+   "wakeups_per_s": 4.249982866619072,
+   "frames": 0,
+   "frame_shapes": [],
+   "threads": 22,
+   "rss": {
+    "rss_kb": 116764,
+    "hwm_kb": 116764,
+    "threads": 22,
+    "cpu_ns": 99558874,
+    "wakeups": 314
+   },
+   "tender_kb": 72304,
+   "active": 0,
+   "rss_active": null,
+   "tender_active_kb": 0,
+   "wall_ms": 24486.081587
+  },
+  "status": {
+   "sessions": 1000,
+   "runs": 300,
+   "p50_ms": 2.102387,
+   "p90_ms": 3.3090289999999998,
+   "min_ms": 1.6201500000000002,
+   "max_ms": 5.860355,
+   "limit_ms": 5.0,
+   "ok": true
+  },
+  "size": {
+   "dir": "<bins>/glibc",
+   "rows": [
+    {
+     "binary": "theseusd",
+     "bytes": 82421240,
+     "mb": 82.42124
+    },
+    {
+     "binary": "theseus",
+     "bytes": 13227920,
+     "mb": 13.22792
+    },
+    {
+     "binary": "theseus-tui",
+     "bytes": 5426976,
+     "mb": 5.426976
+    },
+    {
+     "binary": "theseus-sim",
+     "bytes": 40008568,
+     "mb": 40.008568
+    }
+   ],
+   "missing": [],
+   "verdicts": [
+    {
+     "phase": "size_theseusd",
+     "p95": 82.421,
+     "budget": 60.0,
+     "margin": 0.0,
+     "ok": false
+    },
+    {
+     "phase": "size_theseus",
+     "p95": 13.228,
+     "budget": 60.0,
+     "margin": 0.0,
+     "ok": true
+    },
+    {
+     "phase": "size_theseus_tui",
+     "p95": 5.427,
+     "budget": 60.0,
+     "margin": 0.0,
+     "ok": true
+    }
+   ],
+   "growth": [
+    {
+     "verdict": {
+      "phase": "size_theseusd",
+      "p95": 82.421,
+      "budget": 83.42,
+      "margin": 0.0,
+      "ok": true
+     },
+     "last": 82.42
+    },
+    {
+     "verdict": {
+      "phase": "size_theseus",
+      "p95": 13.228,
+      "budget": 14.23,
+      "margin": 0.0,
+      "ok": true
+     },
+     "last": 13.23
+    },
+    {
+     "verdict": {
+      "phase": "size_theseus_tui",
+      "p95": 5.427,
+      "budget": 6.43,
+      "margin": 0.0,
+      "ok": true
+     },
+     "last": 5.43
+    }
+   ]
+  }
+ },
+ "figures": [
+  {
+   "name": "ab-oct12",
+   "form": "dumbbell",
+   "arm": "theseus",
+   "title": "Each lifecycle phase, Oct 12's build and the v1 freeze's, side by side in one quiet window (p50, release)",
+   "question": "Did the week since Oct 12 make the start and stop path slower, or was it the machine?",
+   "x": {
+    "label": "ms, median of 4 runs\u2019 p50s (log scale)",
+    "format": "ms",
+    "log": true,
+    "min": 0.1,
+    "max": 100
+   },
+   "from_label": "Oct 12, 026dce3f",
+   "to_label": "Oct 18, 351159fc",
+   "rows": [
+    {
+     "label": "cold start",
+     "from": 19.73,
+     "to": 18.48,
+     "tip": "p95 24.95 then 28.41 ms; runs' p50s new [18.13, 17.89, 19.41, 18.84]"
+    },
+    {
+     "label": "clean shutdown, a job running",
+     "from": 36.86,
+     "to": 41.22,
+     "tip": "p95 52.98 then 56.62 ms; runs' p50s new [38.12, 88.75, 41.43, 41.01]"
+    },
+    {
+     "label": "SIGKILL, then restart",
+     "from": 24.38,
+     "to": 23.65,
+     "tip": "p95 31.4 then 30.56 ms; runs' p50s new [23.3, 23.72, 26.61, 23.58]"
+    },
+    {
+     "label": "binary swap",
+     "from": 52.98,
+     "to": 54.16,
+     "tip": "p95 59.01 then 65.04 ms; runs' p50s new [50.46, 55.62, 58.1, 52.7]"
+    },
+    {
+     "label": "the push's seed",
+     "from": 0.29,
+     "to": 0.33,
+     "tip": "p95 1.19 then 1.08 ms; runs' p50s new [0.39, 0.28, 0.37, 0.28]"
+    },
+    {
+     "label": "health",
+     "from": 0.86,
+     "to": 0.92,
+     "tip": "p95 1.95 then 2.33 ms; runs' p50s new [0.8, 0.81, 1.02, 1.17]"
+    }
+   ],
+   "note": "Palindrome order (new, old, old, new, new, old, old, new), each build driven by its own theseus-sim, 10 runs each, 17:55 to 17:59 at load 4 to 10."
+  },
+  {
+   "name": "binary-size",
+   "form": "dumbbell",
+   "arm": "theseus",
+   "title": "The shipped binaries' size, Oct 12 and Oct 18 (MB, release-thin)",
+   "question": "How much did the binaries grow in the last week before v1?",
+   "x": {
+    "label": "MB",
+    "format": "num",
+    "log": false,
+    "min": 0,
+    "max": 90
+   },
+   "from_label": "Oct 12, 026dce3f",
+   "to_label": "Oct 18, 351159fc",
+   "rows": [
+    {
+     "label": "theseusd",
+     "from": 77.85,
+     "to": 82.42,
+     "tip": "budget 60 MB (spec \u00a79)"
+    },
+    {
+     "label": "theseus",
+     "from": 8.45,
+     "to": 13.23,
+     "tip": "budget 60 MB (spec \u00a79)"
+    },
+    {
+     "label": "theseus-tui",
+     "from": 3.07,
+     "to": 5.43,
+     "tip": "budget 60 MB (spec \u00a79)"
+    }
+   ],
+   "note": "Sizes of the release-thin glibc binaries copied out for each run."
+  }
+ ]
+}

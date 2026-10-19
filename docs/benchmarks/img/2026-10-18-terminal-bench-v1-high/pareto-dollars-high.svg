@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" role="img" aria-labelledby="t-pareto-dollars-high t-pareto-dollars-high-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-pareto-dollars-high">Pass rate against dollars per trial, HIGH tier</title>
+<desc id="t-pareto-dollars-high-d">Which harness buys the most passes for the least money?</desc>
+<rect width="720" height="460" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Pass rate against dollars per trial, HIGH tier</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus as shipped (routed)</text>
+<circle cx="233.6" cy="50.0" r="5" fill="#eb6834"/>
+<text x="248.6" y="54.0" font-size="12" fill="#52514e">Claude Code</text>
+<circle cx="351.5" cy="50.0" r="5" fill="#898781"/>
+<text x="366.5" y="54.0" font-size="12" fill="#52514e">OpenCode 1.18.35</text>
+<circle cx="502.4" cy="50.0" r="5" fill="#e87ba4"/>
+<text x="517.4" y="54.0" font-size="12" fill="#52514e">Pi</text>
+<circle cx="25.0" cy="70.0" r="4.5" fill="#fcfcfb" stroke="#52514e" stroke-width="1.6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">on the Pareto front (none does better on both)</text>
+<line x1="52.3" y1="404.0" x2="692.0" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="408.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="52.3" y1="344.0" x2="692.0" y2="344.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="348.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">65%</text>
+<line x1="52.3" y1="284.0" x2="692.0" y2="284.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="288.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">70%</text>
+<line x1="52.3" y1="224.0" x2="692.0" y2="224.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="228.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">75%</text>
+<line x1="52.3" y1="164.0" x2="692.0" y2="164.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="168.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="52.3" y1="104.0" x2="692.0" y2="104.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="108.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">85%</text>
+<text x="52.3" y="96.0" font-size="11" fill="#52514e">trials passed (95% Wilson)</text>
+<line x1="52.3" y1="104.0" x2="52.3" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="52.3" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<line x1="212.2" y1="104.0" x2="212.2" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="212.2" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.05</text>
+<line x1="372.1" y1="104.0" x2="372.1" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="372.1" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<line x1="532.1" y1="104.0" x2="532.1" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="532.1" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.15</text>
+<line x1="692.0" y1="104.0" x2="692.0" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="692.0" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
+<line x1="52.3" y1="404.0" x2="692.0" y2="404.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="372.1" y="438.0" font-size="12" fill="#52514e" text-anchor="middle">mean dollars per trial (95% CI)</text>
+<path d="M370.9,247.6H469.4V220.6" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<g><title>Theseus as shipped (routed): 73.0% at $0.100</title>
+<line x1="315.5" y1="247.6" x2="433.9" y2="247.6" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="370.9" y1="315.1" x2="370.9" y2="188.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="370.9" cy="247.6" r="12" fill="transparent"/>
+<circle cx="370.9" cy="247.6" r="6" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<circle cx="370.9" cy="247.6" r="10" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<g><title>Claude Code 2.1.290: 75.3% at $0.13</title>
+<line x1="408.6" y1="220.6" x2="539.8" y2="220.6" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="469.4" y1="286.8" x2="469.4" y2="163.2" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="469.4" cy="220.6" r="12" fill="transparent"/>
+<circle cx="469.4" cy="220.6" r="6" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<circle cx="469.4" cy="220.6" r="10" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<g><title>OpenCode 1.18.35: 70.8% at $0.12</title>
+<line x1="369.9" y1="274.5" x2="509.4" y2="274.5" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="433.6" y1="343.2" x2="433.6" y2="213.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="433.6" cy="274.5" r="12" fill="transparent"/>
+<circle cx="433.6" cy="274.5" r="6" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>Pi 1.0.4: 70.4% at $0.11</title>
+<line x1="327.0" y1="279.1" x2="464.9" y2="279.1" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="390.4" y1="347.8" x2="390.4" y2="217.2" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="390.4" cy="279.1" r="12" fill="transparent"/>
+<circle cx="390.4" cy="279.1" r="6" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="380.9" y="239.6" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Theseus as shipped (routed)</text>
+<text x="479.4" y="212.6" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Claude Code 2.1.290</text>
+<text x="443.6" y="266.5" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">OpenCode 1.18.35</text>
+<text x="400.4" y="271.1" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">Pi 1.0.4</text>
+</svg>

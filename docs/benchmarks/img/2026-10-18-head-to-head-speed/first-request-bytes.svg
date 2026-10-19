@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="321" viewBox="0 0 720 321" role="img" aria-labelledby="t-first-request-bytes t-first-request-bytes-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-first-request-bytes">Bytes of the first request (lower is smaller)</title>
+<desc id="t-first-request-bytes-d">Which harness takes less on each row: bytes of the first request (lower is smaller)?</desc>
+<rect width="720" height="321" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Bytes of the first request (lower is smaller)</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#eb6834"/>
+<text x="130.5" y="54.0" font-size="12" fill="#52514e">Claude Code</text>
+<line x1="109.8" y1="72.0" x2="109.8" y2="242.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="216.1" y1="72.0" x2="216.1" y2="242.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="322.3" y1="72.0" x2="322.3" y2="242.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="428.6" y1="72.0" x2="428.6" y2="242.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="534.8" y1="72.0" x2="534.8" y2="242.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="18.0" y="89.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">first_request_bytes · interactive</text>
+<text x="18.0" y="173.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">first_request_bytes · one-shot</text>
+<text x="95.8" y="116.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus</text>
+<g><title>Theseus: 44.8 KB  [44.8 KB, 44.8 KB] (n 10, bootstrap)</title>
+<line x1="348.0" y1="112.0" x2="348.0" y2="112.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="348.0" y1="107.0" x2="348.0" y2="117.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="348.0" y1="107.0" x2="348.0" y2="117.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="348.0" cy="112.0" r="12" fill="transparent"/>
+<circle cx="348.0" cy="112.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="548.8" y="116.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">44.8 KB  [44.8 KB, 44.8 KB]</text>
+<text x="95.8" y="144.0" font-size="12" fill="#0b0b0b" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 76.8 KB  [76.8 KB, 76.8 KB] (n 10, bootstrap)</title>
+<line x1="517.7" y1="140.0" x2="517.7" y2="140.0" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<line x1="517.7" y1="135.0" x2="517.7" y2="145.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="517.7" y1="135.0" x2="517.7" y2="145.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="517.7" cy="140.0" r="12" fill="transparent"/>
+<circle cx="517.7" cy="140.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="548.8" y="144.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">76.8 KB  [76.8 KB, 76.8 KB]</text>
+<text x="95.8" y="200.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus</text>
+<g><title>Theseus: 44.8 KB  [44.8 KB, 44.8 KB] (n 10, bootstrap)</title>
+<line x1="348.0" y1="196.0" x2="348.0" y2="196.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="348.0" y1="191.0" x2="348.0" y2="201.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="348.0" y1="191.0" x2="348.0" y2="201.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="348.0" cy="196.0" r="12" fill="transparent"/>
+<circle cx="348.0" cy="196.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="548.8" y="200.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">44.8 KB  [44.8 KB, 44.8 KB]</text>
+<text x="95.8" y="228.0" font-size="12" fill="#0b0b0b" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 64.5 KB  [64.5 KB, 64.5 KB] (n 10, bootstrap)</title>
+<line x1="452.4" y1="224.0" x2="452.4" y2="224.0" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<line x1="452.4" y1="219.0" x2="452.4" y2="229.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="452.4" y1="219.0" x2="452.4" y2="229.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="452.4" cy="224.0" r="12" fill="transparent"/>
+<circle cx="452.4" cy="224.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="548.8" y="228.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">64.5 KB  [64.5 KB, 64.5 KB]</text>
+<line x1="109.8" y1="242.0" x2="534.8" y2="242.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="109.8" y="258.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="216.1" y="258.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<text x="322.3" y="258.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40</text>
+<text x="428.6" y="258.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60</text>
+<text x="534.8" y="258.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80</text>
+<text x="322.3" y="276.0" font-size="12" fill="#52514e" text-anchor="middle">kilobytes</text>
+<text x="18.0" y="298.0" font-size="11" fill="#52514e">One stand-in model for both arms; 2026-10-18-head-to-head-speed.</text>
+</svg>

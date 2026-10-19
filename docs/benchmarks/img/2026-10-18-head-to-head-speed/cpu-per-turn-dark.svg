@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="321" viewBox="0 0 720 321" role="img" aria-labelledby="t-cpu-per-turn t-cpu-per-turn-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cpu-per-turn">CPU per turn, median and 95% interval (lower is lighter)</title>
+<desc id="t-cpu-per-turn-d">Which harness takes less on each row: cpu per turn?</desc>
+<rect width="720" height="321" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">CPU per turn, median and 95% interval (lower is lighter)</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="115.5" cy="50.0" r="5" fill="#d95926"/>
+<text x="130.5" y="54.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<line x1="109.8" y1="72.0" x2="109.8" y2="242.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="211.9" y1="72.0" x2="211.9" y2="242.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="313.9" y1="72.0" x2="313.9" y2="242.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="415.9" y1="72.0" x2="415.9" y2="242.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="518.0" y1="72.0" x2="518.0" y2="242.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="89.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">T6 · interactive</text>
+<text x="18.0" y="173.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">T6 · one-shot</text>
+<text x="95.8" y="116.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus</text>
+<g><title>Theseus: 10 ms  [10 ms, 20 ms] (n 10, bootstrap)</title>
+<line x1="111.9" y1="112.0" x2="113.9" y2="112.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="111.9" y1="107.0" x2="111.9" y2="117.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="113.9" y1="107.0" x2="113.9" y2="117.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="111.9" cy="112.0" r="12" fill="transparent"/>
+<circle cx="111.9" cy="112.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="116.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">10 ms  [10 ms, 20 ms]</text>
+<text x="95.8" y="144.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 1,655 ms  [1,640 ms, 1,680 ms] (n 10, bootstrap)</title>
+<line x1="444.5" y1="140.0" x2="452.7" y2="140.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="444.5" y1="135.0" x2="444.5" y2="145.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="452.7" y1="135.0" x2="452.7" y2="145.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="447.6" cy="140.0" r="12" fill="transparent"/>
+<circle cx="447.6" cy="140.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="144.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,655 ms  [1,640 ms, 1,680 ms]</text>
+<text x="95.8" y="200.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus</text>
+<g><title>Theseus: 6.77 ms  [6.29 ms, 7.37 ms] (n 10, bootstrap)</title>
+<line x1="111.1" y1="196.0" x2="111.3" y2="196.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="111.1" y1="191.0" x2="111.1" y2="201.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="111.3" y1="191.0" x2="111.3" y2="201.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="111.2" cy="196.0" r="12" fill="transparent"/>
+<circle cx="111.2" cy="196.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="200.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">6.77 ms  [6.29 ms, 7.37 ms]</text>
+<text x="95.8" y="228.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code</text>
+<g><title>Claude Code: 529 ms  [515 ms, 579 ms] (n 10, bootstrap)</title>
+<line x1="215.0" y1="224.0" x2="228.0" y2="224.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="215.0" y1="219.0" x2="215.0" y2="229.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="228.0" y1="219.0" x2="228.0" y2="229.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="217.8" cy="224.0" r="12" fill="transparent"/>
+<circle cx="217.8" cy="224.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="532.0" y="228.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">529 ms  [515 ms, 579 ms]</text>
+<line x1="109.8" y1="242.0" x2="518.0" y2="242.0" stroke="#383835" stroke-width="1"/>
+<text x="109.8" y="258.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="211.9" y="258.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">500</text>
+<text x="313.9" y="258.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<text x="415.9" y="258.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,500</text>
+<text x="518.0" y="258.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2,000</text>
+<text x="313.9" y="276.0" font-size="12" fill="#c3c2b7" text-anchor="middle">CPU milliseconds per turn</text>
+<text x="18.0" y="298.0" font-size="11" fill="#c3c2b7">One stand-in model for both arms; 2026-10-18-head-to-head-speed.</text>
+</svg>

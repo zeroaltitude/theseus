@@ -1,6 +1,31 @@
-# Theseus's benchmarks as of 2026-10-13: the omnibus review
+# Theseus's benchmarks as of 2026-10-18 (v1): the omnibus review
 
-**The answer first.** Thirty-six benchmark reports between Sep 30 and Oct 13, 2026, the last sixteen a full rerun on
+**The answer first.** At v1 (Oct 18), on the build frozen for v1 (`351159fc`), Theseus as shipped (Jev choosing
+each message's model and effort) ran against the top three harnesses of the broad pass, each on its best model at high
+effort. **On all 89 Terminal-Bench 2.0 tasks it is level with Claude Code and the cheapest per solve:**
+- Theseus solved 73.0% at $0.136 a solved task;
+- Claude Code solved 75.3% at $0.173 (paired by task −2.2 points, 95% −7.9 to +3.0);
+- OpenCode solved 70.8% and Pi 70.4%.
+
+**It still remembers across sessions where the others do not.** It answered 73.1% of 600 turns' recall probes, against
+56.9% for Pi and 50.7% for Claude Code. Across sessions it answered 27 of 46, against 0 and 1 of 48.
+
+**Killed mid-task it never did a step twice** (0 in 12), where Claude Code repeated an effect in 4 of 12. One trial
+left a process running.
+
+**It is as fast as at the stopping point.** A cold start takes 18.5 ms and a crash restart 23.7 ms, measured side by
+side with Oct 12's build. Against Claude Code it is 13× faster to a ready prompt and uses a fifth of its idle memory.
+
+**The run found regressions to fix:**
+- a typed prompt now takes 51 ms to leave as a request (26 on Oct 12);
+- idle memory rose from 50 to 72 MB;
+- the first request rose from 39 to 46 KB;
+- `theseusd` is 82.4 MB against a 60 MB budget.
+
+The MAX tier (every harness at its top effort on the 30 hard tasks) follows in its own report. What follows the v1
+section is the record up to Oct 13, kept as it was.
+
+**As of Oct 13.** Thirty-six benchmark reports between Sep 30 and Oct 13, 2026, the last sixteen a full rerun on
 the stopping point's build (`026dce3f`), say five things about Theseus. **It now solves real terminal tasks at least
 as often as Claude Code on the same model.** On all 89 Terminal-Bench 2.0 tasks at five attempts, Theseus solved
 75.7% of its trials and Claude Code 71.9%, both on Claude Sonnet 5.5 at medium effort: +3.8 points paired by task,
@@ -35,6 +60,31 @@ calls of every run cost $367.
 
 This page is the overview. It is updated as runs land, and each run keeps its own full report, linked from every
 section below and listed at the end.
+
+## v1 at the freeze (2026-10-18)
+
+Per the owner's plan for benchmarks, each row compares **Theseus as shipped** with the top three rivals of the broad
+pass. Each rival runs on its best model, Claude Sonnet 5.5. The table gives solve rate, dollars per solved task and
+wall time.
+
+| Benchmark | Theseus as shipped | Claude Code | OpenCode | Pi | Report |
+|---|---|---|---|---|---|
+| Terminal-Bench 2.0, HIGH (89 × 3), solved | 73.0% [67.4, 78.0] | **75.3%** [69.8, 80.1] | 70.8% | 70.4% | [HIGH](2026-10-18-terminal-bench-v1-high.md) |
+| ... dollars a solved task | **$0.136** | $0.173 | $0.168 | $0.150 | |
+| ... agent seconds a trial (median) | **50** | 56 | 60 | 55 | |
+| Recall, 600 turns, probes right | **73.1%** [65.1, 79.9] | 50.7% | – | 56.9% | [recall](2026-10-18-recall-full-run.md) |
+| ... across sessions | **27 of 46** | 0 of 48 | – | 1 of 48 | |
+| Kill -9, trials with a step done twice | **0 of 12** | 4 of 12 | not measured | not measured | [kill](2026-10-18-async-kill-family.md) |
+| Ready prompt / CPU a turn / idle memory (stand-in model) | **39 ms / 10 ms / 70 MB** | 498 ms / 1,655 ms / 360 MB | – | – | [h2h](2026-10-18-head-to-head-speed.md) |
+
+The [gate bench](2026-10-18-gate-bench-v1.md) holds every lifecycle budget, side by side with Oct 12's build.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/omnibus/frontier-v1-high-dark.svg">
+  <img alt="v1: Theseus as shipped and the top three harnesses, all 89 Terminal-Bench tasks at high effort (Oct 18). At the v1 freeze, which harness solves the most for the least?" src="img/omnibus/frontier-v1-high.svg" width="720">
+</picture>
+
+*Figure 2. At the v1 freeze, which harness solves the most for the least? Claude Code solves the most (75.3%) and Theseus as shipped the most per dollar (73.0% at $0.100 a trial); paired by task the two are level, and OpenCode and Pi follow.*
 
 ## How to read this page
 
@@ -73,7 +123,7 @@ All 89 tasks, the same model (Claude Sonnet 5.5) and the same limits ($2.00 and 
   <img alt="Terminal-Bench 2.0, all 89 tasks, the same model in every arm: Oct 4 and the stopping point. How often does Theseus solve a real terminal task, against the other harnesses?" src="img/omnibus/tb-full.svg" width="720">
 </picture>
 
-*Figure 2. How often does Theseus solve a real terminal task, against the other harnesses? Oct 4's gap (71.9% against 81.5%) is gone: at the stopping point Theseus solved 74.5% at three attempts and 75.7% at five, Claude Code 71.5% and 71.9%, Pi and OpenCode about 71%.*
+*Figure 3. How often does Theseus solve a real terminal task, against the other harnesses? Oct 4's gap (71.9% against 81.5%) is gone: at the stopping point Theseus solved 74.5% at three attempts and 75.7% at five, Claude Code 71.5% and 71.9%, Pi and OpenCode about 71%.*
 
 **The stopping point ([R0](2026-10-13-terminal-bench-r0.md), [R1](2026-10-13-terminal-bench-r1.md), Oct 13).** Every
 arm at medium effort, versions pinned, on four EC2 hosts with each task's jobs on one host. At three attempts Theseus
@@ -111,7 +161,7 @@ Pi 1.0.4 and OpenCode 1.18.35 ran R0's 89 tasks × 3 beside Theseus and Claude C
   <img alt="Four harnesses on all 89 Terminal-Bench tasks: trials solved against dollars (Oct 13). On the whole benchmark, which harness solves the most for the least?" src="img/omnibus/frontier-89.svg" width="720">
 </picture>
 
-*Figure 3. On the whole benchmark, which harness solves the most for the least? Theseus solves the most and Pi costs the least; Claude Code is off the front, since OpenCode solves as many trials for less.*
+*Figure 4. On the whole benchmark, which harness solves the most for the least? Theseus solves the most and Pi costs the least; Claude Code is off the front, since OpenCode solves as many trials for less.*
 
 - **The four solve about the same share:** Theseus 74.5%, Claude Code and OpenCode 71.5%, Pi 71.2%; every interval
   overlaps. Over Pi and OpenCode, all of Theseus's lead is one feature: on four security-flavoured tasks Sonnet 5.5
@@ -135,7 +185,7 @@ Claude Sonnet 5.5 at medium effort; Codex CLI speaks only OpenAI's API, so it ra
   <img alt="Eight harnesses on the same 14 Terminal-Bench tasks: trials solved against dollars and tokens. Which harnesses solve the most for the least, and where does Theseus sit?" src="img/omnibus/frontier.svg" width="720">
 </picture>
 
-*Figure 4. Which harnesses solve the most for the least, and where does Theseus sit? Pi and OpenCode solve the most (89%), at $0.15 to $0.16 a trial; Theseus's 71% at $0.36 is off the frontier, in a run where none of its shell commands could start.*
+*Figure 5. Which harnesses solve the most for the least, and where does Theseus sit? Pi and OpenCode solve the most (89%), at $0.15 to $0.16 a trial; Theseus's 71% at $0.36 is off the frontier, in a run where none of its shell commands could start.*
 
 **Rerun with its commands working (Oct 10, Oct 13).** On the same 14 tasks, Theseus on one model solved 20 of 28 as recorded and 24 with four host-hit trials run again, at $0.21 a trial; as shipped, with Jev routing coding to Opus at high effort, 25 at $0.56 ([the rerun's report](2026-10-10-terminal-bench-theseus-rerun.md)). On Oct 13 the same 14 tasks went 38 of 42 at $0.16 on one model (Pi 38, OpenCode 37, Claude Code 34). The figure above keeps Oct 7's point as it was measured.
 
@@ -144,7 +194,7 @@ Claude Sonnet 5.5 at medium effort; Codex CLI speaks only OpenAI's API, so it ra
   <img alt="Each task, each harness: how many of its two attempts solved it. Where does each harness win and lose, task by task?" src="img/omnibus/task-strip.svg" width="720">
 </picture>
 
-*Figure 5. Where does each harness win and lose, task by task? Most tasks fall to nearly every harness; Aider misses most, and every harness misses install-windows-3.11 at least once. Theseus's Oct 7 column was earned without a working shell, and even so the two tasks the output-cap fix targeted went from 0 of 4 trials to 4 of 4.*
+*Figure 6. Where does each harness win and lose, task by task? Most tasks fall to nearly every harness; Aider misses most, and every harness misses install-windows-3.11 at least once. Theseus's Oct 7 column was earned without a working shell, and even so the two tasks the output-cap fix targeted went from 0 of 4 trials to 4 of 4.*
 
 - **The field is close.** Pi and OpenCode solved 25 of 28 (89.3%), OpenHands 24, Claude Code, OpenClaw and Codex CLI
   23 each. Their intervals overlap almost entirely. Aider solved 6: under this runner it edits files but does not run
@@ -177,7 +227,7 @@ whether retrieval or the model is to blame.
   <img alt="Memory: what the exams, the retrieval probes and the recall smokes measured, in date order (Sep 30 to Oct 12). Does Theseus remember, and is the gap its retrieval or the model?" src="img/omnibus/memory.svg" width="720">
 </picture>
 
-*Figure 6. Does Theseus remember, and is the gap its retrieval or the model? Recall lifts a cheap model from 30% to 73% at the stopping point (15% to 67% on Oct 4); shown the right notes it passes 100%, so the gap is retrieval.*
+*Figure 7. Does Theseus remember, and is the gap its retrieval or the model? Recall lifts a cheap model from 30% to 73% at the stopping point (15% to 67% on Oct 4); shown the right notes it passes 100%, so the gap is retrieval.*
 
 - **Memory has a lot to give ([memory exam v1, Sep 30](2026-09-30-memory-exam-headroom.md)).** On 40 synthetic tasks
   that each need something from an earlier session, a cheap model (GLM-5.3 Flash) passed 26% with no memory and 100%
@@ -236,7 +286,7 @@ binary within 200.
   <img alt="FAST: each budgeted phase against its limit. How much of each speed budget does Theseus use?" src="img/omnibus/speed-budgets.svg" width="720">
 </picture>
 
-*Figure 7. How much of each speed budget does Theseus use? Every phase's median uses a sixth to a half of its limit, on the debug gate and on the release build; only single stalled runs ever crossed one.*
+*Figure 8. How much of each speed budget does Theseus use? Every phase's median uses a sixth to a half of its limit, on the debug gate and on the release build; only single stalled runs ever crossed one.*
 
 - **The release build at the stopping point ([gate benches, Oct 12](2026-10-12-gate-bench-stop-point.md)).** Every
   lifecycle budget holds at both store sizes: a cold start 18.1 ms of 50 (18.3 at 10,000 sessions), a clean stop with
@@ -298,9 +348,14 @@ binary within 200.
   <img alt="What the runs cost in model calls, and what a solved task cost. What does benchmarking Theseus cost, and what does Theseus cost a solved task?" src="img/omnibus/cost.svg" width="720">
 </picture>
 
-*Figure 8. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.*
+*Figure 9. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.*
 
-- **The runs.** All the model calls of every run came to $367.36, and the Terminal-Bench runs are 88% of it ($324.04).
+- **v1 (Oct 18).**
+  - The v1 run's model calls came to $148.87: Terminal-Bench HIGH $121.47, recall $26.78 and the kill family $0.62.
+    The MAX tier is in its report.
+  - Its four EC2 hosts and their NAT data are counted in the MAX report.
+  - A solved task cost Theseus as shipped $0.136, Pi $0.150, OpenCode $0.168 and Claude Code $0.173.
+- **The runs to Oct 13.** All the model calls of every run came to $367.36, and the Terminal-Bench runs are 88% of it ($324.04).
   The memory exams cost cents to a dollar and a half each. Eleven runs called no model at all. The stopping point's
   rerun cost $212.33 of model calls, plus about $74 for the four EC2 hosts its Terminal-Bench pass ran on, more than
   half of that their NAT's data charges (917 GB of task images and installs).
@@ -319,7 +374,7 @@ binary within 200.
   <img alt="What each harness costs to run, apart from the model: every trial of the Oct 7 run. How heavy is Theseus itself, beside the other harnesses?" src="img/omnibus/harness-weight.svg" width="720">
 </picture>
 
-*Figure 9. How heavy is Theseus itself, beside the other harnesses? The lightest by every measure: 36.5 MiB, 17 ms a tool call, under a second to set up.*
+*Figure 10. How heavy is Theseus itself, beside the other harnesses? The lightest by every measure: 36.5 MiB, 17 ms a tool call, under a second to set up.*
 
 - **The harness itself is light.** Measured inside each task's container, Theseus held 36.5 MiB at its peak, the
   others 125 to 1,380 MiB. It spent 17 ms of CPU per tool call, the others 140 to 4,923 ms. It installed and started
@@ -339,7 +394,7 @@ measurement that judged it.
   <img alt="What the runs changed: the same measurement before and after each fix. What did acting on a benchmark's finding buy?" src="img/omnibus/fixes.svg" width="720">
 </picture>
 
-*Figure 10. What did acting on a benchmark's finding buy? Eighteen measured speed-ups, 1.2 to 2,700 times, each from a finding a run made.*
+*Figure 11. What did acting on a benchmark's finding buy? Eighteen measured speed-ups, 1.2 to 2,700 times, each from a finding a run made.*
 
 | Run | What it found | What changed | What it bought |
 |---|---|---|---|
@@ -401,6 +456,7 @@ measurement that judged it.
 | Real tasks | [Terminal-Bench 2.0 R0: Theseus against Claude Code on all 89 tasks, three attempts each, at the stopping point](2026-10-13-terminal-bench-r0.md) | Oct 13 |
 | Real tasks | [Terminal-Bench 2.0 R1: the parity claim, Theseus against Claude Code at five attempts](2026-10-13-terminal-bench-r1.md) | Oct 13 |
 | Real tasks | [Terminal-Bench 2.0: four harnesses on all 89 tasks, and Theseus as shipped on the night set](2026-10-13-terminal-bench-harness-arms.md) | Oct 13 |
+| Real tasks | [Terminal-Bench 2.0 at the v1 freeze, HIGH tier: Theseus as shipped against Claude Code, OpenCode and Pi](2026-10-18-terminal-bench-v1-high.md) | Oct 18 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |
@@ -412,6 +468,7 @@ measurement that judged it.
 | Memory | [Retrieval: BM25, entities, vectors and their fusion on the exam's items, at the stopping point](2026-10-12-retrieval-fusion.md) | Oct 12 |
 | Memory | [Context: the token estimate against the provider's count, at the stopping point](2026-10-12-context-token-estimate.md) | Oct 12 |
 | Memory | [Recall: the recall bench's first full run, Theseus against Claude Code and Pi over 600 turns](2026-10-12-recall-full-run.md) | Oct 12 |
+| Memory | [Recall: the full run at the v1 freeze, Theseus against Claude Code and Pi over 600 turns](2026-10-18-recall-full-run.md) | Oct 18 |
 | Speed | [Gate bench: dependencies at opt-level 2 in debug builds](2026-10-01-gate-bench-opt-level-2.md) | Oct 1 |
 | Speed | [Gate bench: the install's build profile and libc, measured](2026-10-02-gate-bench-install-builds.md) | Oct 2 |
 | Speed | [Gate bench: the start path at 10,000 parked sessions](2026-10-02-gate-bench-start-path-10k.md) | Oct 2 |
@@ -427,6 +484,9 @@ measurement that judged it.
 | Speed | [Async: the six concurrency families, Theseus against Claude Code, the first full run](2026-10-12-async-six-families.md) | Oct 12 |
 | Speed | [Async: parallel tool calls, Theseus against Claude Code, Pi and OpenCode, the first full run](2026-10-12-asyncbench-parallel-calls.md) | Oct 12 |
 | Speed | [Async: the kill -9 family, the first live run](2026-10-12-async-kill-family.md) | Oct 12 |
+| Speed | [Gate bench: the v1 freeze's release build, every speed bench once more](2026-10-18-gate-bench-v1.md) | Oct 18 |
+| Speed | [Head-to-head speed: Theseus and Claude Code on one stand-in model, at the v1 freeze](2026-10-18-head-to-head-speed.md) | Oct 18 |
+| Speed | [Async: the kill -9 family at the v1 freeze](2026-10-18-async-kill-family.md) | Oct 18 |
 | Cost | [Harbor: what each harness costs to run, apart from the model](2026-10-06-harbor-efficiency-checks.md) | Oct 6 |
 | Cost | [Harbor: what each harness costs to run, apart from the model, at the stopping point](2026-10-12-harbor-efficiency.md) | Oct 12 |
 

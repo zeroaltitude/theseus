@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="362" viewBox="0 0 720 362" role="img" aria-labelledby="t-ab-oct12 t-ab-oct12-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-ab-oct12">Each lifecycle phase, Oct 12's build and the v1 freeze's, side by side in one quiet window (p50, release)</title>
+<desc id="t-ab-oct12-d">Did the week since Oct 12 make the start and stop path slower, or was it the machine?</desc>
+<rect width="720" height="362" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Each lifecycle phase, Oct 12's build and the v1 freeze's, side by side in one quiet</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">window (p50, release)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#2a507f"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">Oct 12, 026dce3f</text>
+<circle cx="169.8" cy="70.0" r="5" fill="#3987e5"/>
+<text x="184.8" y="74.0" font-size="12" fill="#c3c2b7">Oct 18, 351159fc</text>
+<line x1="213.0" y1="96.0" x2="213.0" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="336.9" y1="96.0" x2="336.9" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="460.8" y1="96.0" x2="460.8" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="584.7" y1="96.0" x2="584.7" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="199.0" y="114.0" font-size="12" fill="#ffffff" text-anchor="end">cold start</text>
+<g><title>cold start: 19.7 ms → 18.5 ms (p95 24.95 then 28.41 ms; runs' p50s new [18.13, 17.89, 19.41, 18.84])</title>
+<line x1="497.3" y1="110.0" x2="493.8" y2="110.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="497.3" cy="110.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="493.8" cy="110.0" r="12" fill="transparent"/>
+<circle cx="493.8" cy="110.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="114.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">19.7 ms → 18.5 ms</text>
+<text x="199.0" y="142.0" font-size="12" fill="#ffffff" text-anchor="end">clean shutdown, a job running</text>
+<g><title>clean shutdown, a job running: 36.9 ms → 41.2 ms (p95 52.98 then 56.62 ms; runs' p50s new [38.12, 88.75, 41.43, 41.01])</title>
+<line x1="531.0" y1="138.0" x2="537.0" y2="138.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="531.0" cy="138.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="537.0" cy="138.0" r="12" fill="transparent"/>
+<circle cx="537.0" cy="138.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="142.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">36.9 ms → 41.2 ms</text>
+<text x="199.0" y="170.0" font-size="12" fill="#ffffff" text-anchor="end">SIGKILL, then restart</text>
+<g><title>SIGKILL, then restart: 24.4 ms → 23.6 ms (p95 31.4 then 30.56 ms; runs' p50s new [23.3, 23.72, 26.61, 23.58])</title>
+<line x1="508.7" y1="166.0" x2="507.1" y2="166.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="508.7" cy="166.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="507.1" cy="166.0" r="12" fill="transparent"/>
+<circle cx="507.1" cy="166.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="170.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">24.4 ms → 23.6 ms</text>
+<text x="199.0" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">binary swap</text>
+<g><title>binary swap: 53.0 ms → 54.2 ms (p95 59.01 then 65.04 ms; runs' p50s new [50.46, 55.62, 58.1, 52.7])</title>
+<line x1="550.5" y1="194.0" x2="551.7" y2="194.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="550.5" cy="194.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="551.7" cy="194.0" r="12" fill="transparent"/>
+<circle cx="551.7" cy="194.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="198.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">53.0 ms → 54.2 ms</text>
+<text x="199.0" y="226.0" font-size="12" fill="#ffffff" text-anchor="end">the push's seed</text>
+<g><title>the push's seed: 0.29 ms → 0.33 ms (p95 1.19 then 1.08 ms; runs' p50s new [0.39, 0.28, 0.37, 0.28])</title>
+<line x1="270.2" y1="222.0" x2="277.2" y2="222.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="270.2" cy="222.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="277.2" cy="222.0" r="12" fill="transparent"/>
+<circle cx="277.2" cy="222.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="226.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.29 ms → 0.33 ms</text>
+<text x="199.0" y="254.0" font-size="12" fill="#ffffff" text-anchor="end">health</text>
+<g><title>health: 0.86 ms → 0.92 ms (p95 1.95 then 2.33 ms; runs' p50s new [0.8, 0.81, 1.02, 1.17])</title>
+<line x1="328.7" y1="250.0" x2="332.4" y2="250.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="328.7" cy="250.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="332.4" cy="250.0" r="12" fill="transparent"/>
+<circle cx="332.4" cy="250.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="254.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.86 ms → 0.92 ms</text>
+<text x="213.0" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.1</text>
+<text x="336.9" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="460.8" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="584.7" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="213.0" y1="268.0" x2="584.7" y2="268.0" stroke="#383835" stroke-width="1"/>
+<text x="398.8" y="302.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms, median of 4 runs’ p50s (log scale)</text>
+<text x="18.0" y="324.0" font-size="11" fill="#c3c2b7">Palindrome order (new, old, old, new, new, old, old, new), each build driven by its own theseus-sim, 10 runs each, 17:55 to</text>
+<text x="18.0" y="339.0" font-size="11" fill="#c3c2b7">17:59 at load 4 to 10.</text>
+</svg>
