@@ -1,7 +1,7 @@
 //! The persona layer per place (theseus-nsp9l.1): where a message can engage another persona (a DM, a channel,
 //! a thread) the request carries every persona's files, so a switch changes no byte of the prefix
 //! (theseus-c1uz); in a cli, task or headless session, whose persona is fixed, it carries only the persona in
-//! play. Measured on the owner's shape: five personas, 10,594 bytes of files.
+//! play. Measured on the owner's shape: five personas, 10,552 bytes of files.
 
 use std::time::Duration;
 

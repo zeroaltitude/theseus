@@ -9,7 +9,7 @@ narrative = true
 [context]
 default_persona = "alder"
 
-# Five personas whose files add up to the owner's 10,594 bytes (theseus-nsp9l.1): the budget test measures
+# Five personas whose files add up to 10,552 bytes, near the owner's 10,594 (theseus-nsp9l.1): the budget test measures
 # what a place carries of them. `/@PERSONAS@` is the fixtures' own directory, set by the test.
 [personas.alder]
 files = ["/@PERSONAS@/alder.md"]
