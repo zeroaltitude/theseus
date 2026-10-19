@@ -571,6 +571,9 @@ async fn the_board_says_a_moved_task_is_on_its_new_model() {
 /// A verdict that takes its time never holds a loop: the task runs on at its base while the
 /// checkpoint is out, and moves at the first boundary after the answer comes (the loops
 /// are 60 ms apiece, the verdict 500 ms, and the window is wide enough to keep its flight).
+/// The bounds are in loops, and a loaded machine makes each loop slower, so the verdict
+/// lands after fewer of them (theseus-1b2zm: at loop 7 under a gate's load): at least three
+/// loops after the ask ran on the base, which no held loop allows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
     let t = task_with(
@@ -587,12 +590,12 @@ async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
     )
     .await;
     let models = t.models();
+    let at = moved_at(&models, "sonnet");
+    assert!((6..=16).contains(&at), "applied when it came: {models:?}");
     assert!(
-        models[3..7].iter().all(|m| *m == "haiku"),
+        models[3..at].iter().all(|m| *m == "haiku"),
         "the loops after the ask ran on: {models:?}"
     );
-    let at = moved_at(&models, "sonnet");
-    assert!((8..=16).contains(&at), "applied when it came: {models:?}");
 }
 
 /// Not a benchmark: three scripted tasks on a Haiku base, the model each loop ran on, the
