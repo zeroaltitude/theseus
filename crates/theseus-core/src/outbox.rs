@@ -949,6 +949,14 @@ impl Outbox {
             .unwrap_or(false)
     }
 
+    /// Whether a question has an outbox post that settles when it closes: a
+    /// card, or a needs-you post (theseus-suvpe). A press on either leaves its
+    /// edit to the settle.
+    pub fn has_post(&self, question: &str) -> bool {
+        self.with(|ix| ix.carded.contains(question) || ix.pinged.contains(question))
+            .unwrap_or(false)
+    }
+
     /// Whether a question has pinged the owner's DM already (theseus-j7cje):
     /// one needs-you post per question, a restart included.
     pub fn pinged(&self, question: &str) -> bool {

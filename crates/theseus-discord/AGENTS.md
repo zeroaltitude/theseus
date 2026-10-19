@@ -89,9 +89,24 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   thread:` is `thread.move` for the last message the core placed in this place. Tests: `tests_gateway/thread_ask.rs`.
 - **A question with options** (theseus-j7cje; `render/ask.rs`, `runtime/ask.rs`, `courier/ask.rs`): the card of an `owner_ask` question
   draws its options numbered with one button each (`Buttons::Ask`, `ask:<n>:<question id>`, five to a row), and a press is
-  `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI. The core's
-  `needs_you` post (an open question past `[notify]`'s line) goes to the owner's DM alone, always pings (`Event::NeedsYou` is in no
-  category), has the same buttons for an ask, and is edited by the question's settle. Tests: `tests_gateway/ask.rs`.
+  `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI.
+  **The needs-you cards** (theseus-suvpe; `[notify] dm_cards`, on; off, the DM gets the one post of before byte for byte):
+  the core's `needs_you` post (an open question past `[notify]`'s line) goes to the owner's DM alone and is **one card per
+  question**, in three plain lines from the request's structured fields (what it wants, why it asks, what yes does), with
+  `Buttons::Card`: Approve and Decline (and "Approve + trust session" where the session read web text), or an ask's options,
+  and **Details** (`need:details:<question id>`, `runtime/ask.rs`), which shows the presser alone the whole request from
+  `confirm.list` as the presser (`render::question_details`). Approve, Decline and trust are the classic card's own
+  `confirm:` presses (`action.confirm` as the presser), an option is `ask:<n>:<id>` (`work.answer`); the core judges each.
+  Several due in one pacer window are a header (`🔔 3 questions need you`, which pings) and a card each (posted silently,
+  "2 of 3"); the cards after the first never ping, and the pacer's one post a window is the header. Every card is settled
+  by the question's settle, whoever answered (a press, a reply, the CLI, the web UI). **A reply answers** (`runtime/reply/
+  answer.rs`): a Discord reply to a card or a header whose whole text is a short form (`yes y approve ok`, `no n decline`,
+  `trust`, an ask's number or its choice's text; to a header `approve 2`, `no 1`, `yes all`, `no all`, and a bare `yes` when
+  one is open) is `work.answer` as the replier, with their `DiscordOrigin`, so the core judges it as a press; a counted one
+  gets ✅, a refused one a reply saying why, and a bare `yes` to a header with several open lists them. Any other text is a
+  turn as ever. The message-to-question map is in memory (`Replies::asked`, planned by the lane, landed by the courier's
+  write hook), so after a restart a reply to an older card is an ordinary message. Tests: `tests_gateway/ask.rs`,
+  `tests_gateway/cards.rs`, `runtime/reply/answer.rs`.
   Capture's cards (`runtime/capture_card.rs`, theseus-slvl.5): the core's `standing_card` post goes to the owner's DM
   alone, as the earned card does (`Buttons::Standing`): a record `directive.v1` kept, with **Undo**
   (`standing:undo:<std id>`, `standing.revoke`), or an ask with **Keep**, **Keep everywhere** (when it would hold

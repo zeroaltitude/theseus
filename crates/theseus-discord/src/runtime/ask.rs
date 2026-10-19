@@ -11,6 +11,11 @@
 //!   private place). The message answers itself: a counted press clears its
 //!   buttons and says which; a refused one tells the presser alone, and the
 //!   buttons stay for an answer that counts.
+//! - **A needs-you card** (theseus-suvpe) has those buttons, or Approve,
+//!   Decline and, when it offers it, "Approve + trust session" (the classic
+//!   card's own `confirm:` ids, so a press is the one `action.confirm` path),
+//!   and **Details** (`need:details:<question id>`), which shows the presser
+//!   alone the full request.
 
 use theseus_protocol::answer::{WorkAnswerParams, WorkAnswerResult};
 use theseus_protocol::{method, DiscordOrigin};
@@ -25,6 +30,9 @@ use super::Shared;
 
 /// A button's custom id: `ask:<number>:<question id>`.
 const PREFIX: &str = "ask";
+
+/// A Details button's custom id: `need:details:<question id>`.
+const DETAILS: &str = "need:details";
 
 /// The buttons of a question's options: a numbered button each, five to a row.
 pub(crate) fn buttons(question: &str, choices: &[String]) -> Vec<Component> {
@@ -57,6 +65,39 @@ pub(crate) fn buttons(question: &str, choices: &[String]) -> Vec<Component> {
         .collect()
 }
 
+/// A needs-you card's buttons: the question's options, or Approve and Decline
+/// (and trust), and Details last, in the last row that has room.
+pub(crate) fn card_buttons(question: &str, choices: &[String], trust: bool) -> Vec<Component> {
+    let mut rows = match choices.is_empty() {
+        true => super::confirm_buttons(question, trust),
+        false => buttons(question, choices),
+    };
+    let details = Component::Button(Button {
+        id: None,
+        custom_id: Some(format!("{DETAILS}:{question}")),
+        disabled: false,
+        emoji: None,
+        label: Some("Details".into()),
+        style: ButtonStyle::Secondary,
+        url: None,
+        sku_id: None,
+    });
+    match rows.last_mut() {
+        Some(Component::ActionRow(row)) if row.components.len() < 5 => row.components.push(details),
+        _ => rows.push(Component::ActionRow(ActionRow {
+            id: None,
+            components: vec![details],
+        })),
+    }
+    rows
+}
+
+/// A Details press: the question's id.
+pub(crate) fn parse_details(custom_id: &str) -> Option<String> {
+    let q = custom_id.strip_prefix(DETAILS)?.strip_prefix(':')?;
+    (!q.is_empty()).then(|| q.to_string())
+}
+
 /// A press: the option's number from 1, and the question's id.
 pub(crate) fn parse(custom_id: &str) -> Option<(usize, String)> {
     let rest = custom_id.strip_prefix(PREFIX)?.strip_prefix(':')?;
@@ -66,6 +107,42 @@ pub(crate) fn parse(custom_id: &str) -> Option<(usize, String)> {
 }
 
 impl Shared {
+    /// A Details press: the whole request, shown to the presser alone. The
+    /// core's list is read as the presser, so a surface that may not read the
+    /// question sees none of it.
+    pub(super) async fn ask_details(
+        &self,
+        i: &Interaction,
+        question: &str,
+        discord: Option<DiscordOrigin>,
+    ) {
+        let listed = self
+            .rpc
+            .call::<_, theseus_protocol::ConfirmListResult>(
+                method::CONFIRM_LIST,
+                theseus_protocol::answer::ConfirmListParams { discord },
+            )
+            .await;
+        let text = match listed {
+            Ok(l) => l
+                .confirms
+                .iter()
+                .find(|c| c.correlation_id == question)
+                .map_or_else(
+                    || "That question is not open any more.".to_string(),
+                    crate::render::question_details,
+                ),
+            Err(e) => format!("Could not read it: {}", e.message),
+        };
+        self.respond(
+            i,
+            InteractionResponseType::ChannelMessageWithSource,
+            Some(text),
+            true,
+        )
+        .await;
+    }
+
     /// A press on an option: `work.answer` as the presser.
     pub(super) async fn ask_press(
         &self,
@@ -157,5 +234,36 @@ mod tests {
         assert_eq!(parse("ask:7:act_0000reef"), None);
         assert_eq!(parse("ask:0:act_0000reef"), None);
         assert_eq!(parse("confirm:approve:act_1"), None);
+        assert_eq!(parse_details("need:details:act_1"), Some("act_1".into()));
+        assert_eq!(parse_details("ask:1:act_1"), None);
+        // Details closes the last row that has room: past five options a
+        // second row, else the same one.
+        let rows = |n: usize| {
+            let c: Vec<String> = (0..n).map(|i| format!("Option {i}")).collect();
+            card_buttons("act_1", &c, false)
+        };
+        assert_eq!(rows(2).len(), 1);
+        assert_eq!(rows(5).len(), 2);
+        assert_eq!(rows(6).len(), 2);
+        let Component::ActionRow(plain) = &card_buttons("act_1", &[], true)[0] else {
+            panic!("a row")
+        };
+        let ids: Vec<_> = plain
+            .components
+            .iter()
+            .map(|c| match c {
+                Component::Button(b) => b.custom_id.clone().unwrap(),
+                _ => panic!(),
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "confirm:approve:act_1",
+                "confirm:trust:act_1",
+                "confirm:decline:act_1",
+                "need:details:act_1"
+            ]
+        );
     }
 }

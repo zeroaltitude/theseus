@@ -33,6 +33,8 @@ use theseus_protocol::ConfirmRequest;
 
 use crate::rpc::Core;
 
+mod words;
+
 /// The outbox post's kind.
 pub const KIND: &str = "needs_you";
 
@@ -109,26 +111,54 @@ impl Core {
             .find(|r| r.correlation_id == a.correlation_id))
     }
 
-    /// The post, in a frame of its own (the tick's): one question's own, with
-    /// its options, or the several that were due together.
+    /// The posts, each in a frame of its own (the tick's). With `[notify]
+    /// dm_cards` on, every question is a card of its own (theseus-suvpe), and
+    /// several that were due together are one header, which pings, and a card
+    /// each, which post silently; off, one question's own post or the one
+    /// post for the several, as before.
     fn post_needs_you(&self, asks: &[(Action, ConfirmRequest)]) -> anyhow::Result<()> {
         let named: Vec<(&Action, &ConfirmRequest, String)> = asks
             .iter()
             .map(|(a, req)| (a, req, self.asker_name(req)))
             .collect();
-        let body = match named.as_slice() {
-            [(a, req, who)] => body_of(a, req, who),
-            many => batch_body_of(many),
+        let bodies = match (self.cfg.notify.dm_cards, named.as_slice()) {
+            (true, [(a, req, who)]) => vec![card_body(a, req, who, None)],
+            (true, many) => {
+                let mut v = vec![header_body(many)];
+                v.extend(many.iter().enumerate().map(|(i, (a, req, who))| {
+                    let mut b = card_body(a, req, who, Some((i + 1, many.len())));
+                    b["silent"] = json!(true);
+                    b
+                }));
+                v
+            }
+            (false, [(a, req, who)]) => vec![body_of(a, req, who)],
+            (false, many) => vec![batch_body_of(many)],
         };
-        let (post, frame) = self.outbox.stage_to_operator(None, body)?;
-        self.store.append(&frame)?;
-        self.outbox.posted(&post);
+        for body in bodies {
+            let (post, frame) = self.outbox.stage_to_operator(None, body)?;
+            self.store.append(&frame)?;
+            self.outbox.posted(&post);
+        }
         Ok(())
     }
 
-    /// Who asks: the task's title, else its short id, else the conversation's
-    /// title.
-    fn asker_name(&self, req: &ConfirmRequest) -> String {
+    /// Who asks: a self task as "Theseus's self-repair: <the backlog item's
+    /// title>", any other task by its own record's title, else its short id,
+    /// else the conversation's title (theseus-suvpe).
+    pub(crate) fn asker_name(&self, req: &ConfirmRequest) -> String {
+        if req.task.is_some() {
+            let own = crate::task_graph::all(&self.store).ok().and_then(|all| {
+                all.into_iter()
+                    .find(|t| t.session.as_deref() == Some(req.session_id.as_str()))
+            });
+            if let Some(t) = own.filter(|t| !t.title.trim().is_empty()) {
+                return match t.origin.principal == crate::rsi::SELF_PRINCIPAL {
+                    true => format!("Theseus's self-repair: {}", t.title),
+                    false => t.title,
+                };
+            }
+        }
         if let Some(t) = &req.task {
             return t
                 .title
@@ -143,6 +173,65 @@ impl Core {
             .filter(|t| !t.trim().is_empty())
             .unwrap_or_else(|| "Theseus".to_string())
     }
+}
+
+/// The last eight characters of a question's id, which `theseus answer` takes.
+fn short_id(corr: &str) -> String {
+    let mut tail: Vec<char> = corr.chars().rev().take(8).collect();
+    tail.reverse();
+    tail.into_iter().collect()
+}
+
+/// One question as its own card's post (theseus-suvpe): the words, from the
+/// request's structured fields, under `card`; `text` is the same in plain
+/// words for anything that shows the post as it is, with how to answer it.
+pub fn card_body(
+    a: &Action,
+    req: &ConfirmRequest,
+    who: &str,
+    nth: Option<(usize, usize)>,
+) -> serde_json::Value {
+    let (kind, w) = words::words(crate::ask::input_of(a).map(|i| i.question), req, who);
+    let choices = crate::ask::input_of(a).map_or_else(Vec::new, |i| i.choices());
+    let head = match nth {
+        Some((n, of)) => format!("{n} of {of}"),
+        None => "needs you".to_string(),
+    };
+    let mut text = format!("● {head}: {}\n{}\n{}", w.what, w.why, w.yes);
+    for (i, c) in choices.iter().enumerate() {
+        text.push_str(&format!("\n{}. {c}", i + 1));
+    }
+    let short = short_id(&a.correlation_id);
+    text.push_str(&match kind {
+        QuestionKind::Ask => format!("\n-# answer with `theseus answer {short} <number>`"),
+        _ => format!("\n-# answer with `theseus answer {short} approve` or `decline`"),
+    });
+    json!({
+        "kind": KIND,
+        "question": a.correlation_id,
+        "text": text,
+        "asked_by": who,
+        "prompt": w.what,
+        "choices": choices,
+        "expires_at_ms": (req.expires_at_ms > 0).then_some(req.expires_at_ms),
+        "card": words::card_of(kind, &w, req.external_text.is_some(), nth),
+    })
+}
+
+/// The header of several cards due together: it pings, and names every
+/// question (`questions`, in the cards' order) so none pings again.
+pub fn header_body(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json::Value {
+    json!({
+        "kind": KIND,
+        "text": format!("🔔 **{} questions need you**", asks.len()),
+        "questions": asks.iter().map(|(a, _, _)| a.correlation_id.clone()).collect::<Vec<_>>(),
+        "choices": asks
+            .iter()
+            .map(|(a, _, _)| crate::ask::input_of(a).map_or_else(Vec::new, |i| i.choices()))
+            .collect::<Vec<_>>(),
+        "trust": asks.iter().map(|(_, r, _)| r.external_text.is_some()).collect::<Vec<_>>(),
+        "header": true,
+    })
 }
 
 /// What the post says: structured for the binding to dress, and a plain

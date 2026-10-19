@@ -12,6 +12,9 @@
 //! - `unprompted_pace_secs`: the one pacing rule for posts nobody asked for
 //!   (`pacer.rs`): at most one in this long (1,800, thirty minutes), what is
 //!   due meanwhile going out together in the next. 0: no rule.
+//! - `dm_cards`: the DM's needs-you post is one answerable card per question,
+//!   in plain words (theseus-suvpe). Off, the post is the one-line nudge of
+//!   before, byte for byte (true).
 //! - An `owner_ask` names its own life, so none is here.
 
 use anyhow::{bail, Result};
@@ -26,6 +29,8 @@ pub struct NotifyConfig {
     pub escalate_with_screen_secs: u64,
     #[serde(default = "default_pace")]
     pub unprompted_pace_secs: u64,
+    #[serde(default = "default_cards")]
+    pub dm_cards: bool,
 }
 
 fn default_after() -> u64 {
@@ -37,6 +42,9 @@ fn default_with_screen() -> u64 {
 fn default_pace() -> u64 {
     1800
 }
+fn default_cards() -> bool {
+    true
+}
 
 impl Default for NotifyConfig {
     fn default() -> Self {
@@ -44,6 +52,7 @@ impl Default for NotifyConfig {
             escalate_after_secs: default_after(),
             escalate_with_screen_secs: default_with_screen(),
             unprompted_pace_secs: default_pace(),
+            dm_cards: default_cards(),
         }
     }
 }

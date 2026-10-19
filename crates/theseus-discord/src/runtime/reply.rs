@@ -9,7 +9,18 @@ use theseus_core::watch::reply::Heard;
 
 use super::Shared;
 
+pub(crate) mod answer;
+
 impl Shared {
+    /// A message the bot hears, before routing: told to the core's reply
+    /// watches, then, when it replies to a needs-you card or header and says
+    /// an answer, taken as that answer. Whether it was taken (so it is no
+    /// turn).
+    pub(super) fn heard(self: &std::sync::Arc<Self>, m: &twilight_model::channel::Message) -> bool {
+        self.tell_replies(m);
+        self.answers_question(m)
+    }
+
     /// Tell the core of a message (a bot's own never reaches here).
     pub(super) fn tell_replies(&self, m: &twilight_model::channel::Message) {
         let author_id = m.author.id.to_string();

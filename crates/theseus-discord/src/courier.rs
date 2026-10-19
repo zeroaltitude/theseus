@@ -226,6 +226,7 @@ fn asks(w: &Write) -> bool {
     matches!(
         w.buttons,
         Buttons::Confirm(_)
+            | Buttons::Card(..)
             | Buttons::Ask(..)
             | Buttons::ConfirmTrust(_)
             | Buttons::ConfirmGrant(..)
@@ -1640,6 +1641,7 @@ impl Lane {
         self.touch(&w.key);
         self.msgs.insert(w.key.clone(), (w.channel, m));
         self.shared.noted(m, w.channel, &w.key);
+        self.shared.replies.asked().landed(m, &w.key);
         if landed != w.content {
             // The nonce returned an earlier send of this message (the stream's,
             // or one before a restart): bring it to this state.
@@ -1687,6 +1689,9 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
             Buttons::Ask(corr, choices) => crate::runtime::ask_buttons(corr, choices),
+            Buttons::Card(corr, choices, trust) => {
+                crate::runtime::card_buttons(corr, choices, *trust)
+            }
             Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
@@ -1756,6 +1761,9 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
             Buttons::Ask(corr, choices) => Some(crate::runtime::ask_buttons(corr, choices)),
+            Buttons::Card(corr, choices, trust) => {
+                Some(crate::runtime::card_buttons(corr, choices, *trust))
+            }
             Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
