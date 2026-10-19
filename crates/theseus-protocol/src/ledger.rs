@@ -373,6 +373,7 @@ ledger_kinds! {
     ToolsMissed = "tools.missed",
     ToolsSearched = "tools.searched",
     ToolsUsed = "tools.used",
+    TurnEndNoted = "turn.end_noted",
     TurnEnded = "turn.ended",
     TurnFailed = "turn.failed",
     TurnNext = "turn.next",

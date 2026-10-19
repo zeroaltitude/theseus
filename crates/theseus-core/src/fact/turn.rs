@@ -1211,6 +1211,41 @@ impl Fact for TurnNudged<'_> {
     }
 }
 
+/// The harness told the model, once, what its turn would have ended leaving
+/// (`turn.end_noted`, theseus-53ujg.1): new files its commands left beside its
+/// edits, and files edited after its last command ran, as counts and the loop
+/// whose answer stopped. The note's own words ride in the frame beside it, a
+/// harness node, never the person's words.
+pub struct TurnEndNoted<'a> {
+    pub note: &'a theseus_protocol::files_left::EndNote,
+}
+
+impl Fact for TurnEndNoted<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnEndNoted);
+
+    fn row(&self) -> Value {
+        let n = self.note;
+        json!({"left": n.left, "unrun": n.unrun, "loop": n.loop_index})
+    }
+
+    fn span(&self, trace: &mut Trace) {
+        let n = self.note;
+        let attrs = json!({"left": n.left, "unrun": n.unrun, "loop": n.loop_index});
+        trace.mark("end_note", "mark", attrs);
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "The turn would have ended with {} left by commands and {} edited since the last                  command, so the harness says so once and the model goes on ([model] end_note).",
+                narrative::count(u64::from(self.note.left), "new file", "new files"),
+                narrative::count(u64::from(self.note.unrun), "file", "files"),
+            ),
+        );
+    }
+}
+
 /// The provider refused the effort-only system messages with a 400 that names
 /// `output_config` (`provider.effort_refused`, theseus-posww): the turn asks
 /// again without them, and the model takes none for the daemon's life.
@@ -1799,6 +1834,10 @@ impl Fact for TurnBooked<'_> {
         // The stop nudge (theseus-fh0u): the prove counts it from here.
         if let Some(n) = &result.nudged {
             row["nudged"] = json!(n);
+        }
+        // The end note and what the turn left (theseus-53ujg.1), for the measure.
+        if let Some(f) = &result.files {
+            row["files"] = json!({"changed": f.changed.paths.len() as u32 + f.changed.more, "left": f.left.paths.len() as u32 + f.left.more, "end_note": f.end_note});
         }
         row
     }

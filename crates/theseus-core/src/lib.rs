@@ -270,6 +270,8 @@ mod tests_effort_sticky;
 #[cfg(test)]
 mod tests_egress;
 #[cfg(test)]
+mod tests_end_note;
+#[cfg(test)]
 mod tests_engage;
 #[cfg(test)]
 mod tests_explain;

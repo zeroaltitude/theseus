@@ -873,7 +873,9 @@ async fn a_job_past_its_output_cap_keeps_its_end_and_names_the_dropped_middle() 
              65,536 bytes: its first 32,640 bytes and its last 32,768 bytes are kept, and the \
              354,614 bytes between them were dropped; what was dropped is gone: run it again \
              printing less, or with its output sent to a file that fs_read then reads in ranges]\n\
+             [new files: {}/ran (0 B)]\n\
              a line of the roster\n",
+            r.core.tools.ctx.cwd.display(),
             r.core.tools.ctx.cwd.display()
         )),
         "{text}"

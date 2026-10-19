@@ -31,6 +31,7 @@ mod exec_list;
 mod explain;
 pub mod extend;
 pub mod features;
+pub mod files_left;
 pub mod fill;
 pub mod flow;
 pub mod forecast;
@@ -2168,6 +2169,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub nudged: Option<nudge::TurnNudge>,
+    /// What the turn's file tools changed and its commands left (theseus-53ujg.1); none in a shared place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub files: Option<files_left::FilesLeft>,
     /// The sources of the handles the reply cites, resolved against this
     /// turn's recall (theseus-ejdk); none when it cited none, and none a
     /// shared place may not show.

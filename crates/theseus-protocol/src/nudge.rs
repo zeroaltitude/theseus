@@ -43,11 +43,14 @@ impl TurnNudge {
 
 impl TurnSubmitResult {
     /// The harness's own quiet lines about the turn, above its status line:
-    /// a refusal's fallback (theseus-7gir.18), then a nudge.
+    /// a refusal's fallback (theseus-7gir.18), then a nudge, then the turn's files.
     pub fn harness_lines(&self) -> Vec<String> {
         let fell = self.fallback.as_ref().map(|f| f.line(&self.stop_reason));
         let nudged = self.nudged.as_ref().map(TurnNudge::line);
-        fell.into_iter().chain(nudged).collect()
+        fell.into_iter()
+            .chain(nudged)
+            .chain(self.files_line())
+            .collect()
     }
 }
 

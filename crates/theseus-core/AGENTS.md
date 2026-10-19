@@ -49,6 +49,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
   counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
   shadow (`tests_judge::judge_config` turns the switch off).
+  **The end note and what a command left** (theseus-53ujg.1; `[model] end_note`, on; `turn/end_note_step.rs`,
+  `toolrun/job/beside.rs`, `rewind.rs`, wire `theseus_protocol::files_left`): a `proc.run` job's launch lists the
+  entries of its directory and of the directories the turn's file tools wrote to (at most 8; one over 512 entries is
+  skipped), through `theseus_store::blocking`, in memory by correlation id; its first result lists them again and
+  says the new, ignored-by-no-`.gitignore` entries no newer than the job's end in one line after its header
+  (`[new files: …]`, cached so every build says the same). `rewind`'s `settle` notes each file tool write by
+  execution. At a `no_tool_calls` stop, after the stop nudge declined and never after it sent, a turn whose commands'
+  new files still sit beside its edits, or that edited files after its last finished command, gets one harness node
+  (`harness:end_note`, facts only) with a `turn.end_noted` row, and one more loop; once a turn, never in a shared place
+  (`nudge_step::may_continue` is the condition both share). The result's `files` (changed, left, the note and whether
+  the model acted) is `harness_lines`' `Files:` line and rides `turn.ended`'s row; a turn's maps drop with it
+  (`end_note_step::Held`). A command running beside another in one directory may be credited with the other's files.
+  Tests: `tests_end_note.rs`, `beside::tests`, `tests_stop_nudge.rs`.
 - **The steer** (theseus-qu1lc; `[kernel] steer_queued`, on by default): a person's typed input that finds its session's
   turn running does not wait for the turn to end. The running turn opens a `Steer` for its session
   (`toolrun/waits/steer.rs`, held in `JobWaits::steers`, which the terminals share; `turn.rs` opens it once admitted and

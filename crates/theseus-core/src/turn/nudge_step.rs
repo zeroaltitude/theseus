@@ -54,6 +54,11 @@ impl Nudge {
         self.judged && self.sent.is_none()
     }
 
+    /// The stop nudge went on once this turn: no end note after it.
+    pub(super) fn sent(&self) -> bool {
+        self.sent.is_some()
+    }
+
     /// The result's `nudged`: `acted` when the model called a tool after it.
     pub(super) fn result(&self, tool_calls: u32) -> Option<TurnNudge> {
         self.sent.as_ref().map(|(n, before, _)| TurnNudge {
@@ -139,8 +144,11 @@ impl TurnRunner {
         self.judge.mark_turn_end(&mut t.trace, result, task, judged);
     }
 
-    /// Whether this stop may be nudged at all, before anything is asked.
-    fn may_nudge(&self, t: &Turn<'_>) -> Result<bool> {
+    /// Whether this stop may go on at all, whoever asks: never in a shared
+    /// place, at a strict loop cap, or while a job of the turn runs (its end
+    /// comes to the turn; the turn is waiting, not stopped). The stop nudge
+    /// and the end note both ask it.
+    pub(super) fn may_continue(&self, t: &Turn<'_>) -> Result<bool> {
         if t.tc.class == crate::places::PlaceClass::Shared {
             return Ok(false);
         }
@@ -149,6 +157,11 @@ impl TurnRunner {
         {
             return Ok(false);
         }
+        Ok(self.jobs_outstanding(t.tc.execution_id, &t.background)? == 0)
+    }
+
+    /// Whether this stop may be nudged at all, before anything is asked.
+    fn may_nudge(&self, t: &Turn<'_>) -> Result<bool> {
         if !self.judge.config().stop_nudge || self.judge.jev_unreachable() {
             return Ok(false);
         }
@@ -156,7 +169,7 @@ impl TurnRunner {
         if own.is_some_and(|v| v["on"] == false) {
             return Ok(false);
         }
-        Ok(self.jobs_outstanding(t.tc.execution_id, &t.background)? == 0)
+        self.may_continue(t)
     }
 
     /// A nudged turn ended: `loop.v1`'s `nudge_loop` rule counts it (a

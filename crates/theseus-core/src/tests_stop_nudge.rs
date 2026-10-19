@@ -281,6 +281,53 @@ async fn a_nudge_the_model_acts_on_says_so() {
     assert!(res.nudged.expect("nudged").acted);
 }
 
+/// A turn the stop nudge continued is not told by the end note too, though it
+/// stops beside the files its command made: one harness line a turn
+/// (theseus-53ujg.1). Its facts still reach the result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_end_note_after_the_stop_nudge_continued() {
+    let jev = unfinished(0.97);
+    let r = rig(
+        vec![
+            Scripted::tools(
+                "Writing.",
+                &[(
+                    "w1",
+                    "fs_write",
+                    json!({"path": "main.rs", "content": "fn main() {}"}),
+                )],
+            ),
+            Scripted::tools(
+                "Building.",
+                &[(
+                    "r1",
+                    "proc_run",
+                    json!({"argv": ["sh", "-c", "echo x > main"]}),
+                )],
+            ),
+            Scripted::text(SAID),
+            Scripted::text(RAN),
+            Scripted::text("A fifth answer no turn asks for."),
+        ],
+        &jev,
+        |_| {},
+    );
+    let sid = r.session(None);
+    let res = r.turn(&sid, "Write main.rs and build it.").await;
+    assert_eq!(
+        r.requests().len(),
+        4,
+        "the nudge's one more call, and no end note's"
+    );
+    assert!(res.nudged.is_some());
+    assert!(r.rows("turn.end_noted").is_empty());
+    let files = res.files.expect("the facts stay");
+    assert!(
+        files.end_note.is_none() && files.left.paths.len() == 1,
+        "{files:?}"
+    );
+}
+
 /// A verdict to ask (between confirm and act), and a lean below it, nudge
 /// nothing; the stop is judged once, live, and not again after the turn.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
