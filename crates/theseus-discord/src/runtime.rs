@@ -48,7 +48,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod ask;
-pub(crate) use ask::buttons as ask_buttons;
+pub(crate) use ask::{buttons as ask_buttons, card_buttons};
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
@@ -75,7 +75,7 @@ mod live;
 mod live_board;
 mod orders;
 pub(crate) mod presence;
-mod reply;
+pub(crate) mod reply;
 mod source;
 mod task_home;
 mod thread;
@@ -1093,10 +1093,9 @@ impl Shared {
     }
 
     fn on_message(self: Arc<Self>, m: &twilight_model::channel::Message) {
-        if m.author.bot || m.author.id.get() == self.bot_id() {
-            return;
+        if m.author.bot || m.author.id.get() == self.bot_id() || self.heard(m) {
+            return; // an answer to a needs-you question is no turn (theseus-suvpe)
         }
-        self.tell_replies(m); // theseus-rlnbf: reads only, before routing
         let (found, bot_roles) = {
             let r = self.routes.lock().unwrap();
             let found = r.resolve(
@@ -1334,7 +1333,7 @@ impl Shared {
                 // An outbox card is settled by its settle post, which the
                 // answer just wrote (theseus-q4v); a card from before the
                 // outbox, or an answer that failed, is settled here.
-                let settled_by_post = r.is_ok() && self.core.outbox.has_card(&corr);
+                let settled_by_post = r.is_ok() && self.core.outbox.has_post(&corr);
                 if let (Some(ch), Some(m), false) =
                     (i.channel.as_ref(), i.message.as_ref(), settled_by_post)
                 {

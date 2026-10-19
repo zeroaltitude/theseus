@@ -1226,6 +1226,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # escalate_after_secs = 60                # no screen open: the DM pings after this long
 # escalate_with_screen_secs = 300         # a screen open: after this long
 # unprompted_pace_secs = 1800            # at most one unprompted DM post (a needs-you now; the digest and nudges later) in this long, what is due meanwhile going out together; 0: no rule
+# dm_cards = true                       # a question that reaches your DM is its own card with Approve, Decline and Details (a batch, one card each), in plain words, and a reply to it answers it; false: the one-line post of before
 
 # ---------------------------------------------------------------- projects
 # A project is long-term work on the task graph: a goal, dated milestones that

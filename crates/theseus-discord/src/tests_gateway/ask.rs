@@ -96,7 +96,10 @@ async fn a_question_that_waited_pings_the_dm_and_a_press_answers_it() {
         post.content
     );
     let labels: Vec<&str> = post.buttons.iter().map(|b| b.label.as_str()).collect();
-    assert_eq!(labels, ["1. Careful", "2. Ship it behind the flag"]);
+    assert_eq!(
+        labels,
+        ["1. Careful", "2. Ship it behind the flag", "Details"]
+    );
 
     r.press(&post.id, "2. Ship it behind the flag", (ANA, "ana"));
     r.until("the answer", || {

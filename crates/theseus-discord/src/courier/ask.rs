@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use super::{Lane, Plan, SendErr, Write};
 use crate::policy::Event;
 use crate::render::Buttons;
+use crate::runtime::reply::answer;
 
 /// The buttons of a confirm card: an `owner_ask`'s options, a layer-1
 /// change's Accept and Decline, Approve with a third button to trust a
@@ -38,14 +39,42 @@ pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> B
 }
 
 impl Lane {
-    /// The post: to the owner's DM alone, never a shared place.
+    /// The post: to the owner's DM alone, never a shared place. A post with a
+    /// `card` (`[notify] dm_cards`, theseus-suvpe) is a card of its own with
+    /// Approve, Decline and Details (an ask's options and Details); a batch's
+    /// header pings and its cards post silently. Without a `card`, the post
+    /// of before: a nudge for a batch, options as buttons for an ask.
     pub(super) async fn needs_you_post(&mut self, body: &Value) -> Result<Plan, SendErr> {
         let (channel, place) = self.owner_dm().await?;
-        // Several questions due together, in one post: a nudge, no buttons.
-        if body["questions"].is_array() {
+        let questions: Vec<String> = body["questions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|q| q.as_str().map(str::to_string))
+            .collect();
+        // Several questions due together: the header names them, in the cards' numbers.
+        if !questions.is_empty() {
+            let key = format!("note:{}", questions[0]);
+            if body["header"] == true {
+                let entries = questions.iter().enumerate().map(|(i, q)| answer::Entry {
+                    question: q.clone(),
+                    choices: body["choices"][i]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| c.as_str().map(str::to_string))
+                        .collect(),
+                    trust: body["trust"][i] == true,
+                });
+                self.shared.replies.asked().plan(&key, entries.collect());
+            }
+            let extra = match body["header"] == true {
+                true => json!({"place": place}),
+                false => json!({"place": place, "settled": "a batch has no card"}),
+            };
             return Ok(Plan {
                 writes: vec![Write {
-                    key: format!("note:{}", body["questions"][0].as_str().unwrap_or("")),
+                    key,
                     channel,
                     content: body["text"].as_str().unwrap_or("").to_string(),
                     buttons: Buttons::Keep,
@@ -54,7 +83,7 @@ impl Lane {
                     mentions: vec![],
                     ping: self.pings(Event::NeedsYou),
                 }],
-                extra: json!({"place": place, "settled": "a batch has no card"}),
+                extra,
             });
         }
         let q = body["question"].as_str().unwrap_or("").to_string();
@@ -64,22 +93,35 @@ impl Lane {
             .flatten()
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect();
-        let buttons = match choices.is_empty() {
-            true => Buttons::Keep,
-            false => Buttons::Ask(q.clone(), choices),
+        let card = body["card"].is_object();
+        let trust = body["card"]["trust"] == true;
+        let buttons = match (card, choices.is_empty()) {
+            (true, _) => Buttons::Card(q.clone(), choices.clone(), trust),
+            (false, true) => Buttons::Keep,
+            (false, false) => Buttons::Ask(q.clone(), choices.clone()),
         };
+        let key = format!("confirm:{q}");
+        if card {
+            let entry = answer::Entry {
+                question: q.clone(),
+                choices,
+                trust,
+            };
+            self.shared.replies.asked().plan(&key, vec![entry]);
+        }
         let content = crate::render::needs_you(body);
         let line = body["prompt"].as_str().unwrap_or("").to_string();
+        let ping = body["silent"] != true && self.pings(Event::NeedsYou);
         Ok(Plan {
             writes: vec![Write {
-                key: format!("confirm:{q}"),
+                key,
                 channel,
                 content,
                 buttons,
                 reply_to: None,
                 message: None,
                 mentions: vec![],
-                ping: self.pings(Event::NeedsYou),
+                ping,
             }],
             extra: json!({"place": place, "question": q, "line": line}),
         })

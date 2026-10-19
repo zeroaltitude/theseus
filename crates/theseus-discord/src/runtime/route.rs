@@ -37,6 +37,8 @@ pub(crate) struct Replies(
     Mutex<VecDeque<(String, String)>>,
     /// A task's messages that are no turn's reply (theseus-bh3t.2).
     super::task_react::TaskMsgs,
+    /// The needs-you cards and headers a reply answers (theseus-suvpe).
+    super::reply::answer::Asked,
 );
 
 impl Replies {
@@ -77,6 +79,11 @@ impl Replies {
     /// The messages that carry a task, for a reaction to find.
     pub(crate) fn tasks(&self) -> &super::task_react::TaskMsgs {
         &self.2
+    }
+
+    /// The needs-you messages a reply can answer.
+    pub(crate) fn asked(&self) -> &super::reply::answer::Asked {
+        &self.3
     }
 
     /// The turn whose reply `message` is.

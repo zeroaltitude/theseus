@@ -235,6 +235,13 @@ async fn an_answer_to_a_question_counts_only_from_a_private_place() {
 
 // ----------------------------------------------------- the always-on channel
 
+/// An owner's rig whose config `tweak` changes.
+fn owned_tweaked(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+    let r = rig_with(script, tweak);
+    bind_places(&r, false);
+    r
+}
+
 fn needs_you_posts(r: &Rig) -> Vec<theseus_kernel::Action> {
     r.core
         .kernel
@@ -386,7 +393,8 @@ async fn a_question_at_half_its_life_is_reminded_of_once() {
 
 /// The one pacing rule for unprompted posts (`pacer.rs`): after one needs-you,
 /// a question due inside the window waits for it, and those due when it opens
-/// go in one post (no buttons, no settle), each marked so none pings again.
+/// go out together (theseus-suvpe): one header, which pings, and a card for
+/// each question, which post silently, each marked so none pings again.
 #[tokio::test]
 async fn unprompted_pings_go_one_a_window_and_the_rest_together() {
     let ask = || {
@@ -397,6 +405,83 @@ async fn unprompted_pings_go_one_a_window_and_the_rest_together() {
     let r = owned_rig(
         vec![ask(), ask(), ask(), Scripted::text("Going on.")],
         false,
+    );
+    let (_, _, a) = asked(&r).await;
+    let t0 = r.core.kernel.action(&a).unwrap().unwrap().planned_at_ms;
+    assert_eq!(
+        r.core.escalate_questions(t0 + 61_000),
+        1,
+        "the first goes at once"
+    );
+    let (_, _, b) = asked(&r).await;
+    let (_, _, c) = asked(&r).await;
+    assert_eq!(
+        r.core.escalate_questions(t0 + 10 * 60_000),
+        0,
+        "due, but the window is closed"
+    );
+    assert_eq!(needs_you_posts(&r).len(), 1);
+    assert_eq!(r.core.escalate_questions(t0 + 31 * 60_000), 2, "together");
+    let posts = needs_you_posts(&r);
+    assert_eq!(posts.len(), 4, "the first, then a header and a card each");
+    let header = crate::outbox::body_of(&posts[1]);
+    assert_eq!(
+        header["questions"],
+        json!([b.clone(), c.clone()]),
+        "{header}"
+    );
+    assert!(
+        header["question"].is_null(),
+        "a header is no one question's card"
+    );
+    assert!(
+        header["text"]
+            .as_str()
+            .unwrap()
+            .contains("2 questions need you"),
+        "{header}"
+    );
+    let cards: Vec<_> = posts[2..].iter().map(crate::outbox::body_of).collect();
+    assert_eq!(
+        cards
+            .iter()
+            .map(|c| c["question"].clone())
+            .collect::<Vec<_>>(),
+        [json!(b), json!(c)]
+    );
+    assert!(
+        cards.iter().all(|c| c["silent"] == true),
+        "only the header pings"
+    );
+    assert_eq!(cards[1]["card"]["n"], 2);
+    assert_eq!(cards[1]["card"]["of"], 2);
+    assert!(r.core.outbox.pinged(&b) && r.core.outbox.pinged(&c));
+    assert_eq!(r.core.escalate_questions(t0 + 90 * 60_000), 0, "once each");
+    // Answering one of them settles that card alone.
+    answer(&r, &b, "1", None).await.unwrap();
+    let settled: Vec<Value> = settles(&r)
+        .iter()
+        .map(|s| crate::outbox::body_of(s)["question"].clone())
+        .collect();
+    assert!(
+        settled.contains(&json!(b)) && !settled.contains(&json!(c)),
+        "{settled:?}"
+    );
+}
+
+/// `[notify] dm_cards = false` is the post of before, byte for byte: after one
+/// needs-you, a question due inside the window waits for it, and those due when it opens
+/// go in one post (no buttons, no settle), each marked so none pings again.
+#[tokio::test]
+async fn with_dm_cards_off_the_rest_go_together_in_one_nudge() {
+    let ask = || {
+        let input =
+            json!({"question": "Ship the release?", "options": options(2), "expires_in": 120});
+        Scripted::tools("", &[("t1", "owner_ask", input)])
+    };
+    let r = owned_tweaked(
+        vec![ask(), ask(), ask(), Scripted::text("Going on.")],
+        |c| c.notify.dm_cards = false,
     );
     let (_, _, a) = asked(&r).await;
     let t0 = r.core.kernel.action(&a).unwrap().unwrap().planned_at_ms;
@@ -457,3 +542,5 @@ async fn a_pace_of_zero_turns_the_rule_off() {
     assert_eq!(r.core.escalate_questions(t0 + 62_000), 1, "no window");
     assert_eq!(needs_you_posts(&r).len(), 2);
 }
+
+mod cards;

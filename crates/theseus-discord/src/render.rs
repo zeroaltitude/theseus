@@ -38,7 +38,7 @@ pub(crate) mod snapshot;
 pub(crate) mod task_view;
 pub(crate) mod v2;
 mod wakes;
-pub use ask::needs_you;
+pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, thread_tag, wake_header};
 pub use wakes::wakes;
@@ -57,6 +57,9 @@ pub enum Buttons {
     Confirm(String),
     /// One button per option of an `owner_ask` question (theseus-j7cje).
     Ask(String, Vec<String>),
+    /// A needs-you card (theseus-suvpe): the question's choices, else Approve (and
+    /// trust when `bool`) and Decline, and always Details.
+    Card(String, Vec<String>, bool),
     /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
     ConfirmTrust(String),
     /// Approve, the question's grant, and Decline (theseus-drjs).
