@@ -234,6 +234,7 @@ impl Core {
             origin: Origin::Transport.name(),
             who: "the binding",
             via: "discord",
+            undo: None,
         };
         let row = fact::ontology::PersonMerged {
             absorbed: &absorbed,

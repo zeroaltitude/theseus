@@ -352,6 +352,8 @@ mod tests_ontology;
 #[cfg(test)]
 mod tests_ontology_bind;
 #[cfg(test)]
+mod tests_ontology_undo;
+#[cfg(test)]
 mod tests_output;
 #[cfg(test)]
 mod tests_outside_text;

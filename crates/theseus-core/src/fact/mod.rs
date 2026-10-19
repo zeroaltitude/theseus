@@ -479,6 +479,7 @@ facts![
     people::PeopleExtracted<'static>,
     people::PeopleSwept<'static>,
     ontology::PersonMerged<'static>,
+    ontology::OntologyUndo<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
     mcp::McpStarted,

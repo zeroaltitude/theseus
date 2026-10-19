@@ -153,6 +153,7 @@ impl Core {
             origin: Origin::Operator.name(),
             who: &who_s,
             via: &via,
+            undo: None,
         };
         let o = self.runner.ontology.write(
             &self.store,
@@ -280,7 +281,8 @@ impl Core {
                 list,
                 who: &who_s,
                 via: &via,
-                })
+                undo: None,
+            })
             .collect();
         let o = self.runner.ontology.write(
             &self.store,
@@ -348,7 +350,8 @@ impl Core {
                 origin: Origin::Transport.name(),
                 who: "the binding",
                 via: "discord",
-                })
+                undo: None,
+            })
             .collect();
         self.runner.ontology.write(
             &self.store,
