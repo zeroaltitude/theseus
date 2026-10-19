@@ -5,8 +5,8 @@
 //! against the snapshot, written in one frame with its ledger row, and held
 //! in the snapshot (`ontology::Board::write`).
 //!
-//! Given kinds are the transport's: their categories are made at a place's
-//! first bind ([`Core::bind_categories`]), their memberships are read from a
+//! Given kinds are the transport's: their categories (a guild channel's guild
+//! too) are made at a place's first bind ([`Core::bind_categories`]), their memberships are read from a
 //! session's place at compile, and a write of either is invalid input.
 
 use std::collections::BTreeMap;
@@ -60,7 +60,7 @@ impl Core {
             _ if p.memberships == Some(false) => Vec::new(),
             Some(s) => {
                 let place = self.runner.target_of(s);
-                let mut ms = crate::ontology::given(place.as_deref(), now_unix_ms());
+                let mut ms = crate::ontology::given(place.as_deref(), &o, now_unix_ms());
                 ms.extend(o.memberships(s));
                 ms.iter().map(|m| membership_info(s, m)).collect()
             }
@@ -280,7 +280,7 @@ impl Core {
                 list,
                 who: &who_s,
                 via: &via,
-            })
+                })
             .collect();
         let o = self.runner.ontology.write(
             &self.store,
@@ -303,16 +303,27 @@ impl Core {
     }
 
     /// The given categories of the places the binding binds, made at each
-    /// one's first bind (the transport's facts): a guild channel's channel,
-    /// a DM's person, named as the binding names it. One frame for every new
-    /// or renamed one; nothing when all are as they were.
+    /// one's first bind (the transport's facts): a guild channel's guild and
+    /// channel (the guild its parent), a DM's person, named as the binding
+    /// names it. One frame for every new or renamed one, or a channel that
+    /// lacks its guild; nothing when all are as they were.
     pub(crate) fn bind_categories(&self, places: &[BoundPlace]) -> Result<()> {
         let o = self.runner.ontology.snapshot(&self.store)?;
-        let mut made: Vec<Category> = places
-            .iter()
-            .filter_map(|p| crate::ontology::bound_category(&p.target, &p.name))
-            .filter(|c| o.category(&c.id).is_none_or(|old| old.name != c.name))
-            .collect();
+        let mut made: Vec<Category> = Vec::new();
+        for p in places {
+            let guild = p.guild.as_deref().and_then(crate::ontology::guild_category);
+            let channel = crate::ontology::bound_category(&p.target, &p.name, p.guild.as_deref());
+            for c in guild.into_iter().chain(channel) {
+                // A guild is made once and never renamed here; a channel is
+                // made, renamed, or given the guild it lacked.
+                let stale = o.category(&c.id).is_none_or(|old| {
+                    old.parent != c.parent || (c.kind() != "guild" && old.name != c.name)
+                });
+                if stale && !made.iter().any(|m| m.id == c.id) {
+                    made.push(c);
+                }
+            }
+        }
         // A DM's new person whose discord id another person holds merges
         // that one into it (theseus-wy7y), in a frame of its own.
         let mut merged = Vec::new();
@@ -337,7 +348,7 @@ impl Core {
                 origin: Origin::Transport.name(),
                 who: "the binding",
                 via: "discord",
-            })
+                })
             .collect();
         self.runner.ontology.write(
             &self.store,

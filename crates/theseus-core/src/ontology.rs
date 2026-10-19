@@ -9,9 +9,10 @@
 //!   sooner, and kept current in memory on every write: a write checks its
 //!   records against the snapshot, writes them, and swaps the snapshot under
 //!   one lock. Nothing on the start path reads it.
-//! - **Given kinds** are the transport's: a bound place's category is made at
-//!   its first bind (`Core::bind_places`), and a session's given memberships
-//!   are read from its place at compile, never stored ([`given`]).
+//! - **Given kinds** are the transport's: a bound place's category, and its
+//!   guild's, are made at its first bind (`Core::bind_places`), and a
+//!   session's given memberships are read from its place (and its channel's
+//!   parent) at compile, never stored ([`given`]).
 //! - **The compile walk** ([`Walk`]) is fixed for a turn, as its request's
 //!   spec is: the snapshot as the turn began and the session's memberships
 //!   then. The compiler composes the memberships its current manifest
@@ -155,19 +156,39 @@ pub fn place_category(place: &str) -> Option<CategoryId> {
 }
 
 /// A session's given memberships, read from its place now (origin
-/// `transport`): never stored.
-pub fn given(place: Option<&str>, now_ms: u64) -> Vec<Membership> {
-    place
-        .and_then(place_category)
-        .map(|c| Membership::given(c, now_ms))
+/// `transport`): never stored. A guild channel gives its guild too, read
+/// through the channel category's parent in `snapshot`.
+pub fn given(place: Option<&str>, snapshot: &Ontology, now_ms: u64) -> Vec<Membership> {
+    let Some(channel) = place.and_then(place_category) else {
+        return Vec::new();
+    };
+    let guild = snapshot.category(&channel).and_then(|c| c.parent.clone());
+    guild
         .into_iter()
+        .chain([channel])
+        .map(|c| Membership::given(c, now_ms))
         .collect()
 }
 
+/// The category a bound guild makes at its first bind: named by its id, as
+/// the binding does not carry the guild's name to the core.
+pub fn guild_category(guild: &str) -> Option<Category> {
+    let id = CategoryId::new("guild", guild).ok()?;
+    Some(Category::new(
+        id.clone(),
+        id.local(),
+        Origin::Transport.name(),
+    ))
+}
+
 /// The category a bound place makes at its first bind, named as the
-/// binding names it: `#lab` is `lab`, `DM @wren` is `@wren`.
-pub fn bound_category(target: &str, name: &str) -> Option<Category> {
+/// binding names it: `#lab` is `lab`, `DM @wren` is `@wren`. A guild
+/// channel's parent is its guild (`guild`, the guild's id).
+pub fn bound_category(target: &str, name: &str, guild: Option<&str>) -> Option<Category> {
     let id = place_category(target)?;
+    let parent = guild
+        .filter(|_| id.kind() == "channel")
+        .and_then(|g| CategoryId::new("guild", g).ok());
     let name = name
         .strip_prefix("DM ")
         .unwrap_or(name)
@@ -181,7 +202,7 @@ pub fn bound_category(target: &str, name: &str) -> Option<Category> {
             name
         },
         id,
-        parent: None,
+        parent,
         description: String::new(),
         added_by: Origin::Transport.name().to_string(),
         retired_ms: None,
@@ -237,7 +258,7 @@ impl Walk {
         now_ms: u64,
     ) -> Option<Walk> {
         snapshot.categories().next()?;
-        let mut current = given(place, now_ms);
+        let mut current = given(place, &snapshot, now_ms);
         if class == PlaceClass::Private {
             // A stored person the place gives too is taken once, as given.
             for m in snapshot.memberships(session) {

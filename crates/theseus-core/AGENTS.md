@@ -229,8 +229,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The ontology** (row 26, step 21b; M4 §2.8; theseus-8kk.1): `ontology.rs` holds the snapshot (`Board`: built
   after serving by one `onto:` META prefix scan, `Core::warm_ontology`, or by its first reader; kept current on every
   write, which checks, writes its records and their rows in one frame, and swaps it), the given kinds (a bound
-  place's `channel:`/`person:` category made at its first bind, `Core::bind_categories`; a session's given
-  membership read from its place at compile, never stored), and the turn's `Walk`, fixed with the request's spec.
+  place's `channel:`/`person:` category made at its first bind, `Core::bind_categories`, with a guild channel's
+  `guild:<id>` category its parent, named by the id since the binding carries no guild name; a session's given
+  memberships read from its place at compile, the guild through the channel category's parent, never stored; the
+  `thread` and `project` kinds are seeded and their reader, from the thread and project records, is not built
+  yet), and the turn's `Walk`, fixed with the request's spec.
   `compiler::compile` renders the guidance after the context files: an append composes the memberships its
   manifest recorded, a recompile (or a ring) the current ones, so a membership change waits for the next recompile
   and a guidance edit in play is one `system_changed`. The manifest records `memberships` and `guidance`. A shared
