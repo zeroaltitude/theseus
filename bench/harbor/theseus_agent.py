@@ -132,8 +132,10 @@ class Theseus(BaseInstalledAgent):
     # The routed arm (theseus-eo3h): `TheseusRouted` sets it, `--ak routed=1` does too.
     ROUTED = False
 
-    def __init__(self, *args: Any, routed: Any = None, **kwargs: Any):
+    def __init__(self, *args: Any, routed: Any = None, effort_bounds: Any = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        # `--ak effort_bounds=low,high`, from a plan (`plan.py`): a bound on Jev's effort.
+        self.effort_bounds = effort_bounds
         if routed is not None:
             self.routed = str(routed).lower() in ("1", "true", "yes")
         else:
@@ -201,6 +203,7 @@ class Theseus(BaseInstalledAgent):
             system=Path(system_file).read_text().strip() if system_file else None,
             api_base=access.configured_base_url,
             routed=self.routed,
+            effort_bounds=self.effort_bounds,
         )
         jev_key = ""
         if self.routed:

@@ -6,6 +6,10 @@ under `bench/plans/` holds it:
 
     {"name": "r0-sonnet-5-5", "k": 3}
     {"name": "r0-neyman", "attempts": {"fix-git": 2, "build-pmars": 5}}
+    {"name": "r0-high", "k": 3, "effort_bounds": ["low", "high"]}
+
+`effort_bounds` (optional) caps the effort Jev may ask for, `[lowest, highest]`: the run adds
+`--ak effort_bounds=low,high`, which the Theseus adapter writes as `[routing] effort_bounds`.
 
 A run reads its plan from that file and only from it (`load`), and refuses to
 start unless the file is committed and clean: tracked (`git ls-files
@@ -30,6 +34,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+# The reasoning efforts, lowest first (`config::Effort`).
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 PLANS = Path(__file__).resolve().parent.parent / "plans"
 REPO = Path(__file__).resolve().parents[2]
 
@@ -76,12 +82,29 @@ def check(plan: Any, where: str = "the plan") -> None:
         raise PlanRefused(f"{where}: give `k` (attempts a task) or `attempts` (a list per task), not both or neither")
     if k is not None and not (isinstance(k, int) and not isinstance(k, bool) and k >= 1):
         raise PlanRefused(f"{where}: k must be a whole number, 1 or more")
+    bounds = plan.get("effort_bounds")
+    if bounds is not None:
+        try:
+            effort_bounds(bounds if isinstance(bounds, list) else [bounds])
+        except ValueError as e:
+            raise PlanRefused(f"{where}: {e}") from e
     if att is not None:
         if not isinstance(att, dict) or not att:
             raise PlanRefused(f"{where}: attempts is an object of task name to attempts")
         for t, n in att.items():
             if not (isinstance(n, int) and not isinstance(n, bool) and n >= 1):
                 raise PlanRefused(f"{where}: {t}: attempts must be a whole number, 1 or more")
+
+
+def effort_bounds(value: Any) -> list[str]:
+    """`[lowest, highest]` from a plan's list or an `--ak` string (`low,high`):
+    two known efforts, the first not above the second."""
+    pair = value.split(",") if isinstance(value, str) else value
+    if not (isinstance(pair, (list, tuple)) and len(pair) == 2 and all(e in EFFORTS for e in pair)):
+        raise ValueError(f"effort_bounds is [lowest, highest], two of {', '.join(EFFORTS)}: {value!r}")
+    if EFFORTS.index(pair[0]) > EFFORTS.index(pair[1]):
+        raise ValueError(f"effort_bounds is [lowest, highest]: {pair[0]} is above {pair[1]}")
+    return list(pair)
 
 
 def attempt_groups(plan: dict[str, Any]) -> list[tuple[int, list[str]]]:
@@ -107,6 +130,8 @@ def commands(plan: dict[str, Any], harbor: list[str], job_name: str) -> list[lis
     for k, tasks in groups:
         name = job_name if len(groups) == 1 else f"{job_name}-k{k}"
         line = [*harbor, "--job-name", name, "-k", str(k)]
+        if plan.get("effort_bounds") is not None:
+            line += ["--ak", "effort_bounds=" + ",".join(plan["effort_bounds"])]
         for t in tasks:
             line += ["-i", t]
         out.append(line)

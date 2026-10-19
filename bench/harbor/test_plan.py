@@ -120,6 +120,39 @@ class Plan(Repo):
                 planmod.commands({"name": "n", "k": 3}, ["harbor", "run", *flag], "job")
 
 
+class EffortBound(Repo):
+    def test_a_plans_effort_bound_reaches_the_daemon_config(self):
+        import tomllib
+
+        import theseus_bench as tb
+
+        plan = {"name": "r0-high", "k": 2, "effort_bounds": ["low", "high"]}
+        planmod.check(plan)
+        (line,) = planmod.commands(plan, ["harbor", "run"], "job")
+        ak = line[line.index("--ak") + 1]
+        self.assertEqual(ak, "effort_bounds=low,high")
+        # The adapter hands `--ak`'s value to `settings`; the config it builds carries it.
+        values = tb.settings("claude-sonnet-5-5", "/app", routed=True, effort_bounds=ak.split("=", 1)[1])
+        cfg = tomllib.loads(tb.profile(tb.PROFILE_ROUTED.read_text(), values))
+        self.assertEqual(cfg["routing"]["effort_bounds"], ["low", "high"])
+
+    def test_a_plan_without_one_leaves_the_profiles(self):
+        import tomllib
+
+        import theseus_bench as tb
+
+        (line,) = planmod.commands({"name": "r0", "k": 2}, ["harbor", "run"], "job")
+        self.assertNotIn("--ak", line)
+        cfg = tomllib.loads(tb.profile(tb.PROFILE_ROUTED.read_text(), tb.settings("claude-sonnet-5-5", "/app", routed=True)))
+        self.assertNotIn("effort_bounds", cfg["routing"])
+
+    def test_a_bad_effort_bound_is_refused(self):
+        for bad in (["high", "low"], ["low"], ["low", "huge"], "low,high", ["low", "high", "max"]):
+            with self.assertRaises(planmod.PlanRefused, msg=str(bad)):
+                planmod.check({"name": "n", "k": 1, "effort_bounds": bad})
+        planmod.check({"name": "n", "k": 1, "effort_bounds": ["medium", "medium"]})
+
+
 class Launcher(Repo):
     def quiet_host(self):
         p = self.repo / "cpu"

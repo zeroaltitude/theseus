@@ -993,6 +993,8 @@ class PiStdin(unittest.TestCase):
         self.assertIn("pi --mode rpc --session-dir /logs/agent/pi/sessions --provider anthropic "
                       "--model claude-sonnet-5-5 < /tmp/f 2>&1 | stdbuf -oL grep -v", cmd)
         self.assertIn("| stdbuf -oL tee /logs/agent/pi.txt &", cmd)
+        # `wait` reports Pi's status, not `tee`'s: a killed Pi is a non-zero exit.
+        self.assertIn("set -o pipefail;", cmd)
         self.assertNotIn("don", cmd, "the instruction goes through the FIFO, never the command line")
         self.assertEqual(json.loads(new[driver.PI_FIRST]),
                          {"type": "prompt", "message": "Train the model, don't wait."})

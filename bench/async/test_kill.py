@@ -249,6 +249,30 @@ class Trigger(unittest.TestCase):
         self.assertIn("not measurable", got["error"])
         self.assertEqual([r for r in self.ledger() if r["kind"] == "kill"], [])
 
+    def test_a_pi_kill_trial_records_its_kill(self):
+        """Pi sets its process title: its command line is just `pi`, with no
+        `--mode rpc`, so the kill finds it by comm. The restart runs the `pi`
+        the run's own shell finds, by its absolute path."""
+        import shutil
+        import subprocess
+
+        bin_dir = self.root / "node-bin"
+        bin_dir.mkdir()
+        shutil.copy(shutil.which("sleep"), bin_dir / "pi")
+        pi = subprocess.Popen([str(bin_dir / "pi"), "4243"])
+        try:
+            arm = driver.pi_arm("", str(self.root / "pi.log"), f"export PATH={bin_dir}:$PATH; ", lib=LIB)
+            got = asyncio.run(driver.fire_kill(self.k(seed=5, window_lo_s=0.0, window_hi_s=0.01), arm, self.env,
+                                               started=time.monotonic(), lib=LIB, sleep=self.sleeper()))
+            self.assertNotIn("error", got)
+            self.assertEqual([p["pid"] for p in got["killed"]], [pi.pid])
+            self.assertEqual([r["kind"] for r in self.ledger() if r["kind"] in ("kill", "restart")], ["kill", "restart"])
+            restart = next(c for c in self.env.commands if "--continue" in c)
+            self.assertIn(f"{bin_dir}/pi --print --mode json", restart)
+        finally:
+            pi.kill()
+            pi.wait()
+
     def test_pid_1_and_pids_not_found_are_never_signalled(self):
         class Env(FakeEnv):
             async def exec(self, command, cwd=None, env=None, timeout_sec=None):
@@ -329,11 +353,43 @@ class Restarts(unittest.TestCase):
                       "--thinking --dangerously-skip-permissions --continue -- Continue.", arm.restart)
         self.assertNotIn("'x'", arm.restart)
 
+    def test_the_restarts_name_absolute_binaries(self):
+        pi = driver.pi_arm("--session-dir /s ", "/l", ". ~/.nvm/nvm.sh; ").at("/home/u/.nvm/bin/pi")
+        self.assertIn("PATH=/home/u/.nvm/bin:\"$PATH\" /home/u/.nvm/bin/pi --print --mode json --session-dir /s "
+                      "--continue", pi.restart)
+        oc = driver.opencode_arm("--model=m", "--format=json ", "/l", ". ~/.nvm/nvm.sh; ").at("/opt/n/bin/opencode")
+        self.assertIn("PATH=/opt/n/bin:\"$PATH\" /opt/n/bin/opencode --model=m run --format=json --continue", oc.restart)
+        for arm in (pi, oc):
+            self.assertNotIn("sh: ", arm.restart)
+            self.assertNotRegex(arm.restart, r"; (pi|opencode) ")
+        # Resolved once, in the run's own shell: its prefix, then `command -v`.
+        self.assertEqual(driver.pi_arm("", "/l", ". ~/.nvm/nvm.sh; ").locate,
+                         "bash -lc '. ~/.nvm/nvm.sh;  command -v pi'")
+        # An empty answer leaves the restart as it was.
+        bare = driver.pi_arm("", "/l")
+        self.assertEqual(bare.at(""), bare)
+
     def test_every_restart_returns_at_once_and_records_its_pid(self):
         for arm in (driver.claude_arm("--print-ish ", "/l", ""), driver.pi_arm("", "/l"),
                     driver.opencode_arm("--model=m", "", "/l")):
             self.assertTrue(arm.restart.startswith("nohup sh -c "), arm.name)
             self.assertIn(f"echo $! > {arm.pidfile}", arm.restart)
+
+    def test_a_clean_exit_still_records_the_kill(self):
+        """A killed Pi whose pipeline exited 0 still has its kill in the
+        record. Needs Harbor (its venv's python)."""
+        try:
+            import async_agents as aa
+        except ImportError:
+            self.skipTest("Harbor is not installed")
+        report: dict = {}
+
+        async def go():
+            killer = asyncio.ensure_future(asyncio.sleep(0, {"killed": [{"pid": 7}], "pidfile": None}))
+            await aa._after_run(killer, report, FakeEnv(Path(tempfile.gettempdir())), None)
+
+        asyncio.run(go())
+        self.assertEqual(report["kill"]["killed"], [{"pid": 7}])
 
     def test_the_four_agents_are_wired_to_the_kill(self):
         text = (HERE / "async_agents.py").read_text()

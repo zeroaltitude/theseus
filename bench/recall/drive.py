@@ -288,6 +288,33 @@ def strings(v) -> list[str]:
     return out
 
 
+def history_pages(cli, session: str) -> tuple[str, dict | None]:
+    """A session's whole history, as `theseus history` pages it: the newest
+    page (200 nodes), then the pages back from its first node's position, each
+    from the one before's `older`, until a page has none or no nodes. Returns the file's text and its value: the newest page's
+    object with every node of every page, oldest first, and no `older`. An
+    unreadable first page comes back as its stdout, and no value."""
+    r = cli("--json", "history", "--full", session)
+    try:
+        whole = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return r.stdout, None
+    pages = [whole.get("nodes") or []]
+    # The newest page carries no `older`: it goes back from its first node.
+    before = pages[0][0]["position"] if pages[0] else None
+    while before is not None:
+        r = cli("--json", "history", "--full", session, "--before", str(before))
+        try:
+            page = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"history of {session} before {before} is not JSON: {r.stdout[:200]}")
+        pages.append(page.get("nodes") or [])
+        before = page.get("older") if pages[-1] else None
+    whole.pop("older", None)
+    whole["nodes"] = [n for p in reversed(pages) for n in p]
+    return json.dumps(whole), whole
+
+
 def delivery(prog: pg.Progression, transcript: str) -> dict[str, dict]:
     """Each fact's delivery: its marker in the arm's transcript (both
     normalized as the check language does)."""
@@ -613,12 +640,9 @@ class Theseus:
                     if off and not a.allow_overhead:
                         raise OverheadPastPlan(overhead_refusal({**rec, "measured": first}))
             for i, s in enumerate(sids):
-                r = self.cli("--json", "history", "--full", s, timeout=120)
-                (run.raw / f"history-{i + 1}.json").write_text(r.stdout)
-                try:
-                    transcript.extend(strings(json.loads(r.stdout)))
-                except json.JSONDecodeError:
-                    transcript.append(r.stdout)
+                text, whole = history_pages(lambda *a: self.cli(*a, timeout=120), s)
+                (run.raw / f"history-{i + 1}.json").write_text(text)
+                transcript.extend(strings(whole)) if whole is not None else transcript.append(text)
                 r = self.cli("--json", "memory", "recalled", s, timeout=120)
                 (run.raw / f"recalled-{i + 1}.json").write_text(r.stdout or r.stderr)
         finally:
