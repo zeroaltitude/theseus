@@ -22,7 +22,8 @@ side with Oct 12's build. Against Claude Code it is 13× faster to a ready promp
 - the first request rose from 39 to 46 KB;
 - `theseusd` is 82.4 MB against a 60 MB budget.
 
-The MAX tier (every harness at its top effort on the 30 hard tasks) follows in its own report. What follows the v1
+At top effort on the hard tasks ([MAX](2026-10-18-terminal-bench-v1-max.md)), Claude Code leads (75.6% to Theseus's 67.8%), at
+$1.92 a solve against $0.36: Jev never chose `max`. What follows the v1
 section is the record up to Oct 13, kept as it was.
 
 **As of Oct 13.** Thirty-six benchmark reports between Sep 30 and Oct 13, 2026, the last sixteen a full rerun on
@@ -72,6 +73,8 @@ wall time.
 | Terminal-Bench 2.0, HIGH (89 × 3), solved | 73.0% [67.4, 78.0] | **75.3%** [69.8, 80.1] | 70.8% | 70.4% | [HIGH](2026-10-18-terminal-bench-v1-high.md) |
 | ... dollars a solved task | **$0.136** | $0.173 | $0.168 | $0.150 | |
 | ... agent seconds a trial (median) | **50** | 56 | 60 | 55 | |
+| Terminal-Bench 2.0, MAX (hard 30 × 3, top effort), solved | 67.8% [57.6, 76.5] | **75.6%** [65.8, 83.3] | 32.2% | 71.1% | [MAX](2026-10-18-terminal-bench-v1-max.md) |
+| ... dollars a solved task | **$0.362** | $1.923 | $4.508 | $0.749 | |
 | Recall, 600 turns, probes right | **73.1%** [65.1, 79.9] | 50.7% | – | 56.9% | [recall](2026-10-18-recall-full-run.md) |
 | ... across sessions | **27 of 46** | 0 of 48 | – | 1 of 48 | |
 | Kill -9, trials with a step done twice | **0 of 12** | 4 of 12 | not measured | not measured | [kill](2026-10-18-async-kill-family.md) |
@@ -351,9 +354,10 @@ binary within 200.
 *Figure 9. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.*
 
 - **v1 (Oct 18).**
-  - The v1 run's model calls came to $148.87: Terminal-Bench HIGH $121.47, recall $26.78 and the kill family $0.62.
-    The MAX tier is in its report.
-  - Its four EC2 hosts and their NAT data are counted in the MAX report.
+  - The v1 run's model calls came to $480.35: Terminal-Bench HIGH $121.47 and MAX $331.48, recall $26.78 and the kill
+    family $0.62.
+    MAX added $331.48 (Claude Code $130.73, OpenCode $130.73, Pi $47.95, Theseus $22.07).
+  - Its four EC2 hosts and their NAT data came to about $84 for both tiers.
   - A solved task cost Theseus as shipped $0.136, Pi $0.150, OpenCode $0.168 and Claude Code $0.173.
 - **The runs to Oct 13.** All the model calls of every run came to $367.36, and the Terminal-Bench runs are 88% of it ($324.04).
   The memory exams cost cents to a dollar and a half each. Eleven runs called no model at all. The stopping point's
@@ -457,6 +461,7 @@ measurement that judged it.
 | Real tasks | [Terminal-Bench 2.0 R1: the parity claim, Theseus against Claude Code at five attempts](2026-10-13-terminal-bench-r1.md) | Oct 13 |
 | Real tasks | [Terminal-Bench 2.0: four harnesses on all 89 tasks, and Theseus as shipped on the night set](2026-10-13-terminal-bench-harness-arms.md) | Oct 13 |
 | Real tasks | [Terminal-Bench 2.0 at the v1 freeze, HIGH tier: Theseus as shipped against Claude Code, OpenCode and Pi](2026-10-18-terminal-bench-v1-high.md) | Oct 18 |
+| Real tasks | [Terminal-Bench 2.0 at the v1 freeze, MAX tier: the hard tasks, every harness at its top effort](2026-10-18-terminal-bench-v1-max.md) | Oct 18 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |

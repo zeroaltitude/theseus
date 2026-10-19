@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" role="img" aria-labelledby="t-endings-max t-endings-max-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-endings-max">How trials ended, MAX tier</title>
+<desc id="t-endings-max-d">How does each harness's run end when it does not end on its own?</desc>
+<rect width="720" height="460" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">How trials ended, MAX tier</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus as shipped (routed)</text>
+<rect x="226.6" y="44.0" width="14" height="12" rx="3" fill="#eb6834"/>
+<text x="248.6" y="54.0" font-size="12" fill="#52514e">Claude Code 2.1.290</text>
+<rect x="392.0" y="44.0" width="14" height="12" rx="3" fill="#898781"/>
+<text x="414.0" y="54.0" font-size="12" fill="#52514e">OpenCode 1.18.35</text>
+<rect x="542.9" y="44.0" width="14" height="12" rx="3" fill="#e87ba4"/>
+<text x="564.9" y="54.0" font-size="12" fill="#52514e">Pi 1.0.4</text>
+<line x1="161.4" y1="74.0" x2="161.4" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="294.6" y1="74.0" x2="294.6" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="427.7" y1="74.0" x2="427.7" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="560.9" y1="74.0" x2="560.9" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="694.0" y1="74.0" x2="694.0" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="151.4" y="111.0" font-size="12" fill="#0b0b0b" text-anchor="end">timeout</text>
+<g><title>timeout · Theseus as shipped (routed): 5</title>
+<path d="M161.4,81.0H290.6A4,4 0 0 1 294.6,85.0V88.5A4,4 0 0 1 290.6,92.5H161.4Z" fill="#2a78d6"/>
+</g>
+<g><title>timeout · Claude Code 2.1.290: 14</title>
+<path d="M161.4,94.5H530.2A4,4 0 0 1 534.2,98.5V102.0A4,4 0 0 1 530.2,106.0H161.4Z" fill="#eb6834"/>
+</g>
+<g><title>timeout · OpenCode 1.18.35: 20</title>
+<path d="M161.4,108.0H690.0A4,4 0 0 1 694.0,112.0V115.5A4,4 0 0 1 690.0,119.5H161.4Z" fill="#898781"/>
+</g>
+<g><title>timeout · Pi 1.0.4: 9</title>
+<path d="M161.4,121.5H397.1A4,4 0 0 1 401.1,125.5V129.0A4,4 0 0 1 397.1,133.0H161.4Z" fill="#e87ba4"/>
+</g>
+<text x="151.4" y="177.0" font-size="12" fill="#0b0b0b" text-anchor="end">grader timeout (infra)</text>
+<g><title>grader timeout (infra) · Theseus as shipped (routed): 4</title>
+<path d="M161.4,147.0H263.9A4,4 0 0 1 267.9,151.0V154.5A4,4 0 0 1 263.9,158.5H161.4Z" fill="#2a78d6"/>
+</g>
+<g><title>grader timeout (infra) · Claude Code 2.1.290: 0</title>
+<path d="M161.4,160.5H161.4A0.0,0.0 0 0 1 161.4,160.5V172.0A0.0,0.0 0 0 1 161.4,172.0H161.4Z" fill="#eb6834"/>
+</g>
+<g><title>grader timeout (infra) · OpenCode 1.18.35: 0</title>
+<path d="M161.4,174.0H161.4A0.0,0.0 0 0 1 161.4,174.0V185.5A0.0,0.0 0 0 1 161.4,185.5H161.4Z" fill="#898781"/>
+</g>
+<g><title>grader timeout (infra) · Pi 1.0.4: 2</title>
+<path d="M161.4,187.5H210.7A4,4 0 0 1 214.7,191.5V195.0A4,4 0 0 1 210.7,199.0H161.4Z" fill="#e87ba4"/>
+</g>
+<text x="151.4" y="243.0" font-size="12" fill="#0b0b0b" text-anchor="end">setup timeout (infra)</text>
+<g><title>setup timeout (infra) · Theseus as shipped (routed): 0</title>
+<path d="M161.4,213.0H161.4A0.0,0.0 0 0 1 161.4,213.0V224.5A0.0,0.0 0 0 1 161.4,224.5H161.4Z" fill="#2a78d6"/>
+</g>
+<g><title>setup timeout (infra) · Claude Code 2.1.290: 0</title>
+<path d="M161.4,226.5H161.4A0.0,0.0 0 0 1 161.4,226.5V238.0A0.0,0.0 0 0 1 161.4,238.0H161.4Z" fill="#eb6834"/>
+</g>
+<g><title>setup timeout (infra) · OpenCode 1.18.35: 0</title>
+<path d="M161.4,240.0H161.4A0.0,0.0 0 0 1 161.4,240.0V251.5A0.0,0.0 0 0 1 161.4,251.5H161.4Z" fill="#898781"/>
+</g>
+<g><title>setup timeout (infra) · Pi 1.0.4: 0</title>
+<path d="M161.4,253.5H161.4A0.0,0.0 0 0 1 161.4,253.5V265.0A0.0,0.0 0 0 1 161.4,265.0H161.4Z" fill="#e87ba4"/>
+</g>
+<text x="151.4" y="309.0" font-size="12" fill="#0b0b0b" text-anchor="end">refusal / provider</text>
+<g><title>refusal / provider · Theseus as shipped (routed): 0</title>
+<path d="M161.4,279.0H161.4A0.0,0.0 0 0 1 161.4,279.0V290.5A0.0,0.0 0 0 1 161.4,290.5H161.4Z" fill="#2a78d6"/>
+</g>
+<g><title>refusal / provider · Claude Code 2.1.290: 0</title>
+<path d="M161.4,292.5H161.4A0.0,0.0 0 0 1 161.4,292.5V304.0A0.0,0.0 0 0 1 161.4,304.0H161.4Z" fill="#eb6834"/>
+</g>
+<g><title>refusal / provider · OpenCode 1.18.35: 2</title>
+<path d="M161.4,306.0H210.7A4,4 0 0 1 214.7,310.0V313.5A4,4 0 0 1 210.7,317.5H161.4Z" fill="#898781"/>
+</g>
+<g><title>refusal / provider · Pi 1.0.4: 0</title>
+<path d="M161.4,319.5H161.4A0.0,0.0 0 0 1 161.4,319.5V331.0A0.0,0.0 0 0 1 161.4,331.0H161.4Z" fill="#e87ba4"/>
+</g>
+<text x="151.4" y="375.0" font-size="12" fill="#0b0b0b" text-anchor="end">error</text>
+<g><title>error · Theseus as shipped (routed): 0</title>
+<path d="M161.4,345.0H161.4A0.0,0.0 0 0 1 161.4,345.0V356.5A0.0,0.0 0 0 1 161.4,356.5H161.4Z" fill="#2a78d6"/>
+</g>
+<g><title>error · Claude Code 2.1.290: 0</title>
+<path d="M161.4,358.5H161.4A0.0,0.0 0 0 1 161.4,358.5V370.0A0.0,0.0 0 0 1 161.4,370.0H161.4Z" fill="#eb6834"/>
+</g>
+<g><title>error · OpenCode 1.18.35: 1</title>
+<path d="M161.4,372.0H184.1A4,4 0 0 1 188.1,376.0V379.5A4,4 0 0 1 184.1,383.5H161.4Z" fill="#898781"/>
+</g>
+<g><title>error · Pi 1.0.4: 0</title>
+<path d="M161.4,385.5H161.4A0.0,0.0 0 0 1 161.4,385.5V397.0A0.0,0.0 0 0 1 161.4,397.0H161.4Z" fill="#e87ba4"/>
+</g>
+<text x="161.4" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="294.6" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<text x="427.7" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="560.9" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">15</text>
+<text x="694.0" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<line x1="161.4" y1="404.0" x2="694.0" y2="404.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="427.7" y="438.0" font-size="12" fill="#52514e" text-anchor="middle">trials</text>
+</svg>

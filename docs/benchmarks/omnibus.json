@@ -1515,9 +1515,15 @@
      "run": "v1: recall full run and the kill family",
      "usd": 27.4,
      "source": "2026-10-18-recall-full-run.md"
+    },
+    {
+     "date": "Oct 18",
+     "run": "v1: TB MAX, four harnesses, the hard 30 at top effort",
+     "usd": 331.48,
+     "source": "2026-10-18-terminal-bench-v1-max.md"
     }
    ]
   }
  ],
- "total_usd": 516.2341
+ "total_usd": 847.7141
 }
