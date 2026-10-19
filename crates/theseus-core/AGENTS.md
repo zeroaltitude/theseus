@@ -174,8 +174,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     resume; else a continuation; a detour its own), and `compile()` settles it (`settle`: a new compilation of its
     own triggers is a recompile with its trigger). It rides `Compilation.situation` (store format 22) and
     `context.compiled`. `admits` is the table of what each admits, from the code (lessons reserved for 35b): a
-    detour admits its window's messages, replies and results, and a task's arrangement among them, never a recall
-    or a summary (`compile_detour` leaves those out). `check`, after the compile, fails a piece not admitted, or a
+    detour admits its window's messages, replies and results, a task's arrangement among them, and a quick detour's
+    own recall note, never a summary or an earlier note (`compile_detour` leaves those out; theseus-pa1xx). `check`, after the compile, fails a piece not admitted, or a
     set that does not close (a result without its call, a call without its result), as `context_unadmitted`, with
     nothing sent and no retry; it enforces from the first day, with no shadow mode (the owner, 2026-10-05). An assembled
     `recall_id` whose node is not in the session is a section never written (its call never dispatched; nodes are
@@ -1616,7 +1616,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Past `session_recall_cap_tokens` of notes in the tail, recall pauses (`paused`) until the next recompile.
     A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
     (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
-    rides and its footer count, and the row says `detoured`. Tests: `tests_route.rs`.
+    rides and its footer count, and the row says `detoured`. A quick detour's request carries it (theseus-pa1xx,
+    `config::routing::detour_recalls`): a quick question is often about what was said or decided before, so
+    `compile_detour` reads through `recall_view` and keeps the turn's own node on its later loops, and the node, its
+    footer and its row are a kept compile's. Tests: `tests_route.rs`.
     `memory.label` (`rpc/memory.rs`, `judge_act(Act::Label)`, refused by the CLI inside a job) writes a `memory.label`
     row scoped `memory`; `wrong` and `stale` drop a node as `labeled_wrong` from a set built after serving
     (`Core::warm_labels`, `recall/labels.rs`).

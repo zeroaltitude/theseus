@@ -18,9 +18,10 @@
 //!   comes after the compilation's `as_of`. The `recall.ran` row rides in
 //!   the turn's next frame.
 //! - **A trivial detour** (theseus-n7nc): while routing has the turn's route
-//!   to decide, the row waits for it (`recall_routed`). A detour's request
-//!   carries no recall, so its node rides nothing, the reply's footer counts
-//!   none, and its row says `detoured`.
+//!   to decide, the row waits for it (`recall_routed`). A trivial detour's
+//!   request carries no recall, so its node rides nothing, the reply's footer
+//!   counts none, and its row says `detoured`. A quick detour's carries it
+//!   (theseus-pa1xx): its node, footer and row are a kept compile's.
 
 use std::collections::BTreeSet;
 
@@ -83,8 +84,7 @@ const PENDING: u64 = u64::MAX;
 
 /// Why a detoured recall reached no request (theseus-n7nc).
 const DETOURED: &str =
-    "the route pack judged the message a detour's (trivial or quick), and the detour's request \
-     carries no recall";
+    "the route pack judged the message trivial, and a trivial detour's request carries no recall";
 
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and
@@ -380,11 +380,12 @@ impl TurnRunner {
     }
 
     /// The route is known (theseus-n7nc). A trivial detour's request carried
-    /// no recall (`compile_detour` reads no `recall_view`), so its node rides
-    /// nothing, the reply's footer counts none, and its row says `detoured`.
+    /// no recall (`compile_detour` reads no `recall_view` for it), so its node
+    /// rides nothing, the reply's footer counts none, and its row says
+    /// `detoured`; a quick detour's carried it (theseus-pa1xx), which stays.
     /// Then the rows held while routing decided are recorded.
     pub(super) fn recall_routed(t: &mut Turn<'_>) {
-        if t.route.keeps.is_some() {
+        if t.route.keeps.is_some() && !t.route.detour_recall {
             if let Some(Body::Recall { recall_id, .. }) = t.recall.pending.take().map(|n| n.body) {
                 let mut held = t.recall.held.iter_mut();
                 if let Some((m, ..)) = held.find(|(m, ..)| m.recall_id == recall_id) {

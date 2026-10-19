@@ -178,6 +178,17 @@ pub fn is_detour(mode: &str) -> bool {
     DETOURS.contains(&mode)
 }
 
+/// The detours whose request carries the turn's recall (theseus-pa1xx): a
+/// quick question is often about what was said or decided before, which only
+/// recall holds. A trivial one (a greeting, a thanks) carries none
+/// (theseus-n7nc).
+pub const RECALLING_DETOURS: [&str; 1] = ["quick"];
+
+/// Whether `mode`'s detour carries the turn's recall ([`RECALLING_DETOURS`]).
+pub fn detour_recalls(mode: &str) -> bool {
+    RECALLING_DETOURS.contains(&mode)
+}
+
 fn yes() -> bool {
     true
 }
@@ -566,6 +577,15 @@ mod tests {
         assert_eq!(c.confidence_for("quick"), 0.7);
         assert_eq!(c.classes.of("trivial"), ["haiku", "glm", "cheapest"]);
         c.validate(|_| false).unwrap();
+    }
+
+    /// A quick detour carries the turn's recall, a trivial one none
+    /// (theseus-pa1xx); every recalling mode is a detour.
+    #[test]
+    fn a_quick_detour_recalls_and_a_trivial_one_does_not() {
+        assert!(detour_recalls("quick"));
+        assert!(!detour_recalls("trivial"));
+        assert!(RECALLING_DETOURS.iter().all(|m| is_detour(m)));
     }
 
     /// `effort_bounds` (route.v3, theseus-qe3v): the full range by default,
