@@ -9,7 +9,35 @@ use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
 use crate::config::{PersonaConfig, PersonaEngage};
-use crate::tests_route::{mode, rig, turn, until_late, Rig};
+use crate::tests_route::{mode, rig, until_late, Rig};
+
+/// A person's message in a DM, where a message can engage another persona (theseus-nsp9l.1: a cli session's
+/// persona is fixed). With no session it opens one in the owner's DM.
+async fn turn(
+    core: &std::sync::Arc<crate::Core>,
+    session: Option<&str>,
+    input: &str,
+    chosen: Option<&str>,
+) -> theseus_protocol::TurnSubmitResult {
+    let id = match session {
+        Some(id) => id.to_string(),
+        None => {
+            let rec = crate::session::SessionRecord::new(
+                theseus_protocol::SessionKind::Conversation,
+                None,
+            );
+            core.store.put_session(&rec.session_id, &rec).unwrap();
+            core.bind_places(vec![crate::places::BoundPlace {
+                target: "discord:dm:42".into(),
+                name: "DM".into(),
+                ..Default::default()
+            }]);
+            core.outbox.bind_place("dm:42", &rec.session_id).unwrap();
+            rec.session_id
+        }
+    };
+    crate::tests_route::turn(core, Some(&id), input, chosen).await
+}
 
 fn personas(c: &mut crate::Config, act: bool) {
     for (key, card) in [

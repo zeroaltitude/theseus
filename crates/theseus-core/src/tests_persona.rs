@@ -255,11 +255,13 @@ async fn the_persona_is_the_sessions_then_the_places_then_the_default_then_the_b
             .iter()
             .all(|w| s.contains(w))
     };
-    // No place, no choice: the default's.
+    // No place, no choice: the default's. A cli session's persona is fixed, so its request carries that
+    // persona's files alone and no tail line (theseus-nsp9l.1).
     let plain = session(&r.core, None);
     turn(&r.core, &plain, "one").await;
-    assert_eq!(answering(&r.last()).as_deref(), Some("Alder"));
-    assert!(everyone(&r.last()));
+    assert_eq!(answering(&r.last()), None);
+    let only = system(&r.last());
+    assert!(only.contains("ALDER words.") && !only.contains("BIRCH words."));
     // The place's.
     let placed = session(&r.core, Some(&format!("dm:{OWNER}")));
     turn(&r.core, &placed, "two").await;
@@ -487,16 +489,15 @@ async fn sessions_of_one_persona_share_the_cached_blocks() {
         }
         cfg.context.default_persona = Some("alder".into());
     });
-    let (a1, a2, b) = (
-        session(&r.core, None),
-        session(&r.core, None),
-        session(&r.core, None),
-    );
-    r.core.set_session_persona(&b, "birch").unwrap();
     let mut got = Vec::new();
     let mut said = Vec::new();
-    for sid in [&a1, &a2, &b] {
-        turn(&r.core, sid, "hello").await;
+    // DM sessions: where a message can engage another persona (theseus-nsp9l.1).
+    for own in [None, None, Some("birch")] {
+        let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
+        if let Some(p) = own {
+            r.core.set_session_persona(&sid, p).unwrap();
+        }
+        turn(&r.core, &sid, "hello").await;
         got.push(blocks(&r.last()));
         said.push(answering(&r.last()));
     }

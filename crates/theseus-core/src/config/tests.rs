@@ -559,7 +559,7 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(cfg.persona(), Some("theseus"));
     let paths = |persona: Option<&str>| -> Vec<(String, Option<String>)> {
-        cfg.context_paths(persona)
+        cfg.context_paths(persona, cfg.persona_engaging())
             .into_iter()
             .map(|p| (p.path, p.persona))
             .collect()
@@ -591,7 +591,7 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
     )
     .unwrap();
     let one_paths = |persona: Option<&str>| -> Vec<(String, Option<String>)> {
-        one.context_paths(persona)
+        one.context_paths(persona, one.persona_engaging())
             .into_iter()
             .map(|p| (p.path, p.persona))
             .collect()
@@ -627,7 +627,7 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
     // and `theseusd config` shows neither table.
     let (plain, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
     assert!(w.is_empty(), "{w:?}");
-    assert!(plain.context_paths(plain.persona()).is_empty());
+    assert!(plain.context_paths(plain.persona(), false).is_empty());
     let shown = toml::to_string_pretty(&plain).unwrap();
     assert!(
         !shown.contains("[context]") && !shown.contains("personas"),

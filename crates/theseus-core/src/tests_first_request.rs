@@ -13,7 +13,7 @@ use crate::tools_defer::PlaceKind;
 use crate::{Config, Core};
 
 /// The owner's config in shape (theseus-ykc7o): the installed config's sections with no secret of its own.
-const OWNER_SHAPE: &str = include_str!("../fixtures/owner_shape.toml");
+pub(crate) const OWNER_SHAPE: &str = include_str!("../fixtures/owner_shape.toml");
 
 fn rig() -> (Arc<Core>, tempfile::TempDir) {
     // The daemon's own defaults, as the bench's scratch daemon runs them (the template's every section adds
@@ -21,11 +21,24 @@ fn rig() -> (Arc<Core>, tempfile::TempDir) {
     rig_of("[secrets]\nanthropic_api_key = \"env:THESEUS_TEST_KEY\"\n")
 }
 
-fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
+/// The fixture's personas' files are in `fixtures/personas`: `/@PERSONAS@` is that directory.
+pub(crate) fn with_personas(toml: &str) -> String {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/personas");
+    toml.replace("/@PERSONAS@", dir)
+}
+
+/// The owner shape as it was before its personas: the tables from `[context]` to `[aws.accounts`.
+pub(crate) fn without_personas(toml: &str) -> String {
+    let (head, rest) = toml.split_once("\n[context]").unwrap();
+    let (_, tail) = rest.split_once("\n[aws.accounts").unwrap();
+    format!("{head}\n[aws.accounts{tail}")
+}
+
+pub(crate) fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
-    let mut cfg = Config::parse(toml).unwrap().0;
+    let mut cfg = Config::parse(&with_personas(toml)).unwrap().0;
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];

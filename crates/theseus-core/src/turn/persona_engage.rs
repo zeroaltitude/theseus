@@ -35,9 +35,15 @@ pub(super) struct Engage {
 
 impl TurnRunner {
     /// The personas a place of `class` may be answered as: two or more, or
-    /// none (a single persona is the session's, and nothing is engaged).
-    pub(crate) fn persona_choices(&self, class: PlaceClass, session_id: &str) -> Vec<Choice> {
-        if self.cfg.personas.len() < 2 {
+    /// none (a single persona is the session's, and nothing is engaged, nor
+    /// where `engages` is false: a cli or task session's persona is fixed).
+    pub(crate) fn persona_choices(
+        &self,
+        class: PlaceClass,
+        session_id: &str,
+        engages: bool,
+    ) -> Vec<Choice> {
+        if !engages || self.cfg.personas.len() < 2 {
             return Vec::new();
         }
         let own = self.place_persona(session_id);
@@ -53,7 +59,14 @@ impl TurnRunner {
     /// one that answered last, and the thread the session serves, if any. Memory
     /// only; empty with fewer than two personas, so a plain turn reads nothing.
     pub(crate) fn persona_ctx(&self, session_id: &str, class: PlaceClass) -> PersonaCtx {
-        let options = self.persona_choices(class, session_id);
+        let engages = self.cfg.persona_engaging()
+            && self
+                .store
+                .get_session::<SessionRecord>(session_id)
+                .ok()
+                .flatten()
+                .is_some_and(|s| self.engages(&s));
+        let options = self.persona_choices(class, session_id, engages);
         if options.is_empty() {
             return PersonaCtx::default();
         }
@@ -112,7 +125,7 @@ impl TurnRunner {
     /// The inbound point's part: see the module's header. `asked`: routing
     /// waits for a verdict, which may decide.
     pub(super) fn engage_start(&self, t: &mut Turn<'_>, text: &str, asked: bool) {
-        let options = self.persona_choices(t.tc.class, t.tc.session_id);
+        let options = self.persona_choices(t.tc.class, t.tc.session_id, t.target.engages);
         if options.is_empty() {
             return;
         }

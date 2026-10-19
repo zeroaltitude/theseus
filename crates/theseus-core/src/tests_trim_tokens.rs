@@ -16,7 +16,9 @@ fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
-    let mut cfg = Config::parse(toml).unwrap().0;
+    let mut cfg = Config::parse(&crate::tests_first_request::with_personas(toml))
+        .unwrap()
+        .0;
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
@@ -84,7 +86,8 @@ fn a_learned_family_that_fits_stays_loaded() {
 #[test]
 fn the_dm_default_keeps_wake_at_and_defers_tasks() {
     use crate::tools_defer::PlaceKind;
-    let (core, _dir) = rig_of(OWNER_SHAPE);
+    // Without the owner shape's personas, which the first-request budget test holds to the DM's 15,000.
+    let (core, _dir) = rig_of(&crate::tests_first_request::without_personas(OWNER_SHAPE));
     let dm = first(&core, "dm");
     for t in ["wake_at", "wake_move", "wake_cancel", "http_fetch"] {
         assert!(dm.loaded.contains(&t.to_string()), "{t}");
