@@ -149,8 +149,9 @@ impl OpReader {
         } else {
             let body = serde_json::json!({"title": item, "category": "API_CREDENTIAL", "fields": [concealed]})
                 .to_string();
+            // `-`: op reads a template from stdin only when told (op 2.x).
             self.run(
-                &["item", "create", "--vault", vault, "--format", "json"],
+                &["item", "create", "-", "--vault", vault, "--format", "json"],
                 Some(&body),
             )
             .await?;

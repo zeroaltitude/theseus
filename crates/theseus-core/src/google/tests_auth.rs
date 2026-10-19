@@ -293,6 +293,8 @@ case "$1 $2" in
     if [ -f "$STORE" ]; then echo '{{}}'; exit 0; fi
     echo '[ERROR] 2026/10/19 08:00:00 "theseus-google" isn'"'"'t an item in the "vault" vault.' >&2; exit 1 ;;
   "item create"|"item edit")
+    # The real op reads a create's template from stdin only after `-`.
+    if [ "$2" = create ] && [ "$3" != - ]; then echo '[ERROR] 2026/10/19 08:00:00 a category is required' >&2; exit 1; fi
     if [ "$MODE" = deny ]; then echo '[ERROR] 2026/10/19 08:00:00 you do not have write_items on this vault' >&2; exit 1; fi
     n=$(ls '{d}'/op.stdin.* 2>/dev/null | wc -l)
     cat > '{d}'/op.stdin.$n
