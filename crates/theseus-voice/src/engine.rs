@@ -368,8 +368,10 @@ const ECHO_TAIL: Duration = Duration::from_millis(1200);
 
 /// With no greeting to wait for, an utterance begun this soon after the join
 /// is a sound at the join: Discord's own chime comes back through the
-/// owner's microphone then (theseus-yf9ct).
-const JOIN_GUARD: Duration = Duration::from_millis(1500);
+/// owner's microphone then (theseus-yf9ct). 3 s is the warm-up a client's
+/// echo canceller takes to converge, and the greeting waits up to 3 s, so no
+/// gap is left between the window and a greeting queued late.
+const JOIN_GUARD: Duration = Duration::from_millis(3000);
 
 /// An utterance begun this soon after the sentence playing began may echo
 /// its head from 2 words (theseus-j2ut).

@@ -109,6 +109,16 @@ async fn a_short_sound_before_the_greeting_is_no_turn_and_the_greeting_plays() {
     assert!(journal.contains("'ECCR'"), "{journal}");
 }
 
+/// The chime can come back 2 s after the join, before the greeting is
+/// queued: still within the join's 3 s, an echo canceller's warm-up.
+#[tokio::test(start_paused = true)]
+async fn a_sound_two_seconds_after_the_join_before_the_greeting_is_queued_is_no_turn() {
+    let (seen, played, _) = call(true, 2000, 600, "ECCR", 5000).await;
+    assert_eq!(heard_as(&seen), [HeardAs::Join]);
+    assert_eq!(turns(&seen), 0);
+    assert_eq!(played.len(), 1, "the greeting plays");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_long_clear_utterance_at_the_join_is_a_turn() {
     let (seen, _, journal) = call(true, 100, 2000, "what's the weather like today", 3000).await;
