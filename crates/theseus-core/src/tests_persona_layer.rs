@@ -139,3 +139,56 @@ async fn a_keep_warm_replay_matches_the_turns_request_bytes() {
         "only brook's files"
     );
 }
+
+/// A task's turn carries the persona in play and no other, though the DM that opened it carries all five: a task's
+/// persona is fixed (its parent's), so its request is the cli's size, not the DM's (theseus-nsp9l.1). The census
+/// of a fresh place reads the kind it is asked for; this is the turn's own reading of a task session.
+#[tokio::test(start_paused = true)]
+async fn a_task_sessions_turn_carries_only_the_persona_in_play() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = kw::one_hour(24);
+    for name in PERSONAS {
+        let path = format!("{}/fixtures/personas/{name}.md", env!("CARGO_MANIFEST_DIR"));
+        let p = PersonaConfig {
+            files: vec![path.into()],
+            ..Default::default()
+        };
+        config.personas.insert(name.into(), p);
+    }
+    config.context.default_persona = Some("brook".into());
+    // The owner's DM is a private place, so it reads every persona's files.
+    config.places.owner = Some(vec!["discord:42".into()]);
+    let (core, fake) = kw::build(dir.path(), config);
+    let parent = kw::session(&core, SessionKind::Conversation, Some("dm:42"));
+    let mut child = crate::session::SessionRecord::new(SessionKind::Task, None);
+    child.task = Some(crate::session::TaskOf {
+        parent_session: parent.clone(),
+        parent_execution: "exe_none".into(),
+        by: "toolu_none".into(),
+        target: Some("discord:dm:42".into()),
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    core.store.put_session(&child.session_id, &child).unwrap();
+    let system = |fake: &crate::provider::FakeProvider| {
+        serde_json::to_string(&fake.requests().last().unwrap().system).unwrap()
+    };
+    kw::turn(&core, &parent, "hello").await;
+    let dm = system(&fake);
+    for p in ["# Alder", "# Brook", "# Cinder", "# Dune", "# Ember"] {
+        assert!(dm.contains(p), "the DM carries {p}: {} bytes", dm.len());
+    }
+    kw::turn(&core, &child.session_id, "the task's first step").await;
+    let task = system(&fake);
+    assert!(
+        task.contains("# Brook") && !task.contains("# Alder") && !task.contains("# Ember"),
+        "the task carries only brook's files"
+    );
+    assert!(
+        task.len() + 5_000 < dm.len(),
+        "task {} bytes, dm {}",
+        task.len(),
+        dm.len()
+    );
+}

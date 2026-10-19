@@ -461,3 +461,23 @@ async fn a_late_persona_verdict_leaves_the_prior() {
         "Alder answers this turn"
     );
 }
+
+/// A routed move keeps the persona layer (theseus-nsp9l.1): a DM turn Jev sends to another profile is a
+/// `speaking_as` of the turn's target, so it still engages the persona the message calls for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dm_turn_routed_to_another_profile_still_engages_a_persona() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    let r = rig(Some(&jev), 1, |c| personas(c, true));
+    turn(
+        &r.core,
+        None,
+        "Birch, weigh two designs for a crash-safe write-ahead log.",
+        None,
+    )
+    .await;
+    let reqs = r.claude.requests();
+    let last = reqs.last().unwrap();
+    assert_eq!(last.model, "claude-opus-5-5", "the turn moved");
+    assert_eq!(tail(last).last().unwrap(), "Birch answers this turn");
+}
