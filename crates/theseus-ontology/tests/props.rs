@@ -217,6 +217,9 @@ fn apply(o: &mut Ontology, op: &Op, serial: &mut u64) {
                 description: String::new(),
                 version: o.kind("culture").map_or(1, |k| k.version + 1),
                 added_by: "ada".into(),
+                retired_ms: None,
+                examples: Vec::new(),
+                mined_from: Vec::new(),
             };
             (Record::Kind(row), Origin::Operator)
         }
@@ -412,8 +415,8 @@ fn any_row() -> impl Strategy<Value = Kind> {
         1 => Just(Some("none")),
     ];
     let precedence = prop_oneof![
-        8 => select(vec![45u32, 50, 60]),
-        2 => select(vec![5u32, 10, 20, 30, 40]),
+        8 => select(vec![45u32, 55, 95]),
+        2 => select(vec![5u32, 10, 20, 30, 40, 50, 60]),
     ];
     // `None`: the version the row's next write must have.
     let version = prop_oneof![8 => Just(None), 2 => (0..4u32).prop_map(Some)];
@@ -441,8 +444,15 @@ fn any_row() -> impl Strategy<Value = Kind> {
                 precedence,
                 rule,
                 description: String::new(),
-                version: version.unwrap_or(if name == "topic" { 2 } else { 1 }),
+                version: version.unwrap_or(if matches!(name, "topic" | "culture") {
+                    2
+                } else {
+                    1
+                }),
                 added_by: "ada".into(),
+                retired_ms: None,
+                examples: Vec::new(),
+                mined_from: Vec::new(),
             },
         )
 }
@@ -466,10 +476,8 @@ fn the_table_accepts_only_rows_with_a_reader() {
                 "{:?}",
                 row.rule
             );
-            prop_assert!(row
-                .assigned_by
-                .iter()
-                .all(|a| matches!(a, Origin::Transport | Origin::Operator | Origin::Import)));
+            let built = row.assigned_by.iter().all(|a| a.comes_with().is_none());
+            prop_assert!(built, "{:?}", row.assigned_by);
             prop_assert!(!row.assigned_by.is_empty());
             prop_assert_eq!(
                 row.is_given(),

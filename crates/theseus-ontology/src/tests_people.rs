@@ -76,7 +76,12 @@ fn the_person_kind_stays_given_and_gains_a_stored_side() {
     assert!(k.is_given());
     assert_eq!(
         k.assigned_by,
-        [Origin::Transport, Origin::Operator, Origin::Import]
+        [
+            Origin::Transport,
+            Origin::Operator,
+            Origin::Import,
+            Origin::Jev
+        ]
     );
     assert!(k.stores());
     for name in ["guild", "channel"] {

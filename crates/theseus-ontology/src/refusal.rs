@@ -63,8 +63,8 @@ pub enum Refusal {
     /// A parent or a member of the wrong kind.
     #[error("{why}")]
     WrongKind { why: String },
-    /// A category taken away while something still uses it.
-    #[error("category `{id}` is in use ({by}): only a category nothing uses is taken away")]
+    /// A category or a kind taken away while something still uses it.
+    #[error("`{id}` is in use ({by}): only one nothing uses is taken away")]
     InUse { id: String, by: String },
 }
 

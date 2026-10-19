@@ -3,9 +3,11 @@
 //!
 //! Which kinds of context exist is data: a versioned **kinds table** whose
 //! rows say where a kind's memberships come from, how many a session may
-//! hold, its parent kind, its precedence, and its composition rule. M4 seeds
-//! four rows: guild, channel, and person (given by the transport), and topic
-//! (interpreted, declared by the operator). Instances of a kind are
+//! hold, its parent kind, its precedence, and its composition rule. The build
+//! seeds eleven rows: guild, channel, thread, project, and person (given by
+//! the harness), and topic, event, resource, capability, expertise, and
+//! culture (interpreted, assigned by the origins each row names: the
+//! operator, the import, Jev, the sweep, the dream). Instances of a kind are
 //! **categories**, in a tree; a category may carry **guidance**; a session's
 //! **memberships** place it in categories. A compile composes the guidance
 //! of the categories a session is in ([`Ontology::compose`]), and its
@@ -26,6 +28,7 @@
 pub mod category;
 pub mod compose;
 pub mod kind;
+mod machine;
 pub mod ontology;
 pub mod person;
 pub mod refusal;
@@ -33,7 +36,9 @@ mod text;
 
 pub use category::{Category, CategoryId, Guidance, MemberList, Membership};
 pub use compose::{Composition, GuidanceUsed, MembershipUsed, Skipped, PATH_SEP, PREAMBLE};
-pub use kind::{seeds, Basis, Kind, Origin, PerSession, Rule, GIVEN, SEED};
+pub use kind::{
+    seeds, Basis, Kind, MinedFrom, Origin, PerSession, Rule, EXAMPLES_MAX, GIVEN, SEED,
+};
 pub use ontology::{Ontology, MAX_DEPTH};
 pub use person::{handle, handles_of, Merge};
 pub use refusal::Refusal;
@@ -148,5 +153,9 @@ impl Record {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_kinds;
+#[cfg(test)]
+mod tests_origins;
 #[cfg(test)]
 mod tests_people;

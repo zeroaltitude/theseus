@@ -1,8 +1,8 @@
 //! The kinds table (spec §4.1a; M4 design §2.8): which kinds of context
 //! exist is data, a row per kind, not code. The code is the closed sets a row
 //! picks from: the composition rules the compiler reads, and the origins a
-//! membership may come from. A rule or an origin that nothing builds yet is
-//! refused by name until it is built (the reader rule, theseus-wjy).
+//! membership may come from. A rule that nothing builds yet is refused by
+//! name until it is built (the reader rule, theseus-wjy).
 
 use std::fmt;
 
@@ -14,9 +14,13 @@ use crate::text;
 /// The `added_by` of the rows the build carries.
 pub const SEED: &str = "seed";
 
-/// The kinds the transport gives. A given kind needs code that reads its
-/// memberships from a session's place, and the transport has these three.
-pub const GIVEN: [&str; 3] = ["guild", "channel", "person"];
+/// The kinds the harness gives. A given kind needs code that reads its
+/// memberships from facts the core holds: a session's place (guild, channel,
+/// person), or its thread and project records (thread, project).
+pub const GIVEN: [&str; 5] = ["guild", "channel", "thread", "project", "person"];
+
+/// The most example category names a kind row carries.
+pub const EXAMPLES_MAX: usize = 5;
 
 /// Where a kind's memberships come from: the first guardrail (spec §4.1a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -81,7 +85,8 @@ impl fmt::Display for Rule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
-    /// A session's place: given kinds only.
+    /// A session's place, or the harness's own thread and project records:
+    /// given kinds only.
     Transport,
     /// The owner or an operator, through the CLI or the web UI.
     Operator,
@@ -90,11 +95,13 @@ pub enum Origin {
     /// operator's is, named apart so the tag's erase takes back what it
     /// assigned and nothing else.
     Import,
-    /// Jev's `categorize.v1`. Not built.
+    /// An inbound judgment: Jev files a message into the ontology, and
+    /// mints the categories and kinds it shows.
     Jev,
-    /// A sweep. Not built.
+    /// The nightly re-association: a sweep re-files sessions, and may add a
+    /// new interpreted kind.
     Sweep,
-    /// A dream. Not built.
+    /// The nightly consolidation: a dream distils what the sessions taught.
     Dream,
 }
 
@@ -120,14 +127,23 @@ impl Origin {
     }
 
     /// What builds the origin while nothing writes from it; `None` once it
-    /// is built.
+    /// is built, as every origin is.
     pub fn comes_with(self) -> Option<&'static str> {
         match self {
-            Origin::Transport | Origin::Operator | Origin::Import => None,
-            Origin::Jev => Some("M5, with Jev's categorize.v1"),
-            Origin::Sweep => Some("M6, with sweeps"),
-            Origin::Dream => Some("M6, with dreams"),
+            Origin::Transport
+            | Origin::Operator
+            | Origin::Import
+            | Origin::Jev
+            | Origin::Sweep
+            | Origin::Dream => None,
         }
+    }
+
+    /// The origins that write on their own account, and never the
+    /// operator's: their writes yield to the operator's (spec: the operator
+    /// wins on conflict).
+    pub fn is_machine(self) -> bool {
+        matches!(self, Origin::Jev | Origin::Sweep | Origin::Dream)
     }
 
     pub(crate) fn built(self) -> Result<(), Refusal> {
@@ -202,6 +218,21 @@ impl<'de> Deserialize<'de> for PerSession {
     }
 }
 
+/// A source of names that code can mine from a session, for a kind's
+/// categories: the closed set a row's `mined_from` picks from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MinedFrom {
+    /// Titles of documents and threads.
+    Titles,
+    /// File paths.
+    Paths,
+    /// Host names.
+    Hosts,
+    /// Capitalised names in the text.
+    Capitalised,
+}
+
 /// A row of the kinds table: the record at `onto:kind:<name>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Kind {
@@ -226,8 +257,20 @@ pub struct Kind {
     pub description: String,
     /// 1 when the row is first written, and one more at each change.
     pub version: u32,
-    /// Who wrote this version: `seed` for the rows the build carries.
+    /// Who wrote this version: `seed` for the rows the build carries, and
+    /// `sweep:<id>` for a row the sweep added.
     pub added_by: String,
+    /// Taken away (ms since the epoch): a retired kind takes no new
+    /// categories or lists, and its precedence is free to another kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retired_ms: Option<u64>,
+    /// At most [`EXAMPLES_MAX`] category names that show what the kind is
+    /// for, as a judge's prompt lists them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub examples: Vec<String>,
+    /// The sources code mines this kind's names from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mined_from: Vec<MinedFrom>,
 }
 
 impl Kind {
@@ -285,10 +328,26 @@ impl Kind {
             &self.added_by,
             text::ADDED_BY_MAX,
         )?;
+        if self.examples.len() > EXAMPLES_MAX {
+            return Err(Refusal::invalid(
+                format!("kind `{}`'s examples", self.name),
+                format!(
+                    "it lists {}, and a kind carries at most {EXAMPLES_MAX}",
+                    self.examples.len()
+                ),
+            ));
+        }
+        for e in &self.examples {
+            text::line(
+                &format!("an example of kind `{}`", self.name),
+                e,
+                text::NAME_MAX,
+            )?;
+        }
         self.check_basis()
     }
 
-    /// The first guardrail, for rows: only the transport's three kinds are
+    /// The first guardrail, for rows: only the harness's five kinds are
     /// given, their facts (basis, origins, count, and parent) are the
     /// transport's and stay as the seed has them, and an interpreted kind
     /// never takes a membership from the transport. Precedence, rule, and
@@ -298,7 +357,10 @@ impl Kind {
             Some(seed) => {
                 let facts = [
                     ("basis", self.basis == seed.basis),
-                    ("assigned_by", self.assigned_by == seed.assigned_by),
+                    (
+                        "assigned_by",
+                        self.assigned_by == seed.assigned_by || self.before_jev(),
+                    ),
                     ("per_session", self.per_session == seed.per_session),
                     ("parent", self.parent == seed.parent),
                 ];
@@ -319,8 +381,8 @@ impl Kind {
             None if self.is_given() => Err(Refusal::Given {
                 kind: self.name.clone(),
                 why: format!(
-                    "`{}` cannot be given: the transport gives only guild, channel, and person. \
-                     Make it interpreted, assigned by the operator",
+                    "`{}` cannot be given: the harness gives only guild, channel, thread, project, \
+                     and person. Make it interpreted, assigned by the operator",
                     self.name
                 ),
             }),
@@ -334,6 +396,13 @@ impl Kind {
             }),
             None => Ok(()),
         }
+    }
+
+    /// The person row as it was stored before Jev may file people: the
+    /// transport, the operator and the import. Such a row still reads.
+    fn before_jev(&self) -> bool {
+        self.name == "person"
+            && self.assigned_by == [Origin::Transport, Origin::Operator, Origin::Import]
     }
 
     fn fact(&self, column: &str) -> String {
@@ -352,20 +421,22 @@ impl Kind {
     }
 }
 
-/// The rows M4 seeds: the three given kinds, and topic, the first
-/// interpreted one. Culture and expertise come with their reader, Jev (M5).
-pub fn seeds() -> Vec<Kind> {
-    let row = |name: &str,
-               basis,
-               assigned_by,
-               per_session,
-               parent: Option<&str>,
-               precedence,
-               rule,
-               description: &str| Kind {
+/// One seed row: version 1, written by the build.
+#[allow(clippy::too_many_arguments)]
+fn seed(
+    name: &str,
+    basis: Basis,
+    assigned_by: &[Origin],
+    per_session: PerSession,
+    parent: Option<&str>,
+    precedence: u32,
+    rule: Rule,
+    description: &str,
+) -> Kind {
+    Kind {
         name: name.into(),
         basis,
-        assigned_by,
+        assigned_by: assigned_by.to_vec(),
         per_session,
         parent: parent.map(str::to_string),
         precedence,
@@ -373,32 +444,60 @@ pub fn seeds() -> Vec<Kind> {
         description: description.into(),
         version: 1,
         added_by: SEED.into(),
+        retired_ms: None,
+        examples: Vec::new(),
+        mined_from: Vec::new(),
+    }
+}
+
+/// The five kinds the harness gives: a session's place, and its thread and
+/// project records, are facts the core holds (`Origin::Transport`).
+fn given_seeds() -> Vec<Kind> {
+    use Origin::{Import, Jev, Operator, Transport};
+    let given = |name, parent, precedence, description| {
+        let one = PerSession::AtMost(1);
+        seed(
+            name,
+            Basis::Given,
+            &[Transport],
+            one,
+            parent,
+            precedence,
+            Rule::Chain,
+            description,
+        )
     };
     vec![
-        row(
+        given(
             "guild",
-            Basis::Given,
-            vec![Origin::Transport],
-            PerSession::AtMost(1),
             None,
             10,
-            Rule::Chain,
             "The server a session's place is in, from the transport.",
         ),
-        row(
+        given(
             "channel",
-            Basis::Given,
-            vec![Origin::Transport],
-            PerSession::AtMost(1),
             Some("guild"),
             20,
-            Rule::Chain,
             "The place a session lives in, from the transport. A channel's parent is its guild.",
         ),
-        row(
+        given(
+            "thread",
+            Some("channel"),
+            25,
+            "The thread a session lives in, from the harness's own thread records (read at \
+             compile from R6). A thread's parent is its channel.",
+        ),
+        given(
+            "project",
+            None,
+            28,
+            "The project a session works in, from the harness's own project records (read at \
+             compile from R6).",
+        ),
+        seed(
             "person",
             Basis::Given,
-            vec![Origin::Transport, Origin::Operator, Origin::Import],
+            &[Transport, Operator, Import, Jev],
             PerSession::Many,
             None,
             30,
@@ -407,18 +506,104 @@ pub fn seeds() -> Vec<Kind> {
              place), and stored beside it, declared by the operator or by the import from an \
              imported session's authors and places. A person carries its handles.",
         ),
-        row(
-            "topic",
-            Basis::Interpreted,
-            vec![Origin::Operator, Origin::Import],
+    ]
+}
+
+/// The six interpreted kinds of the design, each assigned by the origins
+/// that may file it.
+fn interpreted_seeds() -> Vec<Kind> {
+    use Origin::{Dream, Import, Jev, Operator, Sweep};
+    let interpreted = |name, assigned_by, per, parent, precedence, rule, description| {
+        let basis = Basis::Interpreted;
+        seed(
+            name,
+            basis,
+            assigned_by,
+            per,
+            parent,
+            precedence,
+            rule,
+            description,
+        )
+    };
+    let mined = |mut k: Kind, mined_from: &[MinedFrom]| {
+        k.mined_from = mined_from.to_vec();
+        k
+    };
+    let by_three = [Operator, Jev, Sweep];
+    vec![
+        mined(
+            interpreted(
+                "topic",
+                &[Operator, Import, Jev, Sweep, Dream],
+                PerSession::AtMost(3),
+                Some("topic"),
+                40,
+                Rule::Chain,
+                "What a session is about, declared by the operator, or by the import from an \
+                 imported session's labels. Topics nest.",
+            ),
+            &[MinedFrom::Titles, MinedFrom::Capitalised],
+        ),
+        interpreted(
+            "event",
+            &by_three,
             PerSession::AtMost(3),
-            Some("topic"),
-            40,
+            Some("project"),
+            50,
             Rule::Chain,
-            "What a session is about, declared by the operator, or by the import from an imported \
-             session's labels. Topics nest.",
+            "A dated happening (a release, an outage, a meeting, a deadline); the date is mined \
+             in code, never Jev's.",
+        ),
+        mined(
+            interpreted(
+                "resource",
+                &by_three,
+                PerSession::Many,
+                None,
+                60,
+                Rule::IntentLine,
+                "A repository, service, host, document or dataset the session works with.",
+            ),
+            &[MinedFrom::Paths, MinedFrom::Hosts],
+        ),
+        interpreted(
+            "capability",
+            &by_three,
+            PerSession::Many,
+            None,
+            70,
+            Rule::IntentLine,
+            "A tool, skill or extension the session needed.",
+        ),
+        interpreted(
+            "expertise",
+            &by_three,
+            PerSession::AtMost(3),
+            Some("expertise"),
+            80,
+            Rule::Chain,
+            "The domain the session draws on.",
+        ),
+        interpreted(
+            "culture",
+            &[Operator, Dream],
+            PerSession::Many,
+            None,
+            90,
+            Rule::Chain,
+            "How things are done here, learned from corrections over time.",
         ),
     ]
+}
+
+/// The rows the build seeds: the five given kinds, and the interpreted ones
+/// of the design. Precedence orders a compile: a higher kind's guidance
+/// comes later and governs.
+pub fn seeds() -> Vec<Kind> {
+    let mut rows = given_seeds();
+    rows.extend(interpreted_seeds());
+    rows
 }
 
 /// The seed row of a given kind, whose facts no row may change.

@@ -23,9 +23,32 @@
     "added_by": "seed"
   },
   {
+    "name": "thread",
+    "basis": "given",
+    "assigned_by": ["transport"],
+    "per_session": 1,
+    "parent": "channel",
+    "precedence": 25,
+    "rule": "chain",
+    "description": "The thread a session lives in, from the harness's own thread records (read at compile from R6). A thread's parent is its channel.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "project",
+    "basis": "given",
+    "assigned_by": ["transport"],
+    "per_session": 1,
+    "precedence": 28,
+    "rule": "chain",
+    "description": "The project a session works in, from the harness's own project records (read at compile from R6).",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
     "name": "person",
     "basis": "given",
-    "assigned_by": ["transport", "operator", "import"],
+    "assigned_by": ["transport", "operator", "import", "jev"],
     "per_session": "many",
     "precedence": 30,
     "rule": "intent_line",
@@ -36,12 +59,71 @@
   {
     "name": "topic",
     "basis": "interpreted",
-    "assigned_by": ["operator", "import"],
+    "assigned_by": ["operator", "import", "jev", "sweep", "dream"],
     "per_session": 3,
     "parent": "topic",
     "precedence": 40,
     "rule": "chain",
     "description": "What a session is about, declared by the operator, or by the import from an imported session's labels. Topics nest.",
+    "mined_from": ["titles", "capitalised"],
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "event",
+    "basis": "interpreted",
+    "assigned_by": ["operator", "jev", "sweep"],
+    "per_session": 3,
+    "parent": "project",
+    "precedence": 50,
+    "rule": "chain",
+    "description": "A dated happening (a release, an outage, a meeting, a deadline); the date is mined in code, never Jev's.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "resource",
+    "basis": "interpreted",
+    "assigned_by": ["operator", "jev", "sweep"],
+    "per_session": "many",
+    "precedence": 60,
+    "rule": "intent_line",
+    "description": "A repository, service, host, document or dataset the session works with.",
+    "mined_from": ["paths", "hosts"],
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "capability",
+    "basis": "interpreted",
+    "assigned_by": ["operator", "jev", "sweep"],
+    "per_session": "many",
+    "precedence": 70,
+    "rule": "intent_line",
+    "description": "A tool, skill or extension the session needed.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "expertise",
+    "basis": "interpreted",
+    "assigned_by": ["operator", "jev", "sweep"],
+    "per_session": 3,
+    "parent": "expertise",
+    "precedence": 80,
+    "rule": "chain",
+    "description": "The domain the session draws on.",
+    "version": 1,
+    "added_by": "seed"
+  },
+  {
+    "name": "culture",
+    "basis": "interpreted",
+    "assigned_by": ["operator", "dream"],
+    "per_session": "many",
+    "precedence": 90,
+    "rule": "chain",
+    "description": "How things are done here, learned from corrections over time.",
     "version": 1,
     "added_by": "seed"
   }
