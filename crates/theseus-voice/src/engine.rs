@@ -694,12 +694,14 @@ impl Engine {
                 self.opening.insert(speaker, opening);
             }
             // An echo-prone speaker's stop waits for their words, and so
-            // does a sound heard as none (theseus-aq4t).
+            // does a sound heard as none (theseus-aq4t), and one begun at the
+            // join: the chime heard back never stops the greeting
+            // (theseus-yf9ct).
             let prone = self.echoes.get(&speaker).is_some_and(|n| *n >= ECHO_PRONE)
                 || self
                     .opening
                     .get(&speaker)
-                    .is_some_and(|o| o.sound == Sound::Wordless);
+                    .is_some_and(|o| o.sound == Sound::Wordless || o.at_join);
             if step.speech && talking && !prone {
                 let n = self.talk_frames.entry(speaker).or_default();
                 *n += 1;

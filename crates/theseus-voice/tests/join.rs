@@ -119,6 +119,20 @@ async fn a_sound_two_seconds_after_the_join_before_the_greeting_is_queued_is_no_
     assert_eq!(played.len(), 1, "the greeting plays");
 }
 
+/// The chime heard back over the greeting doesn't stop it: a sound begun at
+/// the join waits for its words before it may cut.
+#[tokio::test(start_paused = true)]
+async fn a_sound_over_the_greeting_at_the_join_does_not_stop_it() {
+    let (seen, played, _) = call(true, 200, 600, "ECCR", 100).await;
+    assert_eq!(heard_as(&seen), [HeardAs::Join]);
+    assert_eq!(turns(&seen), 0);
+    let stopped = seen
+        .iter()
+        .any(|e| matches!(e, Event::Resumed { .. } | Event::BargeIn { .. }));
+    assert!(!stopped, "the greeting was stopped: {seen:?}");
+    assert_eq!(played.len(), 1, "the greeting plays once, whole");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_long_clear_utterance_at_the_join_is_a_turn() {
     let (seen, _, journal) = call(true, 100, 2000, "what's the weather like today", 3000).await;
