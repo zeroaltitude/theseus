@@ -42,11 +42,13 @@ impl Gated {
 
     /// The refusal, when the request may not go to this model.
     fn refuse(&self, req: &ProviderRequest) -> Option<anyhow::Error> {
-        if !(self.restricted(&req.model) && names_in(req, &self.names)) {
+        if !(self.restricted(&req.model)
+            && (crate::google::private::in_scope() || names_in(req, &self.names)))
+        {
             return None;
         }
-        let message = "this request names something in `[privacy] sensitive_names`, and its \
-                       model is of restricted origin; nothing was sent";
+        let message = "this request names something in `[privacy] sensitive_names`, or its \
+                       session read private content, and its model is of restricted origin; nothing was sent";
         Some(
             ProviderError::DataGate {
                 message: message.into(),
@@ -107,7 +109,7 @@ pub fn guard(
     catalog: &Arc<Catalog>,
 ) -> BTreeMap<String, Arc<dyn Provider>> {
     let names = cfg.privacy.names();
-    if names.is_empty() {
+    if names.is_empty() && cfg.google.is_empty() {
         return providers;
     }
     providers

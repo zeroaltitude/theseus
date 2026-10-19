@@ -620,7 +620,7 @@ impl TurnRunner {
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
-        t.route.sensitive |= self.sensitive_request(&compiled.request);
+        t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decision = match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),

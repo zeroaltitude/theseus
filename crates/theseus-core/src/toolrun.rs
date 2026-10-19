@@ -370,6 +370,7 @@ pub struct ToolRuntime {
     /// The AWS accounts the config binds, behind the `aws.*` tools (AWS
     /// design §3.5); None when it binds none.
     pub aws: Option<Arc<crate::aws::Aws>>,
+    pub google: Option<Arc<crate::google::Google>>,
     /// Tools left out of the registry, each with why (theseus-4o4c).
     pub not_offered: Vec<String>,
     /// `file.read`'s reader (theseus-c9l6): Deepgram's key and settings, and
@@ -559,6 +560,7 @@ impl ToolRuntime {
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
+            google: None,
             not_offered: Vec::new(),
             files: Arc::new(crate::file_read::Reader::disabled()),
             question_due: Default::default(),
@@ -1833,6 +1835,7 @@ impl ToolRuntime {
         if tool.family() == crate::term::FAMILY && by_cancel.is_none() {
             fact::term::of_result(&tc.rec(), &meta);
         }
+        fact::google::of_result(&tc.rec(), &meta);
         let c = Completion {
             correlation_id: correlation_id.into(),
             outcome: if status == ResultStatus::Ok {
@@ -2189,6 +2192,7 @@ pub fn build_runtime(
     // AWS (row 29, C1): its tools when the config binds an account. Nothing
     // runs until a call, or the daemon's check after serving.
     let aws = crate::aws::Aws::from_config(&cfg.aws, secrets.clone()).filter(|_| t.enabled);
+    let google = crate::google::build(cfg, &secrets, t.enabled);
     let proc_env: Vec<(String, String)> = t
         .proc_env
         .iter()
@@ -2223,9 +2227,13 @@ pub fn build_runtime(
         for tool in web.tools_with(not_offered.is_empty()) {
             r.register(tool);
         }
-        for tool in aws.iter().flat_map(|a| a.tools()) {
-            r.register(tool);
-        }
+        let (aws_tools, google_tools) = (
+            aws.iter().flat_map(|a| a.tools()),
+            google.iter().flat_map(|g| g.tools()),
+        );
+        aws_tools
+            .chain(google_tools)
+            .for_each(|tool| r.register(tool));
         for tool in lsp.iter().flat_map(|b| b.tools()) {
             r.register(tool);
         }
@@ -2370,6 +2378,7 @@ pub fn build_runtime(
             cfg.server.disk_floor_mb,
         )),
         aws,
+        google,
         not_offered,
         files,
         question_due: Default::default(),

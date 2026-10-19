@@ -1,0 +1,31 @@
+[package]
+name = "theseus-google"
+description = "Theseus's Google Workspace client (the Google design, §1): the OAuth client (PKCE, the loopback consent listener, a single-flight token refresh), a thin REST client on reqwest with retry and error mapping, the method classifier, the scope map, and a loopback fake Google for tests. No Google SDK."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# The loopback fake Google (`fake`), for the core's tests.
+fake = []
+
+[dependencies]
+base64.workspace = true
+percent-encoding = "2"
+rand = "0.9"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+tokio.workspace = true
+url = "2"
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

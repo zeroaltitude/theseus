@@ -53,6 +53,7 @@ pub mod durability;
 pub mod extend;
 pub mod extend_hands;
 pub mod flow;
+pub mod google;
 pub mod import;
 pub mod index;
 pub mod initiative;
@@ -368,6 +369,10 @@ facts![
     tool::SecretHanded<'static>,
     tool::AwsCalled<'static>,
     tool::AwsSessionMinted<'static>,
+    google::GoogleCalled<'static>,
+    google::GoogleAuthorized<'static>,
+    google::GoogleAuthLapsed<'static>,
+    google::GoogleRevoked<'static>,
     tool::HoldTaken<'static>,
     tool::JobRefused<'static>,
     tool::JobNotStarted<'static>,

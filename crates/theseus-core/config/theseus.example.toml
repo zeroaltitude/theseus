@@ -314,6 +314,8 @@ aws_secret_access_key = "op://<your vault>/<AWS key item>/notesPlain#AWS_SECRET_
 discord_bot_token = "op://<your vault>/<Discord bot item>/notesPlain"
 brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # web.search's key
 # deepgram_api_key = "op://<your vault>/<Deepgram API key item>/notesPlain"   # voice's key ([voice])
+# google_client = "op://<your vault>/<Google client item>/notesPlain"   # [google]'s client: two lines, `client_id: …` and `client_secret: …` (or the console's JSON)
+# google_refresh_token = "op://<your vault>/<Google token item>/refresh_token"   # minted by `theseus google auth`; or "file:~/.config/theseus/google-refresh-token"
 # ci_runner_key = "env:CI_RUNNER_KEY"                 # from outside the vault: the environment
 # ci_deploy_key = "file:~/.config/theseus/deploy-key"  # from outside the vault: a mode-600 file
 # docs_mcp_token = "op://<your vault>/<docs MCP key item>/notesPlain"   # an MCP server's key ([mcp.servers])
@@ -563,6 +565,28 @@ hide_after_days = 14                    # a family loaded by default and unused 
 # subnets = ["subnet-0123456789abcdef0", "subnet-0fedcba9876543210"]   # the private subnets the hands run in
 # security_group = "sg-0123456789abcdef0"   # optional: a group there for the hands (default: the stack makes one, with no ingress)
 
+# ---------------------------------------------------------------- google
+# Google Workspace as a native capability, on the terms of AWS: Theseus holds
+# the credential and makes every call itself, and no token reaches the model.
+# `theseus google auth` is the one-time consent, from your own shell: it opens
+# Google's sign-in (a loopback page, or a pasted address if the page cannot be
+# reached), checks that the account is the one named here, and stores the
+# refresh token in the [secrets] entry named below (an op:// item or a mode-600
+# file; never an env: entry). The access token lives in memory only. Every
+# Google result marks its session private, so none of it reaches a model of
+# restricted origin; mail, shared files and invited events are outside text,
+# which holds the session as a fetched page does. Every send, delete, share,
+# permission change and invitation asks you, at every posture. With no
+# account, no Google tool exists, and nothing Google runs. `theseus google
+# status` shows the scopes granted and the tools on; `theseus google revoke`
+# ends it.
+# [google]
+# account = "owner@example.test"        # the address the consent is for; a token for any other is refused
+# services = ["gmail", "drive", "sheets", "slides", "docs", "calendar"]   # the tools on, and the scopes the consent asks for (all six by default)
+# max_sends_per_day = 25                # sends per local day, a runaway brake (0: no sends)
+# credentials = { client = "google_client", refresh_token = "google_refresh_token" }   # [secrets] names (these, by default)
+# endpoint = "http://127.0.0.1:7499"    # tests and scratch daemons only: a stand-in for Google on this machine
+
 # ---------------------------------------------------------------- policy
 # The gate (spec §3.9) decides per tool, from the finite list of tools (and,
 # when MCP lands, of MCP servers); it never guesses what a command does. Every
@@ -710,6 +734,19 @@ window_days = 7                         # the window the approvals are counted i
 # "aws.trail" = "approve"
 # "aws.inventory" = "approve"
 # "aws.hands.run" = "approve"            # a group of hands in AWS (unset: [policy.aws] run)
+# Google Workspace, when [google] names an account. Every tool is deferred. A
+# read inherits enforcement, and a call that sends, deletes, shares, changes a
+# permission or invites asks at every posture, whatever a line here says.
+# google.call makes any method of the granted services, classified by its verb
+# and path
+# "google.call" = "notify"
+# gw-mail: the gmail.* lines
+#
+# gw-drive: the drive.* lines
+#
+# gw-sheets-slides: the sheets.* and slides.* lines
+#
+# gw-calendar: the calendar.* lines
 # The language servers' tools, when [lsp] is on: the reads inherit enforcement
 # (the first call for a project starts its server, judged as proc.run is);
 # a rename's plan writes nothing, and its apply is a write of every file it names

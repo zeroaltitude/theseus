@@ -36,6 +36,7 @@ pub mod flow;
 pub mod forecast;
 pub mod fork;
 mod gate;
+pub mod google;
 pub mod grants;
 mod hands;
 mod health;
@@ -405,6 +406,8 @@ pub mod method {
         SELF_EXAMS = "self.exams", SELF_REVERT = "self.revert", SELF_PIPELINE = "self.pipeline", SELF_PATTERNS = "self.patterns",
         /// Narrower policies for the hand roles (theseus-pw1q.15; `rsi::SelfNarrowParams`). The owner's to apply.
         SELF_NARROW = "self.narrow",
+        /// Google Workspace (`google`): the one-time consent, the revoke, and the status. The CLI's alone.
+        GOOGLE_AUTH_BEGIN = "google.auth.begin", GOOGLE_AUTH_FINISH = "google.auth.finish", GOOGLE_REVOKE = "google.revoke", GOOGLE_STATUS = "google.status",
     }
 }
 
@@ -743,6 +746,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub aws: Option<AwsStatus>,
+    /// The Google account `[google]` binds, as its check left it (the Google design §2.2); or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub google: Option<google::GoogleStatus>,
     /// The index tender (M6 §2.2, roadmap row 51): the tender as the core
     /// supervises it, and its own status when it answers; or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]

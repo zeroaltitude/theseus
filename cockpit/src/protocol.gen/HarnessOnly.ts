@@ -29,4 +29,10 @@ exposed: Array<string>,
  * (`aws_account`, AWS design §3.5): short-lived, under the guards, and
  * never the key.
  */
-aws_sessions?: Array<string>, };
+aws_sessions?: Array<string>, 
+/**
+ * Google's secrets' `[secrets]` names (the client and the refresh token),
+ * when `[google]` binds an account. No job is handed one, whatever
+ * `[broker]` says: the config refuses a grant that names one.
+ */
+google?: Array<string>, };

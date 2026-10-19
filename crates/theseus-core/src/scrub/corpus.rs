@@ -228,6 +228,18 @@ const TOKENS: &[(&str, &str, &[&str], Body)] = &[
         g.of(HEX, 32)
     }),
     ("groq_key", "GROQ_API_KEY", &["gs", "k_"], |g| g.base62(52)),
+    (
+        "google_access_token",
+        "GOOGLE_ACCESS_TOKEN",
+        &["ya", "29."],
+        |g| g.of(TOKEN, 120),
+    ),
+    (
+        "google_refresh_token",
+        "GOOGLE_REFRESH_TOKEN",
+        &["1", "//"],
+        |g| format!("0{}", g.base62(60)),
+    ),
 ];
 
 /// One secret of every shape the scrubber knows.

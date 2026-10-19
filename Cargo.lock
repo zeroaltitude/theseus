@@ -6573,6 +6573,7 @@ dependencies = [
  "theseus-aws-guard",
  "theseus-files",
  "theseus-follow",
+ "theseus-google",
  "theseus-judge",
  "theseus-kernel",
  "theseus-lsp",
@@ -6663,6 +6664,23 @@ dependencies = [
  "tempfile",
  "theseus-store",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "theseus-google"
+version = "1.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "percent-encoding",
+ "rand 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "zeroize",
 ]
 
 [[package]]

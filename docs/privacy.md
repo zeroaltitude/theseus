@@ -1,6 +1,6 @@
 # Privacy
 
-Updated: 2026-10-18
+Updated: 2026-10-19
 
 ## What Theseus is
 
@@ -9,14 +9,16 @@ or company that receives anyone's data: the source is this repository, and nothi
 
 ## What Google data it reads, and why
 
-Theseus has no Google sign-in of its own. It reads Google data (for example mail, calendar events or files) only
-through a connection the owner sets up and authorizes on Google's own consent screen, such as a tool the owner adds,
-and only what that authorization allows. It uses that data only for the work the owner has asked of it: answering in a
-conversation, running a task, or running a routine the owner set up.
+Theseus can sign in to the owner's own Google account, once, when the owner runs `theseus google auth` from their own
+shell and approves it on Google's consent screen. It then reads and changes only the services the owner turned on in
+its `[google] services` setting, and only with the permissions the owner granted there: mail (Gmail), files (Drive,
+Docs, Sheets, Slides) and calendar events. It uses that data only for the work the owner has asked of it: answering in
+a conversation, running a task, or running a routine the owner set up. Anything that sends mail, deletes, shares or
+invites other people waits for the owner's approval each time.
 
 ## Where it stays
 
-What such a tool returns becomes part of the conversation, task or routine that asked for it, and is kept on the
+What Google returns becomes part of the conversation, task or routine that asked for it, and is kept on the
 owner's machine, in Theseus's own store. Theseus does not sell it, does not use it for advertising, and trains no model
 on it. It sends it nowhere except as the next section says.
 
@@ -36,9 +38,13 @@ of China origin; a model served from a China-origin host, or of a China-origin f
 the configuration says; and a model Theseus cannot place counts as of unknown origin. The owner can list names
 (organisations, clients, projects, people) under `[privacy] sensitive_names`. A turn whose request contains one of
 those names runs on a model whose origin is neither China nor unknown, or ends before any model is called; and any
-request to a model of China or unknown origin that contains one of those names is refused before it is sent. Theseus
-does not yet tell data apart by where it came from: Google content that contains none of the listed names is not held
-back by this rule. An owner who wants none of it to reach such a model configures no provider of China or unknown
+request to a model of China or unknown origin that contains one of those names is refused before it is sent.
+
+Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
+then on that conversation's requests, including the summary that shortens it, are never sent to a model of China or
+unknown origin: the route skips such models, and a request that would reach one is refused before it is sent. A
+conversation that has not read anything from Google is not affected. Theseus's other background steps do not yet
+carry the mark, so an owner who wants none of it to reach such a model configures no provider of China or unknown
 origin.
 
 ## Google API Services User Data Policy
@@ -51,10 +57,12 @@ the Limited Use requirements.
 
 - At Google: open <https://myaccount.google.com/permissions> and remove the app the owner authorized. Google then stops
   accepting its tokens.
-- On the machine: Theseus keeps no Google token of its own. The tool the owner added keeps its sign-in token where that
-  tool stores it; deleting it there, or removing the tool, ends access from this machine. A credential Theseus itself
-  hands to a tool is named by reference in its config's `[secrets]` section and held in the owner's secret store
-  ([setup.md](setup.md) says how that is set up); removing the entry there removes it.
+- With Theseus: run `theseus google revoke`. It revokes the grant at Google, clears the stored refresh token, and
+  turns the Google tools off until the owner signs in again.
+- On the machine: the refresh token lives where the owner's `[secrets]` entry `google_refresh_token` points: an item
+  in the owner's secret store, or a file only the owner can read ([setup.md](setup.md) says how that is set up).
+  Removing it there ends access from this machine. The short-lived access token is kept in memory only and never
+  written anywhere.
 - What Theseus has already read stays in its store on the owner's machine until the owner deletes it; deleting the
   daemon's state directory removes all of it.
 

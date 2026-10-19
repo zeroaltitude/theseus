@@ -2433,8 +2433,11 @@ impl TurnRunner {
         // between its plan and here, cuts it before anything was sent.
         let armed = self.stops.arm(t.tc.execution_id);
         let outcome = {
-            let mut stream =
-                std::pin::pin!(provider.stream_message(&compiled.request, &mut on_delta));
+            // The provider floor reads the session's mark as the call is made.
+            let private = self.private_session(t);
+            let mut stream = std::pin::pin!(crate::google::private::scoped(private, || {
+                provider.stream_message(&compiled.request, &mut on_delta)
+            }));
             let mut sent = false;
             loop {
                 let woken = armed.notify.notified();

@@ -34,6 +34,7 @@ mod failed;
 mod features;
 mod flight;
 pub mod fork;
+mod google;
 pub mod history;
 pub mod horizon;
 mod imported;
@@ -77,6 +78,7 @@ pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::*;
 pub use flight::Flight;
+pub use google::{google_lines, status_lines as google_status_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use judge::{judge_line, judge_log_footer, judge_log_lines, judge_show_lines};
 pub use judge_runs::{judge_audit_lines, judge_backfill_lines, judge_replay_lines};
@@ -1819,7 +1821,10 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         Tag::Plain,
         &secrets_line(&h.secrets, &h.secrets_resolved),
     );
-    for line in aws_lines(h.aws.as_ref(), now_ms) {
+    for line in aws_lines(h.aws.as_ref(), now_ms)
+        .into_iter()
+        .chain(google::google_lines(h.google.as_ref()))
+    {
         push(o, Tag::Plain, &line);
     }
     if let Some(line) = startup_line(&h.startup) {

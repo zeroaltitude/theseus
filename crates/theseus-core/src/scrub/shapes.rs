@@ -141,6 +141,14 @@ const PREFIXES: &[Prefix] = &[
     new("shpat_", "shopify_token", Body::Hex, 32),
     new("shpss_", "shopify_token", Body::Hex, 32),
     new("gsk_", "groq_key", Body::Alnum, 40),
+    // Google OAuth (the Google design §2.2): an access token is `ya29.` and a
+    // long body; a refresh token is `1//` and a long body with both cases and a
+    // digit, which a path or a ratio is not.
+    new("ya29.", "google_access_token", Body::Token, 20),
+    Prefix {
+        needs: Needs::CasesAndDigit,
+        ..new("1//", "google_refresh_token", Body::Token, 30)
+    },
 ];
 
 /// Every shape in `s`, each finder's spans in turn. Where two overlap, the

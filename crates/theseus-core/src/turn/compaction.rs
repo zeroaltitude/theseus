@@ -396,7 +396,12 @@ impl TurnRunner {
         let started_ms = theseus_protocol::now_unix_ms();
         let started = Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let answered = provider.stream_message(request, &mut quiet).await;
+        // A summary of a private session is that session's request too.
+        let private = self.private_session(t);
+        let answered = crate::google::private::scoped(private, || {
+            provider.stream_message(request, &mut quiet)
+        })
+        .await;
         let resp = match answered {
             Ok(r) => r,
             Err(e) => {

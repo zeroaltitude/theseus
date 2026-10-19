@@ -296,7 +296,10 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 85] = [
+pub const OPERATORS: [(&str, &str); 88] = [
+    (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
+    (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
+    (method::GOOGLE_REVOKE, "theseus google revoke"),
     (method::VOICE_AUDITION, "theseus persona voice audition"),
     (method::INITIATIVE_RATE, "theseus persona rate"),
     (method::STANDING_KEEP, "theseus standing keep"),

@@ -15,6 +15,7 @@ import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { Features } from "./Features";
+import type { GoogleStatus } from "./GoogleStatus";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
 import type { HealthImported } from "./HealthImported";
@@ -187,6 +188,10 @@ push?: PushStatus,
  * The AWS accounts the config binds (AWS design §3.10), each as its check left it; or none.
  */
 aws?: AwsStatus, 
+/**
+ * The Google account `[google]` binds, as its check left it (the Google design §2.2); or none.
+ */
+google?: GoogleStatus, 
 /**
  * The index tender (M6 §2.2, roadmap row 51): the tender as the core
  * supervises it, and its own status when it answers; or none.

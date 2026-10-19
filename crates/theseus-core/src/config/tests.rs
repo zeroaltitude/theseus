@@ -196,8 +196,8 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
     // The two lines the model's wake.move and wake.cancel joined with (theseus-lherl), one (pw1q.8),
     // the model's routine.create (theseus-pvm5c), `watch` (f2r2b) and
-    // project.attach (theseus-n5ui2).
-    assert_eq!(cfg.policy.tools.len(), 59);
+    // project.attach (theseus-n5ui2), and google.call (theseus-batvg.1).
+    assert_eq!(cfg.policy.tools.len(), 60);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());
@@ -303,6 +303,7 @@ fn example_template_lists_every_tool_under_policy_tools() {
         .chain(crate::glide::NAMES.map(String::from))
         .chain(crate::extend::NAMES.map(String::from))
         .chain(crate::aws::NAMES.map(String::from))
+        .chain(crate::google::NAMES.map(String::from))
         .chain(crate::term::NAMES.map(String::from))
         .chain(crate::lsp::NAMES.map(String::from))
         .chain(crate::memory_lookup::NAMES.map(String::from))
@@ -1124,6 +1125,7 @@ fn a_policy_tools_line_loads_for_every_tool() {
         .chain(crate::glide::NAMES.map(String::from))
         .chain(crate::extend::NAMES.map(String::from))
         .chain(crate::aws::NAMES.map(String::from))
+        .chain(crate::google::NAMES.map(String::from))
         .collect();
     for n in &names {
         policy_only(&format!("[policy.tools]\n\"{n}\" = \"approve\""))
