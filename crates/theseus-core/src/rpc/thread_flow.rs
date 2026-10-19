@@ -15,7 +15,8 @@
 //!   over (`Handoff`), so Jev is asked once.
 //! - **Asking** is a `thread.asked` notification and a wait for
 //!   `thread.answer`, `[threads] ask_wait_secs` at most; a question nobody
-//!   answers runs the message at home.
+//!   answers runs the message at home. A spoken turn (a voice call's) is
+//!   never asked about: it runs at home at once.
 //! - **Replies go back to the place** the message came from
 //!   (`Outbox::show_at`): a thread has no place of its own.
 
@@ -90,6 +91,12 @@ fn pick_of(a: &JevAnswer, live: &[&ThreadInfo]) -> Option<Jev> {
         pick,
         p: a.confidence,
     })
+}
+
+/// A turn spoken in a voice call: the Discord binding's word, read from a
+/// Discord connection alone (theseus-slvl.4).
+fn spoken(p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
+    conn.surface == Surface::Discord && p.surface.as_deref() == Some("voice")
 }
 
 /// A routed message's row before anything is known: it ran at home.
@@ -327,6 +334,12 @@ impl Core {
                 .await
             {
                 Decision::Route(tag) => tag,
+                // A spoken turn is never held for a typed question: the
+                // speaker hears nothing while it waits, and what they say
+                // next queues behind it (theseus-sro04: 215 s in the v1
+                // voice check). It runs at home, as a question nobody
+                // answered does.
+                _ if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
                 other => {
                     self.ask_thread(other, p, conn, (home, place), live, row)
                         .await

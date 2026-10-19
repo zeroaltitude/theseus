@@ -664,6 +664,39 @@ async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_messa
     );
 }
 
+/// A spoken turn the router cannot place is never held for the typed
+/// question (theseus-sro04: the v1 voice check's call waited 215 s on one,
+/// and every word said after it queued behind it): it runs at home at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_spoken_turn_it_cannot_place_runs_at_home_without_asking() {
+    let jev = FakeJev::start().unwrap();
+    thread_answer(&jev, "security-fix", 0.45);
+    let r = rig_on(texts(2), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.threads.route_wait_ms = 3000;
+        c.threads.ask_wait_secs = 30;
+    });
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    let mut w = Wire::open_as(c, Surface::Discord);
+    let t0 = Instant::now();
+    let mut spoken = params(&dm, "why is the build red", None);
+    spoken.surface = Some("voice".into());
+    let id = w.send(method::TURN_SUBMIT, spoken).await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert!(
+        t0.elapsed() < Duration::from_secs(20),
+        "the spoken turn waited for a question"
+    );
+    assert_eq!(res.session_id, dm);
+    assert_eq!(tag(&res).how, RouteHow::Home);
+    assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
+    assert!(!w.heard.iter().any(|n| n["method"] == "thread.asked"));
+}
+
 /// A `new_thread` pick at the confirm bar offers a new thread; one tap makes
 /// it (named from the message) and the message runs in it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

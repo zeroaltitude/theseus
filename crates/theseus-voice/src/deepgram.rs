@@ -7,7 +7,8 @@
 //!   streaming socket: an utterance is whole when it is sent.
 //! - **Synthesis**: one sentence per request, `POST /v1/speak`, as raw
 //!   `linear16` at 48 kHz with no container, so the bytes are the engine's
-//!   [`Audio`] with no decoding.
+//!   [`Audio`] with no decoding. A sentence that comes back cut off mid-word
+//!   is asked for again ([`SYNTHESES`]).
 //! - **The key** rides in the `Authorization` header alone, marked sensitive.
 //!   No error, log line, or `Debug` of this type contains it, and an answer's
 //!   body is cut short and scrubbed of it before an error quotes it.
@@ -32,6 +33,15 @@ use crate::speech::{Speech, SpeechError, SpeechFuture, Synthesis, Transcript, Us
 pub const DEEPGRAM_API: &str = "https://api.deepgram.com";
 /// The provider's name in usage and ledger rows.
 pub const PROVIDER: &str = "deepgram";
+
+/// How many times a sentence is asked for at most (theseus-sro04): Aura-2
+/// cuts a short sentence off mid-word now and then (3 of 8 "Go ahead." on
+/// 2026-10-18, the greeting the owner heard garbled), and asked again it ends
+/// whole.
+pub const SYNTHESES: usize = 3;
+
+/// A clip still cut off after every ask ends in this fade, not a click.
+const FADE: Duration = Duration::from_millis(30);
 
 /// How Deepgram is asked. [`Default`] is v1's: nova-3 in US English, and the
 /// Aura-2 voice Andromeda.
@@ -257,7 +267,43 @@ impl DeepgramSpeech {
         Box::pin(self.speak(voice, text))
     }
 
+    /// `text` in `voice`, whole: a synthesis cut off mid-word is asked for
+    /// again, up to [`SYNTHESES`] in all, and the one that ends quietest is
+    /// kept, faded out if it still ends mid-word. Every ask is in the usage.
+    /// An ask that fails after one that was cut keeps the cut one.
     async fn speak(&self, voice: &str, text: &str) -> Result<Synthesis, SpeechError> {
+        let mut best = self.speak_once(voice, text).await?;
+        let mut chars = best.usage.chars;
+        for _ in 1..SYNTHESES {
+            if !best.audio.cut_off() {
+                break;
+            }
+            tracing::info!(
+                chars = text.chars().count(),
+                tail_rms = best.audio.tail_rms(),
+                "voice: a synthesis ended mid-word; it is asked for again"
+            );
+            match self.speak_once(voice, text).await {
+                Ok(s) => {
+                    chars += s.usage.chars;
+                    if s.audio.tail_rms() < best.audio.tail_rms() {
+                        best = s;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "voice: a synthesis asked for again failed");
+                    break;
+                }
+            }
+        }
+        if best.audio.cut_off() {
+            best.audio = best.audio.faded_out(FADE);
+        }
+        best.usage.chars = chars;
+        Ok(best)
+    }
+
+    async fn speak_once(&self, voice: &str, text: &str) -> Result<Synthesis, SpeechError> {
         let rate = SAMPLE_RATE.to_string();
         let sent = self
             .http

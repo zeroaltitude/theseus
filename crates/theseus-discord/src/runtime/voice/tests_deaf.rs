@@ -1,7 +1,8 @@
 //! A call that joins but never hears (theseus-d93y), through a fake
 //! connection: one deaf join, a rejoin that hears, one that doesn't, and one
 //! that fails; the rows, health's line, the two notices, and never a second
-//! rejoin.
+//! rejoin. And a call that heard, then lost its speaker's audio
+//! (theseus-sro04).
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -12,7 +13,7 @@ use tokio::sync::Notify;
 
 use theseus_voice::{Speaker, SsrcCount};
 
-use super::deaf::{watch, BoxFuture, Line, DEAF, REJOINED, STILL_DEAF};
+use super::deaf::{watch, BoxFuture, Line, DEAF, LOST, LOST_SENT, REJOINED, STILL_DEAF};
 use super::tests::{posts, LOUNGE, OWNER};
 use super::tests_heard::{lounge_scripted, Lounge};
 use super::VoicePlace;
@@ -54,12 +55,14 @@ fn owner(reports: u64, decoded: u64) -> SsrcCount {
         frames: decoded,
         decoded,
         reports,
+        sent: 0,
     }
 }
 
-/// The lounge, joined, with the owner in it (or not), and `fake` as its
-/// connection, watched until the watch ends (or 5 s).
-async fn watched(dir: &std::path::Path, fake: Arc<Fake>, present: bool) -> (Lounge, bool) {
+/// The lounge, joined, with the owner in it (or not), and `line` as its
+/// connection, watched for 50 periods: whether the watch ended by itself
+/// then. A watch still going is ended with the call.
+async fn watched(dir: &std::path::Path, line: Arc<dyn Line>, present: bool) -> (Lounge, bool) {
     let l = lounge_scripted(dir, vec![]);
     if present {
         l.place
@@ -77,11 +80,15 @@ async fn watched(dir: &std::path::Path, fake: Arc<Fake>, present: bool) -> (Loun
         guild: 100_000_000_000_000_001,
         status: None,
     };
-    let line: Arc<dyn Line> = fake;
-    let w = tokio::spawn(watch(Arc::clone(&l.place.shared), 1, at, line, AFTER));
-    let ended = tokio::time::timeout(Duration::from_secs(5), w)
-        .await
-        .is_ok();
+    let mut w = tokio::spawn(watch(Arc::clone(&l.place.shared), 1, at, line, AFTER));
+    let ended = tokio::time::timeout(AFTER * 50, &mut w).await.is_ok();
+    if !ended {
+        *l.place.shared.voice.call.lock().unwrap() = None;
+        tokio::time::timeout(Duration::from_secs(5), w)
+            .await
+            .expect("the watch ends with the call")
+            .unwrap();
+    }
     (l, ended)
 }
 
@@ -102,8 +109,8 @@ async fn a_deaf_join_rejoins_once_and_says_when_it_hears() {
         rejoined: Ok(()),
         rejoins: AtomicU32::new(0),
     });
-    let (l, ended) = watched(d.path(), Arc::clone(&fake), true).await;
-    assert!(ended, "the watch ends once the call hears");
+    let (l, ended) = watched(d.path(), fake.clone(), true).await;
+    assert!(!ended, "the watch goes on once the call hears");
     assert_eq!(fake.rejoins.load(Ordering::SeqCst), 1);
     let deaf = rows(&l, "voice.deaf").await;
     assert_eq!(deaf.len(), 1, "{deaf:?}");
@@ -138,7 +145,7 @@ async fn a_rejoin_that_is_deaf_too_stays_joined_and_stops_trying() {
         rejoined: Ok(()),
         rejoins: AtomicU32::new(0),
     });
-    let (l, ended) = watched(d.path(), Arc::clone(&fake), true).await;
+    let (l, ended) = watched(d.path(), fake.clone(), true).await;
     assert!(ended, "the watch stops");
     // Many periods later, still one rejoin.
     tokio::time::sleep(AFTER * 10).await;
@@ -167,7 +174,7 @@ async fn a_rejoin_that_fails_says_so_and_stops() {
         rejoined: Err("no voice connection in 20 s".into()),
         rejoins: AtomicU32::new(0),
     });
-    let (l, ended) = watched(d.path(), Arc::clone(&fake), true).await;
+    let (l, ended) = watched(d.path(), fake.clone(), true).await;
     assert!(ended);
     assert_eq!(fake.rejoins.load(Ordering::SeqCst), 1);
     let rejoined = rows(&l, "voice.rejoined").await;
@@ -227,10 +234,10 @@ fn core_of(l: &Lounge) -> Arc<theseus_core::Core> {
     Arc::clone(&l.place.shared.core)
 }
 
-/// The usual call: a listed speaker heard by the first check ends the watch
+/// The usual call: a listed speaker heard by the first check is watched on
 /// with nothing said, written or rejoined.
 #[tokio::test]
-async fn a_call_that_hears_ends_its_watch_in_silence() {
+async fn a_call_that_hears_is_watched_in_silence() {
     let d = tempfile::tempdir().unwrap();
     let fake = Arc::new(Fake {
         before: owner(40, 25),
@@ -238,8 +245,8 @@ async fn a_call_that_hears_ends_its_watch_in_silence() {
         rejoined: Ok(()),
         rejoins: AtomicU32::new(0),
     });
-    let (l, ended) = watched(d.path(), Arc::clone(&fake), true).await;
-    assert!(ended, "the watch ends once the call hears");
+    let (l, ended) = watched(d.path(), fake.clone(), true).await;
+    assert!(!ended, "the watch goes on while the call is up");
     assert_eq!(fake.rejoins.load(Ordering::SeqCst), 0);
     assert!(rows(&l, "voice.deaf").await.is_empty());
     assert!(posts(&core_of(&l), &l.place.target).is_empty());
@@ -248,6 +255,76 @@ async fn a_call_that_hears_ends_its_watch_in_silence() {
         !line.contains("deaf") && !line.contains("rejoined"),
         "{line}"
     );
+}
+
+/// A connection whose counts are the next of `steps` at each check (the
+/// last again once they run out), and `after` once it rejoined.
+struct Steps {
+    steps: Mutex<Vec<SsrcCount>>,
+    after: SsrcCount,
+    rejoins: AtomicU32,
+}
+
+impl Line for Steps {
+    fn counts(&self) -> BTreeMap<u32, SsrcCount> {
+        if self.rejoins.load(Ordering::SeqCst) > 0 {
+            return BTreeMap::from([(9, self.after)]);
+        }
+        let mut steps = self.steps.lock().unwrap();
+        let c = match steps.len() {
+            1 => steps[0],
+            _ => steps.remove(0),
+        };
+        BTreeMap::from([(9, c)])
+    }
+
+    fn rejoin<'a>(
+        &'a self,
+        _wanted: &'a (dyn Fn() -> bool + Send + Sync),
+    ) -> BoxFuture<'a, Result<(), String>> {
+        self.rejoins.fetch_add(1, Ordering::SeqCst);
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
+/// A call that heard, then lost the owner's audio while their sender reports
+/// said they talked (theseus-sro04): a `voice.deaf` row, `lost`, the notice,
+/// one rejoin, and the rejoin that hears is said. A call that heard and fell
+/// silent (reports saying nothing sent) is not lost.
+#[tokio::test]
+async fn a_call_that_heard_and_lost_its_speakers_audio_rejoins_once() {
+    let d = tempfile::tempdir().unwrap();
+    let heard = owner(40, 25);
+    let talking = SsrcCount {
+        sent: LOST_SENT,
+        ..heard
+    };
+    let fake = Arc::new(Steps {
+        steps: Mutex::new(vec![heard, heard, talking]),
+        after: owner(5, 20),
+        rejoins: AtomicU32::new(0),
+    });
+    let (l, ended) = watched(d.path(), fake.clone(), true).await;
+    assert!(!ended, "watched on after the rejoin heard");
+    assert_eq!(fake.rejoins.load(Ordering::SeqCst), 1);
+    let deaf = rows(&l, "voice.deaf").await;
+    assert_eq!(deaf.len(), 1, "{deaf:?}");
+    assert_eq!(
+        (&deaf[0]["why"], &deaf[0]["attempt"]),
+        (&"lost".into(), &1.into())
+    );
+    assert_eq!(posts(&core_of(&l), &l.place.target), [LOST, REJOINED]);
+    // Silent after hearing: reports go on, nothing sent, nothing said.
+    let d = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Steps {
+        steps: Mutex::new(vec![heard, owner(90, 25)]),
+        after: heard,
+        rejoins: AtomicU32::new(0),
+    });
+    let (l, _) = watched(d.path(), fake.clone(), true).await;
+    assert_eq!(fake.rejoins.load(Ordering::SeqCst), 0);
+    assert!(rows(&l, "voice.deaf").await.is_empty());
+    assert!(posts(&core_of(&l), &l.place.target).is_empty());
 }
 
 /// A deaf connection whose rejoin waits for `go`, then asks `wanted` as

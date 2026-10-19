@@ -4,6 +4,13 @@
 //! looks fine. Noticed by one pure rule over a snapshot, on a timer after
 //! the join and never on the audio path; rejoined once; said in health and
 //! in the place's text, never aloud.
+//!
+//! A call that heard can stop hearing (theseus-sro04): the watch goes on
+//! after the call hears, and between two checks a listed speaker whose
+//! sender reports say they sent [`LOST_SENT`] packets, none of which
+//! arrived, is lost audio, rejoined as a deaf join is (once a call). A
+//! speaker who is silent sends no packets, so their reports say none: a
+//! quiet call is never deaf, however long its sender reports go on.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -19,6 +26,8 @@ use crate::runtime::Shared;
 /// Said in the place's text when the call is found deaf.
 pub(crate) const DEAF: &str =
     "I can't hear the call (Discord's voice encryption didn't finish setting up). Rejoining…";
+/// Said when a call that heard stops hearing a listed speaker who talks.
+pub(crate) const LOST: &str = "I've stopped hearing you (your audio isn't reaching me). Rejoining…";
 /// Said when audio arrives that no speaking event says whose it is.
 pub(crate) const UNMAPPED: &str =
     "I can't hear the call (Discord didn't say whose audio is whose). Rejoining…";
@@ -47,7 +56,14 @@ pub(crate) enum Why {
     /// was missed, so their audio is dropped (theseus-sro04). A rejoin's
     /// fresh connection sends it again.
     Unmapped,
+    /// A call that heard: between two checks a listed speaker sent
+    /// [`LOST_SENT`] packets, by their sender reports, and none arrived.
+    Lost,
 }
+
+/// Packets a listed speaker's sender reports say they sent between two
+/// checks, none arriving, that make a call that heard deaf: 5 s of speech.
+pub(crate) const LOST_SENT: u64 = 250;
 
 impl Why {
     pub(crate) fn as_str(self) -> &'static str {
@@ -55,6 +71,7 @@ impl Why {
             Why::NotReady => "dave_not_ready",
             Why::Undecrypted => "undecrypted",
             Why::Unmapped => "unmapped",
+            Why::Lost => "lost",
         }
     }
 
@@ -63,6 +80,7 @@ impl Why {
         match self {
             Why::NotReady | Why::Undecrypted => DEAF,
             Why::Unmapped => UNMAPPED,
+            Why::Lost => LOST,
         }
     }
 }
@@ -134,6 +152,21 @@ pub(crate) fn deaf(h: &Hearing, after: Duration) -> Option<Why> {
         .then_some(Why::Undecrypted)
 }
 
+/// The rule for a call that heard, between the counts of the last check,
+/// `before`, and now: a listed speaker present whose sender reports say they
+/// sent [`LOST_SENT`] packets or more, of which none arrived. A silent
+/// speaker sends none, nor does a speaker that left.
+pub(crate) fn lost(before: &BTreeMap<u32, SsrcCount>, h: &Hearing) -> Option<Why> {
+    h.ssrcs
+        .iter()
+        .filter(|(_, c)| c.user.is_some_and(|u| h.present.contains(&u.0)))
+        .any(|(ssrc, c)| {
+            let b = before.get(ssrc).copied().unwrap_or_default();
+            c.sent.saturating_sub(b.sent) >= LOST_SENT && c.frames == b.frames
+        })
+        .then_some(Why::Lost)
+}
+
 /// The call's connection, as the check reads and rejoins it: songbird's, or
 /// a test's.
 pub(crate) trait Line: Send + Sync {
@@ -160,9 +193,10 @@ impl Line for Link {
     }
 }
 
-/// Watch call `serial` from its join: every `after`, until it hears a listed
-/// speaker or ends. Deaf, it says so and rejoins once; deaf again, or a
-/// rejoin that fails, it says so and stops. Never a second rejoin.
+/// Watch call `serial` from its join: every `after`, until it ends. Deaf
+/// before it hears ([`deaf`]), or once it heard ([`lost`]), it says so and
+/// rejoins once; deaf again, or a rejoin that fails, it says so and stops.
+/// Never a second rejoin.
 pub(crate) async fn watch(
     shared: Arc<Shared>,
     serial: u64,
@@ -172,21 +206,31 @@ pub(crate) async fn watch(
 ) {
     let mut since = Instant::now();
     let mut attempt = 1;
+    // Once the call hears: the counts at the last check.
+    let mut heard: Option<BTreeMap<u32, SsrcCount>> = None;
     loop {
         tokio::time::sleep(after).await;
         let Some(channel) = current(&shared, serial) else {
             return;
         };
         let present = shared.voice.present(&place, channel);
-        let h = Hearing::of(line.counts(), present, since.elapsed());
-        if h.hears() {
-            if attempt > 1 {
-                update(&shared, |s| s.deaf_since_ms = None);
-                notice(&shared, &place, REJOINED);
+        let counts = line.counts();
+        let h = Hearing::of(counts.clone(), present, since.elapsed());
+        let why = match heard.replace(counts) {
+            Some(before) => lost(&before, &h),
+            None if h.hears() => {
+                if attempt > 1 {
+                    update(&shared, |s| s.deaf_since_ms = None);
+                    notice(&shared, &place, REJOINED);
+                }
+                continue;
             }
-            return;
-        }
-        let Some(why) = deaf(&h, after) else {
+            None => {
+                heard = None;
+                deaf(&h, after)
+            }
+        };
+        let Some(why) = why else {
             continue;
         };
         let elapsed_ms = h.elapsed.as_millis() as u64;
@@ -228,6 +272,7 @@ pub(crate) async fn watch(
         }
         attempt += 1;
         since = Instant::now();
+        heard = None;
     }
 }
 
@@ -292,6 +337,7 @@ mod tests {
             frames,
             decoded,
             reports,
+            sent: 0,
         }
     }
 
@@ -375,6 +421,41 @@ mod tests {
         assert_eq!(deaf(&hearing(Some(true), &[], &lost), AFTER), None);
         let undecoded = [(3986, ssrc(None, 400, 0, 20))];
         assert_eq!(deaf(&hearing(None, &[OWNER], &undecoded), AFTER), None);
+    }
+
+    /// A call that heard (theseus-sro04): a listed speaker's reports say
+    /// they sent 5 s of packets since the last check and none arrived: lost.
+    /// Silent (their reports say nothing sent), or their packets arriving,
+    /// or a guest's loss, or an absent owner's: not.
+    #[test]
+    fn a_call_that_heard_is_lost_when_sent_packets_stop_arriving() {
+        let at = |frames, sent| SsrcCount {
+            sent,
+            ..ssrc(Some(OWNER), frames, frames, 40)
+        };
+        let before = BTreeMap::from([(9, at(300, 1000))]);
+        let now = |c: SsrcCount, present: &[u64]| hearing(Some(true), present, &[(9, c)]);
+        let gone = at(300, 1000 + LOST_SENT);
+        assert_eq!(lost(&before, &now(gone, &[OWNER])), Some(Why::Lost));
+        assert_eq!(Why::Lost.notice(), LOST);
+        assert_eq!(Why::Lost.as_str(), "lost");
+        assert_eq!(lost(&before, &now(at(300, 1000), &[OWNER])), None, "silent");
+        assert_eq!(
+            lost(&before, &now(at(301, 1250), &[OWNER])),
+            None,
+            "arriving"
+        );
+        assert_eq!(
+            lost(&before, &now(at(300, 1249), &[OWNER])),
+            None,
+            "under 5 s"
+        );
+        assert_eq!(lost(&before, &now(gone, &[])), None, "not in the channel");
+        let guest = SsrcCount {
+            user: Some(Speaker(GUEST)),
+            ..gone
+        };
+        assert_eq!(lost(&before, &now(guest, &[OWNER])), None, "a guest's");
     }
 
     /// From songbird's counts: any decoded audio says DAVE is ready, and
