@@ -14,7 +14,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - `src/render/preview.rs` (theseus-z6au): an edit's approval card carries its hunk, the question's `preview`, as a
   ```` ```diff ```` block of at most 800 characters with a marker where it was cut. The tool lines are unchanged:
   `summarize` is `theseus_protocol::term::words::argument`.
-- A task's report (`render::report`) names the task's own forum post or channel on its first line as `<#id>` when it has one (`TaskThreads::place_of_task`, theseus-ypnxt.5), so a tap opens it on the phone. A reply's footer ends with `[inspect](<url>)` (theseus-x9swu): a masked link whose angle brackets keep Discord from drawing an embed,
+- A task's report (`render::report`) names the task's own thread, channel or forum post, an index card included, on its first line as `<#id>` when it has one (`Shared::place_of_task`: `TaskThreads::place_of_task`, then `TaskPosts::post_of`; theseus-ypnxt.5, theseus-90qqy), so a tap opens it on the phone. A reply's footer ends with `[inspect](<url>)` (theseus-x9swu): a masked link whose angle brackets keep Discord from drawing an embed,
   from the result's `inspect_url` (`[cockpit] public_url`, else `http://localhost:<[web] port>`), on the footer's one line: no part, message or ping is added.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out. A reply's footer gives
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
@@ -182,7 +182,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     (`Tasks::rewatch`, once for a burst). A view goes to the place of its root's conversation (`PlaceMsg::Tasks`), which
     draws its own board. Nothing is stored; "since you looked" is one in-memory time a place (`Clear done`).
   - **The board** (`render/board_v2.rs`, `render/v2.rs`, `runtime/live_board.rs`, `courier/v2.rs`): one Components V2
-    message a place, pinned, **edited and never posted anew**, so it never pings; a header with the counts, **Needs you**
+    message a place, pinned, **edited and never posted anew**, so it never pings; a header with the counts (a task that ended is counted by how: `✅ 2 done · ❌ 1 failed since you looked`, `board_v2::headline`; theseus-90qqy), **Needs you**
     (title, short id, the question, `[ Answer ↗ ]`), **Now** (what it does, then the one progress line: `step 3 of 5 · $0.42 of ~$1 (limit $2) · ~6 min left`; `turn N` only with no plan; a paused task shows ⏸️ and `paused` first; theseus-ypnxt.2), **Done, not yet
     seen** (24 h, until Clear), `[ ✓ Clear done ] [ 🔕 Quiet 1 h ]` and a select "Open a task…". Times are Discord's
     `<t:…:R>`, which tick by themselves, so a quiet board is never edited for the clock. At most 40 components and 4,000
@@ -382,6 +382,28 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   start nothing). `TaskPosts::moved` is the seam for a task promoted to a channel of its own. Activity threads are untouched
   (`[threads] discord_channel` alone). A tag edit carries `archived: false`. Tests: `tests_default_forum.rs`, the fake's
   `fake_discord/forums.rs` (`refuse_forum`, `forums_made`, `rename_forum`, `archive_thread`), and `forum.rs`'s.
+- **The task home** (theseus-xlxp4, `runtime/task_home.rs`, `tests_task_home.rs`; `[discord] task_home`, `theseus-tasks`, a name or an id, `""`
+  is off, the rollback: the DM's board, reports and pointers are then byte for byte as they were): one private text channel (type 0, the forum's
+  `OWNER_BITS` and `BOT_BITS`, `@everyone` denied View Channel) in the one trusted guild, the dashboard of the owner's tasks. Found as the forum is
+  (`Shared::ensure_task_home`, at the start and each READY: META `discord.task_home` while `task_home` is what it was resolved from, else a
+  configured id, else the first text channel of that name, else made; a 403 or an id that is no text channel is one quiet line to the owner and the
+  home is off for the run). Its lane and bound place (private, the DM's ceiling) return at each start from that record whatever the switch says
+  (`revive_task_home`), so a report staged for it is delivered. **The seam is the core's** (`Outbox::home_tasks`, set in memory by
+  `register_task_homes`): a task opened from the owner's DM reports to the home, so its `reports_to`, the `task.place.<session>` record and the
+  report's lane all name it; the core does not know Discord, the binding only says where tasks started from a place report and how to tell a model
+  (`task_create`'s result: "reports to #theseus-tasks and its forum post when it finishes"). The DM place's live board goes to the home's lane
+  (`Place::board_lane`: one pinned board there; the home's channel is routed to the DM place so its presses and a message typed there are heard,
+  and a message there starts nothing: one quiet line), and each task's forum post is pointed at by one quiet line (`🧵 <#post> · title`):
+  the DM task's from `make_task_thread` (instead of the DM), an index card's from the worker (`Worker::card_made`). A text channel with task
+  threads keeps its own board, reports and pointers.
+  **A voice place is never a task's home** (theseus-lxfz0; always, whatever `task_home` says): a task started from a voice binding reports to
+  the home, else the owner's DM; its board is never drawn in the voice chat (`board_lane` is none for a voice channel,
+  `TaskHome::set_voice`, re-read with the bindings file); its forum post is its index card. **An index card is the place its session's cards go
+  to** when the task has none of its own (theseus-90qqy): `bind_card_place` starts a lane for the post, binds it with the parent's class and
+  ceiling and `place_bound`s the session, so the approval card the core stages for the task lands in its post, never in the parent channel
+  with a mention; `Post.bound` (session, parent place) lets a restart bind it again (`revive_card_places`). A card staged before the card
+  exists goes to where the task reports. The stand-in lists the text channels the bot made outside a category (`guild_channels`), so a restart
+  finds the home by name.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
@@ -451,7 +473,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   says whether the status is written and the board's line told). A new question of a task and a task's end are one `Command::Report`
   each (title and a sentence or two, no code, links, paths or tool lines, 220 characters), said once (a set of 256), never what was
   there at the join, nothing in a shared voice place or about a task of a shared place, and no end of a task that reports to the voice
-  place's own session (`voice_heard` speaks that turn). The last question said is pending 5 minutes: `voice_turn` first asks
+  place's own session or was started from it (`Tasks::started_here`; `voice_heard` speaks that turn; a voice place is never a task's home, theseus-lxfz0). The last question said is pending 5 minutes: `voice_turn` first asks
   `voice_answered`, and an owner's whole utterance of "pause it" or "go on" (`held_words`) is `task.pause` / `task.resume` as the speaker for the task the question named while it is pending, else the private place's only running (or only paused) task, with two to choose from an ordinary turn (theseus-ypnxt.5), and one of "approve", "deny", "the second one" or "stop it" (`matched`) is `work.answer` /
   `task.cancel` as the speaker with the voice channel's ids (the core judges; a refusal is "I can't take that here." and the core's
   words in text), posts the transcript line, and makes no turn. A bare "yes" is the engine's backchannel, so the question asks for

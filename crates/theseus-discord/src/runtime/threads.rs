@@ -540,6 +540,8 @@ impl Shared {
             }
         }
         self.sweep_task_channels();
+        self.revive_task_home();
+        self.revive_card_places();
     }
 
     /// The thread place of the task, running: the actor that renders the
@@ -661,7 +663,8 @@ impl Shared {
                 }
                 // One quiet line in the channel (or the DM), linking it.
                 let line = format!("🧵 <#{thread}> · {}", clip(&v.title));
-                self.say_to(&p.target, line, &p.session);
+                let at = self.task_posts.home.instead_of(self, &p.target);
+                self.say_to(at.as_deref().unwrap_or(&p.target), line, &p.session);
                 self.task_threads.settle(&v.id);
                 // The task may have ended while the thread was made.
                 let _ = p.tx.send(PlaceMsg::Tasks);
@@ -985,6 +988,16 @@ pub(super) struct Joined {
     pub session: String,
     pub parent_session: String,
     pub title: String,
+}
+
+impl Shared {
+    /// The place a task has of its own, by its session or its work id: a thread
+    /// or a channel, else its forum post, an index card included (theseus-90qqy).
+    pub(crate) fn place_of_task(&self, session: &str, work: &str) -> Option<u64> {
+        self.task_threads
+            .place_of_task(session, work)
+            .or_else(|| self.task_posts.post_of(work))
+    }
 }
 
 #[cfg(test)]

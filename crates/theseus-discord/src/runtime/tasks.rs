@@ -222,8 +222,17 @@ impl Tasks {
 
     /// What the place whose conversation is `session_id` shows.
     pub fn project(&self, session_id: &str) -> Projection {
+        self.project_with(session_id, &[])
+    }
+
+    /// What the place shows, and the tasks of the conversations of the
+    /// places `also` (a voice place's tasks, on the task home's board).
+    pub fn project_with(&self, session_id: &str, also: &[String]) -> Projection {
         let m = self.model.lock().unwrap();
-        let roots = roots_of(&m, session_id);
+        let mut roots = roots_of(&m, session_id);
+        for s in also {
+            roots.extend(roots_of(&m, s));
+        }
         if roots.is_empty() {
             return Projection::default();
         }
@@ -501,9 +510,7 @@ pub(super) async fn finished(
                 at_ms: t.updated_at_ms,
                 cost_usd: t.cost_usd,
                 said: said.get(i).cloned().flatten(),
-                link: shared
-                    .task_threads
-                    .place_of_task(&t.task_id, &t.execution_id),
+                link: shared.place_of_task(&t.task_id, &t.execution_id),
             }
         })
         .collect()

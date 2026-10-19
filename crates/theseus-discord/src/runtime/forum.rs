@@ -162,6 +162,11 @@ pub(crate) struct Post {
     /// Where the task works, when this post is only its index card.
     #[serde(default)]
     pub link: Option<String>,
+    /// For an index card whose task has no place of its own: the task's session
+    /// and the key of the place that told of it, so a restart binds the post
+    /// as the place its cards go to (theseus-90qqy).
+    #[serde(default)]
+    pub bound: Option<(String, String)>,
 }
 
 /// How long a finished task's post stays in the list for its link (the board
@@ -180,6 +185,8 @@ pub(super) struct Seen {
     /// The tasks whose post in the default forum is their place: made on
     /// request (`TaskPosts::make`), never by the worker's own sync.
     homed: HashSet<String>,
+    /// The key of the place that told, for a card's bound place.
+    parent: Option<String>,
 }
 
 /// A request for the post that is a task's place.
@@ -199,6 +206,8 @@ pub(crate) struct TaskPosts {
     /// The default forum (theseus-bh3t.6), its own slot: a bindings reload
     /// replaces `forums`.
     pub(super) default: DefaultForum,
+    /// The task home (theseus-xlxp4), its own slot beside the forum's.
+    pub(super) home: super::task_home::TaskHome,
     /// Where a task whose post was its place works now, by task.
     moved: Mutex<HashMap<String, String>>,
 }
@@ -236,7 +245,7 @@ impl TaskPosts {
         !self.forums.lock().unwrap().is_empty() || self.default.may_stand()
     }
 
-    fn load(&self, store: &theseus_core::store::Store) {
+    pub(super) fn load(&self, store: &theseus_core::store::Store) {
         if self.loaded.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -300,6 +309,19 @@ impl TaskPosts {
         }
     }
 
+    /// The id of the task's post, whether it works there or the post is only
+    /// its index card.
+    pub(crate) fn post_of(&self, task: &str) -> Option<u64> {
+        let posts = self.posts.lock().unwrap();
+        let default = self.default.forum().map(|f| f.channel);
+        let mut of = posts.iter().filter(|p| !task.is_empty() && p.task == task);
+        let p = of
+            .clone()
+            .find(|p| Some(p.forum) == default)
+            .or(of.next())?;
+        Some(p.post)
+    }
+
     /// The worker keeps a post for the task.
     pub(crate) fn owns(&self, task: &str) -> bool {
         self.posts.lock().unwrap().iter().any(|p| p.task == task)
@@ -331,6 +353,7 @@ impl Seen {
             links: HashMap::new(),
             home: None,
             homed: HashSet::new(),
+            parent: None,
         }
     }
 }
@@ -343,6 +366,7 @@ struct Entry {
     link: Option<String>,
     home: Option<mpsc::UnboundedSender<super::PlaceMsg>>,
     homed: bool,
+    parent: Option<String>,
 }
 
 /// What the worker shows of one post.
@@ -457,6 +481,7 @@ impl Place {
             links,
             home: Some(self.tx.clone()),
             homed,
+            parent: Some(self.key.clone()),
         });
     }
 }
@@ -527,6 +552,7 @@ impl Worker {
                     link,
                     home: s.home.clone(),
                     homed,
+                    parent: s.parent.clone(),
                 },
             );
         }
@@ -656,6 +682,7 @@ impl Worker {
             self.failed.remove(&key);
             if index {
                 self.keep_index(&key, link.as_deref(), id);
+                self.card_made(&key, id);
             }
             return None;
         }
@@ -710,12 +737,17 @@ impl Worker {
         if ended && slot.card == Some(sent) && slot.tag == Some(want) {
             self.slots.remove(&key);
             let s = &self.shared;
+            let mut bound = None;
             for p in s.task_posts.posts.lock().unwrap().iter_mut() {
                 if p.task == key.0 && p.forum == key.1 {
                     p.ended_ms = Some(theseus_protocol::now_unix_ms());
+                    bound = p.bound.clone().map(|b| (b.0, p.post));
                 }
             }
             s.task_posts.save(&s.core.store);
+            if let Some((session, post)) = bound {
+                s.retire_card_place_later(session, post);
+            }
         }
         held
     }
@@ -793,6 +825,37 @@ impl Worker {
         if let (Some(post), Some(home)) = (post, home) {
             s.route_index(post, home);
         }
+    }
+
+    /// An index card was made: one quiet pointer to it in the task home, and,
+    /// for a task with no place of its own, the card is the place its session's
+    /// cards go to (theseus-xlxp4, theseus-90qqy).
+    fn card_made(&self, key: &(String, u64), task: &str) {
+        let s = &self.shared;
+        let (Some(slot), Some(e)) = (self.slots.get(key), self.entries.get(task)) else {
+            return;
+        };
+        let Some(session) = e.view.session_id.clone() else {
+            return;
+        };
+        let post = slot.post.post;
+        s.point_home_at(&session, post, &e.view.title);
+        if s.task_threads.place_of_task(&session, task).is_some() {
+            return;
+        }
+        let Some(parent) = e.parent.clone() else {
+            return;
+        };
+        s.bind_card_place(&session, post, &parent, &post_name(task, &e.view.title));
+        let mut posts = s.task_posts.posts.lock().unwrap();
+        if let Some(p) = posts
+            .iter_mut()
+            .find(|p| p.task == key.0 && p.forum == key.1)
+        {
+            p.bound = Some((session, parent));
+        }
+        drop(posts);
+        s.task_posts.save(&s.core.store);
     }
 
     /// The forum's tag ids by state, the missing tags added once.
@@ -918,6 +981,7 @@ impl Worker {
             created_ms: theseus_protocol::now_unix_ms(),
             ended_ms: None,
             link: link.map(str::to_string),
+            bound: None,
         };
         let now = Instant::now();
         self.slots.insert(
@@ -1132,6 +1196,7 @@ mod tests {
                 links: HashMap::new(),
                 home: None,
                 homed: HashSet::new(),
+                parent: None,
             });
         };
         let last = || {
@@ -1230,6 +1295,7 @@ mod tests {
                 links: HashMap::new(),
                 home: None,
                 homed: HashSet::new(),
+                parent: None,
             });
         };
         let posts = || {
@@ -1313,6 +1379,7 @@ mod tests {
                 links: HashMap::from([(TASK.to_string(), OLD.to_string())]),
                 home: None,
                 homed: HashSet::new(),
+                parent: None,
             });
         };
         let post = || {

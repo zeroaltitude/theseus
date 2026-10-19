@@ -517,6 +517,8 @@ impl Shared {
         guilds::tell_core(&self.core, new);
         self.place_bits.replace(new);
         self.task_posts.set_forums(new);
+        self.task_posts.home.set_voice(new);
+        self.register_task_homes();
         let (was, now) = (places(old), places(new));
         fn find<'a>(list: &[(String, Spot<'a>)], k: &str) -> Option<Spot<'a>> {
             list.iter().find(|(o, _)| o == k).map(|(_, p)| *p)

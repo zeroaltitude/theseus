@@ -11,8 +11,9 @@
 //!   a task's end once, and what was there when the call began is the past.
 //! - **Only the owner's, only in private**: a call in a shared voice place
 //!   says nothing, nor does one about a task that reports to a shared place.
-//!   A task that reports to the voice place's own session is not told here
-//!   at its end: its report wakes that session, and `voice_heard` speaks that
+//!   A task that reports to the voice place's own session, or was started from
+//!   it (its report goes to the task home, theseus-lxfz0), is not told here at
+//!   its end: its report wakes that session, and `voice_heard` speaks that
 //!   turn's reply.
 //! - **Held by voice** (theseus-ypnxt.5): a whole utterance of the owner that is
 //!   "pause it" or "go on" (`held_words`) is `task.pause` or `task.resume` as the
@@ -157,8 +158,12 @@ impl Tasks {
         if !private(Some(&self.target)) || !private(reports_to.as_deref()) {
             return;
         }
-        // Its report wakes the voice place's session, whose reply is spoken.
-        if ended && reports_to.as_deref() == Some(&self.target) {
+        // Its report wakes the voice place's session, whose reply is spoken:
+        // the task reports there, or was started there and reports to the
+        // task home (theseus-lxfz0).
+        if ended
+            && (reports_to.as_deref() == Some(&self.target) || self.started_here(core, session))
+        {
             return;
         }
         match (&v.question, ended) {
@@ -169,6 +174,20 @@ impl Tasks {
                 }
             }
         }
+    }
+
+    /// Whether the task's session was started from the voice place's own session.
+    fn started_here(&self, core: &Core, session: Option<&str>) -> bool {
+        let parent = session
+            .and_then(|s| {
+                core.store
+                    .get_session::<theseus_core::session::SessionRecord>(s)
+                    .ok()
+                    .flatten()
+            })
+            .and_then(|r| r.task)
+            .and_then(|t| core.outbox.target(&t.parent_session));
+        parent.as_deref() == Some(&self.target)
     }
 
     /// Keep the private place's open tasks, for "pause it" and "go on".

@@ -821,6 +821,13 @@ digest_at = ["08:00", "18:00"]          # local times a digest of what happened 
 # needs Manage Channels and Manage Roles there. A refusal turns it off for the run, said once.
 forum = true
 forum_channel = "theseus"               # a forum's Discord id (15-21 digits), or its name
+# One private text channel, yours and the bot's alone, is the dashboard of your tasks: the pinned
+# live board, every task's report, and one quiet line a task pointing at its forum post. A task
+# started from the DM or a voice channel reports there; the DM keeps the conversation and the
+# pings that need you. Found by the id it was made with, else by this name (or id), else made in
+# the trusted guild (same rule as the forum). "" turns it off: the board and the reports stay in
+# the DM as they were.
+task_home = "theseus-tasks"
 # A channel the bindings file names (private) can run as a thread's place: its
 # messages go to that thread's session, as /thread bind does from Discord.
 # [[discord.thread]]

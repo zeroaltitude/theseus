@@ -106,8 +106,10 @@ async fn rig(
             tweak(c);
             // A task plans its steps with `task_create`, a deferred tool.
             c.tools.defer.always_loaded.push("tasks".into());
-            // Channels alone: the default forum's own tests join the two.
+            // Channels alone: the default forum's own tests join the two, and
+            // the task home's (`tests_task_home.rs`) the report's place.
             c.discord.forum = false;
+            c.discord.task_home = String::new();
             more(c);
         },
     )
@@ -403,6 +405,7 @@ async fn a_shared_channels_working_task_with_a_plan_gets_no_channel() {
         |c| {
             tweak(c);
             c.tools.defer.always_loaded.push("tasks".into());
+            c.discord.task_home = String::new();
         },
     )
     .await;
@@ -710,6 +713,7 @@ async fn ended_with_a_guest_and_a_role() -> (Rig, u64, String) {
             tweak(c);
             c.tools.defer.always_loaded.push("tasks".into());
             c.discord.forum = false;
+            c.discord.task_home = String::new();
         },
     )
     .await;

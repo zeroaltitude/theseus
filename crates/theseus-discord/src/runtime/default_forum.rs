@@ -45,7 +45,7 @@ const RESOLVE_WAIT: Duration = Duration::from_secs(30);
 /// A forum that could not be reached is looked for again after this long.
 const AGAIN: Duration = Duration::from_secs(60);
 
-const VIEW_CHANNEL: u64 = 1 << 10;
+pub(super) const VIEW_CHANNEL: u64 = 1 << 10;
 const SEND_MESSAGES: u64 = 1 << 11;
 const ADD_REACTIONS: u64 = 1 << 6;
 const READ_MESSAGE_HISTORY: u64 = 1 << 16;
@@ -201,12 +201,14 @@ fn forum_in(c: &Value, guild: &str) -> Option<u64> {
 pub(super) fn ready(shared: &Arc<Shared>) {
     let s = shared.clone();
     tokio::spawn(async move { s.ensure_forum().await });
+    super::task_home::ready(shared);
 }
 
 impl Shared {
     /// Decide at the start whether the feature acts (on, and exactly one
     /// trusted guild), and look for the forum without waiting for it.
     pub(super) fn start_default_forum(self: &Arc<Self>, b: &Bindings) {
+        self.start_task_home(b);
         let d = &self.task_posts.default;
         let cfg = &self.core.cfg.discord;
         let trusted = b.trusted();
@@ -299,7 +301,7 @@ impl Shared {
     }
 
     /// Every place looks at its tasks again: the forum is up.
-    fn wake_places(&self) {
+    pub(super) fn wake_places(&self) {
         let places: Vec<_> = self
             .routes
             .lock()
@@ -480,7 +482,10 @@ impl Place {
             .task_posts
             .index_of(channel.get())
             .unwrap_or_default();
-        let line = if link.is_empty() {
+        let line = if self.shared.task_posts.home.is_home(channel.get()) {
+            "-# This channel is your tasks' board and reports; the conversation is in the DM."
+                .to_string()
+        } else if link.is_empty() {
             "-# This post starts nothing: its task works elsewhere, or is over.".to_string()
         } else {
             format!("-# This task works in {link}.")

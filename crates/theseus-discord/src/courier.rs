@@ -1364,7 +1364,7 @@ impl Lane {
         let guests = body["task"]
             .as_str()
             .map_or(0, |s| self.shared.comments_on_session(s));
-        let place = self.shared.task_threads.place_of_task(
+        let place = self.shared.place_of_task(
             body["task"].as_str().unwrap_or(""),
             body["execution_id"].as_str().unwrap_or(""),
         );

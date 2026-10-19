@@ -156,7 +156,11 @@ impl Place {
         if !self.shared.v2_cards() {
             return;
         }
-        let p = self.shared.tasks.project(&self.session_id);
+        let Some(lane) = self.board_lane() else {
+            return;
+        };
+        let also = self.shared.board_sessions(&self.target);
+        let p = self.shared.tasks.project_with(&self.session_id, &also);
         let quiet = self.shared.tasks.quiet_until(&self.target);
         // The future is a private place's alone (theseus-j90w2).
         let future = super::horizon::parts_for(&self.shared, &self.target);
@@ -171,7 +175,7 @@ impl Place {
             links: &links,
         });
         let content = serde_json::to_string(&comps).unwrap_or_default();
-        let _ = self.lane.send(if p.is_empty() && future.is_none() {
+        let _ = lane.send(if p.is_empty() && future.is_none() {
             LaneMsg::BoardIdle(content)
         } else {
             LaneMsg::Live(Op::Upsert {

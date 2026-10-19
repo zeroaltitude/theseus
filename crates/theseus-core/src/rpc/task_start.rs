@@ -58,6 +58,23 @@ impl Core {
         self.task_start(&p, who)
     }
 
+    /// Where the task reports: its parent's place, or where the binding homes
+    /// the tasks of that place (`Outbox::home_tasks`); a board-only task, nowhere.
+    fn reports_to_of(
+        &self,
+        report_to: ReportTo,
+        home_session: &str,
+        home_target: Option<String>,
+    ) -> Option<String> {
+        match report_to {
+            ReportTo::Home => {
+                let at = self.outbox.target(home_session).or(home_target);
+                self.outbox.report_target(at).0
+            }
+            ReportTo::Board => None,
+        }
+    }
+
     /// Start the task `p` describes, for `who`.
     pub fn task_start(
         &self,
@@ -79,10 +96,7 @@ impl Core {
         let want = self.carve_of(p, &parent, &home_session)?;
         let target = self.target_of(p, &parent_rec)?;
         let report_to = p.report_to.unwrap_or_default();
-        let reports_to = match report_to {
-            ReportTo::Home => self.outbox.target(&home_session).or(home_target),
-            ReportTo::Board => None,
-        };
+        let reports_to = self.reports_to_of(report_to, &home_session, home_target);
         let title = title_of(p, brief);
         let correlation_id = theseus_kernel::new_id("act");
         let (_, task_session) = task_ids(&correlation_id);

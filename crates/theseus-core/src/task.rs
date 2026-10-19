@@ -556,7 +556,7 @@ pub fn create<'a>(
             .map_err(|e| format!("Not started: {e}"))?,
         ),
     };
-    let target = tc.outbox.target(tc.session_id);
+    let (target, home) = tc.outbox.report_target(tc.outbox.target(tc.session_id));
     let title = i.title.clone().unwrap_or_else(|| title_from(brief));
     let (_, task_session) = task_ids(correlation_id);
     let text = brief_text(&task_session, tc.session_id, brief);
@@ -757,11 +757,12 @@ pub fn create<'a>(
     } else {
         usd(limit)
     };
+    let here = home.map_or("here".to_string(), |l| format!("to {l}"));
     let text = if let (true, Some(at)) = (opened.opened, start) {
         format!(
             "Scheduled task {s} (\"{title}\") to start {} with a budget of {budget}, carved \
              from this session now. It sleeps until then, takes no turn before, and reports \
-             here when it finishes{}. Cancel it before then with task_close, and the budget \
+             {here} when it finishes{}. Cancel it before then with task_close, and the budget \
              comes back. Its id is {}.",
             crate::task_start::day_hm(at),
             if task.wake_parent {
@@ -774,14 +775,14 @@ pub fn create<'a>(
     } else if opened.opened && task.wake_parent {
         format!(
             "Started task {s} (\"{title}\") with a budget of {budget}. It works on its own and \
-             reports here when it finishes, and its report starts this conversation's next turn, \
+             reports {here} when it finishes, and its report starts this conversation's next turn, \
              so you read it then without waiting for the person. Its id is {}.",
             task.session_id
         )
     } else if opened.opened {
         format!(
             "Started task {s} (\"{title}\") with a budget of {budget}. It works on its own and \
-             reports here when it finishes; its report reaches a later turn of this \
+             reports {here} when it finishes; its report reaches a later turn of this \
              conversation. Its id is {}.",
             task.session_id
         )

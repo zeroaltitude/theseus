@@ -110,6 +110,7 @@ impl Default for DiscordConfig {
             gateway_proxy: None,
             forum: true,
             forum_channel: default_forum_channel(),
+            task_home: default_task_home(),
             thread: Vec::new(),
             calendar: Default::default(),
         }
@@ -119,6 +120,24 @@ impl Default for DiscordConfig {
 /// The default forum's name (theseus-bh3t.6).
 pub fn default_forum_channel() -> String {
     "theseus".into()
+}
+
+/// The task home's name (theseus-xlxp4).
+pub fn default_task_home() -> String {
+    "theseus-tasks".into()
+}
+
+/// `[discord] task_home`: empty (off), a Discord id, or a name, as `forum_channel` is.
+pub fn validate_task_home(v: &str) -> anyhow::Result<()> {
+    if v.is_empty() {
+        return Ok(());
+    }
+    validate_forum_channel(v).map_err(|_| {
+        anyhow::anyhow!(
+            "discord.task_home {v:?} is not empty (off), a Discord id (15-21 digits) nor a name \
+             (1-100 characters, no `#`)"
+        )
+    })
 }
 
 /// `[discord] forum_channel`: a Discord id (15 to 21 digits) or a name of 1 to
@@ -186,6 +205,19 @@ mod tests {
     fn parse(toml: &str) -> anyhow::Result<crate::Config> {
         let base = crate::Config::EXAMPLE_TOML;
         Ok(crate::Config::parse(&format!("{base}\n{toml}"))?.0)
+    }
+
+    /// The task home is on by default, in the template as in the code, and an
+    /// empty name turns it off; a name or an id is valid, a `#` is not.
+    #[test]
+    fn the_task_home_is_on_by_default_and_empty_is_off() {
+        assert_eq!(DiscordConfig::default().task_home, "theseus-tasks");
+        assert_eq!(crate::Config::example().discord.task_home, "theseus-tasks");
+        for ok in ["", "theseus-tasks", "900000000000000012"] {
+            assert!(validate_task_home(ok).is_ok(), "{ok:?}");
+        }
+        assert!(validate_task_home("#tasks").is_err());
+        assert!(validate_task_home(&"x".repeat(101)).is_err());
     }
 
     /// Nothing is silent and no window holds a ping by default: the
