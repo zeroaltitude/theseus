@@ -1238,7 +1238,8 @@ impl Fact for TurnEndNoted<'_> {
         say.line(
             Model,
             format!(
-                "The turn would have ended with {} left by commands and {} edited since the last                  command, so the harness says so once and the model goes on ([model] end_note).",
+                "The turn would have ended with {} left by commands and {} edited since the last \
+                 command, so the harness says so once and the model goes on ([model] end_note).",
                 narrative::count(u64::from(self.note.left), "new file", "new files"),
                 narrative::count(u64::from(self.note.unrun), "file", "files"),
             ),
