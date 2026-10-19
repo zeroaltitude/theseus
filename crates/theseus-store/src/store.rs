@@ -458,11 +458,19 @@ pub(crate) fn count_rows(rows: u64) {
 /// runs `f`. After `f`, the task gives way at its next await on a tokio
 /// resource (`spend_task_budget`, theseus-fy0i).
 pub fn blocking<R>(f: impl FnOnce() -> R) -> R {
+    let mut f = Some(f);
+    let mut out = None;
+    run_blocking(&mut || out = f.take().map(|f| f()));
+    out.expect("a blocking section runs exactly once")
+}
+
+/// `blocking`'s body, written once for every section (theseus-nsp9l.3): it was generic in each caller's closure, so
+/// the binary held `block_in_place` and `exit_runtime` a hundred and sixty times over, 0.7 MB.
+fn run_blocking(f: &mut dyn FnMut()) {
     match tokio::runtime::Handle::try_current() {
         Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-            let r = tokio::task::block_in_place(f);
+            tokio::task::block_in_place(f);
             spend_task_budget();
-            r
         }
         _ => f(),
     }
