@@ -9,16 +9,18 @@ import type { EChartsOption } from '@/lib/chart'
 import type { Attention } from '@protocol'
 
 export function Panel({
-  title, icon, actions, help, children, className, bodyClassName,
+  title, icon, actions, help, children, className, bodyClassName, dialog,
 }: {
   title?: ReactNode; icon?: ReactNode; actions?: ReactNode
   /** The panel's explainer in `lib/explainers.ts` (the "?" at its top right), or false for one that is only a notice
    *  (an error, a stopped view) with nothing to read. */
   help: string | false
   children: ReactNode; className?: string; bodyClassName?: string
+  /** The panel's accessible name while it is a dialog over the page (a graph filling the window). */
+  dialog?: string
 }) {
   return (
-    <section className={cn('panel flex min-h-0 min-w-0 flex-col', className)}>
+    <section role={dialog ? 'dialog' : undefined} aria-label={dialog} className={cn('panel flex min-h-0 min-w-0 flex-col', className)}>
       {(title || actions) && (
         <header className="flex items-center gap-2 border-b border-line px-3.5 py-2">
           {icon && <span className="text-ink-faint">{icon}</span>}
