@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""threadbench's simulated owner (theseus-l7z1): the one policy every threads arm (A1, A1n, A1p, A2) follows when the
+"""threadbench's simulated owner (theseus-l7z1): the one policy every threads arm (A1, A1n, A2; A1p is not measurable) follows when the
 product asks something of its owner. It is the owner's side of the experiment, not a tuned helper: it is the same
 for every arm, it is written before any run, and it reads only what a person at the keyboard knows of their own
 message (its stream, its role, whether the stream has begun). It never reads a probe, an oracle, a fact, or a
