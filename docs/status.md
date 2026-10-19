@@ -68,7 +68,8 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
     `executions` are gone, and an old config key fails naming the new one); the cockpit, Discord, the TUI and the CLI say
     the same words.
   - **A floor off models of restricted origin.** `[privacy] sensitive_names` is one list that the route's data question,
-    the start's pack check and a floor read: a turn that names one never reaches a model of `cn` or unknown origin.
+    the start's pack check and a floor read: a turn that names one reaches only a model of US origin (an allowlist
+    since v1 patch1; `cn`, `eu` and unknown origins are refused).
     Self-improvement (RSI loop 1's builds, scorer and pattern miner) is built, and on since 2026-10-18 at 12:25.
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
@@ -446,6 +447,13 @@ earliest. The spine's last rows (26b, 26c and 35b) run beside it. This
 pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last features, RSI loop 1 and the benchmark rerun.
 
 ## Recently landed
+
+- **2026-10-19 (night): v1 patch1's data and routing lane** (theseus-xs5ah, theseus-a1wvq, theseus-gasov):
+  `[privacy] sensitive_names` go only to models of US origin, an allowlist that fails closed beneath the China-origin
+  block; a conversation's turn the route placed asks a checkpoint when its loops keep failing, and moves up, as a task
+  does; `route.v7` rewords Jev's data question (content, not the place; `private` needs a sign; work whose owner the
+  message does not show is `unclear`) and asks a new `personal` question, whose yes warns the owner by DM and holds
+  nothing.
 
 - **2026-10-18 (evening): the v1 cut** (theseus-pngho, theseus-zlakq, theseus-e6wm8): the README rewritten with the
   six features first and the v1 numbers, [how Theseus is developed](development.md), the workspace version 1.0.0, and
