@@ -1550,11 +1550,12 @@ max_switches = 2                        # moves per task, up or down
 # [routing.data]
 # open_topics = []                      # e.g. an open-source project of yours
 
-# Sensitive names (theseus-oejh3): organisations, clients, projects and people whose matter
-# never goes to a model of restricted origin (`cn` or `unknown` in the catalog). A message
-# that names one is read by Jev as private, runs on a profile of unrestricted origin (or on
-# none: the turn then ends before any model call), and every request to a restricted model
-# is checked for the names again, so it fails closed. Matching is case-insensitive and on
+# Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
+# whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any
+# model the catalog cannot place) are all refused. A message that names one is read by Jev as
+# private, runs on a profile of US origin (or on none: the turn then ends before any model
+# call), and every request to a model of another origin is checked for the names again, so
+# it fails closed. Matching is case-insensitive and on
 # whole words, a name of several words as a run of them: `bighat` matches "BigHat's
 # plan" and "bighat-internal" and not "bighatter" or "bighatbio" (so `bighatbio` is listed
 # for bighatbio.com), and `neuron-utils` matches as a unit, never the word "neuron". List

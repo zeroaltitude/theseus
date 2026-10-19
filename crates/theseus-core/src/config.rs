@@ -1744,6 +1744,16 @@ impl Config {
         p.expect("the implicit provider").api_base = "https://api.z.ai/api/anthropic".into();
     }
 
+    /// A test's `[model]` served from a host the operator vouches is of EU
+    /// origin (theseus-xs5ah).
+    #[cfg(test)]
+    pub(crate) fn serve_default_from_eu(&mut self) {
+        let p = self.resolved.providers.get_mut("anthropic");
+        let p = p.expect("the implicit provider");
+        p.api_base = "https://api.example.eu/anthropic".into();
+        p.origin = Some(crate::catalog::ModelOrigin::Eu);
+    }
+
     /// Every profile by name, with the implicit `default` synthesized from
     /// `[model]` unless `[profiles.default]` overrides it.
     pub fn all_profiles(&self) -> &BTreeMap<String, ProfileConfig> {

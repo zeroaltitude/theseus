@@ -138,8 +138,8 @@ pub enum Reason {
     /// Two agreeing verdicts moved the session back down to its base
     /// (theseus-p8dy).
     StepDown,
-    /// The message names a sensitive name and the turn's profile was of
-    /// restricted origin, so the `[model]` default runs (theseus-oejh3).
+    /// The message names a sensitive name and the turn's profile was not of
+    /// US origin, so the `[model]` default runs (theseus-oejh3, theseus-xs5ah).
     DataGate,
     /// A task's checkpoint verdict would move it up, but it has made its
     /// `[routing.task_checkpoints] max_switches` moves (theseus-ypnxt.9).

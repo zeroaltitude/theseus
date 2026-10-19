@@ -1,7 +1,8 @@
-//! `[privacy]` (theseus-oejh3): the one list of names whose matter never goes
-//! to a model of restricted origin. Route.v6's `data` question reads it as the
-//! private names, the pack-text check at start reads it, and a floor keeps a
-//! turn that names one off models whose origin is `cn` or `unknown`. The
+//! `[privacy]` (theseus-oejh3): the one list of names whose matter goes only
+//! to a model of US origin (theseus-xs5ah). Route.v6's `data` question reads it
+//! as the private names, the pack-text check at start reads it, and a floor
+//! keeps a turn that names one off models of any other origin, `cn`, `eu` or
+//! `unknown` (`ModelOrigin::cleared_for_sensitive`). The
 //! matcher is `theseus_judge::names`. Every key has a default, so an owner's
 //! config names none unless it differs.
 //!

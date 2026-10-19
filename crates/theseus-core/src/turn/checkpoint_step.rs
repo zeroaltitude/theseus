@@ -350,7 +350,7 @@ impl TurnRunner {
     /// At a loop boundary: the answer of the checkpoint in flight, if it has
     /// come. A verdict is recorded, and a move is made now, so the loop about
     /// to run is on the new model. A `Failure` is the data floor's: no
-    /// profile of unrestricted origin is left to run the task on.
+    /// profile of US origin is left to run the task on.
     pub(super) fn checkpoint_apply<'a>(
         &self,
         t: &mut Turn<'a>,

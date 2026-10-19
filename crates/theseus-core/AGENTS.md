@@ -1452,12 +1452,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
     several words as a run of them). It is route.v6's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
     `private_topics` key is refused), a message that hits one makes the verdict's `data` answer `private` at 1.0 in band `Act`
-    (`judge::inbound::verdict`), the route skips every profile of restricted origin for that turn (`route_profiles(true)`; none
+    (`judge::inbound::verdict`), the route skips every profile not of US origin for that turn (`route_profiles(true)`; none
     left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint
-    refuses a request to a restricted model that holds one in any string of its system, messages or tools, before a byte is
+    refuses a request to a model not of US origin that holds one in any string of its system, messages or tools, before a byte is
     sent (`data_gate::guard`, applied to every provider in `Core::build`; with the list empty nothing is wrapped). At start the
     embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
-    naming pack and count, never a name). Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+    naming pack and count, never a name). The origin rule is an allowlist (theseus-xs5ah, the owner: such data "must be routed
+    to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
+    `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
+    model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

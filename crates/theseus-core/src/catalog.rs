@@ -76,9 +76,21 @@ pub enum ModelOrigin {
     Unknown,
 }
 
+/// The origins a request that names one of `[privacy] sensitive_names` may go
+/// to (theseus-xs5ah, the owner: such data "must be routed to us-based
+/// models"). An allowlist, so an origin not listed here, `unknown` included,
+/// is refused.
+const SENSITIVE_ORIGINS: [ModelOrigin; 1] = [ModelOrigin::Us];
+
 impl ModelOrigin {
     pub fn restricted(self) -> bool {
         matches!(self, ModelOrigin::Cn | ModelOrigin::Unknown)
+    }
+
+    /// Whether a model of this origin may be sent the sensitive names: never
+    /// a restricted one, and then only an origin on the allowlist.
+    pub fn cleared_for_sensitive(self) -> bool {
+        !self.restricted() && SENSITIVE_ORIGINS.contains(&self)
     }
 }
 
@@ -1492,6 +1504,17 @@ mod tests {
         }
         assert!(ModelOrigin::Unknown.restricted() && !ModelOrigin::Eu.restricted());
         assert_eq!(ModelOrigin::default(), ModelOrigin::Unknown);
+    }
+
+    /// The sensitive names go only to a model of US origin (theseus-xs5ah): an
+    /// allowlist, so `eu` is refused as well as the restricted `cn` and
+    /// `unknown`, and an origin added later is refused until it is listed.
+    #[test]
+    fn only_a_us_model_is_cleared_for_sensitive_names() {
+        assert!(ModelOrigin::Us.cleared_for_sensitive());
+        for o in [ModelOrigin::Eu, ModelOrigin::Cn, ModelOrigin::Unknown] {
+            assert!(!o.cleared_for_sensitive(), "{o:?}");
+        }
     }
 
     /// A new model's row without `origin` is unknown, so restricted; the

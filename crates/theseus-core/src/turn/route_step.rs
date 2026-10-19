@@ -82,8 +82,8 @@ pub(super) struct RouteState {
     pub(super) steer: Option<Steering>,
     /// The message's content words, for a correction to find it by.
     pub(super) words: Vec<String>,
-    /// The message names one of `[privacy] sensitive_names`: a profile of
-    /// restricted origin is unusable for the turn (`data_step.rs`).
+    /// The message names one of `[privacy] sensitive_names`: a profile not of
+    /// US origin is unusable for the turn (`data_step.rs`).
     pub(super) sensitive: bool,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
@@ -286,8 +286,8 @@ impl TurnRunner {
     /// provider is built, its key settled (or not on the board), and its
     /// model priced.
     ///
-    /// With `sensitive`, a profile of restricted origin is unusable
-    /// (`data_gate`): routing then picks the next usable one (theseus-oejh3).
+    /// With `sensitive`, a profile not of US origin is unusable (`data_gate`):
+    /// routing then picks the next usable one (theseus-oejh3, theseus-xs5ah).
     pub(super) fn route_profiles(&self, sensitive: bool) -> routing::Profiles {
         let states = self.secrets.states();
         self.cfg
@@ -311,7 +311,7 @@ impl TurnRunner {
                     Some("key")
                 } else if entry.is_none() {
                     Some("unpriced")
-                } else if sensitive && self.restricted_profile(name) {
+                } else if sensitive && self.uncleared_profile(name) {
                     Some("data_gate")
                 } else {
                     None

@@ -55,8 +55,9 @@ pub fn private(m: &Motif) -> bool {
 
 /// The data rule: `Err(why)` when `profile`'s model may not write or check a
 /// motif, by the profile's **origin** (`Config::profile_origin`). A bench-born
-/// motif may use any model; a private one only an unrestricted origin, and a
-/// profile that does not resolve is unknown, so refused.
+/// motif may use any model; a private one only a model of US origin
+/// (`ModelOrigin::cleared_for_sensitive`, theseus-xs5ah), and a profile that
+/// does not resolve is unknown, so refused.
 pub fn data_rule(
     cfg: &Config,
     catalog: &Catalog,
@@ -67,10 +68,10 @@ pub fn data_rule(
         return Ok(());
     }
     let origin = cfg.profile_origin(profile, catalog);
-    if origin.restricted() {
+    if !origin.cleared_for_sensitive() {
         return Err(format!(
             "the motif is drawn from private sessions and profile {profile:?} is of {origin:?} \
-             origin: a private motif is written only on a model of unrestricted origin"
+             origin: a private motif is written only on a model of US origin"
         ));
     }
     Ok(())

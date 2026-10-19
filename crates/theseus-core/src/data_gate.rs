@@ -1,15 +1,16 @@
-//! The floor under the sensitive names (theseus-oejh3): a request to a model
-//! of restricted origin (`cn` or `unknown`, `ModelOrigin::restricted`) that
-//! holds one of `[privacy] sensitive_names` is refused before a byte is sent.
+//! The floor under the sensitive names (theseus-oejh3, theseus-xs5ah): a
+//! request that holds one of `[privacy] sensitive_names` goes only to a model
+//! of US origin (`ModelOrigin::cleared_for_sensitive`, an allowlist), so one
+//! to a model of any other origin, `cn`, `eu` or `unknown`, is refused before
+//! a byte is sent.
 //!
 //! One place covers every caller (the turn, compaction, keep-warm, replay, the
 //! background calls): each provider is wrapped once, when the core is built
 //! ([`guard`]). With the list empty nothing is wrapped, so a plain turn does
-//! no work here; a request to an unrestricted model is passed on without a
-//! look at its text. The matcher is `theseus_judge::names`; the walk is over
-//! each JSON string value of the system blocks, the messages and the tool
-//! definitions, never the serialized body, whose escapes (`\n`) would glue
-//! words together.
+//! no work here; a request to a cleared model is passed on without a look at
+//! its text. The matcher is `theseus_judge::names`; the walk is over each JSON
+//! string value of the system blocks, the messages and the tool definitions,
+//! never the serialized body, whose escapes (`\n`) would glue words together.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -36,17 +37,18 @@ struct Gated {
 }
 
 impl Gated {
-    fn restricted(&self, model: &str) -> bool {
-        origin_of(&self.api_base, self.vouched, model, self.catalog.get(model)).restricted()
+    fn cleared(&self, model: &str) -> bool {
+        origin_of(&self.api_base, self.vouched, model, self.catalog.get(model))
+            .cleared_for_sensitive()
     }
 
     /// The refusal, when the request may not go to this model.
     fn refuse(&self, req: &ProviderRequest) -> Option<anyhow::Error> {
-        if !(self.restricted(&req.model) && names_in(req, &self.names)) {
+        if self.cleared(&req.model) || !names_in(req, &self.names) {
             return None;
         }
         let message = "this request names something in `[privacy] sensitive_names`, and its \
-                       model is of restricted origin; nothing was sent";
+                       model is not of US origin; nothing was sent";
         Some(
             ProviderError::DataGate {
                 message: message.into(),
@@ -192,6 +194,23 @@ mod tests {
         let named = request("claude-sonnet-5-5", "Draft the Examplecorp's budget memo.");
         assert_eq!(send(&us, &named).await, Ok(()));
         assert_eq!(sent.requests().len(), 1, "an unrestricted model is sent it");
+    }
+
+    /// A model of EU origin is not on the allowlist (theseus-xs5ah): a
+    /// provider the operator vouches `eu` for is refused a named request with
+    /// nothing sent, though the China-origin block alone would pass it; a
+    /// request that names nothing still goes.
+    #[tokio::test]
+    async fn a_model_of_eu_origin_is_never_sent_a_sensitive_name() {
+        let (mut eu, sent) = gated("https://api.example.eu/anthropic", &["Examplecorp"]);
+        eu.vouched = Some(ModelOrigin::Eu);
+        assert!(!ModelOrigin::Eu.restricted(), "not blocked as China origin");
+        let named = request("claude-sonnet-5-5", "Draft the Examplecorp's budget memo.");
+        assert_eq!(send(&eu, &named).await, Err("data_gate".into()));
+        assert!(sent.requests().is_empty(), "nothing was sent");
+        let plain = request("claude-sonnet-5-5", "Draft a budget memo.");
+        assert_eq!(send(&eu, &plain).await, Ok(()));
+        assert_eq!(sent.requests().len(), 1);
     }
 
     /// A name in a tool result, a tool definition or the system is found, and a

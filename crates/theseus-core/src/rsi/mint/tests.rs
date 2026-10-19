@@ -285,3 +285,19 @@ fn a_private_motif_refuses_a_china_origin_profile() {
     assert!(super::data_rule(&cfg, &catalog, "assistant", false).is_ok());
     assert!(super::data_rule(&cfg, &catalog, "glm53", false).is_ok());
 }
+
+/// A private motif is written only on a model of US origin (theseus-xs5ah):
+/// a profile on a host vouched `eu` is refused, though it is not restricted.
+#[test]
+fn a_private_motif_refuses_an_eu_origin_profile() {
+    let eu = CN_PROXY
+        .replace("api.deepseek.com", "api.example.eu")
+        .replace("origin = \"cn\"", "origin = \"eu\"");
+    let (cfg, _) = crate::Config::parse(&eu).unwrap_or_else(|e| panic!("{e:#}"));
+    let catalog = crate::catalog::Catalog::builtin();
+    let origin = cfg.profile_origin("assistant", &catalog);
+    assert_eq!(origin, crate::catalog::ModelOrigin::Eu);
+    let e = super::data_rule(&cfg, &catalog, "assistant", true).unwrap_err();
+    assert!(e.contains("Eu"), "{e}");
+    assert!(super::data_rule(&cfg, &catalog, "assistant", false).is_ok());
+}
