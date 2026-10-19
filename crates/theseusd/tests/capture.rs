@@ -70,7 +70,7 @@ impl Rig {
             // directive.v1 alone at the inbound point: its batch with the
             // other inbound packs is theseus-core's tests_capture.
             let packs = table(j, "packs");
-            for p in ["classify.v3", "role.v1", "route.v6"] {
+            for p in ["classify.v3", "role.v1", "route.v7"] {
                 let mut off = toml::Table::new();
                 off.insert("rung".into(), "off".into());
                 packs.insert(p.into(), off.into());

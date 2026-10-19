@@ -1,4 +1,4 @@
-//! route.v6's `data` question as the core reads it (theseus-a1wvq.2): the
+//! route.v7's `data` question as the core reads it (theseus-a1wvq.2): the
 //! verdict carries Jev's answer with its band, and a message that names a
 //! sensitive name makes it `private` (theseus-oejh3).
 
@@ -48,7 +48,7 @@ fn judgment(answers: Vec<AnswerRecord>, drift: bool) -> Judgment {
 
 #[test]
 fn the_acting_route_pack_is_v6() {
-    assert_eq!(ROUTE_PACK, "route.v6");
+    assert_eq!(ROUTE_PACK, "route.v7");
 }
 
 #[test]

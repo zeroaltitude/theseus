@@ -1,5 +1,5 @@
 //! A task's base from its brief (theseus-ypnxt.7). A task starts with no
-//! message of its own, so the verdict route.v6 gives its brief picks the model
+//! message of its own, so the verdict the route pack gives its brief picks the model
 //! it runs on: the class's first usable profile under the place's cap, by
 //! [`decide`]'s rule with nothing to keep warm and nothing held.
 //!

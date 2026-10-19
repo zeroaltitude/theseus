@@ -521,6 +521,8 @@ mod tests_tool_words;
 #[cfg(test)]
 mod tests_trim_tokens;
 #[cfg(test)]
+mod tests_turn_checkpoint;
+#[cfg(test)]
 mod tests_turn_effort;
 #[cfg(test)]
 mod tests_turn_reserve;

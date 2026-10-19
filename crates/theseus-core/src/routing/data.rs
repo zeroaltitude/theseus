@@ -1,11 +1,12 @@
-//! route.v6's `data` question (theseus-a1wvq): may what the message carries go
-//! to a model provider outside the owner's trust? Read here, acted on by
+//! The route pack's `data` question (route.v6 on, theseus-a1wvq; reworded in
+//! v7): may what the message carries go to a model provider outside the
+//! owner's trust? Read here, acted on by
 //! nothing yet; a message that names a sensitive name (`[privacy]
 //! sensitive_names`) is answered `private` by code (theseus-oejh3).
 
 use theseus_judge::band::Band;
 
-/// route.v6's question, by its id in the pack.
+/// The question, by its id in the pack.
 pub const QUESTION: &str = "data";
 
 /// Jev's answer to it: `open`, `private` or `unclear`, how sure, and the band

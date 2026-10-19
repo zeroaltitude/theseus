@@ -1,7 +1,7 @@
 //! A task's model from its brief (theseus-ypnxt.7). A task the owner starts
 //! with no profile has no message of its own, so its first turn would run on
 //! its parent's model whatever the brief says. Instead its first turn asks
-//! route.v6 about the brief (that one request and no other pack) and waits
+//! the route pack about the brief (that one request and no other pack) and waits
 //! for the verdict as a conversation's first message does: the class's first
 //! usable profile, under the place's cap, becomes the task's base
 //! ([`routing::brief::brief_base`]). No verdict in time, a verdict under its
@@ -36,7 +36,7 @@ pub(crate) fn mark(task_session: &str) -> anyhow::Result<NewRecord> {
 }
 
 impl TurnRunner {
-    /// A task's first turn, marked for it, asks route.v6 about the brief once
+    /// A task's first turn, marked for it, asks the route pack about the brief once
     /// its node is on the record; the verdict's channel is kept for the first
     /// compile, as for a message.
     pub(super) fn brief_point(&self, t: &mut Turn<'_>) {

@@ -1,5 +1,5 @@
 //! `[routing.data]` (theseus-a1wvq): the owner's data rule. For now only the
-//! names Jev reads with a message, as route.v6's `data_names`. The private
+//! names Jev reads with a message, as the route pack's `data_names`. The private
 //! ones are `[privacy] sensitive_names` (theseus-oejh3), not a list here.
 
 use super::privacy::PrivacyConfig;

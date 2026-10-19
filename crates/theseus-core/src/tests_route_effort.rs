@@ -78,11 +78,11 @@ async fn a_sure_effort_reaches_the_request_of_a_model_that_takes_it() {
     let route = jev
         .seen()
         .into_iter()
-        .find(|s| s.body["questions"].get("route.v6/mode").is_some())
+        .find(|s| s.body["questions"].get("route.v7/mode").is_some())
         .expect("the route pack's request");
     assert!(
         route.body["questions"]
-            .get("route.v6/reply_effort")
+            .get("route.v7/reply_effort")
             .is_some(),
         "the effort, in the same request: {}",
         route.body["questions"]

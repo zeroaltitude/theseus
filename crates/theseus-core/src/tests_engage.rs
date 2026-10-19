@@ -159,8 +159,8 @@ async fn the_persona_question_adds_no_call() {
             .collect()
     };
     let (a, b) = (asked(&with), asked(&without));
-    assert!(a.contains(&"route.v6/persona".to_string()), "{a:?}");
-    assert!(a.contains(&"route.v6/mode".to_string()));
+    assert!(a.contains(&"route.v7/persona".to_string()), "{a:?}");
+    assert!(a.contains(&"route.v7/mode".to_string()));
     assert!(
         !b.iter().any(|q| q.ends_with("/persona")),
         "no personas, no question: {b:?}"

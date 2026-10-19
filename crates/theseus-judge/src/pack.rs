@@ -37,8 +37,9 @@ use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` and `classify.v3`
-/// (the `thread` and `offer_task` questions, theseus-rha2 and theseus-bh3t.5), and `route.v5` and `route.v6`
-/// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2). Older versions
+/// (the `thread` and `offer_task` questions, theseus-rha2 and theseus-bh3t.5), and `route.v5` to `route.v7`
+/// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
+/// theseus-a1wvq). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -59,6 +60,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ),
     ("route.v5", include_str!("../packs/route.v5.toml")),
     ("route.v6", include_str!("../packs/route.v6.toml")),
+    ("route.v7", include_str!("../packs/route.v7.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
@@ -1263,6 +1265,18 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v7",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "data Choice [open private unclear]",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
+                    "persona Choice from Personas + [prior] only_when Personas",
+                    "reply_effort Choice decides [low medium high xhigh max unclear]",
+                    "seal Choice [yes no] only_when ThreadNow",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1329,6 +1343,11 @@ mod tests {
             "route.v6 keeps v5's rules"
         );
         assert_eq!(
+            rules("route.v7"),
+            rules("route.v6"),
+            "route.v7 keeps v6's rules"
+        );
+        assert_eq!(
             rules("classify.v2"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong thread".into(),
@@ -1365,8 +1384,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            18,
-            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 and v6, \
+            19,
+            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
              citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1 and directive.v1"
         );
         for (file, text) in six {
@@ -1525,6 +1544,45 @@ mod tests {
             v6.description
         );
         assert!(v6.description.contains("outside the owner's trust"));
+    }
+
+    /// route.v7 (theseus-a1wvq) is route.v6 word for word, but for the `data`
+    /// question's wording: the same id, options, thresholds and no-match, so
+    /// what reads the answer reads it unchanged; `private` asks for a sign of
+    /// private matter, and work whose owner the message does not show is
+    /// `unclear`, which fails closed as `private` does.
+    #[test]
+    fn route_v7_is_v6_word_for_word_but_the_data_wording() {
+        let (v6, v7) = (by_name("route.v6").unwrap(), by_name("route.v7").unwrap());
+        for q in ["mode", "reply_effort", "persona", "seal"] {
+            assert_eq!(v7.question(q), v6.question(q), "{q} word for word");
+        }
+        let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&v7), ids(&v6));
+        let (d6, d7) = (v6.question("data").unwrap(), v7.question("data").unwrap());
+        assert_ne!(d7.instructions, d6.instructions);
+        assert_eq!(
+            (&d7.decides, &d7.kind, &d7.thresholds, &d7.no_match),
+            (&d6.decides, &d6.kind, &d6.thresholds, &d6.no_match)
+        );
+        let opt = |q: &QuestionDef, id: &str| {
+            q.options.iter().find(|o| o.id == id).unwrap().means.clone()
+        };
+        let options = |q: &QuestionDef| {
+            q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(options(d7), options(d6));
+        assert!(d7.instructions.contains("not by the place"));
+        assert!(opt(d7, "open").contains("self-contained exercise"));
+        assert!(opt(d7, "unclear").contains("whose owner it does not show"));
+        assert!(!opt(d7, "private").contains("work for a company"));
+        assert_eq!(v7.rollback, v6.rollback, "both rules, word for word");
+        assert_eq!(v7.version, 7);
+        assert_eq!(
+            (v7.point, v7.builder, v7.baseline, v7.action, v7.state_cap_tokens),
+            (v6.point, v6.builder, v6.baseline, v6.action, v6.state_cap_tokens)
+        );
+        assert_eq!(v7.description, v6.description);
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack

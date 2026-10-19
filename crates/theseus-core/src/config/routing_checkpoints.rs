@@ -1,5 +1,5 @@
 //! `[routing.task_checkpoints]` (theseus-ypnxt.9): a running task's model
-//! ranges. At a loop boundary a task asks route.v6 about its recent state
+//! ranges. At a loop boundary a task asks the route pack about its recent state
 //! when it keeps failing, makes no progress, changes phase, or is about to
 //! write its report, and the answer moves it up, or back down to its base, by
 //! routing's own rules (`routing::checkpoint`). On by default; `enabled = false`

@@ -1374,7 +1374,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     leaves it, and never below the base (`routing::step_down`). The owner's correction passes no base, so this path
     never steps it down; a session an owner's correction raised is not told apart from Jev's (no stored field).
     **A task's base from its brief** (theseus-ypnxt.7; `turn/brief_step.rs`, `routing/brief.rs`): a task the owner starts
-    with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks route.v6 alone about its
+    with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks the route pack alone about its
     brief on its first turn (`JudgeService::at_brief`), waits for it as a message does, and `brief_base` makes the class's
     first usable profile, under the cap, the task's base (`last_target`, no `routed`), a detour's class included; no verdict
     in time, under the bar, or no usable profile leaves the parent's. A profile asked for pins. The row says `source: task brief`.
@@ -1383,7 +1383,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Tests: `tests_route_down.rs`, `routing::tests`.
     **A running task's checkpoints** (theseus-ypnxt.9; `turn/checkpoint_step.rs`, `routing/checkpoint.rs`, `[routing.task_checkpoints]`
     in `config/routing_checkpoints.rs`; on by default): a task started with no profile (the brief's mark, `brief_step::marked`; a
-    pinned one has no state and asks nothing) asks route.v6 about its recent state at a loop's end (`checkpoint_ended`, after
+    pinned one has no state and asks nothing), and since theseus-a1wvq a conversation's turn the route placed (not the owner's
+    pin, not a detour: `placed_by_route`; its base is where the route put it, its text the message's first characters, its rows'
+    source `turn checkpoint`), asks the route pack about its recent state at a loop's end (`checkpoint_ended`, after
     `advance`) when it fails `failing_streak` loops in a row (a result `ResultStatus::is_error` marks), makes no progress for
     `quiet_loops`, changes its current plan step, or marks the last open one done (`Tally`, pure), at most one verdict per
     `min_loops_between` loops and one in flight, never waited on: the answer is read with `try_recv` at the first later loop
@@ -1450,7 +1452,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
   - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `data_gate.rs`, `turn/data_step.rs`, `pack_names.rs`): `[privacy]
     sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
-    several words as a run of them). It is route.v6's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
+    several words as a run of them). It is the route pack's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
     `private_topics` key is refused), a message that hits one makes the verdict's `data` answer `private` at 1.0 in band `Act`
     (`judge::inbound::verdict`), the route skips every profile not of US origin for that turn (`route_profiles(true)`; none
     left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint

@@ -56,11 +56,11 @@ pub const OFFER_QUESTION: &str = "offer_task";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v6` since theseus-a1wvq.2 (2026-10-17), v5's
-/// questions and the `data` question, live at once with route.v1's rollback
-/// rules; `route.v5` to `route.v1` stay embedded for their history, and the
-/// ladder never runs them again.
-pub const ROUTE_PACK: &str = "route.v6";
+/// The acting route pack: `route.v7` since theseus-a1wvq (2026-10-19), v6's
+/// questions with the `data` question reworded, live at once with route.v1's
+/// rollback rules; `route.v6` and `route.v5` stay embedded for their history,
+/// and the ladder never runs them again.
+pub const ROUTE_PACK: &str = "route.v7";
 /// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
@@ -130,8 +130,8 @@ pub struct Answered {
     pub cost_micros: u64,
 }
 
-/// What a point asks: every inbound pack, route.v6 alone for a task's brief,
-/// or route.v6 alone for a running task's checkpoint, which is charged to the
+/// What a point asks: every inbound pack, the route pack alone for a task's brief,
+/// or the route pack alone for a running task's checkpoint, which is charged to the
 /// task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Point {
@@ -221,7 +221,7 @@ pub struct Inbound {
     /// and `[standing] capture` is on: `directive.v1` is asked about it.
     pub capture: bool,
     /// The operator's names for open and private matter (`[routing.data]`),
-    /// carried to route.v6's `data` question.
+    /// carried to the route pack's `data` question.
     pub data_names: DataNames,
 }
 
@@ -299,7 +299,7 @@ impl JudgeService {
         self.inbound_early_of(msg, Point::All)
     }
 
-    /// A task's brief, whose first turn has no message of its own: route.v6
+    /// A task's brief, whose first turn has no message of its own: the route pack
     /// alone judges it (no `classify`, no `role`), so the verdict can pick
     /// the task's model (theseus-ypnxt.7, `turn/brief_step.rs`).
     pub fn at_brief(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
@@ -307,7 +307,7 @@ impl JudgeService {
     }
 
     /// A running task's checkpoint (theseus-ypnxt.9, `turn/checkpoint_step.rs`):
-    /// route.v6 alone judges `msg.text`, the task's recent state, as it
+    /// the route pack alone judges `msg.text`, the task's recent state, as it
     /// judges a brief. What the call settles at is the task's, charged to its
     /// execution when it lands ([`charge`]); the verdict's cost rides
     /// `Answered`. A message with no node of its own: `msg.node_id` is empty.

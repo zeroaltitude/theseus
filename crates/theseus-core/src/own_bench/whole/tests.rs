@@ -521,7 +521,7 @@ fn plant_route(w: &World, turn: &str, mode: &str) -> String {
     ];
     let j = judgment(
         "jdg_route_whole",
-        "route.v6",
+        "route.v7",
         vec![choice("mode", mode, 0.95, &options)],
         json!({"session": w.sid, "turn": turn}),
         10,
@@ -629,7 +629,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     );
     assert_eq!(
         whole.label.as_deref(),
-        Some("route.v6 mode=routine_coding on jdg_route_whole")
+        Some("route.v7 mode=routine_coding on jdg_route_whole")
     );
     let l = labels(&w);
     assert_eq!(l.len(), 1);
@@ -637,7 +637,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     assert_eq!(l[0].data["question"], "mode");
     assert_eq!(l[0].data["label"], "routine_coding");
     assert_eq!(l[0].data["weight"], crate::learning::REPLAY_WEIGHT);
-    assert_eq!(l[0].data["pack"], "route.v6");
+    assert_eq!(l[0].data["pack"], "route.v7");
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();
