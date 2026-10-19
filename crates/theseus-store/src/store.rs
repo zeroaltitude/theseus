@@ -667,7 +667,11 @@ const BULK: usize = 4096;
 /// `standing.proposal_answered`.
 /// 45 = projects (theseus-n5ui2): a TASK record's `kind` (`project` or
 /// `milestone`), `due_at_ms` and `review`, and a session's `project`.
-const MANIFEST_FORMAT: u32 = 45;
+/// 46 = the kinds table's optional fields (theseus-e3mjc): a kind row's
+/// `retired_ms`, `examples` and `mined_from`, in `onto:kind:` META records,
+/// and the origins `jev`, `sweep` and `dream` in a row's `assigned_by` and a
+/// list entry's `origin`; the ledger kind `ontology.undo`.
+const MANIFEST_FORMAT: u32 = 46;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
