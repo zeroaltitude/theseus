@@ -32,7 +32,8 @@ browser, and it does real work with real tools: it edits code, runs commands, re
 the background. It is one Rust daemon and a small client. It calls Anthropic's Claude models directly, and any
 model served through the same API.
 
-Six things set it apart. Each one below says what you see, and how we know it works.
+Ten things set it apart. Each one below says what you see, and how we know it works. The first six are measured.
+The last four are newer: they are on, and each one says plainly where it is still rough.
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
@@ -112,17 +113,88 @@ bisected, and reverted (`crates/theseus-core/src/rsi/revert/tests.rs`). The buil
 cannot see the held-out exams that score it (`crates/theseusd/tests/self_build.rs`).
 [The plan](docs/design/rsi-plan.md).
 
+## 7. Talk to it
+
+**What you see.** Go into a Discord voice channel, type `/join`, and talk. It answers aloud, in the voice of the
+persona that is speaking, one sentence at a time, making the next sentence's audio while the current one plays. Talk
+over it and it stops. Say "go on" and it starts the cut-off sentence again. In a private call, when a task has a
+question, it reads the question to you at the next pause. Say "approve", "stop it" or "pause it", and that counts
+exactly as pressing the button would. Speech is paid for out of the same budget as everything else.
+
+**Proof.** Voice has been on in the owner's Discord since October 3. In a four-minute call on October 5 it
+transcribed whole sentences, and when the owner cut in and then said "please continue", it carried on. In the v1
+check (2026-10-18) it joined, transcribed the owner, and spoke long answers that sounded right, and it counted two
+barge-ins, one of them resumed. The same check found what still breaks: in one six-minute call it heard only a few
+seconds of what was said, some lines came out clipped, and its short greeting clips. Voice is new and being hardened,
+and [the status page](docs/status.md#on-and-still-being-hardened) tracks the fixes. Its tests drive calls with
+scripted audio. A barge-in stops playback within 300 ms (`crates/theseus-voice/tests/pipeline.rs`), and a spoken
+"approve" settles a task's question as the owner (`crates/theseus-discord/src/runtime/voice/tests_tasks.rs`).
+
+## 8. Separate lines of work, each with its own context
+
+**What you see.** Make a thread for each thing you are working on: `theseus thread new site-redesign --topic web`.
+Each thread is a session of its own, with its own card, notes, and context, so two threads can run at once without
+mixing them up. You don't have to say which thread a message is for. A router places it: it uses the repos, branches
+and paths the thread is working on, which thread you were just in, and Jev's answer. When it is unsure, it asks in one
+line, and it offers a new thread rather than making one. The guidance you wrote for a topic comes with every thread on
+that topic. Threads can be paused, sealed, moved, merged and split.
+
+**Proof.** Tests show that each thread opens its own session, that two threads' turns overlap in time, and that a
+thread you name always wins (`crates/theseus-core/src/rpc/tests_threads.rs`, `tests_thread_route.rs`). On 40 scripted
+messages with a scripted Jev, the router puts at least 90% in the right thread and asks about at most 10%. Five
+threads have been live on the owner's daemon since 2026-10-18. A benchmark of the router on the real model is built
+(`bench/threads/`) but has not been run yet.
+
+## 9. Several characters, one memory
+
+**What you see.** Give it more than one persona: a name, an emoji, a speaking voice, and a file that describes its
+character. Bind one to a channel, or start a message with a persona's name, `@name` or `/as name`, and that persona
+answers in the same conversation. Personas are characters of one agent, not separate agents. They share one record
+and one memory, so what you told one, the others know. `theseus persona import` brings another agent's workspace over
+as a persona, and that agent's own past ranks a little higher in recall while its persona is speaking.
+
+**Proof.** Tests check each rule (`crates/theseus-core/src/tests_persona.rs`, `tests_engage.rs`):
+- your persona file replaces the default one whole;
+- who speaks is decided first by the session's own choice, then the channel's, then the default;
+- a task speaks as the persona that started it;
+- switching personas changes no byte of the cached prompt, so the cache still holds.
+
+Five personas are set up on the owner's daemon. For a message that names no persona, Jev already picks one, but only in
+shadow: its pick is recorded, and the persona that answered last keeps answering until the pick is shown to be right.
+The personality exam (`bench/personality/`) is built and not yet published.
+
+## 10. It asks less as it learns you
+
+**What you see.** Once a week it reads its record for commands you approved again and again and never turned down:
+20 approvals of the same command (say `cargo test`) in 7 days. It offers them back to you on one card in your DM. Say
+yes, and that command runs with a notice instead of a question. Press "should have asked" on a notice, and it asks
+again, for good. It never gives itself anything. A grant never covers a shell, a hard limit, or a shared channel,
+and anyone can revoke one. `theseus policy earned` shows how often it interrupts you, week by week, and how many of
+those questions the grants saved.
+
+**Proof.** Tests walk each step (`crates/theseus-core/src/policy/earned/tests_find.rs`,
+`crates/theseus-core/src/tests_m3/earned.rs`):
+- twenty approvals make an offer, and nineteen don't;
+- a yes from a shared channel doesn't count;
+- a granted command runs with a notice, and the grant survives a restart;
+- "not this one" is remembered;
+- "should have asked" ends the grant.
+
+It is on in the owner's daemon and counting: 29 questions in 58 active hours over four weeks, too few repeats for a
+first card yet.
+
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
 ## How it works
 
 - **One agent over one graph.** Every message, tool call, result, task, and summary is a node in one store.
-  Personas are views of the same agent, and tasks are sessions of their own, so nothing is copied between agents.
+  Personas are views of the same agent, and tasks and threads are sessions of their own, so nothing is copied
+  between agents.
 - **Judgment in the loop: Jev.** [TypeSafe](https://typesafe.ai)'s Jev answers typed questions (a choice, a score,
   a yes or no) in about a third of a second, for a fraction of a cent. That is cheap enough to sit inside the
   control loop: it picks the model for each message (a thank-you goes to a small model, a hard refactor to a large
-  one), orders what recall puts in front of the model, and flags risky actions. Every judgment is recorded with its
-  probabilities.
+  one), places a message in its thread, orders what recall puts in front of the model, and flags risky actions.
+  Every judgment is recorded with its probabilities.
 - **Context is compiled, not piled up.** Each prompt is built from the graph, and its manifest names every node,
   file, and summary that went in. `theseus why` answers "what was the model shown?"
 - **Linux only, by design.** It is built on the kernel's own machinery (cgroups, namespaces, seccomp, pidfds), with
@@ -143,8 +215,8 @@ These hold whatever the model does:
 
 Theseus is at v1 (version 1.0.0), runs on Linux, and has one daily user. Its weak spots are measured and published
 alongside its wins: [the benchmarks](docs/benchmarks/omnibus.md) say where it loses, and
-**[the status page](docs/status.md)** says what works today and what comes next. That page changes with every
-step; this one doesn't.
+**[the status page](docs/status.md)** says what works today and what comes next, including what is still rough in
+voice, threads, personas and earned autonomy. That page changes with every step; this one doesn't.
 
 **About the name.** Plutarch's ship of Theseus was kept by replacing its planks one at a time as they wore out.
 Theseus is built the same way, in small, reviewed, tested steps, by AI agents under one person's direction. Its
