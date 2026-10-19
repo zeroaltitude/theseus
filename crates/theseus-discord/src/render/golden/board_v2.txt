@@ -100,8 +100,8 @@ ids: tb:o:exe_01J00000000000000000000001 tb:clear tb:quiet tb:new tb:pick
 ⚙️ **Task number 1** `…000001` · fs.edit · step 3 of 5 · $0.42 of ~$1 (limit $2) · ~6 min left · since <t:1789999460:R>
 ids: tb:clear tb:quiet tb:new tb:pick
 
-=== all done: components=14 chars=273
-📋 **Tasks** · ✅ 3 done since you looked
+=== all done: components=14 chars=302
+📋 **Tasks** · ✅ 1 done · ❌ 1 failed · ⛔ 1 cancelled since you looked
 ---
 **✅ Done, not yet seen**
 ✅ **Task number 1** `…000001` · done <t:1789992800:R>

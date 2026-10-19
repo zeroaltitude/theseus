@@ -86,8 +86,14 @@ pub struct Parts<'a> {
     pub links: &'a std::collections::HashMap<String, String>,
 }
 
-/// The header line: the counts, `0`s left out.
-pub fn headline(needs: usize, running: usize, done: usize) -> String {
+/// The header line: the counts, `0`s left out. The tasks that ended are
+/// counted by how, so a failure is never "done": `✅ 2 done · ❌ 1 failed since
+/// you looked`.
+pub fn headline(
+    needs: usize,
+    running: usize,
+    ended: impl IntoIterator<Item = WorkState>,
+) -> String {
     let mut parts = Vec::new();
     if needs > 0 {
         parts.push(format!("{} {needs} needs you", state(WorkState::NeedsYou)));
@@ -95,11 +101,30 @@ pub fn headline(needs: usize, running: usize, done: usize) -> String {
     if running > 0 {
         parts.push(format!("{} {running} running", state(WorkState::Running)));
     }
-    if done > 0 {
-        parts.push(format!(
-            "{} {done} done since you looked",
-            state(WorkState::Done)
-        ));
+    let ended: Vec<WorkState> = ended.into_iter().collect();
+    let mut gone = Vec::new();
+    for (st, word) in [
+        (WorkState::Done, "done"),
+        (WorkState::Failed, "failed"),
+        (WorkState::Cancelled, "cancelled"),
+        (WorkState::Expired, "expired"),
+    ] {
+        let n = ended
+            .iter()
+            .filter(|s| match st {
+                WorkState::Done => !matches!(
+                    s,
+                    WorkState::Failed | WorkState::Cancelled | WorkState::Expired
+                ),
+                _ => **s == st,
+            })
+            .count();
+        if n > 0 {
+            gone.push(format!("{} {n} {word}", state(st)));
+        }
+    }
+    if !gone.is_empty() {
+        parts.push(format!("{} since you looked", gone.join(" · ")));
     }
     if parts.is_empty() {
         "all clear".into()
@@ -257,7 +282,11 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     let [cn, cw, cd, cc, cr, cp] = caps;
     let mut inner = vec![text(format!(
         "📋 **Tasks** · {}{}",
-        headline(p.needs.len(), p.working.len(), p.done.len()),
+        headline(
+            p.needs.len(),
+            p.working.len(),
+            p.done.iter().map(|v| v.state)
+        ),
         match p.quiet_until_ms {
             Some(t) => format!(" · 🔕 quiet until {}", format_args!("<t:{}:t>", t / 1000)),
             None => String::new(),
@@ -800,6 +829,24 @@ mod tests {
             out, golden,
             "THESEUS_GOLDEN=write rewrites it, for a change you mean"
         );
+    }
+
+    /// A task that failed is not "done since you looked": the headline counts
+    /// each way a task ended on its own (theseus-90qqy).
+    #[test]
+    fn a_failed_task_is_not_counted_done() {
+        use WorkState::{Cancelled, Done, Expired, Failed};
+        assert_eq!(
+            headline(0, 0, [Done, Failed]),
+            "✅ 1 done · ❌ 1 failed since you looked"
+        );
+        assert_eq!(
+            headline(1, 2, [Done, Done, Cancelled, Expired, Failed]),
+            "🔴 1 needs you · ⚙️ 2 running · ✅ 2 done · ❌ 1 failed · ⛔ 1 cancelled · ⌛ 1 expired since you looked"
+        );
+        assert_eq!(headline(0, 0, [Failed]), "❌ 1 failed since you looked");
+        assert_eq!(headline(0, 0, [Done]), "✅ 1 done since you looked");
+        assert_eq!(headline(0, 0, []), "all clear");
     }
 
     #[test]
