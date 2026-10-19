@@ -4,7 +4,7 @@
 //! trusted (`private = true` beside `guild_id`), so the forum acts.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,8 +18,8 @@ use theseus_sim::fake_discord::{FakeDiscord, FakeThread, Guild, BOT_ID, DEFAULT_
 use crate::runtime::default_forum::{Stand, BOT_BITS, OWNER_BITS};
 use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 use crate::tests_task_threads::{
-    answers, gate, held, model, open_gate, sleeps, start, task_session, tweak, until, ASK, BUOY,
-    FORUM, REEF,
+    answers, gate, held, model, open_gate, replied, sleeps, start, task_session, tweak, until, ASK,
+    BUOY, FORUM, REEF,
 };
 
 const OPS: u64 = 900_000_000_000_000_011;
@@ -65,11 +65,14 @@ fn tune(c: &mut Config) {
     }];
 }
 
-/// A model that holds the answers of the tasks whose brief holds `mark` for a
-/// second, so that such a task is seen working before it ends.
+/// A model that holds the answers of the tasks whose brief holds `mark` until
+/// the test lets them go (`open_gate`), so that such a task is seen working
+/// before it ends, however loaded the machine (theseus-1dbb5). It is for a
+/// shared place's task, which runs no program to hold it by.
 struct Slow {
     inner: Arc<dyn Provider>,
     mark: &'static str,
+    go: PathBuf,
 }
 
 impl Provider for Slow {
@@ -86,8 +89,8 @@ impl Provider for Slow {
             .first()
             .is_some_and(|m| m.to_string().contains(self.mark));
         Box::pin(async move {
-            if slow {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+            while slow && !self.go.exists() {
+                tokio::time::sleep(Duration::from_millis(25)).await;
             }
             self.inner.stream_message(req, on_delta).await
         })
@@ -122,6 +125,7 @@ async fn rig_in(
             Arc::new(Slow {
                 inner: model(parent, kids(dir)),
                 mark: SKIFF,
+                go: dir.join("go"),
             })
         },
         guild,
@@ -475,12 +479,18 @@ async fn every_task_gets_one_post_across_four_kinds_of_place() {
             start(&[ANCHOR]),
             Scripted::text("Started this."),
         ],
-        |_| {
+        // A task that has ended before its place syncs gets no post, so every
+        // task works until the test lets it go: the private places' by a
+        // program, the shared place's by `Slow` (theseus-1dbb5).
+        |dir| {
             vec![
-                (REEF, answers("Reef charted.")),
-                (BUOY, answers("Buoy painted.")),
+                (REEF, [vec![gate(dir)], answers("Reef charted.")].concat()),
+                (BUOY, [vec![gate(dir)], answers("Buoy painted.")].concat()),
                 (SKIFF, answers("Skiff washed.")),
-                (ANCHOR, answers("Anchor checked.")),
+                (
+                    ANCHOR,
+                    [vec![gate(dir)], answers("Anchor checked.")].concat(),
+                ),
             ]
         },
         &bindings(true, ""),
@@ -506,14 +516,16 @@ async fn every_task_gets_one_post_across_four_kinds_of_place() {
             .is_some_and(|t| !t.surfaces.is_empty())
     })
     .await;
-    for (channel, brief) in [
-        (None, "Reef-chart"),
-        (Some(LAB), "Buoy-paint"),
-        (Some(OPS), "Skiff-wash"),
-        (Some(REEL), "Anchor-check"),
+    for (channel, brief, reply) in [
+        (None, "Reef-chart", "Started."),
+        (Some(LAB), "Buoy-paint", "Started it."),
+        (Some(OPS), "Skiff-wash", "Started that."),
+        (Some(REEL), "Anchor-check", "Started this."),
     ] {
         r.say((ANA, "ana"), channel, ASK);
         until(&r, brief, || post_with(&r, forum, brief).is_some()).await;
+        // One turn at a time: the model's answers are one script.
+        replied(&r, channel.unwrap_or(ANA_DM), reply).await;
     }
     assert_eq!(posts(&r, forum).len(), 4, "{:#?}", posts(&r, forum));
     // The private channel's task works in its post: no thread in #lab.

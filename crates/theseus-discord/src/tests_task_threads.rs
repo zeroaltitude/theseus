@@ -70,18 +70,30 @@ pub(crate) fn start(briefs: &[&str]) -> Scripted {
     Scripted::tools("Starting.", &calls)
 }
 
-/// A wait as long as a loaded machine needs.
+/// A wait as long as a loaded machine needs, and shorter than nextest's
+/// 120 s, so a wait that never ends names itself (theseus-1dbb5).
 pub(crate) async fn until(r: &Rig, what: &str, f: impl Fn() -> bool) {
     let t0 = std::time::Instant::now();
     while !f() {
         assert!(
-            t0.elapsed() < Duration::from_secs(150),
+            t0.elapsed() < Duration::from_secs(100),
             "timed out: {what}; #lab holds {:#?}; threads {:#?}",
             r.fake.messages(LAB),
             r.fake.threads()
         );
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+}
+
+/// The turn in `place` has ended on `reply`. The places share one model
+/// script, so a test types in the next place only after this: else that
+/// place's turn takes this one's reply, and the next task starts in the
+/// wrong place (theseus-1dbb5).
+pub(crate) async fn replied(r: &Rig, place: u64, reply: &str) {
+    until(r, reply, || {
+        r.posted(place).iter().any(|m| m.content.starts_with(reply))
+    })
+    .await;
 }
 
 /// The task's first step: a program that runs until the test lets it go (it
@@ -601,6 +613,7 @@ async fn a_shared_channels_task_thread_is_shared_and_no_private_title_reaches_it
         theseus_core::places::PlaceClass::Shared,
         "a shared channel's thread is a shared place"
     );
+    replied(&r, LAB, "Started.").await;
     // A task of the owner's DM, with a private title.
     r.say((ANA, "ana"), None, ASK);
     until(&r, "the DM's task ran", || {
@@ -751,6 +764,7 @@ async fn a_shared_forum_shows_a_shared_places_tasks_and_never_a_private_ones() {
         !posts(&r).is_empty()
     })
     .await;
+    replied(&r, LAB, "Started.").await;
     r.say((ANA, "ana"), None, ASK);
     until(&r, "the DM's task ran", || {
         r.core.kernel.tasks(None).unwrap().len() == 2
