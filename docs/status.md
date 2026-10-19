@@ -1,23 +1,45 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-18 12:00 MST. Version 0.0.1; the design document is at v0.88._
+_Updated 2026-10-18 20:26 MST. Version 1.0.0 (v1); the design document is at v0.89._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
 **The north star:** [the plan](design/north-star-plan.md) to match or beat Claude Code at coding and delight, then crush it on memory, personality, speed, scale and task horizons ([PDF](design/north-star-plan.pdf)).
 
-**Self-improvement (RSI):** [the plan](design/rsi-plan.md) for Theseus to build its own code, yardsticks and backlog: act first and tell the owner after, inside a hard keel that still needs his yes; the machinery built now and off until the benchmark rerun ([PDF](design/rsi-plan.pdf)).
+**Self-improvement (RSI):** [the plan](design/rsi-plan.md) for Theseus to build its own code, yardsticks and backlog: act first and tell the owner after, inside a hard keel that still needs his yes; loop 1, the nightly dream, switched on for v1 on 2026-10-18 ([PDF](design/rsi-plan.pdf)).
 
 **The killer features:** [one page](design/killer-features.md) with a short section per feature (speed, self-improvement, parallel tool calls, task horizons, memory, personality, remote runtimes, speculation, Discord), each linking its plan ([PDF](design/killer-features.pdf)).
 
-**Remote runtimes:** [the design](design/remote-runtimes.md) for the CLI, the daemon and the index each on its own machine, over TLS 1.3 with mTLS, off by default; decided, and waiting for the benchmark rerun ([PDF](design/remote-runtimes.pdf)).
+**Remote runtimes:** [the design](design/remote-runtimes.md) for the CLI, the daemon and the index each on its own machine, over TLS 1.3 with mTLS, off by default; decided, and planned after v1 ([PDF](design/remote-runtimes.pdf)).
 
-**Speculative activity:** [the design](design/speculation.md) for Theseus to guess the likely next ask, work ahead in a sandbox while the machine is idle, and offer the result, never applied without Use; decided, and waiting for the benchmark rerun ([PDF](design/speculation.pdf)).
+**Speculative activity:** [the design](design/speculation.md) for Theseus to guess the likely next ask, work ahead in a sandbox while the machine is idle, and offer the result, never applied without Use; decided, and planned after v1 ([PDF](design/speculation.pdf)).
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1
+
+**v1 (version 1.0.0) was cut on 2026-10-18** and tagged `release-1.0.0`: features frozen at `351159fc`, which the
+benchmarks built; the cut adds two fixes joined after the freeze (a self task's file tools in its own tree, and a voice
+call that hears the owner who was already talking) and the cut's docs. The tagged build is the `release` profile
+(fat LTO). Its numbers, all from 2026-10-18 at the freeze ([the omnibus](benchmarks/omnibus.md)):
+
+- **Coding** ([Terminal-Bench 2.0, high effort](benchmarks/2026-10-18-terminal-bench-v1-high.md)): Theseus as shipped
+  73.0% at $0.136 a solved task, the least of four; Claude Code 75.3%, level task by task (−2.2 points, 95% interval
+  −7.9 to +3.0); OpenCode 70.8%, Pi 70.4%.
+- **Speed** ([head to head](benchmarks/2026-10-18-head-to-head-speed.md), [gate](benchmarks/2026-10-18-gate-bench-v1.md)):
+  a ready prompt in 39 ms against Claude Code's 498, 10 ms of CPU a turn against 1,655, 70 MB idle against 360; every
+  lifecycle budget met.
+- **Kill -9** ([the family](benchmarks/2026-10-18-async-kill-family.md)): 0 effects done twice in 12 trials, 10
+  resumed; one trial left a process running, the known limit to fix next.
+- **Recall** ([the full run](benchmarks/2026-10-18-recall-full-run.md)): 73.1% over 600 turns, against 56.9% for Pi
+  and 50.7% for Claude Code; 27 of 46 across sessions, against 0 and 1.
+- **Self-improvement** is on: RSI loop 1's nightly dream (fix mining and pattern mining, $10 a branch and $30 a day),
+  with its kill switch and the keel.
+
+Next is **v1 patch1** (tag `release-1.0.1`, version 1.0.1), whose main task is the Google Workspace tools.
 
 ## Working today
 
@@ -45,7 +67,7 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
     the same words.
   - **A floor off models of restricted origin.** `[privacy] sensitive_names` is one list that the route's data question,
     the start's pack check and a floor read: a turn that names one never reaches a model of `cn` or unknown origin.
-    Self-improvement (RSI loop 1's builds, scorer and pattern miner) is built and off.
+    Self-improvement (RSI loop 1's builds, scorer and pattern miner) is built, and on since 2026-10-18 at 12:25.
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
   picks its model from the operator's routing table, waiting at most 300 ms beside the first compile (his setting; 200
@@ -369,7 +391,8 @@ These are built, tested and installed, and off on the operator's daemon until he
   no hand yet: its stack and image wait for the operator's go (theseus-ongv).
 - **The MCP server** on loopback (`[mcp_server]`, off by default).
 - **Memory's measured arms:** `+retention`, `+activation` and `+synthesis`, each off unless `[memory] arm` names it.
-- **Self-improvement's spine** (joined October 10; on the next install's list): `[self] mode = "off"` by default, so
+- **Self-improvement's spine** (joined October 10; switched on in the operator's config for v1 on October 18, the
+  default still off): `[self] mode = "off"` by default, so
   nothing self-directed runs; a kill switch anyone may throw (`theseus self halt`, the cockpit's Halt, "halt self" on
   Discord) and only the operator releases (`theseus self resume`, the web UI, or "resume self" from his own Discord
   account), halted until his first resume; `theseus self log`, every change Theseus made to itself with its numbers
@@ -382,10 +405,7 @@ These are built, tested and installed, and off on the operator's daemon until he
   (theseus-sdgl), which is being looked at.
 - **In the cloud or in review:** four more tasks of the tenth and eleventh batches: the daemon's stops, the judge sink's
   speed, a walk over imported sessions, and the recall benchmark's fairness.
-- **The v1 week.** Feature complete (v1-beta) since October 6 at 22:04 (install #8 with the import, and voice's fix for
-  a deaf call); v1 comes after a week of the operator's daily use with no serious bug, every speed target met
-  (route.v1's wait, the last, joined on October 7), and each of B5's losses explained or fixed: B5's held-out rerun
-  waits for a quiet machine (theseus-7gir.22).
+- **The v1 week** ended with the v1 cut on October 18 (above). v1 patch1 is next, with the Google Workspace tools.
 - **Claude Haiku 5.5 in the stable**, released October 7 (theseus-3okf), in review: its catalog row with the first
   long-prompt price tier (every price 5x past a 100,000-token prompt, reserved and settled at the tier), route.v2 as
   the acting route pack with a `quick` mode run as a one-turn detour, and the placements: acknowledgements and quick
@@ -421,9 +441,13 @@ turn's edges, and Discord.
 at 22:04. v1 comes one week after it, under his rule of October 4 (22:09): seven days of his daily use with no
 serious bug, every speed target met, and each of B5's losses explained or fixed; so about **October 13** at the
 earliest. The spine's last rows (26b, 26c and 35b) run beside it. This
-pass did not re-estimate v1.1's date.
+pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last features, RSI loop 1 and the benchmark rerun.
 
 ## Recently landed
+
+- **2026-10-18 (evening): the v1 cut** (theseus-pngho, theseus-zlakq, theseus-e6wm8): the README rewritten with the
+  six features first and the v1 numbers, [how Theseus is developed](development.md), the workspace version 1.0.0, and
+  the `release` build tagged `release-1.0.0` and installed.
 
 - **2026-10-18 (morning):** the morning lane (Item 253, theseus-31pgz, theseus-h9tu1): a routine-coding brief starts on
   Sonnet, the progress line shows the spend against the forecast, a task homed in Reminders gets its forum post and board
