@@ -21,10 +21,10 @@ for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
 
 ## v1
 
-**v1 (version 1.0.0) was cut on 2026-10-18** and tagged `v1`: features frozen at `351159fc`, which the benchmarks
-built; the cut adds two fixes joined after the freeze (a self task's file tools in its own tree, and a voice call that
-hears the owner who was already talking) and the cut's docs. The tagged build is the `release` profile (fat LTO).
-Its numbers, all from 2026-10-18 at the freeze ([the omnibus](benchmarks/omnibus.md)):
+**v1 (version 1.0.0) was cut on 2026-10-18** and tagged `release-1.0.0`: features frozen at `351159fc`, which the
+benchmarks built; the cut adds two fixes joined after the freeze (a self task's file tools in its own tree, and a voice
+call that hears the owner who was already talking) and the cut's docs. The tagged build is the `release` profile
+(fat LTO). Its numbers, all from 2026-10-18 at the freeze ([the omnibus](benchmarks/omnibus.md)):
 
 - **Coding** ([Terminal-Bench 2.0, high effort](benchmarks/2026-10-18-terminal-bench-v1-high.md)): Theseus as shipped
   73.0% at $0.136 a solved task, the least of four; Claude Code 75.3%, level task by task (−2.2 points, 95% interval
@@ -39,7 +39,7 @@ Its numbers, all from 2026-10-18 at the freeze ([the omnibus](benchmarks/omnibus
 - **Self-improvement** is on: RSI loop 1's nightly dream (fix mining and pattern mining, $10 a branch and $30 a day),
   with its kill switch and the keel.
 
-Next is **v1 patch1** (tag `v1-patch1`, version 1.0.1), whose main task is the Google Workspace tools.
+Next is **v1 patch1** (tag `release-1.0.1`, version 1.0.1), whose main task is the Google Workspace tools.
 
 ## Working today
 
@@ -447,7 +447,7 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 - **2026-10-18 (evening): the v1 cut** (theseus-pngho, theseus-zlakq, theseus-e6wm8): the README rewritten with the
   six features first and the v1 numbers, [how Theseus is developed](development.md), the workspace version 1.0.0, and
-  the `release` build tagged `v1` and installed.
+  the `release` build tagged `release-1.0.0` and installed.
 
 - **2026-10-18 (morning):** the morning lane (Item 253, theseus-31pgz, theseus-h9tu1): a routine-coding brief starts on
   Sonnet, the progress line shows the spend against the forecast, a task homed in Reminders gets its forum post and board

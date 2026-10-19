@@ -389,8 +389,9 @@ is what was tested. The measurements behind both choices are in `scripts/AGENTS.
 - **Names.** The first release is **v1**. The fix releases after it are **v1 patch1**, **v1 patch2**, and so on.
 - **The freeze holds for what is measured.** The benchmarks build the freeze commit, and a version's benchmark reports
   name it. Fixes may join between the freeze and the cut; the tag names the cut commit, and its message names both.
-- **Tags** are signed and annotated: `v1`, then `v1-patch1`, `v1-patch2`. The workspace version moves with them:
-  1.0.0 for v1, 1.0.1 for v1 patch1. The versioned binaries are kept with the commit and their sha256 checksums.
+- **Tags** are signed and annotated, and name the version: `release-1.0.0` for v1, then `release-1.0.1` for v1 patch1,
+  `release-1.0.2` for v1 patch2. GitHub lists them under Tags. The workspace version moves with them. The versioned
+  binaries are kept with the commit and their sha256 checksums.
 - **Run `scripts/repro.sh`** before a release, after a toolchain bump, and after a dependency gains a build script.
 - **The cut's docs**: the spec's version line, `status.md`, the README's numbers from the cut's benchmark reports, and
   the omnibus of benchmarks.
