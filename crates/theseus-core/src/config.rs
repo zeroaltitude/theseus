@@ -1773,18 +1773,25 @@ impl Config {
 
     /// The context files a session gets while `persona` is in play, in the
     /// order its system carries them: the system level, then the
-    /// persona's.
-    pub fn context_paths(&self, persona: Option<&str>) -> Vec<crate::context_files::ContextPath> {
+    /// persona's. `engaging`: a message here can engage another persona
+    /// (`TurnRunner::engages`), so every persona's files are carried.
+    pub fn context_paths(
+        &self,
+        persona: Option<&str>,
+        engaging: bool,
+    ) -> Vec<crate::context_files::ContextPath> {
         use crate::context_files::ContextPath;
         let system = self.context.files.iter().map(|p| ContextPath {
             path: p.path().into(),
             persona: None,
             public: p.readers() == crate::context_files::ContextReaders::Public,
         });
-        // With two or more personas every persona's files are in the request
-        // (the persona layer), so a message's persona is a line in its tail
-        // and a switch changes no byte of the prefix (theseus-c1uz).
-        let engaging = self.persona_engaging();
+        // Where a message can engage another persona, every persona's files
+        // are in the request (the persona layer), so a message's persona is
+        // a line in its tail and a switch changes no byte of the prefix
+        // (theseus-c1uz). Elsewhere (a cli, task or headless session, whose
+        // persona is fixed) only the persona in play is carried, and a change
+        // of it is a `system_changed` recompile (theseus-nsp9l.1).
         let own = self
             .personas
             .iter()
@@ -1799,7 +1806,8 @@ impl Config {
         system.chain(own).collect()
     }
 
-    /// Two or more `[personas]`: the request carries all their files, the
+    /// Two or more `[personas]`: where a message can engage another persona
+    /// (`TurnRunner::engages`) the request carries all their files, the
     /// header is the built-in default whoever answers, and each message is
     /// answered by the persona it calls for (`engage`, theseus-c1uz).
     pub fn persona_engaging(&self) -> bool {

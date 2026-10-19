@@ -28,6 +28,7 @@ use crate::ledger::LedgerRow;
 use crate::places::PlaceClass;
 use crate::provider::{Census, ProviderRequest, BLOCK_TOKENS, ID_TOKENS, MESSAGE_TOKENS};
 use crate::session::SessionRecord;
+use crate::tools_defer::PlaceKind;
 use crate::turn::{Target, TurnRunner};
 
 /// The days of the ledger a tool's use is counted over.
@@ -90,6 +91,9 @@ pub struct NextRequest {
     /// The header's named sections, the context files' and the guidance's, in order.
     pub header: Vec<(&'static str, String)>,
     pub files: Vec<(String, String)>,
+    /// The persona in play's files (or every persona's, where a message can engage one), each by its
+    /// file's own name: the persona layer's parts.
+    pub persona_files: Vec<(String, String)>,
     pub guidance: Vec<(String, String)>,
     pub standing: String,
     /// The tokens of the recalled notes the history holds (a part of its messages).
@@ -98,6 +102,34 @@ pub struct NextRequest {
 }
 
 impl TurnRunner {
+    /// The context files `target` carries, read without a warning.
+    fn peek_files(&self, target: &Target) -> Vec<crate::context_files::ContextFile> {
+        let paths = self
+            .cfg
+            .context_paths(target.persona.as_deref(), target.engages);
+        self.context_files.peek(&paths)
+    }
+
+    /// The target a session's next request, or a fresh session's first on `place_kind`, is built for.
+    fn census_target(
+        &self,
+        rec: Option<&SessionRecord>,
+        place_kind: &str,
+        live: &str,
+    ) -> Result<Target> {
+        let Some(r) = rec else {
+            let mut t = self.resolve_target(live, None, None, None)?;
+            // A fresh session's place is the kind asked for.
+            t.engages = self.cfg.persona_engaging()
+                && matches!(
+                    PlaceKind::parse(place_kind),
+                    Some(PlaceKind::Dm | PlaceKind::Channel)
+                );
+            return Ok(t);
+        };
+        self.target_for_session(r, live)
+    }
+
     /// The next request of `rec`'s session, or a fresh session's first on `place`, compiled and not sent.
     pub fn census_request(
         &self,
@@ -106,12 +138,8 @@ impl TurnRunner {
         live: &str,
     ) -> Result<NextRequest> {
         let (kind, view, sid, mut notes) = self.census_place(rec, place_kind);
-        let target = match rec {
-            Some(r) => self.target_for_session(r, live)?,
-            None => self.resolve_target(live, None, None, None)?,
-        };
-        let paths = self.cfg.context_paths(target.persona.as_deref());
-        let mut spec = self.spec_of(&target, kind, view, self.context_files.peek(&paths));
+        let target = self.census_target(rec, place_kind, live)?;
+        let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
         spec.session_text = self.session_block(rec.and_then(|r| r.dir.as_deref()), view);
         // The thread's card and tools, as a turn takes them (theseus-h4a7).
         self.thread_spec(
@@ -191,7 +219,14 @@ impl TurnRunner {
             files: built
                 .files
                 .iter()
+                .filter(|f| f.file.persona.is_none())
                 .map(|f| (f.file.path.clone(), f.section.clone()))
+                .collect(),
+            persona_files: built
+                .files
+                .iter()
+                .filter(|f| f.file.persona.is_some())
+                .map(|f| (file_name(&f.file.path), f.section.clone()))
                 .collect(),
             guidance: built
                 .guidance
@@ -273,43 +308,54 @@ impl TurnRunner {
     }
 }
 
-/// A name for the system blocks the request carries, in order.
-fn block_names(spec: &RequestSpec) -> Vec<&'static str> {
+/// The system blocks the request carries, in order, each as (its name, its layer): the persona layer and the
+/// project layer are both the context files, so both print as `context`; the session's is `session`.
+fn block_names(spec: &RequestSpec) -> Vec<(&'static str, &'static str)> {
+    use crate::compiler::layers::{HEADER, PERSONA, PROJECT};
     [
-        ("header", spec.system_text.is_empty()),
-        ("context", spec.context_text.is_empty()),
+        ("header", HEADER, &spec.system_text),
+        ("context", PERSONA, &spec.persona_text),
+        ("context", PROJECT, &spec.context_text),
         (
             crate::compiler::session_block::NAME,
-            spec.session_text.is_empty(),
+            crate::compiler::session_block::NAME,
+            &spec.session_text,
         ),
     ]
     .into_iter()
-    .filter(|(_, empty)| !empty)
-    .map(|(n, _)| n)
+    .filter(|(_, _, text)| !text.is_empty())
+    .map(|(name, layer, _)| (name, layer))
     .collect()
 }
 
-/// The sections of the block `name`, as their texts lie in it: bytes that no section holds are `joins`.
-fn sections_of(next: &NextRequest, name: &str, text: &str) -> Vec<(String, u64)> {
-    let sections: Vec<(String, u64)> = match name {
-        "header" => next
+/// A path's last component.
+fn file_name(path: &str) -> String {
+    path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+/// The sections of the block `name` of layer `layer`, as their texts lie in it: bytes that no section holds are
+/// `joins`.
+fn sections_of(next: &NextRequest, name: &str, layer: &str, text: &str) -> Vec<(String, u64)> {
+    use crate::compiler::layers::{HEADER, PERSONA, PROJECT};
+    let sizes = |v: &[(String, String)]| -> Vec<(String, u64)> {
+        v.iter().map(|(p, t)| (p.clone(), t.len() as u64)).collect()
+    };
+    let sections: Vec<(String, u64)> = match layer {
+        // The standing orders for everywhere end the header layer (`standing::Block::apply`).
+        HEADER => next
             .header
             .iter()
             .map(|(n, t)| ((*n).to_string(), t.len() as u64))
+            .chain(
+                (!next.standing.is_empty())
+                    .then(|| ("standing orders".to_string(), next.standing.len() as u64)),
+            )
             .collect(),
-        "context" => {
-            let standing = (!next.standing.is_empty())
-                .then(|| ("standing orders".to_string(), next.standing.len() as u64));
-            standing
-                .into_iter()
-                .chain(next.files.iter().map(|(p, t)| (p.clone(), t.len() as u64)))
-                .chain(
-                    next.guidance
-                        .iter()
-                        .map(|(c, t)| (c.clone(), t.len() as u64)),
-                )
-                .collect()
-        }
+        PERSONA => sizes(&next.persona_files),
+        PROJECT => sizes(&next.files)
+            .into_iter()
+            .chain(sizes(&next.guidance))
+            .collect(),
         _ => vec![("directory".to_string(), text.len() as u64)],
     };
     let held: u64 = sections.iter().map(|(_, b)| b).sum();
@@ -492,8 +538,8 @@ pub fn census_parts(
     let mut system = Vec::new();
     for (i, b) in request.system.iter().enumerate() {
         let body = b["text"].as_str().unwrap_or_default();
-        let name = names.get(i).copied().unwrap_or("system");
-        let sections = sections_of(next, name, body);
+        let (name, layer) = names.get(i).copied().unwrap_or(("system", "system"));
+        let sections = sections_of(next, name, layer, body);
         let sizes: Vec<u64> = sections.iter().map(|(_, b)| *b).collect();
         let tokens = text.cut(&sizes);
         let parts: Vec<CensusPart> = sections

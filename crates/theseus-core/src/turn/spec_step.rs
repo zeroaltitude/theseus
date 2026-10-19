@@ -25,7 +25,7 @@ impl TurnRunner {
             .header_parts(
                 target,
                 place,
-                !self.cfg.persona_engaging() && crate::persona::owned(files),
+                !target.engages && crate::persona::owned(files),
             )
             .into_iter()
             .map(|p| p.1)
@@ -55,7 +55,9 @@ impl TurnRunner {
         kind: SessionKind,
         place: crate::ceiling::PlaceView,
     ) -> (RequestSpec, Vec<Unreadable>) {
-        let paths = self.cfg.context_paths(target.persona.as_deref());
+        let paths = self
+            .cfg
+            .context_paths(target.persona.as_deref(), target.engages);
         let (files, unreadable) = self.context_files.load(&paths);
         (self.spec_of(target, kind, place, files), unreadable)
     }

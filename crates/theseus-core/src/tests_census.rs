@@ -407,3 +407,49 @@ async fn with_tools_deferred_the_census_is_the_request_a_turn_sends() {
     assert_eq!(sent.tools, ahead.tools, "the tools, deferred as sent");
     assert_eq!(sent.system, ahead.system, "the system blocks");
 }
+
+/// The census names what the request carries: the context files' block is `context`, each persona file a part of
+/// its own under its file's name, the session's block `session` (theseus-nsp9l.1: it printed the 11 KB of persona
+/// files as `session · directory` and the one `Directory:` line as `system · directory`), and the parts still
+/// add up to the turn's total.
+#[test]
+fn census_names_the_context_block_and_each_persona_file() {
+    let (core, _dir) = crate::tests_first_request::rig_of(crate::tests_first_request::OWNER_SHAPE);
+    let place = |p: &str| {
+        let (c, req, _) = core
+            .context_census(&ContextCensusParams {
+                place: Some(p.into()),
+                ..ContextCensusParams::default()
+            })
+            .unwrap();
+        (c, req)
+    };
+    let (cli, _) = place("cli");
+    let blocks: Vec<&str> = cli.system.iter().map(|b| b.block.as_str()).collect();
+    assert_eq!(blocks, ["header", "context", "session"], "{blocks:?}");
+    let context = &cli.system[1];
+    let parts: Vec<&str> = context.parts.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(
+        parts,
+        ["alder.md"],
+        "a cli carries the persona in play alone"
+    );
+    assert_eq!(cli.system[2].parts[0].name, "directory");
+    assert_eq!(cli.parts_sum(), cli.total_tokens);
+    let (dm, _) = place("dm");
+    let parts: Vec<&str> = dm.system[1].parts.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(
+        parts,
+        [
+            "alder.md",
+            "brook.md",
+            "cinder.md",
+            "dune.md",
+            "ember.md",
+            "joins"
+        ],
+        "a DM carries every persona's file, the blank lines between them the joins"
+    );
+    assert_eq!(dm.parts_sum(), dm.total_tokens);
+    assert_eq!(core.first_request("dm").unwrap().tokens, dm.total_tokens);
+}

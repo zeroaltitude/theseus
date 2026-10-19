@@ -15,6 +15,7 @@ impl Target {
     pub(super) fn speaking_as(self, other: &Target) -> Target {
         Target {
             persona: other.persona.clone(),
+            engages: other.engages,
             ..self
         }
     }
@@ -61,6 +62,34 @@ impl TurnRunner {
         self.cfg
             .persona_key_for(own.as_deref(), place.as_deref())
             .map(str::to_string)
+    }
+
+    /// The persona in play and whether a message can engage another, for a turn of `session`.
+    pub(super) fn speak_as_session(&self, target: &mut Target, session: &SessionRecord) {
+        target.persona = self.persona_of(session);
+        target.engages = self.engages(session);
+    }
+
+    /// Whether a message in this session's place can engage another persona
+    /// (route.v5, theseus-c1uz): two or more `[personas]`, and a DM, a
+    /// channel or a thread, where Jev chooses the persona per message. A cli,
+    /// task or headless session's persona is fixed for the session, so its
+    /// request carries only that persona's files (theseus-nsp9l.1). One
+    /// answer for every reader of the context files: the turn, the keep-warm
+    /// replay, the census.
+    pub fn engages(&self, session: &SessionRecord) -> bool {
+        use crate::tools_defer::PlaceKind;
+        if !self.cfg.persona_engaging() {
+            return false;
+        }
+        match self.place_kind(&session.session_id, session.task.is_some()) {
+            PlaceKind::Dm | PlaceKind::Channel => true,
+            PlaceKind::Task | PlaceKind::Headless => false,
+            PlaceKind::Cli => self
+                .threads
+                .held()
+                .is_some_and(|b| b.of_session(&session.session_id).is_some()),
+        }
     }
 
     fn session_persona(&self, session: &SessionRecord) -> Option<String> {

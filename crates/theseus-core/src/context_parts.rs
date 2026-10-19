@@ -80,7 +80,9 @@ impl TurnRunner {
         recorded: Option<&[MembershipUsed]>,
     ) -> Built {
         let place = self.view_of(session);
-        let paths = self.cfg.context_paths(target.persona.as_deref());
+        let paths = self
+            .cfg
+            .context_paths(target.persona.as_deref(), target.engages);
         let mut files = self.context_files.peek(&paths);
         if place.class == PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
@@ -98,7 +100,7 @@ impl TurnRunner {
             rec.as_ref().and_then(|r| r.compilation_id.as_deref()),
         );
         spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
-        let owned = !self.cfg.persona_engaging() && crate::persona::owned(&files);
+        let owned = !target.engages && crate::persona::owned(&files);
         let header = self.header_parts(target, place, owned);
         let Some(walk) = self.walk(session, place.class) else {
             return Built {

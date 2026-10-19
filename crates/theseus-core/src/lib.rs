@@ -359,6 +359,8 @@ mod tests_people_proposals;
 #[cfg(test)]
 mod tests_persona;
 #[cfg(test)]
+mod tests_persona_layer;
+#[cfg(test)]
 mod tests_persona_recall;
 #[cfg(test)]
 mod tests_places;

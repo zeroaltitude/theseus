@@ -1420,9 +1420,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     top, and the model takes none for the daemon's life (`turn/effort_step.rs`, `provider.effort_refused`).
     Tests: `tests_turn_effort.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
-    `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`),
-    **every persona's files are in the persona layer and the header is the built-in default** whoever answers
-    (`context_paths` loads all, `owned` is false), so a persona is not in the cached prefix at all: the engaged one is
+    `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
+    (`TurnRunner::engages`, `Target.engages`: a DM, a channel, a thread; a cli, task or headless session's persona is fixed, so
+    it carries only the persona in play and a change of it is a `system_changed` recompile: theseus-nsp9l.1, which took the
+    owner's cli from 10,588 to 7,555 tokens), **every persona's files are in the persona layer and the header is the
+    built-in default** whoever answers (`context_paths(persona, engaging)` loads all, `owned` is false), so a persona is not in the cached prefix at all: the engaged one is
     **one tail line**, `<Name> answers this turn`, attached after the cached blocks of the request's last message
     (`persona_line`, like the surface's standing records), so a switch changes no prefix byte. The decision
     (`engage::decide`, pure) is, in order: an explicit address (`engage::address`: a name then a comma or colon at the

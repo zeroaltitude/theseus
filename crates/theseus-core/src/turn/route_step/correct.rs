@@ -305,7 +305,7 @@ impl TurnRunner {
     /// The layer's persona entry closest to the message: a close message is
     /// answered by the persona the owner corrected a like one to.
     fn persona_layer_point(&self, t: &mut Turn<'_>) {
-        if t.route.persona_steer.is_some() || !self.cfg.persona_engaging() {
+        if t.route.persona_steer.is_some() || !t.target.engages {
             return;
         }
         let cfg = &self.cfg.routing.corrections;

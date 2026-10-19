@@ -131,6 +131,10 @@ pub struct Target {
     /// The persona in play (theseus-c48): its context files follow the
     /// system level's. `[context].default_persona` until Jev chooses one.
     pub persona: Option<String>,
+    /// A message in this session's place can engage another persona
+    /// (`TurnRunner::engages`): the request carries every persona's files
+    /// (theseus-nsp9l.1).
+    pub engages: bool,
     pub effort: Option<Effort>,
     pub thinking_display: ThinkingDisplay,
     pub max_loops: u32,
@@ -761,6 +765,7 @@ impl TurnRunner {
             max_tokens,
             system: prof.system.clone(),
             persona: self.cfg.persona().map(str::to_string),
+            engages: false,
             effort: prof.effort,
             thinking_display: prof.thinking_display,
             max_loops: prof.max_loops,
@@ -777,6 +782,7 @@ impl TurnRunner {
         let tg = self.target_as_ran(s, live_profile)?;
         Ok(Target {
             persona: self.persona_of(s),
+            engages: self.engages(s),
             ..tg
         })
     }
@@ -1533,7 +1539,7 @@ impl TurnRunner {
                 ..fresh
             };
         }
-        target.persona = self.persona_of(&session);
+        self.speak_as_session(&mut target, &session);
         let (target, read) = self.route_base(&mut session, target, input.is_some());
         let provider = self
             .providers

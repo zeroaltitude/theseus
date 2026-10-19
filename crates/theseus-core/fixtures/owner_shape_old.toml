@@ -6,6 +6,26 @@
 # Keep it in step with the installed config's sections (the install's census is the check).
 narrative = true
 
+[context]
+default_persona = "alder"
+
+# Five personas whose files add up to the owner's 10,594 bytes (theseus-nsp9l.1): the budget test measures
+# what a place carries of them. `/@PERSONAS@` is the fixtures' own directory, set by the test.
+[personas.alder]
+files = ["/@PERSONAS@/alder.md"]
+
+[personas.brook]
+files = ["/@PERSONAS@/brook.md"]
+
+[personas.cinder]
+files = ["/@PERSONAS@/cinder.md"]
+
+[personas.dune]
+files = ["/@PERSONAS@/dune.md"]
+
+[personas.ember]
+files = ["/@PERSONAS@/ember.md"]
+
 [aws.accounts.123456789012]
 deployment = "theseus-desktop"
 durability = true
