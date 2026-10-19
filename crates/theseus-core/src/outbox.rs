@@ -222,6 +222,17 @@ pub struct Outbox {
     /// When the last unprompted post was written: the one pacing rule
     /// (`pacer.rs`, theseus-j7cje).
     pub pacer: crate::pacer::Pacer,
+    /// Places whose tasks report elsewhere (theseus-xlxp4), by the place's
+    /// target: the binding sets them, in memory, as it starts.
+    homes: Mutex<HashMap<String, TaskHome>>,
+}
+
+/// Where the tasks started from one place report, and how it is told to a
+/// model: "#theseus-tasks and its forum post".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskHome {
+    pub target: String,
+    pub label: String,
 }
 
 /// The posts this process has sent and not yet settled, and when its stop
@@ -263,6 +274,7 @@ impl Outbox {
             flight: Arc::new(tokio::sync::watch::Sender::new(Flight::default())),
             one_shot: crate::one_shot::OneShot::default(),
             pacer: crate::pacer::Pacer::default(),
+            homes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -481,6 +493,27 @@ impl Outbox {
                 tracing::warn!(error = %format!("{e:#}"), "outbox unreadable: a post has nowhere to go");
                 None
             }
+        }
+    }
+
+    /// The tasks started from the place `from` report to `home` (`None`: back
+    /// to `from`). The binding sets it; a task opened after it names it as
+    /// its `reports_to`, so the core's records say where a report went.
+    pub fn home_tasks(&self, from: &str, home: Option<TaskHome>) {
+        let mut h = self.homes.lock().unwrap();
+        match home {
+            Some(home) => h.insert(from.to_string(), home),
+            None => h.remove(from),
+        };
+    }
+
+    /// Where a task started from `from` reports, and how it is told: `from`
+    /// itself, with no label, unless a home was set for it.
+    pub fn report_target(&self, from: Option<String>) -> (Option<String>, Option<String>) {
+        let h = self.homes.lock().unwrap();
+        match from.as_deref().and_then(|f| h.get(f)) {
+            Some(home) => (Some(home.target.clone()), Some(home.label.clone())),
+            None => (from, None),
         }
     }
 
@@ -1221,5 +1254,32 @@ mod tests {
             waited < Duration::from_millis(350),
             "the grace ran from the wait, not the stop: {waited:?}"
         );
+    }
+
+    /// Tasks started from a place report where the binding says (theseus-xlxp4),
+    /// and where the place posts when it says nothing or takes it back.
+    #[test]
+    fn a_places_tasks_report_where_the_binding_homes_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = outbox(&dir);
+        let dm = "discord:dm:1".to_string();
+        let home = TaskHome {
+            target: "discord:channel:2".into(),
+            label: "#tasks".into(),
+        };
+        assert_eq!(o.report_target(Some(dm.clone())), (Some(dm.clone()), None));
+        o.home_tasks(&dm, Some(home));
+        assert_eq!(
+            o.report_target(Some(dm.clone())),
+            (Some("discord:channel:2".into()), Some("#tasks".into()))
+        );
+        assert_eq!(
+            o.report_target(Some("discord:channel:9".into())),
+            (Some("discord:channel:9".into()), None),
+            "another place keeps its own"
+        );
+        assert_eq!(o.report_target(None), (None, None));
+        o.home_tasks(&dm, None);
+        assert_eq!(o.report_target(Some(dm.clone())), (Some(dm), None));
     }
 }

@@ -88,6 +88,9 @@ impl Place {
         if self.shared.v2_cards() {
             return;
         }
+        let Some(lane) = self.board_lane() else {
+            return;
+        };
         let core = &self.shared.core;
         let records = theseus_core::task_graph::all_shown(&core.store, &core.kernel);
         let records = match records {
@@ -104,7 +107,7 @@ impl Place {
             now,
             core.tools.earned.modes.mode_of(&self.session_id),
         ) {
-            let _ = self.lane.send(LaneMsg::Live(Op::Upsert {
+            let _ = lane.send(LaneMsg::Live(Op::Upsert {
                 key: render::BOARD_KEY.into(),
                 content,
                 buttons: Buttons::Keep,

@@ -679,8 +679,11 @@ impl Place {
             PlaceMsg::Inbound(i) if self.shared.task_threads.is_thread(i.channel.get()) => {
                 self.task_message(i);
             }
-            // An index card in the default forum starts nothing.
-            PlaceMsg::Inbound(i) if self.shared.task_posts.index_of(i.channel.get()).is_some() => {
+            // An index card in the default forum, and the task home, start nothing.
+            PlaceMsg::Inbound(i)
+                if self.shared.task_posts.index_of(i.channel.get()).is_some()
+                    || self.shared.task_posts.home.is_home(i.channel.get()) =>
+            {
                 self.index_pointer(&i);
             }
             // A reply to a Follow mirror of a task that has a session joins it.

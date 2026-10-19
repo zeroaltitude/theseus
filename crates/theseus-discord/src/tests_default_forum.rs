@@ -22,12 +22,12 @@ use crate::tests_task_threads::{
     BUOY, FORUM, REEF,
 };
 
-const OPS: u64 = 900_000_000_000_000_011;
-const REEL: u64 = 900_000_000_000_000_012;
+pub(crate) const OPS: u64 = 900_000_000_000_000_011;
+pub(crate) const REEL: u64 = 900_000_000_000_000_012;
 const SKIFF: &str = "Skiff-wash: wash the skiff";
 const ANCHOR: &str = "Anchor-check: check the anchor";
 
-fn guild(with_forum: bool) -> Guild {
+pub(crate) fn guild(with_forum: bool) -> Guild {
     let g = Guild::new(DEFAULT_GUILD, (ANA, "ana"))
         .member(BEN, "ben")
         .member(CY, "cy")
@@ -43,7 +43,7 @@ fn guild(with_forum: bool) -> Guild {
 
 /// `#lab` (private) with `lab_extra` keys, a shared `#ops`, a private `#reel`
 /// and ana's DM, in a guild the owner trusts or not.
-fn bindings(trusted: bool, lab_extra: &str) -> String {
+pub(crate) fn bindings(trusted: bool, lab_extra: &str) -> String {
     let word = if trusted { "private = true\n" } else { "" };
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n{word}\
@@ -55,9 +55,11 @@ fn bindings(trusted: bool, lab_extra: &str) -> String {
 }
 
 /// The rig's config: ana is the one owner, and `#reel` is the activity
-/// thread `tides`' place once the thread exists.
+/// thread `tides`' place once the thread exists. The task home is off: the
+/// forum's tests are the DM's as they were, and `tests_task_home.rs` turns it on.
 fn tune(c: &mut Config) {
     tweak(c);
+    c.discord.task_home = String::new();
     c.places.owner = Some(vec![format!("discord:{ANA}")]);
     c.discord.thread = vec![theseus_core::config::discord::ThreadBind {
         channel: REEL.to_string(),
@@ -101,7 +103,7 @@ type Kids = Vec<(&'static str, Vec<Scripted>)>;
 
 /// A trusted rig: `parent` is the model's script for the conversations,
 /// `kids` the tasks', `setup` the stand-in before the binding starts.
-async fn rig(
+pub(crate) async fn rig(
     parent: Vec<Scripted>,
     kids: impl FnOnce(&Path) -> Kids,
     binds: &str,
@@ -111,7 +113,7 @@ async fn rig(
     rig_in(guild(false), parent, kids, binds, setup, cfg).await
 }
 
-async fn rig_in(
+pub(crate) async fn rig_in(
     guild: Guild,
     parent: Vec<Scripted>,
     kids: impl FnOnce(&Path) -> Kids,
@@ -140,7 +142,7 @@ async fn rig_in(
 }
 
 /// The forum the binding found or made, from its META record.
-async fn forum_up(r: &Rig) -> u64 {
+pub(crate) async fn forum_up(r: &Rig) -> u64 {
     until(r, "the forum is recorded", || record(r).is_some()).await;
     record(r).unwrap()
 }
@@ -155,7 +157,7 @@ fn record(r: &Rig) -> Option<u64> {
     v?["channel"].as_u64()
 }
 
-fn posts(r: &Rig, forum: u64) -> Vec<FakeThread> {
+pub(crate) fn posts(r: &Rig, forum: u64) -> Vec<FakeThread> {
     r.fake
         .threads()
         .into_iter()
@@ -164,7 +166,7 @@ fn posts(r: &Rig, forum: u64) -> Vec<FakeThread> {
 }
 
 /// The post whose first message holds `needle`.
-fn post_with(r: &Rig, forum: u64, needle: &str) -> Option<FakeThread> {
+pub(crate) fn post_with(r: &Rig, forum: u64, needle: &str) -> Option<FakeThread> {
     posts(r, forum).into_iter().find(|p| {
         r.fake
             .messages(p.id)
@@ -191,14 +193,14 @@ fn last_tags(r: &Rig, post: u64) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn dm_lines(r: &Rig, needle: &str) -> usize {
+pub(crate) fn dm_lines(r: &Rig, needle: &str) -> usize {
     r.posted(ANA_DM)
         .iter()
         .filter(|m| m.content.contains(needle))
         .count()
 }
 
-fn cli() -> Answerer {
+pub(crate) fn cli() -> Answerer {
     Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
@@ -884,4 +886,61 @@ async fn a_promoted_tasks_post_stays_as_its_index_card_and_is_tagged_done() {
         !now.archived,
         "the post stays open as the index card: {now:?}"
     );
+}
+
+/// A task that works in an activity thread has its post as an index card, and
+/// its report's first line names that post (theseus-90qqy).
+#[tokio::test]
+async fn an_index_card_tasks_report_names_its_post() {
+    let r = rig(
+        vec![start(&[ANCHOR]), Scripted::text("Started this.")],
+        |dir| {
+            vec![(
+                ANCHOR,
+                [vec![gate(dir)], answers("Anchor checked.")].concat(),
+            )]
+        },
+        &bindings(true, ""),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.core
+        .thread_new(
+            &ThreadNewParams {
+                slug: "tides".into(),
+                title: Some("Tides".into()),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    until(&r, "#reel runs the thread", || {
+        r.core
+            .threads()
+            .get("tides")
+            .is_some_and(|t| !t.surfaces.is_empty())
+    })
+    .await;
+    r.say((ANA, "ana"), Some(REEL), ASK);
+    until(&r, "its index card", || {
+        post_with(&r, forum, "Anchor-check").is_some()
+    })
+    .await;
+    let post = post_with(&r, forum, "Anchor-check").unwrap();
+    open_gate(&r);
+    until(&r, "the report in #reel", || {
+        r.posted(REEL)
+            .iter()
+            .any(|m| m.content.contains("finished") && m.content.contains("Anchor checked."))
+    })
+    .await;
+    let report = r
+        .posted(REEL)
+        .into_iter()
+        .find(|m| m.content.contains("finished"))
+        .unwrap();
+    let first = report.content.lines().next().unwrap_or_default();
+    assert!(first.contains(&format!("<#{}>", post.id)), "{first}");
 }

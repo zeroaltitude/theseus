@@ -358,6 +358,11 @@ pub struct DiscordConfig {
     /// forum of that name exists.
     #[serde(default = "discord::default_forum_channel")]
     pub forum_channel: String,
+    /// One private text channel in the trusted guild that is the dashboard of
+    /// the owner's tasks: the pinned board, every report and one pointer a
+    /// task to its post (theseus-xlxp4). A name or a Discord id; empty is off.
+    #[serde(default = "discord::default_task_home")]
+    pub task_home: String,
     /// `[[discord.thread]]`: a channel the bindings file names, run as a
     /// thread's place (theseus-sjzm); none by default.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1477,6 +1482,7 @@ impl Config {
         discord::digest_slots(&self.discord.digest_at)?;
         self.discord.calendar.validate()?;
         discord::validate_forum_channel(&self.discord.forum_channel)?;
+        discord::validate_task_home(&self.discord.task_home)?;
         self.route_bench.validate()?;
         self.prefix.validate()?;
         self.notify.validate()?;

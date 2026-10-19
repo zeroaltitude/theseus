@@ -88,7 +88,7 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
         },
     );
     let finished = if stored { p.history.len() } else { 0 };
-    let mut head = headline(needs.len(), working.len(), done.len());
+    let mut head = headline(needs.len(), working.len(), done.iter().map(|v| v.state));
     if finished > 0 {
         head = match head.as_str() {
             "all clear" => format!("{finished} finished"),

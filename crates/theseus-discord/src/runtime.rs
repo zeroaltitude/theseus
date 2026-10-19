@@ -77,6 +77,7 @@ mod orders;
 pub(crate) mod presence;
 mod reply;
 mod source;
+mod task_home;
 mod thread;
 mod thread_ask;
 mod thread_bind;

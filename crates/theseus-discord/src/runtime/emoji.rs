@@ -430,14 +430,14 @@ mod tests {
             known("theseus_needs_you", 12, true),
             known("theseus_done", 13, false),
         ]);
-        let h = crate::render::board_v2::headline(1, 2, 3);
+        let h = crate::render::board_v2::headline(1, 2, [WorkState::Done; 3]);
         assert_eq!(
             h,
             "<a:theseus_needs_you:12> 1 needs you · <a:theseus_working:11> 2 running · <:theseus_done:13> 3 done since you looked"
         );
         reset();
         assert_eq!(
-            crate::render::board_v2::headline(1, 2, 3),
+            crate::render::board_v2::headline(1, 2, [WorkState::Done; 3]),
             "🔴 1 needs you · ⚙️ 2 running · ✅ 3 done since you looked"
         );
     }

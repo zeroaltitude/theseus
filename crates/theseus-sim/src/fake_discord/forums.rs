@@ -81,7 +81,7 @@ impl FakeDiscord {
                 &json!({"message": "Unknown Guild", "code": 10004}),
             );
         };
-        let list: Vec<Value> = g
+        let mut list: Vec<Value> = g
             .channels
             .iter()
             .map(|c| {
@@ -92,6 +92,15 @@ impl FakeDiscord {
                 j
             })
             .collect();
+        // The text channels the bot made outside a category (the task home,
+        // theseus-xlxp4); a task channel sits under its category and is not
+        // listed.
+        list.extend(
+            st.channels
+                .values()
+                .filter(|c| c.kind == 0 && c.parent.is_none() && !c.deleted)
+                .map(super::channels::channel_json),
+        );
         drop(st);
         self.record(seen("GET", &path, "forums_listed"));
         reply(stream, 200, &json!(list))
