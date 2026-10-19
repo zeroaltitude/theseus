@@ -112,35 +112,114 @@ mod tests {
     fn owner_authored_unshared_content_is_not_external() {
         let own = |v: &[&str]| v.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
         // A thread where every message is from the account, in either header form.
-        assert_eq!(url(Source::Mail { thread: "t1", from: &own(&[ME, "Owner <Owner@Example.Test>"]) }), None);
+        assert_eq!(
+            url(Source::Mail {
+                thread: "t1",
+                from: &own(&[ME, "Owner <Owner@Example.Test>"])
+            }),
+            None
+        );
         // One stranger among them, or none at all to judge by, and it is outside text.
         assert_eq!(
-            url(Source::Mail { thread: "t1", from: &own(&[ME, "A Stranger <stranger@example.test>"]) }).as_deref(),
+            url(Source::Mail {
+                thread: "t1",
+                from: &own(&[ME, "A Stranger <stranger@example.test>"])
+            })
+            .as_deref(),
             Some("gmail:thread/t1")
         );
-        assert_eq!(url(Source::Mail { thread: "t2", from: &[] }).as_deref(), Some("gmail:thread/t2"));
+        assert_eq!(
+            url(Source::Mail {
+                thread: "t2",
+                from: &[]
+            })
+            .as_deref(),
+            Some("gmail:thread/t2")
+        );
         // A lookalike address is not the account.
-        assert!(url(Source::Mail { thread: "t3", from: &own(&["owner@example.test.evil.test"]) }).is_some());
+        assert!(url(Source::Mail {
+            thread: "t3",
+            from: &own(&["owner@example.test.evil.test"])
+        })
+        .is_some());
         // An event the account organizes, and a file it owns that is not shared, are its own.
-        assert_eq!(url(Source::Event { id: "e1", organizer_is_account: true }), None);
-        assert_eq!(url(Source::Event { id: "e2", organizer_is_account: false }).as_deref(), Some("calendar:e2"));
-        assert_eq!(url(Source::File { id: "f1", owned_by_account: true, shared: false }), None);
-        assert_eq!(url(Source::File { id: "f2", owned_by_account: true, shared: true }).as_deref(), Some("drive:f2"));
-        assert_eq!(url(Source::File { id: "f3", owned_by_account: false, shared: false }).as_deref(), Some("drive:f3"));
+        assert_eq!(
+            url(Source::Event {
+                id: "e1",
+                organizer_is_account: true
+            }),
+            None
+        );
+        assert_eq!(
+            url(Source::Event {
+                id: "e2",
+                organizer_is_account: false
+            })
+            .as_deref(),
+            Some("calendar:e2")
+        );
+        assert_eq!(
+            url(Source::File {
+                id: "f1",
+                owned_by_account: true,
+                shared: false
+            }),
+            None
+        );
+        assert_eq!(
+            url(Source::File {
+                id: "f2",
+                owned_by_account: true,
+                shared: true
+            })
+            .as_deref(),
+            Some("drive:f2")
+        );
+        assert_eq!(
+            url(Source::File {
+                id: "f3",
+                owned_by_account: false,
+                shared: false
+            })
+            .as_deref(),
+            Some("drive:f3")
+        );
         // `google.call` is always outside text; a draft the owner made is not.
-        assert_eq!(url(Source::Outside { label: "google:drive.files.list" }).as_deref(), Some("google:drive.files.list"));
+        assert_eq!(
+            url(Source::Outside {
+                label: "google:drive.files.list"
+            })
+            .as_deref(),
+            Some("google:drive.files.list")
+        );
         assert_eq!(url(Source::None), None);
     }
 
     #[test]
     fn every_result_is_private_whoever_wrote_it() {
         for source in [
-            Source::Mail { thread: "t", from: &[ME.to_string()] },
-            Source::File { id: "f", owned_by_account: true, shared: false },
-            Source::Event { id: "e", organizer_is_account: true },
+            Source::Mail {
+                thread: "t",
+                from: &[ME.to_string()],
+            },
+            Source::File {
+                id: "f",
+                owned_by_account: true,
+                shared: false,
+            },
+            Source::Event {
+                id: "e",
+                organizer_is_account: true,
+            },
             Source::None,
         ] {
-            let (out, _) = finish(ME, "text".into(), json!({"id": "x"}), json!({"method": "m"}), source);
+            let (out, _) = finish(
+                ME,
+                "text".into(),
+                json!({"id": "x"}),
+                json!({"method": "m"}),
+                source,
+            );
             assert!(private::marked(&out.meta), "{:?}", out.meta);
             assert_eq!(out.meta["id"], "x", "the tool's own meta stays");
             assert_eq!(out.meta["google_called"]["method"], "m");
