@@ -103,7 +103,7 @@ impl Class {
 /// | continuation | the prefix and the tail (its arrangement, summary, and section included), a new recall note |
 /// | recompile | all of it, a new section (a compaction's) and a new note included |
 /// | resume | the manifest's prefix and the tail; no new recall |
-/// | detour | the last exchanges and the message, a task's arrangement among them: no recall, summary, or task view |
+/// | detour | the last exchanges and the message, a task's arrangement among them, and a quick one's own recall note (theseus-pa1xx; `compile_detour` lets no earlier note in): no summary or task view |
 ///
 /// A conversation's first compile may carry replies, earlier notes, and
 /// a summary: a session whose turns each took a detour (25e) wrote them
@@ -132,7 +132,7 @@ pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
                 || matches!(class, Arrangement | Summary | TaskView)
                 || (matches!(class, RecallNote | RecallSection) && !new)
         }
-        Situation::Detour => common || class == Arrangement,
+        Situation::Detour => common || matches!(class, Arrangement | RecallNote),
     }
 }
 
@@ -429,8 +429,8 @@ mod tests {
                 true,
                 [false, true, false, true, false, false],
             ),
-            (RecallNote, false, [true, false, true, true, true, false]),
-            (RecallNote, true, [true, false, true, true, false, false]),
+            (RecallNote, false, [true, false, true, true, true, true]),
+            (RecallNote, true, [true, false, true, true, false, true]),
             (TaskView, false, [true, true, true, true, true, false]),
             (Lesson, false, [false; 6]),
         ];

@@ -1256,6 +1256,89 @@ async fn a_trivial_detour_writes_no_recall_and_its_row_says_detoured() {
     assert!(m.why.as_deref().unwrap().contains("detour"), "{:?}", m.why);
 }
 
+/// A quick detour sends its turn's recall and writes it (theseus-pa1xx): a
+/// quick question about what was said or decided before is answered from the
+/// note, after the message, as a kept compile sends it. The `Recall` node and
+/// its edge are written, the footer counts the note, and the row says `ran`.
+/// Before, a fresh session's "what tag did he choose?" went to Haiku with the
+/// right note admitted and thrown away (`detoured`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quick_detour_sends_its_recall_and_writes_it() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "quick", 0.95);
+    let (r, note) = recalling(&jev, 1);
+    let ask = "Where does the lock-keeper keep the spare key?";
+    let res = turn(&r.core, None, ask, None).await;
+    let route = res.route.as_ref().unwrap();
+    assert_eq!(
+        (
+            res.profile.as_str(),
+            route.reason.as_str(),
+            route.mode.as_deref()
+        ),
+        ("haiku", "detour", Some("quick"))
+    );
+    let q = &r.claude.requests()[0];
+    assert_eq!(q.model, "claude-haiku-5-5");
+    let (last, before) = q.messages.split_last().unwrap();
+    assert!(carries_note(last), "the note, after the message: {last}");
+    assert!(!before.iter().any(carries_note), "{before:?}");
+    assert_eq!(res.recalled, 1, "the footer counts what the model saw");
+    let sid = &res.session_id;
+    assert_eq!(recall_nodes(&r.core, sid).len(), 1, "its Recall node");
+    assert_eq!(edges_into(&r.core, &note), 1, "its edge into the note");
+    let rows = crate::tests_recall::recalls(&r.core, sid);
+    assert_eq!(rows.len(), 1, "one recall row");
+    assert_eq!(rows[0].outcome, "ran");
+    let rec = session(&r.core, sid);
+    assert!(
+        rec.compilation_id.is_none(),
+        "a detour writes no compilation"
+    );
+    assert!(unadmitted(&r.core).is_empty());
+}
+
+/// A quick detour's later loop keeps its recall (theseus-pa1xx): once the
+/// first loop's plan frame has written the `Recall` node, the detour's next
+/// compile lets that node, and no other note, through with its window, and
+/// 35a's check admits it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quick_detours_later_loop_keeps_its_recall() {
+    use crate::provider::Scripted;
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "quick", 0.95);
+    let haiku = Arc::new(FakeProvider::scripted(vec![
+        Scripted::tools("", &[("t1", "thread_read", serde_json::json!({}))]),
+        Scripted::text("Behind the tide board."),
+    ]));
+    let p = haiku.clone();
+    let r = rig_parts(
+        Some(&jev),
+        1,
+        |c| {
+            c.memory.mode = crate::config::MemoryMode::Live;
+            c.routing.max_wait_ms = 5_000;
+        },
+        move |parts| {
+            parts.providers.insert("anthropic".into(), p);
+        },
+    );
+    let notes = crate::tests_recall::session(&r.core, None, &[KEY_NOTE]);
+    let ask = crate::tests_recall::index_of(&r.core, vec![notes]);
+    r.core.runner.memory.set_ask(ask);
+    let msg = "Call the thread_read tool once, then say where the lock-keeper keeps the spare key.";
+    let res = turn(&r.core, None, msg, None).await;
+    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
+    assert_eq!((res.tool_calls, res.recalled), (1, 1));
+    let reqs = haiku.requests();
+    assert_eq!(reqs.len(), 2, "two loops");
+    for (i, q) in reqs.iter().enumerate() {
+        let n = q.messages.iter().filter(|m| carries_note(m)).count();
+        assert_eq!(n, 1, "loop {i} carries the note once: {:?}", q.messages);
+    }
+    assert!(unadmitted(&r.core).is_empty());
+}
+
 /// The next, non-trivial turn after a detour carries no stale note
 /// (theseus-n7nc): the detour wrote no `Recall` node, so none renders in this
 /// turn's tail after the greeting. Its own recall finds the note, which
