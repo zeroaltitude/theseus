@@ -214,9 +214,10 @@ passed) and `-p theseus-protocol` (183 passed with ontology: 260 run, 1 skipped)
 -p theseus-core -E 'test(/ontology|bind|place|person|topic|layout|golden|people|output|registry|first_request/)'` (385
 passed before the undo commit, 424 with it and the protocol tests); store and layout tests (187 passed); theseusd's
 `versions` test (10 passed); `python3 scripts/keel-guard.py --base 6fc5884 --head HEAD --quiet` empty (exit 0).
-A wider `cargo nextest run --workspace -E 'test(/ontology|person|topic|guild/)'` was started with
-`CARGO_INCREMENTAL=0` after the disk filled; it was still compiling when this report was written, so **its result is not
-known**: the maintainer should run it. Not run here: the full gate, the benches, cargo-deny.
+A wider `cargo nextest run --workspace -E 'test(/ontology|person|topic|guild/)'` ran 164 tests: 163 passed, 1 failed:
+`theseus-discord tests_task_threads::a_task_in_a_guild_channel_gets_a_thread_where_its_stream_lands_and_one_rename_at_the_end`
+(times out at 100 s waiting for the task's tool line in its thread). It fails the same way alone, and again with my guild
+category write switched off, so I take it as this VM's (it is not on the flaky list; I did not run it on the base). Not run here: the full gate, the benches, cargo-deny.
 
 ## 7. Live check for the maintainer
 
