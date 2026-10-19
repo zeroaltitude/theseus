@@ -534,6 +534,56 @@ def exec_done(p: subprocess.Popen, argv0: str, timeout: float = 10.0) -> None:
         time.sleep(0.01)
 
 
+class HistoryPages(unittest.TestCase):
+    def fake_cli(self, pages: list[list[dict]], calls: list[list[str]]):
+        """`theseus history`'s paging: the newest page without an `older`, each
+        `--before P` the page of the nodes before P, with an `older` while
+        more remain."""
+        nodes = [n for p in pages for n in p]
+
+        def cli(*args: str) -> subprocess.CompletedProcess:
+            calls.append(list(args))
+            before = int(args[args.index("--before") + 1]) if "--before" in args else None
+            ends = {p[0]["position"]: i for i, p in enumerate(pages)}
+            if before is None:
+                page, older = pages[-1], None
+            else:
+                page = pages[ends[before] - 1]
+                older = page[0]["position"] if ends[before] - 1 > 0 else None
+            out = {"nodes": page, **({"older": older} if older is not None else {})}
+            return subprocess.CompletedProcess(args, 0, json.dumps(out), "")
+
+        return cli
+
+    def test_recall_delivery_reads_every_history_page(self):
+        sizes, at, pages = (37, 200, 200), 0, []
+        for size in sizes:
+            pages.append([{"position": at + i, "kind": "assistant_message", "text": f"node {at + i}"}
+                          for i in range(size)])
+            at += size
+        prog = generate.build(7, "smoke", PLAN)
+        fact = prog.facts[0]
+        pages[0][5]["text"] = fact.marker
+        calls: list[list[str]] = []
+        text, whole = drive.history_pages(self.fake_cli(pages, calls), "ses_x")
+        self.assertEqual([c[-1] for c in calls[1:]], [str(pages[-1][0]["position"]), str(pages[1][0]["position"])])
+        self.assertEqual([n["position"] for n in whole["nodes"]], list(range(437)))
+        self.assertEqual(json.loads(text), whole)
+        self.assertNotIn("older", whole)
+        got = drive.delivery(prog, "\n".join(drive.strings(whole)))
+        self.assertTrue(got[fact.id]["delivered"])
+
+    def test_a_short_history_is_one_page_and_one_empty_one(self):
+        calls: list[list[str]] = []
+        page = [{"position": 9 + i, "text": f"n{i}"} for i in range(3)]
+        out = {"nodes": page}
+        text, whole = drive.history_pages(
+            lambda *a: (calls.append(list(a)), subprocess.CompletedProcess(a, 0, json.dumps({"nodes": [] if "--before" in a else page}), ""))[1],
+            "ses_x")
+        self.assertEqual(whole, out)
+        self.assertEqual(len(calls), 2)
+
+
 class LeftRunning(unittest.TestCase):
     def test_a_process_naming_the_run_or_working_in_it_is_found(self):
         # Each fixture in a session of its own, and its whole group killed:
