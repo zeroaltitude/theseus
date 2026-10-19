@@ -416,7 +416,7 @@ pub struct Resolved {
     pub request: Request,
     /// The id when the method was one the table knows.
     pub id: Option<&'static str>,
-    /// What the call is: its class, judged on the verb, the template path and
+    /// What the call is: its class, judged on the verb, the filled path and
     /// the id (`classify`).
     pub class: crate::classify::Classified,
     /// The thread, message, file, event or document the call names, for the
@@ -506,6 +506,11 @@ pub fn resolve(
             if !path.starts_with('/') || path.contains("..") || path.contains("://") {
                 return Err("the path must begin with / and name one API's path".into());
             }
+            // The class is read off the path, so nothing may hide a segment
+            // from it: no query or fragment (params carry the query), no escape.
+            if path.contains(['?', '#', '%', '\\']) || path.chars().any(char::is_whitespace) {
+                return Err("the path must be a plain path: put the query in params".into());
+            }
             (None, verb, path.trim().to_string())
         }
     };
@@ -532,7 +537,9 @@ pub fn resolve(
         .iter()
         .flat_map(|(k, v)| query_value(v).into_iter().map(move |s| (k.clone(), s)))
         .collect();
-    let class = classify(&verb, &template, id, &query);
+    // The filled path, not the template: a path's own `{x}` filled with `send`
+    // is a send.
+    let class = classify(&verb, &path, id, &query);
     let body = match body {
         None | Some(Value::Null) => Body::None,
         Some(v) => Body::Json(v.clone()),
@@ -606,6 +613,40 @@ mod tests {
         assert!(resolve("nonsense.method", None, None).is_err());
         assert!(resolve("GET /somewhere/else", None, None).is_err());
         assert!(resolve("GET https://evil.example/gmail/v1/x", None, None).is_err());
+    }
+
+    #[test]
+    fn a_send_hidden_in_a_path_template_or_a_query_still_asks() {
+        use crate::classify::Class;
+        let r = resolve(
+            "POST /gmail/v1/users/me/messages/{x}",
+            Some(&json!({"x": "send"})),
+            None,
+        )
+        .unwrap();
+        assert_eq!(r.request.path, "/gmail/v1/users/me/messages/send");
+        assert_eq!(r.class.class, Class::Authority);
+        assert!(r.class.send);
+        let r = resolve(
+            "POST /drive/v3/files/f1/{p}",
+            Some(&json!({"p": "permissions"})),
+            None,
+        )
+        .unwrap();
+        assert_eq!(r.class.class, Class::Authority);
+        for method in [
+            "POST /gmail/v1/users/me/messages/send?alt=json",
+            "POST /gmail/v1/users/me/drafts/send#x",
+            "POST /gmail/v1/users/me/messages/%73end",
+            "POST /gmail/v1/users/me/messages/send x",
+        ] {
+            assert!(
+                resolve(method, None, None)
+                    .unwrap_err()
+                    .contains("plain path"),
+                "{method}"
+            );
+        }
     }
 
     #[test]
