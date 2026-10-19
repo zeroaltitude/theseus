@@ -16,7 +16,7 @@
 #                               systemd user timer at HOUR:40 (--hour, default 3: [judge] learning_hour's
 #                               default), beside the daemon's unit, as theseusd-sync.timer. It needs
 #                               [import.openclaw] state_dir in the config; the daemon reads it, the timer
-#                               only runs the command.
+#                               only runs the command, on this shell's PATH (its exporter is python3).
 #
 # Options, before or after the command:
 #   --dry-run              print each command instead of running it; questions are assumed "yes"
@@ -671,6 +671,17 @@ write_sync_unit() {
   mkdir -p "$(dirname "$file")" && printf '%s\n' "$text" >"$file"
 }
 
+# unit_env KEY VALUE: an `Environment=` line as `theseusd install` writes one: `\`, `"` and `%` escaped, the
+# whole assignment quoted. A unit cannot hold a control character: that fails.
+unit_env() {
+  local kv="$1=$2"
+  case $kv in *[[:cntrl:]]*) return 1 ;; esac
+  kv=${kv//\\/\\\\}
+  kv=${kv//\"/\\\"}
+  kv=${kv//"%"/%%}
+  printf 'Environment="%s"' "$kv"
+}
+
 cmd_sync_timer() {
   local sub=${REST[0]:-} base=$UNIT_NAME-sync dir=$CONFIG_HOME/systemd/user bin
   if [ ${#REST[@]} -ne 1 ]; then
@@ -682,6 +693,15 @@ cmd_sync_timer() {
   install)
     bin=$(command -v theseus || true)
     [ -n "$bin" ] || bin=$HOME/.local/bin/theseus
+    # The sync's PATH is this shell's, as the daemon's unit's is: the exporter it runs is python3, which
+    # systemd's own PATH may not find (theseus-7kuy2).
+    local path_line
+    if ! path_line=$(unit_env PATH "$PATH"); then
+      echo "$SELF: this shell's PATH holds a control character, which a unit cannot" >&2
+      return 1
+    fi
+    command -v python3 >/dev/null ||
+      warn "python3: not on this shell's PATH, and the sync's exporter needs it: install it, or run this from a shell that finds it"
     write_sync_unit "$svc" "$SYNC_MARK
 [Unit]
 Description=Theseus: the nightly OpenClaw sync (theseus-pjmj7)
@@ -690,6 +710,7 @@ Type=oneshot
 Nice=19
 IOSchedulingClass=idle
 Environment=THESEUS_SOCKET=$SOCKET
+$path_line
 ExecStart=$bin import sync"
     write_sync_unit "$tim" "$SYNC_MARK
 [Unit]
