@@ -54,6 +54,7 @@ pub mod forecast;
 pub mod fork;
 pub mod github;
 pub mod glide;
+pub mod google;
 pub mod graph;
 pub mod harness;
 pub mod import;

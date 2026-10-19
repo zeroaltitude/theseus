@@ -758,6 +758,7 @@ pub fn harness_only(cfg: &crate::Config, broker: &Broker) -> theseus_protocol::c
         providers: providers.into_iter().collect(),
         exposed: exposed.into_iter().collect(),
         aws_sessions: broker.aws_programs(),
+        google: crate::google::secret_names(&cfg.google),
     }
 }
 
@@ -789,7 +790,8 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
         h.line(),
         "broker: a job may be handed 1 secret (github_token); harness-only: the AWS keys \
          (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
-         deepgram_api_key, deepseek_api_key, zai_api_key); jobs get short-lived AWS sessions, never the key (aws)"
+         deepgram_api_key, deepseek_api_key, zai_api_key) and Google's secrets (google_client, \
+         google_refresh_token); jobs get short-lived AWS sessions, never the key (aws)"
     );
 }
 

@@ -26,6 +26,7 @@ mod earned;
 mod extend;
 mod follow;
 mod fork;
+mod google_cmd;
 mod harness;
 mod help_cmd;
 mod herdr;
@@ -456,6 +457,13 @@ enum Cmd {
     Aws {
         #[command(subcommand)]
         cmd: AwsCmd,
+    },
+    /// Google Workspace: `auth` is the one-time consent (run it from your own shell), `status`
+    /// shows the account and the tools on, `revoke` ends the grant.
+    #[command(hide = true)]
+    Google {
+        #[command(subcommand)]
+        cmd: google_cmd::GoogleCmd,
     },
     /// Server health: version, live profile, providers, sessions, turns, provider errors, token totals.
     #[command(display_order = 19)]
@@ -1430,6 +1438,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
+        Cmd::Google { cmd } => google_cmd::run(c, json, cmd).await,
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,

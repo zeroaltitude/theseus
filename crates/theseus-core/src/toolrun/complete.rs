@@ -27,6 +27,9 @@ impl ToolRuntime {
         let (accepted, newly) =
             crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |mut frame| {
                 frame.extend(extra);
+                // A Google result makes its session private, in the frame that
+                // writes it (the Google design, §4.1).
+                frame.extend(crate::google::private::record(node, sid));
                 tc.kernel.accept_completion_with(c, frame)
             })?;
         self.held(tc, newly);

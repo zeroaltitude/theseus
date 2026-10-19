@@ -223,6 +223,9 @@ pub struct Inbound {
     /// The operator's names for open and private matter (`[routing.data]`),
     /// carried to route.v6's `data` question.
     pub data_names: DataNames,
+    /// The session has read a Google result (the Google design, §4.1): the
+    /// `data` answer is `private` by code, as a sensitive name makes it.
+    pub private_source: bool,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -941,6 +944,7 @@ async fn judge_inbound(
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
     let (session, names) = (msg.session_id.clone(), msg.data_names.clone());
+    let private_source = msg.private_source;
     let to_task = charged.then(|| (msg.kernel.clone(), msg.execution_id.clone()));
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
@@ -983,7 +987,7 @@ async fn judge_inbound(
             let _ = tx.send(Answered {
                 verdict: judgments
                     .first()
-                    .and_then(|j| verdict(j, &turn, names_hit(&names, &brief))),
+                    .and_then(|j| verdict(j, &turn, private_source || names_hit(&names, &brief))),
                 at: tokio::time::Instant::now(),
                 cost_micros,
             });

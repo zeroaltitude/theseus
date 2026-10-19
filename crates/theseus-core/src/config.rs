@@ -14,6 +14,7 @@ use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
 mod context;
+mod google;
 pub use context::ContextConfig;
 mod cache;
 mod inherit;
@@ -75,6 +76,7 @@ pub use aws::{
     default_hourly_alert_usd, default_runaway_factor, AwsAccountConfig, AwsConfig,
     AwsCredentialNames, HandsNetwork,
 };
+pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use limits::{
     default_job_wait_max_secs, default_parallel_reads, default_parallel_runs,
@@ -162,6 +164,10 @@ pub struct Config {
     /// §3.5). None: no AWS tool, and nothing AWS runs.
     #[serde(default, skip_serializing_if = "AwsConfig::is_empty")]
     pub aws: AwsConfig,
+    /// `[google]`: Google Workspace (the Google design, §2.1). No `account`: no
+    /// Google tool, and nothing Google runs.
+    #[serde(default, skip_serializing_if = "GoogleConfig::is_empty")]
+    pub google: GoogleConfig,
     /// `[index]`: the index tender (roadmap row 51).
     #[serde(default)]
     pub index: IndexConfig,
@@ -1567,6 +1573,7 @@ impl Config {
                 .chain(crate::glide::NAMES)
                 .chain(crate::extend::NAMES)
                 .chain(crate::aws::NAMES)
+                .chain(crate::google::NAMES)
                 .chain(crate::term::NAMES)
                 .chain(crate::lsp::NAMES)
                 .chain(crate::memory_lookup::NAMES)
@@ -1685,6 +1692,7 @@ impl Config {
             }
         }
         self.validate_aws()?;
+        self.validate_google()?;
         self.validate_mcp()
     }
 
@@ -1938,6 +1946,8 @@ mod tests;
 mod tests_card;
 #[cfg(test)]
 mod tests_fresh;
+#[cfg(test)]
+mod tests_google;
 #[cfg(test)]
 mod tests_inherit;
 #[cfg(test)]

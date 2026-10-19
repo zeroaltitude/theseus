@@ -29,6 +29,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 use zeroize::Zeroizing;
 
+pub mod write;
+
 pub const TOKEN_ENV: &str = "OP_SERVICE_ACCOUNT_TOKEN";
 
 /// The longest one `op` process may take before its references count as failed.
@@ -708,6 +710,14 @@ impl SecretBoard {
     pub fn hold(&self, name: &str, value: Secret) {
         self.tx.send_modify(|m| {
             m.insert(name.to_string(), SecretState::Ready(value));
+        });
+    }
+
+    /// Take a held value off the board: it is no longer a secret Theseus has
+    /// (a revoked token), and says why. The scrubber forgets it with the rest.
+    pub fn withdraw(&self, name: &str, why: &str) {
+        self.tx.send_modify(|m| {
+            m.insert(name.to_string(), SecretState::Failed(why.to_string()));
         });
     }
 

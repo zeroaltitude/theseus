@@ -33,6 +33,13 @@ impl TurnRunner {
         !names.is_empty() && crate::data_gate::names_in(req, &names)
     }
 
+    /// The session has read a Google result (the Google design, §4.1): all
+    /// Workspace content is private, so the route skips every profile of
+    /// restricted origin from now on. Nothing is read without `[google]`.
+    pub(super) fn private_session(&self, t: &Turn<'_>) -> bool {
+        crate::google::private::session(t.tc.store, &self.cfg, t.tc.session_id)
+    }
+
     /// Whether `profile` is of restricted origin.
     pub(super) fn restricted_profile(&self, profile: &str) -> bool {
         self.cfg.profile_origin(profile, &self.catalog).restricted()

@@ -75,6 +75,14 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "aws-hands",
         "AWS hands: run a command as hands on Lambda or Fargate",
     ),
+    // Google Workspace (the Google design, §3): every tool is deferred, in three
+    // families by use.
+    ("mail", "Gmail: search, read, draft, send and label mail"),
+    ("calendar", "Google Calendar: read events, create, change and cancel them"),
+    (
+        "docs",
+        "Google Drive, Docs, Sheets and Slides: find, read, write and share files; any Google API call",
+    ),
     (
         "ask",
         "ask the owner a question with options, and wait for the answer",
@@ -126,6 +134,9 @@ pub fn of_wire(wire: &str) -> String {
             "lsp" => "code",
             "channel" => "channels",
             "aws" => aws_family(wire),
+            "gmail" => "mail",
+            "calendar" => "calendar",
+            "drive" | "sheets" | "slides" | "google" => "docs",
             "extend" => "extensions",
             "self" => "self",
             _ => OTHER,

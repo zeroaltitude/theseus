@@ -25,6 +25,7 @@ members = [
     "crates/theseus-voice",
     "crates/theseus-tui",
     "crates/theseus-files",
+    "crates/theseus-google",
 ]
 
 # Beyond clippy's defaults, held by the gate's `-D warnings` (theseus-0g4).

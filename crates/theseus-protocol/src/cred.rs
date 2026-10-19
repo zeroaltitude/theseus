@@ -26,6 +26,11 @@ pub struct HarnessOnly {
     /// never the key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aws_sessions: Vec<String>,
+    /// Google's secrets' `[secrets]` names (the client and the refresh token),
+    /// when `[google]` binds an account. No job is handed one, whatever
+    /// `[broker]` says: the config refuses a grant that names one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub google: Vec<String>,
 }
 
 impl HarnessOnly {
@@ -53,6 +58,7 @@ impl HarnessOnly {
         let kinds: Vec<String> = [
             ("the AWS keys", kept(&self.aws)),
             ("the providers' keys", kept(&self.providers)),
+            ("Google's secrets", self.google.join(", ")),
         ]
         .into_iter()
         .filter(|(_, names)| !names.is_empty())

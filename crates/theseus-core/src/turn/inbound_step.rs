@@ -105,6 +105,11 @@ impl TurnRunner {
                     persona: self.persona_ctx(t.tc.session_id, class),
                     capture,
                     data_names: self.cfg.routing.data.names(&self.cfg.privacy),
+                    private_source: crate::google::private::session(
+                        t.tc.store,
+                        &self.cfg,
+                        t.tc.session_id,
+                    ),
                 },
             ),
         };
@@ -113,7 +118,7 @@ impl TurnRunner {
         }
         let asked = wait.is_some();
         Self::route_asked(t, wait, route, images);
-        t.route.sensitive = self.sensitive_message(text);
+        t.route.sensitive = self.sensitive_message(text) || self.private_session(t);
         // The owner's correction, or the layer (theseus-q31l): a turn that
         // asked the route pack can be steered; any turn's words can label.
         self.correction_point(t, &node.id, text, author, place.as_deref(), route, asked);

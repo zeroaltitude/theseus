@@ -110,6 +110,7 @@ impl Core {
                 ..self.push.status(self.bus.all_watchers())
             }),
             aws: self.tools.aws.as_ref().map(|a| a.status()),
+            google: self.tools.google.as_ref().map(|g| g.status()),
             // Asked of the tender by `health_now`, never here: this answers
             // at once.
             index: None,
