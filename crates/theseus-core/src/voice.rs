@@ -67,6 +67,12 @@ pub struct VoiceConfig {
     /// (theseus-bh3t.3).
     #[serde(default = "default_status")]
     pub speak_tasks: bool,
+    /// A short or unclear sound before the greeting finished is no turn
+    /// (the join's chime back through a microphone), and one or two words
+    /// of a sentence's head or tail heard in its tail are its echo
+    /// (theseus-yf9ct).
+    #[serde(default = "default_status")]
+    pub join_guard: bool,
 }
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
@@ -112,6 +118,7 @@ impl Default for VoiceConfig {
             status: default_status(),
             greeting: default_greeting(),
             speak_tasks: default_status(),
+            join_guard: default_status(),
         }
     }
 }

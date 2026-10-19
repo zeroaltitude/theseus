@@ -17,6 +17,9 @@ pub enum HeardAs {
     Backchannel,
     /// A request to go on: "go on", "continue".
     Resume,
+    /// A short or unclear sound before the greeting finished: the join's own
+    /// chime, back through a microphone (theseus-yf9ct). Not a turn.
+    Join,
 }
 
 /// Where an utterance's first speech frame came, for the rules that apply.
@@ -91,6 +94,14 @@ const ECHO_RUN: usize = 3;
 /// (theseus-j2ut).
 const HEAD_RUN: usize = 2;
 
+/// An utterance at the join counts as speech only when it is at least this
+/// long (theseus-yf9ct).
+pub const JOIN_SPEECH: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// ...and its transcript has at least this many words: one or two are a
+/// chime or a cough the recogniser guessed at.
+const JOIN_WORDS: usize = 3;
+
 /// `text`'s words: its lower-cased runs of letters, digits and apostrophes,
 /// a typographic apostrophe read as a plain one.
 pub fn words(text: &str) -> Vec<String> {
@@ -128,6 +139,62 @@ pub fn is_echo(text: &str, sentences: &[String], head: Option<&str>) -> bool {
     let joined: Vec<String> = sentences.iter().flat_map(|s| words(s)).collect();
     let run = longest_run(&heard, &joined);
     run >= ECHO_RUN && most(run)
+}
+
+/// A sound at the join (before the greeting finished) that is no turn: under
+/// [`JOIN_SPEECH`] long, or a transcript of fewer than 3 words. A long,
+/// clear utterance is the owner really talking at once (theseus-yf9ct).
+pub fn is_join_noise(text: &str, length: std::time::Duration) -> bool {
+    length < JOIN_SPEECH || words(text).len() < JOIN_WORDS
+}
+
+/// One or two words that are the head or the tail of one of `sentences`,
+/// fuzzily (theseus-yf9ct): the greeting's "Theseus here" heard back as
+/// "seus here". A lone word counts only when it is a clipped or misheard
+/// word of the sentence, never an exact one ("stop" over "Stop the build.")
+/// and never a backchannel or a request to go on.
+pub fn is_fragment_echo(text: &str, sentences: &[String]) -> bool {
+    let heard = words(text);
+    if heard.is_empty() || heard.len() > 2 || is_backchannel(text) || is_resume(text) {
+        return false;
+    }
+    let fits = |at: &[String]| {
+        heard
+            .iter()
+            .zip(at)
+            .all(|(h, w)| near(h, w) && (heard.len() > 1 || h != w))
+    };
+    sentences.iter().map(|s| words(s)).any(|w| {
+        w.len() >= heard.len() && (fits(&w[..heard.len()]) || fits(&w[w.len() - heard.len()..]))
+    })
+}
+
+/// `heard` is `word`, a clipped end of it of at least 4 letters ("seus" of
+/// "theseus"), or one edit from it per 4 letters (at least one).
+fn near(heard: &str, word: &str) -> bool {
+    if heard == word {
+        return true;
+    }
+    let clipped = heard.chars().count() >= 4 && (word.ends_with(heard) || word.starts_with(heard));
+    clipped || edits(heard, word) <= (word.chars().count() / 4).max(1)
+}
+
+/// The edit distance between `a` and `b`.
+fn edits(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, x) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, y) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (diagonal + usize::from(x != *y))
+                .min(above + 1)
+                .min(row[j] + 1);
+            diagonal = above;
+        }
+    }
+    row[b.len()]
 }
 
 /// The longest run of `a`'s words found contiguously, in order, at the start
@@ -378,5 +445,28 @@ mod tests {
             classify("yeah", Overlap::None, &ended, None),
             HeardAs::Words
         );
+    }
+
+    #[test]
+    fn a_short_or_wordy_sound_at_the_join_is_noise_and_a_long_clear_one_is_not() {
+        let ms = std::time::Duration::from_millis;
+        assert!(is_join_noise("ECCR", ms(600)));
+        assert!(is_join_noise("is miss here", ms(1360)));
+        assert!(is_join_noise("eccr", ms(2000)));
+        assert!(!is_join_noise("what's the weather like today", ms(2000)));
+    }
+
+    #[test]
+    fn one_or_two_words_of_a_sentences_head_or_tail_are_its_echo() {
+        let hello = said(&["Theseus here."]);
+        assert!(is_fragment_echo("seus here", &hello));
+        assert!(is_fragment_echo("Theseus here", &hello));
+        assert!(is_fragment_echo("seus", &hello));
+        // An exact lone word, a backchannel, or other words: not.
+        assert!(!is_fragment_echo("here", &hello));
+        assert!(!is_fragment_echo("yes", &hello));
+        assert!(!is_fragment_echo("stop", &said(&["Stop the build."])));
+        assert!(!is_fragment_echo("deploy it", &hello));
+        assert!(!is_fragment_echo("seus here now", &hello));
     }
 }

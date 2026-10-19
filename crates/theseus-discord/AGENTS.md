@@ -483,6 +483,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `runtime/voice/tests_status.rs` (the pace on tokio's paused clock, the fake Discord's REST route and its 403), and
   `voice_status.rs`'s own.
 
+- **The join guard** (theseus-yf9ct; `[voice] join_guard`, on): the engine's `Config::join_guard` is set from it at the join; see
+  theseus-voice's AGENTS.md. Off restores the old reading of a sound at the join and of a one-word echo.
 - **A task's question and report in the call** (theseus-bh3t.3, `runtime/voice/tasks.rs`; `[voice] speak_tasks`, on): fed by the voice
   status's one work watch (`voice_status::Handle.tasks`; the watch runs when the status or `speak_tasks` is on, and `Handle.board`
   says whether the status is written and the board's line told). A new question of a task and a task's end are one `Command::Report`

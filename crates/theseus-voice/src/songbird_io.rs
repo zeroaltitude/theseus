@@ -86,6 +86,50 @@ pub fn clip_input(clip: &Audio) -> Input {
     Input::from(bytes)
 }
 
+/// Silent 20 ms frames sent before the first clip of a speaking spell, so the
+/// listener's jitter buffer and Discord's speaking-state flip don't eat its
+/// head ("Theseus here" heard as "seus here", theseus-yf9ct). 0 turns it off.
+pub const LEAD_IN_FRAMES: u32 = 5;
+
+/// A clip that begins this long after the last one ended starts a new spell.
+const SPELL_GAP: Duration = Duration::from_millis(500);
+
+/// `clip` after its lead-in of silence.
+fn led_in(clip: &Audio) -> Audio {
+    let mut samples = vec![0; LEAD_IN_FRAMES as usize * FRAME_SAMPLES];
+    samples.extend_from_slice(clip.samples());
+    Audio::new(samples)
+}
+
+/// Whether the bot is speaking: a clip that starts a spell, after quiet,
+/// gets the lead-in, and the next sentence of the same reply does not.
+#[derive(Default)]
+struct Spell {
+    clip: Option<ClipId>,
+    quiet_since: Option<Instant>,
+}
+
+impl Spell {
+    /// Clip `id` begins at `now`: does it need the lead-in?
+    fn begin(&mut self, id: ClipId, now: Instant) -> bool {
+        let lead = self.clip.is_none()
+            && self
+                .quiet_since
+                .is_none_or(|since| now.saturating_duration_since(since) >= SPELL_GAP);
+        self.clip = Some(id);
+        lead && LEAD_IN_FRAMES > 0
+    }
+
+    /// Clip `id` ended or was stopped (an earlier clip's end, after a later
+    /// began, changes nothing).
+    fn end(&mut self, id: ClipId, now: Instant) {
+        if self.clip == Some(id) {
+            self.clip = None;
+            self.quiet_since = Some(now);
+        }
+    }
+}
+
 /// What one SSRC has sent so far: the live check's log (44a), and Health's
 /// SSRC map (design §2.8).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -284,6 +328,7 @@ pub struct SongbirdIo {
     rx: mpsc::UnboundedReceiver<Signal>,
     tx: mpsc::UnboundedSender<Signal>,
     track: Option<TrackHandle>,
+    spell: Spell,
     ssrcs: Arc<Mutex<Ssrcs>>,
     /// A rejoin is leaving the call: its requested disconnect is no drop.
     rejoining: Arc<AtomicBool>,
@@ -431,6 +476,7 @@ impl SongbirdIo {
             rx,
             tx,
             track: None,
+            spell: Spell::default(),
             ssrcs,
             rejoining,
             gone: None,
@@ -506,7 +552,12 @@ impl VoiceIo for SongbirdIo {
         // `recv` is cancel-safe.
         Box::pin(async move {
             match self.rx.recv().await? {
-                Signal::Heard(heard) => Some(heard),
+                Signal::Heard(heard) => {
+                    if let Heard::Ended(id) = heard {
+                        self.spell.end(id, Instant::now());
+                    }
+                    Some(heard)
+                }
                 Signal::Gone(why) => {
                     self.gone = Some(why);
                     None
@@ -521,7 +572,11 @@ impl VoiceIo for SongbirdIo {
 
     fn play(&mut self, id: ClipId, clip: Audio) -> BoxFuture<'_, ()> {
         Box::pin(async move {
-            let track = self.call.lock().await.play_input(clip_input(&clip));
+            let input = match self.spell.begin(id, Instant::now()) {
+                true => clip_input(&led_in(&clip)),
+                false => clip_input(&clip),
+            };
+            let track = self.call.lock().await.play_input(input);
             let ended = Ended {
                 tx: self.tx.clone(),
                 id,
@@ -539,6 +594,9 @@ impl VoiceIo for SongbirdIo {
     }
 
     fn stop(&mut self) -> BoxFuture<'_, ()> {
+        if let Some(id) = self.spell.clip {
+            self.spell.end(id, Instant::now());
+        }
         if let Some(track) = self.track.take() {
             // A track already gone has sent its `Ended`.
             let _ = track.stop();
@@ -667,6 +725,39 @@ mod tests {
                 .frames();
         }
         assert_eq!(decoded, chime.len());
+    }
+
+    #[test]
+    fn the_first_clip_after_quiet_leads_in_and_the_next_sentence_does_not() {
+        let t0 = Instant::now();
+        let ms = Duration::from_millis;
+        let mut spell = Spell::default();
+        assert!(
+            spell.begin(ClipId(0), t0),
+            "the greeting after a quiet call"
+        );
+        spell.end(ClipId(0), t0 + ms(1200));
+        assert!(!spell.begin(ClipId(1), t0 + ms(1210)), "the next sentence");
+        spell.end(ClipId(1), t0 + ms(2000));
+        assert!(spell.begin(ClipId(2), t0 + ms(2600)), "a reply after quiet");
+        // A stopped clip's late `Ended` leaves the next one's spell alone.
+        spell.end(ClipId(2), t0 + ms(2700));
+        assert!(spell.begin(ClipId(3), t0 + ms(3300)));
+        spell.end(ClipId(2), t0 + ms(3310));
+        assert_eq!(spell.clip, Some(ClipId(3)));
+        let chime = Audio::chime();
+        let led = led_in(&chime);
+        assert_eq!(
+            led.len(),
+            chime.len() + LEAD_IN_FRAMES as usize * FRAME_SAMPLES
+        );
+        assert!(led.samples()[..LEAD_IN_FRAMES as usize * FRAME_SAMPLES]
+            .iter()
+            .all(|&s| s == 0));
+        assert_eq!(
+            &led.samples()[LEAD_IN_FRAMES as usize * FRAME_SAMPLES..],
+            chime.samples()
+        );
     }
 
     #[tokio::test]

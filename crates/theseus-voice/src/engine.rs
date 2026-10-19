@@ -55,7 +55,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep_until, Instant};
 
 use crate::audio::{Audio, FRAME};
-use crate::heard::{classify, HeardAs, Overlap};
+use crate::heard::{classify, is_fragment_echo, is_join_noise, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
 use crate::sentences::speakable;
 use crate::speech::{Speech, SpeechError, Synthesis, Transcript, Usage, ACKNOWLEDGMENT};
@@ -92,6 +92,11 @@ pub struct Config {
     /// transcribed once: heard as no words, it no longer holds the floor,
     /// and its stop waits for its words: 8 s (theseus-aq4t).
     pub floor_bound: Duration,
+    /// A short or unclear sound at the join is no turn, and one or two
+    /// words of a sentence's head or tail are its echo (theseus-yf9ct). Off
+    /// here, so the engine's own tests read as they did; the session turns
+    /// it on from `[voice] join_guard`, which defaults to true.
+    pub join_guard: bool,
 }
 
 impl Config {
@@ -108,6 +113,7 @@ impl Config {
             pre_roll: Duration::from_millis(200),
             transcript_bound: Duration::from_secs(3),
             floor_bound: Duration::from_secs(8),
+            join_guard: false,
         }
     }
 
@@ -311,6 +317,8 @@ pub struct Engine {
     commands: mpsc::UnboundedReceiver<Command>,
     events: mpsc::UnboundedSender<Event>,
     ticks: u64,
+    /// When the engine was built: the call's join.
+    joined: Instant,
     // Receive, and turns.
     vads: BTreeMap<Speaker, Vad>,
     /// Each open utterance's start: what it was over.
@@ -358,6 +366,11 @@ pub struct Engine {
 /// How long after a sentence ends an utterance may still be its echo.
 const ECHO_TAIL: Duration = Duration::from_millis(1200);
 
+/// With no greeting to wait for, an utterance begun this soon after the join
+/// is a sound at the join: Discord's own chime comes back through the
+/// owner's microphone then (theseus-yf9ct).
+const JOIN_GUARD: Duration = Duration::from_millis(1500);
+
 /// An utterance begun this soon after the sentence playing began may echo
 /// its head from 2 words (theseus-j2ut).
 const ECHO_HEAD: Duration = Duration::from_millis(500);
@@ -384,6 +397,9 @@ struct Opening {
     /// The sentence playing, begun at most `ECHO_HEAD` before it: a run
     /// from its head is an echo from 2 words (theseus-j2ut).
     head: Option<String>,
+    /// It began at the join: before the greeting finished, or within
+    /// `JOIN_GUARD` of it (theseus-yf9ct).
+    at_join: bool,
     /// Its number, so a probe of its audio so far finds it.
     id: u64,
     /// What the floor's bound heard of it so far.
@@ -534,6 +550,7 @@ impl Engine {
             commands,
             events,
             ticks: 0,
+            joined: Instant::now(),
             vads: BTreeMap::new(),
             opening: BTreeMap::new(),
             unlisted: BTreeSet::new(),
@@ -695,6 +712,7 @@ impl Engine {
                         sentences: Vec::new(),
                         last: false,
                         head: None,
+                        at_join: false,
                         id: 0,
                         sound: Sound::Unheard,
                     });
@@ -790,9 +808,18 @@ impl Engine {
                 (over, tail)
             }
         };
+        // Before the first turn, the join lasts until what is queued for the
+        // call (the greeting) has been said.
+        let at_join = self.config.join_guard
+            && self.next_turn == 0
+            && (now.saturating_duration_since(self.joined) < JOIN_GUARD
+                || !self.reports.is_empty()
+                || !self.queue.is_empty()
+                || self.playing.is_some());
         let id = self.next_opening;
         self.next_opening += 1;
         Opening {
+            at_join,
             over,
             overlap,
             sentences,
@@ -1285,12 +1312,26 @@ impl Engine {
                 return;
             }
         };
-        let heard_as = classify(
+        let mut heard_as = classify(
             &t.text,
             overlap,
             &p.opening.sentences,
             p.opening.head.as_deref(),
         );
+        if heard_as == HeardAs::Words && p.opening.at_join && is_join_noise(&t.text, p.length) {
+            tracing::info!(
+                "voice: a sound at the join was not taken as speech: {} ms, '{}'",
+                p.length.as_millis(),
+                t.text
+            );
+            heard_as = HeardAs::Join;
+        } else if heard_as == HeardAs::Words
+            && self.config.join_guard
+            && overlap != Overlap::None
+            && is_fragment_echo(&t.text, &p.opening.sentences)
+        {
+            heard_as = HeardAs::Echo;
+        }
         let utterance = Utterance {
             speaker,
             started: p.started,

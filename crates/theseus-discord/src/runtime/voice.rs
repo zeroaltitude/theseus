@@ -499,7 +499,8 @@ impl Place {
             core: Arc::downgrade(&shared.core),
             key: place.key.clone(),
         };
-        let config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
+        let mut config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
+        config.join_guard = voice.cfg.join_guard;
         // In the persona's voice, once the join has succeeded and the call's
         // audio flows (theseus-sro04), or after `GREETING_WAIT`.
         let greeting = shared.core.greeting_for(Some(&self.session_id));
@@ -1136,6 +1137,7 @@ fn heard_as(h: HeardAs) -> &'static str {
         HeardAs::Echo => "echo",
         HeardAs::Backchannel => "backchannel",
         HeardAs::Resume => "resume",
+        HeardAs::Join => "join",
     }
 }
 

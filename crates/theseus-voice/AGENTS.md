@@ -23,3 +23,11 @@ seam, in virtual time and at exact times; a test there that needs words or none 
 its default (`[utterance 0.6 s]`) is words. The engine speaks `speakable()`'s sentences (`src/sentences.rs`: Markdown
 stripped, a link read as its label, a table or a code block one sentence pointing at the text channel), and an echo's
 candidates and a cut's quotes are those same strings (theseus-rkvl).
+
+A sound at the join is no turn (theseus-yf9ct): before the first turn, an utterance begun within `JOIN_GUARD` (1.5 s)
+of the join, or while a greeting is queued or playing, is heard as `Join` (no turn, said once in the journal) when it
+is under 1.5 s or its transcript is under 3 words; a long, clear one is a turn. One or two words that are a fuzzy head
+or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "Theseus here") are an echo. Both are
+`Config::join_guard`, off in the engine so its own tests read as before, on from `[voice] join_guard` (default true).
+`songbird_io` sends `LEAD_IN_FRAMES` (5, 100 ms; 0 is off) of silence before the first clip after quiet (`Spell`), so
+the head of the greeting isn't eaten; the next sentence of a reply gets none.
