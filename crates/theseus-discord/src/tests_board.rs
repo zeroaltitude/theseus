@@ -770,6 +770,14 @@ async fn quiet_one_hour_makes_the_places_cards_silent_until_it_is_ended() {
         })
     })
     .await;
+    // The first turn has ended: a message in it would be taken in, and its
+    // next answer would be the second task's (theseus-1dbb5).
+    r.until("the first turn's end", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.starts_with("Started it."))
+    })
+    .await;
     // A question that comes now is a card, silent.
     r.say((ANA, "ana"), None, ASK2);
     r.until("the card", || cards(&r, ANA_DM).len() == 1).await;

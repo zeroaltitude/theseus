@@ -1258,6 +1258,14 @@ fn the_sync_timer_is_installed_beside_the_daemons_unit_and_removed_again() {
         )),
         "{svc}"
     );
+    // The shell's PATH, as the daemon's unit has it: systemd's own may find no python3 (theseus-7kuy2).
+    assert!(
+        svc.contains(&format!(
+            "Environment=\"PATH={}/bin:/usr/bin:/bin\"",
+            r.home().display()
+        )),
+        "{svc}"
+    );
     assert!(
         svc.contains(&format!(
             "ExecStart={}/bin/theseus import sync",
@@ -1310,6 +1318,35 @@ fn the_sync_timer_is_installed_beside_the_daemons_unit_and_removed_again() {
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("was not written by this script"), "{out}");
     assert!(dir.join("theseusd-sync.timer").exists());
+}
+
+/// The sync's python3 is found on the PATH the timer was installed from, escaped as systemd reads it
+/// (theseus-7kuy2): a python3 only a brewed directory holds is still found at night.
+#[test]
+fn the_sync_timer_runs_on_the_installing_shells_path() {
+    let r = Rig::new();
+    let brew = r.home().join("brew 100%/bin");
+    std::fs::create_dir_all(&brew).unwrap();
+    std::os::unix::fs::symlink(r.home().join("standin"), brew.join("python3")).unwrap();
+    let path = format!(
+        "{}:{}:/usr/bin:/bin",
+        r.home().join("bin").display(),
+        brew.display()
+    );
+    let out = r
+        .command(&["sync-timer", "install"])
+        .env("PATH", &path)
+        .output()
+        .unwrap();
+    let (code, out) = Rig::said(&out);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("python3: not on"), "{out}");
+    let svc = std::fs::read_to_string(r.home().join(".config/systemd/user/theseusd-sync.service"))
+        .unwrap();
+    assert!(
+        svc.contains(&format!("Environment=\"PATH={}\"", path.replace('%', "%%"))),
+        "{svc}"
+    );
 }
 
 #[test]
