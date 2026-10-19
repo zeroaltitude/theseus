@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use super::fit::{self, Bands, Prices};
 use super::{applied, Library, Picked, Plan, Query};
-use crate::compiler::{layers::system_digest, sha, Compilation, RequestSpec};
+use crate::compiler::{layers::system_digest, Compilation, RequestSpec};
 use crate::config::CacheTtl;
 use crate::node::Body;
 use crate::places::PlaceClass;
@@ -197,7 +197,7 @@ impl TurnRunner {
             theseus_protocol::now_unix_ms(),
         );
         let Some(header) = warm else { return 0 };
-        let tools = serde_json::to_string(&spec.tools).map_or(0, |t| t.len() as u64);
+        let tools = spec.tools.json_len();
         let text = (spec.system_text.len() + spec.persona_text.len()) as u64 + header;
         let rates = self.catalog.get(&spec.model).map_or_else(
             || crate::catalog::TokenRates::of(&spec.model),
@@ -220,8 +220,8 @@ impl TurnRunner {
 /// The digest of what the cache reads before the third layer: the tools,
 /// the header and the persona layer.
 fn lower_of(spec: &RequestSpec) -> String {
-    let tools = serde_json::to_string(&spec.tools).unwrap_or_default();
-    sha(&[tools.as_str(), &spec.system_text, &spec.persona_text].join("\u{0}"))
+    spec.tools
+        .digest_with(&[&spec.system_text, &spec.persona_text])
 }
 
 /// The class's name in a header.

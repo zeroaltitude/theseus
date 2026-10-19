@@ -134,7 +134,7 @@ pub fn cache_layout(spec: &RequestSpec, catalog: &Catalog) -> CacheLayout {
     let caches = entry.is_none_or(|e| e.caches);
     let min_tokens = entry.map_or(0, |e| e.cache_min_tokens);
     let len = |v: &Value| serde_json::to_string(v).map_or(0, |s| s.len() as u64);
-    let mut bytes = len(&Value::Array(spec.tools.clone()));
+    let mut bytes = spec.tools.json_len();
     let blocks = system_blocks(spec)
         .into_iter()
         .map(|(block, text)| {

@@ -50,7 +50,7 @@ impl TurnRunner {
         }
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
         let cwd = self.tools.cwd_for(t.tc.dir);
-        spec.tools.retain(|d| {
+        let keep = |d: &serde_json::Value| {
             let Some(name) = d["name"]
                 .as_str()
                 .and_then(|n| n.strip_prefix(crate::flow::tool::WIRE_PREFIX))
@@ -60,7 +60,16 @@ impl TurnRunner {
             flows
                 .get(name)
                 .is_some_and(|e| crate::flow::tool::in_scope(&e.spec, &cwd, kind))
-        });
+        };
+        if spec.tools.iter().any(|d| !keep(d)) {
+            spec.tools = spec
+                .tools
+                .iter()
+                .filter(|d| keep(d))
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+        }
     }
 
     /// The fresh choice for a session's request on `spec`.

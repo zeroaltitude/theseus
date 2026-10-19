@@ -327,7 +327,7 @@ impl Core {
         // The tools as its requests sent them: the families the compilation
         // recorded loading (theseus-7m7w.2), whose digest the manifest holds.
         let spec = crate::tools_defer::as_recorded(spec, m);
-        let tools = theseus_kernel::digest_json(&Value::Array(spec.tools.clone()));
+        let tools = theseus_kernel::digest_json(&Value::Array(spec.tools.to_vec()));
         if tools[..16] != m.tools_digest {
             return Err(no(
                 "tools",

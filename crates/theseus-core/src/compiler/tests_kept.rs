@@ -29,7 +29,8 @@ fn spec() -> RequestSpec {
         persona: None,
         tools: vec![
             json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
-        ],
+        ]
+        .into(),
         effort: Some(Effort::High),
         turn_effort: None,
         effort_refused: vec![],

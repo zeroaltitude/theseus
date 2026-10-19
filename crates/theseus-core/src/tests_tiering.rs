@@ -322,7 +322,7 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         context_files: vec![],
         persona: None,
         defer: None,
-        tools: vec![],
+        tools: Vec::new().into(),
         effort: None,
         turn_effort: None,
         effort_refused: vec![],

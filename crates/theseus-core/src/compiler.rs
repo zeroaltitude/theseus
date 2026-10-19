@@ -208,7 +208,7 @@ pub struct RequestSpec {
     /// The persona in play when the spec was built (theseus-c48).
     pub persona: Option<String>,
     /// Wire tool definitions, sorted by name.
-    pub tools: Vec<Value>,
+    pub tools: crate::tool_set::Tools,
     /// The families the request loads, the tools above being the whole catalog
     /// (`tools_defer`); `compile` resolves it. None: every tool loads.
     pub defer: Option<crate::tools_defer::Deferral>,
@@ -566,8 +566,7 @@ pub fn manifest_for(
         provider: spec.provider.clone(),
         model: spec.model.clone(),
         system_digest: system_digest(spec),
-        tools_digest: theseus_kernel::digest_json(&Value::Array(spec.tools.clone()))[..16]
-            .to_string(),
+        tools_digest: spec.tools.digest().to_string(),
         tools,
         catalog_version: catalog.version.clone(),
         context_window: window,
@@ -1013,7 +1012,7 @@ fn render_kept(
         max_tokens: spec.max_tokens,
         system,
         messages,
-        tools: spec.tools.clone(),
+        tools: spec.tools.to_vec(),
         thinking,
         output_config,
         cache_control: layout.caches.then(|| conversation_ttl.marker()),

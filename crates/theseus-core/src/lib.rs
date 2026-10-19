@@ -137,6 +137,7 @@ pub mod thread_split;
 pub mod threads;
 pub mod threads_import;
 pub mod tighten;
+pub mod tool_set;
 pub mod tool_words;
 pub mod toolrun;
 pub mod tools_defer;
@@ -452,6 +453,8 @@ mod tests_security;
 mod tests_self_budget;
 #[cfg(test)]
 mod tests_self_card;
+#[cfg(test)]
+mod tests_send_path;
 #[cfg(test)]
 mod tests_session_dir;
 #[cfg(test)]

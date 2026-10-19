@@ -120,7 +120,7 @@ pub fn tools_bytes(tools: &[Value]) -> u64 {
 /// says the parts of the request this way.
 pub fn sent_tools(spec: &RequestSpec, current: Option<&crate::compiler::Manifest>) -> Vec<Value> {
     let Some(fresh) = spec.defer.as_ref().filter(|d| !d.resolved) else {
-        return spec.tools.clone();
+        return spec.tools.to_vec();
     };
     match current {
         None => resolve(&spec.tools, fresh),
@@ -226,15 +226,21 @@ fn tooled<'a>(spec: Cow<'a, RequestSpec>, d: Option<&Deferral>) -> Cow<'a, Reque
     let mut s = spec.into_owned();
     match d {
         Some(d) => {
-            s.tools = resolve(&s.tools, d);
+            s.tools = s.tools.resolved(d, |all| resolve(all, d));
             s.defer = Some(Deferral {
                 resolved: true,
                 ..d.clone()
             });
         }
         None => {
-            s.tools
-                .retain(|t| t.get("name").and_then(Value::as_str) != Some(FIND));
+            let plain = |t: &&Value| t.get("name").and_then(Value::as_str) != Some(FIND);
+            s.tools = s
+                .tools
+                .iter()
+                .filter(plain)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
             s.defer = None;
         }
     }
