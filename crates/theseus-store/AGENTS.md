@@ -170,6 +170,10 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   polled again only by a worker, or dropped with the runtime. Every append, checkpoint, and contended lock wait goes
   through `blocking`; never call `block_in_place` itself. `store/tests_blocking.rs` holds a section open until the
   time driver has shut down (a canary timer fires early then), and theseus-core's tender test does it to `tend`.
+- **`blocking`'s body is written once** (theseus-nsp9l.3). `blocking` only wraps the caller's closure; the work is
+  `run_blocking`, which takes a `&mut dyn FnMut()`. Keep it that way: when the body was generic in each caller's
+  closure, the release binary held it, with tokio's `block_in_place` and `exit_runtime`, once per caller (164 copies,
+  0.7 MB). A disk wait pays one virtual call for it.
 
 ## Tests
 
