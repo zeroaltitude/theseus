@@ -49,15 +49,18 @@ Six features in v1 are on and still being hardened. The [README](../README.md) l
 owner's rule (2026-10-18) is that a feature that exists ships on, with its broken parts said plainly, and the fixes
 follow.
 
-- **Jev's judgments** (`route.v6`, `classify.v3`, `rerank.v1` and `security.v3`, live). Each message a person sends
+- **Jev's judgments** (`route.v7`, `classify.v3`, `rerank.v1` and `security.v3`, live). Each message a person sends
   gets its model and effort, its class and its thread from Jev, waited for at most 300 ms on the owner's daemon (200 by
   default); Jev's persona pick is recorded in shadow, and recall's order waits for `rerank.v1`. At the v1 benchmarks
   (2026-10-18) Theseus paid the least of four harnesses for a solved task at high effort, level with Claude Code on
   the score. Still rough:
   - It sometimes calls a hard task routine and sends it to Haiku. On the 30 hardest tasks, every turn it called
-    routine failed, and it never chose `max` effort where `max` was allowed.
-  - `route.v6`'s data verdict calls open-source work `private` in about 60% of turns, so nothing acts on it yet. The
-    floor off models of restricted origin is the `[privacy] sensitive_names` list.
+    routine failed, and it never chose `max` effort where `max` was allowed. Since v1 patch1 a turn the route placed
+    whose loops keep failing asks Jev again and moves up, as a task does; the next benchmark run measures it.
+  - `route.v6`'s data verdict called open-source work `private` in about 60% of turns. `route.v7` rewords the question
+    (judge what the message carries, not the place); a probe of 14 made-up messages read every open one `open` at the
+    act band, against none on v6. Nothing acts on the verdict yet. The floor is the `[privacy] sensitive_names` list,
+    which goes only to models of US origin.
 
   The fixes go toward v1 patch1 (theseus-a1wvq).
 - **The compiled context** (`theseus why`, `theseus project attach`). Each request is compiled from the store, with
