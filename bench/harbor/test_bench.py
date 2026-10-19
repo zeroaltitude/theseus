@@ -156,15 +156,15 @@ class Routed(unittest.TestCase):
         self.assertEqual(cfg["profiles"]["bench"], plain["profiles"]["bench"])
         # Every profile the table routes to ends at its loop cap, as the plain one does (budgets-notify's join fix,
         # theseus-usei): a profile's mode defaults to notify.
-        for name in ("sonnet", "opus", "fable", "haiku", "haikuhi"):
+        for name in tb.ROUTED_PROFILES:
             self.assertEqual(cfg["profiles"][name]["on_max_loops"], "end", name)
         self.assertEqual(cfg["profiles"]["bench"]["effort"], "medium")
         self.assertNotIn("max_output_tokens", text)
         # The differences: the judge, the routing table, the profiles it names.
         self.assertTrue(cfg["judge"]["enabled"])
         self.assertEqual(cfg["judge"]["key_secret"], "jev_api_key")
-        self.assertEqual(cfg["routing"]["mode"], "live")
-        modes = {m: t["profiles"] for m, t in cfg["routing"]["modes"].items()}
+        self.assertEqual(cfg["routing"]["rung"], "live")
+        modes = {m: t["profiles"] for m, t in cfg["routing"]["classes"].items()}
         self.assertEqual(modes, {
             "trivial": ["haiku"], "quick": ["haiku"], "chat": [],
             "sophisticated": ["opus", "fable"], "deep_coding": ["sonnethi", "opus"],
@@ -173,10 +173,11 @@ class Routed(unittest.TestCase):
         self.assertLessEqual(named, set(cfg["profiles"]))
         self.assertEqual({n: cfg["profiles"][n]["model"] for n in tb.ROUTED_PROFILES}, {
             "sonnet": "claude-sonnet-5-5", "sonnethi": "claude-sonnet-5-5", "opus": "claude-opus-5-5",
-            "fable": "claude-fable-5-1",
+            "opushi": "claude-opus-5-5", "fable": "claude-fable-5-1",
             "haiku": "claude-haiku-5-5", "haikuhi": "claude-haiku-5-5"})
-        self.assertEqual((cfg["profiles"]["haiku"]["effort"], cfg["profiles"]["haikuhi"]["effort"],
-                          cfg["profiles"]["sonnethi"]["effort"]), ("low", "high", "high"))
+        self.assertEqual({n: cfg["profiles"][n]["effort"] for n in tb.ROUTED_PROFILES}, {
+            "sonnet": "medium", "sonnethi": "high", "opus": "medium", "opushi": "high",
+            "fable": "high", "haiku": "low", "haikuhi": "high"})
         # The trial's loop cap rides every profile the router may pick.
         for name in ("bench", *tb.ROUTED_PROFILES):
             self.assertEqual(cfg["profiles"][name]["max_loops"], 50, name)
@@ -199,7 +200,8 @@ class Routed(unittest.TestCase):
         efforts = ef.profile_efforts(tb.PROFILE_ROUTED.read_text())
         self.assertEqual(efforts["bench"], "medium")
         self.assertEqual((efforts["haiku"], efforts["haikuhi"]), ("low", "high"))
-        self.assertEqual((efforts["sonnet"], efforts["opus"], efforts["fable"]), (None, None, None))
+        self.assertEqual((efforts["sonnet"], efforts["opus"], efforts["opushi"], efforts["fable"]),
+                         ("medium", "medium", "high", "high"))
         self.assertEqual(tb.profile_effort(path=tb.PROFILE_ROUTED), "medium")
 
     def test_a_trials_record_adds_jevs_cost_and_names_the_mix(self):

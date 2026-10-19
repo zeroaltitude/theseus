@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import efficiency as ef
+import plan as planmod
 import sampler as smp
 
 PROFILE = Path(__file__).resolve().parent.parent / "theseus-bench.toml"
@@ -30,7 +31,7 @@ PROFILE = Path(__file__).resolve().parent.parent / "theseus-bench.toml"
 # the routing table on, and the Jev key as a second secret.
 PROFILE_ROUTED = Path(__file__).resolve().parent.parent / "theseus-bench-routed.toml"
 # The profiles the routed arm names, each given the trial's loop cap.
-ROUTED_PROFILES = ("sonnet", "sonnethi", "opus", "fable", "haiku", "haikuhi")
+ROUTED_PROFILES = ("sonnet", "sonnethi", "opus", "opushi", "fable", "haiku", "haikuhi")
 # The environment variable that holds the Jev key (the profile's
 # `jev_api_key = "env:TYPESAFE_API_KEY"`): passed into the container for the
 # routed arm only.
@@ -144,10 +145,12 @@ def settings(
     api_base: str | None = None,
     routed: bool = False,
     day_ceiling_usd: float | None = None,
+    effort_bounds: str | list[str] | None = None,
 ) -> dict[tuple[str, str], Any]:
     """The `(table, key)` values a trial sets in the profile: the lines it
     marks "set by the adapter", and the optional system text and API base.
-    The day ceiling is `day_ceiling_usd`, else `day_ceiling`'s."""
+    The day ceiling is `day_ceiling_usd`, else `day_ceiling`'s. `effort_bounds`
+    (a plan's, `plan.effort_bounds`) caps the efforts Jev may ask for."""
     s: dict[tuple[str, str], Any] = {
         ("model", "model"): model,
         ("profiles.bench", "model"): model,
@@ -165,6 +168,8 @@ def settings(
         s[("profiles.bench", "system")] = system
     if api_base:
         s[("model", "api_base")] = api_base
+    if effort_bounds is not None:
+        s[("routing", "effort_bounds")] = planmod.effort_bounds(effort_bounds)
     if routed:
         # The profiles the router may pick run as many loops as `bench` does.
         for name in ROUTED_PROFILES:

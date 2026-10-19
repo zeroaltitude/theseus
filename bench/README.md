@@ -8,16 +8,16 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | File | What it is |
 |---|---|
 | `theseus-bench.toml` | The bench profile: the config a task's container runs. No vault (the model's key is `env:ANTHROPIC_API_KEY`), every tool open, workspace roots at `/`, L0, and Discord, the web UI, and the index off. A test loads it (`crates/theseusd/tests/bench_profile.rs`). |
-| `theseus-bench-routed.toml` | The routed arm's profile (theseus-eo3h), "Theseus as shipped": the plain profile with the judge on, so Jev picks the model per message from the owner's routing table (`route.v2`), the five profiles it names, and the Jev key as a second secret (`env:TYPESAFE_API_KEY`). A test loads it (`crates/theseusd/tests/bench_profile_routed.rs`). |
+| `theseus-bench-routed.toml` | The routed arm's profile (theseus-eo3h), "Theseus as shipped": the plain profile with the judge on, so Jev picks the model per message from the owner's routing table (`route.v2`), the seven profiles it names, and the Jev key as a second secret (`env:TYPESAFE_API_KEY`). A test loads it (`crates/theseusd/tests/bench_profile_routed.rs`). |
 | `build.sh` | Builds the two static (musl) binaries the container runs, `theseus` and `theseusd`, into `bench/bin`, with `build-commit`, the commit they were built from. |
-| `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`; `-a theseus_agent:TheseusRouted` (or `--ak routed=1`) is the routed arm. |
+| `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`; `-a theseus_agent:TheseusRouted` (or `--ak routed=1`) is the routed arm; `--ak effort_bounds=low,high` writes `[routing] effort_bounds` (a plan's key). |
 | `harbor/theseus_bench.py` | Its parts that need no Harbor: the profile a trial writes, the container's script, and the exit codes. |
 | `harbor/theseus_atif.py` | A session's history as an ATIF trajectory, the format Harbor's viewer and usage totals read. |
 | `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
 | `harbor/sampler.py` | The harness sampler: run in the task's container around the agent, it reads `/proc` and sorts each process into harness, work, or neither. |
 | `harbor/measure.py` | What the arms share in a container: the effort every arm asks for (`EFFORT`, medium), the stop of a timed-out agent (by what the run started: below), and the read of the agent's version. |
 | `harbor/run.py`, `harbor/quiet.py`, `harbor/plan.py` | Starting a run the fair way: `run.py --plan bench/plans/<plan>.json -- harbor run …` refuses to start unless the attempt plan is committed and clean (`plan.py`) and the host is quiet (`quiet.py`), and records both in `<jobs>/<job>.run.json` ("A fair run", below). |
-| `plans/` | The attempt plans (`{"name": …, "k": 3}` or `{"name": …, "attempts": {task: n}}`), each committed before the run that reads it. |
+| `plans/` | The attempt plans (`{"name": …, "k": 3}` or `{"name": …, "attempts": {task: n}}`; either may add `"effort_bounds": ["low", "high"]`, which caps Jev's effort through `--ak effort_bounds=low,high`), each committed before the run that reads it. |
 | `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with its version pinned, its effort set, the sampler, the stop at a timeout, and the record added. |
 | `harbor/pi_agent.py` | Pi, the minimal coding agent, measured: `-a pi_agent:MeasuredPi`, Harbor's own adapter with its version pinned, its effort set, run offline, the sampler, the stop at a timeout, the trajectory, and the record added. |
 | `harbor/pi_atif.py` | A Pi session log as an ATIF trajectory (Harbor's own Pi adapter writes none). |
