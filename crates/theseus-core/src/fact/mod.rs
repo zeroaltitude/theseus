@@ -309,6 +309,7 @@ facts![
     memory::MemoryCited<'static>,
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
+    privacy::PrivacyWarned<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,

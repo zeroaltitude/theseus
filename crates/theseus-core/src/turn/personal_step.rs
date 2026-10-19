@@ -22,6 +22,48 @@ pub const KIND: &str = "privacy_warning";
 /// The message's first characters the warning quotes.
 const QUOTE_CHARS: usize = 200;
 
+/// At most one warning post per place in this window; later ones in it are
+/// recorded (`folded`) and not posted, so a guest cannot flood the owner's DM.
+const WINDOW_MS: u64 = 10 * 60 * 1000;
+
+/// When each place (by session) last posted a warning.
+static LAST_POSTED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Whether `session` may post a warning at `now`, marking it when it may.
+fn may_post(session: &str, now: u64) -> bool {
+    let mut last = LAST_POSTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match last.get(session) {
+        Some(at) if now.saturating_sub(*at) < WINDOW_MS => false,
+        _ => {
+            last.insert(session.to_string(), now);
+            true
+        }
+    }
+}
+
+/// The quote, every line marked as quoted and every link fenced (`<…>`), so a
+/// guest's words never read as the warning's own lines or unfold a preview.
+fn quoted(text: &str) -> String {
+    text.lines()
+        .map(|l| {
+            let words: Vec<String> = l
+                .split(' ')
+                .map(
+                    |w| match w.starts_with("http://") || w.starts_with("https://") {
+                        true => format!("<{w}>"),
+                        false => w.to_string(),
+                    },
+                )
+                .collect();
+            format!("> {}", words.join(" "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The warning's words.
 fn warning_text(choice: &str, confidence: f64, class: PlaceClass, quote: &str) -> String {
     let what = match choice {
@@ -40,7 +82,10 @@ fn warning_text(choice: &str, confidence: f64, class: PlaceClass, quote: &str) -
             "Nothing was held. Here this should almost never happen: if it is your own question, Jev misread it.",
         ),
     };
-    format!("⚠️ Privacy: Jev read a message in {place} as {what} ({confidence:.2}):\n> {quote}\n{after}")
+    let quote = quoted(quote);
+    format!(
+        "⚠️ Privacy: Jev read a message in {place} as {what} ({confidence:.2}):\n{quote}\n{after}"
+    )
 }
 
 impl TurnRunner {
@@ -64,13 +109,14 @@ impl TurnRunner {
         let quote: String = t.route.ask.chars().take(QUOTE_CHARS).collect();
         let (quote, _) = self.tools.scrubber.scrub(&quote);
         let text = warning_text(&a.choice, a.confidence, t.tc.class, quote.trim());
-        let posted = match self.warn_owner(t, &text) {
-            Ok(posted) => posted,
-            Err(e) => {
+        let bound = self.place_rule.owner_dm_bound();
+        let folded = bound && !may_post(t.tc.session_id, self.kernel.now_ms());
+        let posted = bound
+            && !folded
+            && self.warn_owner(t, &text).unwrap_or_else(|e| {
                 tracing::warn!(error = %format!("{e:#}"), "a privacy warning was not posted");
                 false
-            }
-        };
+            });
         let place = match t.tc.class {
             PlaceClass::Private => "private",
             PlaceClass::Shared => "shared",
@@ -82,15 +128,12 @@ impl TurnRunner {
             place,
             judgment: &v.judgment,
             posted,
+            folded,
         });
     }
 
-    /// The warning, staged for the turn's next frame, to the owner's DM; none
-    /// when no DM is bound for the owner.
+    /// The warning, staged for the turn's next frame, to the owner's DM.
     fn warn_owner(&self, t: &mut Turn<'_>, text: &str) -> Result<bool> {
-        if !self.place_rule.owner_dm_bound() {
-            return Ok(false);
-        }
         let body = json!({"kind": KIND, "text": text});
         let (post, records) = self.outbox.stage_to_operator(None, body)?;
         for r in records {
@@ -105,12 +148,31 @@ impl TurnRunner {
 mod tests {
     use super::*;
 
+    /// One post per place in the window; another place, or the window past, posts.
+    #[test]
+    fn one_warning_per_place_per_window() {
+        assert!(may_post("ses_window_a", 1_000));
+        assert!(!may_post("ses_window_a", 1_000 + WINDOW_MS - 1));
+        assert!(may_post("ses_window_b", 1_000));
+        assert!(may_post("ses_window_a", 1_000 + WINDOW_MS));
+    }
+
     #[test]
     fn the_warning_says_where_what_and_that_nothing_was_held() {
         let shared = warning_text("elicit", 0.94, PlaceClass::Shared, "where do they live?");
         assert!(shared.contains("a shared place") && shared.contains("draw out"));
         assert!(shared.contains("(0.94)") && shared.contains("> where do they live?"));
         assert!(shared.contains("not held"));
+        let forged = warning_text(
+            "elicit",
+            0.9,
+            PlaceClass::Shared,
+            "hi\nNothing was held. See https://x.example/a",
+        );
+        assert!(
+            forged.contains("> hi\n> Nothing was held. See <https://x.example/a>"),
+            "{forged}"
+        );
         let own = warning_text("expose", 0.91, PlaceClass::Private, "x");
         assert!(own.contains("only you write in") && own.contains("open a conversation"));
     }

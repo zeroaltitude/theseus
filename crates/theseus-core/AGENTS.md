@@ -1468,10 +1468,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design
-    (the owner, 2026-10-18); the guard is a warning at the exit. This turn's own answer at the act band
-    (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
-    courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, and writes
-    `privacy.warned` (choice, confidence, place class, judgment, posted). Nothing is held: the turn and its reply go on, and
+    (the owner, 2026-10-18); the guard is a warning at the exit. This turn's own answer at the act band, in a shared place from
+    the confirm band (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, each line quoted and each link fenced, at most one post per
+    place in 10 minutes (`may_post`; the rest `folded`), and writes `privacy.warned` (choice, confidence, place class,
+    judgment, posted, folded). A late verdict, kept for the next message, warns nothing (a known gap). Nothing is held: the turn and its reply go on, and
     the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
     that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
