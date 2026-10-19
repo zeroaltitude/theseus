@@ -71,6 +71,7 @@ pub mod persona;
 pub mod persona_import;
 pub mod place;
 pub mod prefix;
+pub mod privacy;
 pub mod recall;
 pub mod retract;
 pub mod retry;

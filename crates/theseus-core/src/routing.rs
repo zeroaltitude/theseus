@@ -60,7 +60,9 @@ pub mod brief;
 pub mod checkpoint;
 pub mod data;
 pub mod effort;
+pub mod personal;
 pub use data::DataAnswer;
+pub use personal::PersonalAnswer;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
 pub const SHORT_INPUT: u64 = 4_000;
@@ -188,6 +190,9 @@ pub struct Verdict {
     /// message go to a model provider outside the owner's trust. Nothing acts
     /// on it yet.
     pub data: Option<Box<DataAnswer>>,
+    /// route.v7's `personal` answer (theseus-gasov): a reach for the
+    /// operator's personal details warns the owner.
+    pub personal: Option<Box<PersonalAnswer>>,
 }
 
 /// One configured profile, as routing weighs it.
@@ -623,6 +628,7 @@ mod tests {
             persona: None,
             seal: None,
             data: None,
+            personal: None,
         }
     }
 

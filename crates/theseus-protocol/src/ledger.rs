@@ -216,6 +216,7 @@ ledger_kinds! {
     PersonaImported = "persona.imported",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
+    PrivacyWarned = "privacy.warned",
     PlaceWarned = "place.warned",
     PolicyEarnedGranted = "policy.earned_granted",
     PolicyEarnedPassed = "policy.earned_passed",

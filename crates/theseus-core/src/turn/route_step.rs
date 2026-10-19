@@ -494,7 +494,7 @@ impl TurnRunner {
             let spent = (&*spec, compiled.est_tokens);
             self.route_effort(t, v, decision.as_ref(), spent, reason.is_none())
         });
-        self.engage_verdict(t, verdict.as_ref());
+        self.verdict_asides(t, verdict.as_ref());
         Self::record_route(
             t,
             verdict.as_ref(),
@@ -967,6 +967,7 @@ mod tests {
             persona: None,
             seal: None,
             data: None,
+            personal: None,
         }
     }
 

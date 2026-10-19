@@ -812,6 +812,13 @@ pub fn verdict(
                 })
             })
         },
+        personal: choice(crate::routing::personal::QUESTION).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::PersonalAnswer {
+                choice,
+                confidence,
+                band,
+            })
+        }),
     })
 }
 

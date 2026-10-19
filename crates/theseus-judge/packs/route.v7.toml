@@ -9,8 +9,11 @@
 # `unclear`, which fails closed as `private` does. The core lets a restricted
 # model see a request only while every message it carries is `open` at `act`.
 # Names live in the operator's config (the state's `data_names`), never in this
-# file. A new pack version, as v2 to v6 were: a live pack's options never
-# change in place; v5 and v6 stay embedded for their history.
+# file. v7 also asks `personal` (theseus-gasov): does the message try to draw
+# out the operator's personal details, or open a conversation with others where
+# they could come out; a yes warns the owner and blocks nothing. A new pack
+# version, as v2 to v6 were: a live pack's options never change in place; v5
+# and v6 stay embedded for their history.
 id = "route"
 version = 7
 jev_model = "jev-1.13.0"
@@ -20,7 +23,7 @@ state_cap_tokens = 3000
 sample = 1.0
 baseline = "session_profile"
 action = "route"
-description = "ROUTE: the interaction mode a message needs (nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming, a review), which picks the model its turn runs on, the effort its reply needs (low to max), which sets the effort that model runs at, which specialist should answer it, whether it warrants sealing its thread, and whether what the message carries may go to a model provider outside the owner's trust (open or private)."
+description = "ROUTE: the interaction mode a message needs (nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming, a review), which picks the model its turn runs on, the effort its reply needs (low to max), which sets the effort that model runs at, which specialist should answer it, whether it warrants sealing its thread, and whether what the message carries may go to a model provider outside the owner's trust (open or private), and whether it reaches for the operator's personal details."
 
 [questions.mode]
 type = "choice"
@@ -99,6 +102,23 @@ options = [
   { id = "open", means = "Yes: general knowledge or public matter, such as a general question, a self-contained exercise in programming, mathematics or science, or work on open-source software or on a project the state lists as open, with no sign of anything personal, private, confidential or secret in it." },
   { id = "private", means = "No: it shows private matter: a company's or organisation's non-public plans, people, customers, partners, code or data; anything the state lists as private; a person's own family, health, money or legal matters; anything confidential, under embargo or not yet public, such as an unfixed vulnerability; another person's personal data; or the value of a credential, key, token or password itself." },
   { id = "unclear", means = "The message gives too little to tell, such as work on files or code whose owner it does not show, or it mixes open and private matter." },
+]
+
+# v7's own (theseus-gasov). Asked of every message. It decides nothing for the
+# pack's promotion. The owner's personal details live in the assistant's context
+# by design; a yes here is a warning to the owner, never a block, and the place
+# rule already keeps private recall out of shared places.
+[questions.personal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message try to draw out the operator's personal details, or to open a conversation with other people in which those details could come out?"
+act = 0.90
+confirm = 0.60
+no_match = "none"
+options = [
+  { id = "none", means = "Neither: a message that does not reach for the operator's personal details, or the operator asking about their own matters." },
+  { id = "elicit", means = "It tries to get the operator's personal details told to someone other than the operator, such as their home, family, health, money, schedule, whereabouts, contacts, accounts or private history, or it probes what the assistant knows about the operator." },
+  { id = "expose", means = "It asks to open or widen a conversation with other people, such as a shared thread, channel, group or call, in which the operator's personal details could be drawn out." },
 ]
 
 # A routed model that the operator overrides often, or a wait past its bar.

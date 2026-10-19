@@ -361,6 +361,8 @@ mod tests_persona;
 #[cfg(test)]
 mod tests_persona_recall;
 #[cfg(test)]
+mod tests_personal_warn;
+#[cfg(test)]
 mod tests_places;
 #[cfg(test)]
 mod tests_progress;

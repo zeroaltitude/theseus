@@ -42,6 +42,12 @@ does not yet tell data apart by where it came from: Google content that contains
 back by this rule. An owner who wants none of it to reach such a model configures no provider of China or unknown
 origin.
 
+**Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
+assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's
+personal details, or to open a conversation with other people in which they could come out. A confident yes sends the
+owner a warning in their own direct messages and is recorded; it holds nothing back. In a shared place, Theseus does
+not recall the owner's private conversations in the first place.
+
 ## Google API Services User Data Policy
 
 Theseus's use of data received from Google APIs adheres to the

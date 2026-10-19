@@ -417,6 +417,7 @@ impl TurnRunner {
             persona: None,
             seal: None,
             data: None,
+            personal: None,
         };
         let a = routing::Ask {
             verdict: &v,

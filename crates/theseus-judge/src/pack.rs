@@ -1272,6 +1272,7 @@ mod tests {
                     "data Choice [open private unclear]",
                     "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
                     "persona Choice from Personas + [prior] only_when Personas",
+                    "personal Choice [none elicit expose]",
                     "reply_effort Choice decides [low medium high xhigh max unclear]",
                     "seal Choice [yes no] only_when ThreadNow",
                     "rollback [labels_per_day on_path_p95]",
@@ -1550,15 +1551,27 @@ mod tests {
     /// question's wording: the same id, options, thresholds and no-match, so
     /// what reads the answer reads it unchanged; `private` asks for a sign of
     /// private matter, and work whose owner the message does not show is
-    /// `unclear`, which fails closed as `private` does.
+    /// `unclear`, which fails closed as `private` does. And one question that
+    /// decides nothing, `personal` (theseus-gasov): `none`, `elicit` or
+    /// `expose`, `none` when nothing fits.
     #[test]
     fn route_v7_is_v6_word_for_word_but_the_data_wording() {
         let (v6, v7) = (by_name("route.v6").unwrap(), by_name("route.v7").unwrap());
         for q in ["mode", "reply_effort", "persona", "seal"] {
             assert_eq!(v7.question(q), v6.question(q), "{q} word for word");
         }
+        let options = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
         let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
-        assert_eq!(ids(&v7), ids(&v6));
+        let mut want = ids(&v6);
+        want.push("personal".into());
+        let mut got = ids(&v7);
+        want.sort();
+        got.sort();
+        assert_eq!(got, want, "v6's five and personal");
+        let personal = v7.question("personal").unwrap();
+        assert!(!personal.decides && personal.kind == Kind::Choice);
+        assert_eq!(personal.no_match.as_deref(), Some("none"));
+        assert_eq!(options(personal), ["none", "elicit", "expose"]);
         let (d6, d7) = (v6.question("data").unwrap(), v7.question("data").unwrap());
         assert_ne!(d7.instructions, d6.instructions);
         assert_eq!(
@@ -1574,7 +1587,6 @@ mod tests {
                 .clone()
                 .unwrap_or_default()
         };
-        let options = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
         assert_eq!(options(d7), options(d6));
         assert!(d7.instructions.contains("not by the place"));
         assert!(opt(d7, "open").contains("self-contained exercise"));
@@ -1598,7 +1610,8 @@ mod tests {
                 v6.state_cap_tokens
             )
         );
-        assert_eq!(v7.description, v6.description);
+        let opening = v6.description.trim_end_matches('.');
+        assert!(v7.description.starts_with(opening), "{}", v7.description);
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack

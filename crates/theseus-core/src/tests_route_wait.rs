@@ -3,7 +3,8 @@
 //!
 //! - `route.v1` asks in a request of its own beside the batch of
 //!   `classify.v3` and `role.v1`, so its verdict comes when its questions
-//!   (route.v7's three: the mode, the reply's effort and the data question) are
+//!   (route.v7's four: the mode, the reply's effort, the data question and
+//!   the personal one) are
 //!   answered, never after the batch's; each judgment is recorded once,
 //!   with its own request's cost.
 //! - Jev's connections open once the socket serves (`Core::warm_judge`),
@@ -101,16 +102,18 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         .iter()
         .find(|s| !asked(&s.body).contains("route.v7/mode"))
         .unwrap();
-    // route.v7's three questions, the mode, the reply's effort and the data
-    // question, in its one request (theseus-qe3v, theseus-a1wvq.2).
+    // route.v7's four questions, the mode, the reply's effort, the data
+    // question and the personal one, in its one request (theseus-qe3v,
+    // theseus-a1wvq.2, theseus-gasov).
     assert_eq!(
         asked(&route_req.body),
         BTreeSet::from([
             "route.v7/data".to_string(),
             "route.v7/mode".to_string(),
+            "route.v7/personal".to_string(),
             "route.v7/reply_effort".to_string()
         ]),
-        "route.v7's three questions, one request"
+        "route.v7's four questions, one request"
     );
     assert_eq!(
         route_req.body["state"], batch_req.body["state"],
@@ -124,8 +127,8 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
             route["call"]["packs"].as_u64(),
             route["call"]["questions"].as_u64()
         ),
-        (Some(1), Some(3)),
-        "one pack, its three questions"
+        (Some(1), Some(4)),
+        "one pack, its four questions"
     );
     assert_ne!(route["call"]["id"], batch[0]["call"]["id"], "two calls");
     assert_eq!(batch[0]["call"]["id"], batch[1]["call"]["id"]);

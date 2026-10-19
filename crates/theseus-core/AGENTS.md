@@ -1463,6 +1463,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
     `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
     model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+  - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
+    `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
+    open a conversation with others where they could come out). The owner's personal details live in the context by design
+    (the owner, 2026-10-18); the guard is a warning at the exit. This turn's own answer at the act band
+    (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, and writes
+    `privacy.warned` (choice, confidence, place class, judgment, posted). Nothing is held: the turn and its reply go on, and
+    the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
+    that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web
