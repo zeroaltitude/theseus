@@ -110,3 +110,55 @@ fn after_a_section_the_task_gives_way_once_and_runs_on() {
         tokio::task::coop::has_budget_remaining()
     }));
 }
+
+/// A section hands back what it computed, whichever context calls it (a plain thread, a current-thread runtime, a
+/// worker, the blocking pool), and runs once: `blocking` is one function over a `&mut dyn FnMut` now, so each
+/// caller's closure is called through it (theseus-nsp9l.3). The result needs no `Send`, as `block_in_place` never did.
+#[test]
+fn a_section_runs_once_and_returns_its_value_in_every_context() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    fn once() -> (Rc<Cell<u32>>, Rc<Cell<u32>>) {
+        let runs = Rc::new(Cell::new(0));
+        (runs.clone(), runs)
+    }
+    fn section(runs: Rc<Cell<u32>>) -> Rc<i32> {
+        blocking(move || {
+            runs.set(runs.get() + 1);
+            Rc::new(7)
+        })
+    }
+
+    let (seen, runs) = once();
+    assert_eq!(*section(runs), 7, "on a plain thread");
+    assert_eq!(seen.get(), 1);
+
+    let (seen, runs) = once();
+    let current = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    assert_eq!(*current.block_on(async { section(runs) }), 7);
+    assert_eq!(seen.get(), 1, "on a current-thread runtime");
+
+    let rt = one_worker();
+    let value = rt.block_on(async {
+        tokio::spawn(async {
+            let (seen, runs) = once();
+            let v = *section(runs);
+            (v, seen.get())
+        })
+        .await
+        .unwrap()
+    });
+    assert_eq!(value, (7, 1), "on a worker");
+    let pooled = rt.block_on(async {
+        tokio::task::spawn_blocking(|| {
+            let (seen, runs) = once();
+            (*section(runs), seen.get())
+        })
+        .await
+        .unwrap()
+    });
+    assert_eq!(pooled, (7, 1), "on the blocking pool");
+}
