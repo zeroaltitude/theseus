@@ -141,7 +141,14 @@ impl ToolRuntime {
         // A call that starts a language server is a run too (L2).
         let decision = crate::lsp::gate(self, tool, plan, decision);
         // And an edit that starts one (L3).
-        let decision = crate::lsp::edits::gate(self, at.place.class, tool, plan, decision);
+        let decision = crate::lsp::edits::gate(
+            self,
+            at.place.class,
+            tool,
+            plan,
+            own_tree.as_deref(),
+            decision,
+        );
         seen(Layer::Lsp, &decision);
         // A private address's card in a shared place says where the page
         // goes (theseus-94a6).

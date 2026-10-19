@@ -94,8 +94,21 @@ impl crate::toolrun::ToolRuntime {
             return;
         }
         let ok = status == crate::node::ResultStatus::Ok;
+        let own = Some(tool)
+            .filter(|t| EDITS.contains(t))
+            .and_then(|_| crate::rsi::own_tree::of(self, tc.session_id));
         if let Some(a) = board
-            .attach(tc.session_id, tool_use_id, tool, ok, meta, &self.ctx)
+            .attach_in(
+                Who {
+                    session: tc.session_id,
+                    own: own.as_deref(),
+                },
+                tool_use_id,
+                tool,
+                ok,
+                meta,
+                &self.ctx,
+            )
             .await
         {
             text.push_str(&a.text);
@@ -108,12 +121,14 @@ impl crate::toolrun::ToolRuntime {
 /// that would start its file's server (`start_on_edit`, none started for
 /// that root yet) is judged at `proc.run`'s posture for the server's argv
 /// too, the stricter winning, as L2's starts are. Never in a shared place,
-/// whose edits start nothing; `lsp.rename` is L2's.
+/// whose edits start nothing; `lsp.rename` is L2's. A self session's edit in
+/// its own tree (`own`) starts no server and so judges none: see [`in_tree`].
 pub(crate) fn gate(
     rt: &ToolRuntime,
     class: crate::places::PlaceClass,
     tool: &dyn Tool,
     plan: &Plan,
+    own: Option<&Path>,
     d: Decision,
 ) -> Decision {
     let Some(board) = rt.lsp.as_ref() else {
@@ -130,6 +145,7 @@ pub(crate) fn gate(
             continue;
         };
         if !spec.start_on_edit
+            || in_tree(own, &r.path)
             || board.started_before(&spec.name, &root)
             || !judged.insert((spec.name.clone(), root.clone()))
         {
@@ -138,6 +154,27 @@ pub(crate) fn gate(
         d = super::judge_start(rt, &spec, &root, plan, d);
     }
     d
+}
+
+/// The session an edit's block is for, and the tree (a self task's own,
+/// `rsi::own_tree`) inside which its edits start no server.
+#[derive(Clone, Copy)]
+pub struct Who<'a> {
+    pub session: &'a str,
+    pub own: Option<&'a Path>,
+}
+
+/// What `meta.lsp.not_started` says of an edit that started no server.
+const SELF_TREE: &str = "self tree";
+
+/// Whether `path` is inside `own`, the tree of the self task whose session
+/// edits (`rsi::own_tree`): there an edit starts no language server, so the
+/// start is neither judged as a `proc.run` nor made. rust-analyzer runs a
+/// tree's build scripts and proc macros, and a self tree's code is the
+/// model's, so outside L1 it would run unconfined. `own` is canonical, and
+/// so is `path` here, so a link out of the tree is not in it.
+fn in_tree(own: Option<&Path>, path: &Path) -> bool {
+    own.is_some_and(|t| theseus_tools::paths::canonical_best_effort(path).starts_with(t))
 }
 
 /// The files an edit's result says it wrote (`meta.path`; `fs.patch`'s
@@ -206,6 +243,22 @@ impl Board {
         meta: &Value,
         ctx: &ToolCtx,
     ) -> Option<Attached> {
+        let who = Who { session, own: None };
+        self.attach_in(who, tool_use_id, tool, ok, meta, ctx).await
+    }
+
+    /// [`attach`](Self::attach) for a session whose edits in `own` start no
+    /// server (a self task's tree).
+    pub async fn attach_in(
+        self: &Arc<Self>,
+        who: Who<'_>,
+        tool_use_id: &str,
+        tool: &str,
+        ok: bool,
+        meta: &Value,
+        ctx: &ToolCtx,
+    ) -> Option<Attached> {
+        let Who { session, own } = who;
         let edit = ok && EDITS.contains(&tool) && self.edit_diagnostics;
         if !edit && !tool.starts_with("lsp.") {
             return None;
@@ -228,7 +281,7 @@ impl Board {
         };
         let arrived = self.arrived(session, &paths, &listed).await;
         let now = match edit {
-            true => self.after_edit(session, tool_use_id, &paths).await,
+            true => self.after_edit_in(session, tool_use_id, &paths, own).await,
             false => None,
         };
         match (now, arrived) {
@@ -316,14 +369,20 @@ impl Board {
 
     /// Each file's server: one up for its root, or one that starts on an
     /// edit; a file with neither is left out.
-    fn targets(&self, paths: &[PathBuf]) -> BTreeMap<Key, Group> {
+    /// The second is whether a file inside `own` left a server unstarted.
+    fn targets(&self, paths: &[PathBuf], own: Option<&Path>) -> (BTreeMap<Key, Group>, bool) {
         let mut groups: BTreeMap<Key, Group> = BTreeMap::new();
+        let mut unstarted = false;
         for p in paths {
             let Ok((spec, root)) = self.server_for(p) else {
                 continue;
             };
             let key: Key = (spec.name.clone(), root);
             let up = self.up_for(&key);
+            if up.is_none() && spec.start_on_edit && in_tree(own, p) {
+                unstarted = true;
+                continue;
+            }
             if up.is_none() && !spec.start_on_edit {
                 continue;
             }
@@ -333,7 +392,7 @@ impl Board {
                 .2
                 .push(p.clone());
         }
-        groups
+        (groups, unstarted)
     }
 
     /// One file's wait, a task of its own: its server (started when it is
@@ -381,11 +440,27 @@ impl Board {
         tool_use_id: &str,
         paths: &[PathBuf],
     ) -> Option<Attached> {
+        self.after_edit_in(session, tool_use_id, paths, None).await
+    }
+
+    /// [`after_edit`](Self::after_edit) where a file inside `own` starts no
+    /// server: a server already up for its root still answers, and when
+    /// none does the result says `not_started`.
+    pub async fn after_edit_in(
+        self: &Arc<Self>,
+        session: &str,
+        tool_use_id: &str,
+        paths: &[PathBuf],
+        own: Option<&Path>,
+    ) -> Option<Attached> {
         let start = tokio::time::Instant::now();
         let deadline = start + self.edit_wait;
-        let groups = self.targets(paths);
+        let (groups, unstarted) = self.targets(paths, own);
         if groups.is_empty() {
-            return None;
+            return unstarted.then(|| Attached {
+                text: String::new(),
+                meta: json!({ "not_started": SELF_TREE }),
+            });
         }
         let mut waits = Vec::new();
         let mut before = Vec::new();
