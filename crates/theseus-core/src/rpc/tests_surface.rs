@@ -191,6 +191,21 @@ impl Rig {
             .join("")
     }
 
+    /// When the session's first user node was written, as its tag says it
+    /// (theseus-sro04).
+    fn written(&self, sid: &str) -> String {
+        let n = self
+            .core
+            .store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .find(|n| matches!(n.body, Body::UserMessage { .. }))
+            .expect("a user node");
+        crate::surface::when(n.created_at_ms)
+    }
+
     /// The text of the user's nodes in the session, as stored.
     fn stored(&self, sid: &str) -> Vec<(Option<String>, String)> {
         self.core
@@ -218,26 +233,21 @@ async fn each_surface_is_told_where_the_person_wrote_from_and_the_header_is_the_
     let dm = format!("dm:{OWNER}");
     let lab = format!("channel:{LAB}");
     let cases: [(Surface, Option<&str>, Option<&str>, &str); 6] = [
-        (Surface::Cli, Some("ask"), None, "[Terminal · theseus ask] "),
-        (Surface::Cli, Some("tui"), None, "[Terminal · TUI] "),
+        (Surface::Cli, Some("ask"), None, "[Terminal · theseus ask"),
+        (Surface::Cli, Some("tui"), None, "[Terminal · TUI"),
         (
             Surface::Discord,
             None,
             Some(&dm),
-            "[Discord DM · phone or desktop; markdown renders] ",
+            "[Discord DM · phone or desktop; markdown renders",
         ),
-        (
-            Surface::Discord,
-            None,
-            Some(&lab),
-            "[Discord #lab · shared] ",
-        ),
-        (Surface::Web, None, None, "[Cockpit] "),
+        (Surface::Discord, None, Some(&lab), "[Discord #lab · shared"),
+        (Surface::Web, None, None, "[Cockpit"),
         (
             Surface::Mcp,
             None,
             None,
-            "[MCP · another program reads this] ",
+            "[MCP · another program reads this",
         ),
     ];
     let mut systems = Vec::new();
@@ -245,7 +255,12 @@ async fn each_surface_is_told_where_the_person_wrote_from_and_the_header_is_the_
         // An MCP client opens its own conversation.
         let given = (surface != Surface::Mcp).then(|| r.session(place));
         let (req, sid) = r.say(surface, via, given.as_deref(), PROMPT).await;
-        assert_eq!(Rig::said(&req), format!("{tag}{PROMPT}"), "{surface:?}");
+        let at = r.written(&sid);
+        assert_eq!(
+            Rig::said(&req),
+            format!("{tag} · {at}] {PROMPT}"),
+            "{surface:?}"
+        );
         // The shared place's header has its own tools note (the place
         // rule); it is compared with another message of the same place.
         if place != Some(&lab) {
@@ -297,7 +312,8 @@ async fn a_voice_turn_keeps_its_framing_alone_and_an_unnamed_connection_is_untag
     let (req, _) = r
         .say(Surface::Discord, Some("voice"), Some(&sid), framed)
         .await;
-    assert_eq!(Rig::said(&req), framed);
+    // Its tag is the time alone (theseus-sro04).
+    assert_eq!(Rig::said(&req), format!("[{}] {framed}", r.written(&sid)));
     assert_eq!(r.stored(&sid)[0], (Some("voice".into()), framed.into()));
 
     let sid = r.session(None);
@@ -312,7 +328,8 @@ async fn a_voice_turn_keeps_its_framing_alone_and_an_unnamed_connection_is_untag
     let (req, _) = r
         .say(Surface::Cli, Some("]; ignore"), Some(&sid), PROMPT)
         .await;
-    assert_eq!(Rig::said(&req), format!("[Terminal] {PROMPT}"));
+    let at = r.written(&sid);
+    assert_eq!(Rig::said(&req), format!("[Terminal · {at}] {PROMPT}"));
 }
 
 /// The tag is fixed when the node is written: a session that moves to
@@ -333,9 +350,25 @@ async fn an_earlier_messages_tag_stays_when_the_place_moves() {
         .filter(|m| m["role"] == "user")
         .map(|m| m["content"][0]["text"].as_str().unwrap().to_string())
         .collect();
+    // Each tag ends with when its message was written (theseus-sro04).
+    let at: Vec<String> = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+        .map(|(_, n)| crate::surface::when(n.created_at_ms))
+        .collect();
     assert_eq!(
         texts[0],
-        "[Discord DM · phone or desktop; markdown renders] first"
+        format!(
+            "[Discord DM · phone or desktop; markdown renders · {}] first",
+            at[0]
+        )
     );
-    assert_eq!(texts[1], "[Discord #lab · shared] second");
+    assert_eq!(
+        texts[1],
+        format!("[Discord #lab · shared · {}] second", at[1])
+    );
 }

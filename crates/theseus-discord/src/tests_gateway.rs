@@ -401,9 +401,29 @@ async fn a_pdf_attached_to_a_typed_message_reaches_the_model_as_a_document() {
         theseus_core::blobs::decode(blocks[1]["source"]["data"].as_str().unwrap()).unwrap(),
         pdf
     );
+    // The tag ends with when the message was written (theseus-sro04).
+    let session = r
+        .core
+        .outbox
+        .place_session(&format!("channel:{LAB}"))
+        .unwrap()
+        .expect("#lab's session");
+    let written = r
+        .core
+        .store
+        .session_nodes(&session)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n)
+        .find(|n| matches!(n.body, theseus_core::node::Body::UserMessage { .. }))
+        .expect("the message's node")
+        .created_at_ms;
     assert_eq!(
         blocks[2]["text"],
-        "[Discord #lab · private] Who is the harbour master?"
+        format!(
+            "[Discord #lab · private · {}] Who is the harbour master?",
+            theseus_core::surface::when(written)
+        )
     );
 }
 

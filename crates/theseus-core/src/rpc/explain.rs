@@ -465,7 +465,7 @@ fn hold_says(s: &Scene, tool: &dyn Tool, mode: crate::external::Mode) -> String 
         return "a read (or a one-shot wake) keeps its posture after external text".into();
     }
     match (&s.hold, &s.session_id) {
-        (Ok(Some(h)), _) => crate::external::why(h, mode),
+        (Ok(Some(h)), _) => crate::external::why_at(h, mode, theseus_protocol::now_unix_ms()),
         (Err(e), _) => format!(
             "its session's record could not be read to check for external text, so a call that acts waits: {e}"
         ),

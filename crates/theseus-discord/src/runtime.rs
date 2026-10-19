@@ -1910,7 +1910,7 @@ impl Place {
                     self.apply(ops);
                 }
                 _ = typing.tick() => {
-                    if (self.inflight && !self.stopping) || self.renderer.busy() {
+                    if self.typing_due() {
                         self.apply(vec![crate::render::Op::Typing]);
                     }
                 }
