@@ -28,7 +28,9 @@ call that hears the owner who was already talking) and the cut's docs. The tagge
 
 - **Coding** ([Terminal-Bench 2.0, high effort](benchmarks/2026-10-18-terminal-bench-v1-high.md)): Theseus as shipped
   73.0% at $0.136 a solved task, the least of four; Claude Code 75.3%, level task by task (−2.2 points, 95% interval
-  −7.9 to +3.0); OpenCode 70.8%, Pi 70.4%.
+  −7.9 to +3.0); OpenCode 70.8%, Pi 70.4%. On the 30 hard tasks at each harness's top effort
+  ([MAX](benchmarks/2026-10-18-terminal-bench-v1-max.md)), Theseus solved 67.8% against Claude Code's 75.6% (−7.8
+  points, −18.9 to +1.1), at $0.36 a solve against $1.92.
 - **Speed** ([head to head](benchmarks/2026-10-18-head-to-head-speed.md), [gate](benchmarks/2026-10-18-gate-bench-v1.md)):
   a ready prompt in 39 ms against Claude Code's 498, 10 ms of CPU a turn against 1,655, 70 MB idle against 360; every
   lifecycle budget met.
