@@ -14,6 +14,7 @@ import { cardOf, changeWords, claimWords, isClosed, layout, taskShort, taskTree 
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Empty, Panel, Pill, StatePill } from './ui'
 import { ConfirmCard } from './ConfirmCard'
+import { FIT, useFullGraph } from './FullGraph'
 
 /** The records as a tree, with a button that opens the graph. `past`: the time machine's moment, when it has one. */
 export function TaskTree({ records, confirms, past }: { records: TaskRecord[]; confirms: ConfirmRequest[]; past?: number }) {
@@ -84,6 +85,7 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
   const now = useTick(15000)
   const [params, setParams] = useSearchParams()
   const pick = params.get('task')
+  const fg = useFullGraph('Task graph')
   const { nodes, edges } = useMemo(() => {
     const l = layout(records)
     const nodes: Node<TData>[] = l.nodes.map((n) => ({ id: n.id, type: 't', position: { x: n.x, y: n.y }, data: { t: n.t, now }, selected: n.id === pick }))
@@ -93,10 +95,11 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
   if (params.get('taskgraph') !== '1') return null
   const picked = records.find((t) => t.id === pick)
   return (
-    <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} bodyClassName="p-0">
+    <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} actions={fg.button} className={fg.panel.className} dialog={fg.panel.dialog}
+      bodyClassName={fg.full ? 'flex flex-col overflow-auto p-0' : 'p-0'}>
       {past !== undefined && <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-wait"><History size={12} /> the present, not the log&rsquo;s moment</div>}
-      <div className="relative h-[420px]">
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.1} maxZoom={1.5} colorMode="dark" nodesDraggable={false}
+      <div className={fg.full ? 'relative min-h-0 flex-1' : 'relative h-[420px]'}>
+        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={FIT} onInit={fg.onInit} minZoom={0.1} maxZoom={1.5} colorMode="dark" nodesDraggable={false}
           proOptions={{ hideAttribution: true }} onNodeClick={(_, n) => setParams((p) => { p.set('task', n.id); return p }, { replace: true })}>
           <Background color="rgba(176,141,87,0.10)" gap={20} size={1} />
           <Controls showInteractive={false} className="!bg-hull !shadow-none [&>button]:!border-line [&>button]:!bg-hull [&>button]:!fill-ink-dim" />

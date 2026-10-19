@@ -131,6 +131,9 @@ build.
   tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
   `task.list` again (`bindPush`).
+- A graph fills the window (theseus-uu3b2): the Fleet's graph and the task graph take one control in their panel header
+  (`src/components/FullGraph.tsx`; its address and keys are `src/lib/fullgraph.ts`, `?graph=full`, `f`, Esc). The graph stays
+  mounted, its panel becomes a `fixed inset-0` dialog under the cmdk overlay, and it fits again on entering and leaving.
 - A task's page (theseus-jm46q): on `/session/<task>` the deck shows `src/components/TaskHeader.tsx` above its own header
   (title, state, doing and forecast from the work board's view of the task, cost, Stop as `task.cancel`, `← back to` the
   parent conversation, and the inspector for the latest turn). The Composer joins a running task (its text is a

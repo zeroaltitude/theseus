@@ -16,6 +16,7 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill, Segmented } from '@/components/ui'
 import { ExecutionTable } from '@/components/ExecutionTable'
 import { StateBadge } from '@/components/SessionLife'
+import { FIT, useFullGraph, type Fitter } from '@/components/FullGraph'
 
 type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'out' | 'cache' | 'cost' | 'active'
 type Sort = { k: Key; desc: boolean }
@@ -52,6 +53,7 @@ function NewSession({ onDraft }: { onDraft: (label: string) => void }) {
 
 export default function Fleet() {
   const nav = useNavigate()
+  const fg = useFullGraph('Graph · tasks and reports')
   const tick = useTick(5000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 2000)
@@ -170,8 +172,8 @@ export default function Fleet() {
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="38" minSize={320} className="min-h-0">
-          <Panel help="fleet.graph" title="Graph · tasks and reports" icon={<Network size={13} />} className="h-full" bodyClassName="min-h-0">
-            <FleetGraph sessions={graphWorld?.sessions ?? sessions} executions={graphWorld?.executions ?? executions} onOpen={(sid) => nav(`/session/${sid}`)}
+          <Panel help="fleet.graph" title="Graph · tasks and reports" icon={<Network size={13} />} actions={fg.button} className={fg.full ? fg.panel.className : 'h-full'} dialog={fg.panel.dialog} bodyClassName="min-h-0">
+            <FleetGraph sessions={graphWorld?.sessions ?? sessions} executions={graphWorld?.executions ?? executions} onOpen={(sid) => nav(`/session/${sid}`)} onInit={fg.onInit}
               layout={graphWorld ? { sessions: sl?.sessions ?? NO_SESSIONS, executions: el?.executions ?? NO_EXECUTIONS } : undefined} />
           </Panel>
         </RPanel>
@@ -213,8 +215,8 @@ const getElk = () => (elkReady ??= import('elkjs/lib/elk.bundled.js').then((m) =
 
 /** The graph of who started whom. `layout` (the time machine's present lists) lays it out once; the past then only
  *  hides the nodes that did not exist yet, so a scrub never lays it out again and no node moves. */
-function FleetGraph({ sessions, executions, onOpen, layout }: {
-  sessions: SessionInfo[]; executions: ExecutionInfo[]; onOpen: (sid: string) => void
+function FleetGraph({ sessions, executions, onOpen, onInit, layout }: {
+  sessions: SessionInfo[]; executions: ExecutionInfo[]; onOpen: (sid: string) => void; onInit: (rf: Fitter) => void
   layout?: { sessions: SessionInfo[]; executions: ExecutionInfo[] }
 }) {
   const [laid, setLaid] = useState<{ nodes: Node<SessionNodeData>[]; edges: Edge[] }>({ nodes: [], edges: [] })
@@ -277,7 +279,7 @@ function FleetGraph({ sessions, executions, onOpen, layout }: {
   if (!sessions.length) return <Empty>no sessions</Empty>
   return (
     <div className="relative h-full">
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.2} maxZoom={1.6}
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={FIT} onInit={onInit} minZoom={0.2} maxZoom={1.6}
         proOptions={{ hideAttribution: true }} colorMode="dark" nodesDraggable onNodeClick={(_, n) => onOpen(n.id)}>
         <Background color="rgba(176,141,87,0.12)" gap={22} size={1} />
         <Controls showInteractive={false} className="!bg-hull !shadow-none [&>button]:!border-line [&>button]:!bg-hull [&>button]:!fill-ink-dim" />
