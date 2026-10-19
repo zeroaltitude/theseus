@@ -232,10 +232,17 @@ impl TurnRunner {
         }))
     }
 
-    /// A conversation's turn the route placed: the route decided it, it is
-    /// no detour, and the owner chose no profile for it.
+    /// A conversation's turn the route placed: routing read it (a verdict, or
+    /// none, on the base), it is no detour, and neither the owner's pin nor the
+    /// owner's correction placed it (a corrected turn stays where the owner
+    /// said, as a pinned one does).
     fn placed_by_route(t: &Turn<'_>) -> bool {
-        t.route.result.is_some() && t.route.keeps.is_none() && t.target.chosen.is_none()
+        t.route
+            .result
+            .as_ref()
+            .is_some_and(|r| r.source.as_deref() != Some("correction"))
+            && t.route.keeps.is_none()
+            && t.target.chosen.is_none()
     }
 
     fn plan_of(t: &Turn<'_>) -> Vec<(String, PlanState)> {

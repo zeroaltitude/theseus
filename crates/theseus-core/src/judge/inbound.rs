@@ -148,7 +148,7 @@ fn charge(kernel: &theseus_kernel::Kernel, execution: &str, micros: u64) {
         return;
     }
     if let Err(e) = kernel.charge_execution(execution, micros) {
-        tracing::warn!(error = %format!("{e:#}"), "judge: a task checkpoint's cost was not charged to its task");
+        tracing::warn!(error = %format!("{e:#}"), "judge: a checkpoint's cost was not charged to its execution");
     }
 }
 

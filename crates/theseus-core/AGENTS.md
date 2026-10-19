@@ -1385,7 +1385,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     in `config/routing_checkpoints.rs`; on by default): a task started with no profile (the brief's mark, `brief_step::marked`; a
     pinned one has no state and asks nothing), and since theseus-a1wvq a conversation's turn the route placed (not the owner's
     pin, not a detour: `placed_by_route`; its base is where the route put it, its text the message's first characters, its rows'
-    source `turn checkpoint`), asks the route pack about its recent state at a loop's end (`checkpoint_ended`, after
+    source `turn checkpoint`; a turn the owner's correction placed asks nothing; a move persists in the session's `routed` as
+    a route switch does, so the next message starts on the moved profile until the step-down), asks the route pack about its
+    recent state at a loop's end (`checkpoint_ended`, after
     `advance`) when it fails `failing_streak` loops in a row (a result `ResultStatus::is_error` marks), makes no progress for
     `quiet_loops`, changes its current plan step, or marks the last open one done (`Tally`, pure), at most one verdict per
     `min_loops_between` loops and one in flight, never waited on: the answer is read with `try_recv` at the first later loop

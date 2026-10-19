@@ -6,8 +6,9 @@
 # judge what the message carries, not the place it arrives in (the owner,
 # 2026-10-17: by content, not by the nature of the channel); `private` needs a
 # sign of private matter; work whose owner the message does not show is
-# `unclear`, which fails closed as `private` does. The core lets a restricted
-# model see a request only while every message it carries is `open` at `act`.
+# `unclear`, which fails closed as `private` does. Nothing acts on the answer
+# yet; once the gate does, a restricted model will see a request only while
+# every message it carries is `open` at `act`.
 # Names live in the operator's config (the state's `data_names`), never in this
 # file. v7 also asks `personal` (theseus-gasov): does the message try to draw
 # out the operator's personal details, or open a conversation with others where
