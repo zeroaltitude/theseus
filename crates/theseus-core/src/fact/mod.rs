@@ -326,6 +326,7 @@ facts![
     turn::ProviderRefused<'static>,
     turn::FellBack<'static>,
     turn::TurnNudged<'static>,
+    turn::TurnEndNoted<'static>,
     steer::TurnSteered<'static>,
     turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,

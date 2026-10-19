@@ -75,6 +75,7 @@ mod data_step;
 mod defer_step;
 mod deferred_step;
 pub mod effort_step;
+pub mod end_note_step;
 mod end_step;
 mod fallback_step;
 mod fill_step;
@@ -423,6 +424,8 @@ struct Turn<'a> {
     fallback: Option<fallback_step::FellBack>,
     /// The stop judged live, and the one nudge (theseus-fh0u).
     nudge: nudge_step::Nudge,
+    /// The one end note, and the drop of the turn's files at its end (theseus-53ujg.1).
+    end_note: end_note_step::Held,
     /// The last compile's size and window (theseus-wy6v.2).
     fill: fill_step::Fill,
     /// The standing blocks the turn's spec and tail carry, and its surface.
@@ -519,6 +522,7 @@ impl<'a> Turn<'a> {
             root["lane_us"] = json!(us);
         }
         let trace = Trace::start_at(arrived, "turn", "turn", root);
+        let execution_id = tc.execution_id;
         Self {
             tc,
             target,
@@ -553,6 +557,7 @@ impl<'a> Turn<'a> {
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
             nudge: nudge_step::Nudge::default(),
+            end_note: end_note_step::Held::of(execution_id),
             fill: fill_step::Fill::default(),
             standing: standing_step::Held::default(),
         }
@@ -1993,6 +1998,8 @@ impl TurnRunner {
             t.last = Some(resp);
             // A stop that announced more work goes on once (theseus-fh0u).
             run_model = run_model || (window_failed.is_none() && self.stop_nudge(t, i).await?);
+            // A stop that would leave command outputs or unrun edits, once (theseus-53ujg.1).
+            run_model = run_model || (window_failed.is_none() && self.end_note(t, i)?);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
             }
@@ -3249,6 +3256,7 @@ impl TurnRunner {
             later: self.later_of(&t, jobs, late > 0 && t.stop_reason != "stopped"),
             outside_roots: None,
             nudged: t.nudge.result(t.tool_calls),
+            files: self.files_left(&t),
             cites,
             thread: None,
             inspect_url: Some(self.cfg.cockpit.turn_url(t.tc.session_id, t.tc.turn_id)),

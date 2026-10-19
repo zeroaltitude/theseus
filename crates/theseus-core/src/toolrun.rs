@@ -50,7 +50,7 @@ pub mod fit;
 mod glide;
 pub(crate) mod handles;
 mod hands;
-mod job;
+pub(crate) mod job;
 pub mod jobs_tools;
 mod kept;
 mod late;

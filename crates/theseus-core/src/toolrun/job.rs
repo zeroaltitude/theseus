@@ -27,6 +27,8 @@ use crate::sandbox;
 use crate::store::Store;
 use crate::turn::admission::LEND_AFTER;
 
+pub(crate) mod beside;
+
 /// A background job's placeholder result meta: its pid and handle, and that a
 /// message ended the wait when one did.
 fn placeholder_meta(pid: u32, name: &str, interrupted: bool) -> Value {
@@ -487,6 +489,8 @@ impl ToolRuntime {
             wipe(&mut args);
             return self.not_started(tc, &a, call, tool.name()).map(Err);
         }
+        // What lies beside the work, for its result's `[new files]` line.
+        beside::before(tc.execution_id, correlation_id, &spec.cwd);
         let launched = self.launcher.launch(spool, &args, waiting.done());
         wipe(&mut args);
         let pid = match launched {
@@ -937,9 +941,14 @@ impl ToolRuntime {
             _ => header,
         };
         let header = format!(
-            "{header}{}{}",
+            "{header}{}{}{}",
             cap_line(&detail).unwrap_or_default(),
-            super::not_started::uncapped(&detail).unwrap_or_default()
+            super::not_started::uncapped(&detail).unwrap_or_default(),
+            beside::line(
+                &a.execution_id,
+                &a.correlation_id,
+                completion.map(|c| c.finished_at_ms)
+            ),
         );
         // No report, and the file stopped where the head does: the output
         // went past the head, and its end waited in the job's wrapper, which
@@ -1070,6 +1079,7 @@ impl ToolRuntime {
         if spool.wrapper_lives(corr) {
             return;
         }
+        beside::forget(corr);
         match a.result_ref.as_deref() {
             Some(path) => self.remove_raw_output(path),
             None => self.remove_raw_output(&spool.result_path(corr).to_string_lossy()),

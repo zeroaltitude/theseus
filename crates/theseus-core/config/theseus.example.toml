@@ -63,6 +63,7 @@ max_loops = 40                          # tool loops per turn before a notice (o
 # profile may set its own; this is the default every profile inherits.
 on_max_loops = "notify"               # notify | end
 refusal_fallbacks = true                # server-side refusal fallbacks where the model supports them
+end_note = true                         # a turn ending beside new command outputs, or after edits no command ran since, is told so once
 api_base = "https://api.anthropic.com"  # the implicit anthropic provider's endpoint
 api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding its key
 

@@ -18,7 +18,9 @@
 //! for the picker. The conversation's half is `session.fork`, called by the
 //! surface after the restore (`rpc/rewind.rs`).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -92,7 +94,66 @@ impl PreImage {
 pub struct Rewind {
     dir: PathBuf,
     session_id: String,
+    execution_id: String,
     call_id: String,
+}
+
+/// A file one of a turn's file tools wrote (theseus-53ujg.1): where, whether
+/// the tool made it, and when it last wrote it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Written {
+    pub path: PathBuf,
+    pub created: bool,
+    pub at_ms: u64,
+}
+
+/// What each execution's turn has written, in memory: `settle` adds, the
+/// turn's end drops (`forget_written`). Nothing reads it but the turn's end
+/// note and its result, so no frame holds it.
+static WRITTEN: LazyLock<Mutex<HashMap<String, Vec<Written>>>> = LazyLock::new(Mutex::default);
+
+/// The files `execution_id`'s turn has written, oldest first.
+pub(crate) fn written(execution_id: &str) -> Vec<Written> {
+    let map = WRITTEN.lock().unwrap();
+    map.get(execution_id).cloned().unwrap_or_default()
+}
+
+/// A test's stand-in for a file tool's write.
+#[cfg(test)]
+pub(crate) fn seed_written(execution_id: &str, path: &Path, created: bool, at_ms: u64) {
+    let mut map = WRITTEN.lock().unwrap();
+    map.entry(execution_id.to_string())
+        .or_default()
+        .push(Written {
+            path: path.to_path_buf(),
+            created,
+            at_ms,
+        });
+}
+
+/// Drop what a turn wrote, at its end.
+pub(crate) fn forget_written(execution_id: &str) {
+    WRITTEN.lock().unwrap().remove(execution_id);
+}
+
+fn note_written(execution_id: &str, changed: &[PreImage]) {
+    if changed.is_empty() {
+        return;
+    }
+    let mut map = WRITTEN.lock().unwrap();
+    let all = map.entry(execution_id.to_string()).or_default();
+    for p in changed {
+        let path = PathBuf::from(&p.path);
+        let created = matches!(p.before, Before::Absent);
+        match all.iter_mut().find(|w| w.path == path) {
+            Some(w) => (w.created, w.at_ms) = (w.created || created, p.at_ms),
+            None => all.push(Written {
+                path,
+                created,
+                at_ms: p.at_ms,
+            }),
+        }
+    }
 }
 
 impl Rewind {
@@ -100,6 +161,7 @@ impl Rewind {
         Self {
             dir: tc.store.dir().to_path_buf(),
             session_id: tc.session_id.to_string(),
+            execution_id: tc.execution_id.to_string(),
             call_id: call_id.to_string(),
         }
     }
@@ -109,12 +171,14 @@ impl Rewind {
     }
 
     pub fn settle(&self, held: Held, tool: &str) -> Vec<PreImage> {
-        held.settle(
+        let changed = held.settle(
             &self.session_id,
             &self.call_id,
             tool,
             theseus_protocol::now_unix_ms(),
-        )
+        );
+        note_written(&self.execution_id, &changed);
+        changed
     }
 }
 

@@ -1089,6 +1089,11 @@ pub struct ModelConfig {
     pub on_max_loops: MaxLoopsMode,
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
+    /// A turn that would end leaving new files its commands made beside its edits, or with files
+    /// edited since its last command, gets one factual harness note and one more loop
+    /// (theseus-53ujg.1). Off: no note; the files lines of results stay.
+    #[serde(default = "default_true")]
+    pub end_note: bool,
     #[serde(default = "default_api_base")]
     pub api_base: String,
     /// Name of the entry in `[secrets]` holding the Anthropic key.
@@ -1239,6 +1244,7 @@ impl Default for ModelConfig {
             max_loops: default_max_loops(),
             on_max_loops: MaxLoopsMode::default(),
             refusal_fallbacks: true,
+            end_note: true,
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
             timeouts: Default::default(),
