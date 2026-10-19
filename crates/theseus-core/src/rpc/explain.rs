@@ -733,7 +733,8 @@ fn edit_start_condition(core: &Core, servers: &[crate::lsp::Spec]) -> ExplainCon
     ExplainCondition {
         layer: "lsp_start".into(),
         when: "the edit is of a file whose language server has not started on its root in this \
-               daemon's life, and its server starts on an edit"
+               daemon's life, and its server starts on an edit; a self session's edit in its own \
+               tree starts none, and this layer leaves it as it is"
             .into(),
         entries: servers.iter().map(|s| s.name.clone()).collect(),
         then: format!(

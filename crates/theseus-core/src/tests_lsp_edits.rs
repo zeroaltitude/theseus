@@ -425,7 +425,7 @@ async fn an_edit_that_starts_its_server_is_judged_as_proc_run() {
             json!({"path": r.work.join("a.fake"), "old_string": "let y", "new_string": "let z"});
         let plan = tool.plan(&input, &rt.ctx).unwrap();
         let d = rt.policy.decide_with(tool.as_ref(), &plan, None);
-        crate::lsp::edits::gate(rt, class, tool.as_ref(), &plan, d)
+        crate::lsp::edits::gate(rt, class, tool.as_ref(), &plan, None, d)
     };
     let approve = |cfg: &mut Config| {
         cfg.policy.tools.insert("fs.edit".into(), Posture::Open);

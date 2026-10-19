@@ -588,3 +588,163 @@ mod own_tree {
         assert!(!said.contains("sealed\\n"), "{said}");
     }
 }
+
+/// A self task's edit in its own tree starts no language server (theseus-kq4z4):
+/// the edit hook judged the server's start as a `proc.run` on the tree's
+/// root, which the state dir's approve-path hold asked for, though the edit
+/// itself was open. Through the whole core, with the language-server board
+/// on and rust-analyzer's preset starting on edit over a stand-in server.
+mod own_tree_edits {
+    use super::*;
+    use crate::tests_lsp::InProcess;
+    use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
+    use theseus_protocol::PolicyExplainParams;
+
+    fn held() -> (Rig, Arc<InProcess>) {
+        let r = rig_with(SelfMode::Act, None, |cfg| {
+            cfg.tools.approve_paths = vec![cfg.server.state_dir.clone()];
+            cfg.lsp = toml::from_str(
+                "enabled = true\n[servers.rust-analyzer]\ncommand = [\"theseus-lsp-fake\"]\n",
+            )
+            .unwrap();
+        });
+        let spawner = Arc::new(InProcess::default());
+        r.core
+            .tools
+            .lsp
+            .as_ref()
+            .unwrap()
+            .set_spawner(spawner.clone());
+        (r, spawner)
+    }
+
+    /// A self session, its task, and the task's tree: a crate with a source file.
+    fn task(r: &Rig, id: &str) -> (String, PathBuf, PathBuf) {
+        task_as(r, id, "self")
+    }
+
+    /// The same, for a session whose execution's principal is `principal`
+    /// (its task's origin is the self principal's either way).
+    fn task_as(r: &Rig, id: &str, principal: &str) -> (String, PathBuf, PathBuf) {
+        let sid = r.session(principal);
+        let t = TaskRecord {
+            id: id.into(),
+            version: 1,
+            title: id.into(),
+            state: TaskState::InProgress,
+            session: Some(sid.clone()),
+            origin: TaskOrigin {
+                session: "self:backlog".into(),
+                principal: "self".into(),
+                ..Default::default()
+            },
+            ..TaskRecord::default()
+        };
+        r.core
+            .store
+            .append(&[crate::task_graph::record(&t).unwrap()])
+            .unwrap();
+        let tree = r.f.place.state.join("self").join("trees").join(id);
+        std::fs::create_dir_all(tree.join("src")).unwrap();
+        std::fs::write(tree.join("Cargo.toml"), "[package]\nname = \"sails\"\n").unwrap();
+        std::fs::write(tree.join("src/lib.rs"), "pub fn wind() -> u8 { 1 }\n").unwrap();
+        let tree = tree.canonicalize().unwrap();
+        (sid, tree.join("src/lib.rs"), tree)
+    }
+
+    fn edit(file: &Path) -> Value {
+        json!({"path": file, "old_string": "{ 1 }", "new_string": "{ 2 }"})
+    }
+
+    fn asked(r: &Rig, sid: &str) -> Option<String> {
+        r.core
+            .pending_confirms(sid)
+            .unwrap()
+            .first()
+            .map(|c| c.reason.clone())
+    }
+
+    fn changed(file: &Path) -> bool {
+        std::fs::read_to_string(file).unwrap().contains("{ 2 }")
+    }
+
+    #[tokio::test]
+    async fn a_self_tasks_edit_in_its_own_tree_does_not_ask() {
+        let (r, spawner) = held();
+        let (sid, file, _) = task(&r, "sails");
+        r.turn(&sid, "fs_edit", edit(&file)).await;
+        assert_eq!(asked(&r, &sid), None, "an edit in its own tree");
+        assert!(changed(&file), "the edit ran");
+        assert_eq!(spawner.count(), 0, "and started no server");
+        let (_, meta) = crate::tests_lsp_edits::result_of(&r.core, &sid, "c1");
+        assert_eq!(meta["lsp"]["not_started"], "self tree", "{meta}");
+    }
+
+    #[tokio::test]
+    async fn a_self_tasks_edit_outside_its_tree_still_asks() {
+        let (r, _) = held();
+        let state = r.f.place.state.canonicalize().unwrap();
+        let (_, theirs, _) = task(&r, "tides");
+        std::fs::write(state.join("notes.rs"), "pub fn wind() -> u8 { 1 }\n").unwrap();
+        for (what, file) in [
+            ("another task's tree", theirs),
+            ("the rest of the state dir", state.join("notes.rs")),
+        ] {
+            let (sid, _, _) = task(&r, &format!("sails-{}", what.len()));
+            r.turn(&sid, "fs_edit", edit(&file)).await;
+            let reason = asked(&r, &sid).unwrap_or_default();
+            assert!(reason.contains("fs.edit"), "{what}: {reason}");
+            assert!(!changed(&file), "{what}: it did not run");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_user_sessions_edit_in_a_self_tree_still_asks() {
+        let (r, spawner) = held();
+        let (sid, file, _) = task_as(&r, "sails", "operator");
+        r.turn(&sid, "fs_edit", edit(&file)).await;
+        assert!(asked(&r, &sid).is_some(), "an operator's edit of the tree");
+        assert!(!changed(&file));
+        assert_eq!(spawner.count(), 0);
+    }
+
+    /// The rule opens the edit alone: a command in the tree and an `lsp.*`
+    /// call (L2, whose own `own` is none) ask as before.
+    #[tokio::test]
+    async fn a_self_tasks_proc_run_and_lsp_start_in_its_tree_are_judged_as_today() {
+        let (r, spawner) = held();
+        let (sid, file, tree) = task(&r, "sails");
+        r.turn(&sid, "proc_run", json!({"argv": ["ls"], "cwd": tree}))
+            .await;
+        let reason = asked(&r, &sid).unwrap_or_default();
+        assert!(reason.contains("proc.run — approve"), "{reason}");
+        let (sid, file2, _) = task(&r, "sails2");
+        let hover = json!({"path": file2, "line": 1, "symbol": "wind"});
+        r.turn(&sid, "lsp_hover", hover).await;
+        let reason = asked(&r, &sid).unwrap_or_default();
+        assert!(reason.contains("lsp.hover — approve"), "{reason}");
+        assert_eq!(spawner.count(), 0, "held before it starts");
+        assert!(file.exists());
+    }
+
+    #[tokio::test]
+    async fn explain_names_the_self_tree_rule() {
+        let (r, _) = held();
+        let (sid, _, _) = task(&r, "sails");
+        let said = r
+            .core
+            .policy_explain(PolicyExplainParams {
+                session_id: Some(sid),
+                tool: Some("fs.edit".into()),
+            })
+            .unwrap();
+        let tool = &said.places[0].tools[0];
+        assert_ne!(tool.result, "approve", "{}", tool.reason);
+        let cond = tool.conditions.iter().find(|c| c.layer == "lsp_start");
+        assert!(
+            cond.is_some_and(|c| c.when.contains("own tree")),
+            "{:?}",
+            tool.conditions
+        );
+    }
+}
