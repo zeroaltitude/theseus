@@ -1,0 +1,739 @@
+{
+ "report": "2026-10-18-recall-full-run",
+ "suite": "recall",
+ "date": "2026-10-18",
+ "kind": "recall",
+ "digest": "b350469370568df55fe75aa0af3a2137ba1314483d128412c58c4ef31411188b",
+ "stale_rule": "strict",
+ "arms": [
+  {
+   "key": "claude-code",
+   "label": "claude-code"
+  },
+  {
+   "key": "pi",
+   "label": "pi"
+  },
+  {
+   "key": "theseus",
+   "label": "theseus/baseline"
+  }
+ ],
+ "summary": {
+  "claude-code": {
+   "abstention_accuracy": 0.4,
+   "by_carrier": {
+    "aside": 0.4,
+    "error": 0.6923,
+    "output": 0.2143,
+    "remark": 0.55,
+    "topic": 0.5556
+   },
+   "by_kind": {
+    "abstention": 0.4,
+    "direct": 0.4722,
+    "indirect": 0.5417
+   },
+   "by_value_kind": {
+    "date": 0.2143,
+    "host": 0.45,
+    "path": 0.6562,
+    "port": 0.4545,
+    "ticket": 0.5417,
+    "version": 0.5312
+   },
+   "cites_when": 0.7941,
+   "cites_where": 0.6765,
+   "compactions_by_outcome": {
+    "compaction": 3
+   },
+   "confident_wrong": 19,
+   "confident_wrong_rate": 0.0931,
+   "cost_usd_per_probe": 1.0556,
+   "failed": 0,
+   "half_life": {
+    "central": {
+     "tokens": 117863.8864,
+     "turns": 158.7576
+    },
+    "incidental": {
+     "tokens": 106447.0694,
+     "turns": 135.4722
+    }
+   },
+   "latency_ms_per_probe": 4391.6618,
+   "moved": 0,
+   "old_named": 0,
+   "overhead": null,
+   "probes": 204,
+   "recall_accuracy": 0.5069,
+   "scored": 204,
+   "stale": 13,
+   "stale_of": 24,
+   "undelivered": 0
+  },
+  "pi": {
+   "abstention_accuracy": 0.65,
+   "by_carrier": {
+    "aside": 0.52,
+    "error": 0.7692,
+    "output": 0.3571,
+    "remark": 0.6,
+    "topic": 0.5833
+   },
+   "by_kind": {
+    "abstention": 0.65,
+    "direct": 0.5139,
+    "indirect": 0.625
+   },
+   "by_value_kind": {
+    "date": 0.7857,
+    "host": 0.45,
+    "path": 0.6562,
+    "port": 0.4545,
+    "ticket": 0.5417,
+    "version": 0.5625
+   },
+   "cites_when": 0.7297,
+   "cites_where": 0.7568,
+   "compactions_by_outcome": {
+    "compaction": 1
+   },
+   "confident_wrong": 9,
+   "confident_wrong_rate": 0.0441,
+   "cost_usd_per_probe": 0.0191,
+   "failed": 0,
+   "half_life": {
+    "central": {
+     "tokens": 123268.8333,
+     "turns": 141.8333
+    },
+    "incidental": {
+     "tokens": 118918.6703,
+     "turns": 130.3732
+    }
+   },
+   "latency_ms_per_probe": 4625.7255,
+   "moved": 35,
+   "old_named": 0,
+   "overhead": {
+    "allowed": false,
+    "cushion": 50,
+    "first_turn": 2438,
+    "measured": 2431,
+    "past_cushion": false,
+    "pinned": false,
+    "planned": 2431,
+    "probe_cost_usd": 0.0032,
+    "source": "probe",
+    "threshold": 83096
+   },
+   "probes": 204,
+   "recall_accuracy": 0.5694,
+   "scored": 204,
+   "stale": 14,
+   "stale_of": 24,
+   "undelivered": 0
+  },
+  "theseus/baseline": {
+   "abstention_accuracy": 0.3667,
+   "by_carrier": {
+    "aside": 0.75,
+    "error": 0.8462,
+    "output": 0.6429,
+    "remark": 0.7368,
+    "topic": 0.7206
+   },
+   "by_kind": {
+    "abstention": 0.3667,
+    "direct": 0.75,
+    "indirect": 0.7121
+   },
+   "by_value_kind": {
+    "date": 0.6,
+    "host": 0.65,
+    "path": 0.7419,
+    "port": 0.7273,
+    "ticket": 0.7917,
+    "version": 0.75
+   },
+   "cites_when": 0.8627,
+   "cites_where": 0.7451,
+   "compactions_by_outcome": {
+    "compaction": 23
+   },
+   "confident_wrong": 2,
+   "confident_wrong_rate": 0.0103,
+   "cost_usd_per_probe": 0.0224,
+   "failed": 0,
+   "half_life": {
+    "central": {
+     "tokens": 717199.4167,
+     "turns": 242.7917
+    },
+    "incidental": {
+     "tokens": "not reached",
+     "turns": "not reached"
+    }
+   },
+   "latency_ms_per_probe": 5356.9536,
+   "moved": 24,
+   "old_named": 0,
+   "overhead": {
+    "allowed": false,
+    "cushion": 50,
+    "first_turn": 7326,
+    "measured": 7335,
+    "past_cushion": false,
+    "pinned": false,
+    "planned": 7335,
+    "probe_cost_usd": 0.0179,
+    "source": "probe"
+   },
+   "probes": 204,
+   "recall_accuracy": 0.7313,
+   "scored": 194,
+   "stale": 13,
+   "stale_of": 24,
+   "undelivered": 10
+  }
+ },
+ "curves": {
+  "claude-code": {
+   "central": [
+    {
+     "accuracy": 0.8333,
+     "bucket": "near",
+     "correct": 10,
+     "n": 12,
+     "tokens_since": 1259.25,
+     "turns_since": 2.5833
+    },
+    {
+     "accuracy": 1.0,
+     "bucket": "topic_shift",
+     "correct": 12,
+     "n": 12,
+     "tokens_since": 15780.1667,
+     "turns_since": 25.6667
+    },
+    {
+     "accuracy": 0.9167,
+     "bucket": "compaction",
+     "correct": 11,
+     "n": 12,
+     "tokens_since": 93519.75,
+     "turns_since": 115.6667
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "session",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 138150.6667,
+     "turns_since": 194.6667
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "days",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 186627.5833,
+     "turns_since": 258.8333
+    }
+   ],
+   "incidental": [
+    {
+     "accuracy": 0.9167,
+     "bucket": "near",
+     "correct": 11,
+     "n": 12,
+     "tokens_since": 1032.5833,
+     "turns_since": 2.5833
+    },
+    {
+     "accuracy": 0.75,
+     "bucket": "topic_shift",
+     "correct": 9,
+     "n": 12,
+     "tokens_since": 16648.4167,
+     "turns_since": 27.4167
+    },
+    {
+     "accuracy": 0.75,
+     "bucket": "compaction",
+     "correct": 9,
+     "n": 12,
+     "tokens_since": 76474.9167,
+     "turns_since": 88.4167
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "session",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 153546.1667,
+     "turns_since": 209.4167
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "days",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 246001.4167,
+     "turns_since": 338.5
+    }
+   ]
+  },
+  "pi": {
+   "central": [
+    {
+     "accuracy": 1.0,
+     "bucket": "near",
+     "correct": 12,
+     "n": 12,
+     "tokens_since": 1189.0833,
+     "turns_since": 2.5833
+    },
+    {
+     "accuracy": 1.0,
+     "bucket": "topic_shift",
+     "correct": 23,
+     "n": 23,
+     "tokens_since": 40451.5217,
+     "turns_since": 69.8696
+    },
+    {
+     "accuracy": 1.0,
+     "bucket": "compaction",
+     "correct": 1,
+     "n": 1,
+     "tokens_since": 65854.0,
+     "turns_since": 89.0
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "session",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 198079.5833,
+     "turns_since": 194.6667
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "days",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 180683.6667,
+     "turns_since": 258.8333
+    }
+   ],
+   "incidental": [
+    {
+     "accuracy": 1.0,
+     "bucket": "near",
+     "correct": 12,
+     "n": 12,
+     "tokens_since": 974.25,
+     "turns_since": 2.5833
+    },
+    {
+     "accuracy": 0.9583,
+     "bucket": "topic_shift",
+     "correct": 23,
+     "n": 24,
+     "tokens_since": 37337.7083,
+     "turns_since": 57.9167
+    },
+    {
+     "accuracy": null,
+     "bucket": "compaction",
+     "correct": 0,
+     "n": 0,
+     "tokens_since": null,
+     "turns_since": null
+    },
+    {
+     "accuracy": 0.0,
+     "bucket": "session",
+     "correct": 0,
+     "n": 12,
+     "tokens_since": 207916.0833,
+     "turns_since": 209.4167
+    },
+    {
+     "accuracy": 0.0833,
+     "bucket": "days",
+     "correct": 1,
+     "n": 12,
+     "tokens_since": 250051.5,
+     "turns_since": 338.5
+    }
+   ]
+  },
+  "theseus/baseline": {
+   "central": [
+    {
+     "accuracy": 1.0,
+     "bucket": "near",
+     "correct": 10,
+     "n": 10,
+     "tokens_since": 1796.8,
+     "turns_since": 2.6
+    },
+    {
+     "accuracy": 1.0,
+     "bucket": "topic_shift",
+     "correct": 6,
+     "n": 6,
+     "tokens_since": 11699.5,
+     "turns_since": 19.1667
+    },
+    {
+     "accuracy": 0.8125,
+     "bucket": "compaction",
+     "correct": 13,
+     "n": 16,
+     "tokens_since": 330729.375,
+     "turns_since": 79.375
+    },
+    {
+     "accuracy": 0.75,
+     "bucket": "session",
+     "correct": 9,
+     "n": 12,
+     "tokens_since": 434660.9167,
+     "turns_since": 194.6667
+    },
+    {
+     "accuracy": 0.4167,
+     "bucket": "days",
+     "correct": 5,
+     "n": 12,
+     "tokens_since": 811378.9167,
+     "turns_since": 258.8333
+    }
+   ],
+   "incidental": [
+    {
+     "accuracy": 1.0,
+     "bucket": "near",
+     "correct": 11,
+     "n": 11,
+     "tokens_since": 2299.0909,
+     "turns_since": 2.5455
+    },
+    {
+     "accuracy": 1.0,
+     "bucket": "topic_shift",
+     "correct": 7,
+     "n": 7,
+     "tokens_since": 22655.2857,
+     "turns_since": 28.1429
+    },
+    {
+     "accuracy": 0.9286,
+     "bucket": "compaction",
+     "correct": 13,
+     "n": 14,
+     "tokens_since": 178579.9286,
+     "turns_since": 80.4286
+    },
+    {
+     "accuracy": 0.6364,
+     "bucket": "session",
+     "correct": 7,
+     "n": 11,
+     "tokens_since": 470123.3636,
+     "turns_since": 200.3636
+    },
+    {
+     "accuracy": 0.5455,
+     "bucket": "days",
+     "correct": 6,
+     "n": 11,
+     "tokens_since": 1021941.1818,
+     "turns_since": 330.3636
+    }
+   ]
+  }
+ },
+ "figures": [
+  {
+   "name": "curve",
+   "form": "intervals",
+   "title": "Recall by distance from the fact",
+   "question": "How fast does recall fall as the fact recedes, for each arm and salience?",
+   "x": {
+    "label": "probes answered right (95% Wilson)",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "group": "incidental facts",
+     "label": "near · claude-code",
+     "arm": "claude-code",
+     "value": 0.9167,
+     "lo": 0.6461,
+     "hi": 0.9851,
+     "tip": "11 of 12; 3 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "topic_shift · claude-code",
+     "arm": "claude-code",
+     "value": 0.75,
+     "lo": 0.4677,
+     "hi": 0.9111,
+     "tip": "9 of 12; 27 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "compaction · claude-code",
+     "arm": "claude-code",
+     "value": 0.75,
+     "lo": 0.4677,
+     "hi": 0.9111,
+     "tip": "9 of 12; 88 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "session · claude-code",
+     "arm": "claude-code",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 209 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "days · claude-code",
+     "arm": "claude-code",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 338 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "near · pi",
+     "arm": "pi",
+     "value": 1.0,
+     "lo": 0.7575,
+     "hi": 1.0,
+     "tip": "12 of 12; 3 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "topic_shift · pi",
+     "arm": "pi",
+     "value": 0.9583,
+     "lo": 0.7976,
+     "hi": 0.9926,
+     "tip": "23 of 24; 58 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "session · pi",
+     "arm": "pi",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 209 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "days · pi",
+     "arm": "pi",
+     "value": 0.0833,
+     "lo": 0.0149,
+     "hi": 0.3539,
+     "tip": "1 of 12; 338 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "near · theseus/baseline",
+     "arm": "theseus",
+     "value": 1.0,
+     "lo": 0.7412,
+     "hi": 1.0,
+     "tip": "11 of 11; 3 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "topic_shift · theseus/baseline",
+     "arm": "theseus",
+     "value": 1.0,
+     "lo": 0.6457,
+     "hi": 1.0,
+     "tip": "7 of 7; 28 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "compaction · theseus/baseline",
+     "arm": "theseus",
+     "value": 0.9286,
+     "lo": 0.6853,
+     "hi": 0.9873,
+     "tip": "13 of 14; 80 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "session · theseus/baseline",
+     "arm": "theseus",
+     "value": 0.6364,
+     "lo": 0.3538,
+     "hi": 0.8483,
+     "tip": "7 of 11; 200 turns since"
+    },
+    {
+     "group": "incidental facts",
+     "label": "days · theseus/baseline",
+     "arm": "theseus",
+     "value": 0.5455,
+     "lo": 0.2801,
+     "hi": 0.7873,
+     "tip": "6 of 11; 330 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "near · claude-code",
+     "arm": "claude-code",
+     "value": 0.8333,
+     "lo": 0.552,
+     "hi": 0.953,
+     "tip": "10 of 12; 3 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "topic_shift · claude-code",
+     "arm": "claude-code",
+     "value": 1.0,
+     "lo": 0.7575,
+     "hi": 1.0,
+     "tip": "12 of 12; 26 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "compaction · claude-code",
+     "arm": "claude-code",
+     "value": 0.9167,
+     "lo": 0.6461,
+     "hi": 0.9851,
+     "tip": "11 of 12; 116 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "session · claude-code",
+     "arm": "claude-code",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 195 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "days · claude-code",
+     "arm": "claude-code",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 259 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "near · pi",
+     "arm": "pi",
+     "value": 1.0,
+     "lo": 0.7575,
+     "hi": 1.0,
+     "tip": "12 of 12; 3 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "topic_shift · pi",
+     "arm": "pi",
+     "value": 1.0,
+     "lo": 0.8569,
+     "hi": 1.0,
+     "tip": "23 of 23; 70 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "compaction · pi",
+     "arm": "pi",
+     "value": 1.0,
+     "lo": 0.2065,
+     "hi": 1.0,
+     "tip": "1 of 1; 89 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "session · pi",
+     "arm": "pi",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 195 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "days · pi",
+     "arm": "pi",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.2425,
+     "tip": "0 of 12; 259 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "near · theseus/baseline",
+     "arm": "theseus",
+     "value": 1.0,
+     "lo": 0.7225,
+     "hi": 1.0,
+     "tip": "10 of 10; 3 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "topic_shift · theseus/baseline",
+     "arm": "theseus",
+     "value": 1.0,
+     "lo": 0.6097,
+     "hi": 1.0,
+     "tip": "6 of 6; 19 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "compaction · theseus/baseline",
+     "arm": "theseus",
+     "value": 0.8125,
+     "lo": 0.5699,
+     "hi": 0.9341,
+     "tip": "13 of 16; 79 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "session · theseus/baseline",
+     "arm": "theseus",
+     "value": 0.75,
+     "lo": 0.4677,
+     "hi": 0.9111,
+     "tip": "9 of 12; 195 turns since"
+    },
+    {
+     "group": "central facts",
+     "label": "days · theseus/baseline",
+     "arm": "theseus",
+     "value": 0.4167,
+     "lo": 0.1933,
+     "hi": 0.6805,
+     "tip": "5 of 12; 259 turns since"
+    }
+   ],
+   "note": "Buckets nearest first; scored probes only (undelivered and failed turns are counted apart, never as misses)."
+  }
+ ]
+}

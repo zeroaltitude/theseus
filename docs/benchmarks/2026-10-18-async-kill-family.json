@@ -1,0 +1,838 @@
+{
+ "report": "2026-10-18-async-kill-family",
+ "title": "Async: the kill -9 family at the v1 freeze",
+ "suite": "async",
+ "date": "2026-10-18",
+ "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+ "arms": [
+  "theseus",
+  "claude-code",
+  "pi",
+  "other"
+ ],
+ "summary": {
+  "theseus": {
+   "label": "Theseus",
+   "trials": 12,
+   "measured": 12,
+   "completed": {
+    "k": 10,
+    "n": 12,
+    "wilson": [
+     0.833,
+     0.552,
+     0.953
+    ]
+   },
+   "resumed": {
+    "k": 10,
+    "n": 12,
+    "wilson": [
+     0.833,
+     0.552,
+     0.953
+    ]
+   },
+   "with_duplicates": {
+    "k": 0,
+    "n": 12,
+    "wilson": [
+     0.0,
+     0.0,
+     0.242
+    ]
+   },
+   "with_orphans": {
+    "k": 1,
+    "n": 12,
+    "wilson": [
+     0.083,
+     0.015,
+     0.354
+    ]
+   },
+   "with_lost_work": {
+    "k": 0,
+    "n": 12,
+    "wilson": [
+     0.0,
+     0.0,
+     0.242
+    ]
+   },
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_median_s": 11.12,
+   "adopted_no_resume": 2,
+   "exceptions": [],
+   "not_measurable": 0
+  },
+  "claude-code": {
+   "label": "Claude Code 2.1.290",
+   "trials": 12,
+   "measured": 12,
+   "completed": {
+    "k": 11,
+    "n": 12,
+    "wilson": [
+     0.917,
+     0.646,
+     0.985
+    ]
+   },
+   "resumed": {
+    "k": 10,
+    "n": 12,
+    "wilson": [
+     0.833,
+     0.552,
+     0.953
+    ]
+   },
+   "with_duplicates": {
+    "k": 4,
+    "n": 12,
+    "wilson": [
+     0.333,
+     0.138,
+     0.609
+    ]
+   },
+   "with_orphans": {
+    "k": 6,
+    "n": 12,
+    "wilson": [
+     0.5,
+     0.254,
+     0.746
+    ]
+   },
+   "with_lost_work": {
+    "k": 2,
+    "n": 12,
+    "wilson": [
+     0.167,
+     0.047,
+     0.448
+    ]
+   },
+   "duplicated_effects": 8,
+   "orphans": 11,
+   "lost_work": 2,
+   "time_to_resume_median_s": 5.0,
+   "adopted_no_resume": 2,
+   "exceptions": [],
+   "not_measurable": 0
+  },
+  "pi": {
+   "label": "Pi 1.0.4",
+   "trials": 12,
+   "measured": 0,
+   "completed": {
+    "k": 0,
+    "n": 0,
+    "wilson": null
+   },
+   "resumed": {
+    "k": 0,
+    "n": 0,
+    "wilson": null
+   },
+   "with_duplicates": {
+    "k": 0,
+    "n": 0,
+    "wilson": null
+   },
+   "with_orphans": {
+    "k": 0,
+    "n": 0,
+    "wilson": null
+   },
+   "with_lost_work": {
+    "k": 0,
+    "n": 0,
+    "wilson": null
+   },
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_median_s": null,
+   "adopted_no_resume": 0,
+   "exceptions": [],
+   "not_measurable": 12,
+   "note": "the kill never fired: a bench driver bug, not measured"
+  },
+  "other": {
+   "label": "OpenCode 1.18.35",
+   "trials": 12,
+   "measured": 12,
+   "completed": {
+    "k": 0,
+    "n": 12,
+    "wilson": [
+     0.0,
+     0.0,
+     0.242
+    ]
+   },
+   "resumed": {
+    "k": 1,
+    "n": 12,
+    "wilson": [
+     0.083,
+     0.015,
+     0.354
+    ]
+   },
+   "with_duplicates": {
+    "k": 0,
+    "n": 12,
+    "wilson": [
+     0.0,
+     0.0,
+     0.242
+    ]
+   },
+   "with_orphans": {
+    "k": 11,
+    "n": 12,
+    "wilson": [
+     0.917,
+     0.646,
+     0.985
+    ]
+   },
+   "with_lost_work": {
+    "k": 0,
+    "n": 12,
+    "wilson": [
+     0.0,
+     0.0,
+     0.242
+    ]
+   },
+   "duplicated_effects": 0,
+   "orphans": 19,
+   "lost_work": 0,
+   "time_to_resume_median_s": 0.99,
+   "adopted_no_resume": 11,
+   "exceptions": [],
+   "not_measurable": 0,
+   "note": "restart failed in all 12 trials (sh: opencode: not found): a bench driver bug, not measured"
+  }
+ },
+ "trials": [
+  {
+   "arm": "theseus",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 30.106
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 0.068
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": false,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": false,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 11.96
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 24.249
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 3.825
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 18.851
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 10.286
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 19.949
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": true,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": 5.135
+  },
+  {
+   "arm": "theseus",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": true,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 2.066
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": 1.307
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 2,
+   "lost_work": 0,
+   "time_to_resume_s": 0.92
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": false,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 5,
+   "orphans": 5,
+   "lost_work": 0,
+   "time_to_resume_s": 7.399
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 1,
+   "orphans": 1,
+   "lost_work": 1,
+   "time_to_resume_s": 4.454
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 1,
+   "orphans": 1,
+   "lost_work": 1,
+   "time_to_resume_s": 4.811
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 12.875
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 11.197
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 1,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": 5.147
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 4.858
+  },
+  {
+   "arm": "claude-code",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 1,
+   "killed": true,
+   "resumed": true,
+   "completed": true,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 5.477
+  },
+  {
+   "arm": "pi",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "pi",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 0
+  },
+  {
+   "arm": "pi",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 1
+  },
+  {
+   "arm": "other",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-bisect",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 5,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-csv-merge",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 5,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-health-restart",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-migrations",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-pipeline",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": false,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 1,
+   "lost_work": 0,
+   "time_to_resume_s": null
+  },
+  {
+   "arm": "other",
+   "family": "kill-service",
+   "exception": "",
+   "reward": 0,
+   "killed": true,
+   "resumed": true,
+   "completed": false,
+   "duplicated_effects": 0,
+   "orphans": 0,
+   "lost_work": 0,
+   "time_to_resume_s": 0.99
+  }
+ ],
+ "figures": [
+  {
+   "name": "kill",
+   "form": "intervals",
+   "title": "Killed mid-task with SIGKILL and restarted: share of trials, Wilson 95%",
+   "question": "Does each harness finish after a kill -9, without doing anything twice or leaving work running?",
+   "x": {
+    "label": "share of the arm's measured trials",
+    "min": 0,
+    "max": 1,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "label": "completed after the kill",
+     "arm": "theseus",
+     "group": "Theseus",
+     "value": 0.833,
+     "lo": 0.552,
+     "hi": 0.953,
+     "tip": "Theseus: 10 of 12 trials, completed after the kill"
+    },
+    {
+     "label": "a duplicated effect",
+     "arm": "theseus",
+     "group": "Theseus",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.242,
+     "tip": "Theseus: 0 of 12 trials, a duplicated effect"
+    },
+    {
+     "label": "an orphan left running",
+     "arm": "theseus",
+     "group": "Theseus",
+     "value": 0.083,
+     "lo": 0.015,
+     "hi": 0.354,
+     "tip": "Theseus: 1 of 12 trials, an orphan left running"
+    },
+    {
+     "label": "completed after the kill",
+     "arm": "claude-code",
+     "group": "Claude Code 2.1.290",
+     "value": 0.917,
+     "lo": 0.646,
+     "hi": 0.985,
+     "tip": "Claude Code 2.1.290: 11 of 12 trials, completed after the kill"
+    },
+    {
+     "label": "a duplicated effect",
+     "arm": "claude-code",
+     "group": "Claude Code 2.1.290",
+     "value": 0.333,
+     "lo": 0.138,
+     "hi": 0.609,
+     "tip": "Claude Code 2.1.290: 4 of 12 trials, a duplicated effect"
+    },
+    {
+     "label": "an orphan left running",
+     "arm": "claude-code",
+     "group": "Claude Code 2.1.290",
+     "value": 0.5,
+     "lo": 0.254,
+     "hi": 0.746,
+     "tip": "Claude Code 2.1.290: 6 of 12 trials, an orphan left running"
+    }
+   ],
+   "note": "Six chores whose steps have effects that must not repeat, two attempts each; a trial the kill never reached is not measured (Pi's twelve)."
+  }
+ ]
+}
