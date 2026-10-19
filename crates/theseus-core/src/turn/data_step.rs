@@ -38,8 +38,7 @@ impl TurnRunner {
     pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
         !self
             .cfg
-            .profile_origin(profile, &self.catalog)
-            .cleared_for_sensitive()
+            .profile_cleared_for_sensitive(profile, &self.catalog)
     }
 
     /// The route's answer, kept on profiles of US origin when the message

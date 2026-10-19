@@ -18,7 +18,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use theseus_judge::names::Names;
 
-use crate::catalog::{origin_of, Catalog, ModelOrigin};
+use crate::catalog::{cleared_for_sensitive, Catalog, ModelOrigin};
 use crate::config::Config;
 use crate::provider::{
     CountFuture, DeltaSink, Provider, ProviderError, ProviderFuture, ProviderRequest, WarmFuture,
@@ -38,8 +38,7 @@ struct Gated {
 
 impl Gated {
     fn cleared(&self, model: &str) -> bool {
-        origin_of(&self.api_base, self.vouched, model, self.catalog.get(model))
-            .cleared_for_sensitive()
+        cleared_for_sensitive(&self.api_base, self.vouched, model, self.catalog.get(model))
     }
 
     /// The refusal, when the request may not go to this model.
@@ -210,6 +209,23 @@ mod tests {
         assert!(sent.requests().is_empty(), "nothing was sent");
         let plain = request("claude-sonnet-5-5", "Draft a budget memo.");
         assert_eq!(send(&eu, &plain).await, Ok(()));
+        assert_eq!(sent.requests().len(), 1);
+    }
+
+    /// A host the operator vouches `us` for clears only a model the catalog
+    /// lists as of US origin (theseus-xs5ah): a family it does not know, served
+    /// by the same proxy, is refused a named request with nothing sent.
+    #[tokio::test]
+    async fn a_us_vouch_clears_no_model_the_catalog_does_not_list_as_us() {
+        let (mut proxy, sent) = gated("https://llm-proxy.example.com/v1", &["Examplecorp"]);
+        proxy.vouched = Some(ModelOrigin::Us);
+        let named = |m: &str| request(m, "Draft the Examplecorp's budget memo.");
+        assert_eq!(
+            send(&proxy, &named("qwen-4-max")).await,
+            Err("data_gate".into())
+        );
+        assert!(sent.requests().is_empty(), "nothing was sent");
+        assert_eq!(send(&proxy, &named("claude-sonnet-5-5")).await, Ok(()));
         assert_eq!(sent.requests().len(), 1);
     }
 

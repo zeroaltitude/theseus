@@ -133,6 +133,21 @@ pub fn origin_of(
     vouched.unwrap_or(ModelOrigin::Unknown)
 }
 
+/// Whether a request that names one of `[privacy] sensitive_names` may go to
+/// `model` (theseus-xs5ah): its origin is on the allowlist, and the catalog's
+/// own row says `us` as well. A host the operator vouches `us` for (a proxy,
+/// an aggregator) may serve families the catalog does not know; their rows
+/// are `unknown`, so the vouch alone clears nothing.
+pub fn cleared_for_sensitive(
+    api_base: &str,
+    vouched: Option<ModelOrigin>,
+    model: &str,
+    entry: Option<&CatalogEntry>,
+) -> bool {
+    origin_of(api_base, vouched, model, entry).cleared_for_sensitive()
+        && entry.is_some_and(|e| e.origin == ModelOrigin::Us)
+}
+
 /// Whether a URL's host is a China-origin endpoint or a subdomain of one.
 pub fn is_cn_endpoint(api_base: &str) -> bool {
     let host = host_of(api_base);

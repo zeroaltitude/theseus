@@ -35,7 +35,8 @@ Theseus sends data only to services the owner has configured, under those servic
 of China origin; a model served from a China-origin host, or of a China-origin family, counts as China origin whatever
 the configuration says; and a model Theseus cannot place counts as of unknown origin. The owner can list names
 (organisations, clients, projects, people) under `[privacy] sensitive_names`. Those names go only to models of US
-origin: the rule is an allowlist, so a model of any other origin (EU, China, or one Theseus cannot place) is refused. A
+origin: the rule is an allowlist, so a model of any other origin (EU, China, or one Theseus cannot place) is refused,
+and so is a model the built-in catalog does not itself list as of US origin, whatever a proxy's configuration says. A
 turn whose request contains one of those names runs on a model of US origin, or ends before any model is called; and
 any request to a model of another origin that contains one of those names is refused before it is sent. Theseus
 does not yet tell data apart by where it came from: Google content that contains none of the listed names is not held

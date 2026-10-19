@@ -68,10 +68,10 @@ pub fn data_rule(
         return Ok(());
     }
     let origin = cfg.profile_origin(profile, catalog);
-    if !origin.cleared_for_sensitive() {
+    if !cfg.profile_cleared_for_sensitive(profile, catalog) {
         return Err(format!(
             "the motif is drawn from private sessions and profile {profile:?} is of {origin:?} \
-             origin: a private motif is written only on a model of US origin"
+             origin: a private motif is written only on a model the catalog lists as of US origin"
         ));
     }
     Ok(())
