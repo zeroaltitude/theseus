@@ -1,330 +1,337 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1171" viewBox="0 0 720 1171" role="img" aria-labelledby="t-cost t-cost-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1193" viewBox="0 0 720 1193" role="img" aria-labelledby="t-cost t-cost-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
 <title id="t-cost">What the runs cost in model calls, and what a solved task cost</title>
 <desc id="t-cost-d">What does benchmarking Theseus cost, and what does Theseus cost a solved task?</desc>
-<rect width="720" height="1171" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<rect width="720" height="1193" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
 <text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">What the runs cost in model calls, and what a solved task cost</text>
-<text x="18.0" y="63.0" font-size="12.5" fill="#0b0b0b" font-weight="600">Each run's model spend (log scale): $516.23 in all</text>
-<line x1="342.5" y1="72.0" x2="342.5" y2="646.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="400.4" y1="72.0" x2="400.4" y2="646.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="458.3" y1="72.0" x2="458.3" y2="646.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="516.2" y1="72.0" x2="516.2" y2="646.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="574.1" y1="72.0" x2="574.1" y2="646.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="632.0" y1="72.0" x2="632.0" y2="646.0" stroke="#e1e0d9" stroke-width="1"/>
-<text x="330.5" y="87.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sep 30 · memory exam v1</text>
+<text x="18.0" y="63.0" font-size="12.5" fill="#0b0b0b" font-weight="600">Each run's model spend (log scale): $847.71 in all</text>
+<line x1="405.1" y1="72.0" x2="405.1" y2="668.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="450.5" y1="72.0" x2="450.5" y2="668.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="495.8" y1="72.0" x2="495.8" y2="668.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="541.2" y1="72.0" x2="541.2" y2="668.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="586.6" y1="72.0" x2="586.6" y2="668.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="632.0" y1="72.0" x2="632.0" y2="668.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="393.1" y="87.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sep 30 · memory exam v1</text>
 <g><title>Sep 30 · memory exam v1: $0.1842</title>
-<line x1="342.5" y1="83.0" x2="473.7" y2="83.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="473.7" cy="83.0" r="12" fill="transparent"/>
-<circle cx="473.7" cy="83.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="83.0" x2="507.9" y2="83.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="507.9" cy="83.0" r="12" fill="transparent"/>
+<circle cx="507.9" cy="83.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="87.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.18</text>
-<text x="330.5" y="109.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sep 30 · memory exam v2</text>
+<text x="393.1" y="109.0" font-size="12" fill="#0b0b0b" text-anchor="end">Sep 30 · memory exam v2</text>
 <g><title>Sep 30 · memory exam v2: $0.1182</title>
-<line x1="342.5" y1="105.0" x2="462.5" y2="105.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="462.5" cy="105.0" r="12" fill="transparent"/>
-<circle cx="462.5" cy="105.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="105.0" x2="499.1" y2="105.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="499.1" cy="105.0" r="12" fill="transparent"/>
+<circle cx="499.1" cy="105.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="109.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.12</text>
-<text x="330.5" y="131.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 1 · context: the token estimate</text>
+<text x="393.1" y="131.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 1 · context: the token estimate</text>
 <g><title>Oct 1 · context: the token estimate: $0.0571</title>
-<line x1="342.5" y1="127.0" x2="444.2" y2="127.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="444.2" cy="127.0" r="12" fill="transparent"/>
-<circle cx="444.2" cy="127.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="127.0" x2="484.8" y2="127.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="484.8" cy="127.0" r="12" fill="transparent"/>
+<circle cx="484.8" cy="127.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="131.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.057</text>
-<text x="330.5" y="153.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 3 · Harbor worth spike</text>
+<text x="393.1" y="153.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 3 · Harbor worth spike</text>
 <g><title>Oct 3 · Harbor worth spike: $0.417</title>
-<line x1="342.5" y1="149.0" x2="494.2" y2="149.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="494.2" cy="149.0" r="12" fill="transparent"/>
-<circle cx="494.2" cy="149.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="149.0" x2="524.0" y2="149.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="524.0" cy="149.0" r="12" fill="transparent"/>
+<circle cx="524.0" cy="149.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="153.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.42</text>
-<text x="330.5" y="175.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 4 · Terminal-Bench 2.0, first full run</text>
+<text x="393.1" y="175.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 4 · Terminal-Bench 2.0, first full run</text>
 <g><title>Oct 4 · Terminal-Bench 2.0, first full run: $71.6</title>
-<line x1="342.5" y1="171.0" x2="623.6" y2="171.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="623.6" cy="171.0" r="12" fill="transparent"/>
-<circle cx="623.6" cy="171.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="171.0" x2="625.4" y2="171.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="625.4" cy="171.0" r="12" fill="transparent"/>
+<circle cx="625.4" cy="171.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="175.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$71.60</text>
-<text x="330.5" y="197.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 4 · memory exam: the recall arms</text>
+<text x="393.1" y="197.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 4 · memory exam: the recall arms</text>
 <g><title>Oct 4 · memory exam: the recall arms: $0.87</title>
-<line x1="342.5" y1="193.0" x2="512.7" y2="193.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="512.7" cy="193.0" r="12" fill="transparent"/>
-<circle cx="512.7" cy="193.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="193.0" x2="538.5" y2="193.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="538.5" cy="193.0" r="12" fill="transparent"/>
+<circle cx="538.5" cy="193.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="197.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.87</text>
-<text x="330.5" y="219.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 5 · a reply under IO stalls (the judge)</text>
+<text x="393.1" y="219.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 5 · a reply under IO stalls (the judge)</text>
 <g><title>Oct 5 · a reply under IO stalls (the judge): $0.0025</title>
-<line x1="342.5" y1="215.0" x2="365.6" y2="215.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="365.6" cy="215.0" r="12" fill="transparent"/>
-<circle cx="365.6" cy="215.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="215.0" x2="423.1" y2="215.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="423.1" cy="215.0" r="12" fill="transparent"/>
+<circle cx="423.1" cy="215.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="219.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.0025</text>
-<text x="330.5" y="241.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 5 · recall bench smokes</text>
+<text x="393.1" y="241.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 5 · recall bench smokes</text>
 <g><title>Oct 5 · recall bench smokes: $1.841</title>
-<line x1="342.5" y1="237.0" x2="531.6" y2="237.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="531.6" cy="237.0" r="12" fill="transparent"/>
-<circle cx="531.6" cy="237.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="237.0" x2="553.3" y2="237.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="553.3" cy="237.0" r="12" fill="transparent"/>
+<circle cx="553.3" cy="237.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="241.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$1.84</text>
-<text x="330.5" y="263.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 6 · async bench smokes</text>
+<text x="393.1" y="263.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 6 · async bench smokes</text>
 <g><title>Oct 6 · async bench smokes: $0.23</title>
-<line x1="342.5" y1="259.0" x2="479.3" y2="259.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="479.3" cy="259.0" r="12" fill="transparent"/>
-<circle cx="479.3" cy="259.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="259.0" x2="512.3" y2="259.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="512.3" cy="259.0" r="12" fill="transparent"/>
+<circle cx="512.3" cy="259.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="263.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.23</text>
-<text x="330.5" y="285.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 6 · harness efficiency checks</text>
+<text x="393.1" y="285.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 6 · harness efficiency checks</text>
 <g><title>Oct 6 · harness efficiency checks: $0.38</title>
-<line x1="342.5" y1="281.0" x2="491.9" y2="281.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="491.9" cy="281.0" r="12" fill="transparent"/>
-<circle cx="491.9" cy="281.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="281.0" x2="522.2" y2="281.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="522.2" cy="281.0" r="12" fill="transparent"/>
+<circle cx="522.2" cy="281.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="285.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.38</text>
-<text x="330.5" y="307.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 7 · Terminal-Bench, eight harnesses</text>
+<text x="393.1" y="307.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 7 · Terminal-Bench, eight harnesses</text>
 <g><title>Oct 7 · Terminal-Bench, eight harnesses: $55.77</title>
-<line x1="342.5" y1="303.0" x2="617.3" y2="303.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="617.3" cy="303.0" r="12" fill="transparent"/>
-<circle cx="617.3" cy="303.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="303.0" x2="620.5" y2="303.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="620.5" cy="303.0" r="12" fill="transparent"/>
+<circle cx="620.5" cy="303.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="307.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$55.77</text>
-<text x="330.5" y="329.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 10 · Terminal-Bench, the night set's rerun</text>
+<text x="393.1" y="329.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 10 · Terminal-Bench, the night set's rerun</text>
 <g><title>Oct 10 · Terminal-Bench, the night set's rerun: $23.74</title>
-<line x1="342.5" y1="325.0" x2="595.8" y2="325.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="595.8" cy="325.0" r="12" fill="transparent"/>
-<circle cx="595.8" cy="325.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="325.0" x2="603.7" y2="325.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="603.7" cy="325.0" r="12" fill="transparent"/>
+<circle cx="603.7" cy="325.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="329.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$23.74</text>
-<text x="330.5" y="351.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · gate benches, release (the judge)</text>
+<text x="393.1" y="351.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · gate benches, release (the judge)</text>
 <g><title>Oct 12 · gate benches, release (the judge): $0.004</title>
-<line x1="342.5" y1="347.0" x2="377.4" y2="347.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="377.4" cy="347.0" r="12" fill="transparent"/>
-<circle cx="377.4" cy="347.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="347.0" x2="432.4" y2="347.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="432.4" cy="347.0" r="12" fill="transparent"/>
+<circle cx="432.4" cy="347.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="351.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.0040</text>
-<text x="330.5" y="373.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · memory exam: the recall arms</text>
+<text x="393.1" y="373.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · memory exam: the recall arms</text>
 <g><title>Oct 12 · memory exam: the recall arms: $1.45</title>
-<line x1="342.5" y1="369.0" x2="525.5" y2="369.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="525.5" cy="369.0" r="12" fill="transparent"/>
-<circle cx="525.5" cy="369.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="369.0" x2="548.6" y2="369.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="548.6" cy="369.0" r="12" fill="transparent"/>
+<circle cx="548.6" cy="369.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="373.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$1.45</text>
-<text x="330.5" y="395.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · retrieval and the context estimate</text>
+<text x="393.1" y="395.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · retrieval and the context estimate</text>
 <g><title>Oct 12 · retrieval and the context estimate: $0.12</title>
-<line x1="342.5" y1="391.0" x2="462.9" y2="391.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="462.9" cy="391.0" r="12" fill="transparent"/>
-<circle cx="462.9" cy="391.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="391.0" x2="499.4" y2="391.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="499.4" cy="391.0" r="12" fill="transparent"/>
+<circle cx="499.4" cy="391.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="395.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.12</text>
-<text x="330.5" y="417.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · F10, the first ten minutes</text>
+<text x="393.1" y="417.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · F10, the first ten minutes</text>
 <g><title>Oct 12 · F10, the first ten minutes: $1.31</title>
-<line x1="342.5" y1="413.0" x2="523.0" y2="413.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="523.0" cy="413.0" r="12" fill="transparent"/>
-<circle cx="523.0" cy="413.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="413.0" x2="546.5" y2="413.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="546.5" cy="413.0" r="12" fill="transparent"/>
+<circle cx="546.5" cy="413.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="417.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$1.31</text>
-<text x="330.5" y="439.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · Harbor efficiency, four arms</text>
+<text x="393.1" y="439.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · Harbor efficiency, four arms</text>
 <g><title>Oct 12 · Harbor efficiency, four arms: $0.3</title>
-<line x1="342.5" y1="435.0" x2="485.9" y2="435.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="485.9" cy="435.0" r="12" fill="transparent"/>
-<circle cx="485.9" cy="435.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="435.0" x2="517.5" y2="435.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="517.5" cy="435.0" r="12" fill="transparent"/>
+<circle cx="517.5" cy="435.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="439.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.30</text>
-<text x="330.5" y="461.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · recall bench, 600 turns</text>
+<text x="393.1" y="461.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · recall bench, 600 turns</text>
 <g><title>Oct 12 · recall bench, 600 turns: $30.09</title>
-<line x1="342.5" y1="457.0" x2="601.8" y2="457.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="601.8" cy="457.0" r="12" fill="transparent"/>
-<circle cx="601.8" cy="457.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="457.0" x2="608.3" y2="457.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="608.3" cy="457.0" r="12" fill="transparent"/>
+<circle cx="608.3" cy="457.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="461.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$30.09</text>
-<text x="330.5" y="483.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · async: six families and parallel calls</text>
+<text x="393.1" y="483.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · async: six families and parallel calls</text>
 <g><title>Oct 12 · async: six families and parallel calls: $5.17</title>
-<line x1="342.5" y1="479.0" x2="557.5" y2="479.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="557.5" cy="479.0" r="12" fill="transparent"/>
-<circle cx="557.5" cy="479.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="479.0" x2="573.6" y2="479.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="573.6" cy="479.0" r="12" fill="transparent"/>
+<circle cx="573.6" cy="479.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="483.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$5.17</text>
-<text x="330.5" y="505.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · async: the kill -9 family</text>
+<text x="393.1" y="505.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 · async: the kill -9 family</text>
 <g><title>Oct 12 · async: the kill -9 family: $0.78</title>
-<line x1="342.5" y1="501.0" x2="510.0" y2="501.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="510.0" cy="501.0" r="12" fill="transparent"/>
-<circle cx="510.0" cy="501.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="501.0" x2="536.3" y2="501.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="536.3" cy="501.0" r="12" fill="transparent"/>
+<circle cx="536.3" cy="501.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="505.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.78</text>
-<text x="330.5" y="527.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 13 · Terminal-Bench R0 (89 × 3, two arms)</text>
+<text x="393.1" y="527.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 13 · Terminal-Bench R0 (89 × 3, two arms)</text>
 <g><title>Oct 13 · Terminal-Bench R0 (89 × 3, two arms): $62.89</title>
-<line x1="342.5" y1="523.0" x2="620.3" y2="523.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="620.3" cy="523.0" r="12" fill="transparent"/>
-<circle cx="620.3" cy="523.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="523.0" x2="622.9" y2="523.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="622.9" cy="523.0" r="12" fill="transparent"/>
+<circle cx="622.9" cy="523.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="527.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$62.89</text>
-<text x="330.5" y="549.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 13 · Terminal-Bench R1 top-up (89 × 2)</text>
+<text x="393.1" y="549.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 13 · Terminal-Bench R1 top-up (89 × 2)</text>
 <g><title>Oct 13 · Terminal-Bench R1 top-up (89 × 2): $41.65</title>
-<line x1="342.5" y1="545.0" x2="610.0" y2="545.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="610.0" cy="545.0" r="12" fill="transparent"/>
-<circle cx="610.0" cy="545.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="545.0" x2="614.7" y2="545.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="614.7" cy="545.0" r="12" fill="transparent"/>
+<circle cx="614.7" cy="545.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="549.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$41.65</text>
-<text x="330.5" y="571.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 13 · Pi, OpenCode, Theseus as shipped</text>
+<text x="393.1" y="571.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 13 · Pi, OpenCode, Theseus as shipped</text>
 <g><title>Oct 13 · Pi, OpenCode, Theseus as shipped: $47.56</title>
-<line x1="342.5" y1="567.0" x2="613.3" y2="567.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="613.3" cy="567.0" r="12" fill="transparent"/>
-<circle cx="613.3" cy="567.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="567.0" x2="617.4" y2="567.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="617.4" cy="567.0" r="12" fill="transparent"/>
+<circle cx="617.4" cy="567.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="571.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$47.56</text>
-<text x="330.5" y="593.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 to 13 · TB: local partial pass and EC2 smoke</text>
+<text x="393.1" y="593.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 12 to 13 · TB: local partial pass and EC2 smoke</text>
 <g><title>Oct 12 to 13 · TB: local partial pass and EC2 smoke: $20.83</title>
-<line x1="342.5" y1="589.0" x2="592.6" y2="589.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="592.6" cy="589.0" r="12" fill="transparent"/>
-<circle cx="592.6" cy="589.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="589.0" x2="601.1" y2="589.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="601.1" cy="589.0" r="12" fill="transparent"/>
+<circle cx="601.1" cy="589.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="593.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$20.83</text>
-<text x="330.5" y="615.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 18 · v1: TB HIGH, four harnesses, 89 x 3</text>
+<text x="393.1" y="615.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 18 · v1: TB HIGH, four harnesses, 89 x 3</text>
 <g><title>Oct 18 · v1: TB HIGH, four harnesses, 89 x 3: $121.5</title>
-<line x1="342.5" y1="611.0" x2="636.9" y2="611.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="636.9" cy="611.0" r="12" fill="transparent"/>
-<circle cx="636.9" cy="611.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="611.0" x2="635.8" y2="611.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="635.8" cy="611.0" r="12" fill="transparent"/>
+<circle cx="635.8" cy="611.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="615.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$121.47</text>
-<text x="330.5" y="637.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 18 · v1: recall full run and the kill family</text>
+<text x="393.1" y="637.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 18 · v1: recall full run and the kill family</text>
 <g><title>Oct 18 · v1: recall full run and the kill family: $27.4</title>
-<line x1="342.5" y1="633.0" x2="599.4" y2="633.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="599.4" cy="633.0" r="12" fill="transparent"/>
-<circle cx="599.4" cy="633.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="633.0" x2="606.5" y2="633.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="606.5" cy="633.0" r="12" fill="transparent"/>
+<circle cx="606.5" cy="633.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
 </g>
 <text x="642.0" y="637.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$27.40</text>
-<line x1="342.5" y1="646.0" x2="632.0" y2="646.0" stroke="#c3c2b7" stroke-width="1"/>
-<text x="342.5" y="660.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.001</text>
-<text x="400.4" y="660.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.01</text>
-<text x="458.3" y="660.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
-<text x="516.2" y="660.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$1.00</text>
-<text x="574.1" y="660.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$10.00</text>
-<text x="632.0" y="660.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$100.00</text>
-<text x="18.0" y="697.0" font-size="12.5" fill="#0b0b0b" font-weight="600">Dollars a solved trial, three Terminal-Bench runs</text>
-<line x1="342.5" y1="706.0" x2="342.5" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="390.8" y1="706.0" x2="390.8" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="439.0" y1="706.0" x2="439.0" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="487.3" y1="706.0" x2="487.3" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="535.5" y1="706.0" x2="535.5" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="583.8" y1="706.0" x2="583.8" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<line x1="632.0" y1="706.0" x2="632.0" y2="1068.0" stroke="#e1e0d9" stroke-width="1"/>
-<text x="330.5" y="720.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="600">Oct 4 · 89 tasks</text>
-<text x="330.5" y="740.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Claude Code</text>
+<text x="393.1" y="659.0" font-size="12" fill="#0b0b0b" text-anchor="end">Oct 18 · v1: TB MAX, four harnesses, the hard 30 at top effort</text>
+<g><title>Oct 18 · v1: TB MAX, four harnesses, the hard 30 at top effort: $331.5</title>
+<line x1="405.1" y1="655.0" x2="655.6" y2="655.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="655.6" cy="655.0" r="12" fill="transparent"/>
+<circle cx="655.6" cy="655.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="642.0" y="659.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$331.48</text>
+<line x1="405.1" y1="668.0" x2="632.0" y2="668.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="405.1" y="682.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.001</text>
+<text x="450.5" y="682.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.01</text>
+<text x="495.8" y="682.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<text x="541.2" y="682.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$1.00</text>
+<text x="586.6" y="682.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$10.00</text>
+<text x="632.0" y="682.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$100.00</text>
+<text x="18.0" y="719.0" font-size="12.5" fill="#0b0b0b" font-weight="600">Dollars a solved trial, three Terminal-Bench runs</text>
+<line x1="405.1" y1="728.0" x2="405.1" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="442.9" y1="728.0" x2="442.9" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="480.7" y1="728.0" x2="480.7" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="518.5" y1="728.0" x2="518.5" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="556.4" y1="728.0" x2="556.4" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="594.2" y1="728.0" x2="594.2" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="632.0" y1="728.0" x2="632.0" y2="1090.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="393.1" y="742.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="600">Oct 4 · 89 tasks</text>
+<text x="393.1" y="762.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Claude Code</text>
 <g><title>Oct 4 · 89 tasks, Claude Code: $0.156 a solved trial</title>
-<line x1="342.5" y1="736.0" x2="417.8" y2="736.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="417.8" cy="736.0" r="12" fill="transparent"/>
-<circle cx="417.8" cy="736.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="758.0" x2="464.1" y2="758.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="464.1" cy="758.0" r="12" fill="transparent"/>
+<circle cx="464.1" cy="758.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="740.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.156</text>
-<text x="330.5" y="760.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus + paragraph</text>
+<text x="642.0" y="762.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.156</text>
+<text x="393.1" y="782.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus + paragraph</text>
 <g><title>Oct 4 · 89 tasks, Theseus + paragraph: $0.185 a solved trial</title>
-<line x1="342.5" y1="756.0" x2="431.8" y2="756.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="431.8" cy="756.0" r="12" fill="transparent"/>
-<circle cx="431.8" cy="756.0" r="5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="778.0" x2="475.0" y2="778.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="475.0" cy="778.0" r="12" fill="transparent"/>
+<circle cx="475.0" cy="778.0" r="5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="760.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.185</text>
-<text x="330.5" y="780.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Theseus</text>
+<text x="642.0" y="782.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.185</text>
+<text x="393.1" y="802.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Theseus</text>
 <g><title>Oct 4 · 89 tasks, Theseus: $0.193 a solved trial</title>
-<line x1="342.5" y1="776.0" x2="435.6" y2="776.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="435.6" cy="776.0" r="12" fill="transparent"/>
-<circle cx="435.6" cy="776.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="798.0" x2="478.1" y2="798.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="478.1" cy="798.0" r="12" fill="transparent"/>
+<circle cx="478.1" cy="798.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="780.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.193</text>
-<text x="330.5" y="800.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="600">Oct 7 · 14 tasks</text>
-<text x="330.5" y="820.0" font-size="12" fill="#0b0b0b" text-anchor="end">Aider</text>
+<text x="642.0" y="802.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.193</text>
+<text x="393.1" y="822.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="600">Oct 7 · 14 tasks</text>
+<text x="393.1" y="842.0" font-size="12" fill="#0b0b0b" text-anchor="end">Aider</text>
 <g><title>Oct 7 · 14 tasks, Aider: $0.083 a solved trial</title>
-<line x1="342.5" y1="816.0" x2="382.3" y2="816.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="382.3" cy="816.0" r="12" fill="transparent"/>
-<circle cx="382.3" cy="816.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="838.0" x2="436.3" y2="838.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="436.3" cy="838.0" r="12" fill="transparent"/>
+<circle cx="436.3" cy="838.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="820.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.083</text>
-<text x="330.5" y="840.0" font-size="12" fill="#0b0b0b" text-anchor="end">Pi</text>
+<text x="642.0" y="842.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.083</text>
+<text x="393.1" y="862.0" font-size="12" fill="#0b0b0b" text-anchor="end">Pi</text>
 <g><title>Oct 7 · 14 tasks, Pi: $0.171 a solved trial</title>
-<line x1="342.5" y1="836.0" x2="424.9" y2="836.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="424.9" cy="836.0" r="12" fill="transparent"/>
-<circle cx="424.9" cy="836.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="858.0" x2="469.7" y2="858.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="469.7" cy="858.0" r="12" fill="transparent"/>
+<circle cx="469.7" cy="858.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="840.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.171</text>
-<text x="330.5" y="860.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenCode</text>
+<text x="642.0" y="862.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.171</text>
+<text x="393.1" y="882.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenCode</text>
 <g><title>Oct 7 · 14 tasks, OpenCode: $0.179 a solved trial</title>
-<line x1="342.5" y1="856.0" x2="428.7" y2="856.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="428.7" cy="856.0" r="12" fill="transparent"/>
-<circle cx="428.7" cy="856.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="878.0" x2="472.6" y2="878.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="472.6" cy="878.0" r="12" fill="transparent"/>
+<circle cx="472.6" cy="878.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="860.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.179</text>
-<text x="330.5" y="880.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenHands</text>
+<text x="642.0" y="882.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.179</text>
+<text x="393.1" y="902.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenHands</text>
 <g><title>Oct 7 · 14 tasks, OpenHands: $0.221 a solved trial</title>
-<line x1="342.5" y1="876.0" x2="449.1" y2="876.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="449.1" cy="876.0" r="12" fill="transparent"/>
-<circle cx="449.1" cy="876.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="898.0" x2="488.7" y2="898.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="488.7" cy="898.0" r="12" fill="transparent"/>
+<circle cx="488.7" cy="898.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="880.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.221</text>
-<text x="330.5" y="900.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Claude Code</text>
+<text x="642.0" y="902.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.221</text>
+<text x="393.1" y="922.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Claude Code</text>
 <g><title>Oct 7 · 14 tasks, Claude Code: $0.258 a solved trial</title>
-<line x1="342.5" y1="896.0" x2="466.9" y2="896.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="466.9" cy="896.0" r="12" fill="transparent"/>
-<circle cx="466.9" cy="896.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="918.0" x2="502.5" y2="918.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="502.5" cy="918.0" r="12" fill="transparent"/>
+<circle cx="502.5" cy="918.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="900.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.258</text>
-<text x="330.5" y="920.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Theseus</text>
+<text x="642.0" y="922.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.258</text>
+<text x="393.1" y="942.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Theseus</text>
 <g><title>Oct 7 · 14 tasks, Theseus: $0.509 a solved trial</title>
-<line x1="342.5" y1="916.0" x2="588.0" y2="916.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="588.0" cy="916.0" r="12" fill="transparent"/>
-<circle cx="588.0" cy="916.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="938.0" x2="597.5" y2="938.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="597.5" cy="938.0" r="12" fill="transparent"/>
+<circle cx="597.5" cy="938.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="920.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.509</text>
-<text x="330.5" y="940.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenClaw</text>
+<text x="642.0" y="942.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.509</text>
+<text x="393.1" y="962.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenClaw</text>
 <g><title>Oct 7 · 14 tasks, OpenClaw: $0.546 a solved trial</title>
-<line x1="342.5" y1="936.0" x2="605.9" y2="936.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="605.9" cy="936.0" r="12" fill="transparent"/>
-<circle cx="605.9" cy="936.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="958.0" x2="611.6" y2="958.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="611.6" cy="958.0" r="12" fill="transparent"/>
+<circle cx="611.6" cy="958.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="940.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.546</text>
-<text x="330.5" y="960.0" font-size="12" fill="#0b0b0b" text-anchor="end">Codex CLI *</text>
+<text x="642.0" y="962.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.546</text>
+<text x="393.1" y="982.0" font-size="12" fill="#0b0b0b" text-anchor="end">Codex CLI *</text>
 <g><title>Oct 7 · 14 tasks, Codex CLI: $0.546 a solved trial</title>
-<line x1="342.5" y1="956.0" x2="606.2" y2="956.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="606.2" cy="956.0" r="12" fill="transparent"/>
-<circle cx="606.2" cy="956.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="978.0" x2="611.8" y2="978.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="611.8" cy="978.0" r="12" fill="transparent"/>
+<circle cx="611.8" cy="978.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="960.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.546</text>
-<text x="330.5" y="980.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="600">Oct 13 · 89 tasks × 3</text>
-<text x="330.5" y="1000.0" font-size="12" fill="#0b0b0b" text-anchor="end">Pi</text>
+<text x="642.0" y="982.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.546</text>
+<text x="393.1" y="1002.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="600">Oct 13 · 89 tasks × 3</text>
+<text x="393.1" y="1022.0" font-size="12" fill="#0b0b0b" text-anchor="end">Pi</text>
 <g><title>Oct 13 · 89 tasks × 3, Pi: $0.101 a solved trial</title>
-<line x1="342.5" y1="996.0" x2="391.3" y2="996.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="391.3" cy="996.0" r="12" fill="transparent"/>
-<circle cx="391.3" cy="996.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="1018.0" x2="443.3" y2="1018.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="443.3" cy="1018.0" r="12" fill="transparent"/>
+<circle cx="443.3" cy="1018.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="1000.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.101</text>
-<text x="330.5" y="1020.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenCode</text>
+<text x="642.0" y="1022.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.101</text>
+<text x="393.1" y="1042.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenCode</text>
 <g><title>Oct 13 · 89 tasks × 3, OpenCode: $0.117 a solved trial</title>
-<line x1="342.5" y1="1016.0" x2="399.2" y2="1016.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="399.2" cy="1016.0" r="12" fill="transparent"/>
-<circle cx="399.2" cy="1016.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="1038.0" x2="449.5" y2="1038.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="449.5" cy="1038.0" r="12" fill="transparent"/>
+<circle cx="449.5" cy="1038.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="1020.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.117</text>
-<text x="330.5" y="1040.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Claude Code</text>
+<text x="642.0" y="1042.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.117</text>
+<text x="393.1" y="1062.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Claude Code</text>
 <g><title>Oct 13 · 89 tasks × 3, Claude Code: $0.161 a solved trial</title>
-<line x1="342.5" y1="1036.0" x2="420.1" y2="1036.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="420.1" cy="1036.0" r="12" fill="transparent"/>
-<circle cx="420.1" cy="1036.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="1058.0" x2="465.9" y2="1058.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="465.9" cy="1058.0" r="12" fill="transparent"/>
+<circle cx="465.9" cy="1058.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="1040.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.161</text>
-<text x="330.5" y="1060.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Theseus</text>
+<text x="642.0" y="1062.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.161</text>
+<text x="393.1" y="1082.0" font-size="12" fill="#0b0b0b" text-anchor="end" font-weight="600">Theseus</text>
 <g><title>Oct 13 · 89 tasks × 3, Theseus: $0.162 a solved trial</title>
-<line x1="342.5" y1="1056.0" x2="420.5" y2="1056.0" stroke="#e1e0d9" stroke-width="1"/>
-<circle cx="420.5" cy="1056.0" r="12" fill="transparent"/>
-<circle cx="420.5" cy="1056.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="405.1" y1="1078.0" x2="466.2" y2="1078.0" stroke="#e1e0d9" stroke-width="1"/>
+<circle cx="466.2" cy="1078.0" r="12" fill="transparent"/>
+<circle cx="466.2" cy="1078.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
 </g>
-<text x="642.0" y="1060.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.162</text>
-<line x1="342.5" y1="1068.0" x2="632.0" y2="1068.0" stroke="#c3c2b7" stroke-width="1"/>
-<text x="342.5" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
-<text x="390.8" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
-<text x="439.0" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
-<text x="487.3" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.30</text>
-<text x="535.5" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.40</text>
-<text x="583.8" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.50</text>
-<text x="632.0" y="1082.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.60</text>
-<text x="487.3" y="1098.0" font-size="11" fill="#52514e" text-anchor="middle">* Codex CLI ran GPT-5.6-Sol, priced at OpenAI's list prices</text>
-<text x="18.0" y="1118.0" font-size="11" fill="#52514e">List prices. Eleven runs used no model at all (the speed benches, the scale runs and the retrieval probes); they cost machine</text>
-<text x="18.0" y="1133.0" font-size="11" fill="#52514e">time only. Theseus's Oct 7 dollars carry its broken shell; Oct 13 reprices it on all 89 tasks. The EC2 hosts of Oct 13 (about</text>
-<text x="18.0" y="1148.0" font-size="11" fill="#52514e">$74) are not model spend.</text>
+<text x="642.0" y="1082.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.162</text>
+<line x1="405.1" y1="1090.0" x2="632.0" y2="1090.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="405.1" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<text x="442.9" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<text x="480.7" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
+<text x="518.5" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.30</text>
+<text x="556.4" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.40</text>
+<text x="594.2" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.50</text>
+<text x="632.0" y="1104.0" font-size="10.5" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.60</text>
+<text x="518.5" y="1120.0" font-size="11" fill="#52514e" text-anchor="middle">* Codex CLI ran GPT-5.6-Sol, priced at OpenAI's list prices</text>
+<text x="18.0" y="1140.0" font-size="11" fill="#52514e">List prices. Eleven runs used no model at all (the speed benches, the scale runs and the retrieval probes); they cost machine</text>
+<text x="18.0" y="1155.0" font-size="11" fill="#52514e">time only. Theseus's Oct 7 dollars carry its broken shell; Oct 13 reprices it on all 89 tasks. The EC2 hosts of Oct 13 (about</text>
+<text x="18.0" y="1170.0" font-size="11" fill="#52514e">$74) are not model spend.</text>
 </svg>
