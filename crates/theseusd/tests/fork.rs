@@ -96,6 +96,21 @@ fn json_of(dir: &Path, args: &[&str]) -> Value {
     serde_json::from_str(out.trim()).unwrap_or_else(|e| panic!("{args:?}: {e}: {out}"))
 }
 
+/// When each person's message in `sessions` was written, by its text, as its
+/// surface tag says it (theseus-sro04).
+fn written(dir: &Path, sessions: &[&str]) -> std::collections::HashMap<String, String> {
+    let mut at = std::collections::HashMap::new();
+    for s in sessions {
+        for n in json_of(dir, &["history", s])["nodes"].as_array().unwrap() {
+            if n["kind"] == "user_message" {
+                let when = theseus_core::surface::when(n["at_unix_ms"].as_u64().unwrap());
+                at.insert(n["text"].as_str().unwrap().to_string(), when);
+            }
+        }
+    }
+    at
+}
+
 /// The text of each message of a request, in order.
 fn texts(request: &Value) -> Vec<String> {
     request["messages"]
@@ -161,9 +176,13 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     let request = model.requests().pop().unwrap();
     let said = texts(&request);
     assert_eq!(said.len(), 5, "{said:?}");
-    assert_eq!(said[0], "[Terminal · theseus ask] turn one");
-    assert_eq!(said[2], "[Terminal · theseus ask] turn two");
-    assert_eq!(said[4], "[Terminal · theseus ask] the other road, please");
+    // Each message's tag ends with when it was written (theseus-sro04).
+    let written = written(dir.path(), &[&source, &fork]);
+    let ask = "[Terminal · theseus ask ·";
+    assert_eq!(said[0], format!("{ask} {}] turn one", written["turn one"]));
+    assert_eq!(said[2], format!("{ask} {}] turn two", written["turn two"]));
+    let other = "the other road, please";
+    assert_eq!(said[4], format!("{ask} {}] {other}", written[other]));
     assert!(!said.iter().any(|t| t.contains("turn three")), "{said:?}");
 
     // History of both: the fork shows the prefix marked as the source's,

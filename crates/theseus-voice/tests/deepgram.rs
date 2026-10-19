@@ -39,6 +39,8 @@ enum Answer {
     Status(u16, &'static str, String),
     /// Reads the request, then never answers.
     Silent,
+    /// Each request the next of these, the last one again once they run out.
+    Seq(Arc<Mutex<Vec<Answer>>>),
 }
 
 struct Fake {
@@ -84,6 +86,16 @@ async fn serve(mut sock: TcpStream, log: Arc<Mutex<Vec<Seen>>>, answer: Answer) 
         return;
     };
     log.lock().expect("the log's lock").push(seen);
+    let answer = match answer {
+        Answer::Seq(next) => {
+            let mut next = next.lock().expect("the answers' lock");
+            match next.len() {
+                1 => next[0].clone(),
+                _ => next.remove(0),
+            }
+        }
+        a => a,
+    };
     let (status, reason, content_type, extra, body) = match answer {
         Answer::Ok {
             content_type,
@@ -97,6 +109,7 @@ async fn serve(mut sock: TcpStream, log: Arc<Mutex<Vec<Seen>>>, answer: Answer) 
             tokio::time::sleep(Duration::from_secs(60)).await;
             return;
         }
+        Answer::Seq(_) => unreachable!("a sequence answers with its next"),
     };
     let mut head = format!(
         "HTTP/1.1 {status} {reason}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n",
@@ -296,6 +309,52 @@ async fn synthesis_sends_the_sentence_and_reads_raw_linear16_at_48_khz() {
     assert_eq!(r.headers["content-type"], "application/json");
     let sent: serde_json::Value = serde_json::from_slice(&r.body).expect("a JSON body");
     assert_eq!(sent, serde_json::json!({ "text": text }));
+}
+
+/// Raw linear16 as Deepgram sends it: 0.4 s of a tone at `level`, then
+/// `quiet` of silence. No quiet is a sentence cut off mid-word.
+fn clip(level: i16, quiet: Duration) -> Vec<u8> {
+    let tone = (0..19_200).map(|i| if i % 48 < 24 { level } else { -level });
+    let quiet = std::iter::repeat_n(0i16, (quiet.as_millis() * 48) as usize);
+    tone.chain(quiet).flat_map(i16::to_le_bytes).collect()
+}
+
+fn raw(body: Vec<u8>, chars: usize) -> Answer {
+    Answer::Ok {
+        content_type: "audio/l16",
+        extra: vec![("dg-char-count", chars.to_string())],
+        body,
+    }
+}
+
+/// A synthesis that ends mid-word (theseus-sro04: Aura-2 cut 3 of 8 "Go
+/// ahead." off) is asked for again, and the whole one is played; every ask
+/// is billed. One cut every time is faded out, not played to a click.
+#[tokio::test]
+async fn a_synthesis_cut_off_mid_word_is_asked_for_again() {
+    let cut = clip(4000, Duration::ZERO);
+    let whole = clip(4000, Duration::from_millis(140));
+    let answers = vec![raw(cut.clone(), 9), raw(whole.clone(), 9)];
+    let fake = Fake::start(Answer::Seq(Arc::new(Mutex::new(answers)))).await;
+    let s = fake.speech().synthesize("Go ahead.").await.expect("audio");
+    assert_eq!(fake.seen().len(), 2, "asked again once");
+    assert!(!s.audio.cut_off());
+    assert_eq!(
+        s.audio.duration(),
+        Duration::from_millis(540),
+        "the whole one"
+    );
+    assert_eq!(s.usage.chars, 18, "both asks are billed");
+    // Whole the first time: asked once.
+    let fake = Fake::start(raw(whole, 9)).await;
+    let s = fake.speech().synthesize("Go ahead.").await.unwrap();
+    assert_eq!((fake.seen().len(), s.usage.chars), (1, 9));
+    // Cut every time: three asks, and the clip ends in silence.
+    let fake = Fake::start(raw(cut, 9)).await;
+    let s = fake.speech().synthesize("Go ahead.").await.unwrap();
+    assert_eq!(fake.seen().len(), theseus_voice::deepgram::SYNTHESES);
+    assert_eq!(s.audio.samples().last(), Some(&0), "faded out");
+    assert_eq!(s.audio.duration(), Duration::from_millis(400));
 }
 
 #[tokio::test]

@@ -104,7 +104,29 @@ fn place_key(i: &Interaction) -> Option<String> {
     }
 }
 
+/// Whether the place shows "typing…" now: while its turn runs, or while its
+/// submit is outstanding and not stopping, unless that submit waits on the
+/// router's question to the owner. Nothing is being written then, and a
+/// question nobody saw (a voice call's, theseus-sro04) kept it typing for
+/// minutes.
+pub(super) fn typing(inflight: bool, stopping: bool, busy: bool, asked: bool) -> bool {
+    busy || (inflight && !stopping && !asked)
+}
+
 impl super::Place {
+    /// [`typing`] for this place: whether a question waits for its session
+    /// is the core's to say.
+    pub(super) fn typing_due(&self) -> bool {
+        let asked = || {
+            let route = &self.shared.core.runner.threads.route;
+            route
+                .waiting()
+                .iter()
+                .any(|(_, home, _)| *home == self.session_id)
+        };
+        typing(self.inflight, self.stopping, self.renderer.busy(), asked())
+    }
+
     /// The router's question (theseus-rha2) posts its own card in this
     /// place, apart from the stream: true when `e` was one (out of runtime.rs,
     /// which is at its line ceiling).
@@ -362,6 +384,19 @@ mod tests {
             "{t}"
         );
         assert!(t.contains("> why is the build red"), "{t}");
+    }
+
+    /// "Typing…" shows while a turn runs, and while a submit is outstanding;
+    /// not while the submit waits on the owner's answer to the router's
+    /// question (theseus-sro04), nor once it is stopping or done.
+    #[test]
+    fn typing_shows_while_a_turn_runs_and_not_while_a_question_waits() {
+        assert!(typing(true, false, false, false), "submitted");
+        assert!(typing(false, false, true, false), "running");
+        assert!(typing(true, false, true, true), "running, a question aside");
+        assert!(!typing(true, false, false, true), "waiting on the question");
+        assert!(!typing(true, true, false, false), "stopping");
+        assert!(!typing(false, false, false, false), "done");
     }
 
     #[test]

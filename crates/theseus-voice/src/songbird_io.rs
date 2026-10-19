@@ -35,7 +35,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures_util::future::BoxFuture;
@@ -45,6 +45,7 @@ use songbird::events::{CoreEvent, Event, EventContext, EventHandler, TrackEvent}
 use songbird::id::UserId;
 use songbird::input::Input;
 use songbird::packet::rtcp::RtcpPacket;
+use songbird::packet::Packet as _;
 use songbird::shards::TwilightMap;
 use songbird::tracks::TrackHandle;
 use songbird::{Call, Songbird};
@@ -98,6 +99,24 @@ pub struct SsrcCount {
     /// RTCP sender reports from it (theseus-d93y): it is sending, whether or
     /// not its audio decrypts.
     pub reports: u64,
+    /// The packets its sender reports say it sent since its first report
+    /// (theseus-sro04): beside `frames`, what was sent and never arrived or
+    /// never decrypted. Silent, it sends none, and this stays.
+    pub sent: u64,
+}
+
+/// A sender report's packet count that grows faster than this a second, plus
+/// [`SENT_SLACK`], is not a count: a report that did not decrypt.
+const SENT_PER_SEC: u64 = 60;
+const SENT_SLACK: u64 = 50;
+
+/// One SSRC's last believed sender-report count, and when; and a count that
+/// was not believed, which the next report may confirm as a new start.
+#[derive(Clone, Copy)]
+struct Reported {
+    last: u32,
+    at: Instant,
+    unsure: Option<(u32, Instant)>,
 }
 
 /// Ticks in a row with a decoded packet from one SSRC that say the call's
@@ -116,6 +135,8 @@ struct Ssrcs {
     steady: bool,
     /// The SSRCs whose audio was dropped for want of a user, said once each.
     unmapped: HashSet<u32>,
+    /// Each SSRC's sender-report count, for `SsrcCount::sent`.
+    reported: HashMap<u32, Reported>,
 }
 
 impl Ssrcs {
@@ -196,9 +217,41 @@ impl Ssrcs {
         }
     }
 
-    /// An RTCP sender report from `ssrc`.
-    fn report(&mut self, ssrc: u32) {
-        self.counts.entry(ssrc).or_default().reports += 1;
+    /// An RTCP sender report from `ssrc`, with the packet count it says its
+    /// sender sent, if it carried one, at `now`. A count is believed when it
+    /// grew no faster than a sender can send since the last believed one; a
+    /// report that did not decrypt carries noise, which is not. Two reports
+    /// in a row that agree with each other start again from the second.
+    fn report(&mut self, ssrc: u32, count: Option<u32>, now: Instant) {
+        let c = self.counts.entry(ssrc).or_default();
+        c.reports += 1;
+        let Some(count) = count else {
+            return;
+        };
+        let grew = |from: u32, at: Instant| {
+            let d = u64::from(count.wrapping_sub(from));
+            let secs = now.saturating_duration_since(at).as_secs_f64();
+            let most = (SENT_PER_SEC as f64 * secs) as u64 + SENT_SLACK;
+            (d <= most).then_some(d)
+        };
+        let fresh = Reported {
+            last: count,
+            at: now,
+            unsure: None,
+        };
+        match self.reported.get_mut(&ssrc) {
+            None => {
+                self.reported.insert(ssrc, fresh);
+            }
+            Some(r) => match grew(r.last, r.at) {
+                Some(d) => {
+                    c.sent += d;
+                    *r = fresh;
+                }
+                None if r.unsure.is_some_and(|(u, at)| grew(u, at).is_some()) => *r = fresh,
+                None => r.unsure = Some((count, now)),
+            },
+        }
     }
 
     /// `user` left the channel: their SSRCs map to no one.
@@ -209,6 +262,7 @@ impl Ssrcs {
     /// A fresh connection: every count from zero, the users kept.
     fn restart(&mut self) {
         self.streak.clear();
+        self.reported.clear();
         for c in self.counts.values_mut() {
             *c = SsrcCount {
                 user: c.user,
@@ -442,8 +496,8 @@ fn summary(ssrc: u32, c: &SsrcCount) -> String {
         .user
         .map_or_else(|| "no user".to_string(), |u| format!("user {}", u.0));
     format!(
-        "ssrc {ssrc} ({user}): {} packets, {} decoded, {} sender reports",
-        c.frames, c.decoded, c.reports
+        "ssrc {ssrc} ({user}): {} packets, {} decoded, {} sender reports ({} sent)",
+        c.frames, c.decoded, c.reports, c.sent
     )
 }
 
@@ -528,8 +582,15 @@ impl EventHandler for Receive {
             }
             EventContext::RtcpPacket(r) => {
                 if let RtcpPacket::SenderReport(s) = r.rtcp() {
+                    // The sender info: NTP time (8 bytes), RTP time (4), then
+                    // the packets sent (4), big-endian (RFC 3550, 6.4.1).
+                    let sent = s
+                        .payload()
+                        .get(12..16)
+                        .and_then(|b| b.try_into().ok())
+                        .map(u32::from_be_bytes);
                     let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
-                    ssrcs.report(s.get_ssrc());
+                    ssrcs.report(s.get_ssrc(), sent, Instant::now());
                 }
             }
             EventContext::ClientDisconnect(gone) => {
@@ -639,7 +700,7 @@ mod tests {
             user,
             frames,
             decoded,
-            reports: 0,
+            ..SsrcCount::default()
         };
         assert_eq!(ssrcs.counts[&11], count(Some(Speaker(101)), 2, 2));
         assert_eq!(ssrcs.counts[&22], count(Some(Speaker(202)), 4, 2));
@@ -686,7 +747,7 @@ mod tests {
         );
         assert_eq!(
             summary(3986, &ssrcs.counts[&3986]),
-            "ssrc 3986 (no user): 3 packets, 3 decoded, 0 sender reports"
+            "ssrc 3986 (no user): 3 packets, 3 decoded, 0 sender reports (0 sent)"
         );
         ssrcs.speaking(3986, Speaker(101));
         let frames = ssrcs.tick([(3986, Some(pcm.as_slice()), true)]);
@@ -733,9 +794,10 @@ mod tests {
     fn a_sender_report_is_counted_and_a_restart_zeroes_the_counts() {
         let mut ssrcs = Ssrcs::default();
         ssrcs.speaking(11, Speaker(101));
-        ssrcs.report(11);
-        ssrcs.report(11);
-        ssrcs.report(44);
+        let now = Instant::now();
+        ssrcs.report(11, None, now);
+        ssrcs.report(11, None, now);
+        ssrcs.report(44, None, now);
         assert_eq!(
             (ssrcs.counts[&11].reports, ssrcs.counts[&11].decoded),
             (2, 0)
@@ -755,6 +817,37 @@ mod tests {
             1,
             "still mapped"
         );
+    }
+
+    /// A sender report's packet count adds what its sender sent since the
+    /// last one (theseus-sro04); one that grew faster than a sender can send
+    /// is noise, a report that did not decrypt, and adds nothing; two in a
+    /// row that agree start again from the second; a restart forgets.
+    #[test]
+    fn sender_reports_count_what_was_sent_and_noise_is_not_a_count() {
+        let mut ssrcs = Ssrcs::default();
+        let t = Instant::now();
+        let at = |s: u64| t + Duration::from_secs(s);
+        ssrcs.report(11, Some(1000), at(0));
+        ssrcs.report(11, Some(1050), at(1));
+        ssrcs.report(11, Some(1050), at(2));
+        assert_eq!(ssrcs.counts[&11].sent, 50, "silent for a second: none");
+        ssrcs.report(11, Some(3_000_000_000), at(3));
+        ssrcs.report(11, Some(1100), at(4));
+        assert_eq!(ssrcs.counts[&11].sent, 100, "the noise added nothing");
+        // A new start: two that agree, far from the last.
+        ssrcs.report(11, Some(90_000), at(5));
+        ssrcs.report(11, Some(90_040), at(6));
+        ssrcs.report(11, Some(90_090), at(7));
+        assert_eq!(ssrcs.counts[&11].sent, 150);
+        assert_eq!(ssrcs.counts[&11].reports, 8);
+        // A report with no count is a report, and nothing sent.
+        ssrcs.report(11, None, at(8));
+        assert_eq!(ssrcs.counts[&11].sent, 150);
+        ssrcs.restart();
+        ssrcs.report(11, Some(5), at(9));
+        ssrcs.report(11, Some(55), at(10));
+        assert_eq!(ssrcs.counts[&11].sent, 50, "from the restart's first");
     }
 
     #[test]
@@ -821,7 +914,7 @@ mod tests {
             let channel = songbird::id::ChannelId::from(id(3));
             drop(call.lock().await.join(channel).await.unwrap());
             let io = SongbirdIo::attach(Arc::clone(&call)).await;
-            io.ssrcs.lock().unwrap().report(11);
+            io.ssrcs.lock().unwrap().report(11, None, Instant::now());
             let (link, wanted) = (io.link(), Arc::new(AtomicBool::new(true)));
             let still = Arc::clone(&wanted);
             let rejoin = tokio::spawn(async move {

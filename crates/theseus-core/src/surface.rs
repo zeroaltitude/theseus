@@ -15,8 +15,14 @@
 //!
 //! The words are data in one table ([`tag`]), so a persona's own text can
 //! name them. A voice turn keeps its framing line (theseus-rkvl) and gets no
-//! tag. A node with no code (a wake, a report, a task's brief, a message
+//! words. A node with no code (a wake, a report, a task's brief, a message
 //! written before the field) renders as it always did.
+//!
+//! The tag ends with when the message was written ([`when`], theseus-sro04):
+//! `[Discord DM · … · Sun 2026-10-18 23:01 -07:00]`, a voice turn's the time
+//! alone. A turn asked the day or the time had no clock, and guessed or ran
+//! `date`. The node's own time, so a message renders the same bytes on every
+//! request and the cached prefix holds; never the shared header.
 
 use serde_json::{json, Value};
 
@@ -97,6 +103,50 @@ pub fn tag(code: &str) -> Option<String> {
     })
 }
 
+/// When a person's message was written, as its tag ends: `Sun 2026-10-18
+/// 23:01 -07:00`, in the daemon's time zone.
+pub fn when(at_ms: u64) -> String {
+    let l = crate::wake::local(at_ms);
+    let sign = if l.offset_secs < 0 { '-' } else { '+' };
+    let off = l.offset_secs.unsigned_abs();
+    format!(
+        "{} {:04}-{:02}-{:02} {} {sign}{:02}:{:02}",
+        l.weekday(),
+        l.year,
+        l.month,
+        l.day,
+        l.hm(),
+        off / 3600,
+        off % 3600 / 60
+    )
+}
+
+/// `words` without a [`when`] at its end: the table's words before it, or
+/// nothing for a voice turn's tag, which is the time alone.
+fn without_when(words: &str) -> &str {
+    let is_when = |w: &str| {
+        let b = w.as_bytes();
+        let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+        b.len() == 27
+            && b[..3].iter().all(u8::is_ascii_alphabetic)
+            && (b[3], b[8], b[11], b[14], b[17], b[20], b[24])
+                == (b' ', b'-', b'-', b' ', b':', b' ', b':')
+            && matches!(b[21], b'+' | b'-')
+            && digits(4..8)
+            && digits(9..11)
+            && digits(12..14)
+            && digits(15..17)
+            && digits(18..20)
+            && digits(22..24)
+            && digits(25..27)
+    };
+    match words.rsplit_once(" · ") {
+        Some((head, last)) if is_when(last) => head,
+        _ if is_when(words) => "",
+        _ => words,
+    }
+}
+
 /// `text` without the surface tag at its head, when it starts with one of the
 /// table's (a stand-in model reads the person's words, not the harness's
 /// tag). Text that merely starts with a bracket is left alone.
@@ -107,17 +157,20 @@ pub fn strip_tag(text: &str) -> &str {
     let Some((words, after)) = rest.split_once(']') else {
         return text;
     };
-    let known = matches!(
-        words,
-        "Terminal"
-            | "Terminal · theseus ask"
-            | "Terminal · TUI"
-            | "Cockpit"
-            | "Discord"
-            | "MCP · another program reads this"
-            | "Discord DM · phone or desktop; markdown renders"
-    ) || (words.starts_with("Discord #")
-        && (words.ends_with(" · shared") || words.ends_with(" · private")));
+    let words = without_when(words);
+    let known = words.is_empty()
+        || matches!(
+            words,
+            "Terminal"
+                | "Terminal · theseus ask"
+                | "Terminal · TUI"
+                | "Cockpit"
+                | "Discord"
+                | "MCP · another program reads this"
+                | "Discord DM · phone or desktop; markdown renders"
+        )
+        || (words.starts_with("Discord #")
+            && (words.ends_with(" · shared") || words.ends_with(" · private")));
     match known {
         true => after.strip_prefix(' ').unwrap_or(after),
         false => text,
@@ -129,13 +182,18 @@ pub fn strip_tag(text: &str) -> &str {
 /// Only a person's own message is tagged: what the harness or a task's
 /// parent wrote carries no code.
 pub fn lead(n: &Node, mut blocks: Vec<Value>) -> Vec<Value> {
-    let Some(tag) = n.surface.as_deref().and_then(tag) else {
+    let Some(code) = n.surface.as_deref() else {
         return blocks;
     };
     if n.origin != Origin::Operator {
         return blocks;
     }
-    let tag = format!("[{tag}]");
+    let at = when(n.created_at_ms);
+    let tag = match tag(code) {
+        Some(words) => format!("[{words} · {at}]"),
+        None if code == VOICE => format!("[{at}]"),
+        None => return blocks,
+    };
     match blocks.iter_mut().rev().find(|b| b["type"] == "text") {
         Some(b) => {
             let text = b["text"].as_str().unwrap_or_default();
@@ -257,7 +315,34 @@ mod tests {
         ] {
             let t = format!("[{}] hi", tag(code).unwrap());
             assert_eq!(strip_tag(&t), "hi", "{code}");
+            let t = format!("[{} · {}] hi", tag(code).unwrap(), when(1_760_000_000_000));
+            assert_eq!(strip_tag(&t), "hi", "{code}, with its time");
         }
+        // A time that is not one is not stripped.
+        assert_eq!(strip_tag("[Sun 2026-10-18] hi"), "[Sun 2026-10-18] hi");
+    }
+
+    /// The time a tag ends with: the weekday, the date, the minute and the
+    /// offset, in the daemon's zone (theseus-sro04).
+    #[test]
+    fn when_says_the_day_the_minute_and_the_offset() {
+        let at = 1_760_000_000_000;
+        let l = crate::wake::local(at);
+        let w = when(at);
+        assert_eq!(w.len(), 27, "{w}");
+        assert!(w.starts_with(l.weekday()), "{w}");
+        assert!(
+            w.contains(&format!(
+                "{:04}-{:02}-{:02} {}",
+                l.year,
+                l.month,
+                l.day,
+                l.hm()
+            )),
+            "{w}"
+        );
+        assert_eq!(without_when(&w), "");
+        assert_eq!(without_when(&format!("Cockpit · {w}")), "Cockpit");
     }
 
     #[test]
@@ -285,11 +370,22 @@ mod tests {
         let blocks = || vec![json!({"type": "text", "text": "quick one"})];
         assert_eq!(lead(&n, blocks()), blocks());
         n.surface = Some("terminal:tui".into());
-        assert_eq!(lead(&n, blocks())[0]["text"], "[Terminal · TUI] quick one");
+        let at = when(n.created_at_ms);
+        assert_eq!(
+            lead(&n, blocks())[0]["text"],
+            format!("[Terminal · TUI · {at}] quick one")
+        );
         // Attachments alone: the tag is a text block after them.
         let files = vec![json!({"type": "image"})];
         let out = lead(&n, files);
-        assert_eq!(out[1], json!({"type": "text", "text": "[Terminal · TUI]"}));
+        assert_eq!(
+            out[1],
+            json!({"type": "text", "text": format!("[Terminal · TUI · {at}]")})
+        );
+        // A voice turn's tag is the time alone (theseus-sro04).
+        n.surface = Some(VOICE.into());
+        assert_eq!(lead(&n, blocks())[0]["text"], format!("[{at}] quick one"));
+        assert_eq!(strip_tag(&format!("[{at}] quick one")), "quick one");
         // A relayed message is not a person's.
         let mut relayed = Node::relayed("ses_1", None, Origin::Agent, "parent", "do it");
         relayed.surface = Some("terminal".into());

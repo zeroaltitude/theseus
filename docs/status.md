@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-18 20:26 MST. Version 1.0.0 (v1); the design document is at v0.89._
+_Updated 2026-10-19 00:40 MST. Version 1.0.0 (v1); the design document is at v0.89._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -42,6 +42,61 @@ call that hears the owner who was already talking) and the cut's docs. The tagge
   with its kill switch and the keel.
 
 Next is **v1 patch1** (tag `release-1.0.1`, version 1.0.1), whose main task is the Google Workspace tools.
+
+## On, and still being hardened
+
+Six features in v1 are on and still being hardened. The [README](../README.md) lists them as features 7 to 12. The
+owner's rule (2026-10-18) is that a feature that exists ships on, with its broken parts said plainly, and the fixes
+follow.
+
+- **Jev's judgments** (`route.v6`, `classify.v3`, `rerank.v1` and `security.v3`, live). Each message a person sends
+  gets its model and effort, its class and its thread from Jev, waited for at most 300 ms on the owner's daemon (200 by
+  default); Jev's persona pick is recorded in shadow, and recall's order waits for `rerank.v1`. At the v1 benchmarks
+  (2026-10-18) Theseus paid the least of four harnesses for a solved task at high effort, level with Claude Code on
+  the score. Still rough:
+  - It sometimes calls a hard task routine and sends it to Haiku. On the 30 hardest tasks, every turn it called
+    routine failed, and it never chose `max` effort where `max` was allowed.
+  - `route.v6`'s data verdict calls open-source work `private` in about 60% of turns, so nothing acts on it yet. The
+    floor off models of restricted origin is the `[privacy] sensitive_names` list.
+
+  The fixes go toward v1 patch1 (theseus-a1wvq).
+- **The compiled context** (`theseus why`, `theseus project attach`). Each request is compiled from the store, with
+  the project's slice of an attached session in its last block, and the v1 patch1 project is attached to the owner's
+  sessions. Still rough:
+  - A turn Jev detours to a small model as quick or trivial carries only its last exchanges: no recall, no project
+    slice and no context files, and `theseus why` can't show it (theseus-pa1xx, theseus-v4u66). That is why a fresh
+    session on 2026-10-18 did not bring back that evening's decisions, though recall had found them.
+  - The slice shows the first "done when" line and a count of the rest.
+
+  The fixes go toward v1 patch1.
+- **Voice** (`/join` in a Discord voice channel). `[voice] enabled` is off by default, and it has been on in the
+  owner's config since October 3. In the v1 check on 2026-10-18 it joined, heard and transcribed the owner, spoke long
+  answers well, and counted two barge-ins, one of them resumed. Still broken:
+  - A call can go mostly deaf. One six-minute call decoded about 7 s of the owner's audio, and the deaf-call rule did
+    not fire. The leading guess is that the call's end-to-end encryption never switched on at Theseus's end, so the
+    owner's encrypted audio was dropped.
+  - Some transcripts come out clipped.
+  - The short greeting clips.
+  - A voice turn has no clock.
+  - Discord's typing indicator can stick after a deaf turn.
+
+  The fixes go toward v1 patch1 (theseus-sro04).
+- **Activity threads** (`theseus thread`). They are on by default, with up to 50 live, and five have been live on the
+  owner's daemon since 2026-10-18.
+  - The router (the `thread` question of `classify.v3`, fused with a free pre-score) is tested on 40 scripted
+    messages with a scripted Jev.
+  - The thread benchmark (`bench/threads/`) is built and has not been run on the real model.
+  - A Discord thread for each thread needs `discord_channel`, which is off by default.
+- **Personas** (`[personas.<name>]`). Five are set up on the owner's daemon.
+  - Addressing a persona by name (`name,`, `@name` or `/as name`) and binding one to a channel work live.
+  - Jev's per-message pick (the `persona` question of `route.v5` and `route.v6`) runs in shadow
+    (`[threads] persona_engage = "shadow"`) until its holdout.
+  - The personality exam (`bench/personality/`) is built and not yet published.
+- **Earned autonomy** (`theseus policy earned`). `[policy.earned]` is on by default, and it is on in the owner's
+  daemon.
+  - In four weeks there were 29 questions in 58 active hours, and no command reached 20 approvals in a week, so no
+    card has been posted yet.
+  - The CLI and the Discord card show it; the cockpit has no view of it yet.
 
 ## Working today
 
@@ -454,7 +509,11 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   does; `route.v7` rewords Jev's data question (content, not the place; `private` needs a sign; work whose owner the
   message does not show is `unclear`) and asks a new `personal` question, whose yes warns the owner by DM and holds
   nothing.
-
+- **2026-10-19 (night):** the README adds Jev's judgments and the compiled context as features 7 and 8, and features 7
+  to 10 become 9 to 12; [On, and still being hardened](#on-and-still-being-hardened) gains both (theseus-dqn4h).
+- **2026-10-18 (late evening):** the README adds voice, activity threads, personas and earned autonomy as features 7
+  to 10, each with what is still rough, and this page's [On, and still being hardened](#on-and-still-being-hardened)
+  section (theseus-dqn4h).
 - **2026-10-18 (evening): the v1 cut** (theseus-pngho, theseus-zlakq, theseus-e6wm8): the README rewritten with the
   six features first and the v1 numbers, [how Theseus is developed](development.md), the workspace version 1.0.0, and
   the `release` build tagged `release-1.0.0` and installed.

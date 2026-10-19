@@ -463,6 +463,16 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `begin` queues `[voice] greeting` (`{name}` the persona's name; empty is none) as the engine's first command, spoken
   before anything heard is answered; a join that fails speaks nothing. Tests: `runtime/voice/tests_persona.rs` (a stand-in
   Deepgram that logs each request's voice).
+- **The deaf watch goes on after the call hears** (theseus-sro04, `runtime/voice/deaf.rs`): before it hears, `deaf()`
+  (theseus-d93y); once it heard, `lost()` between two checks: a listed speaker present whose RTCP sender reports say they
+  sent `LOST_SENT` packets (5 s of speech), none of which arrived, is lost audio, rejoined once a call as a deaf join is,
+  with the `LOST` notice. Sender reports alone are no evidence: a silent speaker sends no packets and keeps reporting.
+  The counts (`SsrcCount::sent`) are songbird_io's, which believes a report's count only when it grew no faster than a
+  sender sends. Tests: `deaf.rs`'s own and `runtime/voice/tests_deaf.rs`.
+- **"Typing…" waits for no one** (theseus-sro04, `runtime/thread_ask.rs::typing`): a place types while its turn runs, or
+  while its submit is outstanding, but not while that submit waits on the router's question to the owner (a question
+  in the core's `threads.route.waiting()` for the place's session). A spoken turn is never asked about at all: the
+  core runs it at home (`rpc/thread_flow.rs`).
 
 ## Invariants
 

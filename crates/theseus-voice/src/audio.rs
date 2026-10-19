@@ -62,6 +62,36 @@ impl Audio {
         Self::new(samples)
     }
 
+    /// The RMS of its last 20 ms: speech still sounding there means the clip
+    /// ends mid-word ([`CUT_RMS`]).
+    pub fn tail_rms(&self) -> f64 {
+        rms(&self.0[self.len().saturating_sub(FRAME_SAMPLES)..])
+    }
+
+    /// It ends mid-word: its last 20 ms are speech, not the quiet a whole
+    /// sentence ends in.
+    pub fn cut_off(&self) -> bool {
+        self.tail_rms() >= CUT_RMS
+    }
+
+    /// The clip with its last `length` faded to silence, so a clip cut off
+    /// mid-word ends without a click.
+    pub fn faded_out(&self, length: Duration) -> Self {
+        let n = self.len();
+        let fade = samples_in(length).min(n).max(1);
+        let start = n - fade.min(n);
+        let samples = self
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| match i.checked_sub(start) {
+                Some(k) => (f64::from(s) * (fade - 1 - k) as f64 / fade as f64).round() as i16,
+                None => s,
+            })
+            .collect();
+        Self::new(samples)
+    }
+
     /// Clips one after another.
     pub fn concat(parts: &[Audio]) -> Self {
         Self::new(
@@ -88,6 +118,11 @@ impl fmt::Debug for Audio {
         write!(f, "Audio({:.3} s)", self.duration().as_secs_f64())
     }
 }
+
+/// A clip whose last 20 ms reach this RMS ends mid-word. Measured on Aura-2
+/// (theseus-sro04, 2026-10-18): a whole sentence's last 20 ms are at most 50,
+/// as it ends in 80 to 260 ms of quiet; a cut one's are 470 to 5,000.
+pub const CUT_RMS: f64 = 300.0;
 
 /// How many samples `length` holds, rounded down.
 pub fn samples_in(length: Duration) -> usize {

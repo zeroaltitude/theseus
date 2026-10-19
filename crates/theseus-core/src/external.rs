@@ -286,7 +286,32 @@ pub fn since_local(h: &ExternalText, now_ms: u64) -> String {
 /// documentation", at 13:05` (theseus-qiy), and how it came, when it came
 /// through another session.
 pub fn source(h: &ExternalText) -> String {
-    let at = crate::wake::local(h.since_ms).hm();
+    source_said(h, &crate::wake::local(h.since_ms).hm())
+}
+
+/// [`source`] as of `now_ms`: a hold from another day says the day and how
+/// long ago, `aws.trail …, at 21:03 on Oct 6, 12 days ago` (theseus-sro04: a
+/// confirm that said only "at 21:03" read as tonight's).
+pub fn source_at(h: &ExternalText, now_ms: u64) -> String {
+    let (then, now) = (crate::wake::local(h.since_ms), crate::wake::local(now_ms));
+    let day =
+        |l: &crate::wake::Local| crate::wake::days_from_civil(i64::from(l.year), l.month, l.day);
+    let days = day(&now) - day(&then);
+    if days == 0 {
+        return source(h);
+    }
+    // `Oct 6 21:03:07`, its day.
+    let on = then.hms_on(&now);
+    let date = on.rsplit_once(' ').map_or(on.as_str(), |(d, _)| d);
+    let ago = match days {
+        1 => "yesterday".to_string(),
+        d if d > 1 => format!("{d} days ago"),
+        _ => "ahead of this clock".to_string(),
+    };
+    source_said(h, &format!("{} on {date}, {ago}", then.hm()))
+}
+
+fn source_said(h: &ExternalText, at: &str) -> String {
     let what = h.what();
     let from = h.from_session.as_deref().map(crate::task::short);
     match (h.via.as_deref(), from) {
@@ -303,16 +328,24 @@ pub fn source(h: &ExternalText) -> String {
 
 /// Why a call that acts waits (or is notified): the confirm's words.
 pub fn why(h: &ExternalText, mode: Mode) -> String {
+    why_said(&source(h), mode)
+}
+
+/// [`why`] as of `now_ms`, with [`source_at`]'s day and age: what the
+/// gate's confirm says.
+pub fn why_at(h: &ExternalText, mode: Mode, now_ms: u64) -> String {
+    why_said(&source_at(h, now_ms), mode)
+}
+
+fn why_said(source: &str, mode: Mode) -> String {
     match mode {
         Mode::Ask => format!(
-            "this session read external text ({}), and a call that acts waits for approval \
-             after that (§3.9)",
-            source(h)
+            "this session read external text ({source}), and a call that acts waits for approval \
+             after that (§3.9)"
         ),
         Mode::Notify => format!(
-            "this session read external text ({}), and a call that acts is notified after that \
-             ([policy] external_text = notify)",
-            source(h)
+            "this session read external text ({source}), and a call that acts is notified after \
+             that ([policy] external_text = notify)"
         ),
     }
 }
@@ -356,7 +389,13 @@ pub fn gate(
         Ok(None) => d,
         Ok(Some(h)) if mode.posture() > d.posture => Decision {
             external: Some(h.clone()),
-            ..d.at_least(mode.posture(), &why(h, mode), &setting, tool, summary)
+            ..d.at_least(
+                mode.posture(),
+                &why_at(h, mode, theseus_protocol::now_unix_ms()),
+                &setting,
+                tool,
+                summary,
+            )
         },
         Ok(Some(_)) => d,
         Err(e) => d.at_least(
@@ -782,6 +821,57 @@ mod tests {
         let report = taken(&task, "ses_0000dd4e5f6", VIA_REPORT, "nod_r", 0);
         assert!(source(&report).contains(", in task d4e5f6's report, at "));
         assert_eq!(report.tool, "web.search", "the first source");
+    }
+
+    /// The confirm's reason for a hold from another day says the day and how
+    /// long ago (theseus-sro04: a CloudTrail read twelve days old said only
+    /// "at 21:03"); the same day's says the time alone, as before.
+    #[test]
+    fn a_hold_from_another_day_says_the_day_and_how_long_ago() {
+        let at = 1_759_266_720_000;
+        let h = read(
+            "nod_t",
+            "aws.trail",
+            "cloudtrail:us-west-2:LookupEvents",
+            None,
+            at,
+        );
+        let hm = crate::wake::local(at).hm();
+        assert_eq!(source_at(&h, at + 5_000), source(&h));
+        let day = |ms| {
+            let on = crate::wake::local(ms).hms_on(&crate::wake::local(ms + 3 * 86_400_000));
+            on.rsplit_once(' ').unwrap().0.to_string()
+        };
+        assert_eq!(
+            source_at(&h, at + 12 * 86_400_000),
+            format!(
+                "aws.trail cloudtrail:us-west-2:LookupEvents, at {hm} on {}, 12 days ago",
+                day(at)
+            )
+        );
+        assert!(source_at(&h, at + 86_400_000).ends_with(", yesterday"));
+        let why = why_at(&h, Mode::Ask, at + 12 * 86_400_000);
+        assert!(
+            why.contains(", 12 days ago), and a call that acts waits"),
+            "{why}"
+        );
+        let d = gate(
+            Decision {
+                posture: Posture::Open,
+                reason: "proc.run — open (x)".into(),
+                notify: None,
+                floor: false,
+                granted: None,
+                external: None,
+            },
+            ToolClass::Run,
+            &Ok(Some(h)),
+            Mode::Ask,
+            "proc.run",
+            &Value::Null,
+            "run date",
+        );
+        assert!(d.reason.contains(" days ago), and a call"), "{}", d.reason);
     }
 
     /// A search's hold names its query, not the request's URL, which it keeps
