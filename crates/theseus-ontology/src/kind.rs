@@ -421,17 +421,17 @@ impl Kind {
     }
 }
 
+/// Where a seed row sits and what it says: its parent kind, precedence,
+/// rule, and description.
+type Shape<'a> = (Option<&'a str>, u32, Rule, &'a str);
+
 /// One seed row: version 1, written by the build.
-#[allow(clippy::too_many_arguments)]
 fn seed(
     name: &str,
     basis: Basis,
     assigned_by: &[Origin],
     per_session: PerSession,
-    parent: Option<&str>,
-    precedence: u32,
-    rule: Rule,
-    description: &str,
+    (parent, precedence, rule, description): Shape<'_>,
 ) -> Kind {
     Kind {
         name: name.into(),
@@ -454,57 +454,62 @@ fn seed(
 /// project records, are facts the core holds (`Origin::Transport`).
 fn given_seeds() -> Vec<Kind> {
     use Origin::{Import, Jev, Operator, Transport};
-    let given = |name, parent, precedence, description| {
+    let given = |name, shape| {
         let one = PerSession::AtMost(1);
-        seed(
-            name,
-            Basis::Given,
-            &[Transport],
-            one,
-            parent,
-            precedence,
-            Rule::Chain,
-            description,
-        )
+        seed(name, Basis::Given, &[Transport], one, shape)
     };
     vec![
         given(
             "guild",
-            None,
-            10,
-            "The server a session's place is in, from the transport.",
+            (
+                None,
+                10,
+                Rule::Chain,
+                "The server a session's place is in, from the transport.",
+            ),
         ),
         given(
             "channel",
-            Some("guild"),
-            20,
-            "The place a session lives in, from the transport. A channel's parent is its guild.",
+            (
+                Some("guild"),
+                20,
+                Rule::Chain,
+                "The place a session lives in, from the transport. A channel's parent is its guild.",
+            ),
         ),
         given(
             "thread",
-            Some("channel"),
-            25,
-            "The thread a session lives in, from the harness's own thread records (read at \
-             compile from R6). A thread's parent is its channel.",
+            (
+                Some("channel"),
+                25,
+                Rule::Chain,
+                "The thread a session lives in, from the harness's own thread records (read at \
+                 compile from R6). A thread's parent is its channel.",
+            ),
         ),
         given(
             "project",
-            None,
-            28,
-            "The project a session works in, from the harness's own project records (read at \
-             compile from R6).",
+            (
+                None,
+                28,
+                Rule::Chain,
+                "The project a session works in, from the harness's own project records (read at \
+                 compile from R6).",
+            ),
         ),
         seed(
             "person",
             Basis::Given,
             &[Transport, Operator, Import, Jev],
             PerSession::Many,
-            None,
-            30,
-            Rule::IntentLine,
-            "The people a session involves: given by the transport (a DM's user, read from the \
-             place), and stored beside it, declared by the operator or by the import from an \
-             imported session's authors and places. A person carries its handles.",
+            (
+                None,
+                30,
+                Rule::IntentLine,
+                "The people a session involves: given by the transport (a DM's user, read from the \
+                 place), and stored beside it, declared by the operator or by the import from an \
+                 imported session's authors and places. A person carries its handles.",
+            ),
         ),
     ]
 }
@@ -513,19 +518,8 @@ fn given_seeds() -> Vec<Kind> {
 /// that may file it.
 fn interpreted_seeds() -> Vec<Kind> {
     use Origin::{Dream, Import, Jev, Operator, Sweep};
-    let interpreted = |name, assigned_by, per, parent, precedence, rule, description| {
-        let basis = Basis::Interpreted;
-        seed(
-            name,
-            basis,
-            assigned_by,
-            per,
-            parent,
-            precedence,
-            rule,
-            description,
-        )
-    };
+    let interpreted =
+        |name, assigned_by, per, shape| seed(name, Basis::Interpreted, assigned_by, per, shape);
     let mined = |mut k: Kind, mined_from: &[MinedFrom]| {
         k.mined_from = mined_from.to_vec();
         k
@@ -537,11 +531,13 @@ fn interpreted_seeds() -> Vec<Kind> {
                 "topic",
                 &[Operator, Import, Jev, Sweep, Dream],
                 PerSession::AtMost(3),
-                Some("topic"),
-                40,
-                Rule::Chain,
-                "What a session is about, declared by the operator, or by the import from an \
-                 imported session's labels. Topics nest.",
+                (
+                    Some("topic"),
+                    40,
+                    Rule::Chain,
+                    "What a session is about, declared by the operator, or by the import from an \
+                     imported session's labels. Topics nest.",
+                ),
             ),
             &[MinedFrom::Titles, MinedFrom::Capitalised],
         ),
@@ -549,21 +545,25 @@ fn interpreted_seeds() -> Vec<Kind> {
             "event",
             &by_three,
             PerSession::AtMost(3),
-            Some("project"),
-            50,
-            Rule::Chain,
-            "A dated happening (a release, an outage, a meeting, a deadline); the date is mined \
-             in code, never Jev's.",
+            (
+                Some("project"),
+                50,
+                Rule::Chain,
+                "A dated happening (a release, an outage, a meeting, a deadline); the date is mined \
+                 in code, never Jev's.",
+            ),
         ),
         mined(
             interpreted(
                 "resource",
                 &by_three,
                 PerSession::Many,
-                None,
-                60,
-                Rule::IntentLine,
-                "A repository, service, host, document or dataset the session works with.",
+                (
+                    None,
+                    60,
+                    Rule::IntentLine,
+                    "A repository, service, host, document or dataset the session works with.",
+                ),
             ),
             &[MinedFrom::Paths, MinedFrom::Hosts],
         ),
@@ -571,28 +571,34 @@ fn interpreted_seeds() -> Vec<Kind> {
             "capability",
             &by_three,
             PerSession::Many,
-            None,
-            70,
-            Rule::IntentLine,
-            "A tool, skill or extension the session needed.",
+            (
+                None,
+                70,
+                Rule::IntentLine,
+                "A tool, skill or extension the session needed.",
+            ),
         ),
         interpreted(
             "expertise",
             &by_three,
             PerSession::AtMost(3),
-            Some("expertise"),
-            80,
-            Rule::Chain,
-            "The domain the session draws on.",
+            (
+                Some("expertise"),
+                80,
+                Rule::Chain,
+                "The domain the session draws on.",
+            ),
         ),
         interpreted(
             "culture",
             &[Operator, Dream],
             PerSession::Many,
-            None,
-            90,
-            Rule::Chain,
-            "How things are done here, learned from corrections over time.",
+            (
+                None,
+                90,
+                Rule::Chain,
+                "How things are done here, learned from corrections over time.",
+            ),
         ),
     ]
 }

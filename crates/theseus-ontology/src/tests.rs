@@ -177,8 +177,12 @@ fn a_row_that_names_an_unbuilt_rule_is_refused_and_says_so() {
     }
 }
 
+/// The test keeps its first name, which the keel guard knows it by: every
+/// origin is built now (onto-core, theseus-e3mjc), so a row may name any of
+/// them, and what is refused is any writer of the kinds table but the
+/// operator and the sweep (`tests_kinds`).
 #[test]
-fn a_row_that_names_a_machine_origin_is_admitted_and_only_the_operator_writes_it() {
+fn a_row_that_names_an_unbuilt_origin_is_refused_and_says_so() {
     let o = Ontology::seeded();
     // Every origin is built now: a row may name any of them.
     for origin in [Origin::Jev, Origin::Sweep, Origin::Dream] {
@@ -227,8 +231,10 @@ fn a_given_rows_facts_are_the_transports_and_the_rest_is_the_operators() {
     assert_eq!(o.kind("guild").unwrap().version, 2);
 }
 
+/// The harness gives five kinds now (guild, channel, thread, project, person),
+/// not the transport's three; the test keeps its first name.
 #[test]
-fn only_the_harness_five_kinds_are_given() {
+fn only_the_transports_three_kinds_are_given() {
     let o = Ontology::seeded();
     let mut region = new_kind("region", 150, None, Rule::Chain);
     region.basis = Basis::Given;
