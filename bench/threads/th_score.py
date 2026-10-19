@@ -15,7 +15,9 @@ For each run (what `th_drive.py` wrote):
 - **Abstention** (a stream with no deadline, or ticket, or port): no value of the kind, and an admission.
 - **Misroute recovery**: after "that was for X", the note is in X's file and absent from the file it was filed in.
 - **Routing**: top-1 and the ask rates (on the ambiguous, on the clear), from `routing.jsonl` when an arm routes
-  (the threads arms; the owner-split arms route by construction and are marked so).
+  (the threads arms; the owner-split arms and A2, whose owner addresses each message, route by construction and are
+  marked so). What a threads arm's daemon also reported, the persona it engaged and the prefix library's picks, is
+  read from the same records into `threads` when they carry it.
 - **Context**: compiled request tokens per turn (provider input, cache read and cache write, per model call),
   their mean, p90 and curve; **dollars** measured (the harness's own count) and modelled at the owner's gaps
   (`th_price.py`, 5 minutes and 1 hour); **cache-read share** from the provider's usage fields; **latency** (wall
@@ -44,7 +46,7 @@ import th_drive as td  # noqa: E402
 sys.path.insert(0, str(HERE.parent / "report"))
 import stats  # noqa: E402
 
-OWNER_ROUTED = ("A5", "A6")  # the owner picks the session: routing is the owner's, and perfect by construction
+OWNER_ROUTED = ("A2", "A5", "A6")  # the owner picks the session: routing is the owner's, and perfect by construction
 
 
 def quantile(xs: list[float], q: float) -> float | None:
@@ -262,7 +264,7 @@ def score_run(run: dict) -> dict:
     hdr = [r for r in ins if r.get("false_fit") is not None]
     header = {"n": len(hdr), "correct": sum(r["ok"] for r in hdr), "false_fit": sum(1 for r in hdr if r["false_fit"]),
               "other_wrong": sum(1 for r in hdr if not r["ok"] and not r["false_fit"])}
-    return {
+    result = {
         "arm": arm["arm"], "name": arm["name"], "key": arm["key"], "harness": harness, "layout": arm["layout"],
         "seed": prog.seed, "size": prog.size, "digest": prog.digest(),
         "model": model, "effort": meta.get("effort"), "turns": len(turns), "sessions": len(set(sessions)),
@@ -299,6 +301,29 @@ def score_run(run: dict) -> dict:
         "compactions": len(meta.get("compactions") or []),
         "harness_version": meta.get("version"),
     }
+    extra = engagement(run["routing"], prog)
+    if extra:
+        result["threads"] = extra
+    return result
+
+
+def engagement(records: list[dict], prog: tf.Progression) -> dict:
+    """What a threads arm's daemon reported beyond the placement (theseus-l7z1), from `routing.jsonl` when its
+    records carry it: the persona it engaged against the message's label (the persona-routing measure), and the
+    prefix library's picks. Empty for a run whose records do not, so older runs score byte for byte as before."""
+    msgs = {m.index: m for m in prog.messages}
+    pers = [(msgs[r["msg"]], r["persona"]) for r in records if r.get("persona") and r["msg"] in msgs]
+    picks = [(r["msg"], p) for r in records for p in r.get("prefix") or []]
+    out: dict = {}
+    if pers:
+        plain = [(m, p) for m, p in pers if m.role != "correction"]
+        out["persona"] = {"engaged": rate(sum(p.get("persona") == m.persona for m, p in plain), len(plain)),
+                          "how": {h: sum(1 for _, p in pers if p.get("how") == h) for h in sorted({p.get("how") for _, p in pers if p.get("how")})}}
+    if picks:
+        choices = sorted({p.get("choice") for _, p in picks if p.get("choice")})
+        out["prefix"] = {"picks": len(picks), "by_choice": {c: sum(1 for _, p in picks if p.get("choice") == c) for c in choices},
+                         "below_act": sum(1 for _, p in picks if p.get("below_act"))}
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -5,8 +5,12 @@ harness: it turns a threads progression into the recall bench's turns and sessio
 writes the same run directory (`run.json`, `turns.jsonl`, `delivered.json`, `workspace/`, `raw/`) plus
 `threads-progression.json` and `arm.json`, which `th_score.py` reads.
 
-The arms (the threads build's A1, A1n, A1p and A2 need threads, which are not built: they refuse, with words):
+The arms (A1, A1n and A2 are the threads build's, driven by `th_threads.py`; A1p has no switch to build it on):
 
+    A1  Theseus with threads, natural addressing                    the router places each unaddressed message
+    A1n A1 with the prefix library off                              what the library buys on top of threads
+    A1p A1 with a prompt layer per persona                          NOT measurable: the daemon has no such layout
+    A2  Theseus with threads, explicit addressing                   `ask --thread <the stream's slug>`
     A3  Theseus, one session for the whole run                      measurable now
     A4  Claude Code (2.1.290, pinned), one session                  measurable now
     A5  Theseus, one session per stream: the oracle split           measurable now (a person splitting by hand)
@@ -46,6 +50,7 @@ import th_format as tf  # noqa: E402,F401  (puts the recall bench on the path)
 import th_generate as gen  # noqa: E402
 import drive as rd  # noqa: E402  (the recall bench's drivers)
 import progression as pg  # noqa: E402
+import th_threads as th  # noqa: E402
 
 REPO = HERE.parent.parent
 HARBOR = HERE.parent / "harbor"
@@ -54,14 +59,15 @@ HARBOR = HERE.parent / "harbor"
 WINDOW = 1_000_000
 
 ARMS: dict[str, dict] = {
-    "A1": {"name": "Theseus with threads", "requires": "threads", "harness": "theseus",
-           "what": "each message is routed to its thread by the router, dynamic contexting per thread"},
-    "A1n": {"name": "Theseus with threads, named by the owner", "requires": "threads", "harness": "theseus",
-            "what": "threads, but the owner names the thread each time: no routing model"},
-    "A1p": {"name": "Theseus with threads and personas", "requires": "threads", "harness": "theseus",
-            "what": "threads plus the persona question per message"},
-    "A2": {"name": "Theseus with threads and the prefix library", "requires": "threads", "harness": "theseus",
-           "what": "threads plus a library of reusable headers for repo families"},
+    "A1": {"name": "Theseus with threads, natural addressing", "harness": "theseus", "layout": "thread",
+           "key": "theseus-threads", "what": "every message to the home session, unaddressed; the router places it"},
+    "A1n": {"name": "Theseus with threads, no prefix library", "harness": "theseus", "layout": "thread",
+            "key": "theseus-threads-noprefix", "what": "A1 with [prefix] enabled = false"},
+    "A1p": {"name": "Theseus with threads, a prompt layer per persona", "harness": "theseus", "layout": "thread",
+            "key": "theseus-threads-persona", "unmeasurable": th.UNMEASURABLE["A1p"],
+            "what": "A1 with a prompt layer per persona instead of one persona-set layer"},
+    "A2": {"name": "Theseus with threads, explicit addressing", "harness": "theseus", "layout": "thread",
+           "key": "theseus-threads-addressed", "what": "each stream message sent with `ask --thread`: routing's share"},
     "A3": {"name": "Theseus, one session", "harness": "theseus", "layout": "one", "key": "theseus",
            "what": "one long session in Theseus, memory as shipped (baseline)"},
     "A4": {"name": "Claude Code, one session", "harness": "claude-code", "layout": "one", "key": "claude-code",
@@ -75,10 +81,8 @@ ARMS: dict[str, dict] = {
     "A8": {"name": "OpenCode, one session", "harness": "opencode", "layout": "one", "key": "other",
            "what": "one long session in OpenCode, if it can continue a named session headless"},
 }
-MEASURABLE = tuple(a for a, v in ARMS.items() if "requires" not in v and v["harness"] != "opencode")
-REFUSAL = ("arm {arm} ({name}) needs threads, which are not built yet (the threads rows: thread-record and after). "
-           "This bench's T0 run measures before they exist: arms {now} are the ones it can drive. The arm is in "
-           "the table so the after run reads the same scorer; nothing here pretends to run it.")
+MEASURABLE = tuple(a for a, v in ARMS.items() if "unmeasurable" not in v and v["harness"] != "opencode")
+REFUSAL = "arm {arm} ({name}) is not measurable: {why}"
 PINS = {"claude-code": "claude_code_agent.py", "pi": "pi_agent.py", "opencode": "opencode_agent.py"}
 
 
@@ -145,7 +149,7 @@ def stop_stand_in_services(run) -> list[str]:
 
 
 def refuse(arm: str) -> None:
-    raise NotMeasurable(REFUSAL.format(arm=arm, name=ARMS[arm]["name"], now=", ".join(MEASURABLE)))
+    raise NotMeasurable(REFUSAL.format(arm=arm, name=ARMS[arm]["name"], why=ARMS[arm]["unmeasurable"]))
 
 
 def probe_opencode(binary: str = "opencode") -> dict:
@@ -249,14 +253,17 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--plan", type=Path, default=None,
                     help="the attempt plan (bench/plans/threadbench-t0r.json): refuse unless it is committed and clean "
                          "and names this arm and this progression")
-    th = ap.add_argument_group("theseus")
-    th.add_argument("--memory-arm", default="baseline")
-    th.add_argument("--bin-dir", default="target/release")
-    th.add_argument("--profile", default=str(rd.PROFILE))
-    th.add_argument("--spend-limit", type=float, default=75.0, help="the run's spend limit, in dollars")
-    th.add_argument("--day-ceiling", type=float, default=None)
-    th.add_argument("--max-loops", type=int, default=40)
-    th.add_argument("--api-base", default=None)
+    tg = ap.add_argument_group("theseus")
+    tg.add_argument("--memory-arm", default="baseline")
+    tg.add_argument("--bin-dir", default="target/release")
+    tg.add_argument("--profile", default=str(rd.PROFILE))
+    tg.add_argument("--spend-limit", type=float, default=75.0, help="the run's spend limit, in dollars")
+    tg.add_argument("--day-ceiling", type=float, default=None)
+    tg.add_argument("--max-loops", type=int, default=40)
+    tg.add_argument("--api-base", default=None)
+    tg.add_argument("--config-overlay", type=Path, default=None,
+                    help="threads arms: a TOML laid over the scratch config (Jev's endpoint, for one); its sha256 is "
+                         "kept in run.json")
     cc = ap.add_argument_group("claude-code")
     cc.add_argument("--claude", default="claude")
     cc.add_argument("--claude-arg", action="append", default=[])
@@ -279,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
     if not a.arm or not a.out:
         ap.error("--arm and --out are required")
     spec = ARMS[a.arm]
-    if "requires" in spec:
+    if "unmeasurable" in spec:
         refuse(a.arm)
     if spec["harness"] == "opencode":
         p = probe_opencode(a.opencode)
@@ -298,7 +305,8 @@ def main(argv: list[str] | None = None) -> int:
     ns = namespace(a)
     overhead = None
     probe = None
-    if harness == "theseus":
+    threaded = spec["layout"] == "thread"
+    if harness == "theseus" and not threaded:
         probe = rd.measure_theseus(ns)
         overhead = probe["measured"]
     elif harness == "pi":
@@ -311,6 +319,11 @@ def main(argv: list[str] | None = None) -> int:
             "arm_name": spec["name"], "layout": spec["layout"], "harness": harness, "sessions_planned": len(v.sessions)}
     if harness == "theseus":
         meta["memory_arm"] = a.memory_arm
+    overlay = None
+    if threaded and a.config_overlay:
+        raw = a.config_overlay.read_bytes()
+        overlay = __import__("tomllib").loads(raw.decode())
+        meta["config_overlay"] = {"path": str(a.config_overlay), "sha256": __import__("hashlib").sha256(raw).hexdigest()}
     run = rd.Run(a.out, v, harness, meta)
     prog.save(a.out)
     (a.out / "arm.json").write_text(json.dumps({"arm": a.arm, "name": spec["name"], "layout": spec["layout"],
@@ -321,7 +334,13 @@ def main(argv: list[str] | None = None) -> int:
         run.meta["overhead"] = rec = {**rd.overhead_record(overhead, probe["measured"], a.allow_overhead, False),
                                       "source": "probe", "probe_cost_usd": probe["cost_usd"]}
         run.save()
-    driver = {"theseus": rd.Theseus, "claude-code": rd.ClaudeCode, "pi": rd.Pi}[harness](ns, run)
+    if threaded:
+        # The probe's plain session carries neither the persona layer nor a thread's card: no overhead is claimed.
+        run.meta["overhead"] = {"source": "not measured: a threads arm's prompt is not the probe's"}
+        run.save()
+        driver = th.ThreadsTheseus(ns, run, a.arm, prog, overlay)
+    else:
+        driver = {"theseus": rd.Theseus, "claude-code": rd.ClaudeCode, "pi": rd.Pi}[harness](ns, run)
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     try:
         transcript = driver.drive()

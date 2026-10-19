@@ -1,0 +1,40 @@
+{
+ "name": "threadbench-t12",
+ "k": 1,
+ "about": "The attempt plan of threadbench's after run (T12), committed before it: the threads arms on the same messages, read by the same scorer as the before run (T0r). A3 is the before run's baseline on the same binaries. The progression digests are T0r's: a change to the generator changes them and this file with them.",
+ "model": "anthropic/claude-sonnet-5-5",
+ "effort": "medium",
+ "size": "standard",
+ "arms": [
+  "A1",
+  "A1n",
+  "A2",
+  "A3"
+ ],
+ "probe_only": [
+  "A1p"
+ ],
+ "progressions": {
+  "dev": {
+   "seed": 11,
+   "digest": "011a0c8319c615d320ad0b999e6114500661444c79220c1f783b18ef4955ffbe"
+  },
+  "held_out": {
+   "seed": 29,
+   "digest": "c3743e47879058dea4259f3cdd481cb1f7bdecd0e9c275ad47b07639fc8cff25",
+   "runs": "once, after the development run is read"
+  },
+  "prefix": {
+   "seed": 11,
+   "digest": "ee857fa84be7e08a4df1cdec1cc10f346f0b6d60e624f251c2ead1dd5e574ea5",
+   "track": "prefix",
+   "runs": "A1, A1n and A2 on the prefix track, after the main run"
+  }
+ },
+ "budget_usd": {
+  "expected_low": 35,
+  "expected_high": 60,
+  "pause_with_before_run": 170
+ },
+ "spend_limit_usd_per_arm": 25
+}
