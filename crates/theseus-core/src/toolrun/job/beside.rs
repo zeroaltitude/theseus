@@ -78,11 +78,21 @@ pub(crate) fn before(execution_id: &str, correlation_id: &str, cwd: &Path) {
             .collect()
     });
     let mut b = BOOK.lock().unwrap();
-    b.turns.entry(execution_id.into()).or_default();
     // A batch's next step launches under the same id: its own listing, its
     // own line.
     b.said.remove(correlation_id);
     b.before.insert(correlation_id.into(), listed);
+}
+
+/// A turn began: its commands' facts gather from here until `forget_turn`.
+/// A job that outlives its turn (a batch's later step, a late result) adds to
+/// nothing, so no turn's entry outlives it.
+pub(crate) fn begin_turn(execution_id: &str) {
+    BOOK.lock()
+        .unwrap()
+        .turns
+        .entry(execution_id.into())
+        .or_default();
 }
 
 /// A job's output was removed: its listing and its line go.
@@ -360,6 +370,29 @@ mod tests {
         assert_eq!(line("exec_b", "corr_nocompletion", None), "");
         // A restart in between: a result with no launch listing.
         assert_eq!(line("exec_b", "corr_unlaunched", Some(now_ms())), "");
+    }
+
+    #[test]
+    fn a_job_outliving_its_turn_adds_to_no_turn() {
+        let d = dir();
+        let p = d.path().to_path_buf();
+        // The turn is over (or never began): its command still gets its line.
+        before("exec_gone", "corr_gone", &p);
+        std::fs::write(p.join("out"), "x").unwrap();
+        aged(&p, "out", 1_000);
+        assert!(line("exec_gone", "corr_gone", Some(now_ms())).starts_with("[new files: "));
+        assert!(!BOOK.lock().unwrap().turns.contains_key("exec_gone"));
+        // A live turn gathers it, and its end drops it.
+        begin_turn("exec_live");
+        before("exec_live", "corr_live", &p);
+        std::fs::write(p.join("out2"), "x").unwrap();
+        aged(&p, "out2", 1_000);
+        line("exec_live", "corr_live", Some(now_ms()));
+        assert_eq!(facts("exec_live").left, vec![p.join("out2")]);
+        forget_turn("exec_live");
+        assert!(!BOOK.lock().unwrap().turns.contains_key("exec_live"));
+        forget("corr_gone");
+        forget("corr_live");
     }
 
     #[test]

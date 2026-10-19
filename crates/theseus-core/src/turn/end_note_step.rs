@@ -32,6 +32,7 @@ pub(super) struct Held {
 
 impl Held {
     pub(super) fn of(execution_id: &str) -> Self {
+        beside::begin_turn(execution_id);
         Self {
             execution_id: execution_id.into(),
             sent: None,
