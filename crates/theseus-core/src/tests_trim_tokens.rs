@@ -16,7 +16,7 @@ fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
-    let mut cfg = Config::parse(&crate::tests_first_request::with_personas(toml))
+    let mut cfg = Config::parse(&crate::tests_first_request::with_personas(toml, dir.path()))
         .unwrap()
         .0;
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();

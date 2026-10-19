@@ -63,9 +63,10 @@ fn a_cli_and_a_task_session_carry_only_the_persona_in_play() {
 /// a changed system (a `system_changed` recompile), as an edited context file is.
 #[test]
 fn a_clis_persona_is_the_one_in_play_and_its_change_changes_the_system() {
-    let a = rig_of(OWNER_SHAPE).0;
+    // Each rig's directory holds its copy of the persona files: keep both.
+    let (a, _adir) = rig_of(OWNER_SHAPE);
     let toml = OWNER_SHAPE.replace("default_persona = \"alder\"", "default_persona = \"dune\"");
-    let d = rig_of(&toml).0;
+    let (d, _ddir) = rig_of(&toml);
     let (pa, _) = layers(&a, "cli");
     let (pd, _) = layers(&d, "cli");
     assert_eq!(carried(&pa), ["alder"]);

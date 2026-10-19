@@ -21,10 +21,19 @@ fn rig() -> (Arc<Core>, tempfile::TempDir) {
     rig_of("[secrets]\nanthropic_api_key = \"env:THESEUS_TEST_KEY\"\n")
 }
 
-/// The fixture's personas' files are in `fixtures/personas`: `/@PERSONAS@` is that directory.
-pub(crate) fn with_personas(toml: &str) -> String {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/personas");
-    toml.replace("/@PERSONAS@", dir)
+/// The fixture's personas' files, copied from `fixtures/personas` into `dir/.theseus/personas`: `/@PERSONAS@` is
+/// that directory. A shared place's request names each withheld file by its path, so the path's length is part of
+/// the count: a copy under the rig's own directory (about 42 characters, as the owner's are about 55) keeps the
+/// count the same wherever the repository is checked out.
+pub(crate) fn with_personas(toml: &str, dir: &std::path::Path) -> String {
+    let to = dir.join(".theseus/personas");
+    std::fs::create_dir_all(&to).unwrap();
+    let from = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/personas");
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+    }
+    toml.replace("/@PERSONAS@", to.to_str().unwrap())
 }
 
 /// The owner shape as it was before its personas: the tables from `[context]` to `[aws.accounts`.
@@ -38,7 +47,7 @@ pub(crate) fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
-    let mut cfg = Config::parse(&with_personas(toml)).unwrap().0;
+    let mut cfg = Config::parse(&with_personas(toml, dir.path())).unwrap().0;
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
