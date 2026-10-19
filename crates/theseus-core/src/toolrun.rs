@@ -45,6 +45,7 @@ mod batch;
 mod calls;
 mod flow_step;
 pub(crate) use flow_step::Stepped;
+pub mod catalogs;
 mod complete;
 pub mod fit;
 mod glide;
@@ -319,6 +320,8 @@ impl ResumeOutcome {
 pub struct ToolRuntime {
     /// The misroute guard: a turn placed in a thread on a guess (theseus-rha2).
     pub misroute: misroute::Guards,
+    /// The catalog each place is offered, kept (`catalogs`).
+    pub catalogs: catalogs::Catalogs,
     pub registry: Registry,
     pub policy: ToolPolicy,
     pub ctx: ToolCtx,
@@ -521,6 +524,7 @@ impl ToolRuntime {
         let tmp = std::env::temp_dir();
         Self {
             misroute: Default::default(),
+            catalogs: Default::default(),
             registry: Registry::new(),
             // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
@@ -684,50 +688,6 @@ impl ToolRuntime {
 
     pub fn definitions(&self) -> Vec<Value> {
         self.registry.definitions(true)
-    }
-
-    /// The tools a place is offered (the place rule, narrowed by its
-    /// ceiling): its model never sees one it may not use.
-    pub fn definitions_for(&self, place: crate::ceiling::PlaceView) -> Vec<Value> {
-        let offered = |name: &str| place.offered(name, &self.public_roots);
-        let mut defs = self
-            .registry
-            .definitions_of(true, |n| offered(n) && crate::tools_defer::listed(n));
-        jobs_tools::say_wait_cap(&mut defs, self.job_wait_max_secs);
-        // The MCP servers' tools, after the built-ins, by canonical name (the
-        // catalog's order): none in a shared place (the place rule), and in a
-        // place with a ceiling only its `mcp:<server>` entries' (38a).
-        if self.enabled() {
-            defs.extend(
-                self.mcp
-                    .all()
-                    .iter()
-                    .filter(|t| offered(&t.canonical))
-                    .map(|t| {
-                        json!({
-                            "name": t.wire,
-                            "description": t.description,
-                            "input_schema": Tool::input_schema(t.as_ref()),
-                        })
-                    }),
-            );
-            // The loaded flows' tools, in their own deferred families; the
-            // turn leaves out those not in its directory's scope.
-            defs.extend(
-                self.flows
-                    .all()
-                    .iter()
-                    .filter(|e| offered(e.tool.name()))
-                    .map(|e| {
-                        json!({
-                            "name": e.tool.wire_name(),
-                            "description": e.tool.description(),
-                            "input_schema": e.tool.input_schema(),
-                        })
-                    }),
-            );
-        }
-        defs
     }
 
     /// The paragraph of the system prompt that describes the tools and their
@@ -2316,6 +2276,7 @@ pub fn build_runtime(
     let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
     Ok(ToolRuntime {
         misroute: Default::default(),
+        catalogs: Default::default(),
         registry,
         policy: ToolPolicy {
             roots: roots.clone(),

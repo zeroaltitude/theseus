@@ -149,7 +149,7 @@ fn descriptions_name_wire_tools() {
     let rt = &core.runner.tools;
     let view: crate::ceiling::PlaceView = PlaceClass::Private.into();
     let mut seen = rt.system_note_for(view);
-    for d in rt.definitions_for(view) {
+    for d in &rt.definitions_for(view) {
         seen.push_str(&serde_json::to_string(&d).unwrap());
     }
     for t in rt.registry.all() {

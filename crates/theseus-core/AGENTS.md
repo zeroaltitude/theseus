@@ -2771,5 +2771,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
   output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
   it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+- **A spec's tools are shared, never copied** (theseus-nsp9l.2): `RequestSpec.tools` is a `tool_set::Tools` (an `Arc` of the
+  definitions, immutable; its JSON length, digest and hash state, and the sets a deferral loads, are kept with it), and
+  `ToolRuntime::definitions_for` keeps each place's catalog (`toolrun/catalogs.rs`). A compile clones specs and digests
+  their tools a dozen times, so a `Vec<Value>` of 100 KB there cost 25 ms of a person's wait; change a set by making a new
+  `Tools`, never in place. Tests: `tests_send_path.rs` (counts catalogs made and tool JSON walked; no timing), `tool_set::tests`.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.

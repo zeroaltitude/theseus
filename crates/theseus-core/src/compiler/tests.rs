@@ -18,7 +18,8 @@ fn spec(model: &str, system: &str) -> RequestSpec {
         persona: None,
         tools: vec![
             json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
-        ],
+        ]
+        .into(),
         effort: Some(Effort::High),
         turn_effort: None,
         effort_refused: vec![],
@@ -46,7 +47,8 @@ fn the_tools_digest_matches_the_one_stored_manifests_carry() {
     s.tools = vec![
         json!({"name": "fs_read", "description": "Read a file", "input_schema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}}}}),
         json!({"name": "proc_run", "input_schema": {"properties": {"argv": {"items": {"type": "string"}, "type": "array"}}, "type": "object"}, "description": "Run é ✓"}),
-    ];
+    ]
+    .into();
     let m = manifest_for(&s, &Catalog::builtin(), None, false);
     assert_eq!(m.tools_digest, "46f4e6a0c66ccbb0");
 }
@@ -491,7 +493,7 @@ fn the_system_is_two_blocks_each_with_a_breakpoint() {
     assert_eq!(m.min_tokens, 512);
     // Each prefix is the tools and the system through its block, in bytes.
     let len = |v: &Value| serde_json::to_string(v).unwrap().len() as u64;
-    let tools = len(&Value::Array(sp.tools.clone()));
+    let tools = len(&Value::Array(sp.tools.to_vec()));
     let header = len(&json!({"type": "text", "text": sp.system_text}));
     let context = len(&json!({"type": "text", "text": sp.context_text}));
     assert_eq!(m.blocks[0].prefix_bytes, tools + header);
@@ -575,7 +577,7 @@ fn a_prefix_under_the_models_minimum_gets_no_breakpoint() {
     // The bound exactly: a header prefix of 8,192 bytes is marked on
     // Haiku, and one of 8,191 is not.
     let len = |v: &Value| serde_json::to_string(v).unwrap().len();
-    let base = len(&Value::Array(sp.tools.clone())) + len(&json!({"type": "text", "text": ""}));
+    let base = len(&Value::Array(sp.tools.to_vec())) + len(&json!({"type": "text", "text": ""}));
     for (bytes, marked) in [(8_192, true), (8_191, false)] {
         let at = spec("claude-haiku-4-5", &"h".repeat(bytes - base));
         let b = cache_layout(&at, &Catalog::builtin()).blocks[0].clone();

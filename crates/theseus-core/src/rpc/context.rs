@@ -186,7 +186,8 @@ impl Core {
                 // The tools the request would send after this compilation.
                 let mut sent = built.spec.clone();
                 sent.tools =
-                    crate::tools_defer::sent_tools(&built.spec, compilation.map(|c| &c.manifest));
+                    crate::tools_defer::sent_tools(&built.spec, compilation.map(|c| &c.manifest))
+                        .into();
                 let now = manifest_for(&sent, &self.catalog, None, false);
                 let then = compilation.map(|c| &c.manifest);
                 out.digest_now = now.system_digest.clone();
