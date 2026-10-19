@@ -1566,11 +1566,15 @@ mod tests {
             (&d6.decides, &d6.kind, &d6.thresholds, &d6.no_match)
         );
         let opt = |q: &QuestionDef, id: &str| {
-            q.options.iter().find(|o| o.id == id).unwrap().means.clone()
+            q.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
         };
-        let options = |q: &QuestionDef| {
-            q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>()
-        };
+        let options = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
         assert_eq!(options(d7), options(d6));
         assert!(d7.instructions.contains("not by the place"));
         assert!(opt(d7, "open").contains("self-contained exercise"));
@@ -1579,8 +1583,20 @@ mod tests {
         assert_eq!(v7.rollback, v6.rollback, "both rules, word for word");
         assert_eq!(v7.version, 7);
         assert_eq!(
-            (v7.point, v7.builder, v7.baseline, v7.action, v7.state_cap_tokens),
-            (v6.point, v6.builder, v6.baseline, v6.action, v6.state_cap_tokens)
+            (
+                v7.point,
+                v7.builder,
+                v7.baseline,
+                v7.action,
+                v7.state_cap_tokens
+            ),
+            (
+                v6.point,
+                v6.builder,
+                v6.baseline,
+                v6.action,
+                v6.state_cap_tokens
+            )
         );
         assert_eq!(v7.description, v6.description);
     }

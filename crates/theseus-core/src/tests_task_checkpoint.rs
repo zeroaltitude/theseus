@@ -453,14 +453,21 @@ async fn a_checkpoints_cost_lands_in_the_tasks_spent() {
     );
 }
 
-/// A conversation's turn is untouched: the requests and the frames are the
-/// same with checkpoints on and off.
+/// A conversation's turn the route placed has checkpoints too (theseus-a1wvq;
+/// converted: before, its requests and frames were the same with checkpoints
+/// on and off). Its loops fail, so it asks one, recorded as the turn's; the
+/// verdict, `chat` again, keeps it where it is, so the requests to the model
+/// are byte-identical, and only the checkpoint's own rows are added.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_conversation_turn_is_the_same_with_checkpoints_on() {
-    async fn go(on: bool) -> (Vec<String>, u64) {
+async fn a_conversation_turn_asks_a_checkpoint_and_stays_where_its_verdict_keeps_it() {
+    async fn go(on: bool) -> (Vec<String>, usize) {
         let jev = FakeJev::start().unwrap();
         mode(&jev, "chat", 0.95);
-        let claude = Arc::new(FakeProvider::scripted(loops(5, 0)));
+        // A little slowly, so the verdict lands at a loop boundary.
+        let claude = Arc::new(FakeProvider {
+            delay_ms: 60,
+            ..FakeProvider::scripted(loops(5, 0))
+        });
         let provider = claude.clone();
         let rig = rig_parts(
             Some(&jev),
@@ -476,12 +483,16 @@ async fn a_conversation_turn_is_the_same_with_checkpoints_on() {
             .iter()
             .map(|r| serde_json::to_string(r).unwrap())
             .collect();
-        (bodies, rig.core.store.last_position())
+        let asked = decided(&rig.core.store)
+            .into_iter()
+            .filter(|d| d["source"] == "turn checkpoint")
+            .count();
+        (bodies, asked)
     }
     let (on, off) = (go(true).await, go(false).await);
     assert_eq!(on.0.len(), 6);
     assert_eq!(on.0, off.0, "byte-identical requests");
-    assert_eq!(on.1, off.1, "the same frames");
+    assert_eq!((on.1, off.1), (1, 0), "one checkpoint, the turn's");
 }
 
 /// The text a checkpoint sends is bounded whatever the task wrote.

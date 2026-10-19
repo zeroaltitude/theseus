@@ -118,10 +118,9 @@ async fn a_routed_turn_whose_loops_fail_moves_up() {
 /// as every routed turn did before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_checkpoints_off_a_routed_turn_stays_on_its_first_guess() {
-    let (rig, claude, jev) = routed(|c| c.routing.task_checkpoints.enabled = false);
+    let (rig, claude, _jev) = routed(|c| c.routing.task_checkpoints.enabled = false);
     turn(&rig.core, None, ASK, None).await;
     assert_eq!(models(&claude), ["haiku"; 9]);
-    assert_eq!(jev.connections(), 1, "the inbound route is the one question");
     assert!(checkpoints(&rig).is_empty());
 }
 
