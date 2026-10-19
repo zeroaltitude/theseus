@@ -34,7 +34,7 @@ import re
 import shlex
 import time
 import tomllib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -198,13 +198,33 @@ class Arm:
     procs`); `restart` starts the continuation detached, its pid in
     `pidfile`, or is None for an arm that cannot continue a session: scored
     "not resumable", never a crash. `docs` names where the arm's own
-    documentation says to continue."""
+    documentation says to continue. An arm whose CLI is not on the restart's
+    `PATH` (a Node CLI under nvm) has `locate`, a command that prints the
+    CLI's absolute path in the run's own shell, and `restart_at`, the restart
+    for that path; `at` is the arm with it."""
 
     name: str
     find: str
     restart: str | None
     pidfile: str | None
     docs: str
+    locate: str | None = None
+    restart_at: Callable[[str], str] | None = None
+
+    def at(self, path: str) -> "Arm":
+        return replace(self, restart=self.restart_at(path)) if self.restart_at and path else self
+
+
+def locate_command(prefix: str, cli: str) -> str:
+    """The CLI's absolute path, found as the run's own shell finds it: its
+    prefix (an nvm source) first, in a login shell."""
+    return f"bash -lc {shlex.quote(f'{prefix} command -v {cli}')}"
+
+
+def at_path(path: str) -> str:
+    """`path`, run with its directory first on `PATH`: a Node CLI's `env node`
+    finds its node beside it."""
+    return f'PATH={shlex.quote(str(Path(path).parent))}:"$PATH" {shlex.quote(path)}'
 
 
 def procs_command(*selectors: str, lib: str = LIB) -> str:
@@ -283,15 +303,19 @@ def pi_parts(command: str) -> tuple[str, str] | None:
     return (command[: m.start()], m["flags"]) if m else None
 
 
-def pi_arm(flags: str, log: str, prefix: str = "") -> Arm:
+def pi_arm(flags: str, log: str, prefix: str = "", lib: str = LIB) -> Arm:
     """Pi: kill the `pi` process (RPC mode's root); restart with `pi --print
     --mode json --continue`, "continue the most recent session" (`pi
     --help`: `-c, --continue`), on the same `--session-dir`, flags kept."""
     pidfile = "/tmp/async-pi-restart.pid"
-    inner = (f"{prefix}pi --print --mode json {flags}--continue {shlex.quote(RESUME_PROMPT)} "
-             f"2>&1 </dev/null | tee -a {shlex.quote(log)}")
-    return Arm("pi", procs_command(r"--cmd '\bpi\b.*--mode rpc'", _SHELLS, "--root"),
-               detached(inner, pidfile, "/dev/null"), pidfile, "Pi CLI: `pi --continue`")
+    def restart(pi: str) -> str:
+        inner = (f"{prefix}{pi} --print --mode json {flags}--continue {shlex.quote(RESUME_PROMPT)} "
+                 f"2>&1 </dev/null | tee -a {shlex.quote(log)}")
+        return detached(inner, pidfile, "/dev/null")
+
+    # Pi sets its process title (the sampler finds comm `pi`): its command line no longer says `pi`.
+    return Arm("pi", procs_command("--comm pi", "--root", lib=lib), restart("pi"), pidfile, "Pi CLI: `pi --continue`",
+               locate_command(prefix, "pi"), lambda path: restart(at_path(path)))
 
 
 OPENCODE_RUN = re.compile(r"opencode (?P<model>--model=\S+) run (?P<flags>.*?)-- ")
@@ -308,10 +332,14 @@ def opencode_arm(model: str, flags: str, log: str, prefix: str = "") -> Arm:
     --continue`, "continue the last session" (OpenCode's CLI docs: `opencode
     run --continue`, `-c`), model and flags kept."""
     pidfile = "/tmp/async-opencode-restart.pid"
-    inner = (f"{prefix}opencode {model} run {flags}--continue -- {shlex.quote(RESUME_PROMPT)} "
-             f"2>&1 | tee -a {shlex.quote(log)}")
+    def restart(opencode: str) -> str:
+        inner = (f"{prefix}{opencode} {model} run {flags}--continue -- {shlex.quote(RESUME_PROMPT)} "
+                 f"2>&1 | tee -a {shlex.quote(log)}")
+        return detached(inner, pidfile, "/dev/null")
+
     return Arm("opencode", procs_command(r"--cmd 'opencode\b.*\brun\b'", _SHELLS, "--root"),
-               detached(inner, pidfile, "/dev/null"), pidfile, "OpenCode CLI: `opencode run --continue`")
+               restart("opencode"), pidfile, "OpenCode CLI: `opencode run --continue`",
+               locate_command(prefix, "opencode"), lambda path: restart(at_path(path)))
 
 
 async def fire_kill(
@@ -349,6 +377,8 @@ async def fire_kill(
     # An arm that learns its command's flags only when its CLI starts is
     # given as a function, read now.
     arm = arm() if callable(arm) else arm
+    if arm.locate:
+        arm = arm.at((await env.exec(arm.locate, timeout_sec=30)).stdout.strip())
     report: dict[str, Any] = {"arm": arm.name, "trigger": trigger, "docs": arm.docs, "pidfile": arm.pidfile}
     found = _json((await env.exec(arm.find, timeout_sec=30)).stdout) or []
     pids = [p for p in found if isinstance(p, dict) and int(p.get("pid", 0)) > 1]
@@ -663,7 +693,7 @@ def pi_stdin(command: str, env: dict[str, str] | None, fifo: str) -> tuple[str, 
     instruction = shlex.split(m["instruction"])[0]
     f = shlex.quote(fifo)
     run = (
-        f'rm -f {f} {f}.holder; mkfifo {f}; '
+        f'set -o pipefail; rm -f {f} {f}.holder; mkfifo {f}; '
         # Pi's stream is read as it runs, so its filter writes each line as
         # it comes (Harbor's own buffers it, read only at the end).
         f"pi --mode rpc {m['flags']}< {f} 2>&1 | {'stdbuf -oL ' + m['filter'] if m['filter'] else ''}"

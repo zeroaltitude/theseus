@@ -82,6 +82,19 @@ async def _killed(killer: asyncio.Task | None, report: dict[str, Any]) -> bool:
     return bool(got.get("killed"))
 
 
+async def _after_run(killer: asyncio.Task | None, report: dict[str, Any], environment: BaseEnvironment,
+                     failed: NonZeroAgentExitCodeError | None) -> None:
+    """After the harness's own run, whatever its exit: the kill's result is
+    recorded (a killed CLI can exit 0, as a pipeline's tail does), and a
+    non-zero exit that is not the kill's is raised. A kill is followed by the
+    restarted harness."""
+    killed = await _killed(killer, report)
+    if failed and not killed:
+        raise failed
+    if killed:
+        await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
+
+
 def _write(logs_dir: Path, report: dict[str, Any]) -> None:
     try:
         (logs_dir / driver.REPORT).write_text(json.dumps(report, indent=2))
@@ -300,13 +313,12 @@ class ClaudeCodeAsync(cca.MeasuredClaudeCode):
 
         closer = asyncio.create_task(close_when_answered())
         try:
+            failed = None
             try:
                 await run
-            except NonZeroAgentExitCodeError:
-                # The CLI's non-zero exit is the kill's, by design: wait for the restarted one.
-                if not await _killed(killer, report):
-                    raise
-                await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
+            except NonZeroAgentExitCodeError as e:
+                failed = e
+            await _after_run(killer, report, environment, failed)
             report["ended"] = "settled"
         except asyncio.CancelledError:
             report["ended"] = "timeout"
@@ -407,13 +419,12 @@ class PiAsync(pa.MeasuredPi):
 
         closer = asyncio.create_task(close_when_answered())
         try:
+            failed = None
             try:
                 await run
-            except NonZeroAgentExitCodeError:
-                # The CLI's non-zero exit is the kill's, by design: wait for the restarted one.
-                if not await _killed(killer, report):
-                    raise
-                await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
+            except NonZeroAgentExitCodeError as e:
+                failed = e
+            await _after_run(killer, report, environment, failed)
             report["ended"] = "settled"
         except asyncio.CancelledError:
             report["ended"] = "timeout"
@@ -487,12 +498,12 @@ class OpenCodeAsync(oc.MeasuredOpenCode):
         killer = asyncio.create_task(driver.fire_kill(
             kill, arm, environment, started=started, restart_env=lambda: self.resume[1]))
         try:
+            failed = None
             try:
                 await super().run(instruction, environment, context)
-            except NonZeroAgentExitCodeError:
-                if not await _killed(killer, report):
-                    raise
-                await driver.wait_restarted(environment, report["kill"], time.monotonic() + 3600)
+            except NonZeroAgentExitCodeError as e:
+                failed = e
+            await _after_run(killer, report, environment, failed)
             report["ended"] = "settled"
         except asyncio.CancelledError:
             report["ended"] = "timeout"
