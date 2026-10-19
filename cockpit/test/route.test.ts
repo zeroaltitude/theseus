@@ -43,4 +43,7 @@ test("a task checkpoint's line says why it was asked and what the switch wrote c
   // A checkpoint that left the task where it was has no cold cost to say.
   const held = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haikuhi', profile: 'haikuhi', source: 'task checkpoint', trigger: 'quiet' })
   assert.equal(routeLine(held), 'deep_coding · haikuhi (cache_hold) · task checkpoint: quiet')
+  // A routed conversation turn's (theseus-a1wvq).
+  const turn = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haikuhi', profile: 'haikuhi', source: 'turn checkpoint', trigger: 'failing' })
+  assert.equal(routeLine(turn), 'deep_coding · haikuhi (cache_hold) · turn checkpoint: failing')
 })

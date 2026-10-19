@@ -230,6 +230,7 @@ ledger_kinds! {
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
     PrefixPicked = "prefix.picked",
+    PrivacyWarned = "privacy.warned",
     ProfileChanged = "profile.changed",
     PromiseKept = "promise.kept",
     PromiseUnkept = "promise.unkept",

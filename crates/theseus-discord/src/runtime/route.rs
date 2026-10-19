@@ -148,7 +148,11 @@ pub(crate) fn routed(r: &theseus_protocol::TurnSubmitResult) -> Option<String> {
     let who = t.persona.as_ref().map(|p| p.words());
     let what = match (t.source.as_deref(), &t.mode) {
         (Some("task brief"), Some(m)) => Some(format!("{m} (task brief)")),
-        (Some(s), Some(m)) if s.starts_with("task checkpoint") => Some(format!("{m} ({s})")),
+        (Some(s), Some(m))
+            if s.starts_with("task checkpoint") || s.starts_with("turn checkpoint") =>
+        {
+            Some(format!("{m} ({s})"))
+        }
         (src, mode) => src.map(str::to_string).or_else(|| mode.clone()),
     };
     match (who, what) {
@@ -316,6 +320,11 @@ mod tests {
         assert_eq!(
             routed(&r).as_deref(),
             Some("routed: deep_coding (task checkpoint: failing)")
+        );
+        r.route.as_mut().unwrap().source = Some("turn checkpoint: failing".into());
+        assert_eq!(
+            routed(&r).as_deref(),
+            Some("routed: deep_coding (turn checkpoint: failing)")
         );
     }
 

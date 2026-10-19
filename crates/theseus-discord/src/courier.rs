@@ -882,11 +882,12 @@ impl Lane {
             // Jev's notices (step 24's notices), the day ceiling's, the week's
             // self digest (theseus-pw1q.4), and a retraction's card of the tasks
             // to re-run (theseus-2ced), and a self branch the keel stopped
-            // (theseus-pw1q.8), a self-join's card or notice (theseus-pw1q.9), and a narrower policy for a
-            // hand role and the red after its apply (theseus-pw1q.15): the owner's DM alone.
+            // (theseus-pw1q.8), a self-join's card or notice (theseus-pw1q.9), a narrower policy for a
+            // hand role and the red after its apply (theseus-pw1q.15), and Jev's privacy warning
+            // (theseus-gasov): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" | "standing_card" | "digest" => {
+            | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning" => {
                 self.jev_post(a, &body).await
             }
             "jev_labeled" => Ok(self.jev_labeled(&body)),

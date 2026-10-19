@@ -364,6 +364,8 @@ mod tests_persona_layer;
 #[cfg(test)]
 mod tests_persona_recall;
 #[cfg(test)]
+mod tests_personal_warn;
+#[cfg(test)]
 mod tests_places;
 #[cfg(test)]
 mod tests_progress;
@@ -523,6 +525,8 @@ mod tests_tiering;
 mod tests_tool_words;
 #[cfg(test)]
 mod tests_trim_tokens;
+#[cfg(test)]
+mod tests_turn_checkpoint;
 #[cfg(test)]
 mod tests_turn_effort;
 #[cfg(test)]

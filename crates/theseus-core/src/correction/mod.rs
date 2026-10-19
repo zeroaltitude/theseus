@@ -395,7 +395,7 @@ impl Corrections {
             .filter_map(|r| r.decode::<crate::ledger::LedgerRow>().ok())
             .filter(|r| r.kind == theseus_protocol::LedgerKind::RouteCorrected.as_str())
             .filter_map(|r| entry_of(&r.data))
-            .filter(|e| e.pack == acting)
+            .filter(|e| layer::steers_under(&e.pack, acting))
             .collect();
         let mut l = lock(&self.layer);
         let have: Vec<Entry> = l.entries().cloned().collect();

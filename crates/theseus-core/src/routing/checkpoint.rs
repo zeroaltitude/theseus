@@ -1,7 +1,7 @@
 //! A running task's checkpoints (theseus-ypnxt.9): the pure half. A task is
 //! one long turn of many loops, so its model, picked once from its brief
 //! ([`super::brief`]), would never move. At a loop boundary a task asks
-//! route.v6 about its recent state, and this module says when to ask
+//! the route pack about its recent state, and this module says when to ask
 //! ([`Tally`]), what the pack reads ([`text`], at most [`MAX_TOKENS`]), and
 //! what the verdict does ([`decide`]), by routing's own rules, reused:
 //!

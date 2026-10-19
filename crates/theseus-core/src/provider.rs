@@ -556,8 +556,8 @@ pub enum ProviderError {
     #[error("{message}")]
     Stopping { message: String },
     /// A request the floor refused before sending a byte: it names a
-    /// sensitive name and its model is of restricted origin
-    /// (`data_gate.rs`, theseus-oejh3).
+    /// sensitive name and its model is not of US origin
+    /// (`data_gate.rs`, theseus-oejh3, theseus-xs5ah).
     #[error("{message}")]
     DataGate { message: String },
 }

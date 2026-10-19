@@ -118,8 +118,12 @@ impl Fact for RouteDecided<'_> {
         let line = match (self.detour, self.switch) {
             (_, true) if self.checkpoint.is_some() => {
                 let c = self.checkpoint.as_ref().expect("checked");
+                let (source, what) = match self.source {
+                    Some(s) if s.starts_with("turn checkpoint") => ("turn checkpoint", "turn"),
+                    _ => ("task checkpoint", "task"),
+                };
                 format!(
-                    "Routing (task checkpoint: {}): the task moves from {} to {}.",
+                    "Routing ({source}: {}): the {what} moves from {} to {}.",
                     c.trigger, self.from, self.profile
                 )
             }

@@ -21,6 +21,11 @@ test("a turn's route line names its mode, or the correction that placed it", () 
     routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haikuhi', source: 'task checkpoint: failing' }, 'sonnet'),
     'routed: deep_coding (task checkpoint: failing) · sonnet (from haikuhi)',
   )
+  // A routed conversation turn's checkpoint (theseus-a1wvq).
+  assert.equal(
+    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haikuhi', source: 'turn checkpoint: failing' }, 'sonnet'),
+    'routed: deep_coding (turn checkpoint: failing) · sonnet (from haikuhi)',
+  )
 })
 
 test("the footer's controls are a direction each way, then every other profile", () => {

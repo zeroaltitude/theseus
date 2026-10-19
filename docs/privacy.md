@@ -36,16 +36,24 @@ Theseus sends data only to services the owner has configured, under those servic
 **Models of China origin.** Theseus knows the origin of each model it can call. Its built-in catalog marks the models
 of China origin; a model served from a China-origin host, or of a China-origin family, counts as China origin whatever
 the configuration says; and a model Theseus cannot place counts as of unknown origin. The owner can list names
-(organisations, clients, projects, people) under `[privacy] sensitive_names`. A turn whose request contains one of
-those names runs on a model whose origin is neither China nor unknown, or ends before any model is called; and any
-request to a model of China or unknown origin that contains one of those names is refused before it is sent.
+(organisations, clients, projects, people) under `[privacy] sensitive_names`. Those names go only to models of US
+origin: the rule is an allowlist, so a model of any other origin (EU, China, or one Theseus cannot place) is refused,
+and so is a model the built-in catalog does not itself list as of US origin, whatever a proxy's configuration says. A
+turn whose request contains one of those names runs on a model of US origin, or ends before any model is called; and
+any request to a model of another origin that contains one of those names is refused before it is sent.
 
 Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
-then on that conversation's requests, including the summary that shortens it, are never sent to a model of China or
-unknown origin: the route skips such models, and a request that would reach one is refused before it is sent. A
+then on that conversation's requests, including the summary that shortens it, go only to models of US origin, by the
+same allowlist: the route skips every other model, and a request that would reach one is refused before it is sent. A
 conversation that has not read anything from Google is not affected. Theseus's other background steps do not yet
-carry the mark, so an owner who wants none of it to reach such a model configures no provider of China or unknown
+carry the mark, so an owner who wants none of it to reach a model of another origin configures no provider of any other
 origin.
+
+**Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
+assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's
+personal details, or to open a conversation with other people in which they could come out. A confident yes sends the
+owner a warning in their own direct messages and is recorded; it holds nothing back. In a shared place, Theseus does
+not recall the owner's private conversations in the first place.
 
 ## Google API Services User Data Policy
 

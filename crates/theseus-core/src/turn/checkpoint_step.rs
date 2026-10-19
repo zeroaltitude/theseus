@@ -1,15 +1,19 @@
-//! A running task's checkpoints (theseus-ypnxt.9): the turn's side. The task
-//! a person started with no profile asks route.v6 about its recent state at a
-//! loop's end when its work calls for it (`routing::checkpoint::Tally`: it
-//! keeps failing, stalls, changes phase, or is about to report), and the
-//! verdict, applied at the first later loop boundary that finds it come
-//! (never waited for), moves its model up, or back down to its base, by the
-//! rule in `routing::checkpoint`.
+//! A running task's checkpoints (theseus-ypnxt.9), and a routed turn's
+//! (theseus-a1wvq): the turn's side. The task a person started with no
+//! profile, or a conversation's turn the route placed, asks the route pack
+//! about its recent state at a loop's end when its work calls for it
+//! (`routing::checkpoint::Tally`: it keeps failing, stalls, changes phase, or
+//! is about to report), and the verdict, applied at the first later loop
+//! boundary that finds it come (never waited for), moves its model up, or
+//! back down to its base, by the rule in `routing::checkpoint`.
 //!
-//! - **Which tasks**: one started with no profile (the brief's mark,
-//!   `brief_step::marked`) while routing acts live and the judge is on. A
-//!   task started with a profile is pinned: no state, no call. A turn that is
-//!   not a task's pays one `match` per loop.
+//! - **Which turns**: a task's started with no profile (the brief's mark,
+//!   `brief_step::marked`), or a conversation's turn the route placed (not
+//!   pinned, not a detour), while routing acts live and the judge is on. A
+//!   "set up X" message reads routine and turns out deep: its turn's first
+//!   guess was the only one until v1 patch1. A task started with a profile,
+//!   or a turn on the owner's pin, asks nothing; a turn of one loop pays one
+//!   `match`.
 //! - **The switch** is a refusal's fallback's shape (`fallback_step`): a
 //!   slot of its own per allowed move ([`Slots`], bounded by
 //!   `[routing.task_checkpoints] max_switches`, validated at load), the spec
@@ -33,8 +37,10 @@ use crate::routing::{self, Decision, Hold, HoldNext, Reason, Verdict};
 use theseus_protocol::modes::PlanState;
 use theseus_protocol::route::TurnRoute;
 
-/// The `source` of a checkpoint's `route.decided` row.
+/// The `source` of a task's checkpoint's `route.decided` row.
 pub const SOURCE: &str = "task checkpoint";
+/// The `source` of a routed turn's checkpoint's row (theseus-a1wvq).
+pub const TURN_SOURCE: &str = "turn checkpoint";
 
 /// The slots a turn holds for its checkpoints' moves: at most
 /// `max_switches` moves and the step back down past the cap, which
@@ -48,7 +54,7 @@ pub(super) fn slots() -> Slots {
 }
 
 /// What a checkpoint's judgment may need of its task's budget, in
-/// micro-dollars: a route.v6 request's worst case, with room. A task with less
+/// micro-dollars: a route pack request's worst case, with room. A task with less
 /// left asks nothing.
 const RESERVE_MICROS: u64 = 30_000;
 
@@ -82,9 +88,12 @@ enum State {
     On(Box<Active>),
 }
 
-/// One task's checkpoints in a turn.
+/// One task's, or one routed turn's, checkpoints in a turn.
 struct Active {
-    /// The task's base: its brief's pick or its parent's.
+    /// A task's (else a conversation's turn's).
+    task: bool,
+    /// The task's base: its brief's pick or its parent's; a turn's, where
+    /// its route put it.
     base: String,
     tally: Tally,
     /// Moves made, up or down.
@@ -103,6 +112,17 @@ struct Active {
     /// The last compile's estimate, and whether its request names a sensitive name.
     est: u64,
     sensitive: bool,
+}
+
+impl Active {
+    /// Its rows' `source`.
+    fn source(&self) -> &'static str {
+        if self.task {
+            SOURCE
+        } else {
+            TURN_SOURCE
+        }
+    }
 }
 
 /// A checkpoint asked and not yet answered.
@@ -158,33 +178,45 @@ fn touches_plan(uses: &[ToolUse]) -> bool {
 }
 
 impl TurnRunner {
-    /// The task's state, read once a turn: none for a conversation's turn, a
-    /// pinned task, routing or the judge off, or checkpoints off.
+    /// The turn's state, read once a turn: none for a turn the route did not
+    /// place (pinned, a detour, unrouted), a pinned task, routing or the judge
+    /// off, or checkpoints off.
     fn checkpoints_for(&self, t: &Turn<'_>, session: &SessionRecord) -> Option<Box<Active>> {
         let cfg = &self.cfg.routing;
         let sid = t.tc.session_id;
+        let task = t.tc.task.is_some();
         if !cfg.task_checkpoints.enabled
-            || t.tc.task.is_none()
             || !self.judge.config().enabled
             || self.route_mode(t.target, sid) < PackMode::Canary
-            || !super::brief_step::marked(t.tc.store, sid)
         {
             return None;
         }
-        let brief = match crate::task::brief(t.tc.store, sid) {
-            Ok(Some(n)) => match n.body {
-                Body::UserMessage { text, .. } => text,
+        let (brief, base) = if task {
+            if !super::brief_step::marked(t.tc.store, sid) {
+                return None;
+            }
+            let brief = match crate::task::brief(t.tc.store, sid) {
+                Ok(Some(n)) => match n.body {
+                    Body::UserMessage { text, .. } => text,
+                    _ => String::new(),
+                },
                 _ => String::new(),
-            },
-            _ => String::new(),
+            };
+            // A task a checkpoint moved before keeps its base in `routed.from`.
+            let base = session
+                .routed
+                .as_ref()
+                .and_then(|r| r.from.clone())
+                .unwrap_or_else(|| t.target.profile.clone());
+            (brief, base)
+        } else {
+            if !Self::placed_by_route(t) {
+                return None;
+            }
+            (t.route.ask.clone(), t.target.profile.clone())
         };
-        // A task a checkpoint moved before keeps its base in `routed.from`.
-        let base = session
-            .routed
-            .as_ref()
-            .and_then(|r| r.from.clone())
-            .unwrap_or_else(|| t.target.profile.clone());
         Some(Box::new(Active {
+            task,
             base,
             tally: Tally::default(),
             moves: 0,
@@ -198,6 +230,19 @@ impl TurnRunner {
             est: 0,
             sensitive: false,
         }))
+    }
+
+    /// A conversation's turn the route placed: routing read it (a verdict, or
+    /// none, on the base), it is no detour, and neither the owner's pin nor the
+    /// owner's correction placed it (a corrected turn stays where the owner
+    /// said, as a pinned one does).
+    fn placed_by_route(t: &Turn<'_>) -> bool {
+        t.route
+            .result
+            .as_ref()
+            .is_some_and(|r| r.source.as_deref() != Some("correction"))
+            && t.route.keeps.is_none()
+            && t.target.chosen.is_none()
     }
 
     fn plan_of(t: &Turn<'_>) -> Vec<(String, PlanState)> {
@@ -298,7 +343,7 @@ impl TurnRunner {
         t.checkpoint.state = State::On(a);
     }
 
-    /// Ask route.v6 about the task's recent state, unless the judge cannot
+    /// Ask the route pack about the turn's recent state, unless the judge cannot
     /// answer or the task's budget cannot cover it.
     fn checkpoint_ask(&self, t: &mut Turn<'_>, a: &mut Active, trigger: Trigger, index: u32) {
         if self.judge.breaker_open() || !self.judge.reachable() || self.judge.jev_unreachable() {
@@ -333,7 +378,7 @@ impl TurnRunner {
                 kernel: self.kernel.clone(),
                 route,
                 chosen: None,
-                task: true,
+                task: a.task,
                 threads: Vec::new(),
                 persona: self.persona_ctx(sid, class),
                 capture: false,
@@ -351,7 +396,7 @@ impl TurnRunner {
     /// At a loop boundary: the answer of the checkpoint in flight, if it has
     /// come. A verdict is recorded, and a move is made now, so the loop about
     /// to run is on the new model. A `Failure` is the data floor's: no
-    /// profile of unrestricted origin is left to run the task on.
+    /// profile of US origin is left to run the task on.
     pub(super) fn checkpoint_apply<'a>(
         &self,
         t: &mut Turn<'a>,
@@ -462,7 +507,7 @@ impl TurnRunner {
             mode: Some(v.mode.clone()),
             reason: d.reason.as_str().into(),
             from,
-            source: Some(format!("{SOURCE}: {}", f.trigger.key())),
+            source: Some(format!("{}: {}", a.source(), f.trigger.key())),
             effort: v.effort.as_ref().map(|e| e.level.clone()),
             effort_reason: effort.as_ref().map(|e| e.reason.as_str().into()),
             effort_applied: effort
@@ -556,7 +601,7 @@ impl TurnRunner {
             wait_ms: 0,
             late: false,
             answered_ms: None,
-            source: Some(SOURCE),
+            source: Some(a.source()),
             follows: None,
             effort: answer.map(|x| x.level.as_str()),
             effort_confidence: answer.map(|x| x.confidence),

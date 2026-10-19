@@ -76,9 +76,21 @@ pub enum ModelOrigin {
     Unknown,
 }
 
+/// The origins a request that names one of `[privacy] sensitive_names` may go
+/// to (theseus-xs5ah, the owner: such data "must be routed to us-based
+/// models"). An allowlist, so an origin not listed here, `unknown` included,
+/// is refused.
+const SENSITIVE_ORIGINS: [ModelOrigin; 1] = [ModelOrigin::Us];
+
 impl ModelOrigin {
     pub fn restricted(self) -> bool {
         matches!(self, ModelOrigin::Cn | ModelOrigin::Unknown)
+    }
+
+    /// Whether a model of this origin may be sent the sensitive names: never
+    /// a restricted one, and then only an origin on the allowlist.
+    pub fn cleared_for_sensitive(self) -> bool {
+        !self.restricted() && SENSITIVE_ORIGINS.contains(&self)
     }
 }
 
@@ -119,6 +131,21 @@ pub fn origin_of(
         return row;
     }
     vouched.unwrap_or(ModelOrigin::Unknown)
+}
+
+/// Whether a request that names one of `[privacy] sensitive_names` may go to
+/// `model` (theseus-xs5ah): its origin is on the allowlist, and the catalog's
+/// own row says `us` as well. A host the operator vouches `us` for (a proxy,
+/// an aggregator) may serve families the catalog does not know; their rows
+/// are `unknown`, so the vouch alone clears nothing.
+pub fn cleared_for_sensitive(
+    api_base: &str,
+    vouched: Option<ModelOrigin>,
+    model: &str,
+    entry: Option<&CatalogEntry>,
+) -> bool {
+    origin_of(api_base, vouched, model, entry).cleared_for_sensitive()
+        && entry.is_some_and(|e| e.origin == ModelOrigin::Us)
 }
 
 /// Whether a URL's host is a China-origin endpoint or a subdomain of one.
@@ -1492,6 +1519,17 @@ mod tests {
         }
         assert!(ModelOrigin::Unknown.restricted() && !ModelOrigin::Eu.restricted());
         assert_eq!(ModelOrigin::default(), ModelOrigin::Unknown);
+    }
+
+    /// The sensitive names go only to a model of US origin (theseus-xs5ah): an
+    /// allowlist, so `eu` is refused as well as the restricted `cn` and
+    /// `unknown`, and an origin added later is refused until it is listed.
+    #[test]
+    fn only_a_us_model_is_cleared_for_sensitive_names() {
+        assert!(ModelOrigin::Us.cleared_for_sensitive());
+        for o in [ModelOrigin::Eu, ModelOrigin::Cn, ModelOrigin::Unknown] {
+            assert!(!o.cleared_for_sensitive(), "{o:?}");
+        }
     }
 
     /// A new model's row without `origin` is unknown, so restricted; the

@@ -1752,6 +1752,16 @@ impl Config {
         p.expect("the implicit provider").api_base = "https://api.z.ai/api/anthropic".into();
     }
 
+    /// A test's `[model]` served from a host the operator vouches is of EU
+    /// origin (theseus-xs5ah).
+    #[cfg(test)]
+    pub(crate) fn serve_default_from_eu(&mut self) {
+        let p = self.resolved.providers.get_mut("anthropic");
+        let p = p.expect("the implicit provider");
+        p.api_base = "https://api.example.eu/anthropic".into();
+        p.origin = Some(crate::catalog::ModelOrigin::Eu);
+    }
+
     /// Every profile by name, with the implicit `default` synthesized from
     /// `[model]` unless `[profiles.default]` overrides it.
     pub fn all_profiles(&self) -> &BTreeMap<String, ProfileConfig> {
@@ -1861,6 +1871,28 @@ impl Config {
             return crate::catalog::ModelOrigin::Unknown;
         };
         crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
+    }
+
+    /// Whether a profile may be sent the sensitive names (theseus-xs5ah), by
+    /// [`crate::catalog::cleared_for_sensitive`]; a profile or provider that
+    /// does not resolve is not.
+    pub fn profile_cleared_for_sensitive(
+        &self,
+        profile: &str,
+        catalog: &crate::catalog::Catalog,
+    ) -> bool {
+        let Some(p) = self.all_profiles().get(profile) else {
+            return false;
+        };
+        let Some(prov) = self.all_providers().get(&p.provider) else {
+            return false;
+        };
+        crate::catalog::cleared_for_sensitive(
+            &prov.api_base,
+            prov.origin,
+            &p.model,
+            catalog.get(&p.model),
+        )
     }
 
     /// Every provider by name, with the implicit `anthropic` one synthesized

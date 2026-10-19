@@ -138,14 +138,42 @@ async fn a_sensitive_name_with_only_restricted_profiles_sends_nothing() {
     assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
 }
 
+/// The names go only to a model of US origin (theseus-xs5ah). With Claude
+/// served from a host vouched as EU, a named message has nowhere to run: the
+/// turn ends before any model call, though EU is not of restricted origin. A
+/// message that names nothing runs there as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sensitive_name_never_runs_on_a_model_of_eu_origin() {
+    let eu = |c: &mut Config| {
+        listed(c);
+        c.serve_default_from_eu();
+    };
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "routine_coding", 0.95);
+    let r = rig(Some(&jev), 1, eu);
+    let cfg = &r.core.runner.cfg;
+    let origin = cfg.profile_origin("sonnet", &r.core.runner.catalog);
+    assert_eq!(origin, crate::catalog::ModelOrigin::Eu);
+    let ended = try_turn(&r.core, NAMED).await;
+    let said = format!("{ended:?}");
+    assert!(said.contains("data_gate"), "{said}");
+    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
+
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 1, eu);
+    let res = turn(&r.core, None, "Say hello.", None).await;
+    assert_eq!(r.claude.requests().len(), 1, "{}", res.output);
+}
+
 /// A configured name that an embedded pack's text holds is said at start by
 /// the pack and the number of hits, never by the name (theseus-oejh3).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pack_naming_a_sensitive_name_is_reported_at_start() {
     let (_, text) = theseus_judge::pack::EMBEDDED
         .iter()
-        .find(|(name, _)| *name == "route.v6")
-        .expect("route.v6 is embedded");
+        .find(|(name, _)| *name == "route.v7")
+        .expect("route.v7 is embedded");
     let word = text
         .split(|c: char| !c.is_alphanumeric())
         .find(|w| w.chars().count() > 9)
@@ -168,7 +196,7 @@ async fn a_pack_naming_a_sensitive_name_is_reported_at_start() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     };
     let said = phase.detail.to_string();
-    assert!(said.contains("route.v6"), "{said}");
+    assert!(said.contains("route.v7"), "{said}");
     assert!(
         !said.to_lowercase().contains(&word.to_lowercase()),
         "the name is never said: {said}"

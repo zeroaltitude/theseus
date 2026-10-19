@@ -1,9 +1,9 @@
-//! The route step's floor under the sensitive names (theseus-oejh3): a
-//! message that names one of `[privacy] sensitive_names` never runs on a
-//! profile of restricted origin (`ModelOrigin::restricted`). The route skips
-//! such profiles, so the next usable one in the mode's list runs; if none is
-//! left, the `[model]` default runs when its origin is unrestricted, and
-//! otherwise the turn ends before any model call. The provider chokepoint
+//! The route step's floor under the sensitive names (theseus-oejh3,
+//! theseus-xs5ah): a message that names one of `[privacy] sensitive_names`
+//! runs only on a profile of US origin (`ModelOrigin::cleared_for_sensitive`).
+//! The route skips every other profile, so the next usable one in the mode's
+//! list runs; if none is left, the `[model]` default runs when it is cleared,
+//! and otherwise the turn ends before any model call. The provider chokepoint
 //! (`data_gate.rs`) is the floor under this for every other caller and for a
 //! turn that asked no route.
 
@@ -15,7 +15,7 @@ const DEFAULT_PROFILE: &str = "default";
 
 pub(super) const REFUSED: &str =
     "this message names something in `[privacy] sensitive_names`, and \
-                                  no profile of unrestricted origin is configured for it";
+                                  no profile of US origin is configured for it";
 
 impl TurnRunner {
     /// The message names a sensitive name.
@@ -35,19 +35,22 @@ impl TurnRunner {
 
     /// The session has read a Google result (the Google design, §4.1): all
     /// Workspace content is private, so the route skips every profile of
-    /// restricted origin from now on. Nothing is read without `[google]`.
+    /// any origin but the allowlist's from now on. Nothing is read without `[google]`.
     pub(super) fn private_session(&self, t: &Turn<'_>) -> bool {
         crate::google::private::session(t.tc.store, &self.cfg, t.tc.session_id)
     }
 
-    /// Whether `profile` is of restricted origin.
-    pub(super) fn restricted_profile(&self, profile: &str) -> bool {
-        self.cfg.profile_origin(profile, &self.catalog).restricted()
+    /// Whether `profile` may not be sent the sensitive names: its origin is
+    /// not on the allowlist.
+    pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
+        !self
+            .cfg
+            .profile_cleared_for_sensitive(profile, &self.catalog)
     }
 
-    /// The route's answer, kept off restricted profiles when the message names
-    /// a sensitive name: the decision stands when it runs somewhere
-    /// unrestricted, else the `[model]` default runs, else the turn ends.
+    /// The route's answer, kept on profiles of US origin when the message
+    /// names a sensitive name: the decision stands when it runs on one, else
+    /// the `[model]` default runs if it is one, else the turn ends.
     pub(super) fn data_floor(
         &self,
         t: &Turn<'_>,
@@ -59,14 +62,14 @@ impl TurnRunner {
         let ran = decision
             .as_ref()
             .map_or(t.target.profile.as_str(), |d| d.profile.as_str());
-        if !self.restricted_profile(ran) {
+        if !self.uncleared_profile(ran) {
             return Ok(decision);
         }
         let usable = self
             .route_profiles(true)
             .get(DEFAULT_PROFILE)
             .is_some_and(|p| p.unusable.is_none());
-        if usable && !self.restricted_profile(DEFAULT_PROFILE) {
+        if usable && !self.uncleared_profile(DEFAULT_PROFILE) {
             return Ok(Some(Decision {
                 profile: DEFAULT_PROFILE.into(),
                 reason: Reason::DataGate,

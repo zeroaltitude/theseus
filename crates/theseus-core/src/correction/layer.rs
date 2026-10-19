@@ -11,7 +11,10 @@
 //! - **Retired with its pack.** An entry follows the route pack version that
 //!   judged the corrected message; once another version acts (a new
 //!   compiled-in version, or one the learning loop rewrote and placed), the
-//!   labels are that version's to have learned, and the entry retires.
+//!   labels are that version's to have learned, and the entry retires. A
+//!   version whose `mode` question is its predecessor's word for word, written
+//!   by hand and so having learned nothing ([`SAME_MODE`]), keeps the
+//!   predecessor's entries (route.v7 keeps route.v6's, theseus-a1wvq).
 
 use std::collections::VecDeque;
 
@@ -108,6 +111,16 @@ pub struct Layer {
     pub retired: u64,
 }
 
+/// A route pack version and the one before it whose `mode` question it asks
+/// word for word (the pack test pins it): the older version's entries still
+/// steer while the newer acts.
+pub const SAME_MODE: &[(&str, &str)] = &[("route.v7", "route.v6")];
+
+/// Whether an entry judged by `pack` steers while `acting` acts.
+pub fn steers_under(pack: &str, acting: &str) -> bool {
+    pack == acting || SAME_MODE.contains(&(acting, pack))
+}
+
 impl Layer {
     /// Add an entry, the oldest out past `max`. A later correction of the
     /// same turn replaces the earlier one.
@@ -124,7 +137,7 @@ impl Layer {
     pub fn retire(&mut self, acting: &str) -> usize {
         let before = self.entries.len();
         self.entries
-            .retain(|e| e.pack == acting || matches!(e.steer, Steer::Thread(_)));
+            .retain(|e| steers_under(&e.pack, acting) || matches!(e.steer, Steer::Thread(_)));
         let n = before - self.entries.len();
         self.retired += n as u64;
         n
@@ -280,6 +293,30 @@ mod tests {
         l.add(entry("t3", "message number3 again", "route.v2"), 3);
         let turns: Vec<_> = l.entries().map(|e| e.turn.clone()).collect();
         assert_eq!(turns, ["t2", "t4", "t3"]);
+    }
+
+    /// route.v6's entries steer under route.v7, whose `mode` question is v6's
+    /// word for word (theseus-a1wvq); route.v5's retire.
+    #[test]
+    fn route_v7_keeps_route_v6s_entries_and_retires_older_ones() {
+        let mut l = Layer::default();
+        l.add(
+            entry("t1", "plan the ferry timetable migration", "route.v6"),
+            8,
+        );
+        l.add(
+            entry("t2", "draft the harbour lease renewal", "route.v5"),
+            8,
+        );
+        let (e, _) = l
+            .nearest(
+                &words("plan the ferry timetable migration"),
+                "route.v7",
+                0.5,
+            )
+            .unwrap();
+        assert_eq!(e.turn, "t1");
+        assert_eq!((l.len(), l.retired), (1, 1), "v5's entry retired");
     }
 
     /// Once another version of the route pack acts, the old version's

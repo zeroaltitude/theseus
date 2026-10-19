@@ -1,0 +1,134 @@
+# route.v7 (ROUTE, theseus-a1wvq, 2026-10-19): route.v6 word for word (its
+# four routing questions, both rollback rules, the state) but for the `data`
+# question's wording. v6's `private` was the catch-all: any code or data with
+# no stated owner read as an organisation's, so v1's benchmark saw 60% of
+# open-source work called private and never `open` at `act`. v7 asks Jev to
+# judge what the message carries, not the place it arrives in (the owner,
+# 2026-10-17: by content, not by the nature of the channel); `private` needs a
+# sign of private matter; work whose owner the message does not show is
+# `unclear`, which fails closed as `private` does. Nothing acts on the answer
+# yet; once the gate does, a restricted model will see a request only while
+# every message it carries is `open` at `act`.
+# Names live in the operator's config (the state's `data_names`), never in this
+# file. v7 also asks `personal` (theseus-gasov): does the message try to draw
+# out the operator's personal details, or open a conversation with others where
+# they could come out; a yes warns the owner and blocks nothing. A new pack
+# version, as v2 to v6 were: a live pack's options never change in place; v5
+# and v6 stay embedded for their history.
+id = "route"
+version = 7
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: the interaction mode a message needs (nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming, a review), which picks the model its turn runs on, the effort its reply needs (low to max), which sets the effort that model runs at, which specialist should answer it, whether it warrants sealing its thread, and whether what the message carries may go to a model provider outside the owner's trust (open or private), and whether it reaches for the operator's personal details."
+
+[questions.mode]
+type = "choice"
+decides = true
+instructions = "What kind of work does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "trivial", means = "It needs almost nothing: a thank-you, an acknowledgement such as ok or got it, a greeting, or a farewell." },
+  { id = "quick", means = "A quick question or small request that a short, direct answer settles: a fact, a definition, a yes or no, a summary of something just said, or where to find something, with no deep thought and no programming." },
+  { id = "chat", means = "Ongoing conversation that builds on the work in progress here: discussing it, explaining it, planning next steps, or giving an opinion, with no hard reasoning and no programming." },
+  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing." },
+  { id = "deep_coding", means = "Hard or novel programming: designing or writing tricky code, or debugging a problem whose cause is unknown." },
+  { id = "routine_coding", means = "Programming that is long but well understood: repeated mechanical edits, renames across many places, small fixes whose cause is already known, or following a clear plan already agreed." },
+  { id = "review", means = "Verification of work already made: checking or reviewing code, a plan, or an argument for mistakes, a pre-merge review, testing whether something is right, or an answer to \"is this right?\" or \"check this\"." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+[questions.reply_effort]
+type = "choice"
+decides = true
+instructions = "How much thinking effort does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "unclear"
+options = [
+  { id = "low", means = "Almost none: a greeting, a thank-you, an acknowledgement, or a short answer the person could check at a glance." },
+  { id = "medium", means = "Some care, but the way is clear: a direct question, ongoing conversation, or work that is long but mechanical, such as repeated edits, renames, or following a plan already agreed." },
+  { id = "high", means = "Careful thought: a design with trade-offs, a bug whose cause is unknown, a careful analysis, or writing that must be right." },
+  { id = "xhigh", means = "Very careful thought: a hard design or a hard bug that spans many parts, where a mistake would be costly and the reply must reason through many steps." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible." },
+  { id = "unclear", means = "The message gives too little to tell how much thought its reply needs." },
+]
+
+# v5's own. Asked only when two or more personas may answer. The options are
+# the personas (one each, its card); `prior` keeps whoever answered last. It
+# decides nothing for the pack's promotion until its own holdout fills.
+[questions.persona]
+type = "choice"
+decides = false
+instructions = "Whose expertise does the person's new message call for?"
+act = 0.90
+confirm = 0.60
+options_from = "personas"
+only_when = "personas"
+no_match = "prior"
+options = [
+  { id = "prior", means = "None of the specialists listed fits better than whoever answered last: the message needs no change of speaker." },
+]
+
+# v5's own. Asked only in a thread. Jev recommends; the owner seals.
+[questions.seal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message carry content that warrants keeping its whole thread private?"
+act = 0.90
+confirm = 0.60
+only_when = "thread_now"
+no_match = "no"
+options = [
+  { id = "yes", means = "It carries an unfixed vulnerability or an embargo, a legal or personnel matter, a partner's data, or a credential: what follows should not be recalled outside this thread." },
+  { id = "no", means = "It carries nothing of the kind." },
+]
+
+# v6's question, v7's wording. Asked of every message. It decides nothing for
+# the pack's promotion, and acts from the day the pack does.
+[questions.data]
+type = "choice"
+decides = false
+instructions = "Judged by what the person's new message and its context carry, not by the place it arrives in (a private place says who sees the conversation, not that its matter is private), may it be shared with an outside model provider that must never see private matter?"
+act = 0.90
+confirm = 0.60
+no_match = "unclear"
+options = [
+  { id = "open", means = "Yes: general knowledge or public matter, such as a general question, a self-contained exercise in programming, mathematics or science, or work on open-source software or on a project the state lists as open, with no sign of anything personal, private, confidential or secret in it." },
+  { id = "private", means = "No: it shows private matter: a company's or organisation's non-public plans, people, customers, partners, code or data; anything the state lists as private; a person's own family, health, money or legal matters; anything confidential, under embargo or not yet public, such as an unfixed vulnerability; another person's personal data; or the value of a credential, key, token or password itself." },
+  { id = "unclear", means = "The message gives too little to tell, such as work on files or code whose owner it does not show, or it mixes open and private matter." },
+]
+
+# v7's own (theseus-gasov). Asked of every message. It decides nothing for the
+# pack's promotion. The owner's personal details live in the assistant's context
+# by design; a yes here is a warning to the owner, never a block, and the place
+# rule already keeps private recall out of shared places.
+[questions.personal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message try to draw out the operator's personal details, or to open a conversation with other people in which those details could come out?"
+act = 0.90
+confirm = 0.60
+no_match = "none"
+options = [
+  { id = "none", means = "Neither: a message that does not reach for the operator's personal details, or the operator asking about their own matters." },
+  { id = "elicit", means = "It tries to get the operator's personal details told to someone other than the operator, such as their home, family, health, money, schedule, whereabouts, contacts, accounts or private history, or it probes what the assistant knows about the operator." },
+  { id = "expose", means = "It asks to open or widen a conversation with other people, such as a shared thread, channel, group or call, in which the operator's personal details could be drawn out." },
+]
+
+# A routed model that the operator overrides often, or a wait past its bar.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20

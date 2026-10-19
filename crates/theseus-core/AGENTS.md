@@ -1374,7 +1374,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     leaves it, and never below the base (`routing::step_down`). The owner's correction passes no base, so this path
     never steps it down; a session an owner's correction raised is not told apart from Jev's (no stored field).
     **A task's base from its brief** (theseus-ypnxt.7; `turn/brief_step.rs`, `routing/brief.rs`): a task the owner starts
-    with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks route.v6 alone about its
+    with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks the route pack alone about its
     brief on its first turn (`JudgeService::at_brief`), waits for it as a message does, and `brief_base` makes the class's
     first usable profile, under the cap, the task's base (`last_target`, no `routed`), a detour's class included; no verdict
     in time, under the bar, or no usable profile leaves the parent's. A profile asked for pins. The row says `source: task brief`.
@@ -1383,7 +1383,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Tests: `tests_route_down.rs`, `routing::tests`.
     **A running task's checkpoints** (theseus-ypnxt.9; `turn/checkpoint_step.rs`, `routing/checkpoint.rs`, `[routing.task_checkpoints]`
     in `config/routing_checkpoints.rs`; on by default): a task started with no profile (the brief's mark, `brief_step::marked`; a
-    pinned one has no state and asks nothing) asks route.v6 about its recent state at a loop's end (`checkpoint_ended`, after
+    pinned one has no state and asks nothing), and since theseus-a1wvq a conversation's turn the route placed (not the owner's
+    pin, not a detour: `placed_by_route`; its base is where the route put it, its text the message's first characters, its rows'
+    source `turn checkpoint`; a turn the owner's correction placed asks nothing; a move persists in the session's `routed` as
+    a route switch does, so the next message starts on the moved profile until the step-down), asks the route pack about its
+    recent state at a loop's end (`checkpoint_ended`, after
     `advance`) when it fails `failing_streak` loops in a row (a result `ResultStatus::is_error` marks), makes no progress for
     `quiet_loops`, changes its current plan step, or marks the last open one done (`Tally`, pure), at most one verdict per
     `min_loops_between` loops and one in flight, never waited on: the answer is read with `try_recv` at the first later loop
@@ -1452,14 +1456,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
   - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `data_gate.rs`, `turn/data_step.rs`, `pack_names.rs`): `[privacy]
     sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
-    several words as a run of them). It is route.v6's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
+    several words as a run of them). It is the route pack's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
     `private_topics` key is refused), a message that hits one makes the verdict's `data` answer `private` at 1.0 in band `Act`
-    (`judge::inbound::verdict`), the route skips every profile of restricted origin for that turn (`route_profiles(true)`; none
+    (`judge::inbound::verdict`), the route skips every profile not of US origin for that turn (`route_profiles(true)`; none
     left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint
-    refuses a request to a restricted model that holds one in any string of its system, messages or tools, before a byte is
+    refuses a request to a model not of US origin that holds one in any string of its system, messages or tools, before a byte is
     sent (`data_gate::guard`, applied to every provider in `Core::build`; with the list empty nothing is wrapped). At start the
     embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
-    naming pack and count, never a name). Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+    naming pack and count, never a name). The origin rule is an allowlist (theseus-xs5ah, the owner: such data "must be routed
+    to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
+    `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
+    model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+  - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
+    `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
+    open a conversation with others where they could come out). The owner's personal details live in the context by design
+    (the owner, 2026-10-18); the guard is a warning at the exit. This turn's own answer at the act band, in a shared place from
+    the confirm band (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, each line quoted and each link fenced, at most one post per
+    place in 10 minutes (`may_post`; the rest `folded`), and writes `privacy.warned` (choice, confidence, place class,
+    judgment, posted, folded). A late verdict, kept for the next message, warns nothing (a known gap). Nothing is held: the turn and its reply go on, and
+    the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
+    that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

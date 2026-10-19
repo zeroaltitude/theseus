@@ -80,7 +80,7 @@ fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
     )
 }
 
-/// The conversation's daemon, once its ladder has read route.v6 live.
+/// The conversation's daemon, once its ladder has read route.v7 live.
 fn daemon(dir: &Path) -> common::Daemon {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let d = common::Daemon::spawn(
@@ -107,14 +107,14 @@ fn daemon(dir: &Path) -> common::Daemon {
             .and_then(Value::as_array)
             .is_some_and(|p| {
                 p.iter()
-                    .any(|l| l.as_str().is_some_and(|l| l.starts_with("route.v6: live")))
+                    .any(|l| l.as_str().is_some_and(|l| l.starts_with("route.v7: live")))
             });
         if code == 0 && live {
             return d;
         }
         assert!(
             t0.elapsed() < Duration::from_secs(60),
-            "the ladder never read route.v6 live: {out}"
+            "the ladder never read route.v7 live: {out}"
         );
         std::thread::sleep(Duration::from_millis(50));
     }

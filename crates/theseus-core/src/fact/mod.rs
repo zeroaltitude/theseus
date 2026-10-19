@@ -72,6 +72,7 @@ pub mod persona;
 pub mod persona_import;
 pub mod place;
 pub mod prefix;
+pub mod privacy;
 pub mod recall;
 pub mod retract;
 pub mod retry;
@@ -309,6 +310,7 @@ facts![
     memory::MemoryCited<'static>,
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
+    privacy::PrivacyWarned<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,
