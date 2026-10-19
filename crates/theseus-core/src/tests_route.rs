@@ -1339,6 +1339,54 @@ async fn a_quick_detours_later_loop_keeps_its_recall() {
     assert!(unadmitted(&r.core).is_empty());
 }
 
+/// A quick detour lets in its own note and no earlier one (theseus-pa1xx):
+/// the session's routed first turn wrote a `Recall` node (the heron note)
+/// inside the detour's window, and the quick detour's request carries its
+/// own note (the key) once and the earlier note not at all. Planted revert P8
+/// of the pa1xx join (`compile_detour` keeping every note once the turn has
+/// its own) fails here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quick_detour_lets_in_its_own_note_and_no_earlier_one() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 2, |c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.routing.max_wait_ms = 5_000;
+        glm_placements(c);
+    });
+    let heron = crate::tests_recall::session(
+        &r.core,
+        None,
+        &["Remember: the grey heron nests by the old weir at Millbrook."],
+    );
+    let ask = crate::tests_recall::index_of(&r.core, vec![heron]);
+    r.core.runner.memory.set_ask(ask);
+    let first = turn(&r.core, None, "Where does the grey heron nest?", None).await;
+    assert_eq!((first.profile.as_str(), first.recalled), ("sonnet", 1));
+    let key = crate::tests_recall::session(&r.core, None, &[KEY_NOTE]);
+    let ask = crate::tests_recall::index_of(&r.core, vec![key]);
+    r.core.runner.memory.set_ask(ask);
+    mode(&jev, "quick", 0.95);
+    let msg = "Where does the lock-keeper keep the spare key?";
+    let res = turn(&r.core, Some(&first.session_id), msg, None).await;
+    let route = res.route.as_ref().unwrap();
+    assert_eq!(
+        (route.reason.as_str(), route.mode.as_deref(), res.recalled),
+        ("detour", Some("quick"), 1)
+    );
+    let q = r.claude.requests().pop().unwrap();
+    assert_eq!(q.model, "claude-haiku-5-5");
+    let with = |s: &str| {
+        let m = q.messages.iter();
+        m.filter(|m| m.to_string().contains(s)).count()
+    };
+    let all = &q.messages;
+    assert!(with("grey heron nest?") > 0, "the first exchange: {all:?}");
+    assert_eq!(with("old weir"), 0, "no earlier note: {all:?}");
+    assert_eq!(with("tide board"), 1, "its own note, once: {all:?}");
+    assert!(unadmitted(&r.core).is_empty());
+}
+
 /// The next, non-trivial turn after a detour carries no stale note
 /// (theseus-n7nc): the detour wrote no `Recall` node, so none renders in this
 /// turn's tail after the greeting. Its own recall finds the note, which
