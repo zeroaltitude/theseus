@@ -256,6 +256,9 @@ impl Rig {
                 d.insert("forum".into(), true.into());
                 d.insert("task_channels".into(), true.into());
                 d.insert("live_board".into(), true.into());
+                // The journey walks the DM's own board, reports and pointers; the task home that holds
+                // them by default since theseus-xlxp4 has its own tests (theseus-discord tests_task_home).
+                d.insert("task_home".into(), "".into());
                 table(t, "places").insert("owner".into(), vec![format!("discord:{ANA}")].into());
             },
             |cmd| {
