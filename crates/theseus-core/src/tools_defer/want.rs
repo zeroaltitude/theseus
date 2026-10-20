@@ -97,6 +97,7 @@ pub fn extra(
             mechanism: Mechanism::Find,
             loaded: now.clone(),
             resolved: false,
+            added: Default::default(),
         };
         if tools_bytes(&resolve(catalog, &d)) * 10 / 24 <= budget {
             out.insert(fam);

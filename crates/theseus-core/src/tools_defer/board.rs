@@ -37,8 +37,12 @@ struct Convo {
     hidden: Vec<HiddenTool>,
     /// Tools a search surfaced: a call to one is not a miss.
     surfaced: BTreeSet<String>,
-    /// Families a search asked for (the fallback's), loaded at the next boundary.
+    /// Families a search asked for (the fallback's): they stay loaded from
+    /// the next compilation on.
     wanted: BTreeSet<String>,
+    /// Families a `tools_find` asked for since the turn's last request, until
+    /// the turn's next loop takes them (`take_found`, theseus-342qy).
+    found: BTreeSet<String>,
     /// Families the conversation has called, or searched for (a search is no use to the
     /// counts, but a family it loaded is not an unused one).
     used: BTreeSet<String>,
@@ -261,13 +265,15 @@ impl Board {
         });
     }
 
-    /// The fallback's search: families the model asked for. They load at
-    /// the conversation's next boundary.
+    /// The fallback's search: families the model asked for. The turn's next
+    /// loop adds them to its tools (`take_found`), and they stay loaded for
+    /// the conversation's later turns.
     pub fn wants(&self, session: &str, query: &str, families: &[String], tools: &[String]) {
         let mut st = self.st();
         let c = st.convo(session);
         for f in families {
             c.wanted.insert(f.clone());
+            c.found.insert(f.clone());
             c.used.insert(f.clone());
         }
         c.searches.push(Search {
@@ -276,6 +282,16 @@ impl Board {
             families: families.to_vec(),
             called: false,
         });
+    }
+
+    /// The families a `tools_find` asked for since the last take: the turn's
+    /// next loop loads them at once (theseus-342qy).
+    pub fn take_found(&self, session: &str) -> BTreeSet<String> {
+        self.st()
+            .convos
+            .get_mut(session)
+            .map(|c| std::mem::take(&mut c.found))
+            .unwrap_or_default()
     }
 
     /// A call was made to `wire`: its family is used, and a search of the

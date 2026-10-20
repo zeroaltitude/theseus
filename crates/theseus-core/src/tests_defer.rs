@@ -24,8 +24,23 @@ use crate::Core;
 
 /// A stand-in model: `HIDDEN` calls a tool the request defers, with no
 /// search; `SEARCH` searches for the web family and calls its fetch;
-/// `FIND` asks `tools_find` for a terminal; anything else answers.
+/// `FIND` asks `tools_find` for a terminal; `FINDCALL` asks, and calls the
+/// terminal tool once a request offers it; anything else answers.
 fn script(req: &ProviderRequest) -> Scripted {
+    if serde_json::to_string(&req.messages).is_ok_and(|m| m.contains("FINDCALL")) {
+        let last = serde_json::to_string(&req.messages.last()).unwrap_or_default();
+        return match (answers_a_call(req), last.contains("\"f1\"")) {
+            (false, _) => Scripted::tools(
+                "",
+                &[("f1", "tools_find", json!({"query": "open a terminal"}))],
+            ),
+            (true, true) if offered(req).contains(&"term_open".to_string()) => {
+                Scripted::tools("", &[("c1", "term_open", json!({"argv": ["true"]}))])
+            }
+            (true, true) => Scripted::text("Not callable."),
+            (true, false) => Scripted::text("Done."),
+        };
+    }
     if answers_a_call(req) {
         return Scripted::text("Done.");
     }
@@ -188,36 +203,53 @@ async fn without_the_mechanism_the_hidden_tools_are_left_out_and_tools_find_is_o
 }
 
 #[tokio::test]
-async fn tools_find_names_the_family_and_it_loads_at_the_next_boundary() {
+async fn tools_find_names_the_family_and_the_conversation_keeps_it() {
     let r = rig_without_search();
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
     let before = tool_bytes(&r.requests()[0]);
     say(&r.core, &sid, "FIND").await;
-    let reqs = r.requests();
     let answer = result_of(&r.core, &sid, "f1");
     assert!(
-        answer.contains("term_open") && answer.contains("next compaction"),
+        answer.contains("term_open") && answer.contains("loaded now"),
         "{answer}"
     );
-    // The conversation's tools did not change under it: the cache holds.
+    // The request that opened the turn held the tools still; the one after the find carries the family.
+    let reqs = r.requests();
+    assert_eq!(tool_bytes(&reqs[1]), before);
+    assert!(!offered(&reqs[1]).contains(&"term_open".to_string()));
+    let after = reqs.last().unwrap();
     assert!(
-        reqs.iter().all(|q| tool_bytes(q) == before),
-        "the tools held still"
-    );
-    // A boundary (the owner's recompile) loads the family it asked for.
-    say_boundary(&r.core, &sid).await;
-    let last = r.requests().pop().unwrap();
-    assert!(
-        offered(&last).contains(&"term_open".to_string()),
+        offered(after).contains(&"term_open".to_string()) && !deferred(after, "term_open"),
         "{:?}",
-        offered(&last)
+        offered(after)
     );
-    assert!(!deferred(&last, "term_open"));
+    // The next turn appends with the family still loaded: no boundary was needed.
+    say(&r.core, &sid, "hello again").await;
+    let last = r.requests().pop().unwrap();
+    assert_eq!(tool_bytes(&last), tool_bytes(after));
     // Another conversation did not ask, and still lacks it.
     let other = session(&r.core, None);
     say(&r.core, &other, "hello").await;
     assert!(!offered(&r.requests().pop().unwrap()).contains(&"term_open".to_string()));
+}
+
+#[tokio::test]
+async fn a_tool_found_by_tools_find_is_callable_in_the_same_turn() {
+    let r = rig_without_search();
+    let sid = session(&r.core, None);
+    say(&r.core, &sid, "FINDCALL").await;
+    let reqs = r.requests();
+    assert!(!offered(&reqs[0]).contains(&"term_open".to_string()));
+    // The loop after the find offers the tool, and the model's call to it is
+    // run, not answered with a miss.
+    assert!(offered(&reqs[1]).contains(&"term_open".to_string()));
+    assert!(!deferred(&reqs[1], "term_open"));
+    let result = result_of(&r.core, &sid, "c1");
+    assert!(!result.contains("is not loaded"), "{result}");
+    assert!(rows(&r.core, "tools.missed").is_empty());
+    // The turn ended on the answer to the call, not on a refusal to find.
+    assert!(reqs.len() >= 3, "{}", reqs.len());
 }
 
 async fn say_boundary(core: &Arc<Core>, sid: &str) {

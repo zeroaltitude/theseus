@@ -156,7 +156,32 @@ impl TurnRunner {
             mechanism,
             loaded,
             resolved: false,
+            added: BTreeSet::new(),
         })
+    }
+
+    /// The families a `tools_find` of the last loop asked for join this
+    /// turn's tools now, so the model can call a found tool in the turn that
+    /// found it (theseus-342qy). The next compile sees tools its compilation
+    /// did not record and recompiles (`tools_changed`); tools lead the cached
+    /// prefix, so that request misses the cache either way, and the turns
+    /// after append cache-warm. Only where the model has no tool search: a
+    /// provider's own search loads in the same turn already.
+    pub(super) fn defer_found(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+        let found = self.tools.defer.take_found(t.tc.session_id);
+        if found.is_empty() {
+            return;
+        }
+        let Some(d) = spec.defer.as_mut().filter(|d| !d.resolved) else {
+            return;
+        };
+        if d.mechanism != Mechanism::Find {
+            return;
+        }
+        let known = tools_defer::families_of(&spec.tools);
+        let found: BTreeSet<String> = found.into_iter().filter(|f| known.contains(f)).collect();
+        d.loaded.extend(found.iter().cloned());
+        d.added.extend(found);
     }
 
     /// What the loop's compile sent: the families it loaded and the tools it

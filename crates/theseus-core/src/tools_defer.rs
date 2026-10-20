@@ -10,7 +10,7 @@
 //!   search tool (BM25) is added; the model searches, the API surfaces the
 //!   tools it finds, and it calls them as any other.
 //! - **Anywhere else** the hidden tools are left out and `tools_find {query}`
-//!   is offered; what it finds loads from the conversation's next boundary.
+//!   is offered; what it finds loads in the same turn, at its next request.
 //!
 //! What loads is a stable set per place kind (`select`), from committed
 //! defaults and the ledger's use. The cache holds because the set is fixed
@@ -94,6 +94,29 @@ pub struct Deferral {
     pub mechanism: Mechanism,
     pub loaded: BTreeSet<String>,
     pub resolved: bool,
+    /// Families a `tools_find` of this turn asked for, already in `loaded`
+    /// (theseus-342qy). An append takes them on top of the families its
+    /// compilation recorded, so its tools differ from that compilation's and
+    /// the compile recompiles with them (`tools_changed`): the next request
+    /// of the turn carries the found tools, and the new compilation records
+    /// them for the turns after.
+    pub added: BTreeSet<String>,
+}
+
+impl Deferral {
+    /// This deferral over the families a compilation recorded loaded, plus
+    /// the ones a find added since.
+    fn over(&self, recorded: &[String]) -> Deferral {
+        Deferral {
+            loaded: recorded
+                .iter()
+                .cloned()
+                .chain(self.added.iter().cloned())
+                .collect(),
+            resolved: false,
+            ..self.clone()
+        }
+    }
 }
 
 /// What a request's tools cost in bytes of tool JSON, as its estimate counts
@@ -125,13 +148,7 @@ pub fn sent_tools(spec: &RequestSpec, current: Option<&crate::compiler::Manifest
     match current {
         None => resolve(&spec.tools, fresh),
         Some(m) => match &m.loaded {
-            Some(l) => resolve(
-                &spec.tools,
-                &Deferral {
-                    loaded: l.iter().cloned().collect(),
-                    ..fresh.clone()
-                },
-            ),
+            Some(l) => resolve(&spec.tools, &fresh.over(l)),
             None => spec
                 .tools
                 .iter()
@@ -272,11 +289,7 @@ pub fn forks<'a>(input: &CompileInput<'a>) -> (Option<Cow<'a, RequestSpec>>, Cow
         return (guided_app, guided_rec);
     };
     let app = input.current.map(|c| {
-        let sticky = c.manifest.loaded.as_ref().map(|l| Deferral {
-            mechanism: fresh.mechanism,
-            loaded: l.iter().cloned().collect(),
-            resolved: false,
-        });
+        let sticky = c.manifest.loaded.as_ref().map(|l| fresh.over(l));
         let base = guided_app.unwrap_or_else(|| guided_rec.clone());
         tooled(base, sticky.as_ref())
     });
@@ -291,11 +304,7 @@ pub fn as_recorded(spec: RequestSpec, current: &crate::compiler::Manifest) -> Re
     let Some(fresh) = spec.defer.clone().filter(|d| !d.resolved) else {
         return spec;
     };
-    let sticky = current.loaded.as_ref().map(|l| Deferral {
-        mechanism: fresh.mechanism,
-        loaded: l.iter().cloned().collect(),
-        resolved: false,
-    });
+    let sticky = current.loaded.as_ref().map(|l| fresh.over(l));
     tooled(Cow::Owned(spec), sticky.as_ref()).into_owned()
 }
 

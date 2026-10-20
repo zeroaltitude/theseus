@@ -2322,8 +2322,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   clearing pass or a ring (all rendered from `recompiled`) takes the fresh set. A compilation with no `loaded` (before
   format 33) appends with every tool. On a model whose catalog entry has `tool_search` the hidden tools go out with
   `defer_loading: true` and the BM25 tool search tool is first in `tools`; elsewhere they are left out and `tools_find
-  {query}` (`find.rs`, a read of the conversation's hidden tools; its answer names the family and says it loads at the
-  next compaction) is offered, and what it found loads at the conversation's next boundary. `tools.find` is never in the
+  {query}` (`find.rs`, a read of the conversation's hidden tools; its answer names the family and says it is loaded now) is offered, and what it found loads
+  **in the same turn** (theseus-342qy): `Board::wants` notes the families in `Convo.found`, the turn's next loop takes
+  them (`defer_found`, after `checkpoint_apply`) into `Deferral.loaded` and `Deferral.added`, and since an append's
+  `forks` takes `Deferral::over(recorded)` (recorded plus `added`), its tools differ from the compilation's and the
+  compile recompiles (`tools_changed`; thinking before it is stripped as for any recompile). Tools lead the cached
+  prefix, so that one request misses the cache either way; the new compilation records the families and the turns after
+  append cache-warm. Where the provider has tool search the search already loads in the turn. `tools.find` is never in the
   catalog (`tools_defer::listed`) and joins a request only here. The tool search's blocks (`server_tool_use`,
   `tool_search_tool_result`) ride in the assistant node as the provider returned them (`scan.rs` reads them). **Misses**:
   `defer_unloaded` (before `run_calls`) answers a call to a tool the request hid, when no search of the conversation
