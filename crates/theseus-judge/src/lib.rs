@@ -40,6 +40,7 @@ pub mod learn;
 pub mod mine;
 pub mod names;
 pub mod pack;
+pub mod pic;
 pub mod price;
 pub mod propose;
 pub mod prove;
@@ -56,6 +57,8 @@ pub mod probe;
 mod tests;
 #[cfg(test)]
 mod tests_onto;
+#[cfg(test)]
+mod tests_pic;
 #[cfg(test)]
 mod tests_prove;
 #[cfg(test)]

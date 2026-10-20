@@ -18,9 +18,21 @@
 //! left out when the input has no `onto`, so a state without it is byte for
 //! byte the one before.
 //!
-//! Images are the multimodal row's: a state able to carry an `assets` map
-//! (`{ "<uuid>": { "type": "image", ... } }`, referenced from the state) adds
-//! it as one more optional field beside these.
+//! Pictures and attachments (theseus-und4g, section 5 of the design) add three
+//! more optional fields:
+//!
+//! - `images`: each picture that was sent, `{name, image}`, where `image` is
+//!   the reference of an asset sent beside the state (once: each reference is
+//!   billed again), and `skipped_images`, those that were not and why
+//!   ([`crate::pic`]);
+//! - `attachments`: a text-like attachment's first [`EXCERPT_CHARS`]
+//!   characters, `{name, excerpt}`.
+//!
+//! A message in a **shared place** is reduced ([`OntoInput::shared`]): the
+//! session's interpreted memberships, the thread and project titles, the
+//! candidates and the mined names are all left out, and no kind is asked, so
+//! what Jev sees of the pictures is only `image_subject` and the privacy
+//! questions, with no candidate from any private session (the place rule).
 
 use std::collections::BTreeSet;
 
@@ -30,6 +42,7 @@ use serde_json::{json, Map, Value};
 use super::{share, Clipper};
 use crate::mine::{self, Source as Mined};
 use crate::pack::{Dynamic, Item, Source};
+use crate::pic::Picture;
 use crate::state::StateBuilder;
 
 /// The interpreted kinds `onto.v1` asks about, as the pack's questions name
@@ -46,6 +59,10 @@ pub const KINDS: [&str; 6] = [
 pub const CANDIDATES: usize = 20;
 /// The memberships a kind's state shows, and the `still_<kind>` Nouls it asks.
 pub const MEMBERS: usize = 5;
+/// A text attachment's excerpt in the state: its first characters.
+pub const EXCERPT_CHARS: usize = 2000;
+/// The text attachments a state shows at most.
+pub const MAX_TEXTS: usize = 4;
 /// A candidate's description in an option: about 50 tokens.
 const DESCRIPTION_CHARS: usize = 200;
 
@@ -95,6 +112,15 @@ pub struct OntoTable {
     pub meaning: String,
 }
 
+/// A text-like attachment (plain text, Markdown, code, PDF text, CSV): its
+/// name and its text, of which the state keeps the first [`EXCERPT_CHARS`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntoText {
+    pub name: String,
+    pub text: String,
+}
+
 /// The ontology fields of the inbound input.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -113,6 +139,17 @@ pub struct OntoInput {
     /// before the mined ones.
     #[serde(default)]
     pub suggested: Vec<String>,
+    /// The message's pictures, each prepared ([`crate::pic::prepare_all`]).
+    /// Never serialized: the bytes stay in the process.
+    #[serde(skip)]
+    pub pictures: Vec<Picture>,
+    /// The message's text-like attachments.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub texts: Vec<OntoText>,
+    /// The message came from a shared place: only the pictures' own
+    /// questions are asked, with nothing of any session's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shared: bool,
 }
 
 /// What [`OntoInput::pick`] chose for one kind.
@@ -195,6 +232,9 @@ impl OntoInput {
     /// The kinds asked about that the pack has questions for, in the pack's
     /// order.
     fn asked(&self) -> Vec<&OntoKind> {
+        if self.shared {
+            return Vec::new();
+        }
         KINDS
             .iter()
             .filter_map(|k| self.kinds.iter().find(|o| o.kind == *k))
@@ -209,6 +249,9 @@ impl OntoInput {
     /// The names mined from the message and its session, at most ten, from
     /// the sources the asked kinds name.
     pub fn names(&self, message: &str, previous: Option<&str>) -> Vec<String> {
+        if self.shared {
+            return Vec::new();
+        }
         let mut sources: Vec<Mined> = Vec::new();
         for k in self.asked() {
             for s in k.mined() {
@@ -252,6 +295,10 @@ fn sources(kind: &str) -> Option<(Source, Source)> {
 /// The ontology fields of the inbound state.
 pub(super) fn state(b: &mut StateBuilder, c: &Clipper, cap: u64, i: &super::InboundInput) {
     let Some(o) = &i.onto else { return };
+    media(b, c, o);
+    if o.shared {
+        return;
+    }
     if let Some(t) = o.thread_title.as_deref().filter(|t| !t.trim().is_empty()) {
         b.scalar("thread", c.clip(t, 80)).cut_if("thread", c.cut());
     }
@@ -285,6 +332,42 @@ pub(super) fn state(b: &mut StateBuilder, c: &Clipper, cap: u64, i: &super::Inbo
     }
 }
 
+/// The pictures and text attachments: the state's `images`,
+/// `skipped_images` and `attachments`. Each is left out when there is none.
+fn media(b: &mut StateBuilder, c: &Clipper, o: &OntoInput) {
+    let mut sent: Vec<Value> = Vec::new();
+    let mut skipped: Vec<Value> = Vec::new();
+    for p in &o.pictures {
+        match &p.shown {
+            Ok(shown) => {
+                let id = shown.id();
+                if !sent.iter().any(|v| v["image"] == json!(id)) {
+                    sent.push(json!({"name": c.clip(&p.name, 80), "image": id}));
+                }
+            }
+            Err(why) => skipped.push(json!({"name": c.clip(&p.name, 80), "why": why.to_string()})),
+        }
+    }
+    if !sent.is_empty() {
+        b.scalar("images", Value::Array(sent));
+    }
+    if !skipped.is_empty() {
+        b.scalar("skipped_images", Value::Array(skipped));
+    }
+    let texts: Vec<Value> = o
+        .texts
+        .iter()
+        .take(MAX_TEXTS)
+        .map(|t| json!({"name": c.clip(&t.name, 80), "excerpt": c.clip(&t.text, EXCERPT_CHARS)}))
+        .collect();
+    if !texts.is_empty() {
+        // The lowest priority of the ontology's fields: a state over its cap
+        // loses excerpts before the memberships and names.
+        b.list_head("attachments", 6, 2500, texts, 0)
+            .cut_if("attachments", c.cut());
+    }
+}
+
 /// The options and per-item Nouls of the ontology questions.
 pub(super) fn dynamic(
     dynamic: &mut Dynamic,
@@ -292,6 +375,25 @@ pub(super) fn dynamic(
     clip: &dyn Fn(&str, usize) -> String,
 ) {
     let Some(o) = &i.onto else { return };
+    let mut shown: Vec<Item> = Vec::new();
+    for p in &o.pictures {
+        if let Ok(s) = &p.shown {
+            let asset = s.asset();
+            if !dynamic.assets.iter().any(|a| a.id == asset.id) {
+                shown.push(Item {
+                    key: asset.id.clone(),
+                    text: clip(&p.name, 80),
+                });
+                dynamic.assets.push(asset);
+            }
+        }
+    }
+    if !shown.is_empty() {
+        dynamic.sources.insert(Source::Images, shown);
+    }
+    if o.shared {
+        return;
+    }
     for (k, picked) in o.asked().into_iter().zip(o.pick(&i.message)) {
         let Some((candidates, members)) = sources(&k.kind) else {
             continue;

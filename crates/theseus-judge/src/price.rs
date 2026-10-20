@@ -158,8 +158,11 @@ impl JevPrice {
     /// Choice's options' input ([`input_allowance`]).
     pub fn reserve_request(&self, req: &crate::client::Request) -> Micros {
         let output = req.questions.iter().map(|(_, q)| output_allowance(q)).sum();
-        let input = req.questions.iter().map(|(_, q)| input_allowance(q)).sum();
-        self.reserve_tokens(req.body().len(), input, output)
+        let input: u64 = req.questions.iter().map(|(_, q)| input_allowance(q)).sum();
+        // An image's bytes are not its tokens: the text's size, and an
+        // allowance for each image.
+        let images = req.assets.len() as u64 * crate::client::IMAGE_TOKENS;
+        self.reserve_tokens(req.text_len(), input + images, output)
     }
 }
 

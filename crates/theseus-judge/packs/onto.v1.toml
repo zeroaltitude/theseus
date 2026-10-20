@@ -4,7 +4,17 @@
 # it rides the classify.v3 and role.v1 request and adds no call: the state
 # gains the thread's and project's titles, the session's current
 # memberships, and the names code mined from the message. Text questions
-# only; the image questions come with the multimodal row.
+# only, until the multimodal row (theseus-und4g): a message with a picture also
+# asks `image_subject` and the three `shows_*` Nouls, and carries the picture.
+#
+# Images are TypeSafe's experimental feature (probe of 2026-10-20): a request
+# with one sends the header `TypeSafe-Danger-Zone-Images: true`; the pictures
+# ride in a top-level `assets` map and the state names each once, in its
+# `images` field (`{name, image}`), because every reference is billed again;
+# PNG or JPEG only, each side 280 to 1,568 px; one refused image fails the
+# whole request, so code re-encodes each (`pic.rs`) and a 400 that names an
+# image is retried once without them. The questions refer to the state's
+# `images` field and never repeat a picture.
 #
 # For each interpreted kind, one Choice over the candidates code picked (at
 # most twenty: the session's categories, the thread's, a word match, the most
@@ -280,3 +290,47 @@ act = 0.80
 confirm = 0.55
 when_true = "It asks for the owner's private details: where they live, their accounts, their schedule, their family."
 when_false = "It asks for ordinary work and does not reach for the owner's details."
+
+[questions.image_subject]
+type = "choice"
+instructions = "What is the picture in the state's `images` field mostly of, or the first one if there are several?"
+act = 0.80
+confirm = 0.55
+only_when = "images"
+no_match = "other"
+options = [
+  { id = "code", means = "A screenshot or photo of source code, a terminal, or a diff." },
+  { id = "chart", means = "A chart, graph, plot or diagram of data or a system." },
+  { id = "photo", means = "A photograph of a place, object, animal or person." },
+  { id = "screenshot", means = "A screenshot of an application, a web page or a chat that is not mainly code." },
+  { id = "document", means = "A page of a document, a form, a receipt, a slide or handwriting." },
+  { id = "meme", means = "A meme, a joke image, a sticker or a reaction image." },
+  { id = "other", means = "None of the other kinds describes it." },
+]
+
+[questions.shows_people]
+type = "noul"
+instructions = "Does a picture in the state's `images` field show a person, their face or their body?"
+act = 0.80
+confirm = 0.55
+only_when = "images"
+when_true = "A real person can be seen, even small or in the background."
+when_false = "No real person is seen: it shows code, a chart, an object, a place, or a drawing."
+
+[questions.shows_screen_or_document]
+type = "noul"
+instructions = "Does a picture in the state's `images` field show the contents of a screen or a document, such as a page, a form, a message thread or a dashboard?"
+act = 0.80
+confirm = 0.55
+only_when = "images"
+when_true = "It shows a screen's or a page's contents that someone could read."
+when_false = "It shows no readable screen or page: it is a photo, a drawing or a plain chart."
+
+[questions.shows_identifiers]
+type = "noul"
+instructions = "Does a picture in the state's `images` field show an identifier of a person or an account, such as a name tag, an address, a licence plate, an account or card number, an email address, a phone number or a key?"
+act = 0.80
+confirm = 0.55
+only_when = "images"
+when_true = "A readable identifier of a person, an account or a secret is in the picture."
+when_false = "No such identifier can be read in the picture."

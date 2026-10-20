@@ -221,8 +221,8 @@ pub struct ThreadInput {
 
 mod onto;
 pub use onto::{
-    OntoInput, OntoItem, OntoKind, OntoTable, Picked, CANDIDATES as ONTO_CANDIDATES,
-    KINDS as ONTO_KINDS,
+    OntoInput, OntoItem, OntoKind, OntoTable, OntoText, Picked, CANDIDATES as ONTO_CANDIDATES,
+    EXCERPT_CHARS as ONTO_EXCERPT_CHARS, KINDS as ONTO_KINDS,
 };
 mod persona;
 pub use persona::{PersonaInput, ThreadNow, TurnInput, PERSONAS as PERSONA_OPTIONS};
@@ -275,7 +275,7 @@ pub struct InboundInput {
     /// and options; left out when that pack is not asked, so the state is
     /// byte for byte the one before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub onto: Option<OntoInput>,
+    pub onto: Option<Box<OntoInput>>,
 }
 
 /// The topics the operator names as open (work that may go to any model
@@ -1217,6 +1217,7 @@ pub(crate) mod tests {
                 state: prepared.state.json.clone(),
                 model: p.jev_model.clone(),
                 questions,
+                assets: Vec::new(),
             };
             golden(
                 &format!("fixtures/golden/{}.request.json", p.name()),

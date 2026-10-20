@@ -1334,6 +1334,10 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # confirm = 0.55                          # from this, you are asked
 # name_profile = "haiku"                  # names a new category when no mined name fits; once a session, kind and day
 # request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
+# private_mark = false                    # on: a picture or message Jev judges to disclose a private matter, or to show
+#                                         # people or identifiers, at `act` marks its node private (undoable). Off until
+#                                         # you say on: the mark changes what later requests may send to models outside
+#                                         # the US allowlist (theseus-und4g).
 
 # ---------------------------------------------------------------- import
 # The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that

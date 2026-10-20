@@ -32,6 +32,7 @@ use super::JudgeService;
 use crate::rpc::Core;
 
 pub mod decide;
+pub mod mark;
 mod name;
 pub(super) mod stage;
 
@@ -107,6 +108,16 @@ impl JudgeService {
         let Some(o) = core.runner.ontology.held() else {
             return;
         };
+        let reasons = mark::decide(j, core.cfg.ontology.private_mark, &stage::bands(&core));
+        if !reasons.is_empty() {
+            // The mark's write and undo wait for the session-data state
+            // (theseus-a1wvq.5): until then the decision is a trace.
+            tracing::info!(
+                session = %j.id,
+                reasons = %reasons.iter().map(|r| r.word()).collect::<Vec<_>>().join(","),
+                "onto: the private mark would apply"
+            );
+        }
         let plan = decide::decide(j, &o, stage::bands(&core), theseus_protocol::now_unix_ms());
         if let Some(line) = plan.footer() {
             self.note_filed(turn, &line);
@@ -125,7 +136,7 @@ pub(super) fn fill(core: &Core, msg: &Inbound, input: &mut InboundInput) -> bool
     let Ok(o) = core.runner.ontology.snapshot(&core.store) else {
         return false;
     };
-    input.onto = Some(onto_input(core, &o, msg));
+    input.onto = Some(Box::new(onto_input(core, &o, msg)));
     true
 }
 
@@ -214,6 +225,7 @@ fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
         kinds,
         table,
         suggested: name::suggested(core, sid),
+        ..OntoInput::default()
     }
 }
 
