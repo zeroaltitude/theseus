@@ -860,11 +860,62 @@ impl Journey {
         let (questions, finishes, failures) =
             (count("question"), count("finish"), count("failure"));
         assert_eq!(failures, 0, "h9tu1 3: no task failed");
+        // Both tasks ask within a few ms of each other. Where a question's card lands depends on
+        // whether its task's place exists yet: in its own place it rings; in the DM, a place that
+        // already pinged for a question still open, it is created silent, and a burst of questions
+        // buzzes once (`courier/v2.rs`, theseus-2j2ka: a 30 s window, then a summary of how many need
+        // you). Which of the two lands where is a race the fast hosts flip (theseus-r8fnh),
+        // so the contract held here is: each question has a card, and a silent one has a ringing
+        // card of a question in its channel inside the window before it.
+        let dump = || {
+            all.iter()
+                .map(|m| {
+                    format!(
+                        "#{} ch{} t{} silent={} v{}: {}",
+                        m.id,
+                        m.channel,
+                        m.created_ms,
+                        m.silent(),
+                        m.versions.len(),
+                        m.versions[0].chars().take(60).collect::<String>()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let cards: Vec<&Msg> = all
+            .iter()
+            .filter(|m| kind_of(&m.versions[0]) == "question")
+            .collect();
         assert_eq!(
-            (questions, finishes),
-            (2, 2),
-            "h9tu1 3: a ring for each question and finish"
+            cards.len(),
+            2,
+            "h9tu1 3: a card for each question; the bot's messages:\n{}",
+            dump()
         );
+        let window_ms = 30_000;
+        let mut followers = 0;
+        for c in cards.iter().filter(|m| m.silent()) {
+            let leader = cards.iter().any(|l| {
+                !l.silent()
+                    && l.channel == c.channel
+                    && l.created_ms <= c.created_ms
+                    && c.created_ms - l.created_ms < window_ms
+            });
+            assert!(
+                leader,
+                "h9tu1 3: a question card created silent with no ring before it in its channel; \
+                 the bot's messages:\n{}",
+                dump()
+            );
+            followers += 1;
+        }
+        assert!(
+            questions >= 1 && questions + followers == 2,
+            "h9tu1 3: a ring for a burst of questions; the bot's messages:\n{}",
+            dump()
+        );
+        assert_eq!(finishes, 2, "h9tu1 3: a ring for each finish");
         let chat: Vec<String> = rings
             .iter()
             .filter(|m| kind_of(&m.versions[0]) == "chat")
@@ -888,7 +939,7 @@ impl Journey {
             at.sort_unstable();
             closest = at.windows(2).map(|w| w[1] - w[0]).fold(closest, u64::min);
         }
-        json!({"questions": questions, "finishes": finishes, "closest_ms": closest, "chat": chat})
+        json!({"questions": questions, "burst_followers": followers, "finishes": finishes, "closest_ms": closest, "chat": chat})
     }
 
     /// h9tu1 6, still fast: a plain turn stays within its frames while the run is on, and a change
