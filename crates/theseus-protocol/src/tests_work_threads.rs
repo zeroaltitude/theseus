@@ -303,10 +303,42 @@ fn the_header_gives_what_fits() {
     let t = &g.threads[0];
     assert_eq!(
         t.header(NOW, 100),
-        "PR round · active · 1m ago · warm · 41k ctx · $1.20 today · maren"
+        "PR round · active · 2m ago · warm · 41k ctx · $1.20 today · maren"
     );
-    assert_eq!(t.header(NOW, 30), "PR round · active · 1m ago");
+    assert_eq!(t.header(NOW, 30), "PR round · active · 2m ago");
     assert_eq!(t.header(NOW, 6), "PR ro…");
+}
+
+/// theseus-pmqhb: a thread's last activity is its own last message. The head conversation's view
+/// is stamped with the board's start (a daemon restart), which is no activity of the thread's.
+#[test]
+fn a_restart_stamped_head_is_not_the_threads_last_activity() {
+    let mut views = board();
+    for v in views
+        .iter_mut()
+        .filter(|v| v.kind == WorkKind::Conversation && v.parent.is_none())
+    {
+        v.at_ms = NOW;
+    }
+    let groups = vec![thread("pr-round", "PR round", ThreadState::Active)];
+    let g = group(&views, &groups);
+    let t = &g.threads[0];
+    assert!(t.head.is_some(), "the thread has its head conversation");
+    assert_eq!(t.last_active_ms, NOW - 120_000);
+    assert!(
+        t.header(NOW, 80).contains("2m ago"),
+        "{}",
+        t.header(NOW, 80)
+    );
+    // With no message of its own, the head's time stands.
+    let mut fresh = thread("new", "New", ThreadState::Active);
+    fresh.last_active_ms = 0;
+    let groups = vec![fresh];
+    let g = group(&views, &groups);
+    assert_eq!(
+        g.threads[0].last_active_ms,
+        g.threads[0].head.map_or(0, |h| h.at_ms)
+    );
 }
 
 /// Warm is within the provider cache's lifetime; a thread with no messages

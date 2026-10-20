@@ -360,10 +360,10 @@ mod tests {
             lines,
             vec![
                 "Threads: 2 live, 2 need you",
-                "PR round · active · 1m ago · warm · 41k ctx · $1.20 today  ● 1 need you",
+                "PR round · active · 2m ago · warm · 41k ctx · $1.20 today  ● 1 need you",
                 "  ● act_pr_q  confirm fs.write",
                 "  ◐ exe_pr_t  turn 2",
-                "Tides · active · 1m ago · warm · 41k ctx · $1.20 today  ● 1 need you",
+                "Tides · active · 2m ago · warm · 41k ctx · $1.20 today  ● 1 need you",
                 "  ● act_tides_q  confirm proc.run",
                 "  ◐ exe_tides_t  turn 1",
                 "Other:",
@@ -394,7 +394,7 @@ mod tests {
     fn a_narrow_board_keeps_the_title_and_the_count() {
         let lines = board_lines(&threaded(), false, 1_000_000, 40);
         assert_eq!(lines[1], "PR round · active  ● 1 need you");
-        assert_eq!(lines[4], "Tides · active · 1m ago  ● 1 need you");
+        assert_eq!(lines[4], "Tides · active · 2m ago  ● 1 need you");
     }
 
     /// A sealed thread's header begins with its lock; a pending seal is a line that needs you.
