@@ -34,6 +34,7 @@ pub mod builders;
 pub mod client;
 pub mod decision;
 pub mod eval;
+pub mod eval_heard;
 pub mod judge;
 pub mod learn;
 pub mod names;

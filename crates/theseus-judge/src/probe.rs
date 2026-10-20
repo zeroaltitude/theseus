@@ -252,6 +252,9 @@ async fn run_eval(
     fake: Option<&FakeJev>,
     tally: &mut Tally,
 ) -> Result<()> {
+    if name == "heard.v1" {
+        return run_heard_eval(only, client, fake, tally).await;
+    }
     let pack = eval::pack_of(name)?;
     let mut cases = eval::set(name)?;
     if !only.is_empty() {
@@ -334,6 +337,82 @@ async fn run_eval(
     println!(
         "== eval {name}: {} case(s); {met} expectation(s) met, {missed} missed, {unanswered} case(s) unanswered",
         cases.len()
+    );
+    Ok(())
+}
+
+/// `heard.v1`'s labelled set (theseus-s3dwj), one call per case: what Jev
+/// chose and how sure, and the accuracy, by kind of case, with the answers at
+/// the act band that were wrong (those are the false turns and missed ones).
+async fn run_heard_eval(
+    only: &[String],
+    client: JevClient,
+    fake: Option<&FakeJev>,
+    tally: &mut Tally,
+) -> Result<()> {
+    let pack = eval::pack_of("heard.v1")?;
+    let mut cases = crate::eval_heard::set()?;
+    if !only.is_empty() {
+        cases.retain(|c| only.contains(&c.name));
+    }
+    let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
+    let (mut right, mut wrong_acting, mut unanswered) = (0usize, 0usize, 0usize);
+    for case in &cases {
+        if let Some(f) = fake {
+            let option = case.expect.clone();
+            f.script(
+                "heard.v1/heard",
+                Scripted::Choice {
+                    option,
+                    confidence: 0.9,
+                },
+            );
+        }
+        let prepared = prepare(&pack, &Input::Heard(case.input.clone()), &NoScrub)?;
+        let ask = Ask::new(
+            pack.clone(),
+            &prepared,
+            Mode::Shadow,
+            json!({"eval": case.name}),
+        );
+        let judgments = judge
+            .judge(DecisionPoint {
+                asks: vec![ask.clone()],
+                urgency: Urgency::Shadow,
+            })
+            .await;
+        let j = &judgments[0];
+        tally.add(j.timing.http_ms, j.usage);
+        if j.outcome != Outcome::Answered {
+            unanswered += 1;
+            println!("EVAL {} [{:?}]: not answered", case.name, case.category);
+            continue;
+        }
+        let c = crate::eval_heard::check(case, &j.answers);
+        let acts = j
+            .answers
+            .iter()
+            .any(|a| a.def == "heard" && a.band.is_act());
+        right += usize::from(c.met);
+        wrong_acting += usize::from(!c.met && acts);
+        println!(
+            "EVAL {} [{:?}]: wanted {}, got {} ({} ms) ... {}",
+            case.name,
+            case.category,
+            c.wanted,
+            c.got,
+            j.timing.http_ms,
+            match (c.met, acts) {
+                (true, _) => "met",
+                (false, true) => "MISSED AT THE ACT BAND",
+                (false, false) => "missed",
+            }
+        );
+    }
+    println!(
+        "== eval heard.v1: {} case(s); accuracy {right}/{}, {wrong_acting} wrong at the act band, {unanswered} unanswered",
+        cases.len(),
+        cases.len() - unanswered
     );
     Ok(())
 }

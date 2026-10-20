@@ -64,6 +64,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a compare state is a replay's two replies, kept in the replay's row and not by the \
              judgment's record alone",
         ),
+        Builder::Heard => Some(
+            "a voice transcript's state is one utterance's text, the sentences it may echo and \
+             its timing, which the record keeps only in the judgment's blob",
+        ),
         Builder::PeopleSeen => Some(
             "a people gate's state is an exchange's lines since a mark that has moved and the held \
              people as they stood",

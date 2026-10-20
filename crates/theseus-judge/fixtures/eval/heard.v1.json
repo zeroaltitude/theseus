@@ -1,0 +1,434 @@
+[
+ {
+  "name": "echo_clipped_greeting_head",
+  "category": "echo",
+  "why": "The greeting's own head, clipped by the join's stop and heard back at the join.",
+  "input": {
+   "transcript": "seus here",
+   "said": [
+    "Theseus here. Go ahead."
+   ],
+   "overlap": "join",
+   "after_start_ms": 300,
+   "length_ms": 700,
+   "confidence": 0.62,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "echo_garbled_greeting",
+  "category": "echo",
+  "why": "A garble of the greeting at the join: the call's own voice through a speaker.",
+  "input": {
+   "transcript": "is miss here",
+   "said": [
+    "Theseus here. Go ahead."
+   ],
+   "overlap": "join",
+   "after_start_ms": 350,
+   "length_ms": 900,
+   "confidence": 0.48,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "echo_tail_of_sentence",
+  "category": "echo",
+  "why": "Two words that are the end of the sentence playing, said from an echo-prone microphone.",
+  "input": {
+   "transcript": "without errors",
+   "said": [
+    "The build finished without errors."
+   ],
+   "overlap": "during",
+   "after_start_ms": 1800,
+   "length_ms": 600,
+   "confidence": 0.9,
+   "echo_prone": true,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "echo_head_of_sentence",
+  "category": "echo",
+  "why": "The first two words of the sentence that began 200 ms before.",
+  "input": {
+   "transcript": "deploying to",
+   "said": [
+    "Deploying to staging now."
+   ],
+   "overlap": "during",
+   "after_start_ms": 200,
+   "length_ms": 500,
+   "confidence": 0.88,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "echo_whole_question_just_after",
+  "category": "echo",
+  "why": "The whole closing question, heard back 150 ms after it ended, from an echo-prone microphone.",
+  "input": {
+   "transcript": "shall I continue",
+   "said": [
+    "Here is the plan.",
+    "Shall I continue?"
+   ],
+   "overlap": "tail",
+   "after_end_ms": 150,
+   "length_ms": 800,
+   "confidence": 0.85,
+   "echo_prone": true,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "echo_one_word_just_after",
+  "category": "echo",
+  "why": "One word of the sentence that just ended, from an echo-prone microphone.",
+  "input": {
+   "transcript": "cancelled",
+   "said": [
+    "Cancelled the job."
+   ],
+   "overlap": "tail",
+   "after_end_ms": 100,
+   "length_ms": 400,
+   "confidence": 0.8,
+   "echo_prone": true,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "fragment_the_over_speech",
+  "category": "fragment",
+  "why": "A lone word that is the head of the sentence playing, 500 ms into it.",
+  "input": {
+   "transcript": "the",
+   "said": [
+    "The queue is empty."
+   ],
+   "overlap": "during",
+   "after_start_ms": 500,
+   "length_ms": 300,
+   "confidence": 0.55,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "fragment_garble_of_sentence",
+  "category": "fragment",
+  "why": "A recogniser's garble of the sentence that is playing.",
+  "input": {
+   "transcript": "chicken the lawns",
+   "said": [
+    "Checking the logs now."
+   ],
+   "overlap": "during",
+   "after_start_ms": 700,
+   "length_ms": 1100,
+   "confidence": 0.35,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "echo"
+ },
+ {
+  "name": "fragment_unrelated_hum",
+  "category": "fragment",
+  "why": "A hesitation sound that is nothing the assistant said, well into its sentence.",
+  "input": {
+   "transcript": "hmm uh the",
+   "said": [
+    "I'll look into the failing test."
+   ],
+   "overlap": "during",
+   "after_start_ms": 2500,
+   "length_ms": 700,
+   "confidence": 0.4,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "answer_yes_to_question",
+  "category": "answer",
+  "why": "A plain yes after the closing question.",
+  "input": {
+   "transcript": "yes",
+   "said": [
+    "Shall I deploy it now?"
+   ],
+   "overlap": "tail",
+   "after_end_ms": 400,
+   "length_ms": 450,
+   "confidence": 0.96,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_reuses_the_questions_words",
+  "category": "answer",
+  "why": "An answer that reuses the question's words is still an answer, not an echo of it.",
+  "input": {
+   "transcript": "Yes, deploy it now.",
+   "said": [
+    "Shall I deploy it now?"
+   ],
+   "overlap": "tail",
+   "after_end_ms": 350,
+   "length_ms": 1300,
+   "confidence": 0.74,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_no_wait",
+  "category": "answer",
+  "why": "A correction said over the sentence about to delete something.",
+  "input": {
+   "transcript": "no wait",
+   "said": [
+    "I'll delete the old branch."
+   ],
+   "overlap": "during",
+   "after_start_ms": 1200,
+   "length_ms": 700,
+   "confidence": 0.93,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_stop",
+  "category": "answer",
+  "why": "The one word that stops a run, said over the sentence announcing it.",
+  "input": {
+   "transcript": "stop",
+   "said": [
+    "Running the full suite now."
+   ],
+   "overlap": "during",
+   "after_start_ms": 900,
+   "length_ms": 350,
+   "confidence": 0.9,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_the_second_one",
+  "category": "answer",
+  "why": "A choice between the two options just offered.",
+  "input": {
+   "transcript": "the second one",
+   "said": [
+    "Two options. Staging or production?"
+   ],
+   "overlap": "tail",
+   "after_end_ms": 500,
+   "length_ms": 900,
+   "confidence": 0.88,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_hold_on",
+  "category": "answer",
+  "why": "A request to wait, said well into a long sentence.",
+  "input": {
+   "transcript": "actually hold on",
+   "said": [
+    "The migration touches every table in the schema."
+   ],
+   "overlap": "during",
+   "after_start_ms": 2000,
+   "length_ms": 1000,
+   "confidence": 0.83,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_yes_restart_it",
+  "category": "answer",
+  "why": "A short yes with a pronoun, low in confidence, after the question about the relay.",
+  "input": {
+   "transcript": "yes restart it",
+   "said": [
+    "Should I restart the relay?"
+   ],
+   "overlap": "tail",
+   "after_end_ms": 300,
+   "length_ms": 900,
+   "confidence": 0.7,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "answer_greeting_back",
+  "category": "answer",
+  "why": "The owner greeting Theseus back, two seconds after the join.",
+  "input": {
+   "transcript": "hey theseus",
+   "said": [
+    "Theseus here. Go ahead."
+   ],
+   "overlap": "join",
+   "after_start_ms": 2500,
+   "length_ms": 1600,
+   "confidence": 0.91,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "addressed"
+ },
+ {
+  "name": "noise_cough",
+  "category": "noise",
+  "why": "A cough the recogniser guessed a word for.",
+  "input": {
+   "transcript": "huh",
+   "said": [
+    "Reading the config now."
+   ],
+   "overlap": "during",
+   "after_start_ms": 600,
+   "length_ms": 300,
+   "confidence": 0.3,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "noise_talk_in_the_room",
+  "category": "noise",
+  "why": "Someone in the room talking to somebody else, after the closing question.",
+  "input": {
+   "transcript": "did you feed the dog",
+   "said": [
+    "Shall I deploy it now?"
+   ],
+   "overlap": "tail",
+   "after_end_ms": 700,
+   "length_ms": 1600,
+   "confidence": 0.88,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "noise_television",
+  "category": "noise",
+  "why": "A television in the room, mid-sentence.",
+  "input": {
+   "transcript": "and now the weather",
+   "said": [
+    "Opening the pull request."
+   ],
+   "overlap": "during",
+   "after_start_ms": 3000,
+   "length_ms": 1500,
+   "confidence": 0.55,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "noise_keyboard",
+  "category": "noise",
+  "why": "Typing.",
+  "input": {
+   "transcript": "tk tk",
+   "said": [
+    "Summarizing the diff."
+   ],
+   "overlap": "during",
+   "after_start_ms": 800,
+   "length_ms": 500,
+   "confidence": 0.2,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "noise_laugh",
+  "category": "noise",
+  "why": "A laugh.",
+  "input": {
+   "transcript": "ha",
+   "said": [
+    "That one was a flaky test."
+   ],
+   "overlap": "during",
+   "after_start_ms": 1000,
+   "length_ms": 400,
+   "confidence": 0.4,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "noise_housemate",
+  "category": "noise",
+  "why": "The owner telling a housemate they will be right there, after the sentence.",
+  "input": {
+   "transcript": "I'll be right there",
+   "said": [
+    "The report is ready."
+   ],
+   "overlap": "tail",
+   "after_end_ms": 900,
+   "length_ms": 1500,
+   "confidence": 0.9,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ },
+ {
+  "name": "noise_chime_at_join",
+  "category": "noise",
+  "why": "The join's own chime heard back at the join, no words of Theseus's.",
+  "input": {
+   "transcript": "ECCR",
+   "said": [
+    "Theseus here."
+   ],
+   "overlap": "join",
+   "length_ms": 600,
+   "confidence": 0.3,
+   "echo_prone": false,
+   "place": "private"
+  },
+  "expect": "other"
+ }
+]
