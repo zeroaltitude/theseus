@@ -214,6 +214,11 @@ pub struct ThreadSplit<'a> {
     pub quoted: u32,
     pub first_pos: u64,
     pub last_pos: u64,
+    /// The split's id, the nodes that left the source's compile (none for the model's tool, whose
+    /// source keeps its turn's compile), and whether the turns went into a thread that existed.
+    pub split: &'a str,
+    pub moved: u32,
+    pub into: bool,
     pub who: &'a str,
     pub via: &'a str,
 }
@@ -224,21 +229,61 @@ impl Fact for ThreadSplit<'_> {
     fn row(&self) -> Value {
         json!({"slug": self.thread.slug, "title": self.thread.title, "from": self.from,
                "quoted": self.quoted, "first_pos": self.first_pos, "last_pos": self.last_pos,
-               "sealed": self.thread.sealed.is_some(), "who": self.who, "via": self.via})
+               "sealed": self.thread.sealed.is_some(), "split": self.split, "moved": self.moved,
+               "into": self.into, "who": self.who, "via": self.via})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
         say.line(
             Session,
             format!(
-                "Thread: {} split the thread {} out of {}: {} quoted from @{} to @{}; nothing of {} moved.",
+                "Thread: {} split {} {} {}: {} quoted from @{} to @{}; {} nodes left its compile (nothing deleted, `thread unsplit {}` undoes it).",
                 self.who,
                 self.thread.slug,
+                if self.into { "into" } else { "out of" },
                 self.from,
                 crate::narrative::count(self.quoted as u64, "message", "messages"),
                 self.first_pos,
                 self.last_pos,
-                self.from
+                self.moved,
+                self.split
+            ),
+        );
+    }
+}
+
+/// A split undone (`thread.unsplit`): the source's compile reads the range again, the quoted turns
+/// leave the target's.
+pub struct ThreadUnsplit<'a> {
+    pub split: &'a str,
+    pub from: &'a str,
+    pub thread: &'a str,
+    pub restored: u32,
+    pub retired: bool,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ThreadUnsplit<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadUnsplit);
+
+    fn row(&self) -> Value {
+        json!({"split": self.split, "from": self.from, "thread": self.thread,
+               "restored": self.restored, "retired": self.retired,
+               "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Thread: {} undid the split {} of {}: {} nodes are in its compile again, and {} {}.",
+                self.who,
+                self.split,
+                self.from,
+                self.restored,
+                self.thread,
+                if self.retired { "is done" } else { "no longer holds the quoted turns" }
             ),
         );
     }

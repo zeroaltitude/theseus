@@ -115,9 +115,11 @@ impl Core {
             method::THREAD_RESUME => route(params, |p: ThreadNameParams| {
                 self.thread_resume(&p.slug, conn.answerer(p.author, p.discord))
             }),
-            method::THREAD_MERGE | method::THREAD_UNMERGE | method::THREAD_SPLIT => {
-                self.rpc_thread_joins(name, params, conn)
-            }
+            method::THREAD_MERGE
+            | method::THREAD_UNMERGE
+            | method::THREAD_SPLIT
+            | method::THREAD_SPLIT_PLAN
+            | method::THREAD_UNSPLIT => self.rpc_thread_joins(name, params, conn),
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),

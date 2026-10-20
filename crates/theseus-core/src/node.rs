@@ -344,6 +344,32 @@ pub enum Body {
         /// The model that wrote it.
         model: String,
     },
+    /// A range the session moved to a thread (theseus-q9b85): the nodes stay in
+    /// the store, and the compiler leaves them out of this session's compile, in
+    /// their place one line (`moved::line`). `undoes` marks the record
+    /// `thread.unsplit` writes, which makes the compiler read the range again.
+    Moved {
+        /// The split's id (`spl_…`).
+        split: String,
+        /// The split this record undoes; the fields below are then empty.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        undoes: Option<String>,
+        /// The thread the range went to, and the session it runs on.
+        thread: String,
+        to_session: String,
+        /// The moved nodes' ids, in position order, and their first and last
+        /// positions.
+        nodes: Vec<String>,
+        first: u64,
+        last: u64,
+        /// What the range was about, as the owner said it or as its first
+        /// message begins.
+        gist: String,
+        /// Hides the nodes and says nothing in their place: the target of an
+        /// undone split, whose quoted turns leave its compile.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quiet: bool,
+    },
     /// A tombstone (§5.6's erasure marker; theseus-0lrr.6): the node's
     /// payload, gone. Written under the node's own id, origin and time,
     /// after the record it erases, so the newest record of the id is this
@@ -421,6 +447,14 @@ impl Node {
             created_at_ms: theseus_protocol::now_unix_ms(),
             body,
         }
+    }
+
+    /// A note the harness writes into `session_id`, of `body` (a moved range's record), under
+    /// `prefix` for its id.
+    pub fn harness_body(prefix: &str, session_id: &str, author: &str, body: Body) -> Self {
+        let mut n = Self::new(prefix, session_id, None, Origin::Harness, body);
+        n.author = Some(author.into());
+        n
     }
 
     pub fn user(session_id: &str, turn_id: Option<&str>, author: &str, text: &str) -> Self {
@@ -617,6 +651,7 @@ impl Node {
             Body::Recall { .. } => "recall",
             Body::Arrangement { .. } => "arrangement",
             Body::Summary { .. } => "summary",
+            Body::Moved { .. } => "moved",
             Body::Synthesis { .. } => "synthesis",
             Body::Imported { .. } => "imported",
             Body::ImportedSummary { .. } => "imported_summary",
@@ -665,6 +700,11 @@ impl Node {
                     .join("; ")
             ),
             Body::Summary { header, text, .. } => format!("{header} {text}"),
+            Body::Moved {
+                undoes: Some(s), ..
+            } => format!("[the split {s} undone]"),
+            Body::Moved { quiet: true, .. } => "[a split's quoted turns left out]".to_string(),
+            Body::Moved { thread, gist, .. } => crate::moved::line(thread, gist),
             Body::Synthesis { text, check, .. } => {
                 format!("[synthesis, {}] {text}", check.as_str())
             }

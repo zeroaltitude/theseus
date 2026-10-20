@@ -267,6 +267,7 @@ fn hit_of(n: &Node, position: u64, rank: usize, a: f32, sci: &Activated) -> Opti
         Body::ToolCall { .. }
         | Body::Recall { .. }
         | Body::Arrangement { .. }
+        | Body::Moved { .. }
         | Body::Synthesis { .. }
         | Body::Erased { .. } => return None,
     };

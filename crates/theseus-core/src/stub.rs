@@ -42,6 +42,7 @@ pub enum Kind {
     Recall,
     Arrangement,
     Summary,
+    Moved,
     Synthesis,
     Imported,
     ImportedSummary,
@@ -54,7 +55,10 @@ impl Kind {
     /// message it fed (theseus-posww), or a compaction's summary, which a turn
     /// can write after it too before its call (theseus-3ki0).
     pub fn is_note(self) -> bool {
-        matches!(self, Kind::ToolCall | Kind::Recall | Kind::Summary)
+        matches!(
+            self,
+            Kind::ToolCall | Kind::Recall | Kind::Summary | Kind::Moved
+        )
     }
 
     pub fn of(b: &Body) -> Kind {
@@ -66,6 +70,7 @@ impl Kind {
             Body::Recall { .. } => Kind::Recall,
             Body::Arrangement { .. } => Kind::Arrangement,
             Body::Summary { .. } => Kind::Summary,
+            Body::Moved { .. } => Kind::Moved,
             Body::Synthesis { .. } => Kind::Synthesis,
             Body::Imported { .. } => Kind::Imported,
             Body::ImportedSummary { .. } => Kind::ImportedSummary,

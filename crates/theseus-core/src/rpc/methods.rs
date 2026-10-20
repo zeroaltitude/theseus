@@ -1259,12 +1259,32 @@ impl Core {
             nodes: page
                 .nodes
                 .iter()
-                .map(|(pos, n)| Self::node_info(*pos, n))
+                .map(|(pos, n)| self.marked_moved(Self::node_info(*pos, n)))
                 .collect(),
             next: page.next,
             older: page.older,
             cites,
         })
+    }
+
+    /// A node a split moved, marked in its detail with the thread (`moved_to`) and the split's id
+    /// (theseus-q9b85): still in the store and in `history`, left out of its session's compile.
+    fn marked_moved(&self, mut info: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
+        let to: Option<Option<crate::moved::MovedTo>> = self
+            .store
+            .get_meta(&crate::moved::moved_of_key(&info.node_id))
+            .ok()
+            .flatten();
+        if let Some(Some(m)) = to {
+            let mut d = match std::mem::take(&mut info.detail) {
+                Value::Object(o) => o,
+                _ => serde_json::Map::new(),
+            };
+            d.insert("moved_to".into(), Value::String(m.thread));
+            d.insert("split".into(), Value::String(m.split));
+            info.detail = Value::Object(d);
+        }
+        info
     }
 
     /// `session.watch`: subscribe this connection to a session's events.

@@ -234,6 +234,19 @@ impl State {
                 let text = compaction::rendered(header, text);
                 push(out, "user", vec![json!({"type": "text", "text": text})])
             }
+            // A moved range's one line (theseus-q9b85): where the range began in
+            // a recompile (`moved::in_place`), and at its own place in a tail.
+            Body::Moved {
+                undoes: None,
+                quiet: false,
+                thread,
+                gist,
+                ..
+            } => push(
+                out,
+                "user",
+                vec![json!({"type": "text", "text": crate::moved::line(thread, gist)})],
+            ),
             _ => {}
         }
     }

@@ -2,8 +2,20 @@
 import type { ThreadRow } from "./ThreadRow";
 
 /**
- * What `thread.split` made: the new thread, how many messages it quotes
- * (and the span of their positions), and whether the note reached the tail
- * of the source (not while a turn runs there).
+ * What `thread.split` made: the thread, how many messages it quotes (and
+ * the span of their positions), and whether the source's compile now holds
+ * the moved line (not while a turn runs there).
  */
-export type ThreadSplitResult = { thread: ThreadRow, from: string, quoted: number, first_pos: number, last_pos: number, noted: boolean, };
+export type ThreadSplitResult = { thread: ThreadRow, from: string, quoted: number, first_pos: number, last_pos: number, noted: boolean, 
+/**
+ * The split's id: `thread.unsplit` takes it.
+ */
+split: string, 
+/**
+ * The nodes the source's compile left out.
+ */
+moved: number, 
+/**
+ * The turns went into a thread that already existed.
+ */
+into: boolean, };

@@ -337,6 +337,7 @@ ledger_kinds! {
     ThreadMoved = "thread.moved",
     ThreadMisrouteHeld = "thread.misroute_held",
     ThreadSplit = "thread.split",
+    ThreadUnsplit = "thread.unsplit",
     ThreadUnmerged = "thread.unmerged",
     SynthesisChecked = "synthesis.checked",
     SynthesisProposed = "synthesis.proposed",

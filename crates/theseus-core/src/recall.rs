@@ -1179,8 +1179,9 @@ pub fn text_of(n: &Node) -> String {
         Body::Synthesis { text, .. } => text.clone(),
         // The operator's past history (theseus-0lrr.6), and its summaries.
         Body::Imported { text, .. } | Body::ImportedSummary { text, .. } => text.clone(),
+        // A moved range's record is a note to the compiler, never recalled.
         // A tombstone has no text: its payload is gone.
-        Body::Erased { .. } => String::new(),
+        Body::Moved { .. } | Body::Erased { .. } => String::new(),
     }
 }
 

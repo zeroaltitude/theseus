@@ -329,6 +329,7 @@ fn holds_its_row(node: &Node, e: &crate::extract::Extracted) {
         // Below: a recall is never indexed again.
         Body::Recall { .. } => unreachable!("a recall is skipped"),
         Body::Arrangement { .. } => unreachable!("an arrangement is skipped, below"),
+        Body::Moved { .. } => unreachable!("a moved range's record is skipped, below"),
     }
 }
 
@@ -353,6 +354,27 @@ fn the_extractor_covers_every_body_variant() {
     let arrangement = Node::arrangement("ses_1", "session:ses_0", vec![], false);
     assert!(matches!(
         extract(&arrangement.record().unwrap().payload).unwrap(),
+        Extract::Skip { .. }
+    ));
+    // A moved range's record (theseus-q9b85) is a note to the compiler: its nodes stay indexed.
+    let moved = Node::harness_body(
+        "mov",
+        "ses_1",
+        "harness:moved",
+        Body::Moved {
+            split: "spl_1".into(),
+            undoes: None,
+            thread: "gauges".into(),
+            to_session: "ses_2".into(),
+            nodes: vec!["msg_1".into()],
+            first: 1,
+            last: 2,
+            gist: "the neap week".into(),
+            quiet: false,
+        },
+    );
+    assert!(matches!(
+        extract(&moved.record().unwrap().payload).unwrap(),
         Extract::Skip { .. }
     ));
     // A tombstone (§5.6) has nothing to index.

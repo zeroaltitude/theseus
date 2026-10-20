@@ -1,10 +1,10 @@
 //! `theseus thread …` (theseus-nhew): the threads on virtual places
 //! `thread:<slug>`. `list` and `show` read; `new`, `edit`, `pause`, `resume`,
-//! `done`, `reopen`, `merge`, `unmerge` and `split` are the owner's acts
-//! (refused inside a job, `client::OPERATORS`). Address a thread with
+//! `done`, `reopen`, `merge`, `unmerge`, `split` and `unsplit` are the owner's
+//! acts (refused inside a job, `client::OPERATORS`). Address a thread with
 //! `theseus ask --thread <slug>`. A merge or a split deletes nothing:
-//! `unmerge` undoes a merge and `done` on the new thread undoes a split
-//! (theseus-vt9k).
+//! `unmerge` undoes a merge and `unsplit` a split (theseus-vt9k,
+//! theseus-q9b85; `thread/split.rs`).
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -19,12 +19,13 @@ use theseus_protocol::thread_route::{
 use theseus_protocol::threads::{
     crossed_words, ThreadEditParams, ThreadListParams, ThreadListResult, ThreadMergeParams,
     ThreadMergeResult, ThreadNameParams, ThreadNewParams, ThreadRow, ThreadSealParams,
-    ThreadSealResult, ThreadSplitParams, ThreadSplitResult, ThreadState, WorkingSet,
+    ThreadSealResult, ThreadState, WorkingSet,
 };
 
 use crate::cmd::output;
 
 pub(crate) mod ask;
+pub(crate) mod split;
 
 #[derive(Subcommand, Debug)]
 pub enum ThreadCmd {
@@ -143,29 +144,21 @@ pub enum ThreadCmd {
     /// Undo a merge: FROM is as it was before (its state, its surfaces; its session opens again).
     /// INTO keeps what it took and gains a card line saying so.
     Unmerge { slug: String },
-    /// Move part of a thread into a thread of its own. NEW opens with the chosen turns of FROM
-    /// quoted verbatim (an arrangement) and FROM keeps every node: it gains one note at its tail,
-    /// "split to «NEW» at @pos". Choose the turns by the `@` positions `theseus history` prints:
-    /// `--first @A --last @B` (inclusive), or `--at @N` for single messages (repeat the flag).
-    /// There is no delete: `theseus thread done NEW` ends the new thread, and FROM is unchanged.
-    Split {
-        from: String,
-        /// The new thread's name.
-        new: String,
-        #[arg(long)]
-        title: Option<String>,
-        #[arg(long)]
-        goal: Option<String>,
-        /// The first position of the range to quote (`@1234` or `1234`).
-        #[arg(long)]
-        first: Option<String>,
-        /// The last position of the range.
-        #[arg(long)]
-        last: Option<String>,
-        /// One message to quote, by position; repeat the flag.
-        #[arg(long = "at")]
-        at: Vec<String>,
-    },
+    /// Move whole turns into a thread, and take them out of the source's compile. The source is a
+    /// thread's slug, a place's own session (its home) by its whole id (`ses_…`, `theseus
+    /// places`), or `home@<place>`. The turns are quoted verbatim, in order, into a new thread
+    /// NEW, or at the tail of an existing one (`--into SLUG`); the source keeps every node in the
+    /// store but its compile holds one line, `moved to thread «X»: <gist>`, in their place.
+    /// Choose them by the `@` positions `theseus history` prints: `--first @A --last @B`, `--range
+    /// @A-@B` (repeat it), or `--at @N`. A part over 400 messages or 400,000 characters moves in
+    /// several splits into the same thread. `--dry-run` writes nothing and prints the next
+    /// request's tokens before and after. The source's cache prefix changes once. `theseus thread
+    /// unsplit SPLIT` undoes it; nothing is ever deleted.
+    Split(split::SplitArgs),
+    /// Undo a split by its id (`spl_…`, printed by `thread split`): the source's compile reads the
+    /// range again in its own place, the quoted turns leave the target's compile, and a thread the
+    /// split opened is done.
+    Unsplit { split: String },
 }
 
 impl Default for ThreadCmd {
@@ -290,9 +283,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         s @ (ThreadCmd::Seal { .. } | ThreadCmd::Unseal { .. }) => sealing(conn, json, s).await,
         ThreadCmd::Answer { ask, choice } => answer(conn, json, ask, choice).await,
         ThreadCmd::Move { to, session, turn } => move_message(conn, json, to, session, turn).await,
-        cmd @ (ThreadCmd::Merge { .. } | ThreadCmd::Unmerge { .. } | ThreadCmd::Split { .. }) => {
-            join(conn, json, cmd).await
-        }
+        cmd @ (ThreadCmd::Merge { .. } | ThreadCmd::Unmerge { .. }) => join(conn, json, cmd).await,
+        ThreadCmd::Split(a) => split::split(conn, json, a).await,
+        ThreadCmd::Unsplit { split } => split::unsplit(conn, json, split).await,
     }
 }
 
@@ -496,64 +489,8 @@ async fn join(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
                 Ok(())
             })
         }
-        ThreadCmd::Split {
-            from,
-            new,
-            title,
-            goal,
-            first,
-            last,
-            at,
-        } => {
-            let p = split_params(from, new, title, goal, first, last, at)?;
-            let v = conn
-                .request(method::THREAD_SPLIT, serde_json::to_value(&p)?)
-                .await?;
-            output(json, v, |r: ThreadSplitResult| {
-                for l in split_lines(&r) {
-                    println!("{l}");
-                }
-                Ok(())
-            })
-        }
         _ => unreachable!("run sends only the joins here"),
     }
-}
-
-/// A position as `@1234` or `1234`.
-fn position(s: &str) -> Result<u64> {
-    s.trim().trim_start_matches('@').parse().map_err(|_| {
-        anyhow::anyhow!("`{s}` is no position: write `@1234` as `theseus history` shows it")
-    })
-}
-
-/// `thread split`'s flags as the request: a range or a list, one of the two.
-fn split_params(
-    from: String,
-    new: String,
-    title: Option<String>,
-    goal: Option<String>,
-    first: Option<String>,
-    last: Option<String>,
-    at: Vec<String>,
-) -> Result<ThreadSplitParams> {
-    let (range, positions) = match (first, last, at.is_empty()) {
-        (Some(a), Some(b), true) => (Some([position(&a)?, position(&b)?]), None),
-        (None, None, false) => (
-            None,
-            Some(at.iter().map(|p| position(p)).collect::<Result<Vec<_>>>()?),
-        ),
-        _ => bail!("name the turns: `--first @A --last @B`, or `--at @N` for each message"),
-    };
-    Ok(ThreadSplitParams {
-        from,
-        slug: new,
-        title,
-        goal,
-        range,
-        positions,
-        ..Default::default()
-    })
 }
 
 /// What a merge or an unmerge did, in lines.
@@ -583,33 +520,6 @@ pub fn merge_lines(r: &ThreadMergeResult, merged: bool) -> Vec<String> {
     }
     if merged && b.sealed.is_some() {
         out.push(format!("{} is sealed.", b.slug));
-    }
-    out
-}
-
-/// What a split made, in lines.
-pub fn split_lines(r: &ThreadSplitResult) -> Vec<String> {
-    let t = &r.thread.thread;
-    let mut out = vec![format!(
-        "Split {} out of {}: {} quoted, @{} to @{}. `theseus ask --thread {}` goes on from them; \
-         `theseus thread done {}` ends it. Nothing of {} moved.",
-        t.slug,
-        r.from,
-        match r.quoted {
-            1 => "1 message".to_string(),
-            n => format!("{n} messages"),
-        },
-        r.first_pos,
-        r.last_pos,
-        t.slug,
-        t.slug,
-        r.from
-    )];
-    if !r.noted {
-        out.push(format!(
-            "{} had a turn running, so its note \"split to {}\" was not written.",
-            r.from, t.slug
-        ));
     }
     out
 }
@@ -1001,53 +911,59 @@ mod tests {
             .contains("merged"));
     }
 
+    fn args(first: Option<&str>, last: Option<&str>, at: &[&str]) -> split::SplitArgs {
+        split::SplitArgs {
+            from: "a".into(),
+            new: Some("b".into()),
+            into: None,
+            title: None,
+            goal: None,
+            gist: None,
+            first: first.map(Into::into),
+            last: last.map(Into::into),
+            ranges: vec![],
+            at: at.iter().map(|s| s.to_string()).collect(),
+            dry_run: false,
+        }
+    }
+
     #[test]
     fn split_takes_a_range_or_positions_and_never_both() {
-        let p = split_params(
-            "a".into(),
-            "b".into(),
-            None,
-            None,
-            Some("@10".into()),
-            Some("20".into()),
-            vec![],
-        )
-        .unwrap();
+        let p = split::params(args(Some("@10"), Some("20"), &[])).unwrap();
         assert_eq!((p.range, p.positions), (Some([10, 20]), None));
-        let p = split_params(
-            "a".into(),
-            "b".into(),
-            None,
-            None,
-            None,
-            None,
-            vec!["@3".into(), "9".into()],
-        )
-        .unwrap();
+        let p = split::params(args(None, None, &["@3", "9"])).unwrap();
         assert_eq!((p.range, p.positions), (None, Some(vec![3, 9])));
+        let mut many = args(None, None, &[]);
+        many.ranges = vec!["@3-@9".into(), "20-30".into()];
+        assert_eq!(split::params(many).unwrap().ranges, [[3, 9], [20, 30]]);
         for (first, last, at) in [
             (None, None, vec![]),
-            (Some("@1".to_string()), None, vec![]),
-            (
-                Some("@1".to_string()),
-                Some("@2".to_string()),
-                vec!["@3".to_string()],
-            ),
+            (Some("@1"), None, vec![]),
+            (Some("@1"), Some("@2"), vec!["@3"]),
         ] {
-            let e = split_params("a".into(), "b".into(), None, None, first, last, at).unwrap_err();
-            assert!(e.to_string().contains("name the turns"), "{e}");
+            let e = split::params(args(first, last, &at)).unwrap_err();
+            let words = e.to_string();
+            assert!(
+                words.contains("name the turns") || words.contains("come together"),
+                "{e}"
+            );
         }
-        let e = split_params(
-            "a".into(),
-            "b".into(),
-            None,
-            None,
-            Some("x".into()),
-            Some("2".into()),
-            vec![],
-        )
-        .unwrap_err();
+        let e = split::params(args(Some("x"), Some("2"), &[])).unwrap_err();
         assert!(e.to_string().contains("no position"), "{e}");
+        // Where the turns go: a new thread or an existing one, not both and not neither.
+        let mut both = args(Some("1"), Some("2"), &[]);
+        both.into = Some("dev".into());
+        assert!(split::params(both)
+            .unwrap_err()
+            .to_string()
+            .contains("name where"));
+        let mut neither = args(Some("1"), Some("2"), &[]);
+        neither.new = None;
+        assert!(split::params(neither).is_err());
+        let mut into = args(Some("1"), Some("2"), &[]);
+        (into.new, into.into) = (None, Some("dev".into()));
+        let p = split::params(into).unwrap();
+        assert_eq!((p.slug.as_str(), p.into.as_deref()), ("", Some("dev")));
     }
 
     #[test]
@@ -1065,19 +981,27 @@ mod tests {
         assert!(m.contains("left out: gauges"), "{m}");
         let u = merge_lines(&r, false).join("\n");
         assert!(u.contains("Unmerged io from tides"), "{u}");
-        let s = ThreadSplitResult {
+        let mut s = theseus_protocol::threads::ThreadSplitResult {
             thread: row("disk", ThreadState::Active, None, 0.0),
             from: "harbour".into(),
             quoted: 6,
             first_pos: 10,
             last_pos: 30,
             noted: false,
+            split: "spl_1".into(),
+            moved: 14,
+            into: false,
         };
-        let l = split_lines(&s).join("\n");
+        let l = split::split_lines(&s).join("\n");
+        assert!(l.contains("6 messages quoted, @10 to @30"), "{l}");
+        assert!(l.contains("had a turn running"), "{l}");
+        s.noted = true;
+        let l = split::split_lines(&s).join("\n");
+        assert!(l.contains("14 nodes left harbour's compile"), "{l}");
         assert!(
-            l.contains("6 messages quoted, @10 to @30") && l.contains("Nothing of harbour moved"),
-            "{l}"
+            l.contains("prefix changed once") && l.contains("no other"),
+            "the cache: {l}"
         );
-        assert!(l.contains("note \"split to disk\" was not written"), "{l}");
+        assert!(l.contains("`theseus thread unsplit spl_1`"), "{l}");
     }
 }

@@ -37,6 +37,10 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     let mut out = super::node_lines(n, full);
     if let Some(first) = out.first_mut() {
         first.text = with_id(&first.text, &short(&n.node_id));
+        // A node a split moved (theseus-q9b85): still here, and not in this session's compile.
+        if let Some(t) = n.detail.get("moved_to").and_then(|t| t.as_str()) {
+            first.text = format!("{} [moved to thread «{t}»]", first.text);
+        }
     }
     out
 }

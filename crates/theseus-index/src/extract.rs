@@ -124,6 +124,9 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
         "erased" => return skip("an erased node: its payload is gone"),
         "recall" => return skip("recalled text is never indexed again"),
         "arrangement" => return skip("a task's arrangement copies nodes indexed already"),
+        "moved" => {
+            return skip("a moved range's record: its nodes stay indexed under their session")
+        }
         // A later body (`summary`, `synthesis`, `lesson`): its text.
         _ => match str_of(body, "text") {
             Some(t) => t.to_string(),
