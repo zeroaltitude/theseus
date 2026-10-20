@@ -223,6 +223,20 @@ fn thread(c: &Core, slug: &str) -> String {
     c.thread_session(slug, cli()).unwrap().session_id
 }
 
+/// theseus-7j00b: a place is typed as `theseus places` prints it (`discord:dm:ID`) as well as
+/// as it is stored (`dm:ID`); a place neither names says both forms.
+#[tokio::test]
+async fn a_place_is_named_as_places_prints_it_or_as_stored() {
+    let r = rig(vec![Scripted::text("ok"), Scripted::text("later")]);
+    let c = &r.core;
+    let sid = compiled_home(&r, 6).await;
+    let range = span(c, &sid, 1, 3);
+    let res = split(c, params(&format!("home@discord:{PLACE}"), "gauges", range)).unwrap();
+    assert!(res.split.starts_with("spl_") && res.moved > 0, "{res:?}");
+    let e = split(c, params("home@discord:dm:nobody", "x", range)).unwrap_err();
+    assert!(e.contains("discord:dm:ID") && e.contains("dm:ID"), "{e}");
+}
+
 /// KEY: a home's range splits into a new thread. The home's next compile lacks every moved node's
 /// bytes and holds the moved line in their place; the thread's compile holds the range; tool calls
 /// and results stay paired in both.
