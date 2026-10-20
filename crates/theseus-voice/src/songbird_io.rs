@@ -329,6 +329,8 @@ pub struct SongbirdIo {
     tx: mpsc::UnboundedSender<Signal>,
     track: Option<TrackHandle>,
     spell: Spell,
+    /// The silence sent before the clip last played (`VoiceIo::lead_in`).
+    lead_in: usize,
     ssrcs: Arc<Mutex<Ssrcs>>,
     /// A rejoin is leaving the call: its requested disconnect is no drop.
     rejoining: Arc<AtomicBool>,
@@ -477,6 +479,7 @@ impl SongbirdIo {
             tx,
             track: None,
             spell: Spell::default(),
+            lead_in: 0,
             ssrcs,
             rejoining,
             gone: None,
@@ -570,9 +573,19 @@ impl VoiceIo for SongbirdIo {
         self.gone.clone()
     }
 
+    fn lead_in(&self) -> usize {
+        self.lead_in
+    }
+
     fn play(&mut self, id: ClipId, clip: Audio) -> BoxFuture<'_, ()> {
         Box::pin(async move {
-            let input = match self.spell.begin(id, Instant::now()) {
+            let led = self.spell.begin(id, Instant::now());
+            self.lead_in = if led {
+                LEAD_IN_FRAMES as usize * FRAME_SAMPLES
+            } else {
+                0
+            };
+            let input = match led {
                 true => clip_input(&led_in(&clip)),
                 false => clip_input(&clip),
             };
