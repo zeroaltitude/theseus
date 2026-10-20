@@ -61,6 +61,12 @@ ignore = [
     { id = "RUSTSEC-2026-0208", reason = "libcrux-sha3 AVX2 SHAKE-256: unreachable from DAVE, as RUSTSEC-2026-0207 (44a's trace)" },
     { id = "RUSTSEC-2026-0212", reason = "libcrux-secrets: reached only through libcrux-sha3, unreachable from DAVE (44a's trace)" },
     { id = "RUSTSEC-2026-0293", reason = "ringbuf: songbird's only ring is of u8, which has no Drop to panic, for HTTP/HLS inputs voice never makes" },
+    # theseus-n402p: theseus-files reads archives through zip 9 (patched); zip 8.6 stays only for candle-core 0.11.0
+    # (the latest, which pins ^8.6). All three are in ZipArchive::extract / ZipStreamReader::extract, which neither
+    # candle (npy/pickle: ZipArchive::by_name and ZipWriter) nor this workspace ever calls. Drop with candle's bump.
+    { id = "RUSTSEC-2026-0367", reason = "zip 8.6 SUID bits on extract: candle-core reads and writes .npz/.pth in memory and never extracts (n402p)" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 8.6 symlink targets on extract: unreachable, as RUSTSEC-2026-0367 (n402p)" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 8.6 permissions through symlinks on extract: unreachable, as RUSTSEC-2026-0367 (n402p)" },
 ]
 
 [sources]

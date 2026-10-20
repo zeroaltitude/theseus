@@ -53,8 +53,12 @@ pub fn members(bytes: &[u8], kind: Kind) -> Result<(Vec<Member>, u64), String> {
                 let f = z
                     .by_index_raw(i)
                     .map_err(|e| format!("its member {i} could not be read ({e})"))?;
+                let path = f
+                    .name()
+                    .map_err(|e| format!("its member {i}'s name could not be read ({e})"))?
+                    .into_owned();
                 keep(Member {
-                    path: f.name().to_string(),
+                    path,
                     size: f.size(),
                     dir: f.is_dir(),
                 });
