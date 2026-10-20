@@ -33,6 +33,15 @@ const AUDIT_ARCH: u32 = 0xC000_00B7; // EM_AARCH64 | 64-bit | little-endian
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 compile_error!("L1's seccomp filter has tables for x86_64 and aarch64 only");
 
+/// aarch64's `kexec_file_load`, the generic table's number: the libc crate
+/// leaves it out for aarch64 musl.
+#[cfg(all(target_arch = "aarch64", any(target_env = "musl", test)))]
+const AARCH64_KEXEC_FILE_LOAD: libc::c_long = 294;
+#[cfg(all(target_arch = "aarch64", target_env = "musl"))]
+const SYS_KEXEC_FILE_LOAD: libc::c_long = AARCH64_KEXEC_FILE_LOAD;
+#[cfg(not(all(target_arch = "aarch64", target_env = "musl")))]
+const SYS_KEXEC_FILE_LOAD: libc::c_long = libc::SYS_kexec_file_load;
+
 /// x86_64's x32 system calls carry this bit in their number.
 #[cfg(target_arch = "x86_64")]
 const X32_SYSCALL_BIT: u32 = 0x4000_0000;
@@ -81,7 +90,7 @@ pub fn denied() -> Vec<(&'static str, libc::c_long)> {
         ("finit_module", libc::SYS_finit_module),
         ("delete_module", libc::SYS_delete_module),
         ("kexec_load", libc::SYS_kexec_load),
-        ("kexec_file_load", libc::SYS_kexec_file_load),
+        ("kexec_file_load", SYS_KEXEC_FILE_LOAD),
         ("reboot", libc::SYS_reboot),
         ("swapon", libc::SYS_swapon),
         ("swapoff", libc::SYS_swapoff),
@@ -283,6 +292,12 @@ pub fn refuse_here(calls: &[(libc::c_long, i32)]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(target_arch = "aarch64", target_env = "gnu"))]
+    #[test]
+    fn aarch64_musls_kexec_file_load_number_is_glibcs() {
+        assert_eq!(AARCH64_KEXEC_FILE_LOAD, libc::SYS_kexec_file_load);
+    }
 
     /// Runs a classic BPF program over one `seccomp_data`, as the kernel would
     /// (the subset the filter uses).
