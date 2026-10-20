@@ -1381,6 +1381,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     rows. Known limits: a message the thread router judges early files the home session, not the thread's; the cards carry
     their undo as a command until the binding's button lands. Tests: `tests_onto.rs`, `judge/onto/decide.rs`' own,
     `rpc/judge_latency.rs`'s, theseus-judge's `tests_onto.rs`.
+  - **The ontology reaches routing, context and recall** (theseus-jrf4c; no store format change; `category_recall.rs`,
+    `judge/onto/{decide,mod,stage}.rs`): (1) **the project answer attaches**: while a session has no project, `onto.v1`
+    asks `project` over the open projects of the task graph (`project_kind`; id = the task id, `new` files nothing, a project
+    is the owner's to make); at the act band the plan's `attach` sets `SessionRecord.project` once the judgment's frame is
+    written (`stage::attach`, only while it is still none: Jev never moves one the owner or the model attached), so the
+    slice reaches the next compile; at the confirm band a card says what to run (`theseus project attach SESSION ID`). The
+    row's step is `attached`, the footer `project › Title`. (2) **route.v6's persona question** gets the session's
+    interpreted categories by path as the state's `session_categories` (`TurnRunner::category_names`; at most 8; a person is
+    not one; none in a shared place), as evidence, no new question and no pack text change. (3) **The compile walk** needs no
+    code for the new kinds (a membership of any interpreted kind composes by precedence, its origin and confidence in the
+    manifest); `theseus-ontology`'s `tests_manifest.rs` is the golden for a session in six kinds. The harness-given
+    `thread` and `project` categories are not read at compile (the slice and the thread's topics already carry them).
+    (4) **Recall's category term**: `CategoryScene` (private places only, the held snapshot, `[ontology] recall_boost`
+    0.25, 0 off) reads the stored memberships, the thread (`ThreadScene::of`) and the project of the asker and of each
+    candidate's session, and hands the pure pipeline a `theseus_memory::CategoryBoost` (project and thread weight 1, topic
+    0.6, the rest 0.3). Ambient turn recall only: the model's lookups, `thread.read` and a shared place have none. Tests:
+    `tests_onto.rs`, `tests_category.rs` (memory), `tests_manifest.rs`.
   - **People from text** (theseus-wy7y, `judge/people/`): `people.v1`, live (`WIRED`), at the same exchange end as
     `categorize.v1` (`live.rs`: private places only, never a task's, `categorize::due` over the records after its own
     mark, META `judge.people.<session>`, moved in the extraction's frame), and the owner's backfill

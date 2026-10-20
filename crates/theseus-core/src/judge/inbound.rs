@@ -190,6 +190,9 @@ pub struct PersonaCtx {
     pub personas: Vec<PersonaInput>,
     pub speaker: Option<String>,
     pub thread: Option<ThreadHead>,
+    /// The names of the categories the session is filed under, for the
+    /// `persona` question's state (theseus-jrf4c).
+    pub categories: Vec<String>,
 }
 
 /// A thread's head for the state: its title and goal, and which persona
@@ -774,6 +777,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         live_threads: msg.threads.clone(),
         personas: msg.persona.personas.clone(),
         speaker: msg.persona.speaker.clone(),
+        categories: msg.persona.categories.clone(),
         thread_now: msg.persona.thread.as_ref().map(|h| ThreadNow {
             title: h.title.clone(),
             goal: h.goal.clone(),

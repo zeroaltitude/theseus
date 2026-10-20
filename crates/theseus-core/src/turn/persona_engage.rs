@@ -93,6 +93,7 @@ impl TurnRunner {
                 .collect(),
             speaker: prior.key,
             thread,
+            categories: self.category_names(session_id, class),
         }
     }
 

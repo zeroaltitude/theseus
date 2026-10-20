@@ -261,6 +261,11 @@ pub struct InboundInput {
     /// persona's history); left out outside a thread.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_now: Option<ThreadNow>,
+    /// The names of the categories the session is filed under (theseus-jrf4c),
+    /// as evidence for `route.v6`'s `persona` question, no new question; left
+    /// out when there are none, or when the question is not asked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<String>,
     #[serde(default)]
     pub current_role: Option<String>,
     /// The roles table, for `role.v1`'s options.
@@ -1496,6 +1501,7 @@ pub(crate) mod tests {
                     personas: Vec::new(),
                     speaker: None,
                     thread_now: None,
+                    categories: Vec::new(),
                     data_names: DataNames::default(),
                     onto: None,
                     current_role: Some(big.clone()),

@@ -114,6 +114,7 @@ impl TurnRunner {
                 activation: None,
                 threads,
                 persona: None,
+                category: None,
             };
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);

@@ -33,7 +33,7 @@ use crate::rpc::Core;
 
 pub mod decide;
 mod name;
-pub(super) mod stage;
+pub(crate) mod stage;
 
 pub use name::NAMES;
 
@@ -156,7 +156,7 @@ fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
             *at = (*at).max(m.as_of_ms);
         }
     }
-    let kinds: Vec<OntoKind> = o
+    let mut kinds: Vec<OntoKind> = o
         .kinds()
         .into_iter()
         .filter(|k| {
@@ -199,6 +199,12 @@ fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
             }
         })
         .collect();
+    // The thread has no project: Jev may attach one that exists. A project is
+    // the owner's to make, so only a listed one is offered and `new` files
+    // nothing (theseus-jrf4c).
+    if project.is_none() {
+        kinds.extend(project_kind(core, o));
+    }
     let table = o
         .kinds()
         .into_iter()
@@ -215,6 +221,31 @@ fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
         table,
         suggested: name::suggested(core, sid),
     }
+}
+
+/// The `project` question's kind: every open project, as a candidate. None
+/// when there is none, or the kind is not in the table.
+fn project_kind(core: &Core, o: &Ontology) -> Option<OntoKind> {
+    let k = o.kind("project").filter(|k| k.retired_ms.is_none())?;
+    let pool: Vec<OntoItem> = crate::task_graph::all(&core.store)
+        .ok()?
+        .into_iter()
+        .filter(|t| crate::project::is_project(t) && !t.state.is_closed())
+        .map(|t| OntoItem {
+            id: t.id,
+            name: t.title,
+            description: t.objective,
+            session: false,
+            thread: false,
+            used_ms: 0,
+        })
+        .collect();
+    (!pool.is_empty()).then(|| OntoKind {
+        kind: "project".into(),
+        meaning: meaning(&k.description, &k.examples),
+        pool,
+        mined_from: Vec::new(),
+    })
 }
 
 /// What a kind is for, with its examples when it has some.
@@ -241,6 +272,17 @@ pub(super) fn context(core: &Core, session: &str, input: &InboundInput) -> serde
             (p.kind.clone(), json!(ids))
         })
         .collect();
-    json!({"kinds": kinds, "names": o.names(&input.message, input.previous_human_message.as_deref()),
-           "described": name::described(core, session)})
+    // The projects a candidate id names, for the footer and the card.
+    let projects: serde_json::Map<String, serde_json::Value> = o
+        .pick(&input.message)
+        .iter()
+        .filter(|p| p.kind == "project")
+        .flat_map(|p| p.candidates.iter().map(|c| (c.id.clone(), json!(c.name))))
+        .collect();
+    let mut context = json!({"kinds": kinds, "names": o.names(&input.message, input.previous_human_message.as_deref()),
+           "described": name::described(core, session)});
+    if !projects.is_empty() {
+        context["projects"] = projects.into();
+    }
+    context
 }

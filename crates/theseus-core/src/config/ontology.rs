@@ -14,6 +14,9 @@
 //! - `request`: `"batch"` rides the inbound batch (`classify.v3`, `role.v1`);
 //!   `"own"` sends `onto.v1` in a request of its own that no turn waits on,
 //!   the fallback when the batch's latency grows.
+//! - `recall_boost`: how much a note from a session that shares a category
+//!   with the asking one gains in recall's rank (0.25; 0 is off), at most
+//!   this times the kind's weight, by reciprocal rank among the sharers.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -31,6 +34,8 @@ pub struct OntologyConfig {
     pub name_profile: String,
     #[serde(default)]
     pub request: Request,
+    #[serde(default = "default_recall_boost")]
+    pub recall_boost: f64,
 }
 
 /// Which request carries `onto.v1`.
@@ -53,6 +58,9 @@ fn default_act() -> f64 {
 fn default_confirm() -> f64 {
     0.55
 }
+fn default_recall_boost() -> f64 {
+    0.25
+}
 fn default_name_profile() -> String {
     "haiku".into()
 }
@@ -65,6 +73,7 @@ impl Default for OntologyConfig {
             confirm: default_confirm(),
             name_profile: default_name_profile(),
             request: Request::default(),
+            recall_boost: default_recall_boost(),
         }
     }
 }
@@ -80,6 +89,12 @@ impl OntologyConfig {
                 "[ontology] needs 0 < confirm <= act <= 1, not confirm {} and act {}",
                 self.confirm,
                 self.act
+            );
+        }
+        if !(0.0..=1.0).contains(&self.recall_boost) {
+            bail!(
+                "[ontology] recall_boost is a gain from 0 (off) to 1, not {}",
+                self.recall_boost
             );
         }
         if self.name_profile.trim().is_empty() {

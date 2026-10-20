@@ -49,6 +49,13 @@ pub enum Step {
         category: Option<CategoryId>,
         confidence: f64,
     },
+    /// The session was attached to a project, at the act band (theseus-jrf4c):
+    /// the plan's `attach`, which the sink applies after the frame.
+    Attached {
+        project: String,
+        title: String,
+        confidence: f64,
+    },
     /// `new` at the act band, and no mined name fits: the naming call.
     Unnamed { kind: String, confidence: f64 },
     /// The ontology refused, or the operator's entries won.
@@ -67,6 +74,7 @@ impl Step {
             | Step::Ask { kind, .. }
             | Step::Unnamed { kind, .. }
             | Step::Refused { kind, .. } => kind,
+            Step::Attached { .. } => "project",
         }
     }
 }
@@ -80,6 +88,10 @@ pub struct Plan {
     /// The records to write as Jev, categories before the lists that name
     /// them.
     pub records: Vec<Record>,
+    /// The project an unattached session is attached to (its id): not an
+    /// ontology record, a session's own field, which the sink sets only while
+    /// the session still has none.
+    pub attach: Option<String>,
 }
 
 impl Plan {
@@ -95,6 +107,7 @@ impl Plan {
             .steps
             .iter()
             .filter_map(|s| match s {
+                Step::Attached { title, .. } => Some(format!("project › {title}")),
                 Step::Filed {
                     kind, path, minted, ..
                 } => Some(format!(
@@ -158,6 +171,7 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
         judgment: j.id.clone(),
         steps: Vec::new(),
         records: Vec::new(),
+        attach: None,
     };
     let ctx = &j.context["onto"];
     let names = strings(&ctx["names"]);
@@ -169,6 +183,10 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
         let Some(candidates) = kinds.get(kind) else {
             continue;
         };
+        if kind == "project" {
+            project(&mut plan, j, ctx, &strings(candidates), bands);
+            continue;
+        }
         let candidates = strings(candidates);
         let Some((answer, confidence)) = choice(j, kind) else {
             continue;
@@ -207,6 +225,42 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
         }
     }
     plan
+}
+
+/// The `project` answer (theseus-jrf4c): a project is the owner's, made by
+/// `project.create`, so Jev only attaches an unattached session to one that is
+/// listed. From the act band the plan attaches it; from the confirm band it
+/// asks; `new` and `none` do nothing (no category is minted).
+fn project(plan: &mut Plan, j: &Judgment, ctx: &Value, candidates: &[String], bands: Bands) {
+    let Some((answer, confidence)) = choice(j, "project") else {
+        return;
+    };
+    if answer == "none" || answer == "new" || confidence < bands.confirm {
+        return;
+    }
+    let Some(id) = nth(candidates, &answer, 'c') else {
+        return;
+    };
+    let title = ctx["projects"][id].as_str().unwrap_or(id).to_string();
+    if confidence < bands.act {
+        plan.steps.push(Step::Ask {
+            kind: "project".into(),
+            text: format!(
+                "Attach this session to the project «{title}»? (nothing is attached until you do) \
+                 `theseus project attach {} {id}` does.",
+                plan.session
+            ),
+            category: None,
+            confidence,
+        });
+        return;
+    }
+    plan.attach = Some(id.clone());
+    plan.steps.push(Step::Attached {
+        project: id.clone(),
+        title,
+        confidence,
+    });
 }
 
 /// What a step reads: the judgment, the ontology, the plan so far.

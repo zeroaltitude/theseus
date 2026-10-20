@@ -321,6 +321,7 @@ async fn hits(core: &Arc<Core>, query: &str, sessions: Vec<String>) -> Result<Ve
         activation: None,
         threads: None,
         persona: None,
+        category: None,
     };
     let m = memory.manifest(
         &scene,

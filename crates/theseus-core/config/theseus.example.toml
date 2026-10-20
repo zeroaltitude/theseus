@@ -1334,6 +1334,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # confirm = 0.55                          # from this, you are asked
 # name_profile = "haiku"                  # names a new category when no mined name fits; once a session, kind and day
 # request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
+# recall_boost = 0.25                    # a note from a session sharing a category with this one gains up to this in recall's rank (0 off)
 
 # ---------------------------------------------------------------- import
 # The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that

@@ -30,6 +30,10 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
 - `recall.rs`'s `PersonaBoost` (theseus-a8n7), in `Params.persona`: while a persona is engaged, a candidate whose session
   the core read as an imported episode of the persona's own agent ranks `boost` (1.0 to 2.0) times its score; the
   filters see the index's score, so the boost reorders and admits nothing. Tests: `tests_persona.rs`.
+- `recall.rs`'s `CategoryBoost` (theseus-jrf4c), in `Params.category`: a candidate whose session shares a category with the
+  asker's is worth `1 + gain * weight * (K+1)/(K+rank)`, rank from 1 among the sharers by score (K 60, the fusion's),
+  `weight` the heaviest shared kind's (the core reads which). It runs after the place rule and every filter, so it
+  reorders and admits nothing. Tests: `tests_category.rs`.
 - `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
   order (only it may reach Jev); `reorder` re-sorts the top 20 by Jev's probabilities (an unanswered item keeps its
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order

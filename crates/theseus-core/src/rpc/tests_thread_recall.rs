@@ -147,6 +147,7 @@ pub(super) async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask)
         activation: None,
         threads: c.runner.thread_scene(Some(asker), message, true),
         persona: None,
+        category: None,
     };
     memory.manifest(
         &scene,
