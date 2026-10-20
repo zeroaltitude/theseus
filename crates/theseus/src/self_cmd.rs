@@ -69,6 +69,11 @@ pub enum SelfCmd {
         item: String,
         rank: u32,
     },
+    /// Queue a failed backlog item again: the owner's. The pipeline starts it on its next free slot.
+    Retry {
+        /// The item's id, or the end of it.
+        item: String,
+    },
     /// The self branches Theseus built: each one's tree, gate verdict and frozen report.
     Branches,
     /// The self-exams: counted items by family and half, and today's candidates with their
@@ -190,6 +195,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
         SelfCmd::Patterns { top } => patterns::run(conn, json, top).await,
         SelfCmd::Drop { item } => backlog::drop_item(conn, json, item).await,
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
+        SelfCmd::Retry { item } => backlog::retry_item(conn, json, item).await,
         SelfCmd::Branches => branches::run(conn, json).await,
         SelfCmd::Exams => exams::run(conn, json).await,
         SelfCmd::Narrow { cmd } => narrow::run(conn, json, cmd).await,

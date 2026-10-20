@@ -35,12 +35,21 @@ fn core_with(mode: SelfMode, starts: u32, max_open: u32) -> Arc<Core> {
     cfg.self_improve.backlog_starts = starts;
     cfg.self_improve.backlog_max_open = max_open;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
-    Core::build(Parts::for_tests(
+    // A started item opens a tree (theseus-qh2tt): the repo is a throwaway
+    // one, kept for the process (a few kilobytes in the temp dir).
+    let repo = crate::rsi::tests_tree::fixture();
+    cfg.self_improve.repo = Some(repo.place.repo.display().to_string());
+    std::mem::forget(repo);
+    let core = Core::build(Parts::for_tests(
         cfg,
         Arc::new(FakeProvider::default()),
         base.store.clone(),
     ))
-    .unwrap()
+    .unwrap();
+    core.tools
+        .self_pr
+        .set_env(crate::rsi::tests_tree::hermetic());
+    core
 }
 
 /// A core that acts, with the switch released.

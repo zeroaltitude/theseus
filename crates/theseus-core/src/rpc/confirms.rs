@@ -719,7 +719,7 @@ impl Core {
                 ..
             } => Err(format!(
                 "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
-                 reorders or drops the self backlog, from their own shell, the web UI, or their \
+                 reorders, drops or retries the self backlog, from their own shell, the web UI, or their \
                  own account on a bound transport"
             )),
             Act::SelfBacklog { from_job: None, .. } => {
@@ -994,8 +994,8 @@ pub(crate) enum Act<'a> {
     /// `places::owner_anywhere`), so a job's shell (`from_job`, the
     /// `THESEUS_SESSION` the CLI sends) never counts.
     SelfResume { from_job: Option<&'a str> },
-    /// The self backlog's drop or move (theseus-pw1q.7, `self.drop`,
-    /// `self.move`): the owner's word from any place, never a job's shell.
+    /// The self backlog's drop, move or retry (theseus-pw1q.7, `self.drop`,
+    /// `self.move`, `self.retry`): the owner's word from any place, never a job's shell.
     /// `what` names the item the owner typed.
     SelfBacklog {
         method: &'static str,

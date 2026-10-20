@@ -6,7 +6,8 @@
 //! starts and says so; a rejected review returns once, then parks; a halt
 //! stops every build at the next tick; a dropped build's trees are deleted;
 //! and, over self-join's throwaway repository, one join pass at a time and a
-//! joined item's tree deleted.
+//! joined item's tree deleted. Every start opens a real tree off a throwaway
+//! repository (theseus-qh2tt), so the rig's repo is one.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,6 +25,7 @@ use crate::fact::rsi_pr::SelfBranchBuilt;
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
 use crate::rsi::capacity::tests::Stand;
+use crate::rsi::tests_tree::{fixture, hermetic, Fixture};
 use crate::store::Store;
 use crate::{Config, Core};
 
@@ -31,8 +33,10 @@ const HOUR: u64 = 3_600_000;
 
 /// The backlog's own start, and no turn: what a build does is the test's.
 #[derive(Default)]
-struct Fake {
-    starts: Mutex<Vec<(String, Option<String>)>>,
+pub(super) struct Fake {
+    pub(super) starts: Mutex<Vec<(String, Option<String>)>>,
+    /// The first turn's input of each start.
+    pub(super) objectives: Mutex<Vec<String>>,
 }
 
 impl Builder for Fake {
@@ -53,27 +57,27 @@ impl Builder for Fake {
             .lock()
             .unwrap()
             .push((item.to_string(), findings.map(str::to_string)));
+        self.objectives.lock().unwrap().push(s.objective);
         Ok(Some(s.session_id))
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<Fake>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
+    pub(super) fake: Arc<Fake>,
     host: Arc<Stand>,
-    grace: Duration,
-    _dir: tempfile::TempDir,
+    pub(super) grace: Duration,
+    pub(super) f: Fixture,
 }
 
-fn rig_with(slots: u32, day_usd: f64) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
-    let state = dir.path().join("state");
-    let store = Store::open(&state.join("store")).unwrap();
+pub(super) fn rig_with(slots: u32, day_usd: f64) -> Rig {
+    let f = fixture();
+    let store = Store::open(&f.place.state.join("store")).unwrap();
     let mut cfg = Config::example();
-    cfg.server.state_dir = state.to_string_lossy().into_owned();
+    cfg.server.state_dir = f.place.state.to_string_lossy().into_owned();
     cfg.server.disk_warn_mb = 0;
     cfg.self_improve.mode = SelfMode::Act;
-    cfg.self_improve.repo = Some(dir.path().join("ship").to_string_lossy().into_owned());
+    cfg.self_improve.repo = Some(f.place.repo.to_string_lossy().into_owned());
     cfg.self_improve.backlog_starts = 0;
     cfg.self_improve.pipeline_builds = slots;
     cfg.self_improve.budget.day_usd = day_usd;
@@ -83,6 +87,7 @@ fn rig_with(slots: u32, day_usd: f64) -> Rig {
         store,
     ))
     .unwrap();
+    core.tools.self_pr.set_env(hermetic());
     core.self_resume(&SelfResumeParams::default(), &Answerer::from("the CLI"))
         .unwrap();
     // Three causes, three items, filed and ranked by a night.
@@ -112,12 +117,12 @@ fn rig_with(slots: u32, day_usd: f64) -> Rig {
         fake: Arc::default(),
         host: Arc::default(),
         grace: Duration::from_secs(3600),
-        _dir: dir,
+        f,
     }
 }
 
 impl Rig {
-    fn seams(&self) -> Seams {
+    pub(super) fn seams(&self) -> Seams {
         Seams {
             builder: self.fake.clone(),
             probe: self.host.clone(),
@@ -126,11 +131,11 @@ impl Rig {
         }
     }
 
-    async fn tick(&self) -> Tick {
+    pub(super) async fn tick(&self) -> Tick {
         self.core.pipeline_tick(&self.seams()).await.unwrap()
     }
 
-    fn rows(&self, kind: &str) -> Vec<Value> {
+    pub(super) fn rows(&self, kind: &str) -> Vec<Value> {
         self.core
             .store
             .ledger_tail::<LedgerRow>(10_000)
@@ -141,7 +146,7 @@ impl Rig {
             .collect()
     }
 
-    fn state(&self, item: &str) -> TaskState {
+    pub(super) fn state(&self, item: &str) -> TaskState {
         crate::task_graph::get(&self.core.store, item)
             .unwrap()
             .unwrap()
@@ -164,6 +169,10 @@ impl Rig {
             why: "Trim the sails.",
             numbers: Value::Null,
         });
+        // A green branch closes its tree, as `self.propose_change` does.
+        if let Some(t) = crate::rsi::tree::find(&self.f.place, item) {
+            crate::rsi::tree::close(&self.f.place, &t).unwrap();
+        }
         (branch, head)
     }
 

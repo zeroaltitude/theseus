@@ -13,6 +13,7 @@ use super::{gate, Gate, Night, Started, Work, PRINCIPAL};
 use crate::fact::rsi_backlog::{BacklogStarted, Spoken};
 use crate::rpc::Core;
 use crate::rsi::mint::kind::Choice;
+use crate::rsi::tree;
 use theseus_protocol::rsi::SelfMode;
 
 /// The evidence entry that names a started item's execution.
@@ -29,7 +30,34 @@ pub(crate) enum Settled {
     Back(String),
 }
 
+/// A fix item that did not start because its tree could not be opened (the
+/// pipeline holds the next start and says why; theseus-qh2tt).
+#[derive(Debug)]
+pub(crate) struct NoTree(pub String);
+
+impl std::fmt::Display for NoTree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NoTree {}
+
 impl Core {
+    /// The item's tree, open before its first turn (theseus-qh2tt): the one
+    /// open already (a halted build's), else a new one, as
+    /// `self.propose_change` opens it. Blocking: git and the disk.
+    fn self_tree_open(&self, item: &str, now_ms: u64) -> Result<tree::Tree> {
+        let repo = self.cfg.self_improve.repo.clone().ok_or_else(|| {
+            anyhow::anyhow!("[self] repo is unset, so there is no tree to build in")
+        })?;
+        let place = self.tools.self_pr.place(&repo);
+        match tree::find(&place, item) {
+            Some(t) => Ok(t),
+            None => tree::open(&place, item, now_ms),
+        }
+    }
+
     /// Close the started items whose executions ended: `done` when it
     /// completed, else `failed`.
     pub(super) fn backlog_sweep(&self, w: &mut Work) {
@@ -81,7 +109,10 @@ impl Core {
         let mut w = self.backlog_work()?;
         let mut night = Night::default();
         self.backlog_start(&mut w, 1, &mut night, Some(id))?;
-        Ok(night.started.pop())
+        match night.held.pop() {
+            Some((_, why)) => Err(NoTree(why).into()),
+            None => Ok(night.started.pop()),
+        }
     }
 
     /// Start up to `n` of the top unmarked items (or `only` that one), one
@@ -111,9 +142,20 @@ impl Core {
             let Some(title) = w.tasks.get(&id).map(|t| t.title.clone()) else {
                 continue;
             };
+            // Its tree first, so the session works in it from its first turn.
+            let tree = match self.self_tree_open(&id, w.now) {
+                Ok(t) => t,
+                Err(e) => {
+                    let why = format!("the tree for {id} could not be opened: {e:#}");
+                    tracing::warn!(item = %id, %why, "self backlog: not started");
+                    night.held.push((id, why));
+                    continue;
+                }
+            };
             let rec = self.open_session_as(
                 SessionOpenParams {
                     label: Some(format!("self: {title}")),
+                    dir: Some(tree.dir.to_string_lossy().into_owned()),
                     ..SessionOpenParams::default()
                 },
                 theseus_kernel::Authority {
@@ -142,7 +184,12 @@ impl Core {
                     at_ms: w.now,
                 });
             }
-            let objective = t.objective.clone();
+            let objective = format!(
+                "{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.",
+                t.objective,
+                tree.dir.display(),
+                tree.branch
+            );
             if let Some(m) = w.st.items.get_mut(&id) {
                 m.rank = 0;
             }

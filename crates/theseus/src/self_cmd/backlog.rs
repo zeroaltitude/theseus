@@ -1,14 +1,14 @@
-//! `theseus self backlog | drop | move` (theseus-pw1q.7): Theseus's own
-//! ranked backlog, and the owner's word on it. `drop` and `move` are the
-//! owner's: inside a job the CLI refuses them (`OPERATORS`), and the daemon
-//! refuses a non-owner and ledgers the refusal.
+//! `theseus self backlog | drop | move | retry` (theseus-pw1q.7): Theseus's own
+//! ranked backlog, and the owner's word on it. `drop`, `move` and `retry` are
+//! the owner's: inside a job the CLI refuses them (`OPERATORS`), and the
+//! daemon refuses a non-owner and ledgers the refusal.
 
 use anyhow::Result;
 use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult, SelfMoveParams,
-    SelfMoveResult,
+    SelfMoveResult, SelfRetryParams, SelfRetryResult,
 };
 
 use crate::cmd::output;
@@ -66,6 +66,24 @@ pub async fn move_item(conn: &mut Conn, json: bool, item: String, rank: u32) -> 
         println!(
             "Moved {} ({}) from rank {} to rank {}; it keeps that rank until moved again.",
             r.item, r.title, r.was, r.rank
+        );
+        Ok(())
+    })
+}
+
+pub async fn retry_item(conn: &mut Conn, json: bool, item: String) -> Result<()> {
+    let p = SelfRetryParams {
+        item,
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_RETRY, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfRetryResult| {
+        println!(
+            "Retrying {} ({}): it is ready again at rank {}, and the pipeline starts it on its next free slot.",
+            r.item, r.title, r.rank
         );
         Ok(())
     })

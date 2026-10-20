@@ -66,7 +66,7 @@ impl Core {
             out.building_index = true;
             return Ok(out);
         };
-        let (room, hold) = self.pipeline_hold(&seams, &place, q.building.len());
+        let (room, hold) = self.pipeline_hold(&seams, &place, q.building.len(), &q.ready);
         out.room = SelfPipelineRoom {
             slots: room.slots as u32,
             building: room.building as u32,
