@@ -240,7 +240,15 @@ fn an_agents_cli_answer_to_an_ordinary_approval_runs_and_is_labelled_as_the_agen
     let rows = r.ledger("action.confirm_answered");
     assert_eq!(rows[0]["by"], "agent:no terminal", "{rows:?}");
     assert!(r.ledger("approval.refused").is_empty());
-    let written = std::fs::read_to_string(r.s.path("projects/written.txt"));
+    // `--no-wait` returns once the answer is recorded; the resumed turn writes the file after it.
+    let path = r.s.path("projects/written.txt");
+    let t0 = std::time::Instant::now();
+    while !std::fs::read_to_string(&path).is_ok_and(|s| !s.is_empty())
+        && t0.elapsed() < std::time::Duration::from_secs(30)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let written = std::fs::read_to_string(&path);
     assert_eq!(written.as_deref().ok(), Some("approved\n"), "{}", r.s.log());
     let said = r.answered();
     assert!(
