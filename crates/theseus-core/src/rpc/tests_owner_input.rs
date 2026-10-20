@@ -17,6 +17,7 @@ fn who(surface: Surface, user: u64, channel: Option<u64>, named: bool) -> Answer
             channel_id: channel.unwrap_or(user + 1).to_string(),
             guild_id: channel.map(|_| "900000000000000001".to_string()),
         }),
+        agent: None,
     }
 }
 

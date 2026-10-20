@@ -21,6 +21,7 @@ fn owner() -> theseus_core::approval::Answerer {
         label: "cli".into(),
         surface: theseus_core::approval::Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 

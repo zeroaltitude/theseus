@@ -24,6 +24,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 

@@ -37,6 +37,7 @@ fn notice(position: u64) -> Notice {
         question: None,
         retracts: None,
         answers: vec![],
+        by: None,
         position,
         at_ms: position,
     }

@@ -286,6 +286,29 @@ impl Rig {
         self.cli_in(args, "")
     }
 
+    /// `theseus` as the owner's own terminal runs it (theseus-5rvss): the daemon labels an answer
+    /// from a process with no controlling terminal as an agent's, and these answers are the
+    /// owner's. Its output is the terminal's one stream.
+    fn cli_on_a_terminal(&self, args: &[&str]) -> (i32, String, String) {
+        let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+        let mut argv = vec![
+            bin.display().to_string(),
+            "--socket".into(),
+            self.s.path("sock").display().to_string(),
+        ];
+        argv.extend(args.iter().map(|a| a.to_string()));
+        let xdg = self.s.path("xdg-state").display().to_string();
+        let (code, out) = common::terminal::on_a_terminal(
+            &argv,
+            &[
+                ("XDG_STATE_HOME", &xdg),
+                ("COLUMNS", "200"),
+                ("NO_COLOR", "1"),
+            ],
+        );
+        (code, out, String::new())
+    }
+
     fn cli_in(&self, args: &[&str], stdin: &str) -> (i32, String, String) {
         let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
         let mut child = Command::new(bin)
@@ -634,7 +657,7 @@ impl Journey {
     fn answer_and_join(&mut self) {
         let r = &self.r;
         let qid = r.answer_id(&self.quay).unwrap();
-        let (code, out, err) = r.cli(&["answer", &qid, "2", "--no-wait"]);
+        let (code, out, err) = r.cli_on_a_terminal(&["answer", &qid, "2", "--no-wait"]);
         assert_eq!(code, 0, "step 4: theseus answer: {out}{err}");
         let card = within("the card to show the CLI's answer", 1000, || {
             r.latest("Which pace")
@@ -953,7 +976,7 @@ fn finish_the_gulls(r: &Rig) {
         r.answer_id(&gulls).is_some()
     });
     let id = r.answer_id(&gulls).unwrap();
-    r.cli(&["answer", &id, "2", "--no-wait"]);
+    r.cli_on_a_terminal(&["answer", &id, "2", "--no-wait"]);
     within("the gulls task ended", 20_000, || {
         r.task(GULLS).is_some_and(|t| t["state"] == "complete")
     });
@@ -1002,7 +1025,7 @@ fn the_progress_line_is_on_the_board_row_and_in_tasks() {
     // A row of a task that asks is its question (the board's Needs you, the CLI's `asks: …`);
     // once answered, the task works, and its rows carry the line.
     let qid = r.answer_id(&quay).unwrap();
-    r.cli(&["answer", &qid, "2", "--no-wait"]);
+    r.cli_on_a_terminal(&["answer", &qid, "2", "--no-wait"]);
     // The row, not its section's heading, carries the line (the join's wait looked for the cost
     // in the heading, which never has it).
     within("the line on the board's working row", 8000, || {
@@ -1048,7 +1071,7 @@ fn the_report_links_the_tasks_post() {
     });
     let post = r.post(&quay).unwrap();
     let qid = r.answer_id(&quay).unwrap();
-    r.cli(&["answer", &qid, "2", "--no-wait"]);
+    r.cli_on_a_terminal(&["answer", &qid, "2", "--no-wait"]);
     r.open_gate("join");
     within("the report", 30_000, || {
         r.latest(&format!("Task `{quay}` finished")).is_some()

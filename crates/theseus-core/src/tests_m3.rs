@@ -1649,6 +1649,10 @@ mod mcp_surface;
 /// `work.answer` (theseus-ds5os).
 mod answer;
 
+/// An agent's answer is labelled as the agent's, and money and AWS are the
+/// owner's own (theseus-5rvss).
+mod agent_answers;
+
 /// `owner_ask` and the always-on channel (theseus-j7cje).
 mod ask;
 

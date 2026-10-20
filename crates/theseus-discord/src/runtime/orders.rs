@@ -370,6 +370,7 @@ mod tests {
             label: "the CLI".into(),
             surface: theseus_core::approval::Surface::Cli,
             discord: None,
+            agent: None,
         }
     }
 

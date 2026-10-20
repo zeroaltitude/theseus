@@ -86,6 +86,13 @@ impl Surface {
 pub struct Client {
     pub label: String,
     pub surface: Surface,
+    /// The process at the other end, when the listener could tell
+    /// (`SO_PEERCRED`; `--stdio`'s parent): who is behind its answers
+    /// (`peer_proc`, theseus-5rvss). None reads as the owner's own.
+    pub pid: Option<u32>,
+    /// A test's word for who is behind the connection, in place of a process.
+    #[cfg(test)]
+    pub behind: Option<crate::peer_proc::Behind>,
 }
 
 impl Client {
@@ -93,6 +100,22 @@ impl Client {
         Self {
             label: label.into(),
             surface,
+            pid: None,
+            #[cfg(test)]
+            behind: None,
+        }
+    }
+
+    pub fn with_pid(self, pid: Option<u32>) -> Self {
+        Self { pid, ..self }
+    }
+
+    /// A connection whose peer a test says is `behind`.
+    #[cfg(test)]
+    pub fn behind(self, behind: crate::peer_proc::Behind) -> Self {
+        Self {
+            behind: Some(behind),
+            ..self
         }
     }
 }
@@ -119,6 +142,10 @@ pub struct Answerer {
     pub surface: Surface,
     /// What the Discord binding read off the button press.
     pub discord: Option<DiscordOrigin>,
+    /// The agent behind a CLI answer from an agent's process (`peer_proc`,
+    /// theseus-5rvss): its name, which is also in `label` as `agent:<name>`.
+    /// None is the owner's own, or a surface with no process to read.
+    pub agent: Option<String>,
 }
 
 /// A bare label, a test's, answers as the CLI on this machine does. Tests
@@ -131,6 +158,7 @@ impl From<&str> for Answerer {
             label: label.to_string(),
             surface: Surface::Cli,
             discord: None,
+            agent: None,
         }
     }
 }
@@ -179,6 +207,27 @@ impl Answerer {
             _ => None,
         }
     }
+}
+
+/// The AWS tools that only read what AWS already holds and cost nothing per
+/// request (their plans are not `cost_bearing`): an agent may answer them.
+const AWS_READS: [&str; 6] = [
+    "aws.describe",
+    "aws.whoami",
+    "aws.s3.list",
+    "aws.s3.get",
+    "aws.logs.tail",
+    "aws.trail",
+];
+
+/// Whether answering a question about `tool` spends money or changes AWS
+/// (theseus-5rvss): the budget question and the spend reset it answers, and
+/// every AWS tool but the free reads: the stack tools, `aws.call` (which
+/// asks only when it writes, runs, or is guarded), an S3 put, the hands, and
+/// the cost-bearing reads (`aws.cost`, `aws.inventory`, `aws.logs.query`).
+/// Only the owner answers these, never an agent on the CLI.
+pub(crate) fn owners_alone(tool: &str) -> bool {
+    tool == theseus_kernel::BUDGET_TOOL || (tool.starts_with("aws.") && !AWS_READS.contains(&tool))
 }
 
 /// Where a Discord card says an approval can also be answered: the owner's
@@ -261,6 +310,7 @@ mod tests {
             label: "x".into(),
             surface,
             discord,
+            agent: None,
         }
     }
 

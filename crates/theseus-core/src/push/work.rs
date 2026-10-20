@@ -77,6 +77,8 @@ const ROWS: &[&str] = &[
     "tool.job_started",
     "tool.confirm_requested",
     "action.confirmed",
+    // Who answered, when an agent did (theseus-5rvss): the kernel's own row names the operator.
+    "action.confirm_answered",
     "action.declined",
     "action.denied",
     "action.expired",
@@ -596,6 +598,7 @@ impl WorkBoard {
                 | "action.declined"
                 | "action.denied"
                 | "action.expired"
+                | "action.confirm_answered"
                 | "action.confirmed" => {
                     let Some(corr) = s("correlation_id") else {
                         continue;
@@ -659,6 +662,17 @@ impl WorkBoard {
                 ai.answer = Some(("declined".into(), by));
             }
             "action.expired" => ai.answer = Some(("expired".into(), None)),
+            // Only an agent's answer changes what the kernel's row said, so
+            // an owner's answer reads as it always did.
+            "action.confirm_answered" => {
+                if let Some(by) = s("by").filter(|b| theseus_protocol::agent_of(b).is_some()) {
+                    let outcome = match r.data["approved"].as_bool() {
+                        Some(false) => "declined",
+                        _ => "approved",
+                    };
+                    ai.answer = Some((outcome.into(), Some(format!("by {by}"))));
+                }
+            }
             _ => {
                 let by = s("by").map(|b| format!("by {b}"));
                 ai.answer = Some(("approved".into(), by));

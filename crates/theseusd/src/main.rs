@@ -610,9 +610,12 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         let (stdin, stdout) = stdio::pipes()?.into_split();
         // The one client is whoever holds the pipes: the parent that spawned
         // this daemon.
-        let conn = core
-            .clone()
-            .serve_connection(stdin, stdout, Client::new("stdio", Surface::Cli));
+        let parent = Some(std::os::unix::process::parent_id());
+        let conn = core.clone().serve_connection(
+            stdin,
+            stdout,
+            Client::new("stdio", Surface::Cli).with_pid(parent),
+        );
         let served = tokio::select! {
             r = conn => r,
             () = &mut stop => {
@@ -1305,8 +1308,10 @@ fn serve_client(
     tracing::info!(client = %client, pid = ?pid, "client connected");
     tokio::spawn(async move {
         let _held = held;
-        // The socket is mode 0600: whoever connects is the CLI.
-        let cli = Client::new(client.clone(), Surface::Cli);
+        // The socket is mode 0600: whoever connects is the CLI; the core reads
+        // the process behind it when an answer asks (theseus-5rvss).
+        let cli = Client::new(client.clone(), Surface::Cli)
+            .with_pid(pid.and_then(|p| u32::try_from(p).ok()));
         if let Err(e) = core.serve_connection(r, w, cli).await {
             tracing::warn!(client = %client, error = %e, "connection ended with error");
         } else {

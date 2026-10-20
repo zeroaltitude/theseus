@@ -747,6 +747,18 @@ impl Core {
             Act::SelfRevert { from_job: None, .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // Money and AWS are the owner's own (theseus-5rvss): an agent's
+            // answer on the CLI to a question that spends or changes either
+            // is refused, and the question keeps waiting.
+            Act::Answer { action, .. }
+                if who.agent.is_some() && crate::approval::owners_alone(&action.tool) =>
+            {
+                Err(
+                    "this spends money or changes AWS, so only the owner answers it: press it in \
+                     the DM, or answer from your own terminal"
+                        .to_string(),
+                )
+            }
             _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
         let Err(why) = verdict else {

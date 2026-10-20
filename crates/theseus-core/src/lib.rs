@@ -86,6 +86,7 @@ pub mod pacer;
 pub mod pack_names;
 pub mod parked;
 pub mod peer;
+pub mod peer_proc;
 pub mod persona;
 pub mod persona_import;
 pub mod persona_recall;

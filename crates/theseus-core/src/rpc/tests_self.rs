@@ -49,6 +49,7 @@ fn discord(user: u64, channel: Option<u64>) -> Answerer {
             channel_id: channel.unwrap_or(user + 1).to_string(),
             guild_id: channel.map(|_| "900000000000000001".to_string()),
         }),
+        agent: None,
     }
 }
 
@@ -160,6 +161,7 @@ fn only_the_owners_resume_counts_from_any_place_and_each_refusal_is_ledgered() {
         label: "someone".into(),
         surface,
         discord,
+        agent: None,
     };
     let refused = [
         (cli(), Some("ses_0000aa1b2c3"), "job's shell"),

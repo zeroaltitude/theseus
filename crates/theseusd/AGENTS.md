@@ -144,8 +144,11 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 
 - A test script's wait loop must end when its temp dir is gone, or a failing test leaves it looping on a deleted
   file.
-- A daemon test's live peer is traced through `/proc`: run inside a job, an approval it sends is refused. Such tests
-  skip that part inside a job, and say so on stderr.
+- A daemon test's CLI answer is read from `/proc` (theseus-5rvss): with no controlling terminal, or under a program
+  `[policy] agent_processes` lists, it is an agent's, labelled `agent:<name>`, and a spend limit's or an AWS question's
+  answer from it is refused. A test that answers as the owner gives the CLI a pty (`tests/agent_answers.rs`' `os.forkpty`
+  stand-in) and lists a program of its own (`example-agent`), so where the tests run decides nothing; one that needs an
+  agent's runs `setsid`.
 - A `--stdio` daemon's pipes are copied by two plain threads to and from a socket pair (`src/stdio.rs`,
   theseus-xbtr), never read by tokio's stdin: that read sits on the runtime's blocking pool until the client closes
   its end, so the runtime could only be shut down with a bound, and a task still holding the core past it left the

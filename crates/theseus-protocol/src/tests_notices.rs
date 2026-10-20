@@ -381,6 +381,43 @@ fn row_6_an_answer_is_quiet_and_retracts_the_ping() {
     );
 }
 
+/// Row 6, when an agent answered (theseus-5rvss): the board says so, and the
+/// notice carries the agent for the digest.
+#[test]
+fn row_6_an_agents_answer_says_so_and_names_the_agent() {
+    let q = ask("cor_1", AT, AT + 10 * MIN);
+    let waiting = asking(task("Beta summary", WorkState::Running, AT), q.clone());
+    let open = WorkView {
+        id: "act_cor1".into(),
+        kind: WorkKind::Question,
+        title: q.prompt,
+        ..waiting
+    };
+    let mut done = WorkView {
+        state: WorkState::Done,
+        at_ms: AT + MIN,
+        ..open.clone()
+    };
+    done.report = Some(WorkReport {
+        outcome: "approved".into(),
+        first_line: None,
+        reason: Some("by agent:claude".into()),
+    });
+    let n = run(Some(&open), &done);
+    assert_eq!(
+        said(&n),
+        (
+            Urgency::Quiet,
+            Why::Answered,
+            "✓ approved by an agent (claude): Beta summary"
+        )
+    );
+    assert_eq!(n.unwrap().by.as_deref(), Some("claude"));
+    // The owner's answer names no agent.
+    done.report.as_mut().unwrap().reason = Some("by you (CLI)".into());
+    assert_eq!(run(Some(&open), &done).unwrap().by, None);
+}
+
 /// Row 7: a question expires unanswered: Inform, and it retracts.
 #[test]
 fn row_7_an_expired_question_informs() {
@@ -632,6 +669,7 @@ fn delivery_follows_its_table() {
         question: Some("cor_1".into()),
         retracts: None,
         answers: vec![],
+        by: None,
         position: 50,
         at_ms: AT,
     };

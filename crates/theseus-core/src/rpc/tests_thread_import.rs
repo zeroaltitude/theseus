@@ -57,6 +57,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 
@@ -493,6 +494,7 @@ async fn the_import_is_the_owners_and_needs_threads_on() {
             channel_id: "42".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     assert!(r.core.thread_import(&params(None), stranger).await.is_err());
     let off = rig(vec![], |c| c.threads.enabled = false);

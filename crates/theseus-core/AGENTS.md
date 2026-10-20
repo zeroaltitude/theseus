@@ -599,7 +599,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
   (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
   `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
-  secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
+  secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
   (`web::net::PrivateAddresses`, `Web.private`). Plus the harness's own tools,
@@ -838,7 +838,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   client's: the daemon keeps no position per surface, and writes no frame. The place rule is `work.watch`'s: a
   connection that reads no private text names its roots and is told of a shared place's alone, scrubbed and unable to
   answer; the in-process Discord binding may also name a private place (its DM), and only what lies under the roots it
-  names. `roots: [task]` is that task's own timeline. Tests: `tests_work_digest.rs` (a child of `tests_work.rs`: the
+  names. `roots: [task]` is that task's own timeline. A question an agent answered says so (theseus-5rvss): `DigestLine.by`, from the ledger row's `by` (`agent:<name>`) or the ring's `Notice.by`, words it "✓ answered by an agent (claude): …" and counts it apart (`1 answered by you, 3 answered by an agent`), never folded with the owner's; a line with no `by` is the owner's. Tests: `tests_work_digest.rs` (a child of `tests_work.rs`: the
   scenario told from both sources, a window past the ring's start, a task's timeline, the place rule).
 - **Session states** (theseus-emqx): live, quiet or retired, derived when read (`theseus_protocol::sessions::derive`,
   `SessionRecord::state_at`; `session_info` gives every list its state, busy reading live whatever its age), never
@@ -2687,6 +2687,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `places::owner_in_private`. A shared place's cards go to the owner's DM. `[approval]` is retired: a config that
   has it loads with a warning, and nothing reads it. A test's bare label answers as the CLI (`From<&str> for
   Answerer` is test-only).
+  **An agent's answer is its own, and money and AWS are the owner's** (theseus-5rvss; `peer_proc.rs`, `[policy]
+  agent_processes`, default `claude`, `codex`, `gemini`, `aider`, `opencode`, `openclaw`): the socket's mode 0600 makes
+  every process of the owner's user the CLI, an agent the owner runs included, so the daemon reads the peer from `/proc`
+  when an act asks (`SO_PEERCRED`'s pid, or `--stdio`'s parent; `Conn::answerer`, once a connection, `Peer`): a process
+  with a controlling terminal and no listed program above it is the owner's own; no terminal, or a listed program on its
+  parent chain (the nearest names it), is an agent's, as `agent:<name>` or `agent:no terminal`. That is `Answerer.agent`
+  and its `label`, so every `by` (the `action.confirm_answered` row, the settle's `by agent:<name>`, the narrative) says
+  it, and `Notice.by` and `DigestLine.by` carry the name: "you answered" is the owner's own, "answered by an agent
+  (claude)" an agent's, and a row with no `agent:` reads as the owner's (no stored field, no format bump). A question
+  whose answer spends money or changes AWS (`approval::owners_alone`: the budget question and its reset, and every `aws.*`
+  tool but the free reads) refuses an agent's answer, either way, in `judge_act` as `approval.refused` ("this spends money
+  or changes AWS, so only the owner answers it: press it in the DM, or answer from your own terminal"), and stays open.
+  The owner's terminal, the web UI and the owner's Discord press answer it as before. A light guard, like the job
+  marker: an agent that hides its ancestry behind a pty reads as the owner's; L1 and the DM's card are the boundary. A
+  test's connection says who is behind it with `Client::behind`. Tests: `tests_m3/agent_answers.rs`, `peer_proc::tests`,
+  theseusd's `tests/agent_answers.rs`.
 - **A result that is outside text writes its session's hold in its own frame** (theseus-9bp): `external::with_hold`
   for a result written alone, and `external::under_hold` for a frame that may carry one (a late result, the cancel's
   sweep), which is built first without the session's lock and again under it only when it does. A job of a program

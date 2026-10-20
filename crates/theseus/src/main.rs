@@ -433,7 +433,9 @@ enum Cmd {
     /// waits.
     ///
     /// The turn an answer resumes is followed to its end (`--no-wait` returns once the answer is
-    /// recorded). Approving a spend limit resets its spend to $0.
+    /// recorded). Approving a spend limit resets its spend to $0. A question that spends money or
+    /// changes AWS is the owner's own: an agent's `theseus answer` (no terminal, or run under an
+    /// agent) is refused, and the question waits for the DM's card or your own terminal.
     #[command(display_order = 8)]
     Answer(answer::AnswerArgs),
     /// The toollets: class, backend, what policy does with each, and calls so far.

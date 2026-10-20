@@ -105,6 +105,12 @@ pub fn safe_note(theseusd: &Path, projects: &Path, spend_limit_usd: f64) -> Stri
     for n in names {
         secrets.insert(n.clone(), format!("op://Test/{n}/credential").into());
     }
+    // The agent hosts a CLI answer is read against (theseus-5rvss): the test's
+    // own, so where the tests run (under an agent's shell, say) decides nothing.
+    table(&mut t, "policy").insert(
+        "agent_processes".into(),
+        toml::Value::Array(vec!["example-agent".into()]),
+    );
     table(&mut t, "discord").insert("enabled".into(), false.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "index").insert("enabled".into(), false.into());
@@ -245,3 +251,4 @@ pub use fixture::Fixture;
 pub mod model;
 pub mod rpc;
 pub mod stdio;
+pub mod terminal;

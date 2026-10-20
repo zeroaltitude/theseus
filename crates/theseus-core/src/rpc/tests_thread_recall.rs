@@ -29,6 +29,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 
@@ -458,6 +459,7 @@ async fn an_unseal_is_refused_from_a_shared_place() {
             channel_id: "42".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     let params = ThreadSealParams {
         slug: "embargo".into(),

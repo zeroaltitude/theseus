@@ -73,6 +73,8 @@ pub(crate) struct Raw {
     pub root: String,
     /// For a task that reported: the first line of its report.
     pub report: Option<String>,
+    /// For a question an agent answered: the agent (theseus-5rvss).
+    pub by: Option<String>,
 }
 
 impl Core {
@@ -214,7 +216,10 @@ impl Core {
                     .entry(r.root.clone())
                     .or_insert_with(|| self.root_ref(&r.root, &read, scope, scrubber))
                     .clone();
-                (digest_line_with(r.kind, r.at_ms, r.work, r.report), root)
+                (
+                    digest_line_with(r.kind, r.at_ms, r.work, r.report, r.by),
+                    root,
+                )
             })
             .collect();
         let lines: Vec<DigestLine> = fold_digest(entries);
@@ -498,6 +503,7 @@ impl Core {
             },
             root,
             report: None,
+            by: None,
         })
     }
 
@@ -507,6 +513,7 @@ impl Core {
         if d.s("by").is_none_or(|b| b == super::confirms::EXPIRY) {
             return None;
         }
+        let by = d.s("by").and_then(theseus_protocol::agent_of);
         let id = d.s("correlation_id")?;
         let action = self.kernel.action(id).ok().flatten()?;
         let exec = self.kernel.execution(&action.execution_id).ok().flatten()?;
@@ -521,6 +528,7 @@ impl Core {
             },
             root: self.root_exec(exec),
             report: None,
+            by: by.map(str::to_string),
         })
     }
 
@@ -543,6 +551,7 @@ impl Core {
             },
             root: exec.id,
             report: None,
+            by: None,
         })
     }
 
@@ -572,6 +581,7 @@ impl Core {
             },
             root: self.root_exec(exec),
             report: None,
+            by: None,
         })
     }
 
@@ -594,6 +604,7 @@ impl Core {
             },
             root: self.root_exec(exec),
             report: None,
+            by: None,
         })
     }
 }
@@ -651,6 +662,7 @@ fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
             work: n.work.clone(),
             root: n.root.id.clone(),
             report: None,
+            by: n.by.clone(),
         });
     }
     for v in &read.cancelled {
@@ -660,6 +672,7 @@ fn ring_raws(read: &WorkDigestRead) -> Vec<Raw> {
             work: v.work_ref(),
             root: v.root.clone(),
             report: None,
+            by: None,
         });
     }
     out

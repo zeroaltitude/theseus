@@ -215,7 +215,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `query`, `id` and `limit`, and `TaskListResult.details` (`TaskDetail`: the report's first line, whole report and hold),
   absent from the bytes when no filter is set. `work_digest.rs`: a reported task's `DigestLine` carries its `report` and is
   never folded without its title (`NAMED_MAX` told, the rest named together); `WorkDigestResult.more` (`DigestMore`) says where a
-  ledger read stopped.
+  ledger read stopped. `DigestLine.by` and `Notice.by` (theseus-5rvss) name the agent that answered a question (`claude`, `no terminal`; absent is the owner's own, and every older line): `agent_by`/`agent_of` make and read the ledger's `by` (`agent:<name>`), `by_words` says it in a sentence, `digest_words` words "✓ answered by an agent (claude): …" and `fold_digest` and `digest_summary` keep an agent's answers apart from the owner's.
 - `ts.rs`: the TypeScript export.
 
 ## The CLI's spellings and the wire (theseus-rwpbg.10)

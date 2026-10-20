@@ -613,6 +613,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
             channel_id: "1001".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     let e = c.judge_replay(params(&report), stranger).await.unwrap_err();
     assert!(

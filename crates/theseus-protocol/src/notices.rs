@@ -22,6 +22,7 @@ use crate::initiative::{Initiative, Proactive};
 use crate::usd;
 use crate::wakes::{reminder_answers, WakeAnswer, WakeNoticed};
 use crate::work::{DoingKind, Question, QuestionKind, WorkKind, WorkRef, WorkState, WorkView};
+use crate::work_digest::agent_of;
 
 mod burst;
 pub use burst::Burst;
@@ -90,6 +91,11 @@ pub struct Notice {
     /// `work.answer` routes every answer. None for the rest.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<WakeAnswer>,
+    /// For a question an agent answered (theseus-5rvss): the agent, as the
+    /// digest names it (`claude`, `no terminal`). None is the owner's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub by: Option<String>,
     pub position: u64,
     pub at_ms: u64,
 }
@@ -323,6 +329,7 @@ pub fn policy(
         question: said.question,
         retracts: c.gone.map(|q| q.id.clone()),
         answers,
+        by: said.by,
         position: next.position,
         at_ms: next.at_ms,
     })
@@ -361,6 +368,7 @@ struct Said {
     why: Why,
     line: String,
     question: Option<String>,
+    by: Option<String>,
 }
 
 fn said(urgency: Urgency, why: Why, line: String, question: Option<&Question>) -> Option<Said> {
@@ -369,6 +377,7 @@ fn said(urgency: Urgency, why: Why, line: String, question: Option<&Question>) -
         why,
         line,
         question: question.map(|q| q.id.clone()),
+        by: None,
     })
 }
 
@@ -639,6 +648,7 @@ pub fn reminder_notice(n: &WakeNoticed, hm: &dyn Fn(u64) -> String) -> Notice {
         line,
         question: None,
         retracts: None,
+        by: None,
         answers: if remind {
             reminder_answers()
         } else if routine {
@@ -707,14 +717,21 @@ fn answered(c: &Change) -> Option<Said> {
         .report
         .as_ref()
         .filter(|_| next.kind == WorkKind::Question);
-    let line = match report {
-        Some(r) => match r.reason.as_deref() {
+    // An agent's answer says so (theseus-5rvss): the settle's `by` is `by agent:<name>`.
+    let agent = report
+        .and_then(|r| r.reason.as_deref())
+        .and_then(|by| agent_of(by.strip_prefix("by ")?));
+    let line = match (report, agent) {
+        (Some(r), Some(a)) => format!("✓ {} by an agent ({a}): {who}", r.outcome),
+        (Some(r), None) => match r.reason.as_deref() {
             Some(by) => format!("✓ {} {by}: {who}", r.outcome),
             None => format!("✓ {}: {who}", r.outcome),
         },
-        None => format!("✓ answered: {}", q.subject(&who)),
+        (None, _) => format!("✓ answered: {}", q.subject(&who)),
     };
-    said(Urgency::Quiet, Why::Answered, line, Some(q))
+    let mut said = said(Urgency::Quiet, Why::Answered, line, Some(q))?;
+    said.by = agent.map(str::to_string);
+    Some(said)
 }
 
 /// 9: spend past its limit, or a multiple of it.

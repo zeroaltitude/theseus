@@ -25,6 +25,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 
@@ -38,6 +39,7 @@ fn stranger() -> Answerer {
             channel_id: "9001".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     }
 }
 

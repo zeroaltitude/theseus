@@ -67,6 +67,7 @@ async fn proposals_are_accepted_in_bulk_by_kind_confidence_or_selection() {
             channel_id: "92653".into(),
             guild_id: Some("27182818".into()),
         }),
+        agent: None,
     };
     assert!(r
         .core
