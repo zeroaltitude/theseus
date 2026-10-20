@@ -562,7 +562,9 @@ fn store_phase(h: &Value) -> Value {
 
 /// Whether the daemon's stdout relay (its thread `stdio-out`) is blocked in a
 /// write to stdout, holding what it has not written: its syscall, as
-/// `/proc` says.
+/// `/proc` says, and asleep in it. A write to a pipe sleeps only for room, so
+/// a relay seen in its write while running is only mid-line, as it often is on
+/// a host fast enough that no pipe fills.
 fn relay_blocked_on_stdout(pid: u32) -> bool {
     let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
         return false;
@@ -572,6 +574,7 @@ fn relay_blocked_on_stdout(pid: u32) -> bool {
         let call = read("syscall");
         let mut words = call.split_whitespace();
         read("comm").trim_end() == "stdio-out"
+            && read("status").lines().any(|l| l.starts_with("State:\tS"))
             && words.next() == Some(&libc::SYS_write.to_string())
             && words.next() == Some("0x1")
     })
@@ -648,8 +651,8 @@ fn a_restart_in_place_closes_the_store_before_the_exec() {
 /// A `--stdio` daemon's restart in place leaves every line whole
 /// (theseus-jo7f): what the core wrote before the exec reaches stdout
 /// before it, as at a stop (`stdio::flush`). The client holds its reads, so
-/// over 64 KB of answers back up in the pipe and the relay is blocked
-/// mid-copy as the old image ends; it reads again 100 ms after the old
+/// more answers than the pipe holds (set to 64 KB) back up in it and the
+/// relay is blocked mid-copy as the old image ends; it reads again 100 ms after the old
 /// image's runtime is dropped, well inside the flush's 500 ms, and long
 /// after an exec with no flush would have come. An exec with no
 /// flush ended the relay mid-copy: the pipe's last line was cut, and glued
@@ -666,16 +669,20 @@ fn a_stdio_restart_in_place_keeps_every_line_whole() {
     let (mut d, mut c) = r.spawn_stdio(&[("THESEUS_LOG", "info,theseus_core::startup=debug")]);
     let one = c.call("health", Value::Null).unwrap().to_string().len();
     c.hold();
-    // About 150 KB of answers: past the pipe's 64 KB, so the relay blocks
-    // holding the rest, and short of what the pipe, the relay's buffer and
-    // the socket pair hold together, so the core never blocks mid-line.
-    let n = 150_000 / (one + 64);
+    // The pipe is 64 KB, whatever the host's page size (the default is 16
+    // pages: 256 KB on a 16 KB-page host, which 150 KB never fills).
+    let pipe = c.set_pipe_capacity(65_536);
+    // The pipe's capacity and 86 KB more in answers: past the pipe, so the
+    // relay blocks holding the rest, and short of what the pipe, the relay's
+    // buffer and the socket pair hold together, so the core never blocks
+    // mid-line.
+    let n = (pipe + 86_000) / (one + 64);
     let ids: Vec<u64> = (0..n).map(|_| c.send("health", Value::Null)).collect();
     let t0 = Instant::now();
     while !relay_blocked_on_stdout(d.id()) {
         assert!(
             t0.elapsed() < Duration::from_secs(40),
-            "the relay never blocked: {} bytes in the pipe\n{}",
+            "the relay never blocked: {} bytes in the {pipe}-byte pipe\n{}",
             c.pending(),
             r.log()
         );
@@ -708,7 +715,7 @@ fn a_stdio_restart_in_place_keeps_every_line_whole() {
     };
     assert!(!h["config"]["restarted"].is_null(), "{}", h["config"]);
     assert!(
-        answered.len() * (one + 64) > 65_536,
+        answered.len() * (one + 64) > pipe,
         "the backlog came through: {} of {n} answers",
         answered.len()
     );

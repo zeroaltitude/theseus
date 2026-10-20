@@ -135,6 +135,22 @@ impl StdioClient {
         }
     }
 
+    /// Size the daemon's stdout pipe to `bytes` (`F_SETPIPE_SZ`) and return
+    /// the capacity it has now (`F_GETPIPE_SZ`). The kernel's default is 16
+    /// pages: 64 KB on a 4 KB-page host, 256 KB on a 16 KB-page one, so a
+    /// test that backs the pipe up sets it, then sizes its backlog from the
+    /// number returned. Call it before any backlog is in the pipe.
+    pub fn set_pipe_capacity(&self, bytes: usize) -> usize {
+        // SAFETY: the reader thread holds the pipe open; both calls take
+        // and return ints.
+        unsafe {
+            libc::fcntl(self.stdout, libc::F_SETPIPE_SZ, bytes as libc::c_int);
+            let n = libc::fcntl(self.stdout, libc::F_GETPIPE_SZ);
+            assert!(n > 0, "F_GETPIPE_SZ: {}", std::io::Error::last_os_error());
+            n as usize
+        }
+    }
+
     /// Read again.
     pub fn release(&self) {
         *self.gate.0.lock().unwrap() = true;
