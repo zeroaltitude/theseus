@@ -1778,6 +1778,8 @@ pub struct TurnBooked<'a> {
     pub late: u32,
     /// When the session's write began, on the trace's clock.
     pub w0: u64,
+    /// What the turn's model calls took, summed (ms).
+    pub model_ms: u64,
 }
 
 impl Fact for TurnBooked<'_> {
@@ -1785,7 +1787,7 @@ impl Fact for TurnBooked<'_> {
 
     fn row(&self) -> Value {
         let result = self.result;
-        let mut row = json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": self.session_usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": self.late});
+        let mut row = json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": self.session_usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "model_ms": self.model_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": self.late});
         // A refusal's fallback (theseus-7gir.18): only a turn that had one says.
         if let Some(f) = &result.fallback {
             row["fallback"] = json!(f);
