@@ -224,6 +224,9 @@ pub struct JudgeService {
     /// A test's shorter bounds for the sink's waits.
     #[cfg(test)]
     pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
+    /// A test's shorter pause before `people.v1`'s second ask.
+    #[cfg(test)]
+    pub(crate) retry_pause: OnceLock<Duration>,
 }
 
 impl JudgeService {
@@ -288,6 +291,8 @@ impl JudgeService {
             queue: Arc::default(),
             #[cfg(test)]
             sink_timing: OnceLock::new(),
+            #[cfg(test)]
+            retry_pause: OnceLock::new(),
         })
     }
 

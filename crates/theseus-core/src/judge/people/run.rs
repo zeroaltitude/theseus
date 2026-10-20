@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::json;
 use theseus_judge::builders::{PeopleInput, PersonCandidate};
@@ -15,7 +16,7 @@ use theseus_store::{kinds, NewRecord};
 
 use super::{extract, fold, nearest, Line, PACK, SCOPE};
 use crate::config::PackMode;
-use crate::judge::{spend, JudgeService, ScrubWith};
+use crate::judge::{spend, Built, JudgeService, ScrubWith};
 use crate::ledger::LedgerRow;
 use crate::provider::Provider;
 use crate::rpc::Core;
@@ -288,6 +289,7 @@ impl JudgeService {
         if asks.is_empty() || !self.reserve(&today, need) {
             return (Vec::new(), 0);
         }
+        let again = asks.clone();
         let judgments = built
             .judge
             .judge(DecisionPoint {
@@ -295,23 +297,123 @@ impl JudgeService {
                 urgency: Urgency::Shadow,
             })
             .await;
+        let mut spent_all = self.settle_people(&today, need, &judgments);
+        let mut ids: Vec<String> = judgments.iter().map(|j| j.id.clone()).collect();
+
+        spent_all += self
+            .ask_again(&built, &today, again, &judgments, &mut ids)
+            .await;
+        (ids, spent_all)
+    }
+
+    /// A judgment that failed for a transient reason (a timeout, a refused
+    /// connection, a 429 or a 5xx) is asked once more, after a pause: the
+    /// pass records its session as done, and a failed judgment counts as
+    /// asked, so nothing would ever ask that name again (the backfill's 12
+    /// lost judgments). The first row stays in the ledger; `ids` takes the
+    /// retries' in the failures' places, and Jev's cost of them is returned.
+    async fn ask_again(
+        &self,
+        built: &Built,
+        today: &str,
+        again: Vec<Ask>,
+        judgments: &[theseus_judge::Judgment],
+        ids: &mut [String],
+    ) -> Micros {
+        let mut redo = Vec::new();
+        let mut waits = Vec::new();
+        for (i, (ask, j)) in again.into_iter().zip(judgments).enumerate() {
+            if let Outcome::Failed {
+                error,
+                class,
+                transient: true,
+                ..
+            } = &j.outcome
+            {
+                waits.push(match error {
+                    theseus_judge::JevError::RateLimited {
+                        retry_after_secs: Some(s),
+                        ..
+                    } => Duration::from_secs(*s).min(RETRY_PAUSE_MAX),
+                    _ => Duration::ZERO,
+                });
+                let mut ask = ask;
+                ask.id = Some(format!("jdg_{}", uuid::Uuid::now_v7().simple()));
+                if let Some(c) = ask.context.as_object_mut() {
+                    c.insert("retry_of".into(), json!(j.id));
+                    c.insert("retry_of_class".into(), json!(class));
+                }
+                redo.push((i, ask));
+            }
+        }
+        if redo.is_empty() {
+            return 0;
+        }
+        let asks: Vec<Ask> = redo.iter().map(|(_, a)| a.clone()).collect();
+        let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
+        if !self.reserve(today, need) {
+            return 0;
+        }
+        let pause = waits
+            .into_iter()
+            .fold(self.retry_pause(), std::cmp::max)
+            .min(RETRY_PAUSE_MAX);
+        tokio::time::sleep(pause).await;
+        let second = built
+            .judge
+            .judge(DecisionPoint {
+                asks,
+                urgency: Urgency::Shadow,
+            })
+            .await;
+        let spent = self.settle_people(today, need, &second);
+        for ((i, _), j) in redo.iter().zip(&second) {
+            ids[*i] = j.id.clone();
+        }
+        spent
+    }
+
+    /// The pause before a failed judgment's second ask.
+    #[cfg(not(test))]
+    #[expect(clippy::unused_self, reason = "a test's build reads its own pause")]
+    fn retry_pause(&self) -> Duration {
+        RETRY_PAUSE
+    }
+
+    /// The pause: a test's shorter one, else the usual.
+    #[cfg(test)]
+    fn retry_pause(&self) -> Duration {
+        self.retry_pause.get().copied().unwrap_or(RETRY_PAUSE)
+    }
+
+    /// The day's budget told what `judgments` cost against `need`; Jev's
+    /// cost.
+    fn settle_people(
+        &self,
+        today: &str,
+        need: Micros,
+        judgments: &[theseus_judge::Judgment],
+    ) -> Micros {
         let mut spent_all = 0;
-        let mut ids = Vec::new();
         let share = need / judgments.len().max(1) as u64;
-        for j in &judgments {
+        for j in judgments {
             let (called, failed, unknown) = match &j.outcome {
                 Outcome::Answered => (true, false, false),
                 Outcome::Failed { usage_unknown, .. } => (true, true, *usage_unknown),
                 Outcome::Skipped { .. } => (false, false, false),
             };
             let spent = j.cost_micros.unwrap_or(if unknown { share } else { 0 });
-            self.budget.settle(&today, share, spent, called, failed);
+            self.budget.settle(today, share, spent, called, failed);
             spent_all += spent;
-            ids.push(j.id.clone());
         }
-        (ids, spent_all)
+        spent_all
     }
 }
+
+/// How long a failed judgment waits before its second ask.
+const RETRY_PAUSE: Duration = Duration::from_secs(2);
+/// The longest it waits, whatever Jev's `retry-after` asked.
+const RETRY_PAUSE_MAX: Duration = Duration::from_secs(10);
 
 /// A record of `kind` META, keyed.
 pub(crate) fn meta<T: serde::Serialize>(key: &str, value: &T) -> anyhow::Result<NewRecord> {
