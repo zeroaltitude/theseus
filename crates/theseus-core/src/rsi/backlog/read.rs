@@ -150,6 +150,24 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// An action's producer as a key part. A producer is `harness:<tool>`,
+/// `provider:<name>` or `async:mcp:<tool>`: the part after the first colon
+/// says which call failed, so it stays (each part a [`word`], at most three).
+/// Cut at the first colon, as [`word`] does, every failing tool in the
+/// process shared the one cause `action.failed:harness`, a bucket no single
+/// fix could close.
+fn producer(v: &Value) -> String {
+    let s = v.as_str().unwrap_or("").trim();
+    if s.is_empty() {
+        return "unknown".into();
+    }
+    s.split(':')
+        .take(3)
+        .map(|part| word(&Value::from(part)))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,7 +192,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
-            let p = word(&d["producer"]);
+            let p = producer(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
             o.note = format!(
@@ -467,5 +485,44 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str) -> Obs {
+        let row = LedgerRow::named(
+            "action.failed",
+            None,
+            None,
+            json!({"correlation_id": "c1", "producer": producer, "duration_ms": 5}),
+        );
+        of_row(1, &row).expect("a failed action is an observation")
+    }
+
+    #[test]
+    fn failed_calls_of_different_tools_are_different_causes() {
+        let (a, b) = (failed("harness:fs_read"), failed("harness:proc_run"));
+        assert_eq!(a.key, "action.failed:harness:fs_read");
+        assert_eq!(b.key, "action.failed:harness:proc_run");
+        assert_ne!(a.key, b.key);
+        assert_eq!(a.title, "Calls from harness:fs_read fail");
+        // The same tool failing twice is still one cause.
+        assert_eq!(a.key, failed("harness:fs_read").key);
+    }
+
+    #[test]
+    fn a_producers_provider_and_mcp_tool_stay_in_the_key() {
+        assert_eq!(
+            failed("provider:anthropic").key,
+            "action.failed:provider:anthropic"
+        );
+        assert_eq!(failed("async:mcp:wc").key, "action.failed:async:mcp:wc");
+        assert_eq!(failed("proc").key, "action.failed:proc");
+        assert_eq!(failed("").key, "action.failed:unknown");
+        assert_eq!(failed("Harness: Odd Tool").key, "action.failed:harness:odd");
     }
 }
