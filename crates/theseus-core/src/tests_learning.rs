@@ -242,6 +242,7 @@ async fn a_label_is_the_operators_from_a_private_place() {
             channel_id: "1001".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     let e = c
         .judge_label(&p(None, json!("wrong")), stranger)

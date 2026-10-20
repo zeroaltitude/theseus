@@ -419,6 +419,7 @@ fn self_patterns_is_the_owners_alone() {
             channel_id: "900000000000000007".into(),
             guild_id: Some("900000000000000001".into()),
         }),
+        agent: None,
     };
     let e = c
         .self_patterns(&SelfPatternsParams::default(), &stranger)

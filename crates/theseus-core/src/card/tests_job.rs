@@ -54,6 +54,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 
@@ -592,6 +593,7 @@ async fn only_the_owner_may() {
             channel_id: "42".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     assert!(r
         .core

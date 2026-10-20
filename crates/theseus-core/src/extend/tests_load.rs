@@ -504,6 +504,7 @@ async fn a_revoke_drops_its_tools_and_stops_its_server() {
             channel_id: LAB.to_string(),
             guild_id: Some("900000000000000001".into()),
         }),
+        agent: None,
     };
     let e = r.core.extension_revoke(&p, shared).unwrap_err();
     assert!(e.to_string().contains("shared"), "{e:#}");

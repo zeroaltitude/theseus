@@ -158,6 +158,7 @@ fn on_discord(user: u64, channel: Option<u64>) -> Answerer {
             channel_id: channel.unwrap_or(1).to_string(),
             guild_id: channel.map(|_| "27182818".to_string()),
         }),
+        agent: None,
     }
 }
 
@@ -465,6 +466,7 @@ async fn a_write_counts_only_from_the_owner_in_a_private_place() {
         label: "sock#9".into(),
         surface: Surface::Unnamed,
         discord: None,
+        agent: None,
     };
     for who in [
         unnamed,

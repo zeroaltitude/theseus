@@ -417,6 +417,7 @@ fn from_a_guild() -> Answerer {
             channel_id: "314159265358979323".into(),
             guild_id: Some("900000000000000001".into()),
         }),
+        agent: None,
     }
 }
 

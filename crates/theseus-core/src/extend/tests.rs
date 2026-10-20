@@ -492,6 +492,7 @@ async fn an_ack_from_a_shared_place_is_refused() {
             channel_id: channel.unwrap_or(OWNER + 1).to_string(),
             guild_id: channel.map(|_| "900000000000000001".to_string()),
         }),
+        agent: None,
     };
     let e = r
         .core

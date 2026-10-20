@@ -479,6 +479,7 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         label: "cli#1".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     };
     core.confirm_action(&q, false, Some("not now"), cli)
         .unwrap();
@@ -573,6 +574,7 @@ async fn an_approved_glide_posts_once_in_the_other_places_lane() {
         label: "cli#1".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     };
     core.confirm_action(&q, true, None, cli).unwrap();
     let f = fake.clone();

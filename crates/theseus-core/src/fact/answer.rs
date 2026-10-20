@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 use theseus_kernel::{Action, LimitFollowed, Micros};
 use theseus_protocol::NarrativePart::{Approval, Session};
-use theseus_protocol::{notify, ConfirmResolved, Event, LedgerKind};
+use theseus_protocol::{by_words, notify, ConfirmResolved, Event, LedgerKind};
 
 use super::{Fact, Say};
 use crate::approval::Refusal;
@@ -57,7 +57,7 @@ impl Fact for CallAnswered<'_> {
                 "{} {} by {}{}.",
                 self.action.tool,
                 if self.approve { "approved" } else { "declined" },
-                self.by,
+                by_words(self.by),
                 if self.note.is_some_and(|n| !n.trim().is_empty()) {
                     ", with a note"
                 } else {
@@ -140,7 +140,7 @@ impl Fact for SpendReset<'_> {
                 format!(
                     "Resumed by {} after the burn-rate pause; its ten-minute window starts \
                      empty and its spend stays at {}; continuing.",
-                    self.by,
+                    by_words(self.by),
                     narrative::dollars(self.before)
                 ),
             );
@@ -150,7 +150,7 @@ impl Fact for SpendReset<'_> {
             Approval,
             format!(
                 "Spend reset to $0 by {} (it was {} of the {} limit); continuing.",
-                self.by,
+                by_words(self.by),
                 narrative::dollars(self.before),
                 narrative::dollars(self.limit)
             ),
@@ -171,7 +171,7 @@ impl Fact for ResetDeclined<'_> {
             format!(
                 "The budget reset was declined by {}; the session keeps waiting, and a new \
                  message asks again.",
-                self.by
+                by_words(self.by)
             ),
         );
     }

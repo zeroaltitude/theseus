@@ -160,10 +160,13 @@ impl Core {
         p: theseus_protocol::answer::ConfirmListParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::ConfirmListResult, RpcFailure> {
-        let may = self.may_answer(&conn.answerer(None, p.discord)).is_ok();
+        let who = conn.answerer(None, p.discord);
+        let may = self.may_answer(&who).is_ok();
         let mut confirms = self.confirm_list()?;
         for c in &mut confirms {
-            c.may_answer = Some(may);
+            // An agent draws no button for what spends money or changes AWS (theseus-5rvss).
+            let agent_barred = who.agent.is_some() && crate::approval::owners_alone(&c.tool);
+            c.may_answer = Some(may && !agent_barred);
         }
         Ok(theseus_protocol::ConfirmListResult { confirms })
     }

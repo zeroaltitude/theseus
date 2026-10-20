@@ -52,7 +52,8 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
   lets it go on (yours alone, refused inside a job). `task` acts on one; `tasks` lists them.
 - **`agenda`**: the future in one view: Now, Today, This week, Later, Recurring, Waiting on the world, Projects.
   `theseus agenda --watch`.
-- **`digest`**: what finished, failed, was answered or woke since you last looked. `theseus digest --since 2h`. A task that
+- **`digest`**: what finished, failed, was answered or woke since you last looked (an agent's answer is told as the agent's, not
+  as yours). `theseus digest --since 2h`. A task that
   reported is named with its report's first line (up to five under one conversation, then the rest by title); a window
   too long to read whole says where it stopped.
 - **`peek`**: a running job's last lines, once. `theseus peek JOB`.
@@ -71,7 +72,10 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
 - **`answer`**: answer any question waiting for you with one of its own options: a call, a spend limit (approve
   resets its spend to $0), a task change, an extension, a reminder; the turn it resumes is followed (`--no-wait`
   returns once the answer is recorded). With no id, it lists everything waiting. `theseus answer 7f3a approve --note "ok"`;
-  `theseus answer 7f3a decline`; `theseus answer` alone lists.
+  `theseus answer 7f3a decline`; `theseus answer` alone lists. The daemon reads who runs it: from your own terminal it is
+  your answer; from a process with no terminal, or under an agent (`[policy] agent_processes`), it is recorded and shown as
+  that agent's (`answered by an agent (claude)`), and a question that spends money or changes AWS (a spend limit, an
+  `aws.*` change) is refused: those wait for your terminal or the DM's card.
 - **`dismiss`**: dismiss a failed task: it stops needing you on every surface and its record stays.
   `theseus dismiss ID`.
 - **`retry`**: try a failed task again: a new task from the same brief under the same parent, with no more budget than

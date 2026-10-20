@@ -311,6 +311,7 @@ async fn a_wrong_label_keeps_a_node_out() {
             channel_id: format!("{PIER}"),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     assert!(c.memory_label(&label("useful"), stranger).is_err());
     assert!(c.runner.memory.labeled(&c.store).unwrap().contains(&heron));

@@ -207,6 +207,7 @@ async fn an_audit_from_a_shared_place_is_refused() {
             channel_id: "1001".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     let e = c.judge_audit(audit(c, 1), stranger).await.unwrap_err();
     assert!(

@@ -482,6 +482,7 @@ fn on_discord(user: u64, channel: u64) -> Answerer {
             channel_id: channel.to_string(),
             guild_id: Some("27182818".to_string()),
         }),
+        agent: None,
     }
 }
 

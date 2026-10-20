@@ -504,6 +504,7 @@ async fn stop_it_cancels_the_task_that_asked() {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     };
     let started = r
         .core
@@ -677,6 +678,7 @@ async fn a_report_to_the_voice_places_own_session_is_left_to_its_turn() {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     };
     let here = r
         .core
@@ -771,6 +773,7 @@ fn started_task(core: &Arc<Core>, brief: &str) -> (String, String) {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     };
     let s = core
         .task_start(

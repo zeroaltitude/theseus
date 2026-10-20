@@ -116,6 +116,25 @@ impl Rig {
             .to_string()
     }
 
+    /// `theseus answer` from the owner's own terminal.
+    fn answer_on_a_terminal(&self, question: &str, option: &str) {
+        let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+        let argv: Vec<String> = [
+            bin.to_str().unwrap(),
+            "--socket",
+            self.path("sock").to_str().unwrap(),
+            "answer",
+            question,
+            option,
+            "--no-wait",
+        ]
+        .map(String::from)
+        .to_vec();
+        let xdg = self.path("xdg").display().to_string();
+        let (code, out) = common::terminal::on_a_terminal(&argv, &[("XDG_STATE_HOME", &xdg)]);
+        assert_eq!(code, 0, "{out}");
+    }
+
     /// The real `theseus` binary beside the daemon's, on this daemon.
     fn cli(&self, args: &[&str]) -> Option<std::process::Output> {
         let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
@@ -186,11 +205,8 @@ impl Rig {
                 .find(|v| v["kind"] == "question")
                 .and_then(|v| v["question"]["id"].as_str().map(str::to_string))
         });
-        r.call(
-            "work.answer",
-            json!({"question_id": q, "option": "approve"}),
-        )
-        .unwrap();
+        // As the owner: from a terminal (theseus-5rvss), since a process with none is an agent's.
+        r.answer_on_a_terminal(&q, "approve");
         // A timer fires.
         let c = r.open();
         r.ask(&c, "Please set a timer.");

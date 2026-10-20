@@ -20,6 +20,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 
@@ -430,6 +431,7 @@ async fn a_shared_place_and_an_mcp_client_are_refused_and_say_where_to_start_it(
             channel_id: LAB.to_string(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     let e = r
         .core

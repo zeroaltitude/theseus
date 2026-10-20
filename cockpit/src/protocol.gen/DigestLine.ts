@@ -14,4 +14,10 @@ count: number,
 /**
  * For a task that reported: the first line of its report, which `words` carries.
  */
-report?: string, };
+report?: string, 
+/**
+ * For a question an agent answered: the agent, as `agent_by` names it
+ * less its prefix (`claude`, `no terminal`). None is the owner's own, and
+ * an old row's.
+ */
+by?: string, };

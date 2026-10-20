@@ -25,4 +25,9 @@ retracts?: string,
  * snoozes, each a direct call (`wake.done`, `wake.snooze`) until
  * `work.answer` routes every answer. None for the rest.
  */
-answers?: Array<WakeAnswer>, position: number, at_ms: number, };
+answers?: Array<WakeAnswer>, 
+/**
+ * For a question an agent answered (theseus-5rvss): the agent, as the
+ * digest names it (`claude`, `no terminal`). None is the owner's own.
+ */
+by?: string, position: number, at_ms: number, };

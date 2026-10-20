@@ -245,6 +245,7 @@ impl Core {
             label: rules::SYSTEM.into(),
             surface: crate::approval::Surface::Cli,
             discord: None,
+            agent: None,
         };
         let row = self.promotion_row(&ask, p.report.as_deref(), rules::SYSTEM, &system)?;
         if row.forced {

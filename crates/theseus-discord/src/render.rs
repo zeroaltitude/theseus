@@ -896,7 +896,11 @@ pub fn card_note(route: &Route, line: &str, elsewhere: &str) -> Option<String> {
 
 /// How a card reads once its question closed: who answered, or what closed it.
 pub fn settled(closed: &Closed, line: &str, budget: bool) -> String {
-    let by = closed.by.as_deref().unwrap_or("the operator");
+    // An agent's answer says so (theseus-5rvss).
+    let by = closed
+        .by
+        .as_deref()
+        .map_or_else(|| "the operator".into(), theseus_protocol::by_words);
     let note = closed.note.as_deref().unwrap_or("");
     match closed.how.as_str() {
         "superseded" if budget => format!(

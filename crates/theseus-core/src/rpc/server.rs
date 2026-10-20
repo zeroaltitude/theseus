@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::Core;
 use crate::approval::{Answerer, Client, Surface};
 use crate::outbound::{Drain, Item, Outbound};
+use crate::peer_proc::Behind;
 
 /// The connection a request came in on: who it is, the surface its listener
 /// named, and where its notifications go.
@@ -20,6 +21,8 @@ use crate::outbound::{Drain, Item, Outbound};
 pub(super) struct Conn<'a> {
     pub client: &'a str,
     pub surface: Surface,
+    /// The process behind the connection (theseus-5rvss).
+    pub peer: &'a crate::peer_proc::Peer,
     /// The connection's one queue, with the backlog cap (theseus-in3).
     pub tx: &'a Outbound,
     /// Closed when the connection's reader ends: a parked `session.wait`
@@ -56,10 +59,60 @@ impl Conn<'_> {
         author: Option<String>,
         discord: Option<theseus_protocol::DiscordOrigin>,
     ) -> Answerer {
+        // A CLI answer from a process under an agent, or with no terminal,
+        // is that agent's: its name is the label, so every row and line
+        // that says `by` says it (theseus-5rvss).
+        let agent = match (self.surface, self.peer.behind()) {
+            (Surface::Cli, Behind::Agent(name)) => Some(name.clone()),
+            _ => None,
+        };
         Answerer {
-            label: self.actor(author.as_deref()),
+            label: agent
+                .as_deref()
+                .map_or_else(|| self.actor(author.as_deref()), theseus_protocol::agent_by),
             surface: self.surface,
             discord,
+            agent,
+        }
+    }
+}
+
+/// A connection as its requests see it: its label, the surface that accepted
+/// it, and the process behind it.
+pub(super) struct Link {
+    label: String,
+    surface: Surface,
+    peer: crate::peer_proc::Peer,
+}
+
+impl Link {
+    /// `agents` is `[policy] agent_processes`, which says who is an agent.
+    fn new(client: Client, agents: &[String]) -> Self {
+        let peer = crate::peer_proc::Peer::new(client.pid, agents.into());
+        #[cfg(test)]
+        let peer = client.behind.map_or(peer, crate::peer_proc::Peer::known);
+        Self {
+            label: client.label,
+            surface: client.surface,
+            peer,
+        }
+    }
+}
+
+impl Link {
+    fn conn<'a>(
+        &'a self,
+        tx: &'a Outbound,
+        closed: &'a watch::Receiver<()>,
+        arrived: std::time::Instant,
+    ) -> Conn<'a> {
+        Conn {
+            client: &self.label,
+            surface: self.surface,
+            peer: &self.peer,
+            tx,
+            closed,
+            arrived,
         }
     }
 }
@@ -78,10 +131,8 @@ impl Core {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        let Client {
-            label: client,
-            surface,
-        } = client;
+        let link = Arc::new(Link::new(client, &self.cfg.policy.agent_processes));
+        let client = link.label.clone();
         // One ordered outbound queue: notifications and responses share it, so a
         // turn's events always precede its response on the wire. Past the
         // backlog cap its notifications are dropped until it drains, and the
@@ -161,15 +212,13 @@ impl Core {
                     let tx = tx.clone();
                     let resp_tx = resp_tx.clone();
                     let flush_tx = flush_tx.clone();
-                    let client = client.clone();
+                    let link = link.clone();
                     let closed = closed_rx.clone();
                     let shutdown = req.method == method::SHUTDOWN;
                     // Entered here, in its arrival order (theseus-klo2).
                     let ticket = lane.ticket_for(&req.method);
                     tokio::spawn(async move {
-                        let resp = core
-                            .handle_in_lane(ticket, req, tx, &client, surface, &closed)
-                            .await;
+                        let resp = core.handle_in_lane(ticket, req, tx, &link, &closed).await;
                         let stopping = shutdown && resp.error.is_none();
                         resp_tx.respond(Message::Response(resp));
                         if stopping {
@@ -212,16 +261,15 @@ impl Core {
         ticket: Option<super::ordered::Ticket>,
         req: Request,
         tx: Outbound,
-        client: &str,
-        surface: Surface,
+        link: &Link,
         closed: &watch::Receiver<()>,
     ) -> Response {
         let Some(t) = ticket else {
-            return self.clone().handle(req, tx, client, surface, closed).await;
+            return self.clone().handle(req, tx, link, closed).await;
         };
         let waited = t.wait(self.lane_key(&req.method, &req.params)).await;
         self.telemetry().record_lane_wait(&req.method, waited);
-        let work = self.clone().handle(req, tx, client, surface, closed);
+        let work = self.clone().handle(req, tx, link, closed);
         super::ordered::scope(t.applied(), work).await
     }
 
@@ -229,15 +277,11 @@ impl Core {
         self: Arc<Self>,
         req: Request,
         tx: Outbound,
-        client: &str,
-        surface: Surface,
+        link: &Link,
         closed: &watch::Receiver<()>,
     ) -> Response {
         let id = req.id.clone();
-        let answer = self
-            .clone()
-            .dispatch(req, tx, client, surface, closed)
-            .await;
+        let answer = self.clone().dispatch(req, tx, link, closed).await;
         // A trim follows once the daemon has been quiet (theseus-9lxe).
         self.resident.mark();
         match answer {
@@ -252,18 +296,12 @@ impl Core {
         self: Arc<Self>,
         req: Request,
         tx: Outbound,
-        client: &str,
-        surface: Surface,
+        link: &Link,
         closed: &watch::Receiver<()>,
     ) -> Result<Value, RpcFailure> {
         let arrived = std::time::Instant::now();
-        let conn = Conn {
-            client,
-            surface,
-            tx: &tx,
-            closed,
-            arrived,
-        };
+        let surface = link.surface;
+        let conn = link.conn(&tx, closed, arrived);
         let params = req.params;
         // The MCP server's connection (step 41b): its tools' methods, and
         // the owner's acts, which their judgment refuses.

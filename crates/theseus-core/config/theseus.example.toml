@@ -624,6 +624,13 @@ external_text = "ask"                   # ask | notify: notify runs those calls 
 # is a cheap guard, not a boundary: a job can still bring outside text in by
 # other ways.
 external_programs = ["gh"]              # program names, matched by file name (built-in default: ["gh"])
+# A program that hosts an agent. `theseus answer` from a process under one, or
+# from a process with no controlling terminal, is recorded and shown as that
+# agent's answer ("answered by an agent (claude)"), never as yours, and an
+# agent never answers a question that spends money or changes AWS: those wait
+# for your own terminal or your Discord press. Add the agents you run. A light
+# guard, not a boundary: an agent can hide its ancestry behind a pty.
+agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]   # program names, matched by file name
 # A URL whose host is this machine or a private address (localhost, 10.x, a
 # link-local address) waits for your approval, which alone lets http.fetch
 # reach it. "open" judges it as any other address, redirects and DNS answers

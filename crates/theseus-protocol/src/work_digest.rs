@@ -44,6 +44,25 @@ impl DigestKind {
     ];
 }
 
+/// What a CLI answer from an agent's process is ledgered `by`
+/// (theseus-5rvss): `agent:claude`, `agent:no terminal`. The owner's own is
+/// the surface's name, a job's a `job:` label; a row from before this has
+/// neither and reads as the owner's.
+pub fn agent_by(name: &str) -> String {
+    format!("agent:{name}")
+}
+
+/// The agent a `by` names, or none for the owner's own, a job's or an old
+/// row's.
+pub fn agent_of(by: &str) -> Option<&str> {
+    by.strip_prefix("agent:")
+}
+
+/// A `by` in a sentence: an agent as `an agent (claude)`, anyone else as written.
+pub fn by_words(by: &str) -> String {
+    agent_of(by).map_or_else(|| by.to_string(), |a| format!("an agent ({a})"))
+}
+
 /// One line of the digest: one thing that happened, or a burst of them
 /// folded (`count` above 1, `work` then the root they happened under).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +79,12 @@ pub struct DigestLine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub report: Option<String>,
+    /// For a question an agent answered: the agent, as `agent_by` names it
+    /// less its prefix (`claude`, `no terminal`). None is the owner's own, and
+    /// an old row's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub by: Option<String>,
 }
 
 fn one() -> u32 {
@@ -141,6 +166,7 @@ pub fn digest_words(
     count: u32,
     root: &str,
     report: Option<&str>,
+    by: Option<&str>,
 ) -> String {
     let name = name_of(work);
     if count <= 1 {
@@ -150,7 +176,10 @@ pub fn digest_words(
                 None => format!("📋 {name} reported"),
             },
             DigestKind::Failed => format!("✗ {name} failed"),
-            DigestKind::Answered => format!("✓ you answered: {name}"),
+            DigestKind::Answered => match by {
+                Some(agent) => format!("✓ answered by an agent ({agent}): {name}"),
+                None => format!("✓ you answered: {name}"),
+            },
             DigestKind::Cancelled => format!("⊘ {name} was cancelled"),
             DigestKind::Woke => format!("⏰ {name} woke"),
             DigestKind::Reminder => format!("⏰ reminder: {name}"),
@@ -159,7 +188,10 @@ pub fn digest_words(
     match kind {
         DigestKind::Reported => format!("📋 {count} reported to {root}"),
         DigestKind::Failed => format!("✗ {count} tasks failed under {root}"),
-        DigestKind::Answered => format!("✓ you answered {count} questions under {root}"),
+        DigestKind::Answered => match by {
+            Some(agent) => format!("✓ an agent ({agent}) answered {count} questions under {root}"),
+            None => format!("✓ you answered {count} questions under {root}"),
+        },
         DigestKind::Cancelled => format!("⊘ {count} tasks were cancelled under {root}"),
         DigestKind::Woke => format!("⏰ {count} wakes fired under {root}"),
         DigestKind::Reminder => format!("⏰ {count} reminders fired"),
@@ -168,18 +200,20 @@ pub fn digest_words(
 
 /// A line for one thing.
 pub fn digest_line(kind: DigestKind, at_ms: u64, work: WorkRef) -> DigestLine {
-    digest_line_with(kind, at_ms, work, None)
+    digest_line_with(kind, at_ms, work, None, None)
 }
 
-/// A line for one thing, with the first line of its report when it is a task that reported.
+/// A line for one thing, with the first line of its report when it is a task that reported, and
+/// the agent that answered it when an agent did.
 pub fn digest_line_with(
     kind: DigestKind,
     at_ms: u64,
     work: WorkRef,
     report: Option<String>,
+    by: Option<String>,
 ) -> DigestLine {
     let report = report.filter(|r| !r.trim().is_empty());
-    let words = digest_words(kind, &work, 1, "", report.as_deref());
+    let words = digest_words(kind, &work, 1, "", report.as_deref(), by.as_deref());
     DigestLine {
         at_ms,
         kind,
@@ -187,6 +221,7 @@ pub fn digest_line_with(
         words,
         count: 1,
         report,
+        by,
     }
 }
 
@@ -211,6 +246,7 @@ fn rest_line(rest: &[DigestLine], root: WorkRef) -> DigestLine {
         words: format!("📋 and {} more: {}{more}", rest.len(), names.join(", ")),
         count: rest.iter().map(|l| l.count).sum(),
         report: None,
+        by: None,
     }
 }
 
@@ -249,7 +285,14 @@ pub fn fold_digest(entries: Vec<(DigestLine, WorkRef)>) -> Vec<DigestLine> {
         } else if group.len() >= BURST_MIN && group[0].0.kind != DigestKind::Reminder {
             let (last, root) = group.last().cloned().expect("a burst has members");
             let n: u32 = group.iter().map(|(l, _)| l.count).sum();
-            let words = digest_words(last.kind, &last.work, n, &name_of(&root), None);
+            let words = digest_words(
+                last.kind,
+                &last.work,
+                n,
+                &name_of(&root),
+                None,
+                last.by.as_deref(),
+            );
             out.push((
                 last.at_ms,
                 seq,
@@ -273,6 +316,7 @@ pub fn fold_digest(entries: Vec<(DigestLine, WorkRef)>) -> Vec<DigestLine> {
         let slot = open.iter().position(|g| {
             let (last, root) = g.last().expect("a group has a member");
             last.kind == e.0.kind
+                && last.by == e.0.by
                 && root.id == e.1.id
                 && e.0.at_ms.saturating_sub(last.at_ms) <= BURST_GAP_MS
         });
@@ -283,7 +327,7 @@ pub fn fold_digest(entries: Vec<(DigestLine, WorkRef)>) -> Vec<DigestLine> {
                 let mut i = 0;
                 while i < open.len() {
                     let (last, root) = open[i].last().expect("a group has a member");
-                    if last.kind == e.0.kind && root.id == e.1.id {
+                    if last.kind == e.0.kind && last.by == e.0.by && root.id == e.1.id {
                         let g = open.remove(i);
                         close(g, &mut out);
                     } else {
@@ -310,25 +354,32 @@ pub fn digest_summary(
     hm: &dyn Fn(u64) -> String,
 ) -> Option<String> {
     let mut parts = Vec::new();
-    for kind in DigestKind::ALL {
-        let n: u32 = lines
+    let count = |kind: DigestKind, agent: bool| -> u32 {
+        lines
             .iter()
-            .filter(|l| l.kind == kind)
+            .filter(|l| l.kind == kind && l.by.is_some() == agent)
             .map(|l| l.count)
-            .sum();
-        if n == 0 {
-            continue;
+            .sum()
+    };
+    for kind in DigestKind::ALL {
+        let n = count(kind, false);
+        if n > 0 {
+            parts.push(match kind {
+                DigestKind::Reported => format!("{n} reported"),
+                DigestKind::Failed => format!("{n} failed"),
+                DigestKind::Answered => format!("{n} answered by you"),
+                DigestKind::Cancelled => format!("{n} cancelled"),
+                DigestKind::Woke => format!("{n} woke"),
+                DigestKind::Reminder => {
+                    format!("{n} reminder{}", if n == 1 { "" } else { "s" })
+                }
+            });
         }
-        parts.push(match kind {
-            DigestKind::Reported => format!("{n} reported"),
-            DigestKind::Failed => format!("{n} failed"),
-            DigestKind::Answered => format!("{n} answered by you"),
-            DigestKind::Cancelled => format!("{n} cancelled"),
-            DigestKind::Woke => format!("{n} woke"),
-            DigestKind::Reminder => {
-                format!("{n} reminder{}", if n == 1 { "" } else { "s" })
-            }
-        });
+        // An agent's answers are told apart from the owner's (theseus-5rvss).
+        let agents = count(kind, true);
+        if kind == DigestKind::Answered && agents > 0 {
+            parts.push(format!("{agents} answered by an agent"));
+        }
     }
     if parts.is_empty() {
         return None;

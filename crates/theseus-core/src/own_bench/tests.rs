@@ -339,6 +339,7 @@ async fn a_replay_from_the_mcp_surface_is_refused_and_calls_no_model() {
         label: "mcp#1".into(),
         surface: crate::approval::Surface::Mcp,
         discord: None,
+        agent: None,
     };
     let err = rig
         .core

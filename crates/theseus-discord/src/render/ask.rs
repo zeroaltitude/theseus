@@ -9,7 +9,10 @@ use super::clip;
 /// How a card reads once its `owner_ask` closed: the owner's choice, or the
 /// clock's.
 pub fn settled(closed: &Closed, line: &str) -> String {
-    let by = closed.by.as_deref().unwrap_or("the owner");
+    let by = closed
+        .by
+        .as_deref()
+        .map_or_else(|| "the owner".into(), theseus_protocol::by_words);
     let note = closed.note.as_deref().unwrap_or("");
     match closed.how.as_str() {
         "asked_expired" => format!(

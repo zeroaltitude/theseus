@@ -205,6 +205,7 @@ async fn a_backfill_needs_consent_and_a_rebuildable_pack() {
             channel_id: "1001".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     for refused in [
         r2.core

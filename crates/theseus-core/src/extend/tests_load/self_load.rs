@@ -280,6 +280,7 @@ async fn a_self_principal_answers_no_other_card() {
         label: "self".into(),
         surface: Surface::Unnamed,
         discord: None,
+        agent: None,
     };
     for q in [&other, &ack] {
         assert!(

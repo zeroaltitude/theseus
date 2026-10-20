@@ -79,6 +79,7 @@ fn stranger() -> Answerer {
             channel_id: "1001".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     }
 }
 

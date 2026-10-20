@@ -28,6 +28,7 @@ fn cli() -> Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
         discord: None,
+        agent: None,
     }
 }
 
@@ -927,6 +928,7 @@ fn a_merge_split_or_unmerge_from_a_shared_place_is_refused() {
             channel_id: "314159".into(),
             guild_id: Some("7".into()),
         }),
+        agent: None,
     };
     let p = ThreadMergeParams {
         from: "a".into(),

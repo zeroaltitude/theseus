@@ -508,6 +508,7 @@ async fn a_refused_retraction_writes_nothing() {
         label: "mcp#1".into(),
         surface: Surface::Mcp,
         discord: None,
+        agent: None,
     };
     let p = FactRetractParams {
         node: x.clone(),

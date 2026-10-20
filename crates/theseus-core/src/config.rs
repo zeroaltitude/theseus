@@ -655,6 +655,13 @@ pub struct PolicyConfig {
     /// by default: `gh issue view` prints a stranger's text.
     #[serde(default = "default_external_programs")]
     pub external_programs: Vec<String>,
+    /// Programs that host an agent (theseus-5rvss): a CLI answer from a
+    /// process under one, or from one with no controlling terminal, is
+    /// recorded as that agent's (`peer_proc`), and an agent never answers a
+    /// question that spends money or changes AWS. Matched by file name, in
+    /// any case.
+    #[serde(default = "default_agent_processes")]
+    pub agent_processes: Vec<String>,
     /// A URL whose host is a private address (theseus-7gir.20): `ask`, the
     /// default, waits for approval (DD5); `open` judges it as any other, for a
     /// run with no operator to ask (the bench profile).
@@ -697,6 +704,11 @@ fn default_approve_argv() -> Vec<Vec<String>> {
 fn default_external_programs() -> Vec<String> {
     vec!["gh".into()]
 }
+fn default_agent_processes() -> Vec<String> {
+    ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
+        .map(String::from)
+        .to_vec()
+}
 
 impl Default for PolicyConfig {
     fn default() -> Self {
@@ -708,6 +720,7 @@ impl Default for PolicyConfig {
             mcp: BTreeMap::new(),
             external_text: Default::default(),
             external_programs: default_external_programs(),
+            agent_processes: default_agent_processes(),
             private_addresses: Default::default(),
             earned: Default::default(),
             aws: BTreeMap::new(),
