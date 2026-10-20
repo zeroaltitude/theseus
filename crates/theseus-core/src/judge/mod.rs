@@ -186,6 +186,10 @@ pub struct JudgeService {
     /// `people.v1`'s live point (theseus-wy7y): its decisions.
     pub(crate) people: people::live::Point,
     rerank_deadline: rerank::RerankDeadline,
+    /// Route verdicts sent on to their turns, for a test that waits for one to
+    /// have come before it lets the turn go on (theseus-1b2zm).
+    #[cfg(test)]
+    pub(crate) route_answers: std::sync::atomic::AtomicU64,
     /// `route.v1` verdicts that came after their turn's wait, by session:
     /// each applies from the session's next message (25e).
     late: Mutex<std::collections::HashMap<String, crate::routing::Verdict>>,
@@ -274,6 +278,8 @@ impl JudgeService {
             categorize: Default::default(),
             people: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
+            #[cfg(test)]
+            route_answers: Default::default(),
             late: Mutex::default(),
             routed: Mutex::default(),
             offers: Mutex::default(),

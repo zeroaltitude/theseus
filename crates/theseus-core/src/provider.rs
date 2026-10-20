@@ -1370,6 +1370,38 @@ pub struct FakeProvider {
     pub delay_ms: u64,
     /// Warm-ups asked of it (`Provider::warm`), none of them a request.
     pub warms: std::sync::atomic::AtomicU64,
+    /// A request it holds until the test opens the gate (theseus-1b2zm).
+    pub gate: Option<Arc<RequestGate>>,
+}
+
+/// The fake's held request: lateness by order, as `FakeJev`'s `Held` is. The
+/// request numbered `at` (from 0) says it has come (`reached`) and waits for
+/// `open`; the test awaits the one and calls the other. Each is a permit, so
+/// neither is lost when it comes before the other's waiter.
+pub struct RequestGate {
+    at: usize,
+    reached: tokio::sync::Notify,
+    opened: tokio::sync::Notify,
+}
+
+impl RequestGate {
+    pub fn at(at: usize) -> Arc<Self> {
+        Arc::new(Self {
+            at,
+            reached: tokio::sync::Notify::new(),
+            opened: tokio::sync::Notify::new(),
+        })
+    }
+
+    /// Waits until the held request has come.
+    pub async fn reached(&self) {
+        self.reached.notified().await;
+    }
+
+    /// Lets the held request go on.
+    pub fn open(&self) {
+        self.opened.notify_one();
+    }
 }
 
 impl Default for FakeProvider {
@@ -1383,6 +1415,7 @@ impl Default for FakeProvider {
             requests: Default::default(),
             delay_ms: 0,
             warms: Default::default(),
+            gate: None,
         }
     }
 }
@@ -1430,7 +1463,15 @@ impl Provider for FakeProvider {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
-            self.requests.lock().unwrap().push(req.clone());
+            let number = {
+                let mut seen = self.requests.lock().unwrap();
+                seen.push(req.clone());
+                seen.len() - 1
+            };
+            if let Some(g) = self.gate.as_ref().filter(|g| g.at == number) {
+                g.reached.notify_one();
+                g.opened.notified().await;
+            }
             if self.delay_ms > 0 {
                 tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
             }

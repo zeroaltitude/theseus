@@ -15,6 +15,8 @@
 //! | `EchoAuth` | 401 whose body repeats the bearer key, as a careless server might |
 //! | `Held` | the answer once the test calls [`FakeJev::release`]: lateness by order, not by a delay |
 //!
+//! [`FakeJev::hold_when`] holds one question's answers alike, in any mode.
+//!
 //! Two knobs model Jev's time (theseus-ddbi): [`FakeJev::set_latency`]
 //! delays a request that asks one pack's questions by one figure and a
 //! batch of several packs' by another, and [`FakeJev::keep_alive`] keeps
@@ -96,6 +98,9 @@ struct Shared {
     warmups: usize,
     /// [`FakeJev::release`]'s calls so far.
     releases: u64,
+    /// A request whose state holds any of these waits for the next release
+    /// ([`FakeJev::hold_when`]).
+    held_when: Vec<String>,
     /// One pack's request, and a batch of several packs', wait this long.
     single: Duration,
     batch: Duration,
@@ -125,6 +130,7 @@ impl FakeJev {
             connections: 0,
             warmups: 0,
             releases: 0,
+            held_when: Vec::new(),
             single: Duration::ZERO,
             batch: Duration::ZERO,
             keep_alive: None,
@@ -222,7 +228,14 @@ impl FakeJev {
         self.lock().opened
     }
 
-    /// Lets every call `Held` holds now answer.
+    /// A request whose state holds `state_has` waits, whatever the mode, until
+    /// the next [`FakeJev::release`]: lateness by order for one question and
+    /// not the rest (theseus-1b2zm).
+    pub fn hold_when(&self, state_has: &str) {
+        self.lock().held_when.push(state_has.to_string());
+    }
+
+    /// Lets every call `Held` holds now answer, and each [`FakeJev::hold_when`]'s.
     pub fn release(&self) {
         self.lock().releases += 1;
     }
@@ -351,7 +364,11 @@ fn serve_one(
     let Some((req, bearer)) = read_request(r)? else {
         return Ok(false);
     };
-    let (script, answer_as, held, latency) = {
+    let state = match &req["state"] {
+        Value::String(t) => t.clone(),
+        v => v.to_string(),
+    };
+    let (script, answer_as, held, latency, held_here) = {
         let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
         s.seen.push(Seen {
             body: req.clone(),
@@ -368,12 +385,13 @@ fn serve_one(
                 0 | 1 => s.single,
                 _ => s.batch,
             },
+            s.held_when.iter().any(|h| state.contains(h)),
         )
     };
     if !latency.is_zero() {
         std::thread::sleep(latency);
     }
-    if mode == FakeMode::Held {
+    if mode == FakeMode::Held || held_here {
         while shared.lock().unwrap_or_else(|e| e.into_inner()).releases == held {
             std::thread::sleep(Duration::from_millis(5));
         }

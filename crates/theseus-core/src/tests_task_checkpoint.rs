@@ -6,13 +6,15 @@
 //! provider that answers a script of loops, a little slowly, so a verdict
 //! lands at a loop boundary.
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
-use crate::provider::{FakeProvider, Scripted};
+use crate::provider::{FakeProvider, RequestGate, Scripted};
 use crate::session::{SessionRecord, TargetRef};
+use crate::test_support::until_within;
 use crate::tests_judge::kinds;
 use crate::tests_route::{decided, mode, rig_parts, session, Rig};
 use crate::tests_task_brief::{params, run, BRIEF};
@@ -82,9 +84,20 @@ async fn task_with(
         delay_ms: 60,
         ..FakeProvider::scripted(script)
     });
+    let rig = task_rig(&jev, claude.clone(), tweak).await;
+    task_run(rig, jev, claude, profile).await
+}
+
+/// Everything `task_with` does before the task starts: the rig on `jev` and
+/// `claude`, its driver running, and the home conversation on Fable.
+async fn task_rig(
+    jev: &FakeJev,
+    claude: Arc<FakeProvider>,
+    tweak: impl FnOnce(&mut crate::Config),
+) -> Rig {
     let provider = claude.clone();
     let rig = rig_parts(
-        Some(&jev),
+        Some(jev),
         4,
         |c| {
             c.routing.classes.deep_coding.profiles = vec!["sonnet".into()];
@@ -112,6 +125,16 @@ async fn task_with(
         .unwrap();
     rec.last_target = Some(TargetRef::from(&at));
     rig.core.store.put_session(&rec.session_id, &rec).unwrap();
+    rig
+}
+
+/// The task, started on `rig` and run to the end of its first turn.
+async fn task_run(
+    rig: Rig,
+    jev: FakeJev,
+    claude: Arc<FakeProvider>,
+    profile: Option<&str>,
+) -> Task {
     let (started, rec) = run(&rig, &params(BRIEF, profile)).await;
     let id = started.session_id.replacen("ses_", "exe_", 1);
     Task {
@@ -569,29 +592,47 @@ async fn the_board_says_a_moved_task_is_on_its_new_model() {
 }
 
 /// A verdict that takes its time never holds a loop: the task runs on at its base while the
-/// checkpoint is out, and moves at the first boundary after the answer comes (the loops
-/// are 60 ms apiece, the verdict 500 ms, and the window is wide enough to keep its flight).
-/// The bounds are in loops, and a loaded machine makes each loop slower, so the verdict
-/// lands after fewer of them (theseus-1b2zm: at loop 7 under a gate's load): at least three
-/// loops after the ask ran on the base, which no held loop allows.
+/// checkpoint is out, and moves at the first boundary after the answer comes. Ordered by
+/// events, never by a clock (theseus-1b2zm): Jev holds the checkpoint's answer, the
+/// provider holds the seventh request, and the test lets the verdict go and waits until it
+/// has come to the turn before it lets the loop go on. So the loops after the ask (three
+/// of them, 3 to 5, and the seventh's own call) ran on the base with the verdict out, and
+/// the move is at the first boundary after it came: the eighth request, never another.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
-    let t = task_with(
-        loops(20, 0),
-        None,
-        |c| c.routing.task_checkpoints.min_loops_between = 12,
-        |j| {
-            on_trigger(j, "failing: 3 failed", "deep_coding");
-            j.set_latency(
-                std::time::Duration::from_millis(500),
-                std::time::Duration::from_millis(500),
-            );
-        },
-    )
+    const ASKED: &str = "failing: 3 failed";
+    let gate = RequestGate::at(6);
+    let claude = Arc::new(FakeProvider {
+        gate: Some(gate.clone()),
+        ..FakeProvider::scripted(loops(20, 0))
+    });
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "routine_coding", 0.95);
+    on_trigger(&jev, ASKED, "deep_coding");
+    jev.hold_when(ASKED);
+    let rig = task_rig(&jev, claude.clone(), |c| {
+        c.routing.task_checkpoints.min_loops_between = 12;
+    })
     .await;
+    let core = rig.core.clone();
+    let seen = jev.clone();
+    let (t, ()) = tokio::join!(task_run(rig, jev.clone(), claude, None), async move {
+        let hold = std::time::Duration::from_secs(30);
+        // A held loop would never send the seventh request.
+        tokio::time::timeout(hold, gate.reached())
+            .await
+            .expect("the verdict held a loop: no seventh request");
+        let asked = |s: &theseus_judge::fake::Seen| s.body["state"].to_string().contains(ASKED);
+        until_within("the checkpoint asked", 30, || seen.seen().iter().any(asked)).await;
+        let answers = || core.runner.judge.route_answers.load(Ordering::SeqCst);
+        let before = answers();
+        seen.release();
+        until_within("the verdict came to its turn", 30, || answers() > before).await;
+        gate.open();
+    });
     let models = t.models();
     let at = moved_at(&models, "sonnet");
-    assert!((6..=16).contains(&at), "applied when it came: {models:?}");
+    assert_eq!(at, 7, "the first boundary after it came: {models:?}");
     assert!(
         models[3..at].iter().all(|m| *m == "haiku"),
         "the loops after the ask ran on: {models:?}"
