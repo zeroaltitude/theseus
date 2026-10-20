@@ -192,6 +192,40 @@ fn a_mint_is_refused_when_reusing_the_coarser_header_pays() {
     assert!(m.plan.delta.is_empty());
 }
 
+/// theseus-i4y7l: a pick whose compilation the call does not use (routing moved the turn) is
+/// given back, so the compile the call uses mints the header, with its record, instead of
+/// reusing one that was never stored; a discarded reuse gives its hit back.
+#[test]
+fn a_discarded_pick_leaves_the_library_as_it_was() {
+    let lib = library();
+    let project = Ask::new(files(300), vec![]);
+    let first = project.pick(&lib);
+    assert_eq!(first.choice, Choice::Mint);
+    lib.discard(&first);
+    let again = project.pick(&lib);
+    assert_eq!(
+        again.choice,
+        Choice::Mint,
+        "no header of the dropped compile to reuse"
+    );
+    assert_eq!(
+        keys(&again),
+        [format!("{HEADER}{}", again.plan.used.header)]
+    );
+    // A reuse that is dropped gives its hit back; a kept one counts.
+    let reads = |lib: &Library, digest: &str| {
+        lib.0.lock().unwrap().as_ref().unwrap().entries[digest]
+            .hits
+            .reuses
+    };
+    let digest = &again.plan.used.header;
+    let reuse = project.pick(&lib);
+    assert_eq!(reuse.choice, Choice::Reuse);
+    assert_eq!(reads(&lib, digest), 1);
+    lib.discard(&reuse);
+    assert_eq!(reads(&lib, digest), 0);
+}
+
 /// A second thread on the project reuses the project's header verbatim; its
 /// topic goes after it; the same layer again reuses its own header whole.
 #[test]
