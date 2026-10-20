@@ -1,8 +1,9 @@
-//! The cockpit's files as the binary embeds them (theseus-rwpbg.5): the cockpit's build writes `<file>.br` and
-//! `<file>.gz` beside each file it can shrink (`cockpit/compress.ts`), and only those and the fonts, which are packed
-//! already, are embedded. A request for `x` is answered with `x.br` when its `Accept-Encoding` takes brotli, else
-//! `x.gz` when it takes gzip, else the brotli copy decoded; always with `x`'s own `Content-Type` and `Vary:
-//! Accept-Encoding`. There is no `Range`: the web UI has never answered one, so an encoded body has no range to break.
+//! The cockpit's files as the binary embeds them (theseus-rwpbg.5, theseus-o2myi): the cockpit's build writes
+//! `<file>.br` beside each file it can shrink (`cockpit/compress.ts`), and only those and the fonts, which are packed
+//! already, are embedded: one copy of each file. A request for `x` is answered with `x.br` when its `Accept-Encoding`
+//! takes brotli, else the brotli copy decoded (a gzip client gets the plain bytes too); always with `x`'s own
+//! `Content-Type` and `Vary: Accept-Encoding`. There is no `Range`: the web UI has never answered one, so an encoded
+//! body has no range to break.
 
 use std::borrow::Cow;
 use std::io::Read;
@@ -14,12 +15,12 @@ use axum::{
 };
 use rust_embed::Embed;
 
-/// Whether a path names one of the compressed copies, which are never served as themselves.
+/// Whether a path names the compressed copy, which is never served as itself.
 fn is_copy(path: &str) -> bool {
-    path.ends_with(".br") || path.ends_with(".gz")
+    path.ends_with(".br")
 }
 
-/// Whether the cockpit has a file at `path`, in any of its embedded forms.
+/// Whether the cockpit has a file at `path`, in either of its embedded forms.
 pub fn exists<E: Embed>(path: &str) -> bool {
     !is_copy(path) && (E::get(path).is_some() || E::get(&format!("{path}.br")).is_some())
 }
@@ -43,15 +44,11 @@ fn pick<E: Embed>(path: &str, accept: &str) -> Option<(Cow<'static, [u8]>, Optio
     if let Some(f) = E::get(path).filter(|_| !is_copy(path)) {
         return Some((f.data, None));
     }
-    for (coding, ext) in [("br", "br"), ("gzip", "gz")] {
-        if accepts(accept, coding) {
-            if let Some(f) = E::get(&format!("{path}.{ext}")) {
-                return Some((f.data, Some(coding)));
-            }
-        }
+    let packed = E::get(&format!("{path}.br"))?;
+    if accepts(accept, "br") {
+        return Some((packed.data, Some("br")));
     }
     let mut plain = Vec::new();
-    let packed = E::get(&format!("{path}.br"))?;
     brotli_decompressor::Decompressor::new(packed.data.as_ref(), 16 * 1024)
         .read_to_end(&mut plain)
         .ok()?;
@@ -132,7 +129,7 @@ mod tests {
     }
 
     /// Every file of the cockpit's build is embedded and decodes to its bytes: a font as it is, anything else as a
-    /// brotli copy and a gzip copy. A dist built before the copies existed fails here, naming its first file.
+    /// brotli copy. A dist built before the copies existed fails here, naming its first file.
     #[test]
     fn every_embedded_asset_decodes_to_its_dist_file() {
         let Some(files) = originals() else { return };
@@ -151,11 +148,10 @@ mod tests {
             .read_to_end(&mut br)
             .unwrap();
             assert!(br == want, "{name}.br decodes to other bytes");
-            let mut gz = Vec::new();
-            flate2::read::GzDecoder::new(embedded(&format!("{name}.gz")).as_slice())
-                .read_to_end(&mut gz)
-                .unwrap();
-            assert!(gz == want, "{name}.gz decodes to other bytes");
+            assert!(
+                Cockpit::get(&format!("{name}.gz")).is_none(),
+                "{name}.gz is embedded: there is one copy"
+            );
         }
     }
 
@@ -181,15 +177,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_cockpit_serves_br_then_gzip_then_identity() {
+    async fn the_cockpit_serves_br_then_identity() {
         let Some(files) = originals() else { return };
         let name = files.iter().find(|n| n.ends_with(".js")).unwrap();
         let want = std::fs::read(dist().join(name)).unwrap();
         for (accept, coded) in [
             (Some("br, gzip"), Some("br")),
             (Some("gzip, deflate, br"), Some("br")),
-            (Some("gzip"), Some("gzip")),
-            (Some("br;q=0, gzip"), Some("gzip")),
+            (Some("gzip"), None),
+            (Some("br;q=0, gzip"), None),
             (Some("*"), Some("br")),
             (Some("identity"), None),
             (Some("br;q=0, gzip;q=0"), None),
@@ -198,10 +194,9 @@ mod tests {
             let r = ask(name, accept);
             assert_eq!(r.status(), StatusCode::OK, "{accept:?}");
             assert_eq!(coding(&r), coded, "{accept:?}");
-            // The bytes sent are the embedded copy of that coding, or the file itself.
+            // The bytes sent are the embedded brotli copy, or the file itself.
             let sent = match coded {
-                Some("br") => embedded(&format!("{name}.br")),
-                Some(_) => embedded(&format!("{name}.gz")),
+                Some(_) => embedded(&format!("{name}.br")),
                 None => want.clone(),
             };
             assert!(body(r).await == sent, "{accept:?}");

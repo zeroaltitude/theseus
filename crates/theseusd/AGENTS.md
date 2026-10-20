@@ -50,9 +50,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   (it logs and sleeps 1 s on an error), the harness's notify socket takes the same rule, and the egress proxy's
   waits out EMFILE and its kin. The units carry `LimitNOFILE=65536` and `TasksMax=49152`. `tests/connections.rs`;
   `scripts/conn-watchers.py` is the live check (watchers past 1,100).
-- `src/web.rs`: the web server for the cockpit, at `/`. It embeds `cockpit/dist` (with `allow_missing`) as the brotli and gzip copies the cockpit's build writes beside
-  each file (`cockpit/compress.ts`; fonts raw), and `web/encoded.rs` serves one by `Accept-Encoding` (brotli, gzip, else
-  the brotli copy decoded; `Vary`, and the file's own `Content-Type`; no `Range`, as ever). A dist from before the copies
+- `src/web.rs`: the web server for the cockpit, at `/`. It embeds `cockpit/dist` (with `allow_missing`) as the one brotli copy the cockpit's build writes beside
+  each file (`cockpit/compress.ts`; fonts raw), and `web/encoded.rs` serves it by `Accept-Encoding` (brotli when taken, else
+  the copy decoded, a gzip client too; `Vary`, and the file's own `Content-Type`; no `Range`, as ever). A dist from before the copies
   fails `every_embedded_asset_decodes_to_its_dist_file`, naming its first file. It redirects
   the cockpit's old `/cockpit/…` to the same route at `/…`, and refuses a wrong `Host` or `Origin` and any uid but
   the daemon's own.
