@@ -172,6 +172,8 @@ mod tests_thread_join;
 #[cfg(test)]
 mod tests_thread_keep_warm;
 #[cfg(test)]
+mod tests_thread_mix;
+#[cfg(test)]
 mod tests_thread_recall;
 #[cfg(test)]
 mod tests_thread_route;

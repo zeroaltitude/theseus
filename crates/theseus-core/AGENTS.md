@@ -496,7 +496,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   thread exists, so a daemon without threads recalls as before). In a threaded session a candidate of *another*
   thread pays `[threads] cross_recall_penalty` (0.35 of its score, in the pack's rank) and is dropped as `thread`
   unless its fused score is above `cross_recall_bar` (0.75) of the query's best, unless the message names its thread
-  (slug, title, or a working-set entity: `thread_recall::named`). A sealed thread's notes, or one with a seal
+  (slug, title, or a working-set entity: `thread_recall::named`). **Streams do not mix** (theseus-wncdv; the
+  threadbench's threads arms answered about another stream's facts on 4 to 7 of 12 cross-stream questions, one
+  session on 0: streams share the shape of their facts, so a question about this thread's port scores another's
+  nearly as high, and the place's own conversation, where each stream's first messages ran before its thread
+  existed, passed undistanced): (1) provenance: `ThreadLens.judge(session, node, fused, tie)` takes a node's
+  own thread (`of_node`: `moved.of.<node>`, what a split moved) over its session's, and `[threads] base_distance`
+  (true) makes a node no thread claims another stream's to a threaded asker (the same penalty and bar, never
+  waived by a name); `cross_recall_beats_own` (true) makes another stream's hit, once it has paid, still outrank the
+  asking thread's own best hit (`own_top`, from the candidates it owns); (3) when another thread's notes are
+  pulled: `cross_recall_needs_entity` (true) drops a hit whose chunk holds entities (`Tie::Apart`: index entities,
+  none of the message's) of another stream, so a question's shape alone pulls none. Each key off restores the
+  earlier rule. (2) A prefix carries only the asking stream's own sections: `prefix::fit` refuses a header with a
+  section the fresh layer lacks, so no reuse can hold another stream's guidance (`prefix/tests.rs`,
+  `a_prefix_carries_only_the_asking_streams_own_sections`); the A1 vs A1n gap was a router decision (a new
+  stream's first message held in the sticky thread), so `[prefix] enabled` stays true. Tests:
+  `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. A sealed thread's notes, or one with a seal
   proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
   rerank and `thread.read`-less lookups included (`memory.lookup`'s words ask with the seal and no distance). The
   `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`

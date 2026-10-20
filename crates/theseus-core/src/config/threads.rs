@@ -20,6 +20,22 @@
 //!   its score is above the bar's share of the index's best, unless the
 //!   message names the thread (its slug, its title, or one of its working
 //!   set's entities). Unthreaded sessions recall as before.
+//! - `cross_recall_beats_own` (true; theseus-wncdv): ...and, once it has paid,
+//!   another thread's candidate must still outrank the asking thread's own best
+//!   hit of the query. Streams share the shape of their facts (a port, a branch,
+//!   a ticket), so a question about this thread's port scores another's port
+//!   nearly as high; with this off the bar alone decides, and the threadbench
+//!   answered about other streams' facts on 4 to 7 of 12 cross-stream questions.
+//! - `cross_recall_needs_entity` (true; theseus-wncdv): ...and a candidate whose
+//!   chunk holds concrete entities (a path, a ticket, a host) of which the
+//!   message names none is dropped: the question's shape alone is no reason to
+//!   pull another stream's note. A chunk with no entities is judged by the bar
+//!   and the thread's own best hit alone.
+//! - `base_distance` (true; theseus-wncdv): a candidate no thread claims (the
+//!   place's own conversation, where each stream's first messages run before its
+//!   thread exists) is another stream's to a threaded asker: it pays the same
+//!   distance and a name never waives it. Off, it recalls as before. A node a
+//!   split moved belongs to the thread it moved to, whichever session it is in.
 //! - `sticky_half_life_secs`: how fast a place's last thread stops being the
 //!   likely one for its next message (600): the router's stickiness halves
 //!   every this many seconds of gap (theseus-rha2).
@@ -72,6 +88,12 @@ pub struct ThreadsConfig {
     pub cross_recall_penalty: f64,
     #[serde(default = "default_bar")]
     pub cross_recall_bar: f64,
+    #[serde(default = "default_true")]
+    pub cross_recall_beats_own: bool,
+    #[serde(default = "default_true")]
+    pub cross_recall_needs_entity: bool,
+    #[serde(default = "default_true")]
+    pub base_distance: bool,
     #[serde(default = "default_half_life")]
     pub sticky_half_life_secs: u64,
     #[serde(default = "default_route_wait")]
@@ -89,6 +111,9 @@ pub struct ThreadsConfig {
 }
 
 fn default_enabled() -> bool {
+    true
+}
+fn default_true() -> bool {
     true
 }
 fn default_max_live() -> u32 {
@@ -132,6 +157,9 @@ impl Default for ThreadsConfig {
             import_profile: default_import_profile(),
             cross_recall_penalty: default_penalty(),
             cross_recall_bar: default_bar(),
+            cross_recall_beats_own: true,
+            cross_recall_needs_entity: true,
+            base_distance: true,
             sticky_half_life_secs: default_half_life(),
             route_wait_ms: default_route_wait(),
             ask_wait_secs: default_ask_wait(),
@@ -235,6 +263,25 @@ mod tests {
             let note = format!("{secrets}\n[threads]\n{bad}\n");
             assert!(crate::Config::parse(&note).is_err(), "{bad}");
         }
+    }
+
+    /// The streams-do-not-mix keys (theseus-wncdv) are on by default, named in the
+    /// template, and each can be turned off.
+    #[test]
+    fn the_streams_do_not_mix_keys_are_on_by_default_and_each_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.cross_recall_beats_own && cfg.threads.base_distance);
+        assert!(cfg.threads.cross_recall_needs_entity);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_needs_entity = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_beats_own = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# base_distance = true"));
+        let loose = crate::Config::from_toml(
+            "[threads]\ncross_recall_beats_own = false\nbase_distance = false\n\
+             cross_recall_needs_entity = false\n",
+        )
+        .unwrap();
+        assert!(!loose.threads.cross_recall_beats_own && !loose.threads.base_distance);
+        assert!(!loose.threads.cross_recall_needs_entity);
     }
 
     /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a

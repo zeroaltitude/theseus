@@ -695,7 +695,13 @@ impl Scene<'_> {
     /// What the threads do to this recall over `candidates` (theseus-f2g0).
     pub fn lens(&self, candidates: &[Candidate]) -> Option<theseus_memory::ThreadLens> {
         let t = self.threads.as_ref()?;
-        Some(t.lens(candidates.iter().map(|c| (c.session_id.as_str(), c.fused))))
+        Some(
+            t.lens(
+                candidates
+                    .iter()
+                    .map(|c| (c.session_id.as_str(), c.node_id.as_str(), c.fused)),
+            ),
+        )
     }
 }
 
