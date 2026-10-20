@@ -78,8 +78,8 @@ A probe whose fact never reached the arm (its marker is not in the transcript) i
 
 ## The arms
 
-`th_drive.py --arm <id>`. Arms A1, A1n, A1p and A2 need threads and are in the table with `requires = "threads"`; their
-drivers refuse, with words.
+`th_drive.py --arm <id>`. Arms A1, A1n and A2 run on the threads build (`th_threads.py`, the simulated owner in
+`th_owner.py`); A1p is in the table as not measurable, and `th_drive.py --arm A1p` says why.
 
 | Arm | What | Layout |
 |---|---|---|
@@ -89,7 +89,20 @@ drivers refuse, with words.
 | A6 | Claude Code, `--resume` per stream | the same in Claude Code |
 | A7 | Pi (1.0.4), one session | one session |
 | A8 | OpenCode | only if its CLI continues a named session headless: `--probe-opencode` runs `opencode run --help` and says; the report says "not measurable" and why |
-| A1, A1n, A1p, A2 | Theseus with threads (routed; named by the owner; with personas; with the prefix library) | refused until the threads rows land. These four names are this bench's reading of the brief's list. |
+| A1 | Theseus with threads, natural addressing | every message to one home session, unaddressed: the router places it; the prefix library on; the five persona cards configured, engagement at the shipped default |
+| A1n | A1 with `[prefix] enabled = false` | what the prefix library buys on top of threads |
+| A1p | A1 with a prompt layer per persona | **not measurable**: the daemon builds one persona-set layer whenever two or more `[personas]` exist and has no switch for another layout; no product switch is built for a bench |
+| A2 | Theseus with threads, explicit addressing | each stream's message goes out with `ask --thread <its stream's slug>`, `home` messages unaddressed to the home session: routing's share of any gap |
+
+The threads arms share one simulated owner (`th_owner.py`): it accepts a new-thread offer on a stream's first message
+and declines it otherwise (an offer on a `home` message is counted as over-splitting), answers a routing question
+with the message's true stream, starts a stream's thread by hand when its first message ran at home and no offer was
+made (no thread is live at the start, so none can be), and sends misroute and correction messages as written. It reads
+only a message's stream and whether the stream has begun. A prefix-track `reopen` is not driven (a thread goes cold
+when its cache window passes, which nothing outside the daemon can move): `run.json` says `reopen_not_driven`.
+`routing.jsonl` is written from the reply's thread tag, the router's questions on the CLI's stderr, and the turn's
+`thread.routed`, `persona.engaged` and `prefix.picked` ledger rows. The bench profile configures no Jev: without one the
+pre-router places alone, so give the daemon Jev's endpoint with `--config-overlay <toml>` (its sha256 is kept in `run.json`).
 
 The drivers are `bench/recall/drive.py`'s (Theseus, Claude Code, Pi), unchanged in what they do: a threads
 progression becomes the recall bench's turns and sessions (`th_drive.view`), one layout per arm. The one change to
@@ -147,7 +160,7 @@ python3 bench/threads/th_score.py /tmp/tb-a3 --out /tmp/tb-scores
 python3 bench/threads/report.py --scores /tmp/tb-scores/scores.json --progression /tmp/tb-smoke --date 2026-10-14 --slug smoke --out /tmp/tb-docs
 ```
 
-The stand-in smoke (`test_th_smoke.py`) runs A3 and A5 end to end on a scratch daemon with `bench/recall/standin.py`, scores
+The stand-in smoke (`test_th_smoke.py`) runs A3, A5, A1 and A2 end to end on a scratch daemon with `bench/recall/standin.py`, scores
 them and renders the report into a scratch directory; nothing is committed under `docs/benchmarks/`. **Run a real arm
 only in a throwaway container or VM**: the tools are not confined to the workspace.
 

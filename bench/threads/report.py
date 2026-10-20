@@ -76,7 +76,13 @@ def legend(runs: list[dict]) -> dict[str, str]:
 # ---------------------------------------------------------------- figures
 
 
+# The threads arms are configurations inside Theseus: the chart palette's slots 6 to 8 (the memory family's, which
+# never meet a threads arm in one figure), so no shared file changes. The records keep their own keys.
+CHART_KEY = {"theseus-threads": "vector", "theseus-threads-noprefix": "fused", "theseus-threads-addressed": "entity"}
+
+
 def figures(runs: list[dict], prog: tf.Progression) -> list[dict]:
+    runs = [{**r, "key": CHART_KEY.get(r["key"], r["key"])} for r in runs]
     lab = legend(runs)
     figs = []
     # per-stream correctness: a matrix, P the oracle at 1
@@ -364,8 +370,39 @@ python3 bench/threads/report.py --scores /tmp/tb-scores/scores.json --persona /t
     --prefix-scores /tmp/tb-prefix-scores/scores.json --date <the day of the run> --slug before --out docs/benchmarks
 ```
 
-Arms A1, A1n, A1p and A2 refuse to run until the threads rows land (`th_drive.py` says why); the after run is the same
-commands with those arms, read by the same scorer.
+The threads arms (A1, A1n, A2) are in "What T12 needs" below; A1p is not measurable (`th_drive.py --arm A1p` says why).
+
+### What T12 (the after run) needs
+
+- The same release binaries as the before run's A3 (frozen: copy them once, run every arm from the copy), Sonnet 5.5
+  at effort `medium`, the attempt plan `bench/plans/threadbench-t12.json` committed before the run, and Jev reachable
+  for the router's thread question: the bench profile has no `[judge]` table, so without one the pre-router alone places
+  messages (the question is asked and a timeout keeps its guess). Give the daemon Jev's endpoint with
+  `--config-overlay <toml>` (laid over the scratch config; its sha256 is kept in `run.json`).
+- About $35 to $60 for the standard size across A1, A1n, A2 and A3 (A3 is the before run's, not repeated if its
+  binaries are the same); the pause line is $170 with the before run, and the per-arm spend limit is $25.
+- One arm after another, in a throwaway container or VM. A1p has no switch to be built on (the daemon builds one
+  persona-set layer whenever two or more `[personas]` exist): it is named in the plan as probe-only and the report says
+  so, as it does for A8.
+
+```bash
+python3 bench/threads/th_generate.py --seed {seed} --size {size} --out /tmp/tb-prog      # the same digest as T0r's
+for arm in A1 A1n A2; do python3 bench/threads/th_drive.py --plan bench/plans/threadbench-t12.json --arm $arm \
+    --bin-dir <frozen bin dir> --config-overlay <jev.toml> --progression /tmp/tb-prog --out /tmp/tb-$arm-t12; done
+python3 bench/threads/th_drive.py --plan bench/plans/threadbench-t12.json --arm A3 --bin-dir <frozen bin dir> \
+    --progression /tmp/tb-prog --out /tmp/tb-a3-t12
+python3 bench/threads/th_drive.py --arm A1p --out /tmp/never      # not measurable, and why
+python3 bench/threads/th_prefix.py --seed {seed} --out /tmp/tb-prefix
+for arm in A1 A1n A2; do python3 bench/threads/th_drive.py --plan bench/plans/threadbench-t12.json --arm $arm \
+    --bin-dir <frozen bin dir> --config-overlay <jev.toml> --progression /tmp/tb-prefix --out /tmp/tb-prefix-$arm; done
+python3 bench/threads/th_score.py /tmp/tb-A1-t12 /tmp/tb-A1n-t12 /tmp/tb-A2-t12 /tmp/tb-a3-t12 --out /tmp/tb-t12-scores
+python3 bench/threads/report.py --scores /tmp/tb-t12-scores/scores.json --date <the day of the run> --slug after \
+    --out docs/benchmarks
+```
+
+Each threads arm's run directory also holds `routing.jsonl` (per message: the thread it ran in, whether the router
+asked, the persona engaged and the prefix library's pick) and `run.json`'s `owner` (over-split offers, threads the
+owner started by hand, every answer given) and `reopen_not_driven`.
 
 ### Improvement assessment
 
@@ -383,7 +420,7 @@ numbers above are the before.
 def reproduction(slug: str, seed: int, size: str) -> str:
     return f"""```bash
 python3 bench/threads/th_generate.py --seed {seed} --size {size} --out <prog>
-python3 bench/threads/th_drive.py --arm <A3|A4|A5|A6|A7> ... --progression <prog> --out <run>
+python3 bench/threads/th_drive.py --arm <A1|A1n|A2|A3|A4|A5|A6|A7> ... --progression <prog> --out <run>
 python3 bench/threads/th_score.py <runs...> --out <scores>
 python3 bench/threads/report.py --scores <scores>/scores.json --date <day> --slug {slug}
 python3 -m unittest discover -s bench/threads    # every oracle at 1 on the stand-in, first
@@ -395,8 +432,7 @@ def not_measured(opencode: dict | None) -> str:
     """The arms this report could not run, each with its reason."""
     a8 = opencode or td.probe_opencode()
     why8 = ("measurable: " if a8["measurable"] else "not measurable: ") + a8["why"]
-    return ("A1, A1n, A1p, A2: need threads, which are not built (their drivers refuse); "
-            f"A8 (OpenCode): {why8}")
+    return (f"A1p: not measurable: {td.ARMS['A1p']['unmeasurable']}; A8 (OpenCode): {why8}")
 
 
 def write_report(runs: list[dict], prog: tf.Progression, out: Path, slug: str, date: str, scratch: bool = False,

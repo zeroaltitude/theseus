@@ -1,5 +1,5 @@
 """threadbench's drivers and its stand-in smoke (theseus-9ofg): the arms table, the layouts, Claude Code's
-sessions carried per stream against a stand-in `claude`, and A3 and A5 end to end on a scratch daemon
+sessions carried per stream against a stand-in `claude`, and A3, A5, A1 and A2 end to end on a scratch daemon
 (`bench/recall/standin.py` counting like a provider) with the scorer and the report rendered into a scratch
 directory. The Theseus tests are skipped when the binaries are missing (`cargo build --workspace`, or
 THESEUS_RECALL_BIN_DIR). Nothing is committed under docs/benchmarks/.
@@ -73,17 +73,6 @@ def bin_dir() -> Path | None:
 
 
 class Arms(unittest.TestCase):
-    def test_the_arms_that_need_threads_refuse_with_words(self):
-        for arm in ("A1", "A1n", "A1p", "A2"):
-            self.assertEqual(td.ARMS[arm]["requires"], "threads")
-            with self.assertRaises(SystemExit) as cm:
-                td.main(["--arm", arm, "--out", "/tmp/never"])
-            msg = str(cm.exception)
-            self.assertIn("needs threads", msg)
-            self.assertIn("not built", msg)
-            self.assertIn("A3", msg)
-        self.assertEqual(td.MEASURABLE, ("A3", "A4", "A5", "A6", "A7"))
-
     def test_opencode_is_probed_and_its_answer_is_the_finding(self):
         p = td.probe_opencode("/no/such/opencode")
         self.assertFalse(p["measurable"])
@@ -120,7 +109,7 @@ class Plan(unittest.TestCase):
         import plan as hp
         plan = json.loads(self.PLAN.read_text())
         hp.check(plan, "threadbench-t0r")  # the Harbor plan's own rule: a name, and `k`
-        self.assertEqual(plan["arms"], list(td.MEASURABLE))
+        self.assertEqual(plan["arms"], ["A3", "A4", "A5", "A6", "A7"])  # the before run's: no threads arm
         self.assertEqual(plan["probe_only"], ["A8"])
         self.assertEqual((plan["model"], plan["effort"], plan["size"]), ("anthropic/claude-sonnet-5-5", "medium", "standard"))
         import th_prefix
@@ -333,11 +322,11 @@ class PiArm(unittest.TestCase):
 class TheseusSmoke(unittest.TestCase):
     """A3 and A5 end to end on a scratch daemon with the counting stand-in model: 5 streams, about 8 turns each."""
 
-    def run_arm(self, d: Path, arm: str) -> tuple[int, str, Path]:
-        rules = tsi.rules_for(SMOKE)
+    def run_arm(self, d: Path, arm: str, prog: tf.Progression = SMOKE) -> tuple[int, str, Path]:
+        rules = tsi.rules_for(prog)
         self.assertEqual(tsi.ambiguous_rules(rules), [])
         gen_dir = d / "gen"
-        SMOKE.save(gen_dir)
+        prog.save(gen_dir)
         model = standin.StandIn(rules, tsi.REPLY)
         try:
             out = d / "run"
@@ -388,7 +377,8 @@ class TheseusSmoke(unittest.TestCase):
             self.assertTrue(list((d / "docs" / "img" / "2026-10-14-threadbench-smoke").glob("*.svg")))
             self.assertIn("Improvement assessment", doc)
             self.assertIn("A8 (OpenCode): not measurable", doc)  # no opencode binary on the test machine, and the report says why
-            self.assertIn("A1, A1n, A1p, A2: need threads", doc)
+            self.assertIn("A1p: not measurable", doc)
+            self.assertIn("What T12 (the after run) needs", doc)
             # and from the scores on disk, as the command line runs it (the progression regenerated from the scores)
             (d / "scores.json").write_text(json.dumps({"runs": [scored["A3"], scored["A5"]]}))
             self.assertEqual(rep.main(["--scores", str(d / "scores.json"), "--date", "2026-10-15", "--slug", "cli",
@@ -399,6 +389,92 @@ class TheseusSmoke(unittest.TestCase):
             self.assertEqual([r["arm"] for r in data["runs"]], ["A3", "A5"])
             self.assertEqual(len(data["figures"]), 5)
             self.assertFalse(list((REPO / "docs" / "benchmarks").glob("*threadbench*")), "nothing is committed under docs/benchmarks")
+
+
+def with_home(prog: tf.Progression) -> tf.Progression:
+    """The smoke progression with one of its plain messages (7: a status question that touches no fact) made a
+    `home` message, so the explicit arm has one that is not any stream's."""
+    import copy
+    p = copy.deepcopy(prog)
+    p.streams.append(next(s for s in gen.build(11, "standard").streams if s.id == "home"))
+    p.messages[7].stream = "home"
+    tf.validate(p)
+    return p
+
+
+@unittest.skipIf(bin_dir() is None, "no theseus binaries (cargo build -p theseus -p theseusd -p theseus-index)")
+class ThreadsSmoke(TheseusSmoke):
+    """A1 and A2 end to end on a scratch daemon with the counting stand-in model (the arms' own `th_threads.py`
+    driver). The stand-in cannot serve the router's judge question (Jev is not configured, so the daemon's
+    pre-router places alone and its `route_wait_ms` has nothing to wait for): A1's smoke proves the plumbing, not
+    the router's skill. Every message is a real `theseus ask`; the daemon's thread list and histories are the
+    evidence for A2."""
+
+    test_a3_and_a5_run_end_to_end_score_and_render = None  # the parent's test, not run again here
+
+    def history_texts(self, out: Path) -> dict[str, str]:
+        """What the owner said in each session's history the run kept: `home`, then each thread by slug. Only the
+        owner's own messages: a thread's recall of another thread's turn (`recall` nodes, `[from thread «…»]`) is
+        the product's cross-thread recall, not a message that landed there."""
+        meta = json.loads((out / "run.json").read_text())
+        texts = {}
+        for name in ["home", *meta["thread_sessions"]]:
+            whole = json.loads((out / "raw" / f"history-{name}.json").read_text())
+            texts[name] = "\n".join(n["text"] for n in whole["nodes"] if n.get("kind") == "user_message")
+        return texts
+
+    def test_a2_puts_each_streams_messages_in_its_own_thread_and_home_messages_stay_home(self):
+        prog = with_home(SMOKE)
+        with tempfile.TemporaryDirectory() as d:
+            rc, said, out = self.run_arm(Path(d), "A2", prog)
+            self.assertEqual(rc, 0, said)
+            meta = json.loads((out / "run.json").read_text())
+            self.assertEqual((meta["arm_id"], meta["layout"], meta["left_running"], meta["killed"]), ("A2", "thread", [], []))
+            streams = sorted(s.id for s in prog.streams if s.id != "home")
+            self.assertEqual(sorted(meta["thread_sessions"]), streams, "the daemon lists one thread per stream")
+            texts = self.history_texts(out)
+            for m in prog.messages:
+                where = [name for name, t in texts.items() if m.text[:50] in t]
+                self.assertEqual(where, [m.stream if m.stream != "home" else "home"], f"message {m.index}: {m.text[:40]!r}")
+            self.assertEqual(json.loads((out / "run.json").read_text())["owner"]["started_by_hand"], 0)
+            recs = [json.loads(x) for x in (out / "routing.jsonl").read_text().splitlines()]
+            self.assertEqual([(r["msg"], r["stream"]) for r in recs], [(m.index, m.stream) for m in prog.messages])
+            self.assertTrue(all(r["addressed"] == (r["stream"] != "home") for r in recs))
+            sc = ts.score_run(ts.load_run(out))
+            self.assertEqual(sc["routing"], {"owner_routed": True})
+            self.assertEqual(sc["embargo"]["leak_count"], 0)
+            self.assertEqual(sc["contamination"]["k"], 0)
+            self.assertEqual(sc["arm"], "A2")
+
+    def test_a1_sends_everything_home_unaddressed_and_writes_the_routing_record_the_scorer_reads(self):
+        import report as rep
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rc, said, out = self.run_arm(d, "A1")
+            self.assertEqual(rc, 0, said)
+            meta = json.loads((out / "run.json").read_text())
+            self.assertEqual((meta["arm_id"], meta["left_running"]), ("A1", []))
+            recs = [json.loads(x) for x in (out / "routing.jsonl").read_text().splitlines()]
+            self.assertEqual([r["msg"] for r in recs], [m.index for m in SMOKE.messages], "one record per message")
+            self.assertTrue(all(not r["addressed"] for r in recs))
+            # Nothing is live at the first message, so no offer is made: the owner starts each stream's thread by hand.
+            self.assertEqual(meta["owner"]["started_by_hand"], len(SMOKE.streams))
+            self.assertEqual(meta["reopen_not_driven"], 0)
+            sc = ts.score_run(ts.load_run(out))
+            self.assertEqual(sorted(sc["routing"]), ["asked_on_ambiguous", "asked_on_clear", "top1"])
+            self.assertEqual(sc["routing"]["top1"]["n"], sum(1 for m in SMOKE.messages if not m.ambiguous and m.role != "correction"))
+            self.assertEqual(sc["routing"]["asked_on_clear"]["k"], 0)
+            self.assertEqual(sc["embargo"]["leak_count"], 0)
+            self.assertEqual(sc["oracle_mean"], 1.0)
+            # the threads arms render in the report, on the design's names
+            (d / "a2").mkdir()
+            rc2, said2, out2 = self.run_arm(d / "a2", "A2")
+            self.assertEqual(rc2, 0, said2)
+            doc = rep.write_report([sc, ts.score_run(ts.load_run(out2))], SMOKE, d / "docs", slug="threads", date="2026-10-16",
+                                   scratch=True)
+            self.assertIn("A1 Theseus with threads, natural addressing", doc)
+            self.assertIn("A2 Theseus with threads, explicit addressing", doc)
+            self.assertTrue(list((d / "docs" / "img" / "2026-10-16-threadbench-threads").glob("*.svg")))
 
 
 if __name__ == "__main__":
