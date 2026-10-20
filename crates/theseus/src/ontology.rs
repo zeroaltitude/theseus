@@ -49,6 +49,8 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
         OntologyCmd::Topic {
             cmd: TopicCmd::Add { name, parent, desc },
         } => topic_add(conn, json, name, parent, desc).await,
+        OntologyCmd::Undo { write } => crate::onto_cmd::undo(conn, json, write).await,
+        OntologyCmd::Kind { cmd } => crate::onto_cmd::kind(conn, json, cmd).await,
         OntologyCmd::Guide { category, text } => guide(conn, json, category, text).await,
         OntologyCmd::Member { session, changes } => member(conn, json, session, changes).await,
         OntologyCmd::Proposals {

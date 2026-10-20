@@ -104,11 +104,68 @@ impl Board {
         })
     }
 
+    /// A write checked and framed, not yet appended: the caller's own frame
+    /// carries [`Staged::frame`] beside its other records (the sink writes a
+    /// judgment's filing in the judgment's frame), then [`Staged::commit`]s
+    /// the snapshot once the frame is written; dropped, nothing changes.
+    /// `make` gives the records and their rows from the snapshot as it
+    /// stands under the writers' lock (`None` when it gives neither), and a
+    /// record that does not check is a refusal that stages nothing. The lock
+    /// is held until the [`Staged`] is gone, so no other write checks against
+    /// the snapshot meanwhile.
+    pub fn stage<'a>(
+        &'a self,
+        store: &Store,
+        by: Origin,
+        make: impl FnOnce(&Ontology) -> Result<(Vec<Record>, Vec<NewRecord>)>,
+    ) -> Result<Option<Staged<'a>>> {
+        let now = self.snapshot(store)?;
+        let guard = self.writes.lock().unwrap();
+        let now = self.held().unwrap_or(now);
+        let (records, rows) = make(&now)?;
+        if records.is_empty() && rows.is_empty() {
+            return Ok(None);
+        }
+        let mut next = (*now).clone();
+        let mut frame = Vec::with_capacity(records.len() * 2 + rows.len());
+        for r in &records {
+            next.put(r.clone(), by).map_err(anyhow::Error::new)?;
+            frame.push(NewRecord::json(kinds::META, Some(&r.key()), &r.to_value())?);
+        }
+        frame.extend(rows);
+        Ok(Some(Staged {
+            _guard: guard,
+            board: self,
+            next,
+            frame,
+        }))
+    }
+
     /// Forget the snapshot, so the next reader builds it from the store
     /// again (tests: what a restart would build).
     #[cfg(test)]
     pub(crate) fn forget(&self) {
         *self.snapshot.write().unwrap() = None;
+    }
+}
+
+/// A write [`Board::stage`] made: its frame, and the snapshot it commits.
+pub struct Staged<'a> {
+    _guard: std::sync::MutexGuard<'a, ()>,
+    board: &'a Board,
+    next: Ontology,
+    frame: Vec<NewRecord>,
+}
+
+impl Staged<'_> {
+    /// The records and rows to append.
+    pub fn frame(&self) -> &[NewRecord] {
+        &self.frame
+    }
+
+    /// The frame was written: hold the new snapshot.
+    pub fn commit(self) {
+        *self.board.snapshot.write().unwrap() = Some(Arc::new(self.next));
     }
 }
 

@@ -539,3 +539,97 @@ pub struct OntologyProposalRejectAllResult {
     /// Named proposals left unanswered, each with why.
     pub left: Vec<String>,
 }
+
+/// `ontology.undo` (theseus-xzxqv): the operator takes back what a machine
+/// origin wrote, by its write's id (the judgment's, for Jev's): the earlier
+/// member lists come back byte for byte, a category the write minted is
+/// retired unless another session's list holds it, and one `ontology.undo`
+/// row, labelled `wrong`, is written for the pack's learning ledger.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyUndoParams {
+    /// The write: a judgment's id (`judge.list`, the mint card, `filed:`).
+    pub write: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyUndoResult {
+    pub write: String,
+    /// The records put back, by key.
+    pub keys: Vec<String>,
+}
+
+/// `ontology.kind.add` (theseus-xzxqv): the operator adds a row to the
+/// kinds table. An interpreted kind, assigned by the origins named (default
+/// `operator` and `jev`), at most `per_session` of it a session; the loader
+/// checks the rest (a precedence no other kind holds, a rule that is built).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyKindAddParams {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// The origins that may assign it; default `operator` and `jev`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub assigned_by: Vec<String>,
+    /// A number or `many` (default 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub per_session: Option<String>,
+    /// Its categories nest under the kind's own, or under another kind's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub parent: Option<String>,
+    /// Default: after the last kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub precedence: Option<u32>,
+    /// `chain` (default) or `intent_line`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub rule: Option<String>,
+    /// Up to five category names that show what it is for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub examples: Vec<String>,
+    /// Where names are mined from: `titles`, `paths`, `hosts`, `capitalised`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub mined_from: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// `ontology.kind.retire`: the operator takes a kind away (it holds no
+/// category and no session's list, and is neither given nor seeded).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyKindRetireParams {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// The row a kind's add or retire left.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyKindResult {
+    pub kind: OntologyKind,
+    pub retired: bool,
+}

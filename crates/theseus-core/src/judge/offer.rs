@@ -38,12 +38,12 @@ pub struct Waiting<'a> {
     pub target: &'a str,
 }
 
-struct Owed {
-    turn: String,
-    session: String,
-    execution: String,
-    target: String,
-    at: Instant,
+pub(super) struct Owed {
+    pub(super) turn: String,
+    pub(super) session: String,
+    pub(super) execution: String,
+    pub(super) target: String,
+    pub(super) at: Instant,
 }
 
 /// The offers noted and the replies waiting for them.
@@ -57,7 +57,7 @@ impl Book {
     /// The batch found `turn` offerable at `now`: the reply that waits for it,
     /// if it is within [`LATE`] of the reply's writing (an older one is
     /// dropped); else the brief is kept for the reply to come.
-    fn note(&mut self, turn: &str, brief: &str, now: Instant) -> Option<Owed> {
+    pub(super) fn note(&mut self, turn: &str, brief: &str, now: Instant) -> Option<Owed> {
         match self.owed.iter().position(|o| o.turn == turn) {
             Some(at) => self
                 .owed
@@ -75,7 +75,7 @@ impl Book {
 
     /// The brief noted for `turn`, taken; else the reply, written at `now`
     /// without one, waits for it.
-    fn take(&mut self, w: &Waiting<'_>, now: Instant) -> Option<String> {
+    pub(super) fn take(&mut self, w: &Waiting<'_>, now: Instant) -> Option<String> {
         if let Some(at) = self.briefs.iter().position(|(t, _)| t == w.turn) {
             return self.briefs.remove(at).map(|(_, brief)| brief);
         }

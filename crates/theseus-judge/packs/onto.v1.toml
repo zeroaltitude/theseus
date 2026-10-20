@@ -1,0 +1,282 @@
+# onto.v1 (ONTO, theseus-s1vkl / theseus-xzxqv; the design of
+# docs/design/jev-ontology-growth.md, sections 3.1 and 4.3): Jev files the
+# session into the ontology as each message arrives. Same `inbound` state, so
+# it rides the classify.v3 and role.v1 request and adds no call: the state
+# gains the thread's and project's titles, the session's current
+# memberships, and the names code mined from the message. Text questions
+# only; the image questions come with the multimodal row.
+#
+# For each interpreted kind, one Choice over the candidates code picked (at
+# most twenty: the session's categories, the thread's, a word match, the most
+# recent), `new` and `none`; `<kind>_name`, a Choice over the names code mined
+# (at most ten) and `none`, which names a category Jev says is `new`; and one
+# `still_<kind>` Noul per membership the session holds (at most five).
+# `kind_of_thing` is recorded for the sweep's kind proposals, `personal` and
+# `elicits` for the privacy rows: none acts yet. A kind is asked when the
+# builder lists it (a kind with no candidate still has `new`), `project` only
+# when the thread has none, and a question with no evidence is left out.
+#
+# Its bands are the design's: act at 0.80, confirm from 0.55, record below
+# (`[ontology] act` and `confirm`). Jev never writes a name: a new category
+# takes a mined name, or the naming call's.
+id = "onto"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "no_membership"
+action = "none"
+description = "ONTO: which categories of each interpreted kind (topic, project, event, resource, capability, expertise) a message files its session under, whether a new one is called for, and which mined name it takes."
+
+[questions.topic]
+type = "choice"
+decides = true
+instructions = "Which of the listed topic categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "topics"
+only_when = "topics"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no topic that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.project]
+type = "choice"
+decides = true
+instructions = "Which of the listed project categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "projects"
+only_when = "projects"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no project that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.event]
+type = "choice"
+decides = true
+instructions = "Which of the listed event categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "events"
+only_when = "events"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no event that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.resource]
+type = "choice"
+decides = true
+instructions = "Which of the listed resource categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "resources"
+only_when = "resources"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no resource that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.capability]
+type = "choice"
+decides = true
+instructions = "Which of the listed capability categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "capabilities"
+only_when = "capabilities"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no capability that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.expertise]
+type = "choice"
+decides = true
+instructions = "Which of the listed expertise categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "expertise"
+only_when = "expertise"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no expertise that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.topic_name]
+type = "choice"
+instructions = "Which of the listed names best names the topic the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the topic the message is about." },
+]
+
+[questions.project_name]
+type = "choice"
+instructions = "Which of the listed names best names the project the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the project the message is about." },
+]
+
+[questions.event_name]
+type = "choice"
+instructions = "Which of the listed names best names the event the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the event the message is about." },
+]
+
+[questions.resource_name]
+type = "choice"
+instructions = "Which of the listed names best names the resource the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the resource the message is about." },
+]
+
+[questions.capability_name]
+type = "choice"
+instructions = "Which of the listed names best names the capability the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the capability the message is about." },
+]
+
+[questions.expertise_name]
+type = "choice"
+instructions = "Which of the listed names best names the expertise the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the expertise the message is about." },
+]
+
+[questions.still_topic]
+type = "noul"
+per = "topic_members"
+max = 5
+instructions = "Is the person's new message still about the topic {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this topic: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this topic."
+
+[questions.still_project]
+type = "noul"
+per = "project_members"
+max = 5
+instructions = "Is the person's new message still about the project {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this project: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this project."
+
+[questions.still_event]
+type = "noul"
+per = "event_members"
+max = 5
+instructions = "Is the person's new message still about the event {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this event: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this event."
+
+[questions.still_resource]
+type = "noul"
+per = "resource_members"
+max = 5
+instructions = "Is the person's new message still about the resource {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this resource: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this resource."
+
+[questions.still_capability]
+type = "noul"
+per = "capability_members"
+max = 5
+instructions = "Is the person's new message still about the capability {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this capability: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this capability."
+
+[questions.still_expertise]
+type = "noul"
+per = "expertise_members"
+max = 5
+instructions = "Is the person's new message still about the expertise {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this expertise: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this expertise."
+
+[questions.kind_of_thing]
+type = "choice"
+instructions = "What kind of thing is the person's new message mostly about?"
+act = 0.80
+confirm = 0.55
+options_from = "kinds"
+only_when = "kinds"
+no_match = "other"
+options = [
+  { id = "other", means = "It is mostly about something that none of the listed kinds describes." },
+]
+
+[questions.personal_applies]
+type = "noul"
+instructions = "Does the person's new message touch a person's private matters at all?"
+act = 0.80
+confirm = 0.55
+when_true = "It mentions someone's health, money, family, employment, identity or other private matters."
+when_false = "It is about work, tools or ideas, and nothing private about a person."
+
+[questions.personal]
+type = "score"
+instructions = "How much of a person's private matter does the new message carry?"
+act = 0.80
+confirm = 0.55
+applies = "personal_applies"
+levels = [
+  "None: nothing private about a person.",
+  "Mentions: it names a private matter in passing.",
+  "Discloses: it states a private matter of a person.",
+  "Sensitive: it states health, money, identity or legal matters of a person.",
+]
+
+[questions.elicits]
+type = "noul"
+instructions = "Is the person's new message trying to get the assistant to reveal personal details about its owner?"
+act = 0.80
+confirm = 0.55
+when_true = "It asks for the owner's private details: where they live, their accounts, their schedule, their family."
+when_false = "It asks for ordinary work and does not reach for the owner's details."

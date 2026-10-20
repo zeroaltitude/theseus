@@ -69,6 +69,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "people_seen.v1",
         include_str!("../packs/people_seen.v1.toml"),
     ),
+    ("onto.v1", include_str!("../packs/onto.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -196,6 +197,28 @@ pub enum Source {
     /// The thread a message arrives in: one item, or none (`route.v5`'s
     /// `seal` is asked only in a thread).
     ThreadNow,
+    /// `onto.v1`'s candidate categories of a kind, picked by code (at most
+    /// twenty, the kind's `new` option last): a kind is asked when its list
+    /// is there. A topic's are [`Source::Topics`].
+    Projects,
+    Events,
+    Resources,
+    Capabilities,
+    Expertise,
+    /// The categories a session holds now, per kind (`onto.v1`'s `still_<kind>`
+    /// Nouls), at most five.
+    TopicMembers,
+    ProjectMembers,
+    EventMembers,
+    ResourceMembers,
+    CapabilityMembers,
+    ExpertiseMembers,
+    /// The names code mined from the message and its session (`onto.v1`'s
+    /// `<kind>_name` options), at most ten.
+    Names,
+    /// The kinds of the table, each with what it is for (`onto.v1`'s
+    /// `kind_of_thing`).
+    Kinds,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1390,9 +1413,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            20,
+            21,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
-             citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1, heard.v1 and directive.v1"
+             citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1, heard.v1, directive.v1 \
+             and onto.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

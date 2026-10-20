@@ -37,6 +37,7 @@ pub mod eval;
 pub mod eval_heard;
 pub mod judge;
 pub mod learn;
+pub mod mine;
 pub mod names;
 pub mod pack;
 pub mod price;
@@ -53,6 +54,8 @@ pub mod probe;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_onto;
 #[cfg(test)]
 mod tests_prove;
 #[cfg(test)]

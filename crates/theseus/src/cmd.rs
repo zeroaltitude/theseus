@@ -1472,6 +1472,7 @@ pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {
 /// judgments; `theseus judge show <id>` (23b): one, with its state.
 pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
     match cmd {
+        JudgeCmd::Latency(a) => crate::onto_cmd::latency(conn, json, a).await,
         JudgeCmd::Log { n, session, pack } => {
             let v = conn
                 .request(

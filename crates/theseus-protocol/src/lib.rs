@@ -270,6 +270,7 @@ pub mod method {
         PERSONA_LIST = "persona.list", PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm", // an agent's workspace carried over as a persona, and its card kept (theseus-a8n7)
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
         VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss", STANDING_ANSWER = "standing.answer",
+        ONTOLOGY_UNDO = "ontology.undo", ONTOLOGY_KIND_ADD = "ontology.kind.add", ONTOLOGY_KIND_RETIRE = "ontology.kind.retire", JUDGE_LATENCY = "judge.latency", // Jev's writes taken back, the kinds table's two writes (theseus-xzxqv), and a point's latency by day
         ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.
         FORECAST_CALIBRATION = "forecast.calibration",
@@ -2182,6 +2183,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub thread: Option<thread_route::ThreadTag>,
+    /// Where Jev filed the session (theseus-xzxqv): `topic › theseus › ontology (new)`, a reply's footer line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub filed: Option<String>,
     /// The turn in the cockpit (`[cockpit] public_url`, theseus-x9swu): the link a reply's footer carries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

@@ -231,3 +231,45 @@ mod tests {
         );
     }
 }
+
+/// `judge.latency` (theseus-xzxqv): how long a point's requests took, by
+/// local day, from the `judge.call` rows' own times. The inbound batch's p50
+/// and p95 before and after `onto.v1` joined it say whether to move it to a
+/// request of its own (`[ontology] request = "own"`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeLatencyParams {
+    /// The decision point (`inbound`, `loop_end`, ...); default `inbound`.
+    #[serde(default)]
+    pub point: Option<String>,
+    /// From this local day (`2026-10-19`) on; default the last 7 days.
+    #[serde(default)]
+    pub since: Option<String>,
+}
+
+/// One day's calls of the point: each request counted once, whatever packs
+/// rode it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeLatencyDay {
+    pub day: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub requests: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub p50_ms: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub p95_ms: u64,
+    /// The requests that carried `onto.v1`, and their p95: what the batch
+    /// costs once it is in.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub with_onto: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub onto_p95_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeLatencyResult {
+    pub point: String,
+    pub days: Vec<JudgeLatencyDay>,
+}

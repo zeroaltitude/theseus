@@ -65,6 +65,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod modes;
+pub mod onto;
 pub mod ontology;
 pub mod own_bench;
 pub mod people;
@@ -453,6 +454,7 @@ facts![
     ontology::CategorySet<'static>,
     ontology::GuidanceSet<'static>,
     ontology::MembershipSet<'static>,
+    ontology::KindSet<'static>,
     judge::JudgeCall<'static>,
     judge::JudgePaused<'static>,
     judge::JudgeResumed<'static>,
@@ -483,6 +485,8 @@ facts![
     people::PeopleSwept<'static>,
     ontology::PersonMerged<'static>,
     ontology::OntologyUndo<'static>,
+    onto::OntoFiled<'static>,
+    onto::OntoNamed<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
     mcp::McpStarted,

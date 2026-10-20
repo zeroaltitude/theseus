@@ -29,7 +29,7 @@ use theseus_protocol::import::{
 use theseus_protocol::index::{self, IndexForgetParams, IndexForgetResult};
 use theseus_protocol::method;
 
-use super::server::{parse, Conn, RpcFailure};
+use super::server::{or_empty, parse, route, Conn, RpcFailure};
 use super::{Act, Core};
 use crate::approval::Refusal;
 use crate::import::{catalog, people, summary_id_of, topics, write};
@@ -54,6 +54,8 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::context::prefixed(name)
         || super::route_correct::ROUTE.contains(&name)
         || super::people::ROUTE.contains(&name)
+        || super::ontology_kinds::ROUTE.contains(&name)
+        || name == method::JUDGE_LATENCY
         || super::rsi::OWN.contains(&name)
         || super::earned::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
@@ -103,8 +105,11 @@ impl Core {
         if super::route_correct::ROUTE.contains(&name) {
             return self.rpc_route(name, params, conn);
         }
-        if super::people::ROUTE.contains(&name) {
+        if super::people::ROUTE.contains(&name) || super::ontology_kinds::ROUTE.contains(&name) {
             return self.rpc_ontology(name, params, conn);
+        }
+        if name == method::JUDGE_LATENCY {
+            return route(or_empty(params), |p| self.judge_latency(p));
         }
         if name == method::SELF_NARROW {
             return self.rpc_self_narrow(params, conn).await;

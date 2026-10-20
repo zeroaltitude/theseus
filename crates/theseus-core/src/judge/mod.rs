@@ -43,6 +43,7 @@ pub mod mark;
 pub mod memory;
 pub mod notice;
 pub mod offer;
+pub mod onto;
 pub mod people;
 pub mod rerank;
 mod seal;
@@ -98,6 +99,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (inbound::ROLE_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),
     (inbound::DIRECTIVE_PACK, PackMode::Live),
+    (onto::ONTO_PACK, PackMode::Live),
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),
@@ -205,6 +207,8 @@ pub struct JudgeService {
     /// with its brief, until the turn's reply takes it; and the replies
     /// written before their batch landed (theseus-bh3t.5, `offer.rs`).
     offers: Mutex<offer::Book>,
+    /// `onto.v1`'s footers and naming calls (theseus-xzxqv).
+    pub(crate) onto: onto::Point,
     /// The owner's corrections of routing, and the live layer (theseus-q31l).
     pub corrections: crate::correction::Corrections,
     /// A test's judge in Jev's place for the rerank (a channel for Jev).
@@ -287,6 +291,7 @@ impl JudgeService {
             late: Mutex::default(),
             routed: Mutex::default(),
             offers: Mutex::default(),
+            onto: onto::Point::default(),
             corrections: Default::default(),
             #[cfg(test)]
             rerank_judge: OnceLock::new(),

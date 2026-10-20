@@ -92,6 +92,10 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::rerank::RERANK_PACK.into(), off());
+    // onto.v1 (theseus-xzxqv) rides this batch when it is on; `tests_onto` is its own.
+    c.judge
+        .packs
+        .insert(crate::judge::onto::ONTO_PACK.into(), off());
 }
 
 /// Health's pack list under `inbound_only`.
@@ -105,6 +109,7 @@ const INBOUND_ALONE: [&str; 16] = [
     "role.v1: shadow",
     "route.v7: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-19))",
     "directive.v1: live",
+    "onto.v1: off",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",

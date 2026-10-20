@@ -28,23 +28,29 @@ struct Held {
     before: serde_json::Value,
 }
 
-impl Core {
-    /// `by`'s write, which has the id `write` (a judgment's, a sweep's, a
-    /// dream's): `records` (categories and lists) checked as `by`'s and
-    /// written in one frame, each with its ledger row carrying the record as
-    /// it was, so [`Core::ontology_undo`] can restore it.
-    pub fn ontology_machine_write(
-        &self,
+/// A machine write, checked and ready: its records, and what each replaced
+/// (`before`, read from the snapshot the write was checked against).
+pub struct Machine {
+    by: Origin,
+    write: String,
+    records: Vec<Record>,
+    before: Vec<Option<Record>>,
+    undos: Vec<Undoable>,
+}
+
+impl Machine {
+    /// `by`'s write `write` of `records` (categories and lists), against the
+    /// snapshot `o`: each record's row will carry the record as it was.
+    pub fn new(
+        o: &theseus_ontology::Ontology,
         by: Origin,
         write: &str,
         records: Vec<Record>,
-    ) -> Result<()> {
+    ) -> Result<Self> {
         if !by.is_machine() {
             bail!("a machine write is Jev's, the sweep's or the dream's, not `{by}`'s");
         }
-        let o = self.runner.ontology.snapshot(&self.store)?;
         let before = o.replaced(&records);
-        let who = format!("{by}:{write}");
         let mut undos = Vec::with_capacity(records.len());
         for (r, b) in records.iter().zip(&before) {
             if !matches!(r, Record::Category(_) | Record::Members(_)) {
@@ -61,49 +67,114 @@ impl Core {
                 before: b.as_ref().map_or(serde_json::Value::Null, Record::to_value),
             });
         }
-        let (mut cats, mut lists) = (Vec::new(), Vec::new());
-        for (r, undo) in records.iter().zip(&undos) {
+        Ok(Self {
+            by,
+            write: write.to_string(),
+            records,
+            before,
+            undos,
+        })
+    }
+
+    /// The records to write.
+    pub fn records(&self) -> &[Record] {
+        &self.records
+    }
+
+    /// Whether `now` holds what the write was checked against: else another
+    /// write came between, and its rows would undo the wrong thing.
+    pub fn holds_on(&self, now: &theseus_ontology::Ontology) -> bool {
+        now.replaced(&self.records) == self.before
+    }
+
+    fn who(&self) -> String {
+        format!("{}:{}", self.by, self.write)
+    }
+
+    /// The ledger row of each record, with what undoes it.
+    pub fn rows(&self) -> Result<Vec<theseus_store::NewRecord>> {
+        let (who, scope) = (self.who(), scope(&self.write));
+        let mut rows = Vec::new();
+        for (r, undo) in self.records.iter().zip(&self.undos) {
             match r {
-                Record::Category(category) => cats.push(fact::ontology::CategorySet {
-                    category,
-                    origin: by.name(),
-                    who: &who,
-                    via: "machine",
-                    undo: Some(undo),
-                }),
-                Record::Members(list) => lists.push(fact::ontology::MembershipSet {
-                    list,
-                    who: &who,
-                    via: "machine",
-                    undo: Some(undo),
-                }),
+                Record::Category(category) => {
+                    let f = fact::ontology::CategorySet {
+                        category,
+                        origin: self.by.name(),
+                        who: &who,
+                        via: "machine",
+                        undo: Some(undo),
+                    };
+                    rows.push(fact::row(&f, None, None)?.scoped(&scope));
+                }
+                Record::Members(list) => {
+                    let f = fact::ontology::MembershipSet {
+                        list,
+                        who: &who,
+                        via: "machine",
+                        undo: Some(undo),
+                    };
+                    rows.push(fact::row(&f, Some(&list.session), None)?.scoped(&scope));
+                }
                 _ => {}
             }
         }
-        let scope = scope(write);
+        Ok(rows)
+    }
+
+    /// Say each written record, once its frame is.
+    pub fn announce(&self, core: &Core) {
+        let who = self.who();
+        for (r, undo) in self.records.iter().zip(&self.undos) {
+            match r {
+                Record::Category(category) => {
+                    core.rec(None).announce(&fact::ontology::CategorySet {
+                        category,
+                        origin: self.by.name(),
+                        who: &who,
+                        via: "machine",
+                        undo: Some(undo),
+                    })
+                }
+                Record::Members(list) => {
+                    core.rec(Some(&list.session))
+                        .announce(&fact::ontology::MembershipSet {
+                            list,
+                            who: &who,
+                            via: "machine",
+                            undo: Some(undo),
+                        })
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl Core {
+    /// `by`'s write, which has the id `write` (a judgment's, a sweep's, a
+    /// dream's): `records` (categories and lists) checked as `by`'s and
+    /// written in one frame, each with its ledger row carrying the record as
+    /// it was, so [`Core::ontology_undo`] can restore it.
+    pub fn ontology_machine_write(
+        &self,
+        by: Origin,
+        write: &str,
+        records: Vec<Record>,
+    ) -> Result<()> {
+        let o = self.runner.ontology.snapshot(&self.store)?;
+        let m = Machine::new(&o, by, write, records)?;
         self.runner
             .ontology
-            .write(&self.store, records.clone(), by, |now| {
+            .write(&self.store, m.records().to_vec(), by, |now| {
                 // The snapshot the write checked against is the one `before`
                 // was read from: else the rows would undo another's write.
-                if now.replaced(&records) != before {
+                if !m.holds_on(now) {
                     bail!("the ontology changed under the write `{write}`: it is not made");
                 }
-                let mut rows = Vec::new();
-                for f in &cats {
-                    rows.push(fact::row(f, None, None)?.scoped(&scope));
-                }
-                for f in &lists {
-                    rows.push(fact::row(f, Some(&f.list.session), None)?.scoped(&scope));
-                }
-                Ok(rows)
+                m.rows()
             })?;
-        for f in &cats {
-            self.rec(None).announce(f);
-        }
-        for f in &lists {
-            self.rec(Some(&f.list.session)).announce(f);
-        }
+        m.announce(self);
         Ok(())
     }
 

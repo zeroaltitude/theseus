@@ -110,6 +110,11 @@ impl Ontology {
         self.members.get(&(session.to_string(), kind.to_string()))
     }
 
+    /// Every session's member list of every kind, in key order.
+    pub fn lists(&self) -> impl Iterator<Item = &MemberList> {
+        self.members.values()
+    }
+
     /// A session's interpreted memberships, every kind's: what a recompile
     /// takes, beside the given ones from its place.
     pub fn memberships(&self, session: &str) -> Vec<Membership> {

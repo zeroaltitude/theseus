@@ -402,6 +402,22 @@ impl Core {
                     self.ontology_proposal_accept_all(&p, who).map_err(failure)
                 })
             }
+            method::ONTOLOGY_UNDO => route(params, |p: theseus_protocol::OntologyUndoParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.ontology_undo_rpc(&p, who).map_err(failure)
+            }),
+            method::ONTOLOGY_KIND_ADD => {
+                route(params, |p: theseus_protocol::OntologyKindAddParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_kind_add(&p, who).map_err(failure)
+                })
+            }
+            method::ONTOLOGY_KIND_RETIRE => {
+                route(params, |p: theseus_protocol::OntologyKindRetireParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_kind_retire(&p, who).map_err(failure)
+                })
+            }
             method::ONTOLOGY_PROPOSAL_REJECT_ALL => route(
                 params,
                 |p: theseus_protocol::OntologyProposalRejectAllParams| {
@@ -537,7 +553,7 @@ fn depth(o: &Ontology, id: &CategoryId) -> u32 {
     o.path(id).len() as u32
 }
 
-fn kind_info(k: &theseus_ontology::Kind) -> OntologyKind {
+pub(super) fn kind_info(k: &theseus_ontology::Kind) -> OntologyKind {
     OntologyKind {
         name: k.name.clone(),
         basis: match k.basis {
