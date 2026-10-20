@@ -460,3 +460,55 @@ async fn revoke_clears_the_store_drops_the_token_and_turns_the_tools_off() {
         .contains("revoked"));
     assert_eq!(ledgered(&r.core, "google.revoked").len(), 1);
 }
+
+/// WSL goes straight to the paste (theseus-i4yt6): the owner's browser on
+/// Windows cannot reach the loopback redirect, so waiting out the paste delay
+/// first only wastes it. Anywhere else the redirect is offered and the paste
+/// comes after its delay; `--manual` skips it everywhere.
+#[tokio::test]
+async fn wsl_goes_straight_to_the_paste_and_elsewhere_the_redirect_comes_first() {
+    let r = unminted().await;
+    let wsl = r.g.auth_begin_on(false, true).await.unwrap();
+    assert_eq!(wsl.paste_after_secs, 0, "no delay before the paste");
+    assert!(wsl.redirect.is_empty(), "no redirect is offered on WSL");
+    let elsewhere = r.g.auth_begin_on(false, false).await.unwrap();
+    assert_eq!(
+        elsewhere.paste_after_secs,
+        theseus_google::oauth::PASTE_AFTER.as_secs()
+    );
+    assert!(!elsewhere.redirect.is_empty());
+    let manual = r.g.auth_begin_on(true, false).await.unwrap();
+    assert_eq!(manual.paste_after_secs, 0);
+    assert!(manual.redirect.is_empty());
+}
+
+#[test]
+fn a_proc_version_names_wsl_by_microsoft() {
+    use super::auth::wsl_of;
+    assert!(wsl_of(
+        "Linux version 6.18.54.1-microsoft-standard-WSL2 (root@x) (gcc)"
+    ));
+    assert!(wsl_of("Linux version 5.15.0-Microsoft-standard"));
+    assert!(!wsl_of("Linux version 6.8.0-generic (buildd@lcy02)"));
+    assert!(!wsl_of(""));
+}
+
+#[tokio::test]
+async fn the_kernels_version_file_is_read_for_wsl() {
+    use super::auth::wsl_at;
+    let r = unminted().await;
+    let wsl = r.dir.path().join("version-wsl");
+    std::fs::write(
+        &wsl,
+        "Linux version 6.6.1-microsoft-standard-WSL2 (root@x)\n",
+    )
+    .unwrap();
+    let plain = r.dir.path().join("version-plain");
+    std::fs::write(&plain, "Linux version 6.8.0-generic (buildd@x)\n").unwrap();
+    assert!(wsl_at(&wsl));
+    assert!(!wsl_at(&plain));
+    assert!(
+        !wsl_at(&r.dir.path().join("missing")),
+        "unreadable is not WSL"
+    );
+}
