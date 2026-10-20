@@ -150,6 +150,21 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// A producer of an action, for a key: its first two `:` parts, each a
+/// [`word`] (`inproc:fs.read`, `provider:anthropic`). The second part names
+/// the tool or the provider; a key of the first part alone folds every tool of
+/// a backend into one cause that no one fix can close. Later parts (an async
+/// job's tool, a wrapper's number) are left off, so they do not split a cause.
+fn producer(v: &Value) -> String {
+    let s = v.as_str().unwrap_or("").trim();
+    let mut parts = s.split(':');
+    let first = word(&Value::from(parts.next().unwrap_or("")));
+    match parts.next().map(|p| word(&Value::from(p))) {
+        Some(second) if second != "unknown" => format!("{first}:{second}"),
+        _ => first,
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,7 +189,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
-            let p = word(&d["producer"]);
+            let p = producer(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
             o.note = format!(
@@ -467,5 +482,46 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str) -> Obs {
+        let row = LedgerRow::named(
+            "action.failed",
+            None,
+            None,
+            json!({"producer": producer, "duration_ms": 1}),
+        );
+        of_row(1, &row).expect("an action.failed row is an observation")
+    }
+
+    #[test]
+    fn a_failed_call_is_keyed_by_its_tool_not_only_its_backend() {
+        let (read, write) = (failed("inproc:fs.read"), failed("inproc:fs.write"));
+        assert_eq!(read.key, "action.failed:inproc:fs.read");
+        assert_eq!(read.title, "Calls from inproc:fs.read fail");
+        assert_ne!(read.key, write.key, "two tools are two causes");
+        assert_ne!(
+            failed("provider:anthropic").key,
+            failed("provider:zai").key,
+            "two providers are two causes"
+        );
+    }
+
+    #[test]
+    fn later_parts_and_bare_producers_do_not_split_or_break_a_key() {
+        assert_eq!(
+            failed("async:mcp:one").key,
+            failed("async:mcp:two").key,
+            "a third part is not a cause"
+        );
+        assert_eq!(failed("proc").key, "action.failed:proc");
+        assert_eq!(failed("proc:").key, "action.failed:proc");
+        assert_eq!(failed("").key, "action.failed:unknown");
     }
 }
