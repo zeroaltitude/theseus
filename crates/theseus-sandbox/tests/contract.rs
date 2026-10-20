@@ -324,9 +324,19 @@ fn seccomp_profile() -> Result<(), String> {
     is(&v, "clone3", "ENOSYS")?;
     is(&v, "fork", "ok")?;
     is(&v, "thread", "ok")?;
-    // A foreign ABI kills: x32 by the filter, i386 by the filter too.
-    is(&v, "x32", "SIGSYS")?;
-    is(&v, "i386", "SIGSYS")
+    // A foreign ABI kills: x32 by the filter, i386 by the filter too. Both
+    // are x86_64's; aarch64's (32-bit Arm) has no probe, since an M1-class
+    // core cannot run it, and the filter's arch check is unit-tested.
+    #[cfg(target_arch = "x86_64")]
+    {
+        is(&v, "x32", "SIGSYS")?;
+        is(&v, "i386", "SIGSYS")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    check(
+        v.get("x32").is_none() && v.get("i386").is_none(),
+        format!("x86 ABI probes off x86_64: {v}"),
+    )
 }
 
 // Clause 7: no device nodes beyond null, zero, random, and urandom.
@@ -598,6 +608,14 @@ fn no_ambient_credentials() -> Result<(), String> {
     let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
     let v = probe_in(ws.path(), "fs", &["{ws}"], |_| {})?;
     check(v["ssh_auth_sock"] == false, "SSH_AUTH_SOCK is set")?;
+    // gh's own word, where the host has gh: a host without it has no gh
+    // login to leak, and clause 11 still finds no `~/.config/gh/hosts.yml`.
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("gh").is_file()));
+    if !on_path {
+        eprintln!("clause 12: no gh on this host's PATH; its login check is skipped");
+        return Ok(());
+    }
     let (exit, out) = run(&job(
         vec!["gh".into(), "auth".into(), "status".into()],
         ws.path(),
