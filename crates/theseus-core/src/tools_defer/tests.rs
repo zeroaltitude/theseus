@@ -22,6 +22,7 @@ fn deferral(mechanism: Mechanism, loaded: &[&str]) -> Deferral {
         mechanism,
         loaded: loaded.iter().map(|s| s.to_string()).collect(),
         resolved: false,
+        added: Default::default(),
     }
 }
 
@@ -138,5 +139,26 @@ fn the_families_of_a_catalog_are_listed_once() {
     assert_eq!(
         f.into_iter().collect::<Vec<_>>(),
         ["aws", "commands", "files", "memory", "terminals"]
+    );
+}
+
+#[test]
+fn an_append_over_the_recorded_set_takes_the_families_a_find_added() {
+    // The compilation recorded files and commands; a find of the turn added
+    // terminals (theseus-342qy): the append's tools carry it, so they differ
+    // from the compilation's and the compile recompiles.
+    let recorded = ["files".to_string(), "commands".to_string()];
+    let mut d = deferral(Mechanism::Find, &["files", "commands", "terminals"]);
+    d.added = ["terminals".to_string()].into();
+    let over = d.over(&recorded);
+    assert_eq!(
+        names(&resolve(&catalog(), &over)),
+        ["fs_read", "proc_run", "term_open", "tools_find"]
+    );
+    // With nothing added, it is the recorded set alone, whatever the fresh choice says.
+    let plain = deferral(Mechanism::Find, &["files", "commands", "terminals"]);
+    assert_eq!(
+        names(&resolve(&catalog(), &plain.over(&recorded))),
+        ["fs_read", "proc_run", "tools_find"]
     );
 }

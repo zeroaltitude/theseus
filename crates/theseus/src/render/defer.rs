@@ -49,7 +49,7 @@ pub fn defer_list(d: &DeferListResult, verbose: bool) -> Vec<String> {
     }
     let reach = match d.mechanism.as_str() {
         "search" => "the model searches for a deferred tool (the provider's tool search)",
-        _ => "the model asks tools_find; its families load at the next compaction",
+        _ => "the model asks tools_find; its families load at once, for the turn's next request",
     };
     let mut out = vec![
         format!(

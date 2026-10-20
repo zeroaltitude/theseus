@@ -3,11 +3,11 @@
 //!
 //! A model without `defer_loading` sees only the loaded families. `tools_find
 //! {query}` tells it the hidden families that match, with their tools, and
-//! asks for them to load: they join the set at the conversation's next
-//! compilation boundary (a new conversation, a compaction), because changing
-//! the tools mid-conversation would rewrite the whole cached prefix. The
-//! answer says so, so the model carries on with what it has, or says what it
-//! cannot do.
+//! asks for them to load: they join the turn's tools at its next request
+//! (`Board::take_found`, theseus-342qy), so the model calls a found tool in the
+//! turn that found it. That request is a recompile (the tools lead the cached
+//! prefix, so it misses the cache either way), and the conversation keeps the
+//! families loaded after it.
 
 use std::collections::BTreeMap;
 
@@ -25,7 +25,7 @@ impl Tool for FindTool {
         "tools.find"
     }
     fn description(&self) -> &'static str {
-        "Find tools that are not loaded here. Some families of tools are left out of this conversation to keep its requests small; give a few words for what you need to do (\"aws bucket\", \"open a terminal\") and the answer names the matching families and their tools. They load from the conversation's next compaction or a new conversation, not at once."
+        "Find tools that are not loaded here. Some families of tools are left out of this conversation to keep its requests small; give a few words for what you need to do (\"aws bucket\", \"open a terminal\") and the answer names the matching families and their tools. They load at once: call a tool the answer names in your next step."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -128,9 +128,8 @@ pub fn answer(query: &str, hidden: &[HiddenTool]) -> (String, Vec<String>, Vec<S
         return (text, vec![], vec![]);
     }
     let mut text = format!(
-        "Left-out tools matching {query:?}. They are not callable in this conversation yet: they \
-         load at its next compaction or in a new one. Use what is loaded now, or tell the person \
-         what you cannot do here.\n"
+        "Left-out tools matching {query:?}. They are loaded now: call the tool you need in your \
+         next step.\n"
     );
     let (mut fams, mut tools) = (vec![], vec![]);
     for (fam, ts) in found.into_iter().take(3) {
@@ -179,8 +178,8 @@ pub fn miss_words(h: &HiddenTool, mechanism: Option<Mechanism>) -> String {
     match mechanism {
         Some(Mechanism::Find) => format!(
             "{} is not loaded in this conversation (the {} family: {fam}). Call {FIND} \
-             with a few words for what you need; the family loads from the next compaction or a \
-             new conversation, so until then say what you cannot do here",
+             with a few words for what you need; the family loads at once, and \
+             you can call the tool in your next step",
             h.wire, h.family
         ),
         _ => format!(
@@ -233,7 +232,10 @@ mod tests {
         let (text, fams, tools) = answer("s3 bucket", &hidden());
         assert_eq!(fams, ["aws-s3", "aws"]);
         assert_eq!(tools, ["aws_s3_list", "aws_call"]);
-        assert!(text.contains("next compaction"), "{text}");
+        assert!(
+            text.contains("loaded now") && !text.contains("compaction"),
+            "{text}"
+        );
         assert!(text.contains("aws_s3_list"));
     }
 
@@ -287,5 +289,26 @@ mod tests {
         );
         assert!(sel.loaded().contains("aws"));
         assert!(b.find("s", &json!({})).is_err());
+    }
+
+    #[test]
+    fn a_find_leaves_its_families_for_the_next_loop_to_take_once() {
+        let b = Board::default();
+        b.note_request(
+            "s",
+            family::PlaceKind::Cli,
+            Some(Mechanism::Find),
+            Default::default(),
+            hidden(),
+        );
+        assert!(b.take_found("s").is_empty());
+        b.find("s", &json!({"query": "open a terminal"})).unwrap();
+        assert_eq!(
+            b.take_found("s").into_iter().collect::<Vec<_>>(),
+            ["terminals"]
+        );
+        // Taken: the loop after it finds nothing more, and another conversation never had any.
+        assert!(b.take_found("s").is_empty());
+        assert!(b.take_found("other").is_empty());
     }
 }

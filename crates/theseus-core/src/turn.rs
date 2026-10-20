@@ -1807,6 +1807,7 @@ impl TurnRunner {
                 {
                     return Ok(Next::Fail(f));
                 }
+                self.defer_found(t, &mut spec);
             }
             let i = t.loops;
             t.loops += 1;
