@@ -216,6 +216,11 @@ pub struct ThreadInput {
     pub entities: Vec<String>,
 }
 
+mod onto;
+pub use onto::{
+    OntoInput, OntoItem, OntoKind, OntoTable, Picked, CANDIDATES as ONTO_CANDIDATES,
+    KINDS as ONTO_KINDS,
+};
 mod persona;
 pub use persona::{PersonaInput, ThreadNow, TurnInput, PERSONAS as PERSONA_OPTIONS};
 
@@ -263,6 +268,11 @@ pub struct InboundInput {
     /// are empty, so a state without names is byte for byte the one before.
     #[serde(default, skip_serializing_if = "DataNames::is_empty")]
     pub data_names: DataNames,
+    /// What `onto.v1` files the session by (theseus-xzxqv): its state fields
+    /// and options; left out when that pack is not asked, so the state is
+    /// byte for byte the one before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub onto: Option<OntoInput>,
 }
 
 /// The topics the operator names as open (work that may go to any model
@@ -845,6 +855,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         .map_or_else(|| "none".to_string(), |r| c.clip(r, 40));
     b.scalar("current_role", role)
         .cut_if("current_role", c.cut());
+    onto::state(&mut b, &c, cap, i);
     let mut dynamic = Dynamic::default();
     dynamic.sources.insert(
         Source::Tasks,
@@ -874,6 +885,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         );
     }
     persona::dynamic(&mut dynamic, i, &clip, in_thread);
+    onto::dynamic(&mut dynamic, i, &clip);
     dynamic.sources.insert(
         Source::Roles,
         i.roles
@@ -1092,7 +1104,7 @@ pub fn categorize(i: &CategorizeInput, cap: u64, scrub: &dyn Scrub) -> Prepared 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::client::Question;
     use crate::pack::{by_name, embedded};
@@ -1127,6 +1139,16 @@ mod tests {
     fn names_fixture() -> String {
         std::fs::read_to_string(format!(
             "{}/fixtures/inputs/inbound.names.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
+    /// The `inbound` fixture with the ontology fields (theseus-xzxqv), which
+    /// backs onto.v1's golden request.
+    pub(crate) fn onto_fixture() -> String {
+        std::fs::read_to_string(format!(
+            "{}/fixtures/inputs/inbound.onto.json",
             env!("CARGO_MANIFEST_DIR")
         ))
         .unwrap()
@@ -1172,6 +1194,7 @@ mod tests {
             // route.v6 asks about the operator's names, so its golden has some.
             let (_, prepared) = match p.name().as_str() {
                 "route.v6" => prepared_from(p, &names_fixture()),
+                "onto.v1" => prepared_from(p, &onto_fixture()),
                 name => prepared(name),
             };
             let questions = p
@@ -1463,6 +1486,7 @@ mod tests {
                     speaker: None,
                     thread_now: None,
                     data_names: DataNames::default(),
+                    onto: None,
                     current_role: Some(big.clone()),
                     roles: (0..2_000)
                         .map(|i| RoleInput {

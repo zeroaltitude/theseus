@@ -744,6 +744,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         }),
         current_role: None,
         data_names: msg.data_names.clone(),
+        onto: None,
         roles: SEED_ROLES
             .iter()
             .map(|(id, stance)| RoleInput {

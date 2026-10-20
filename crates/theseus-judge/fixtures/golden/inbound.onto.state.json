@@ -1,0 +1,31 @@
+{
+  "author": "operator",
+  "current_role": "engineer",
+  "last_reply": "All 112 unit tests in theseus-store pass. Nothing failed.",
+  "live_tasks": [
+    {
+      "brief": "Migrate the ledger printer to the new table renderer.",
+      "id": "a1b2c3",
+      "state": "running"
+    },
+    {
+      "brief": "Write the weekly spend summary for the operator.",
+      "id": "d4e5f6",
+      "state": "waiting"
+    }
+  ],
+  "memberships": {
+    "topic": [
+      "Harbor Gate"
+    ]
+  },
+  "message": "and the integration tests too, the ones under crates/theseus-core/tests for the Harbor Gate migration",
+  "mined_names": [
+    "Harbor Gate migration",
+    "Harbor Gate"
+  ],
+  "minutes_since_last_message": 2,
+  "place_kind": "discord_thread",
+  "previous_human_message": "Can you run the unit tests for theseus-store and tell me what fails?",
+  "thread": "Harbor Gate migration"
+}
