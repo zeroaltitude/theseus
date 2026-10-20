@@ -454,6 +454,14 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Add a new topic to the ontology.',
     'Give a name and where in the tree it goes. It shows what it will send and asks first.',
     'A topic is a place for sessions and notes to be filed. Add one when the existing topics keep fitting badly.'),
+  'ontology.growth': e(
+    'Show how fast the ontology grows, and who is growing it.',
+    'A column a day for 90 days, stacked by the origin that made the categories (you, the import, Jev, the sweep, the dream), a line for kinds added, and a ring on a day when a write made then was later taken back. The tip gives each day’s counts.',
+    'Jev, the sweep and the dream write here on their own. A chart that climbs with rings on it says the machines are minting what you then undo.'),
+  'ontology.minted': e(
+    'List what Jev, the sweep and the dream minted, with a way to take each back.',
+    'One row per category a machine made, newest first: its origin, its confidence, the session it filed, when, and the judgment that made it (a link). Undo sends ontology.undo for that write after showing you its words; a taken-back mint is struck through. A write that made several categories is undone whole.',
+    'An undo restores the earlier member lists and retires the mint, and is labelled wrong in the learning ledger, which is how the pack learns what you did not want.'),
   'ontology.people': e(
     'List the people Theseus knows, so a message can be traced to a person.',
     'One row per person with their handles (the names they use in each place). Search by handle; click a person for their page.',
