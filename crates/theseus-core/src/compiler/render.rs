@@ -194,6 +194,7 @@ impl State {
                 } else {
                     blocks.clone()
                 };
+                let bl = without_unanswered_server_calls(bl);
                 if bl.is_empty() {
                     return;
                 }
@@ -254,6 +255,40 @@ impl State {
             efforts: self.efforts,
         }
     }
+}
+
+/// An answer's blocks without a server tool's call the provider never
+/// answered. A server tool (the tool search) runs inside the response, and its
+/// `server_tool_use` block is followed by a `*_tool_result` block of the same
+/// `tool_use_id`. When the same response also calls one of our tools, the
+/// provider can stop at that call (`stop_reason: tool_use`) with the server
+/// call open: Anthropic then refuses every later request that replays it
+/// (`messages.1: tool_search_tool_bm25 tool use with id srvtoolu_… was found
+/// without a corresponding tool_search_tool_result block`), and the turn and
+/// its retry both fail. The call has no result to replay, so it is left out;
+/// the stored answer keeps it.
+fn without_unanswered_server_calls(blocks: Vec<Value>) -> Vec<Value> {
+    let kind = |b: &Value| {
+        b.get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let answered: HashSet<String> = blocks
+        .iter()
+        .filter(|b| kind(b).ends_with("_tool_result"))
+        .filter_map(|b| b.get("tool_use_id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    blocks
+        .into_iter()
+        .filter(|b| {
+            kind(b) != "server_tool_use"
+                || b.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| answered.contains(id))
+        })
+        .collect()
 }
 
 /// Add a message's blocks: consecutive same-role messages merge.
