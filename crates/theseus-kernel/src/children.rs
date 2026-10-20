@@ -92,11 +92,11 @@ fn registry() -> MutexGuard<'static, Registry> {
 /// Start a child and register it as `kind`, under the registry's lock, so no
 /// sweep looks between the spawn and the registration. `pid` names the child
 /// that `spawn` returned.
-pub fn spawn<C>(
+pub fn spawn<C, E>(
     kind: Kind<'_>,
-    spawn: impl FnOnce() -> io::Result<C>,
+    spawn: impl FnOnce() -> Result<C, E>,
     pid: impl FnOnce(&C) -> Option<u32>,
-) -> io::Result<C> {
+) -> Result<C, E> {
     let mut reg = registry();
     let child = spawn()?;
     if let Some(p) = pid(&child) {
