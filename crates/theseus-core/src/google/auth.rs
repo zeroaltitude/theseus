@@ -64,8 +64,21 @@ impl Google {
         self.refresh_ref.get().map_or("", String::as_str)
     }
 
-    /// Start a consent: the URL, and the listener behind it.
+    /// Start a consent: the URL, and the listener behind it. On WSL the
+    /// owner's browser runs on Windows and cannot reach the loopback redirect
+    /// (theseus-i4yt6), so the consent goes straight to the paste, as with
+    /// `--manual`, instead of waiting out the paste delay first.
     pub async fn auth_begin(&self, manual: bool) -> Result<GoogleAuthBeginResult, String> {
+        self.auth_begin_on(manual, on_wsl()).await
+    }
+
+    /// `auth_begin`, told whether this is WSL.
+    pub(super) async fn auth_begin_on(
+        &self,
+        manual: bool,
+        wsl: bool,
+    ) -> Result<GoogleAuthBeginResult, String> {
+        let manual = manual || wsl;
         let name = &self.cfg.credentials.client;
         match self.board.wait(name, Duration::from_secs(10)).await {
             Waited::Ready(_) => {}
@@ -320,6 +333,21 @@ impl Google {
             .map(|s: &Service| s.display().to_string())
             .collect()
     }
+}
+
+/// Whether this kernel is WSL's: `/proc/version` names Microsoft.
+fn on_wsl() -> bool {
+    wsl_at(std::path::Path::new("/proc/version"))
+}
+
+/// Whether the `/proc/version` at `path` is WSL's; unreadable is not.
+pub(super) fn wsl_at(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|v| wsl_of(&v))
+}
+
+/// Whether a `/proc/version` line is WSL's (`...-microsoft-standard-WSL2`).
+pub(super) fn wsl_of(proc_version: &str) -> bool {
+    proc_version.to_ascii_lowercase().contains("microsoft")
 }
 
 fn waiting(account: &str) -> GoogleAuthFinishResult {
