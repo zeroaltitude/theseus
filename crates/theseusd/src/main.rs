@@ -1035,6 +1035,9 @@ fn warm_after_serving(core: &Arc<Core>) {
     // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
     // compile reads it from memory.
     core.warm_ontology();
+    // Its nightly sweep (theseus-63tfk), at the learning hour, and once
+    // after a start; nothing with `[ontology] sweep` off.
+    core.onto_sweep_after_serving();
     core.warm_standing();
     core.warm_forecasts();
     core.warm_persona();

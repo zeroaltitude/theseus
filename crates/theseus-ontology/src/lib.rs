@@ -29,9 +29,11 @@ pub mod category;
 pub mod compose;
 pub mod kind;
 mod machine;
+pub mod merge;
 pub mod ontology;
 pub mod person;
 pub mod refusal;
+pub mod sweep;
 mod text;
 
 pub use category::{Category, CategoryId, Guidance, MemberList, Membership};
@@ -39,10 +41,14 @@ pub use compose::{Composition, GuidanceUsed, MembershipUsed, Skipped, PATH_SEP, 
 pub use kind::{
     seeds, Basis, Kind, MinedFrom, Origin, PerSession, Rule, EXAMPLES_MAX, GIVEN, SEED,
 };
+pub use merge::CategoryMerge;
 pub use ontology::{Ontology, MAX_DEPTH};
 pub use person::{handle, handles_of, Merge};
 pub use refusal::Refusal;
-pub use text::{ADDED_BY_MAX, DESCRIPTION_MAX, GUIDANCE_MAX, INTENT_LINE_MAX, NAME_MAX};
+pub use sweep::{Step, DECAY_MS};
+pub use text::{
+    ADDED_BY_MAX, DESCRIPTION_MAX, DREAM_GUIDANCE_MAX, GUIDANCE_MAX, INTENT_LINE_MAX, NAME_MAX,
+};
 
 /// The META keys the records live at (M4 design §2.8's data shapes). Every
 /// key starts with [`keys::PREFIX`], so one scan finds them all.
@@ -161,3 +167,5 @@ mod tests_manifest;
 mod tests_origins;
 #[cfg(test)]
 mod tests_people;
+#[cfg(test)]
+mod tests_sweep;

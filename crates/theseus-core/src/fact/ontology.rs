@@ -48,6 +48,9 @@ impl Fact for CategorySet<'_> {
         let c = self.category;
         let mut row = json!({"id": c.id, "kind": c.kind(), "name": c.name, "parent": c.parent,
                "origin": self.origin, "who": self.who, "via": self.via});
+        if let Some(into) = &c.merged_into {
+            row["merged_into"] = json!(into);
+        }
         if let Some(u) = self.undo {
             u.put(&mut row);
         }
@@ -56,6 +59,19 @@ impl Fact for CategorySet<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let c = self.category;
+        if let Some(into) = &c.merged_into {
+            say.line(
+                Session,
+                format!(
+                    "Ontology: {} merged the {} category {} ({}) into {into}.",
+                    self.who,
+                    c.kind(),
+                    c.name,
+                    c.id
+                ),
+            );
+            return;
+        }
         say.line(
             Session,
             format!(
@@ -79,6 +95,8 @@ pub struct GuidanceSet<'a> {
     pub guidance: &'a Guidance,
     pub who: &'a str,
     pub via: &'a str,
+    /// A machine origin's write (the dream's) carries what undoes it.
+    pub undo: Option<&'a Undoable>,
 }
 
 impl Fact for GuidanceSet<'_> {
@@ -86,8 +104,12 @@ impl Fact for GuidanceSet<'_> {
 
     fn row(&self) -> Value {
         let g = self.guidance;
-        json!({"category": g.category, "version": g.version, "digest": g.digest,
-               "bytes": g.text.len(), "who": self.who, "via": self.via})
+        let mut row = json!({"category": g.category, "version": g.version, "digest": g.digest,
+               "bytes": g.text.len(), "who": self.who, "via": self.via});
+        if let Some(u) = self.undo {
+            u.put(&mut row);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -254,6 +276,8 @@ pub struct KindSet<'a> {
     pub retired: bool,
     pub who: &'a str,
     pub via: &'a str,
+    /// A machine origin's write (the sweep's) carries what undoes it.
+    pub undo: Option<&'a Undoable>,
 }
 
 impl Fact for KindSet<'_> {
@@ -261,9 +285,13 @@ impl Fact for KindSet<'_> {
 
     fn row(&self) -> Value {
         let k = self.kind;
-        json!({"name": k.name, "version": k.version, "retired": self.retired,
+        let mut row = json!({"name": k.name, "version": k.version, "retired": self.retired,
                "assigned_by": k.assigned_by.iter().map(|o| o.name()).collect::<Vec<_>>(),
-               "who": self.who, "via": self.via})
+               "who": self.who, "via": self.via});
+        if let Some(u) = self.undo {
+            u.put(&mut row);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

@@ -1339,6 +1339,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # people or identifiers, at `act` marks its node private (undoable). Off until
 #                                         # you say on: the mark changes what later requests may send to models outside
 #                                         # the US allowlist (theseus-und4g).
+# sweep = true                            # nightly: a machine's membership unconfirmed for 30 days decays, and a duplicate category a machine wrote merges into its twin (each undoable; no model, no spend); false is the rollback
 
 # ---------------------------------------------------------------- import
 # The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that
