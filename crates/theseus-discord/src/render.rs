@@ -73,6 +73,8 @@ pub enum Buttons {
     Earned(Vec<(String, String)>),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).
     Seal(String),
+    /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
+    OntoUndo(String),
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.
     Standing(String, String, bool),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
@@ -1220,6 +1222,8 @@ fn footer(r: &TurnSubmitResult) -> String {
     // Which thread it ran in, with a move handle when the router was unsure
     // (theseus-rha2: `/move` runs the message again where it belongs).
     bits.extend(r.thread.as_ref().and_then(|t| t.words()));
+    // Where Jev filed the session (theseus-xzxqv): `filed: topic › a › b (new)`.
+    bits.extend(r.filed.clone());
     bits.push(format!(
         "{} loop{}",
         r.loops,

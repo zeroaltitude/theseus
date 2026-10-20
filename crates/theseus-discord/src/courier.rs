@@ -886,7 +886,7 @@ impl Lane {
             // hand role and the red after its apply (theseus-pw1q.15): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" | "standing_card" | "digest" => {
+            | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "onto_card" => {
                 self.jev_post(a, &body).await
             }
             "jev_labeled" => Ok(self.jev_labeled(&body)),
@@ -1432,6 +1432,15 @@ impl Lane {
                 format!("ini:{}", body["id"].as_str().unwrap_or(&a.correlation_id)),
                 Buttons::Keep,
             ),
+            // Where Jev filed a session, or asks to (theseus-xzxqv): a mint has its undo.
+            "onto_card" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("onto:{}", a.correlation_id),
+                match crate::runtime::onto_write(body) {
+                    Some(write) => Buttons::OntoUndo(write),
+                    None => Buttons::Keep,
+                },
+            ),
             // What `directive.v1` kept, or asks about (theseus-slvl.5).
             "standing_card" => {
                 let (mode, id, everywhere) = crate::runtime::capture_card(body);
@@ -1696,6 +1705,7 @@ impl Lane {
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
+            Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::Sources(session, srcs, offer) => {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
@@ -1765,6 +1775,7 @@ impl Lane {
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
             Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
+            Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
             }
