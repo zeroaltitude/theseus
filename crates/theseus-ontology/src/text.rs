@@ -15,6 +15,9 @@ pub const GUIDANCE_MAX: usize = 16 * 1024;
 /// The most characters of one category's line under `intent_line`.
 pub const INTENT_LINE_MAX: usize = 200;
 
+/// The most characters in guidance the dream writes (theseus-63tfk).
+pub const DREAM_GUIDANCE_MAX: usize = 400;
+
 /// A kind's name: a lowercase letter, then up to 31 lowercase letters,
 /// digits, `_`, or `-`.
 pub(crate) fn kind_name(s: &str) -> Result<(), Refusal> {

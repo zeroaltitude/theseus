@@ -1,6 +1,7 @@
 //! A machine origin's writes to the ontology, and their undo (onto-core,
 //! theseus-e3mjc): Jev, the sweep and the dream file categories and lists
-//! beside the operator, and each write is one frame whose rows carry what
+//! beside the operator (the sweep also a kind and a merge, the dream a
+//! category's first guidance: theseus-63tfk), and each write is one frame whose rows carry what
 //! takes it back (`fact::ontology::Undoable`). The undo is the operator's
 //! act: it writes the inverse records and an `ontology.undo` row in one
 //! frame. The methods that call these are later rows' (R3's RPC and CLI).
@@ -39,8 +40,9 @@ pub struct Machine {
 }
 
 impl Machine {
-    /// `by`'s write `write` of `records` (categories and lists), against the
-    /// snapshot `o`: each record's row will carry the record as it was.
+    /// `by`'s write `write` of `records` (categories, lists, kinds and
+    /// guidance), against the snapshot `o`: each record's row will carry the
+    /// record as it was.
     pub fn new(
         o: &theseus_ontology::Ontology,
         by: Origin,
@@ -53,13 +55,6 @@ impl Machine {
         let before = o.replaced(&records);
         let mut undos = Vec::with_capacity(records.len());
         for (r, b) in records.iter().zip(&before) {
-            if !matches!(r, Record::Category(_) | Record::Members(_)) {
-                bail!(
-                    "a machine write of a kind or guidance is not built: `{}` (kinds come with the \
-                     sweep's row)",
-                    r.key()
-                );
-            }
             undos.push(Undoable {
                 write: write.to_string(),
                 key: r.key(),
@@ -116,7 +111,25 @@ impl Machine {
                     };
                     rows.push(fact::row(&f, Some(&list.session), None)?.scoped(&scope));
                 }
-                _ => {}
+                Record::Guidance(guidance) => {
+                    let f = fact::ontology::GuidanceSet {
+                        guidance,
+                        who: &who,
+                        via: "machine",
+                        undo: Some(undo),
+                    };
+                    rows.push(fact::row(&f, None, None)?.scoped(&scope));
+                }
+                Record::Kind(kind) => {
+                    let f = fact::ontology::KindSet {
+                        kind,
+                        retired: kind.retired_ms.is_some(),
+                        who: &who,
+                        via: "machine",
+                        undo: Some(undo),
+                    };
+                    rows.push(fact::row(&f, None, None)?.scoped(&scope));
+                }
             }
         }
         Ok(rows)
@@ -145,7 +158,21 @@ impl Machine {
                             undo: Some(undo),
                         })
                 }
-                _ => {}
+                Record::Guidance(guidance) => {
+                    core.rec(None).announce(&fact::ontology::GuidanceSet {
+                        guidance,
+                        who: &who,
+                        via: "machine",
+                        undo: Some(undo),
+                    })
+                }
+                Record::Kind(kind) => core.rec(None).announce(&fact::ontology::KindSet {
+                    kind,
+                    retired: kind.retired_ms.is_some(),
+                    who: &who,
+                    via: "machine",
+                    undo: Some(undo),
+                }),
             }
         }
     }

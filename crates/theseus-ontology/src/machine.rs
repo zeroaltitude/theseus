@@ -4,14 +4,15 @@
 //! checked here, and an undo gives the records that restore what one
 //! replaced.
 
-use crate::category::{Category, MemberList, Membership};
+use crate::category::{Category, Guidance, MemberList, Membership};
 use crate::kind::{seeds, Basis, Kind, Origin, GIVEN};
 use crate::ontology::Ontology;
 use crate::refusal::Refusal;
+use crate::text::DREAM_GUIDANCE_MAX;
 use crate::Record;
 
 /// Whether `added_by` is a machine origin's: `<origin>:<id>` with an id.
-fn machine_written(added_by: &str) -> bool {
+pub(crate) fn machine_written(added_by: &str) -> bool {
     [Origin::Jev, Origin::Sweep, Origin::Dream]
         .iter()
         .any(|o| prefixed(added_by, *o))
@@ -155,11 +156,7 @@ impl Ontology {
             return Ok(());
         }
         if c.is_gone() {
-            return Err(Refusal::Writer {
-                why: format!(
-                    "`{by}` may not take a category away: only the operator retires or merges one"
-                ),
-            });
+            return self.check_machine_merge(c, by);
         }
         if !prefixed(&c.added_by, by) {
             return Err(Refusal::Writer {
@@ -179,6 +176,89 @@ impl Ontology {
                     ),
                 });
             }
+        }
+        Ok(())
+    }
+
+    /// A category a machine origin takes away: only the sweep, only by
+    /// merging (never retiring), only one a machine wrote, with no guidance,
+    /// and the record changes nothing of it but `merged_into`.
+    fn check_machine_merge(&self, c: &Category, by: Origin) -> Result<(), Refusal> {
+        let refuse = |why: String| Err(Refusal::Writer { why });
+        if by != Origin::Sweep || c.retired_ms.is_some() {
+            return refuse(format!(
+                "`{by}` may not take a category away: only the operator retires one, and only the                  operator or the sweep merges one"
+            ));
+        }
+        let Some(old) = self.categories.get(&c.id) else {
+            return Err(Refusal::Missing {
+                what: "category",
+                id: c.id.to_string(),
+            });
+        };
+        if !machine_written(&old.added_by) {
+            return refuse(format!(
+                "`{}` was written by `{}`: the sweep merges only a category a machine wrote",
+                c.id, old.added_by
+            ));
+        }
+        let same = Category {
+            merged_into: c.merged_into.clone(),
+            ..old.clone()
+        };
+        if same != *c {
+            return refuse(format!(
+                "a merge changes nothing of `{}` but its merged_into",
+                c.id
+            ));
+        }
+        if self.guidance.get(&c.id).is_some_and(|g| !g.is_empty()) {
+            return Err(Refusal::InUse {
+                id: c.id.to_string(),
+                by: "its guidance: the sweep merges no category that has any".into(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Guidance a machine origin writes: only the dream, only where the
+    /// category has none, at most [`DREAM_GUIDANCE_MAX`] characters, and
+    /// never an empty one (the operator takes guidance away).
+    pub(crate) fn check_guidance_writer(&self, g: &Guidance, by: Origin) -> Result<(), Refusal> {
+        let refuse = |why: String| Err(Refusal::Writer { why });
+        if by != Origin::Dream {
+            return refuse(format!(
+                "guidance is the operator's to write, and the dream may add a category's first: \
+                 not `{by}`'s"
+            ));
+        }
+        if !prefixed(&g.added_by, by) {
+            return refuse(format!(
+                "guidance the dream writes has an added_by of `dream:<id>`, and `{}` is not",
+                g.added_by
+            ));
+        }
+        if g.is_empty() {
+            return refuse("the dream may not take guidance away".into());
+        }
+        let chars = g.text.chars().count();
+        if chars > DREAM_GUIDANCE_MAX {
+            return Err(Refusal::invalid(
+                format!("the guidance of `{}`", g.category),
+                format!(
+                    "it is {chars} characters, and the dream's is at most {DREAM_GUIDANCE_MAX}"
+                ),
+            ));
+        }
+        if self
+            .guidance
+            .get(&g.category)
+            .is_some_and(|old| !old.is_empty())
+        {
+            return refuse(format!(
+                "`{}` has guidance already: the dream writes only where none exists",
+                g.category
+            ));
         }
         Ok(())
     }
@@ -255,7 +335,14 @@ impl Ontology {
             ));
         }
         for (w, now) in wrote.iter().zip(self.replaced(wrote)) {
-            if now.as_ref() != Some(w) {
+            // A category the write merged away is held no more: it must be
+            // absent now, as the write left it.
+            let merged = matches!(w, Record::Category(c) if c.is_gone());
+            let unchanged = match merged {
+                true => now.is_none(),
+                false => now.as_ref() == Some(w),
+            };
+            if !unchanged {
                 return Err(Refusal::invalid(
                     "an undo",
                     format!(
@@ -268,6 +355,22 @@ impl Ontology {
         let mut inverse: Vec<Record> = Vec::new();
         for (w, b) in wrote.iter().zip(before) {
             inverse.push(match (w, b) {
+                // A kind's or guidance's row is versioned: what it replaced
+                // comes back as one more version than the write's.
+                (Record::Kind(k), Some(Record::Kind(old))) => Record::Kind(Kind {
+                    version: k.version + 1,
+                    ..old.clone()
+                }),
+                (Record::Guidance(g), Some(Record::Guidance(old))) => Record::Guidance(Guidance {
+                    version: g.version + 1,
+                    ..old.clone()
+                }),
+                (Record::Guidance(g), None) => Record::Guidance(Guidance::new(
+                    g.category.clone(),
+                    "",
+                    g.version + 1,
+                    "operator:undo",
+                )),
                 (_, Some(old)) if old.key() == w.key() => old.clone(),
                 (Record::Members(l), None) => Record::Members(MemberList {
                     members: Vec::new(),
@@ -280,7 +383,7 @@ impl Ontology {
                     retired_ms: Some(at_ms),
                     ..k.clone()
                 }),
-                (Record::Guidance(_), _) | (_, Some(_)) => {
+                (_, Some(_)) => {
                     return Err(Refusal::invalid(
                         "an undo",
                         format!("`{}` is not a record a machine write replaces", w.key()),
@@ -288,11 +391,16 @@ impl Ontology {
                 }
             });
         }
+        // A kind or category put back comes first (a list may name it); a
+        // list next; then guidance; then what is taken away, a category and
+        // then its kind, once nothing uses them.
         let rank = |r: &Record| match r {
-            Record::Members(_) => 0,
-            Record::Guidance(_) => 1,
-            Record::Category(_) => 2,
-            Record::Kind(_) => 3,
+            Record::Kind(k) if k.retired_ms.is_none() => 0,
+            Record::Category(c) if !c.is_gone() => 1,
+            Record::Members(_) => 2,
+            Record::Guidance(_) => 3,
+            Record::Category(_) => 4,
+            Record::Kind(_) => 5,
         };
         inverse.sort_by_key(rank);
         let mut trial = self.clone();

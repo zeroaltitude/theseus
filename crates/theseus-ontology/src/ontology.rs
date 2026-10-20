@@ -155,7 +155,7 @@ impl Ontology {
     ///   assigned_by names it). Either may supersede one (a new name, or a
     ///   new parent), never into a loop, or take one away that nothing uses.
     /// - Guidance is the operator's, for any category, one more version than
-    ///   the last.
+    ///   the last; the dream adds a category's first, short, never over any.
     /// - Membership lists are the operator's (or the import's, as above), of
     ///   interpreted kinds only: given memberships are never stored.
     pub fn check(&self, record: &Record, by: Origin) -> Result<(), Refusal> {
@@ -211,9 +211,7 @@ impl Ontology {
             }
             Record::Guidance(g) => {
                 if by != Origin::Operator {
-                    return Err(Refusal::Writer {
-                        why: format!("guidance is the operator's to write, not `{by}`'s"),
-                    });
+                    self.check_guidance_writer(g, by)?;
                 }
                 self.check_guidance(g)?;
                 let want = self
@@ -579,14 +577,15 @@ impl Ontology {
         Ok(())
     }
 
-    /// A person merged into another: both are held people, the survivor is
-    /// not itself, and no session's list still holds it (the merge moves
-    /// them first). Its guidance goes with the merge.
+    /// A category merged into another of its kind (a person into a person,
+    /// a topic into a topic): both are held, the survivor is not itself,
+    /// nothing hangs below it, and no session's list still holds it (the
+    /// merge moves them first). Its guidance goes with the merge.
     fn check_merged(&self, c: &Category, into: &CategoryId) -> Result<(), Refusal> {
-        if c.kind() != crate::person::KIND || into.kind() != crate::person::KIND {
+        if c.kind() != into.kind() {
             return Err(Refusal::WrongKind {
                 why: format!(
-                    "only a person merges into a person: `{}` into `{into}`",
+                    "a category merges only into one of its own kind: `{}` into `{into}`",
                     c.id
                 ),
             });
@@ -594,7 +593,7 @@ impl Ontology {
         for id in [&c.id, into] {
             if !self.categories.contains_key(id) {
                 return Err(Refusal::Missing {
-                    what: "person",
+                    what: "category",
                     id: id.to_string(),
                 });
             }
@@ -602,6 +601,12 @@ impl Ontology {
         if c.id == *into {
             return Err(Refusal::Cycle {
                 path: format!("{} › {}", c.id, c.id),
+            });
+        }
+        if let Some(kids) = self.children.get(&Some(c.id.clone())) {
+            return Err(Refusal::InUse {
+                id: c.id.to_string(),
+                by: format!("{} below it", kids.len()),
             });
         }
         let held = self

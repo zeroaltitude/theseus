@@ -25,6 +25,15 @@ fn the_defaults_are_the_documented_ones() {
     assert!(c.is_default());
     // The private mark ships off until the owner says on (theseus-und4g).
     assert!(!c.private_mark);
+    // The nightly sweep ships on: it touches only what a machine wrote.
+    assert!(c.sweep);
+}
+
+#[test]
+fn the_sweep_is_a_key_that_is_on_by_default() {
+    let (cfg, _) = Config::parse(&doc("[ontology]\nsweep = false\n")).unwrap();
+    assert!(!cfg.ontology.sweep);
+    assert!(!cfg.ontology.is_default());
 }
 
 #[test]

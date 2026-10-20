@@ -258,8 +258,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   record as written and as it was (`fact::ontology::Undoable`), and `Core::ontology_undo(write, who, via)` reads those
   rows back and writes the inverse records and an `ontology.undo` row (label `wrong`) in one frame, as the operator:
   the earlier list byte for byte, a minted category retired unless another session's list uses it (`InUse`, nothing
-  written). The rules of who may write what are theseus-ontology's (`machine.rs`). Tests: `tests_ontology.rs`,
-  `tests_ontology_bind.rs`.
+  written). The rules of who may write what are theseus-ontology's (`machine.rs`). A machine write also carries
+  **kinds and guidance** (theseus-63tfk): the sweep's kind (`KindSet`) and the dream's first guidance, at most 400
+  characters, only where none exists (`GuidanceSet`), each row with its `undo` (a guidance written where none was
+  is undone to an empty one, one version on; a kind or guidance put back is one version on). **The ontology's
+  nightly sweep** (theseus-63tfk, R5 slice one; `judge/onto/sweep.rs`, `[ontology] sweep`, default on, run by
+  `Core::onto_sweep_after_serving` at `[judge] learning_hour` and once after a start): no model, no spend;
+  `Ontology::sweep_plan(now_ms)` (theseus-ontology's `sweep.rs`) gives the steps, each written as its own machine
+  write of the sweep's (id `sweep-<ms>-<n>-decay|merge`, undone by `Core::ontology_undo`): decay of machine
+  memberships older than 30 days (one write), and a merge of each duplicate category (same kind and parent, names
+  folded to lowercase letters and digits; only a category a machine wrote, with no guidance, no children, and no
+  operator or import membership) into the operator's, else the better held, else the earlier-id twin. The
+  sweep's row is its writes' own rows (`ontology.category` with `merged_into`, `ontology.membership`); no
+  `ontology.swept` row yet. Tests: `tests_ontology.rs`, `tests_ontology_bind.rs`, `tests_onto_sweep.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).

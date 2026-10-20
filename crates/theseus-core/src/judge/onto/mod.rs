@@ -15,6 +15,10 @@
 //!   the decision is made again, under the ontology's writer lock, and its
 //!   records, their rows and the owner's cards ride that same frame.
 //!
+//! - **Swept** ([`sweep`], theseus-63tfk): nightly, with no model, a machine
+//!   membership unconfirmed for 30 days is dropped and a duplicate category a
+//!   machine wrote is merged into its twin; each an undoable write.
+//!
 //! Interpretations route context and never grant access: a membership takes
 //! effect at the next recompile, and a shared place is never asked.
 
@@ -37,6 +41,7 @@ pub mod decide;
 pub mod mark;
 mod name;
 pub(crate) mod stage;
+pub mod sweep;
 
 pub use name::NAMES;
 

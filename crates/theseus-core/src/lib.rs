@@ -359,6 +359,8 @@ mod tests_onto;
 #[cfg(test)]
 mod tests_onto_mark;
 #[cfg(test)]
+mod tests_onto_sweep;
+#[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]
 mod tests_ontology_bind;

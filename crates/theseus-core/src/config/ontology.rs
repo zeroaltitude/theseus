@@ -20,6 +20,10 @@
 //! - `private_mark`: whether a judged-private picture or message marks its
 //!   node private (theseus-und4g). Off: the judgment is a record and nothing
 //!   is marked. A policy effect, so it ships off until the owner says on.
+//! - `sweep`: the nightly sweep (theseus-63tfk): a machine's membership
+//!   unconfirmed for 30 days decays, and a duplicate category a machine wrote
+//!   merges into its twin, each an undoable write. No model, no spend; off
+//!   is the rollback.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -41,6 +45,8 @@ pub struct OntologyConfig {
     pub recall_boost: f64,
     #[serde(default)]
     pub private_mark: bool,
+    #[serde(default = "default_sweep")]
+    pub sweep: bool,
 }
 
 /// Which request carries `onto.v1`.
@@ -55,6 +61,9 @@ pub enum Request {
 }
 
 fn default_judge() -> bool {
+    true
+}
+fn default_sweep() -> bool {
     true
 }
 fn default_act() -> f64 {
@@ -80,6 +89,7 @@ impl Default for OntologyConfig {
             request: Request::default(),
             recall_boost: default_recall_boost(),
             private_mark: false,
+            sweep: default_sweep(),
         }
     }
 }

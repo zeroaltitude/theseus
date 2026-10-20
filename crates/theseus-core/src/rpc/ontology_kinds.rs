@@ -154,6 +154,7 @@ impl Core {
             retired,
             who: &who_s,
             via: &via,
+            undo: None,
         };
         self.runner.ontology.write(
             &self.store,

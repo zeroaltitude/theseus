@@ -198,6 +198,7 @@ impl Core {
             guidance: &g,
             who: &who_s,
             via: &via,
+            undo: None,
         };
         self.runner.ontology.write(
             &self.store,
