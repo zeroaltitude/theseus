@@ -228,11 +228,13 @@ impl DeepgramSpeech {
                 self.scrub(String::from_utf8_lossy(&body).trim())
             ))
         })?;
-        let text = heard
+        let alternative = heard
             .results
             .channels
             .first()
-            .and_then(|c| c.alternatives.first())
+            .and_then(|c| c.alternatives.first());
+        let confidence = alternative.and_then(|a| a.confidence);
+        let text = alternative
             .map(|a| a.transcript.trim().to_string())
             .ok_or_else(|| {
                 SpeechError(
@@ -253,6 +255,7 @@ impl DeepgramSpeech {
                 chars: text.chars().count(),
             },
             text,
+            confidence,
         })
     }
 
@@ -413,6 +416,7 @@ struct Channel {
 #[derive(Deserialize)]
 struct Alternative {
     transcript: String,
+    confidence: Option<f32>,
 }
 
 #[cfg(test)]

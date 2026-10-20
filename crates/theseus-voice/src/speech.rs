@@ -23,10 +23,13 @@ pub trait Speech: Send + Sync {
     fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Transcript {
     pub text: String,
     pub usage: Usage,
+    /// The recogniser's own confidence in the text, 0 to 1, when it gives one
+    /// (theseus-s3dwj).
+    pub confidence: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +56,9 @@ pub struct SpeechError(pub String);
 /// synthesis, so it costs nothing (design §2.8).
 pub const ACKNOWLEDGMENT: &str = "One moment.";
 
+/// A fixture transcript: its text and the confidence the recogniser gave it.
+type Fixture = (String, Option<f32>);
+
 /// The stand-in speech (design §2.8).
 /// - Speech to text gives each speaker's fixture transcripts in order, and
 ///   then, or live, `[utterance 3.2 s]`.
@@ -61,7 +67,7 @@ pub const ACKNOWLEDGMENT: &str = "One moment.";
 ///
 /// Delays, on tokio's clock, stand in for a provider's latency.
 pub struct StandInSpeech {
-    transcripts: Mutex<HashMap<Speaker, VecDeque<String>>>,
+    transcripts: Mutex<HashMap<Speaker, VecDeque<Fixture>>>,
     canned: Vec<(String, Audio)>,
     transcribe_delay: Duration,
     synthesize_delay: Duration,
@@ -91,12 +97,18 @@ impl StandInSpeech {
     /// `speaker`'s next fixture says `text`.
     #[must_use]
     pub fn transcript(self, speaker: Speaker, text: &str) -> Self {
+        self.transcript_with(speaker, text, None)
+    }
+
+    /// `speaker`'s next fixture says `text`, the recogniser `confidence` sure of it.
+    #[must_use]
+    pub fn transcript_with(self, speaker: Speaker, text: &str, confidence: Option<f32>) -> Self {
         self.transcripts
             .lock()
             .expect("the transcripts' lock")
             .entry(speaker)
             .or_default()
-            .push_back(text.to_string());
+            .push_back((text.to_string(), confidence));
         self
     }
 
@@ -146,8 +158,12 @@ impl Speech for StandInSpeech {
                 .expect("the transcripts' lock")
                 .get_mut(&speaker)
                 .and_then(VecDeque::pop_front);
-            let text = fixture
-                .unwrap_or_else(|| format!("[utterance {:.1} s]", audio.duration().as_secs_f64()));
+            let (text, confidence) = fixture.unwrap_or_else(|| {
+                (
+                    format!("[utterance {:.1} s]", audio.duration().as_secs_f64()),
+                    None,
+                )
+            });
             Ok(Transcript {
                 text,
                 usage: Usage {
@@ -156,6 +172,7 @@ impl Speech for StandInSpeech {
                     audio: audio.duration(),
                     chars: 0,
                 },
+                confidence,
             })
         })
     }

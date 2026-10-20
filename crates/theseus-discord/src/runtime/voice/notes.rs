@@ -232,6 +232,7 @@ mod tests {
             latency: std::time::Duration::ZERO,
             over: None,
             heard_as: HeardAs::Words,
+            judged: None,
         }
     }
 

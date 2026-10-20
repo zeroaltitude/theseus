@@ -154,6 +154,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "attribution.v1: shadow",
             "citation.v1: shadow",
             "compare.v1: shadow",
+            "heard.v1: live",
             "people.v1: live",
             "people_seen.v1: live"
         ])

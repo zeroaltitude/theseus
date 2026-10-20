@@ -1,0 +1,13 @@
+{
+  "transcript": "yes deploy it now",
+  "said": [
+    "The build passed.",
+    "Shall I deploy it now?"
+  ],
+  "overlap": "tail",
+  "after_end_ms": 250,
+  "length_ms": 1100,
+  "confidence": 0.93,
+  "echo_prone": false,
+  "place": "private"
+}

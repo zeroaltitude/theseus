@@ -1,0 +1,32 @@
+# heard.v1 (HEARD, theseus-s3dwj): a short or unclear transcript in a voice call, heard
+# during Theseus's own speech, just after it, or at the join: is it speech to
+# answer, Theseus's own voice coming back through a microphone, or noise and
+# another speaker? At `voice`, live, awaited by the call's engine for at most
+# `[voice] judge_ms` (250 ms); on any other answer, a failure, or no answer in time the
+# engine's own rules decide as they always did. At the act band (0.80 and up)
+# an `echo` or an `other` is no turn and cuts nothing, and `addressed` is a turn;
+# below it the rules' verdict stands. `[voice] judge_unclear = false` turns it off.
+# Asked only of what the rules would make a turn, so most utterances never reach it.
+id = "heard"
+version = 1
+jev_model = "jev-1.13.0"
+point = "voice"
+state = "heard"
+state_cap_tokens = 1500
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "HEARD: whether a short or unclear transcript in a voice call is speech to answer, Theseus's own echo, or noise."
+
+[questions.heard]
+type = "choice"
+decides = true
+instructions = "A voice call's microphone gave this transcript, short or unclear, while the assistant was speaking, just after it spoke, or just after the call began. `said` holds the assistant's last spoken sentences, `overlap` says when the utterance began against them, and `echo_prone` says whether this speaker's microphone has already played the assistant back. What was it?"
+act = 0.80
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "addressed", means = "A person answering or telling the assistant something: a real reply, however short (\"yes\", \"no, wait\", \"deploy it now\"), even when it reuses words of what the assistant just said." },
+  { id = "echo", means = "The assistant's own voice coming back through a speaker's microphone: the transcript is a copy, a clipped head or tail, or a garbled version of a sentence in `said`, and begins when that sentence was playing or just ended." },
+  { id = "other", means = "Noise, a cough, a laugh, a recogniser's guess at a sound, or someone in the room talking to somebody else, not to the assistant and not the assistant's voice." },
+]

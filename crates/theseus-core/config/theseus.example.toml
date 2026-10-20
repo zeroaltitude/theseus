@@ -910,6 +910,11 @@ max_events = 10                         # at most this many events stand at once
 #                                       # words of the greeting's head heard back are its echo; false restores the old reading
 # echo_cancel = true                    # while Theseus speaks, a barge-in is judged on what you send once its own voice, as it sent it, is
 #                                       # taken out (your speakers' echo never stops it, your voice over it does); false judges the raw stream
+# judge_unclear = true                  # a short (3 words or fewer) or low-confidence transcript that would be a turn, heard over
+#                                       # Theseus's speech, just after it or at the join, is asked of Jev (heard.v1) first: speech to
+#                                       # answer, Theseus's own echo, or noise; at Jev's act band it decides, else the rules do.
+#                                       # false: the rules alone, as before
+# judge_ms = 250                        # how long such a transcript waits for Jev (1 to 2000); past it the rules decide
 # speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
 #                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"
 #                                       # answers the question as you (the core judges it as it judges a button)

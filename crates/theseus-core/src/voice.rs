@@ -78,6 +78,16 @@ pub struct VoiceConfig {
     /// speakers never stops it (theseus-yaxcp). False judges the raw stream.
     #[serde(default = "default_status")]
     pub echo_cancel: bool,
+    /// A short or unclear transcript that the rules would make a turn of,
+    /// heard over Theseus's speech, just after it or at the join, is asked of
+    /// Jev (`heard.v1`) first: speech to answer, Theseus's own echo, or noise
+    /// (theseus-s3dwj). `false` restores the rules alone.
+    #[serde(default = "default_status")]
+    pub judge_unclear: bool,
+    /// How long such a transcript waits for Jev, in milliseconds. Past it the
+    /// rules decide as they always did.
+    #[serde(default = "default_judge_ms")]
+    pub judge_ms: u64,
 }
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
@@ -109,6 +119,9 @@ fn default_api_base() -> String {
 fn default_deaf_after_secs() -> u64 {
     10
 }
+fn default_judge_ms() -> u64 {
+    250
+}
 
 impl Default for VoiceConfig {
     fn default() -> Self {
@@ -125,6 +138,8 @@ impl Default for VoiceConfig {
             speak_tasks: default_status(),
             join_guard: default_status(),
             echo_cancel: default_status(),
+            judge_unclear: default_status(),
+            judge_ms: default_judge_ms(),
         }
     }
 }
@@ -152,6 +167,13 @@ impl crate::config::Config {
         }
         if v.deaf_after_secs == 0 {
             bail!("voice.deaf_after_secs = 0: a call needs time to hear (10 is the default)");
+        }
+        if !(1..=2_000).contains(&v.judge_ms) {
+            bail!(
+                "voice.judge_ms = {}: a judgment of an unclear transcript waits 1 to 2000 ms \
+                 (250 is the default); `judge_unclear = false` turns it off",
+                v.judge_ms
+            );
         }
         if !(v.api_base.starts_with("https://") || v.api_base.starts_with("http://")) {
             bail!(
@@ -344,6 +366,28 @@ mod tests {
             with("[voice]\nvolume = 11").is_err(),
             "an unknown key fails"
         );
+    }
+
+    /// The judge of unclear transcripts is on at 250 ms by default, `judge_unclear
+    /// = false` is its rollback, and a wait outside 1 to 2000 ms is refused
+    /// with the switch named (theseus-s3dwj).
+    #[test]
+    fn the_judge_of_unclear_transcripts_is_on_by_default_and_bounded() {
+        let with = |section: &str| {
+            Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML)).map(|(c, _)| c)
+        };
+        let cfg = with("[voice]\nenabled = true").unwrap();
+        assert_eq!((cfg.voice.judge_unclear, cfg.voice.judge_ms), (true, 250));
+        let cfg = with("[voice]\njudge_unclear = false\njudge_ms = 400").unwrap();
+        assert_eq!((cfg.voice.judge_unclear, cfg.voice.judge_ms), (false, 400));
+        for bad in ["0", "2001"] {
+            let e = with(&format!("[voice]\njudge_ms = {bad}")).unwrap_err();
+            let e = format!("{e:#}");
+            assert!(
+                e.contains("voice.judge_ms") && e.contains("judge_unclear = false"),
+                "{e}"
+            );
+        }
     }
 
     /// The ledger rows of `kind` in the session, oldest first.
