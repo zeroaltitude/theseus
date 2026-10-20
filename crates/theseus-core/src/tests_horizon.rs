@@ -426,7 +426,9 @@ async fn a_met_watch_ends_done_and_status_short_counts_the_future() {
         r.core.push.status_short().next_due_ms.is_some()
     })
     .await;
-    assert_eq!(r.core.push.status_short().routines_failed, 0);
+    let short = r.core.push.status_short();
+    assert!(short.next_due_ms.is_some(), "{short:?}");
+    assert_eq!(short.routines_failed, 0);
     std::fs::write(&file, "OPEN\n").unwrap();
     until("its value", 10, || {
         of_kind(&w.held(), WorkKind::Watch)
