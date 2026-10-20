@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::client::{Answer, Request, Response};
+use crate::client::{Answer, Asset, Request, Response};
 use crate::pack::{Asked, Pack};
 use crate::state::BuiltState;
 
@@ -19,6 +19,9 @@ pub struct Part {
     pub pack: Arc<Pack>,
     pub state: Arc<BuiltState>,
     pub asked: Vec<Asked>,
+    /// The images the state refers to: a batch's packs share them, as they
+    /// share the state.
+    pub assets: Arc<Vec<Asset>>,
 }
 
 /// One request and the parts it carries, in order.
@@ -61,6 +64,12 @@ pub fn merge(parts: Vec<Part>) -> Result<Batch, BatchError> {
                 b: name,
             });
         }
+        if p.assets != first.assets {
+            return Err(BatchError::StatesDiffer {
+                a: first_name,
+                b: name,
+            });
+        }
         if p.pack.jev_model != model {
             return Err(BatchError::ModelsDiffer {
                 a: first_name,
@@ -86,6 +95,7 @@ pub fn merge(parts: Vec<Part>) -> Result<Batch, BatchError> {
             state: state.json.clone(),
             model,
             questions,
+            assets: first.assets.as_ref().clone(),
         },
         parts,
     })
@@ -98,6 +108,7 @@ pub fn plan(parts: Vec<Part>) -> Vec<Batch> {
     for p in parts {
         let home = groups.iter_mut().find(|g| {
             g[0].state.json == p.state.json
+                && g[0].assets == p.assets
                 && g[0].pack.jev_model == p.pack.jev_model
                 && g.iter().all(|q| q.pack.name() != p.pack.name())
         });
@@ -185,7 +196,40 @@ mod tests {
             pack: Arc::new(p),
             state: s.clone(),
             asked,
+            assets: Arc::new(Vec::new()),
         }
+    }
+
+    fn asset(id: &str) -> Asset {
+        Asset {
+            id: id.into(),
+            format: "png".into(),
+            data_base64: "AAAA".into(),
+        }
+    }
+
+    /// Packs that share a state and its pictures go in one request, which
+    /// carries them; packs whose pictures differ go apart.
+    #[test]
+    fn packs_merge_only_when_they_share_their_pictures() {
+        let s = state("one");
+        let mut a = part(0, 1, &s);
+        let mut b = part(1, 2, &s);
+        a.assets = Arc::new(vec![asset("img-1")]);
+        b.assets = a.assets.clone();
+        let batch = merge(vec![a.clone(), b.clone()]).unwrap();
+        assert_eq!(batch.request.assets, [asset("img-1")]);
+        b.assets = Arc::new(vec![asset("img-2")]);
+        assert!(matches!(
+            merge(vec![a.clone(), b.clone()]),
+            Err(BatchError::StatesDiffer { .. })
+        ));
+        assert_eq!(plan(vec![a, b]).len(), 2);
+        assert!(merge(vec![part(0, 1, &s)])
+            .unwrap()
+            .request
+            .assets
+            .is_empty());
     }
 
     #[test]

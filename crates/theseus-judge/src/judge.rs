@@ -50,6 +50,8 @@ pub struct Ask {
     pub pack: Arc<Pack>,
     pub state: Arc<BuiltState>,
     pub asked: Vec<Asked>,
+    /// The images the state refers to, sent beside it.
+    pub assets: Arc<Vec<crate::client::Asset>>,
     pub mode: Mode,
     /// The core's own fields, echoed into the judgment untouched.
     pub context: Value,
@@ -70,6 +72,7 @@ impl Ask {
             pack,
             state: prepared.state.clone(),
             asked,
+            assets: Arc::new(prepared.dynamic.assets.clone()),
             mode,
             context,
             id: None,
@@ -171,6 +174,10 @@ pub struct CallRecord {
     pub id: String,
     pub packs: usize,
     pub questions: usize,
+    /// Jev refused an image and the call went again without them
+    /// (theseus-und4g): the answers are the text's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub images_dropped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -423,7 +430,6 @@ impl JevJudge {
     async fn run(&self, b: Batch, urgency: Urgency, out: &mut [Option<Judgment>]) {
         let call_id = format!("jcl_{}", uuid::Uuid::now_v7().simple());
         let counts: Vec<usize> = b.parts.iter().map(|p| p.asked.len()).collect();
-        let total_q: usize = counts.iter().sum();
         let price = self.prices.get(&b.request.model).cloned();
         let reserve = price
             .as_ref()
@@ -433,7 +439,8 @@ impl JevJudge {
                 j.call = Some(CallRecord {
                     id: call_id.clone(),
                     packs: b.parts.len(),
-                    questions: total_q,
+                    questions: counts.iter().sum(),
+                    images_dropped: false,
                 });
                 j.reserve_micros = reserve.as_ref().map(|r| r[k]);
             }
@@ -485,6 +492,9 @@ impl JevJudge {
                 continue;
             };
             j.timing = called.timing;
+            if let Some(c) = j.call.as_mut() {
+                c.images_dropped = called.images_dropped;
+            }
             j.rate_limit = called.rate_limit.clone();
             j.usage = usages.as_ref().map(|u| u[k]);
             j.cost_micros = costs.as_ref().map(|c| c[k]);
@@ -530,6 +540,7 @@ pub(crate) fn part(tag: usize, a: &Ask) -> Part {
         pack: a.pack.clone(),
         state: a.state.clone(),
         asked: a.asked.clone(),
+        assets: a.assets.clone(),
     }
 }
 

@@ -14,6 +14,9 @@
 //! - `request`: `"batch"` rides the inbound batch (`classify.v3`, `role.v1`);
 //!   `"own"` sends `onto.v1` in a request of its own that no turn waits on,
 //!   the fallback when the batch's latency grows.
+//! - `private_mark`: whether a judged-private picture or message marks its
+//!   node private (theseus-und4g). Off: the judgment is a record and nothing
+//!   is marked. A policy effect, so it ships off until the owner says on.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -31,6 +34,8 @@ pub struct OntologyConfig {
     pub name_profile: String,
     #[serde(default)]
     pub request: Request,
+    #[serde(default)]
+    pub private_mark: bool,
 }
 
 /// Which request carries `onto.v1`.
@@ -65,6 +70,7 @@ impl Default for OntologyConfig {
             confirm: default_confirm(),
             name_profile: default_name_profile(),
             request: Request::default(),
+            private_mark: false,
         }
     }
 }

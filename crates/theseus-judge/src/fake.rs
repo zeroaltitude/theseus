@@ -74,6 +74,8 @@ pub enum Scripted {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Seen {
     pub body: Value,
+    /// The `TypeSafe-Danger-Zone-Images: true` header came.
+    pub images_header: bool,
     /// A bearer token came, of this many characters (never its value).
     pub bearer_len: Option<usize>,
 }
@@ -108,6 +110,9 @@ struct Shared {
     keep_alive: Option<Duration>,
     /// Connections accepted, each counted once.
     opened: usize,
+    /// Every request with an image is refused as an image is refused
+    /// ([`FakeJev::refuse_images`]).
+    refuse_images: bool,
 }
 
 #[derive(Clone)]
@@ -135,6 +140,7 @@ impl FakeJev {
             batch: Duration::ZERO,
             keep_alive: None,
             opened: 0,
+            refuse_images: false,
         }));
         let s = shared.clone();
         std::thread::spawn(move || {
@@ -228,6 +234,12 @@ impl FakeJev {
         self.lock().opened
     }
 
+    /// Refuses each request that carries an image, as Jev refuses a bad one
+    /// (400, "Invalid image dimensions."); the others are answered.
+    pub fn refuse_images(&self, on: bool) {
+        self.lock().refuse_images = on;
+    }
+
     /// A request whose state holds `state_has` waits, whatever the mode, until
     /// the next [`FakeJev::release`]: lateness by order for one question and
     /// not the rest (theseus-1b2zm).
@@ -306,9 +318,10 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
 
 /// A call's headers and body: the body as JSON, and the bearer token if one
 /// came; `None` when the connection closed first.
-fn read_request(r: &mut BufReader<TcpStream>) -> Result<Option<(Value, Option<String>)>> {
+fn read_request(r: &mut BufReader<TcpStream>) -> Result<Option<(Value, Option<String>, bool)>> {
     let mut len = 0usize;
     let mut bearer: Option<String> = None;
+    let mut images = false;
     let mut line = String::new();
     loop {
         line.clear();
@@ -323,6 +336,9 @@ fn read_request(r: &mut BufReader<TcpStream>) -> Result<Option<(Value, Option<St
         if let Some(v) = lower.strip_prefix("content-length:") {
             len = v.trim().parse().context("content-length")?;
         }
+        if lower.starts_with("typesafe-danger-zone-images:") && lower.ends_with("true") {
+            images = true;
+        }
         if lower.starts_with("authorization:") {
             bearer = l
                 .split_once(':')
@@ -333,7 +349,7 @@ fn read_request(r: &mut BufReader<TcpStream>) -> Result<Option<(Value, Option<St
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).context("request body")?;
-    Ok(Some((req, bearer)))
+    Ok(Some((req, bearer, images)))
 }
 
 /// One request on a connection, its answer after `setup` (a new
@@ -361,17 +377,18 @@ fn serve_one(
         answer_warmup(r, &mut stream, connection)?;
         return Ok(keep);
     }
-    let Some((req, bearer)) = read_request(r)? else {
+    let Some((req, bearer, images)) = read_request(r)? else {
         return Ok(false);
     };
     let state = match &req["state"] {
         Value::String(t) => t.clone(),
         v => v.to_string(),
     };
-    let (script, answer_as, held, latency, held_here) = {
+    let (script, answer_as, held, latency, held_here, refuse) = {
         let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
         s.seen.push(Seen {
             body: req.clone(),
+            images_header: images,
             bearer_len: bearer.as_ref().map(String::len),
         });
         (
@@ -386,8 +403,10 @@ fn serve_one(
                 _ => s.batch,
             },
             s.held_when.iter().any(|h| state.contains(h)),
+            s.refuse_images,
         )
     };
+    let refusal = image_refusal(&req, &state, images, refuse);
     if !latency.is_zero() {
         std::thread::sleep(latency);
     }
@@ -397,6 +416,7 @@ fn serve_one(
         }
     }
     let (status, extra, out) = match &mode {
+        _ if refusal.is_some() => (400, String::new(), json!({"error": {"message": refusal}})),
         FakeMode::Up | FakeMode::Down | FakeMode::Held => {
             (200, String::new(), answers(&req, &script, answer_as))
         }
@@ -441,6 +461,49 @@ fn serve_one(
     let _ = stream.write_all(text.as_bytes());
     let _ = stream.flush();
     Ok(keep)
+}
+
+/// Why Jev would refuse a request's images, by the rules the probe of
+/// 2026-10-20 measured: no header; a format that is not PNG or JPEG; a side
+/// outside 280 to 1,568 px; an asset the state does not refer to. `None` for
+/// a request with no image, or with images that pass.
+fn image_refusal(req: &Value, state: &str, header: bool, refuse: bool) -> Option<String> {
+    let assets = req["assets"].as_object()?;
+    if assets.is_empty() {
+        return None;
+    }
+    if refuse {
+        return Some("Invalid image dimensions.".into());
+    }
+    if !header {
+        return Some(
+            "Images are experimental. Send the header TypeSafe-Danger-Zone-Images: true.".into(),
+        );
+    }
+    for (id, a) in assets {
+        if !state.contains(id.as_str()) {
+            return Some("Invalid image request.".into());
+        }
+        if !matches!(a["format"].as_str(), Some("png" | "jpeg" | "jpg")) {
+            return Some("format must be png, jpg or jpeg.".into());
+        }
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(a["data_base64"].as_str().unwrap_or_default())
+            .ok()?;
+        let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()?;
+        match (reader.format(), reader.into_dimensions()) {
+            (Some(image::ImageFormat::Png | image::ImageFormat::Jpeg), Ok((w, h)))
+                if (280..=1568).contains(&w) && (280..=1568).contains(&h) => {}
+            (Some(image::ImageFormat::Png | image::ImageFormat::Jpeg), Ok(_)) => {
+                return Some("Invalid image dimensions.".into())
+            }
+            _ => return Some("Invalid image request.".into()),
+        }
+    }
+    None
 }
 
 /// The packs a request asks: its question ids' distinct `<pack>/` prefixes
@@ -591,4 +654,54 @@ impl FakeJev {
             },
         );
     }
+}
+
+/// What [`gps_png`] hides in its metadata chunks: no request may carry it.
+pub const GPS_NEEDLE: &[u8] = b"GPSLatitude 33.4484";
+
+/// A readable PNG of `w` x `h` with a text and an eXIf chunk that carry
+/// [`GPS_NEEDLE`], for tests that follow a picture to the fake and check no
+/// metadata arrived.
+pub fn gps_png(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([(x % 251) as u8, (y % 241) as u8, 90])
+    });
+    let mut png = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("a PNG encodes");
+    let crc = |data: &[u8]| {
+        let mut c = 0xffff_ffffu32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 == 1 {
+                    0xedb8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    };
+    let chunk = |kind: &[u8; 4], data: &[u8]| {
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        let mut c = (data.len() as u32).to_be_bytes().to_vec();
+        c.extend_from_slice(&body);
+        c.extend_from_slice(&crc(&body).to_be_bytes());
+        c
+    };
+    // The signature (8 bytes) and IHDR (4 + 4 + 13 + 4) come first.
+    let at = 8 + 25;
+    let mut out = png[..at].to_vec();
+    out.extend(chunk(
+        b"tEXt",
+        &[b"Comment\0".as_slice(), GPS_NEEDLE].concat(),
+    ));
+    out.extend(chunk(
+        b"eXIf",
+        &[b"MM\x00\x2a\x00\x00\x00\x08".as_slice(), GPS_NEEDLE].concat(),
+    ));
+    out.extend_from_slice(&png[at..]);
+    out
 }

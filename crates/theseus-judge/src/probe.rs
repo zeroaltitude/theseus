@@ -540,6 +540,7 @@ fn l1_requests() -> Result<Vec<Request>> {
                 state: state.json.clone(),
                 model: pack.jev_model.clone(),
                 questions: vec![(namespaced(&pack.name(), id), a.question.clone())],
+                assets: Vec::new(),
             })
         })
         .collect()

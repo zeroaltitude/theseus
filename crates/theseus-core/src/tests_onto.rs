@@ -533,3 +533,151 @@ async fn judge_latency_counts_each_batch_request_once() {
     };
     assert_eq!((d.requests, d.with_onto), (1, 1), "{d:?}");
 }
+
+/// A picture file as a message carries it.
+fn picture_file(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
+    theseus_protocol::Attachment {
+        name: name.into(),
+        media_type: "image/png".into(),
+        size: bytes.len() as u64,
+        data: Some(crate::blobs::encode(bytes)),
+        ..Default::default()
+    }
+}
+
+/// A session bound to the place `target` (`dm:77`): not the owner's.
+fn bound_to(core: &Core, place: &str) -> String {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox.bind_place(place, &rec.session_id).unwrap();
+    rec.session_id
+}
+
+/// The `onto.v1` question ids a request carried.
+fn onto_questions(s: &theseus_judge::fake::Seen) -> Vec<String> {
+    s.body["questions"]
+        .as_object()
+        .map(|q| {
+            q.keys()
+                .filter_map(|k| k.strip_prefix("onto.v1/").map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The requests the fake saw that carried a picture.
+fn with_assets(jev: &FakeJev) -> Vec<theseus_judge::fake::Seen> {
+    jev.seen()
+        .into_iter()
+        .filter(|s| s.body.get("assets").is_some())
+        .collect()
+}
+
+/// KEY: a message with a GPS-tagged PNG and a text file reaches Jev through
+/// the whole core: the header comes, the picture arrives re-encoded from its
+/// pixels (no GPS, no chunks of metadata anywhere in the request), and the
+/// state names the picture, the text file's excerpt, and no skipped row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gps_tagged_picture_reaches_jev_without_its_gps_and_with_the_header() {
+    use theseus_judge::fake::{gps_png, GPS_NEEDLE};
+    let raw = gps_png(600, 400);
+    assert!(raw.windows(GPS_NEEDLE.len()).any(|w| w == GPS_NEEDLE));
+    let jev = FakeJev::start().unwrap();
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let notes = theseus_protocol::Attachment {
+        name: "notes.txt".into(),
+        media_type: "text/plain".into(),
+        size: 3_000,
+        text: Some("x".repeat(3_000)),
+        ..Default::default()
+    };
+    crate::tests_route::turn_attached(
+        &r.core,
+        Some(&sid),
+        "what is this?",
+        None,
+        vec![picture_file("shot.png", &raw), notes],
+    )
+    .await;
+    let seen = with_assets(&r.jev);
+    assert_eq!(seen.len(), 1, "one request carried the picture");
+    assert!(seen[0].images_header, "the images header came");
+    let assets = seen[0].body["assets"].as_object().unwrap();
+    assert_eq!(assets.len(), 1);
+    let sent = crate::blobs::decode(
+        assets.values().next().unwrap()["data_base64"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    for needle in [GPS_NEEDLE, b"GPS", b"tEXt", b"eXIf"] {
+        assert!(
+            !sent.windows(needle.len()).any(|w| w == needle),
+            "the picture left without {needle:?}"
+        );
+    }
+    let state = seen[0].body["state"].to_string();
+    assert!(
+        state.contains("shot.png") || state.contains("images"),
+        "{state}"
+    );
+    assert!(state.contains("notes.txt"), "the text file is in the state");
+    assert!(!state.contains(&"x".repeat(2_001)), "its excerpt is capped");
+    assert!(!state.contains("skipped_images\":["), "{state}");
+}
+
+/// KEY: a picture in a shared place is asked about for its own sake:
+/// the request carries it, but no title, membership, candidate or name of the
+/// owner's goes with it, and nothing is filed from the answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shared_places_picture_is_asked_without_candidates_and_files_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "new", 0.95);
+    let r = rig(jev);
+    operator_writes(
+        &r.core,
+        vec![Record::Category(Category::new(
+            id("topic:ledger"),
+            "Ledger",
+            "ada",
+        ))],
+    );
+    let sid = bound_to(&r.core, "dm:77");
+    let raw = theseus_judge::fake::gps_png(500, 500);
+    crate::tests_route::turn_attached(
+        &r.core,
+        Some(&sid),
+        "what is this?",
+        None,
+        vec![picture_file("shot.png", &raw)],
+    )
+    .await;
+    let seen = with_assets(&r.jev);
+    assert_eq!(seen.len(), 1, "the shared place's picture is asked about");
+    let state = seen[0].body["state"].to_string();
+    assert!(
+        !state.contains("Ledger"),
+        "no category of the owner's: {state}"
+    );
+    let asked = onto_questions(&seen[0]);
+    assert!(asked.contains(&"image_subject".to_string()), "{asked:?}");
+    assert!(
+        !asked.contains(&"topic".to_string()),
+        "no filing question: {asked:?}"
+    );
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    assert!(o.member_list(&sid, "topic").is_none(), "nothing filed");
+    assert!(cards(&r.core).is_empty(), "no card");
+}
+
+/// A shared place's text-only message asks `onto.v1` nothing, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shared_places_text_message_still_asks_onto_nothing() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(jev);
+    let sid = bound_to(&r.core, "dm:77");
+    crate::tests_route::turn(&r.core, Some(&sid), SAID, None).await;
+    let asked_onto = r.jev.seen().iter().any(|s| !onto_questions(s).is_empty());
+    assert!(!asked_onto, "no onto question left for a shared place");
+}
