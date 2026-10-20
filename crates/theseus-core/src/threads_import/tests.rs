@@ -64,6 +64,17 @@ fn the_working_set_is_what_the_text_names_by_rule() {
     assert!(ws(&["nothing to see here", "plain words only."]).is_empty());
 }
 
+/// theseus-mg1ox: the word after "branch" is a branch only when it looks like one; English that follows
+/// the word names none.
+#[test]
+fn english_after_the_word_branch_is_no_branch() {
+    let w = ws(&[
+        "Then merge the branch and, before that, check the branch has landed; the branch in question, or the branch. Then I left.",
+        "Switch to branch release-3 or branch main, not branch involving nothing.",
+    ]);
+    assert_eq!(w.branches, ["main", "release-3"], "{:?}", w.branches);
+}
+
 #[test]
 fn a_working_set_keeps_its_most_named_entries_in_a_fixed_order() {
     let text: String = (1..=20).map(|n| format!("#{n} ")).collect::<String>() + "#20 #20 #7";
