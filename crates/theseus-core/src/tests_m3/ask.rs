@@ -453,10 +453,8 @@ async fn unprompted_pings_go_one_a_window_and_the_rest_together() {
             .collect::<Vec<_>>(),
         [json!(b), json!(c)]
     );
-    assert!(
-        header["silent"] == true && cards.iter().all(|c| c["silent"] == true),
-        "the window was closed: nothing buzzes"
-    );
+    assert_eq!(header["silent"], true, "the window was closed: no buzz");
+    assert!(cards.iter().all(|c| c["silent"] == true), "nor from a card");
     assert_eq!(cards[1]["card"]["n"], 2);
     assert_eq!(cards[1]["card"]["of"], 2);
     assert!(r.core.outbox.pinged(&b) && r.core.outbox.pinged(&c));
