@@ -422,8 +422,12 @@ async fn unprompted_pings_go_one_a_window_and_the_rest_together() {
         "due with the window closed: together, and silent"
     );
     assert_eq!(r.core.outbox.pacer.last_ms(), took, "no window taken");
+    assert_eq!(
+        needs_you_posts(&r).len(),
+        4,
+        "the first, then a header and a card each"
+    );
     let posts = needs_you_posts(&r);
-    assert_eq!(posts.len(), 4, "the first, then a header and a card each");
     let header = crate::outbox::body_of(&posts[1]);
     assert_eq!(
         header["questions"],
