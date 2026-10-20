@@ -150,6 +150,20 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// The word of a failed turn's reason, for a key. A provider failure's
+/// reason is `provider:<class>` (`rate_limited`, `overloaded`, ...), and the
+/// class is the problem: cut at the colon, every provider failure would file
+/// as one `provider` item that names no cause. The class is one of a few
+/// fixed words, so it keeps the key stable. Other reasons are `<class>:
+/// <message>`, whose tail is free text that would split one problem into many,
+/// so they are cut as [`word`] cuts them.
+fn reason_word(v: &Value) -> String {
+    match v.as_str().and_then(|s| s.trim().strip_prefix("provider:")) {
+        Some(class) => format!("provider:{}", word(&Value::from(class.trim_start()))),
+        None => word(v),
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -185,7 +199,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.task_failed = true;
         }
         "turn.failed" => {
-            let r = word(&d["reason"]);
+            let r = reason_word(&d["reason"]);
             o.key = format!("turn.failed:{r}");
             o.title = format!("Turns fail with {r}");
             o.note = format!("turn failed ({r}) after {} loops", d["loops"]);
@@ -467,5 +481,44 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn failed(reason: &str) -> Obs {
+        let row = LedgerRow::named(
+            "turn.failed",
+            None,
+            None,
+            json!({"loops": 2, "reason": reason, "cost_usd": 0.4}),
+        );
+        of_row(7, &row).expect("a failed turn is an observation")
+    }
+
+    #[test]
+    fn a_provider_failure_keeps_its_class_in_the_key() {
+        let a = failed("provider:rate_limited");
+        let b = failed("provider:overloaded");
+        assert_eq!(a.key, "turn.failed:provider:rate_limited");
+        assert_eq!(a.title, "Turns fail with provider:rate_limited");
+        assert_eq!(b.key, "turn.failed:provider:overloaded");
+        assert_ne!(a.key, b.key, "two classes are two causes");
+        assert_eq!(a.note, "turn failed (provider:rate_limited) after 2 loops");
+        assert_eq!(failed("provider:").key, "turn.failed:provider:unknown");
+    }
+
+    #[test]
+    fn other_reasons_are_still_cut_at_the_colon() {
+        assert_eq!(failed("timeout: no answer").key, "turn.failed:timeout");
+        assert_eq!(
+            failed("kernel: plan 7 refused").key,
+            "turn.failed:kernel",
+            "a free-text tail would split one problem into many"
+        );
     }
 }
