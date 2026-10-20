@@ -80,6 +80,45 @@ def read_calls(path: Path, harness: str, index: int, turn: dict) -> tuple[int | 
     return (v.get("loops") if isinstance(v.get("loops"), int) else None), (float(ftl) if ftl is not None else None)
 
 
+# The decisions a judgment of a pack stands for, by the pack's id prefix: where a message goes (routing), what
+# category and project it is filed under (filing), and whether it is private or reaches for the owner's details
+# (privacy). One answered judgment counts one decision of its class: a pack's several questions are one call.
+DECISION_CLASSES = {"routing": ("route.", "classify."), "filing": ("onto.", "categorize."), "privacy": ("security.",)}
+
+
+def decision_class(pack: str | None) -> str | None:
+    return next((c for c, ps in DECISION_CLASSES.items() if pack and pack.startswith(ps)), None)
+
+
+def decisions(rows: list[dict], turns: int, model: str) -> dict | None:
+    """The run's decisions taken off the main model (theseus-mqqc2): the routing, filing and privacy judgments Jev
+    answered (`judgments.json`, from the ledger's `judge.call` rows), per class, per message, and the dollars Jev
+    billed for them. `main_model_usd` is what asking the main model the same would cost, modelled: the tokens Jev
+    read (the state the main model would read too, at its uncached input price) and the tokens Jev wrote at the
+    main model's output price. A free-form answer is longer than Jev's choice, so the figure is a floor; the
+    arm that asks the main model makes the same decisions as extra calls, so the count is the same.
+    None when the run has no judgments file or none of its rows is a decision (an arm that asks Jev nothing)."""
+    done = [r for r in rows if r.get("outcome") == "answered" and decision_class(r.get("pack"))]
+    if not done:
+        return None
+    r_in, r_out = price.rates(model)[:2]
+    by: dict[str, dict] = {}
+    for r in done:
+        c = by.setdefault(decision_class(r["pack"]), {"n": 0, "jev_usd": 0.0, "main_model_usd": 0.0})
+        c["n"] += 1
+        c["jev_usd"] += r.get("cost_micros", 0) / 1e6
+        c["main_model_usd"] += (r.get("input_tokens", 0) * r_in + r.get("output_tokens", 0) * r_out) / 1e6
+    n = sum(c["n"] for c in by.values())
+    jev = sum(c["jev_usd"] for c in by.values())
+    main = sum(c["main_model_usd"] for c in by.values())
+    for c in by.values():
+        c["per_turn"] = round(c["n"] / max(1, turns), 3)
+        c["jev_usd"], c["main_model_usd"] = round(c["jev_usd"], 6), round(c["main_model_usd"], 6)
+    return {"by_class": by, "n": n, "per_turn": round(n / max(1, turns), 3), "jev_usd": round(jev, 6),
+            "main_model_usd": round(main, 6), "saved_usd": round(main - jev, 6),
+            "unanswered": sum(1 for r in rows if r.get("outcome") != "answered" and decision_class(r.get("pack")))}
+
+
 def load_run(path: Path) -> dict:
     path = Path(path)
     run = json.loads((path / "run.json").read_text())
@@ -91,6 +130,7 @@ def load_run(path: Path) -> dict:
     if (path / "routing.jsonl").exists():
         routing = [json.loads(x) for x in (path / "routing.jsonl").read_text().splitlines() if x.strip()]
     view = json.loads((path / "progression.json").read_text())
+    judgments = json.loads((path / "judgments.json").read_text()) if (path / "judgments.json").exists() else []
     for t in turns:
         c, f = read_calls(path, arm["harness"], t["index"], t)
         if c is not None:
@@ -98,7 +138,7 @@ def load_run(path: Path) -> dict:
         if f is not None and t.get("first_token_ms") is None:
             t["first_token_ms"] = f
     return {"dir": path, "run": run, "arm": arm, "prog": prog, "turns": turns, "delivered": delivered,
-            "routing": routing, "session_of": [t["session"] for t in view["turns"]]}
+            "routing": routing, "judgments": judgments, "session_of": [t["session"] for t in view["turns"]]}
 
 
 def calls_of(turn: dict, harness: str) -> int:
@@ -304,6 +344,9 @@ def score_run(run: dict) -> dict:
     extra = engagement(run["routing"], prog)
     if extra:
         result["threads"] = extra
+    dec = decisions(run.get("judgments") or [], len(turns), model)
+    if dec:
+        result["decisions"] = dec
     return result
 
 

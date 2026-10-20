@@ -62,6 +62,8 @@ mod tests_pic;
 #[cfg(test)]
 mod tests_prove;
 #[cfg(test)]
+mod tests_replay_onto;
+#[cfg(test)]
 mod tests_route_v5;
 #[cfg(test)]
 mod tests_threads;

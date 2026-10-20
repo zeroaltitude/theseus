@@ -40,7 +40,7 @@ class Table(unittest.TestCase):
                                  "A2": "Theseus with threads, explicit addressing"})
         for a in ("A1", "A1n", "A1p", "A2"):
             self.assertEqual(td.ARMS[a]["layout"], "thread")
-        self.assertEqual(td.MEASURABLE, ("A1", "A1n", "A2", "A3", "A4", "A5", "A6", "A7"))
+        self.assertEqual(td.MEASURABLE, ("A1", "A1n", "A2", "A1o", "A3", "A4", "A5", "A6", "A7"))
         with self.assertRaises(td.NotMeasurable) as cm:
             td.main(["--arm", "A1p", "--out", "/tmp/never"])
         self.assertIn("not measurable", str(cm.exception))
