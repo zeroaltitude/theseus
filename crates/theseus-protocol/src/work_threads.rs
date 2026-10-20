@@ -108,7 +108,13 @@ pub fn group<'a>(views: &'a [WorkView], groups: &'a [ThreadGroup]) -> Grouped<'a
             items,
             needs_you,
             working,
-            last_active_ms: g.last_active_ms.max(head.map_or(0, |h| h.at_ms)),
+            // The thread's own last message. The head's view time is when the board last saw it
+            // change, which a daemon start sets to the start (theseus-pmqhb): only a thread with no
+            // message of its own falls back to it.
+            last_active_ms: match g.last_active_ms {
+                0 => head.map_or(0, |h| h.at_ms),
+                at => at,
+            },
         });
     }
     threads.sort_by(|a, b| {

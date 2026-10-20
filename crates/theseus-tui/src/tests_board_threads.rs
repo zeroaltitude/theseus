@@ -60,15 +60,15 @@ fn the_threads_block_at_two_widths() {
     assert_eq!(
         texts(&b, 80),
         [
-            "▾ PR round · active · 1m ago · warm · 41k ctx · $1.20 today  ● 1",
+            "▾ PR round · active · 2m ago · warm · 41k ctx · $1.20 today  ● 1",
             "  ● act_pr_q  confirm fs.write",
             "  ◐ exe_pr_t  turn 2",
-            "▾ Tides · active · 1m ago · warm · 41k ctx · $1.20 today  ◐ 1",
+            "▾ Tides · active · 2m ago · warm · 41k ctx · $1.20 today  ◐ 1",
             "  ◐ exe_tides_t  turn 1",
         ]
     );
-    assert_eq!(texts(&b, 40)[0], "▾ PR round · active · 1m ago · warm  ● 1");
-    assert_eq!(texts(&b, 40)[3], "▾ Tides · active · 1m ago · warm  ◐ 1");
+    assert_eq!(texts(&b, 40)[0], "▾ PR round · active · 2m ago · warm  ● 1");
+    assert_eq!(texts(&b, 40)[3], "▾ Tides · active · 2m ago · warm  ◐ 1");
     assert_eq!(texts(&b, 30)[0], "▾ PR round · active  ● 1");
 }
 
