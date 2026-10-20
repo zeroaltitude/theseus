@@ -235,7 +235,7 @@ impl Ontology {
                     )
                 } else {
                     format!(
-                        "the transport gives only guild, channel, and person, not `{}`",
+                        "the harness gives only guild, channel, thread, project, and person, not `{}`",
                         kind.name
                     )
                 },

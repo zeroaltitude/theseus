@@ -157,11 +157,7 @@ impl Ontology {
         by.built()?;
         match record {
             Record::Kind(k) => {
-                if by != Origin::Operator {
-                    return Err(Refusal::Writer {
-                        why: format!("the kinds table is the operator's to write, not `{by}`'s"),
-                    });
-                }
+                self.check_kind_writer(k, by)?;
                 k.check_row()?;
                 let want = self.kinds.get(&k.name).map_or(1, |old| old.version + 1);
                 if k.version != want {
@@ -194,13 +190,14 @@ impl Ontology {
                     (Basis::Interpreted, _) => {
                         return Err(Refusal::Writer {
                             why: format!(
-                                "`{}` categories are the operator's to declare, or the import's \
-                                 when the kind's assigned_by names it: `{by}` does not write them",
+                                "`{}` categories are the operator's to declare, or an origin's the \
+                                 kind's assigned_by names: `{by}` does not write them",
                                 kind.name
                             ),
                         })
                     }
                 }
+                self.check_category_writer(kind, c, by)?;
                 match (&c.retired_ms, &c.merged_into) {
                     (Some(_), _) => self.check_retire(c),
                     (None, Some(into)) => self.check_merged(c, into),
@@ -235,12 +232,13 @@ impl Ontology {
                 if !(stored_by(kind, by) || (!kind.is_given() && interprets(kind, by))) {
                     return Err(Refusal::Writer {
                         why: format!(
-                            "`{}` memberships are the operator's to set, or the import's when the \
-                             kind's assigned_by names it, not `{by}`'s",
+                            "`{}` memberships are the operator's to set, or an origin's the kind's \
+                             assigned_by names, not `{by}`'s",
                             kind.name
                         ),
                     });
                 }
+                self.check_list_writer(kind, l, by)?;
                 self.check_members(l)
             }
         }
@@ -385,7 +383,7 @@ impl Ontology {
         Ok(id)
     }
 
-    fn apply(&mut self, record: Record) {
+    pub(crate) fn apply(&mut self, record: Record) {
         match record {
             Record::Kind(k) => {
                 self.kinds.insert(k.name.clone(), k);
@@ -797,10 +795,10 @@ pub(crate) fn check_table(kinds: &BTreeMap<String, Kind>) -> Result<(), Refusal>
                 .and_then(|n| n.parent.as_deref().filter(|q| *q != name));
         }
     }
-    for k in kinds.values() {
+    for k in kinds.values().filter(|k| k.retired_ms.is_none()) {
         if let Some(other) = kinds
             .values()
-            .find(|o| o.name != k.name && o.precedence == k.precedence)
+            .find(|o| o.retired_ms.is_none() && o.name != k.name && o.precedence == k.precedence)
         {
             let (a, b) = if k.name < other.name {
                 (&k.name, &other.name)
@@ -851,20 +849,16 @@ fn name_key(c: &Category) -> NameKey {
 }
 
 /// Whether `by` may write an interpreted kind's categories and lists: the
-/// operator always; the import when the kind's assigned_by names it.
+/// operator always; any other origin the kind's assigned_by names.
 fn interprets(kind: &Kind, by: Origin) -> bool {
-    by == Origin::Operator || (by == Origin::Import && kind.assigned_by.contains(&by))
+    by == Origin::Operator || (by != Origin::Transport && kind.assigned_by.contains(&by))
 }
 
 /// Whether `by` may write a given kind's stored side (its categories and
 /// lists beside the transport's): only when the kind's row names it, and
 /// never the transport, whose memberships are never stored.
 fn stored_by(kind: &Kind, by: Origin) -> bool {
-    by != Origin::Transport
-        && kind.is_given()
-        && kind.stores()
-        && kind.assigned_by.contains(&by)
-        && matches!(by, Origin::Operator | Origin::Import)
+    by != Origin::Transport && kind.is_given() && kind.stores() && kind.assigned_by.contains(&by)
 }
 
 fn given_memberships(kind: &Kind) -> Refusal {

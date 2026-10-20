@@ -492,11 +492,13 @@ impl Core {
             origin: Origin::Operator.name(),
             who: &who_s,
             via: &via,
+            undo: None,
         });
         let member = fact::ontology::MembershipSet {
             list: &list,
             who: &who_s,
             via: &via,
+            undo: None,
         };
         let label_row = || -> Result<NewRecord> {
             let mut r = fact::row(&label, Some(sid), None)?;

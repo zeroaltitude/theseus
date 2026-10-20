@@ -10,6 +10,24 @@ use theseus_protocol::NarrativePart::Session;
 
 use super::{Fact, Say};
 
+/// What an undo needs of one record a machine origin wrote: the write's id,
+/// the record's key, the record as written, and as it was (`null` when it
+/// was new). It rides the record's own row, so a write is undone from its
+/// ledger rows alone ([`crate::Core::ontology_undo`]).
+pub struct Undoable {
+    pub write: String,
+    pub key: String,
+    pub wrote: Value,
+    pub before: Value,
+}
+
+impl Undoable {
+    fn put(&self, row: &mut Value) {
+        row["undo"] = json!({"write": self.write, "key": self.key,
+                             "wrote": self.wrote, "before": self.before});
+    }
+}
+
 /// A category was made or changed (`ontology.category`): by the operator,
 /// or by the transport at a place's first bind.
 pub struct CategorySet<'a> {
@@ -19,6 +37,8 @@ pub struct CategorySet<'a> {
     /// Who, and through what: `the CLI`; the binding for the transport.
     pub who: &'a str,
     pub via: &'a str,
+    /// A machine origin's write carries what undoes it.
+    pub undo: Option<&'a Undoable>,
 }
 
 impl Fact for CategorySet<'_> {
@@ -26,8 +46,12 @@ impl Fact for CategorySet<'_> {
 
     fn row(&self) -> Value {
         let c = self.category;
-        json!({"id": c.id, "kind": c.kind(), "name": c.name, "parent": c.parent,
-               "origin": self.origin, "who": self.who, "via": self.via})
+        let mut row = json!({"id": c.id, "kind": c.kind(), "name": c.name, "parent": c.parent,
+               "origin": self.origin, "who": self.who, "via": self.via});
+        if let Some(u) = self.undo {
+            u.put(&mut row);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -94,6 +118,8 @@ pub struct MembershipSet<'a> {
     pub list: &'a MemberList,
     pub who: &'a str,
     pub via: &'a str,
+    /// A machine origin's write carries what undoes it.
+    pub undo: Option<&'a Undoable>,
 }
 
 impl Fact for MembershipSet<'_> {
@@ -102,7 +128,12 @@ impl Fact for MembershipSet<'_> {
     fn row(&self) -> Value {
         let l = self.list;
         let categories: Vec<&str> = l.members.iter().map(|m| m.category.as_str()).collect();
-        json!({"kind": l.kind, "categories": categories, "who": self.who, "via": self.via})
+        let mut row =
+            json!({"kind": l.kind, "categories": categories, "who": self.who, "via": self.via});
+        if let Some(u) = self.undo {
+            u.put(&mut row);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -179,5 +210,39 @@ impl Fact for PersonMerged<'_> {
             ),
         };
         say.line(Session, line);
+    }
+}
+
+/// A machine origin's write was taken back (`ontology.undo`): the operator
+/// labelled it `wrong`, and the records it replaced are back. The row names
+/// the write and the keys restored.
+pub struct OntologyUndo<'a> {
+    pub write: &'a str,
+    /// The label on the undone write: `wrong`.
+    pub label: &'a str,
+    pub keys: &'a [String],
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for OntologyUndo<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::OntologyUndo);
+
+    fn row(&self) -> Value {
+        json!({"write": self.write, "label": self.label, "keys": self.keys,
+               "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Ontology: {} undid the write {} ({}): {} back.",
+                self.who,
+                self.write,
+                self.label,
+                crate::narrative::count(self.keys.len() as u64, "record", "records"),
+            ),
+        );
     }
 }

@@ -210,6 +210,7 @@ ledger_kinds! {
     OntologyGuidance = "ontology.guidance",
     OntologyMembership = "ontology.membership",
     OntologyMerged = "ontology.merged",
+    OntologyUndo = "ontology.undo",
     PackEvent = "pack.event",
     PackMode = "pack.mode",
     PackVersion = "pack.version",

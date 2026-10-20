@@ -242,14 +242,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The ontology** (row 26, step 21b; M4 §2.8; theseus-8kk.1): `ontology.rs` holds the snapshot (`Board`: built
   after serving by one `onto:` META prefix scan, `Core::warm_ontology`, or by its first reader; kept current on every
   write, which checks, writes its records and their rows in one frame, and swaps it), the given kinds (a bound
-  place's `channel:`/`person:` category made at its first bind, `Core::bind_categories`; a session's given
-  membership read from its place at compile, never stored), and the turn's `Walk`, fixed with the request's spec.
+  place's `channel:`/`person:` category made at its first bind, `Core::bind_categories`, with a guild channel's
+  `guild:<id>` category its parent, named by the id since the binding carries no guild name; a session's given
+  memberships read from its place at compile, the guild through the channel category's parent, never stored; the
+  `thread` and `project` kinds are seeded and their reader, from the thread and project records, is not built
+  yet), and the turn's `Walk`, fixed with the request's spec.
   `compiler::compile` renders the guidance after the context files: an append composes the memberships its
   manifest recorded, a recompile (or a ring) the current ones, so a membership change waits for the next recompile
   and a guidance edit in play is one `system_changed`. The manifest records `memberships` and `guidance`. A shared
   place composes only its own place's given memberships, and the place rule's admissions never read a membership.
   The methods are `rpc/ontology.rs` (`ontology.list`; the writes are `judge_act(Act::Ontology)`, the owner from a
-  private place); the rows `fact/ontology.rs`. Tests: `tests_ontology.rs`.
+  private place); the rows `fact/ontology.rs`. **Machine writes** (theseus-e3mjc; `rpc/ontology_machine.rs`, no
+  method calls them yet: R3's RPC and CLI): `Core::ontology_machine_write(by, write, records)` writes Jev's, the
+  sweep's or the dream's categories and lists in one frame, each row (scoped `ontology.write:<write>`) carrying the
+  record as written and as it was (`fact::ontology::Undoable`), and `Core::ontology_undo(write, who, via)` reads those
+  rows back and writes the inverse records and an `ontology.undo` row (label `wrong`) in one frame, as the operator:
+  the earlier list byte for byte, a minted category retired unless another session's list uses it (`InUse`, nothing
+  written). The rules of who may write what are theseus-ontology's (`machine.rs`). Tests: `tests_ontology.rs`,
+  `tests_ontology_bind.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).

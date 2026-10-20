@@ -49,6 +49,9 @@ fn new_kind(name: &str, precedence: u32, parent: Option<&str>, rule: Rule) -> Ki
         description: String::new(),
         version: 1,
         added_by: "ada".into(),
+        retired_ms: None,
+        examples: Vec::new(),
+        mined_from: Vec::new(),
     }
 }
 
@@ -114,7 +117,22 @@ fn the_seed_rows_check_and_come_in_precedence_order() {
     let o = Ontology::seeded();
     assert_eq!(o.check_all(), Ok(()));
     let names: Vec<&str> = o.kinds().iter().map(|k| k.name.as_str()).collect();
-    assert_eq!(names, ["guild", "channel", "person", "topic"]);
+    assert_eq!(
+        names,
+        [
+            "guild",
+            "channel",
+            "thread",
+            "project",
+            "person",
+            "topic",
+            "event",
+            "resource",
+            "capability",
+            "expertise",
+            "culture"
+        ]
+    );
     let t = o.kind("topic").unwrap();
     assert_eq!(
         (t.basis, t.per_session, t.parent.as_deref(), t.rule),
@@ -153,35 +171,31 @@ fn a_row_that_names_an_unbuilt_rule_is_refused_and_says_so() {
     // The built ones check.
     for rule in [Rule::Chain, Rule::IntentLine] {
         assert_eq!(
-            o.check(&Record::Kind(new_kind("culture", 50, None, rule)), OP),
+            o.check(&Record::Kind(new_kind("habit", 150, None, rule)), OP),
             Ok(())
         );
     }
 }
 
+/// The test keeps its first name, which the keel guard knows it by: every
+/// origin is built now (onto-core, theseus-e3mjc), so a row may name any of
+/// them, and what is refused is any writer of the kinds table but the
+/// operator and the sweep (`tests_kinds`).
 #[test]
 fn a_row_that_names_an_unbuilt_origin_is_refused_and_says_so() {
     let o = Ontology::seeded();
-    for (origin, milestone) in [
-        (Origin::Jev, "M5"),
-        (Origin::Sweep, "M6"),
-        (Origin::Dream, "M6"),
-    ] {
-        let k = changed(row("topic"), |k| k.assigned_by.push(origin));
-        let e = refused(&o, Record::Kind(k), OP);
-        assert!(
-            matches!(e, Refusal::UnbuiltOrigin { origin: got, .. } if got == origin),
-            "{e:?}"
-        );
-        assert!(e.to_string().contains(milestone), "{e}");
+    // Every origin is built now: a row may name any of them.
+    for origin in [Origin::Jev, Origin::Sweep, Origin::Dream] {
+        assert_eq!(origin.comes_with(), None);
+        let k = changed(row("culture"), |k| {
+            k.assigned_by = vec![Origin::Operator, origin]
+        });
+        assert_eq!(o.check(&Record::Kind(k.clone()), OP), Ok(()), "{origin}");
+        // The operator writes the row, and no machine origin but the sweep's
+        // new kinds does.
+        let e = refused(&o, Record::Kind(k), origin);
+        assert!(matches!(e, Refusal::Writer { .. }), "{origin}: {e:?}");
     }
-    // And nothing writes as one.
-    let e = refused(
-        &o,
-        Record::Kind(new_kind("culture", 50, None, Rule::Chain)),
-        Origin::Jev,
-    );
-    assert!(matches!(e, Refusal::UnbuiltOrigin { .. }), "{e:?}");
 }
 
 #[test]
@@ -217,22 +231,25 @@ fn a_given_rows_facts_are_the_transports_and_the_rest_is_the_operators() {
     assert_eq!(o.kind("guild").unwrap().version, 2);
 }
 
+/// The harness gives five kinds now (guild, channel, thread, project, person),
+/// not the transport's three; the test keeps its first name.
 #[test]
 fn only_the_transports_three_kinds_are_given() {
     let o = Ontology::seeded();
-    let mut thread = new_kind("thread", 50, None, Rule::Chain);
-    thread.basis = Basis::Given;
-    thread.assigned_by = vec![Origin::Transport];
-    let e = refused(&o, Record::Kind(thread), OP);
+    let mut region = new_kind("region", 150, None, Rule::Chain);
+    region.basis = Basis::Given;
+    region.assigned_by = vec![Origin::Transport];
+    let e = refused(&o, Record::Kind(region), OP);
     assert!(matches!(e, Refusal::Given { .. }), "{e:?}");
     assert!(
-        e.to_string().contains("only guild, channel, and person"),
+        e.to_string()
+            .contains("only guild, channel, thread, project, and person"),
         "{e}"
     );
     // An interpreted kind takes no membership from the transport.
-    let mut culture = new_kind("culture", 50, None, Rule::Chain);
-    culture.assigned_by = vec![Origin::Transport, Origin::Operator];
-    let e = refused(&o, Record::Kind(culture), OP);
+    let mut habit = new_kind("habit", 150, None, Rule::Chain);
+    habit.assigned_by = vec![Origin::Transport, Origin::Operator];
+    let e = refused(&o, Record::Kind(habit), OP);
     assert!(matches!(e, Refusal::Given { .. }), "{e:?}");
 }
 
@@ -241,13 +258,13 @@ fn each_kind_has_its_own_precedence_and_a_parent_kind_comes_first() {
     let o = Ontology::seeded();
     let e = refused(
         &o,
-        Record::Kind(new_kind("culture", 40, None, Rule::Chain)),
+        Record::Kind(new_kind("habit", 40, None, Rule::Chain)),
         OP,
     );
     assert!(matches!(e, Refusal::Precedence { .. }), "{e:?}");
     assert!(
         e.to_string()
-            .contains("`culture` and `topic` both have precedence 40"),
+            .contains("`habit` and `topic` both have precedence 40"),
         "{e}"
     );
     // A guild after its channels would put the farther guidance later.
@@ -264,20 +281,20 @@ fn each_kind_has_its_own_precedence_and_a_parent_kind_comes_first() {
     );
     let e = refused(
         &o,
-        Record::Kind(new_kind("project", 35, Some("topic"), Rule::Chain)),
+        Record::Kind(new_kind("program", 35, Some("topic"), Rule::Chain)),
         OP,
     );
     assert!(matches!(e, Refusal::Precedence { .. }), "{e:?}");
     assert_eq!(
         o.check(
-            &Record::Kind(new_kind("project", 45, Some("topic"), Rule::Chain)),
+            &Record::Kind(new_kind("program", 45, Some("topic"), Rule::Chain)),
             OP
         ),
         Ok(())
     );
     let e = refused(
         &o,
-        Record::Kind(new_kind("project", 45, Some("area"), Rule::Chain)),
+        Record::Kind(new_kind("program", 45, Some("area"), Rule::Chain)),
         OP,
     );
     assert_eq!(
@@ -292,21 +309,21 @@ fn each_kind_has_its_own_precedence_and_a_parent_kind_comes_first() {
 #[test]
 fn a_cycle_in_the_kinds_parents_is_refused() {
     let mut o = Ontology::seeded();
-    o.put(Record::Kind(new_kind("area", 50, None, Rule::Chain)), OP)
+    o.put(Record::Kind(new_kind("area", 150, None, Rule::Chain)), OP)
         .unwrap();
     o.put(
-        Record::Kind(new_kind("project", 60, Some("area"), Rule::Chain)),
+        Record::Kind(new_kind("program", 160, Some("area"), Rule::Chain)),
         OP,
     )
     .unwrap();
     let back = changed(o.kind("area").unwrap().clone(), |k| {
-        k.parent = Some("project".into())
+        k.parent = Some("program".into())
     });
     let e = refused(&o, Record::Kind(back), OP);
     assert_eq!(
         e,
         Refusal::Cycle {
-            path: "area › project › area".into()
+            path: "area › program › area".into()
         }
     );
     // A kind that is its own parent nests; it is not a loop.
@@ -333,7 +350,7 @@ fn a_change_is_one_version_more_than_the_row_it_supersedes() {
         refused(&o, Record::Kind(skip), OP),
         Refusal::Version { want: 2, .. }
     ));
-    let mut new = new_kind("culture", 50, None, Rule::Chain);
+    let mut new = new_kind("habit", 150, None, Rule::Chain);
     new.version = 2;
     assert!(matches!(
         refused(&o, Record::Kind(new), OP),
@@ -393,7 +410,7 @@ fn the_kinds_table_is_the_operators_to_write() {
     let o = Ontology::seeded();
     let e = refused(
         &o,
-        Record::Kind(new_kind("culture", 50, None, Rule::Chain)),
+        Record::Kind(new_kind("habit", 150, None, Rule::Chain)),
         TRANSPORT,
     );
     assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
@@ -410,11 +427,11 @@ fn a_rows_fields_are_checked() {
         |k| k.added_by = " ada".into(),
     ];
     for f in bad {
-        let mut k = new_kind("culture", 50, None, Rule::Chain);
+        let mut k = new_kind("habit", 150, None, Rule::Chain);
         f(&mut k);
         assert!(o.check(&Record::Kind(k.clone()), OP).is_err(), "{k:?}");
     }
-    let mut k = new_kind("culture", 50, None, Rule::Chain);
+    let mut k = new_kind("habit", 150, None, Rule::Chain);
     k.description = "a\u{7}bell".into();
     assert!(matches!(
         refused(&o, Record::Kind(k), OP),
@@ -520,12 +537,12 @@ fn a_category_nests_only_under_its_kinds_parent_kind() {
             id: "topic:nope".into()
         }
     );
-    let e = refused(&o, Record::Category(cat("culture:x", "x", None)), OP);
+    let e = refused(&o, Record::Category(cat("habit:x", "x", None)), OP);
     assert_eq!(
         e,
         Refusal::Missing {
             what: "kind",
-            id: "culture".into()
+            id: "habit".into()
         }
     );
 }
@@ -667,7 +684,7 @@ fn a_minted_id_is_the_names_slug_and_the_next_free_one() {
         long.local().len() <= 48 && !long.local().ends_with('-'),
         "{long}"
     );
-    assert!(o.mint_id("culture", "x").is_err());
+    assert!(o.mint_id("habit", "x").is_err());
 }
 
 // Guidance.
@@ -841,9 +858,20 @@ fn a_membership_is_of_its_lists_kind_from_an_origin_the_kind_allows() {
         f(&mut l.members[0]);
         refused(&o, Record::Members(l), OP)
     };
+    // Jev is built, and assigns the kinds that name it: topic does.
+    let jev = |m: &mut Membership| m.origin = Origin::Jev;
+    let mut l = list("s1", "topic", &["topic:theseus"]);
+    jev(&mut l.members[0]);
+    assert_eq!(o.check(&Record::Members(l), OP), Ok(()));
+    // And is refused where the kind's assigned_by does not name it.
+    let mut c = list("s1", "culture", &["culture:x"]);
+    jev(&mut c.members[0]);
+    let mut o = o.clone();
+    o.put(Record::Category(cat("culture:x", "x", None)), OP)
+        .unwrap();
     assert!(matches!(
-        with(|m| m.origin = Origin::Jev),
-        Refusal::UnbuiltOrigin { .. }
+        refused(&o, Record::Members(c), OP),
+        Refusal::Writer { .. }
     ));
     assert!(matches!(
         with(|m| m.origin = Origin::Transport),
@@ -874,16 +902,13 @@ fn a_membership_is_of_its_lists_kind_from_an_origin_the_kind_allows() {
 #[test]
 fn a_sessions_memberships_are_its_own_lists_and_an_empty_list_takes_them_away() {
     let mut o = kestrel();
-    o.put(Record::Kind(new_kind("culture", 50, None, Rule::Chain)), OP)
+    o.put(Record::Kind(new_kind("habit", 150, None, Rule::Chain)), OP)
         .unwrap();
-    topic(&mut o, "culture:terse", "terse", None);
+    topic(&mut o, "habit:terse", "terse", None);
     o.put(Record::Members(list("s1", "topic", &["topic:web"])), OP)
         .unwrap();
-    o.put(
-        Record::Members(list("s1", "culture", &["culture:terse"])),
-        OP,
-    )
-    .unwrap();
+    o.put(Record::Members(list("s1", "habit", &["habit:terse"])), OP)
+        .unwrap();
     o.put(
         Record::Members(list("s10", "topic", &["topic:cooking"])),
         OP,
@@ -894,7 +919,7 @@ fn a_sessions_memberships_are_its_own_lists_and_an_empty_list_takes_them_away() 
         .iter()
         .map(|m| m.category.to_string())
         .collect();
-    assert_eq!(got, ["culture:terse", "topic:web"]);
+    assert_eq!(got, ["habit:terse", "topic:web"]);
     o.put(Record::Members(list("s1", "topic", &[])), OP)
         .unwrap();
     assert_eq!(o.memberships("s1").len(), 1);
@@ -908,7 +933,16 @@ fn a_sessions_memberships_are_its_own_lists_and_an_empty_list_takes_them_away() 
 #[test]
 fn the_import_writes_topics_and_lists_while_the_kind_names_it() {
     let o = kestrel();
-    assert_eq!(o.kind("topic").unwrap().assigned_by, [OP, Origin::Import]);
+    assert_eq!(
+        o.kind("topic").unwrap().assigned_by,
+        [
+            OP,
+            Origin::Import,
+            Origin::Jev,
+            Origin::Sweep,
+            Origin::Dream
+        ]
+    );
     let mut o2 = o.clone();
     o2.put(
         Record::Category(cat("topic:tide", "tide", Some("topic:theseus"))),
@@ -1052,7 +1086,7 @@ fn every_record_round_trips_through_its_key_and_value() {
     o.put(Record::Members(list("s1", "topic", &["topic:web"])), OP)
         .unwrap();
     let records = o.records();
-    assert_eq!(records.len(), 4 + 8 + 1 + 1);
+    assert_eq!(records.len(), 11 + 8 + 1 + 1);
     for r in &records {
         let key = r.key();
         assert!(key.starts_with(keys::PREFIX), "{key}");
@@ -1098,11 +1132,11 @@ fn a_load_rebuilds_the_snapshot_from_records_in_any_order() {
     )
     .unwrap();
     o.put(
-        Record::Kind(new_kind("project", 50, Some("topic"), Rule::Chain)),
+        Record::Kind(new_kind("program", 55, Some("topic"), Rule::Chain)),
         OP,
     )
     .unwrap();
-    topic(&mut o, "project:m4", "m4", Some("topic:rust-harness"));
+    topic(&mut o, "program:m4", "m4", Some("topic:rust-harness"));
     guide(&mut o, "topic:theseus", "Rust first.");
     guide(&mut o, "person:300000000000000001", "The owner.");
     o.put(
@@ -1183,7 +1217,7 @@ fn a_load_takes_a_parent_whose_key_sorts_after_its_child() {
     // A load takes each kind by name and each category by id, so these
     // parents come second, and a pass takes each child.
     let records = vec![
-        Record::Kind(new_kind("area", 50, Some("zone"), Rule::Chain)),
+        Record::Kind(new_kind("area", 150, Some("zone"), Rule::Chain)),
         Record::Kind(new_kind("zone", 45, None, Rule::Chain)),
         Record::Category(cat("topic:a", "a", Some("topic:b"))),
         Record::Category(cat("topic:b", "b", Some("topic:c"))),
@@ -1247,14 +1281,14 @@ fn the_precedence_order() {
     .unwrap();
     // A new kind between person and topic's old place.
     o.put(
-        Record::Kind(new_kind("culture", 35, None, Rule::IntentLine)),
+        Record::Kind(new_kind("habit", 35, None, Rule::IntentLine)),
         OP,
     )
     .unwrap();
-    topic(&mut o, "culture:terse", "terse", None);
-    guide(&mut o, "culture:terse", "Short answers.");
+    topic(&mut o, "habit:terse", "terse", None);
+    guide(&mut o, "habit:terse", "Short answers.");
     let mut ms = ms;
-    ms.push(Membership::operator(id("culture:terse"), 4));
+    ms.push(Membership::operator(id("habit:terse"), 4));
     let c = o.compose(&ms);
     assert_eq!(
         sections_order(&c),
@@ -1265,11 +1299,11 @@ fn the_precedence_order() {
             "# Guidance (guild Kestrel)",
             "# Guidance (channel Kestrel › general)",
             "# Guidance (person)",
-            "# Guidance (culture)",
+            "# Guidance (habit)",
         ]
     );
     let kinds: Vec<&str> = c.memberships.iter().map(|m| m.kind.as_str()).collect();
-    assert_eq!(kinds, ["topic", "guild", "channel", "person", "culture"]);
+    assert_eq!(kinds, ["topic", "guild", "channel", "person", "habit"]);
 }
 
 #[test]
@@ -1301,7 +1335,7 @@ fn chain_admits_the_farthest_first_and_each_category_once() {
 fn intent_line_admits_one_line_per_category_and_no_ancestors() {
     let mut o = kestrel();
     o.put(
-        Record::Kind(new_kind("team", 50, Some("team"), Rule::IntentLine)),
+        Record::Kind(new_kind("team", 150, Some("team"), Rule::IntentLine)),
         OP,
     )
     .unwrap();
@@ -1330,7 +1364,9 @@ fn a_compose_skips_what_it_cannot_use_and_uses_the_rest() {
     let mut o = kestrel();
     topic(&mut o, "topic:four", "four", None);
     guide(&mut o, "topic:cooking", "Metric units.");
-    let mut jev = Membership::operator(id("topic:web"), 1);
+    // Jev assigns topics now; a kind whose row does not name it still skips.
+    topic(&mut o, "culture:manners", "manners", None);
+    let mut jev = Membership::operator(id("culture:manners"), 1);
     jev.origin = Origin::Jev;
     let ms = vec![
         Membership::operator(id("topic:nope"), 1),
@@ -1359,9 +1395,12 @@ fn a_compose_skips_what_it_cannot_use_and_uses_the_rest() {
             ),
             (
                 "topic:theseus",
-                "the transport gives only guild, channel, and person, not `topic`"
+                "the harness gives only guild, channel, thread, project, and person, not `topic`"
             ),
-            ("topic:web", "`jev` may not assign `topic` memberships"),
+            (
+                "culture:manners",
+                "`jev` may not assign `culture` memberships"
+            ),
             ("topic:cooking", "`topic:cooking` is listed more than once"),
             ("topic:web", "a session holds at most 3 `topic` categories"),
         ]
