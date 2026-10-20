@@ -3,7 +3,10 @@
 //! and on the DM's board; if it is still open after `[notify]
 //! escalate_after_secs` with no screen open (`Bus::interactive_watchers`), or
 //! after `escalate_with_screen_secs` with one, the core posts one
-//! **needs-you** to the owner's Home DM (outbox kind `needs_you`), which pings.
+//! **needs-you** to the owner's Home DM (outbox kind `needs_you`), which pings
+//! while the pacer's window is open and is silent while it is closed: the
+//! window paces the buzz, never the card, so a question always has its card
+//! before it expires (theseus-27p6w).
 //!
 //! - **On the driver's tick, from the store's truth.** The questions are read
 //!   as the expiry reads them (`Kernel::pending_confirms`, by the planned
@@ -22,6 +25,9 @@
 //!   whoever closes the question (`Core::card_closed`, or the heartbeat's
 //!   `reconcile_cards` for a close no event said) writes the settle that
 //!   edits it to how the question closed.
+//! - **A question the owner prompted** (`Ask again` on an expired card,
+//!   theseus-27p6w) is due at once and pings whatever the window says: the
+//!   owner just asked for it.
 //! - **Nothing without a DM**: with no DM bound for the owner there is no
 //!   phone to ping, and nothing is written.
 
@@ -67,19 +73,22 @@ impl Core {
                     true => u64::MAX,
                     false => crate::ask::expiry_of(a, ttl),
                 };
-                now >= a.planned_at_ms.saturating_add(wait)
+                (now >= a.planned_at_ms.saturating_add(wait)
+                    || self.outbox.prompted.has(&a.session_id))
                     && now < expires
                     && !self.outbox.has_card(&a.correlation_id)
                     && !self.outbox.pinged(&a.correlation_id)
             })
             .collect();
-        // The one pacing rule (`pacer.rs`): a post nobody asked for goes out
-        // at most once a window, and what is due meanwhile waits for it and
-        // goes in the same post.
-        let pace = 1000 * self.cfg.notify.unprompted_pace_secs;
-        if due.is_empty() || !self.outbox.pacer.open(now, pace) {
+        if due.is_empty() {
             return 0;
         }
+        // The one pacing rule (`pacer.rs`) paces the buzz, never the card: a
+        // due question posts on this tick, and the window decides only
+        // whether the post pings (and takes the window) or is silent.
+        let pace = 1000 * self.cfg.notify.unprompted_pace_secs;
+        let prompted = due.iter().any(|a| self.outbox.prompted.has(&a.session_id));
+        let loud = prompted || self.outbox.pacer.open(now, pace);
         let asks: Vec<(Action, ConfirmRequest)> = due
             .into_iter()
             .filter_map(|a| match self.whole_question(&a) {
@@ -94,13 +103,31 @@ impl Core {
         if asks.is_empty() {
             return 0;
         }
-        match self.post_needs_you(&asks) {
-            Ok(()) => asks.len(),
+        match self.post_needs_you(&asks, loud) {
+            Ok(()) => {
+                for (a, _) in &asks {
+                    self.outbox.prompted.take(&a.session_id);
+                }
+                asks.len()
+            }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "a ping for the questions that wait was not written");
                 0
             }
         }
+    }
+
+    /// What a question wants, as its card says it (`words::words`): the line
+    /// "Ask again" tells the session. None when its call is not in the record.
+    pub(crate) fn what_of(&self, a: &Action) -> Option<String> {
+        let rec = self
+            .store
+            .get_session::<crate::session::SessionRecord>(&a.session_id)
+            .ok()??;
+        let nodes = self.store.session_nodes(&a.session_id).ok()?;
+        let req = self.confirm_request(a, &rec, &nodes)?;
+        let asked = crate::ask::input_of(a).map(|i| i.question);
+        Some(words::words(asked, &req, &self.asker_name(&req)).1.what)
     }
 
     /// A question as the owner sees it; None when it closed meanwhile.
@@ -115,8 +142,9 @@ impl Core {
     /// dm_cards` on, every question is a card of its own (theseus-suvpe), and
     /// several that were due together are one header, which pings, and a card
     /// each, which post silently; off, one question's own post or the one
-    /// post for the several, as before.
-    fn post_needs_you(&self, asks: &[(Action, ConfirmRequest)]) -> anyhow::Result<()> {
+    /// post for the several, as before. With `loud` false (the pacer's window
+    /// is closed) every post is silent, so none takes the window.
+    fn post_needs_you(&self, asks: &[(Action, ConfirmRequest)], loud: bool) -> anyhow::Result<()> {
         let named: Vec<(&Action, &ConfirmRequest, String)> = asks
             .iter()
             .map(|(a, req)| (a, req, self.asker_name(req)))
@@ -135,7 +163,10 @@ impl Core {
             (false, [(a, req, who)]) => vec![body_of(a, req, who)],
             (false, many) => vec![batch_body_of(many)],
         };
-        for body in bodies {
+        for mut body in bodies {
+            if !loud {
+                body["silent"] = json!(true);
+            }
             let (post, frame) = self.outbox.stage_to_operator(None, body)?;
             self.store.append(&frame)?;
             self.outbox.posted(&post);

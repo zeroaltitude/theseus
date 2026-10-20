@@ -1193,6 +1193,12 @@ impl Lane {
                 // A V2 card closes as a V2 message: its box, its line, no buttons.
                 let c = render::card_v2::closed(&content);
                 (serde_json::to_string(&c).unwrap_or_default(), Buttons::V2)
+            } else if key.starts_with("confirm:") && body["again"] == true {
+                // An expired card offers one more try (theseus-27p6w).
+                (
+                    content.clone(),
+                    Buttons::Again(d["question"].as_str().unwrap_or("").to_string()),
+                )
             } else if key.starts_with("confirm:") {
                 (content.clone(), Buttons::Clear)
             } else {
@@ -1711,6 +1717,7 @@ impl Lane {
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
+            Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::Sources(session, srcs, offer) => {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
@@ -1784,6 +1791,7 @@ impl Lane {
             Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
+            Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
             }

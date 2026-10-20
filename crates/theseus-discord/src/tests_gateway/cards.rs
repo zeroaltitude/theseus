@@ -344,3 +344,48 @@ async fn dm_cards_off_is_todays_post() {
         "the post and the nudge: no card per question"
     );
 }
+
+/// An approval that expired unanswered: its card says so and offers one
+/// button, "Ask again" (theseus-27p6w). The owner's press clears it and puts
+/// the question to the session again, as a wake due now carrying a note (a
+/// press by anyone else is the core's refusal: `tests_m3::ask::due`).
+#[tokio::test]
+async fn an_expired_card_offers_ask_again_and_the_owners_press_asks_it() {
+    let r = rig("wt", |_| {}).await;
+    let (corr, at) = asked(&r, 1).await;
+    assert_eq!(r.core.escalate_questions(at + 61_000), 1);
+    r.until("the card", || !dm(&r, "Needs you").is_empty())
+        .await;
+    let card = dm(&r, "Needs you").remove(0);
+    assert_eq!(r.core.expire_questions(at + 20 * 60_000), 1);
+    r.until("the card expires with its button", || {
+        dm(&r, "Needs you")
+            .first()
+            .is_some_and(|m| m.content.contains("Expired") && labels(m) == ["Ask again"])
+    })
+    .await;
+
+    let exec = r
+        .core
+        .kernel
+        .action(&corr[0])
+        .unwrap()
+        .unwrap()
+        .execution_id;
+    let wakes = || r.core.kernel.execution(&exec).unwrap().unwrap().wakes;
+    assert!(wakes().is_empty(), "nothing is asked before a press");
+
+    r.press(&card.id, "Ask again", (ANA, "ana"));
+    r.until("the press answers by clearing the button", || {
+        r.fake.replies().iter().any(|p| {
+            p.response_type == Some(7)
+                && p.content
+                    .as_deref()
+                    .is_some_and(|c| c.contains("asked again"))
+        })
+    })
+    .await;
+    let wakes = wakes();
+    assert_eq!(wakes.len(), 1, "{wakes:?}");
+    assert!(wakes[0].note.starts_with("The owner asked again for:"));
+}

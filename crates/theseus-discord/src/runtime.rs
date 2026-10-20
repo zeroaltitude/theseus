@@ -48,7 +48,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod ask;
-pub(crate) use ask::{buttons as ask_buttons, card_buttons};
+pub(crate) use ask::{again_buttons, buttons as ask_buttons, card_buttons};
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
