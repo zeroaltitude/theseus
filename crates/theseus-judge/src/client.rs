@@ -171,6 +171,28 @@ impl Question {
     }
 }
 
+/// An image sent beside the state (theseus-und4g): the state names it by
+/// `id`, once, and Jev receives the image in that place. Images are
+/// experimental at TypeSafe: a request that carries one sends
+/// [`IMAGES_HEADER`], and every limit is checked in code first
+/// ([`crate::image`]), since one rejected image fails the whole request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Asset {
+    /// The reference the state holds: a UUID-shaped id of the bytes' hash, so
+    /// packs sharing a state share its assets.
+    pub id: String,
+    /// `png` or `jpeg`.
+    pub format: String,
+    /// Standard base64 of the bytes, no `data:` prefix.
+    pub data_base64: String,
+}
+
+/// The header a request with an image needs (verified 2026-10-20).
+pub const IMAGES_HEADER: (&str, &str) = ("TypeSafe-Danger-Zone-Images", "true");
+/// The tokens an image may add to a request's input, for a reserve: the probe
+/// measured 1,566 for one, and an image is at most 1,024 px on a side.
+pub const IMAGE_TOKENS: u64 = 2_000;
+
 /// One call's request. The state is JSON text, kept exactly as it is hashed
 /// and sent, so "byte-identical states" means what it says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,6 +200,9 @@ pub struct Request {
     pub state: String,
     pub model: String,
     pub questions: Vec<(String, Question)>,
+    /// Images the state refers to; none for a text-only request, whose body
+    /// has no `assets` key at all.
+    pub assets: Vec<Asset>,
 }
 
 impl Request {
@@ -187,11 +212,18 @@ impl Request {
             state: serde_json::to_string(state).unwrap_or_else(|_| "null".into()),
             model: model.to_string(),
             questions,
+            assets: Vec::new(),
         }
     }
 
-    /// The body: `{"state", "model", "questions"}`, with the state's bytes
-    /// as given and the questions in order.
+    /// The same request carrying `assets`.
+    pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
+        self.assets = assets;
+        self
+    }
+
+    /// The body: `{"state", ["assets",] "model", "questions"}`, with the
+    /// state's bytes as given and the questions in order.
     pub fn body(&self) -> String {
         let questions: Vec<String> = self
             .questions
@@ -204,12 +236,53 @@ impl Request {
                 )
             })
             .collect();
+        let assets = match self.assets.is_empty() {
+            true => String::new(),
+            false => {
+                let items: Vec<String> = self
+                    .assets
+                    .iter()
+                    .map(|a| {
+                        format!(
+                            "{}:{{\"type\":\"image\",\"format\":\"{}\",\"data_base64\":\"{}\"}}",
+                            serde_json::to_string(&a.id).unwrap_or_default(),
+                            a.format,
+                            a.data_base64
+                        )
+                    })
+                    .collect();
+                format!(",\"assets\":{{{}}}", items.join(","))
+            }
+        };
         format!(
-            "{{\"state\":{},\"model\":{},\"questions\":{{{}}}}}",
+            "{{\"state\":{}{},\"model\":{},\"questions\":{{{}}}}}",
             self.state,
+            assets,
             serde_json::to_string(&self.model).unwrap_or_default(),
             questions.join(",")
         )
+    }
+
+    /// The body's size without the images' bytes: what the text costs.
+    pub fn text_len(&self) -> usize {
+        let images: usize = self.assets.iter().map(|a| a.data_base64.len()).sum();
+        self.body().len() - images
+    }
+
+    /// The request again with no image: each asset's id in the state is
+    /// replaced by a note that it was not sent, and the `assets` map is gone,
+    /// so the text questions can still be answered when Jev refused an image.
+    pub fn without_assets(&self) -> Self {
+        let mut state = self.state.clone();
+        for a in &self.assets {
+            state = state.replace(&a.id, "(image not sent)");
+        }
+        Self {
+            state,
+            model: self.model.clone(),
+            questions: self.questions.clone(),
+            assets: Vec::new(),
+        }
     }
 
     /// The state's size in tokens, estimated.
@@ -812,6 +885,9 @@ pub struct Called {
     /// The body as received (empty when no body arrived); the probe prints
     /// it, and the core may keep it for a malformed answer.
     pub raw: Vec<u8>,
+    /// Jev refused an image and the request went again without them
+    /// (theseus-und4g); the answers are the text's.
+    pub images_dropped: bool,
     pub result: Result<Response, CallError>,
 }
 
@@ -1019,6 +1095,7 @@ impl JevClient {
             timing: Timing::default(),
             rate_limit: BTreeMap::new(),
             raw: Vec::new(),
+            images_dropped: false,
             result: Err(CallError::NoKey),
         };
         let tokens = req.state_tokens();
@@ -1053,29 +1130,19 @@ impl JevClient {
         };
         let sent = Instant::now();
         let outcome = tokio::time::timeout(budget, self.post(req, &key)).await;
+        let mut result = settle(&mut called, req, tokens, outcome, started);
+        // One refused image fails the whole request, so the text's answers
+        // would be lost with it: when Jev names an image, ask again, once,
+        // without them (theseus-und4g).
+        if !req.assets.is_empty() && refused_image(&result) {
+            let plain = req.without_assets();
+            let left = budget.saturating_sub(sent.elapsed());
+            let outcome = tokio::time::timeout(left, self.post(&plain, &key)).await;
+            result = settle(&mut called, &plain, tokens, outcome, started);
+            called.images_dropped = true;
+        }
         called.timing.http_ms = ms(sent.elapsed());
         drop(permit);
-        let result = match outcome {
-            Err(_) => Err(JevError::Timeout {
-                phase: TimeoutPhase::Total,
-                elapsed_ms: ms(started.elapsed()),
-            }),
-            Ok(Err(e)) => Err(e),
-            Ok(Ok((status, headers, body))) => {
-                called.rate_limit = headers;
-                called.raw = body;
-                if (200..300).contains(&status) {
-                    parse_response(&called.raw, req)
-                } else {
-                    let text = String::from_utf8_lossy(&called.raw).into_owned();
-                    let retry = called
-                        .rate_limit
-                        .get("retry-after")
-                        .and_then(|v| v.trim().parse().ok());
-                    Err(JevError::from_status(status, &text, retry, tokens))
-                }
-            }
-        };
         called.result = result.map_err(|e| CallError::Jev(redact_error(e, &key)));
         called.timing.total_ms = ms(started.elapsed());
         called
@@ -1088,14 +1155,15 @@ impl JevClient {
         req: &Request,
         key: &str,
     ) -> Result<(u16, BTreeMap<String, String>, Vec<u8>), JevError> {
-        let sent = self
+        let mut post = self
             .http
             .post(&self.url)
             .bearer_auth(key)
-            .header("content-type", "application/json")
-            .body(req.body())
-            .send()
-            .await;
+            .header("content-type", "application/json");
+        if !req.assets.is_empty() {
+            post = post.header(IMAGES_HEADER.0, IMAGES_HEADER.1);
+        }
+        let sent = post.body(req.body()).send().await;
         let mut resp = match sent {
             Ok(r) => {
                 self.reach.heard();
@@ -1128,6 +1196,57 @@ impl JevClient {
             }
         }
         Ok((status, headers, body))
+    }
+}
+
+/// One POST's status, headers and body.
+type Posted = (u16, BTreeMap<String, String>, Vec<u8>);
+
+/// What one POST came to, as a [`Response`] or its classified error; the
+/// call's rate-limit headers and raw body are the last attempt's.
+fn settle(
+    called: &mut Called,
+    req: &Request,
+    tokens: u64,
+    outcome: Result<Result<Posted, JevError>, tokio::time::error::Elapsed>,
+    started: Instant,
+) -> Result<Response, JevError> {
+    match outcome {
+        Err(_) => Err(JevError::Timeout {
+            phase: TimeoutPhase::Total,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        }),
+        Ok(Err(e)) => Err(e),
+        Ok(Ok((status, headers, body))) => {
+            called.rate_limit = headers;
+            called.raw = body;
+            if (200..300).contains(&status) {
+                parse_response(&called.raw, req)
+            } else {
+                let text = String::from_utf8_lossy(&called.raw).into_owned();
+                let retry = called
+                    .rate_limit
+                    .get("retry-after")
+                    .and_then(|v| v.trim().parse().ok());
+                Err(JevError::from_status(status, &text, retry, tokens))
+            }
+        }
+    }
+}
+
+/// Jev refused the request over an image: a 400 whose message names an
+/// image or an asset ("Invalid image dimensions.", "Invalid image request.",
+/// "format must be png, jpg or jpeg.").
+fn refused_image(r: &Result<Response, JevError>) -> bool {
+    match r {
+        Err(JevError::InvalidRequest {
+            status: 400,
+            message,
+        }) => {
+            let m = message.to_lowercase();
+            m.contains("image") || m.contains("asset") || m.contains("png")
+        }
+        _ => false,
     }
 }
 

@@ -241,6 +241,11 @@ pub struct Inbound {
     /// The session has read a Google result (the Google design, §4.1): the
     /// `data` answer is `private` by code, as a sensitive name makes it.
     pub private_source: bool,
+    /// The message's attachments, as the node holds them: `onto.v1` is
+    /// shown the pictures (their bytes read from the blobs) and the text
+    /// ones' first characters (theseus-p6zgq). Only a turn that has its
+    /// node carries them.
+    pub attachments: Vec<crate::node::Attachment>,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not

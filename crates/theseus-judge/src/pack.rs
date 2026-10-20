@@ -219,6 +219,9 @@ pub enum Source {
     /// The kinds of the table, each with what it is for (`onto.v1`'s
     /// `kind_of_thing`).
     Kinds,
+    /// The pictures the state carries, one item each (`onto.v1`'s image
+    /// questions, theseus-und4g): asked only when there are some.
+    Images,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -233,6 +236,10 @@ pub struct Item {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dynamic {
     pub sources: BTreeMap<Source, Vec<Item>>,
+    /// The images the state refers to (`onto.v1`, theseus-und4g): sent beside
+    /// it, never part of it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assets: Vec<crate::client::Asset>,
 }
 
 impl Dynamic {

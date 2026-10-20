@@ -110,6 +110,7 @@ impl TurnRunner {
                         &self.cfg,
                         t.tc.session_id,
                     ),
+                    attachments: attachments.clone(),
                 },
             ),
         };

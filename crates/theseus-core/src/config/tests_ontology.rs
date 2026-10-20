@@ -23,6 +23,15 @@ fn the_defaults_are_the_documented_ones() {
     );
     assert_eq!(c.recall_boost, 0.25);
     assert!(c.is_default());
+    // The private mark ships off until the owner says on (theseus-und4g).
+    assert!(!c.private_mark);
+}
+
+#[test]
+fn the_private_mark_is_a_key_that_is_off_by_default() {
+    let (cfg, _) = Config::parse(&doc("[ontology]\nprivate_mark = true\n")).unwrap();
+    assert!(cfg.ontology.private_mark);
+    assert!(!cfg.ontology.is_default());
 }
 
 #[test]

@@ -17,6 +17,9 @@
 //! - `recall_boost`: how much a note from a session that shares a category
 //!   with the asking one gains in recall's rank (0.25; 0 is off), at most
 //!   this times the kind's weight, by reciprocal rank among the sharers.
+//! - `private_mark`: whether a judged-private picture or message marks its
+//!   node private (theseus-und4g). Off: the judgment is a record and nothing
+//!   is marked. A policy effect, so it ships off until the owner says on.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -36,6 +39,8 @@ pub struct OntologyConfig {
     pub request: Request,
     #[serde(default = "default_recall_boost")]
     pub recall_boost: f64,
+    #[serde(default)]
+    pub private_mark: bool,
 }
 
 /// Which request carries `onto.v1`.
@@ -74,6 +79,7 @@ impl Default for OntologyConfig {
             name_profile: default_name_profile(),
             request: Request::default(),
             recall_boost: default_recall_boost(),
+            private_mark: false,
         }
     }
 }

@@ -127,6 +127,17 @@ pub(crate) async fn turn(
     input: &str,
     chosen: Option<&str>,
 ) -> TurnSubmitResult {
+    turn_attached(core, session, input, chosen, Vec::new()).await
+}
+
+/// [`turn`] with files that came with the input.
+pub(crate) async fn turn_attached(
+    core: &Arc<Core>,
+    session: Option<&str>,
+    input: &str,
+    chosen: Option<&str>,
+    attachments: Vec<theseus_protocol::Attachment>,
+) -> TurnSubmitResult {
     let rec = match session {
         Some(id) => core
             .store
@@ -156,7 +167,7 @@ pub(crate) async fn turn(
             sink,
             author: "test".into(),
             recompile: None,
-            attachments: vec![],
+            attachments,
             arrived: None,
             reply_to: None,
             answer_at: None,

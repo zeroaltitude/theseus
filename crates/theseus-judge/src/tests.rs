@@ -56,6 +56,7 @@ fn discovery_request() -> Request {
         state: p.state.json.clone(),
         model: price::JEV_MODEL.into(),
         questions,
+        assets: Vec::new(),
     }
 }
 
