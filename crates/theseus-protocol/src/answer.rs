@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 use crate::work::{answer_options, AnswerOption, Question, QuestionKind, Style, WorkRef};
 use crate::{ConfirmRequest, DiscordOrigin};
 
+/// The `option` that puts an expired question to its session again
+/// (theseus-27p6w): not an `AnswerOption` of an open question, since an
+/// expired one has none, but what its settled card's button sends.
+pub const ASK_AGAIN: &str = "ask_again";
+
 /// `work.answer`: answer a question with one of its options.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

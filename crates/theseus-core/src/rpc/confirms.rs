@@ -50,7 +50,7 @@ impl Core {
     /// pending confirm becomes a `ConfirmRequest` (theseus-0g4). A tool call
     /// shows its node's input and the policy's reason; None if its node is not
     /// in `nodes`.
-    fn confirm_request(
+    pub(crate) fn confirm_request(
         &self,
         a: &Action,
         session: &SessionRecord,

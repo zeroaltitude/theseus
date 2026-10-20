@@ -222,6 +222,8 @@ pub struct Outbox {
     /// When the last unprompted post was written: the one pacing rule
     /// (`pacer.rs`, theseus-j7cje).
     pub pacer: crate::pacer::Pacer,
+    /// Sessions whose next question the owner prompted (`pacer.rs`).
+    pub prompted: crate::pacer::Prompted,
     /// Places whose tasks report elsewhere (theseus-xlxp4), by the place's
     /// target: the binding sets them, in memory, as it starts.
     homes: Mutex<HashMap<String, TaskHome>>,
@@ -274,6 +276,7 @@ impl Outbox {
             flight: Arc::new(tokio::sync::watch::Sender::new(Flight::default())),
             one_shot: crate::one_shot::OneShot::default(),
             pacer: crate::pacer::Pacer::default(),
+            prompted: crate::pacer::Prompted::default(),
             homes: Mutex::new(HashMap::new()),
         }
     }
@@ -392,7 +395,9 @@ impl Outbox {
             }
             let body = body_of(a);
             if crate::pacer::UNPROMPTED.contains(&kind_of(a)) {
-                self.pacer.took(a.planned_at_ms);
+                if body["silent"] != true {
+                    self.pacer.took(a.planned_at_ms);
+                }
                 for q in body["questions"].as_array().into_iter().flatten() {
                     ix.pinged.extend(q.as_str().map(str::to_string));
                 }
@@ -676,7 +681,9 @@ impl Outbox {
             );
             let body = body_of(a);
             if crate::pacer::UNPROMPTED.contains(&kind_of(a)) {
-                self.pacer.took(a.planned_at_ms);
+                if body["silent"] != true {
+                    self.pacer.took(a.planned_at_ms);
+                }
                 for q in body["questions"].as_array().into_iter().flatten() {
                     ix.pinged.extend(q.as_str().map(str::to_string));
                 }
@@ -778,8 +785,18 @@ impl Outbox {
         let Some(card) = self.with(|ix| ix.cards.get(question).cloned())? else {
             return Ok(None);
         };
-        let body =
+        let mut body =
             json!({"kind": "settle", "question": question, "card": card.post, "closed": how});
+        // An expired question of a session that can still take a turn offers
+        // "Ask again" (theseus-27p6w).
+        if matches!(how.how.as_str(), "expired" | "asked_expired") {
+            let asked = self.kernel.action(question)?;
+            let live = match asked {
+                Some(a) => self.kernel.execution(&a.execution_id)?,
+                None => None,
+            };
+            body["again"] = json!(live.is_some_and(|e| !e.state.is_terminal()));
+        }
         self.post(&card.session_id, &card.execution_id, &card.target, body)
             .map(Some)
     }

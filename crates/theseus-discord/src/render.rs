@@ -74,6 +74,8 @@ pub enum Buttons {
     Horizon(String, Vec<(String, String)>),
     /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
     Earned(Vec<(String, String)>),
+    /// An expired card's "Ask again" for this question (theseus-27p6w).
+    Again(String),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).
     Seal(String),
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.

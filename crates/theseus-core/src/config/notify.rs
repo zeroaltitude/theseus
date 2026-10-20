@@ -10,8 +10,9 @@
 //! - `escalate_after_secs`: how long a question waits with no screen open (60).
 //! - `escalate_with_screen_secs`: how long it waits while a screen is open (300).
 //! - `unprompted_pace_secs`: the one pacing rule for posts nobody asked for
-//!   (`pacer.rs`): at most one in this long (1,800, thirty minutes), what is
-//!   due meanwhile going out together in the next. 0: no rule.
+//!   (`pacer.rs`): at most one buzz in this long (1,800, thirty minutes). A
+//!   question's card is never held for it: due meanwhile, it posts silent.
+//!   0: no rule.
 //! - `dm_cards`: the DM's needs-you post is one answerable card per question,
 //!   in plain words (theseus-suvpe). Off, the post is the one-line nudge of
 //!   before, byte for byte (true).

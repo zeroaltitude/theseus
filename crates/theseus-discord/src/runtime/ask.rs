@@ -34,6 +34,32 @@ const PREFIX: &str = "ask";
 /// A Details button's custom id: `need:details:<question id>`.
 const DETAILS: &str = "need:details";
 
+/// An expired card's "Ask again" custom id: `again:<question id>`.
+const AGAIN: &str = "again";
+
+/// An expired card's one button (theseus-27p6w).
+pub(crate) fn again_buttons(question: &str) -> Vec<Component> {
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![Component::Button(Button {
+            id: None,
+            custom_id: Some(format!("{AGAIN}:{question}")),
+            disabled: false,
+            emoji: None,
+            label: Some("Ask again".into()),
+            style: ButtonStyle::Secondary,
+            url: None,
+            sku_id: None,
+        })],
+    })]
+}
+
+/// The question an "Ask again" press names.
+pub(crate) fn parse_again(custom_id: &str) -> Option<String> {
+    let q = custom_id.strip_prefix(AGAIN)?.strip_prefix(':')?;
+    (!q.is_empty()).then(|| q.to_string())
+}
+
 /// The buttons of a question's options: a numbered button each, five to a row.
 pub(crate) fn buttons(question: &str, choices: &[String]) -> Vec<Component> {
     choices
@@ -141,6 +167,75 @@ impl Shared {
             true,
         )
         .await;
+    }
+
+    /// "Ask again" on an expired card: `work.answer` with `ask_again` as the
+    /// presser, which the core judges as an answer. A counted press clears the
+    /// button and says so; a refused one tells the presser alone and the
+    /// button stays.
+    pub(super) async fn ask_again_press(
+        &self,
+        i: &Interaction,
+        question: String,
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) {
+        let r = self
+            .rpc
+            .call::<_, WorkAnswerResult>(
+                method::WORK_ANSWER,
+                WorkAnswerParams {
+                    question_id: question,
+                    option: theseus_protocol::answer::ASK_AGAIN.into(),
+                    author: Some(who.to_string()),
+                    discord,
+                    ..Default::default()
+                },
+            )
+            .await;
+        let was = i
+            .message
+            .as_ref()
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        let (kind, data) = match r {
+            Ok(_) => (
+                InteractionResponseType::UpdateMessage,
+                InteractionResponseData {
+                    content: Some(format!("{was}\n-# 🔁 {who} asked again")),
+                    components: Some(vec![]),
+                    allowed_mentions: Some(AllowedMentions::default()),
+                    ..Default::default()
+                },
+            ),
+            Err(e) => (
+                InteractionResponseType::ChannelMessageWithSource,
+                InteractionResponseData {
+                    content: Some(format!(
+                        "🔐 It was not asked again: {}",
+                        e.data
+                            .get("why")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or(&e.message)
+                    )),
+                    flags: Some(MessageFlags::EPHEMERAL),
+                    allowed_mentions: Some(AllowedMentions::default()),
+                    ..Default::default()
+                },
+            ),
+        };
+        let resp = InteractionResponse {
+            kind,
+            data: Some(data),
+        };
+        if let Err(e) = self
+            .http
+            .interaction(i.application_id)
+            .create_response(i.id, &i.token, &resp)
+            .await
+        {
+            self.board.error("interaction response", None, e);
+        }
     }
 
     /// A press on an option: `work.answer` as the presser.

@@ -301,6 +301,9 @@ impl Core {
                 Some(spec) => self.answer_routine(&p, who, &spec),
                 None => self.answer_reminder(&p, &who, conn, &execution_id, &wake_id),
             },
+            Target::Action(a) if p.option == theseus_protocol::answer::ASK_AGAIN => {
+                self.ask_again(&p, who, &a)
+            }
             Target::Action(a) => self.answer_action(&p, who, conn, &a),
         }
     }
