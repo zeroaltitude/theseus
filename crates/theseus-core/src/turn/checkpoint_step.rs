@@ -384,6 +384,7 @@ impl TurnRunner {
                 capture: false,
                 data_names: self.cfg.routing.data.names(&self.cfg.privacy),
                 private_source: crate::google::private::session(t.tc.store, &self.cfg, sid),
+                attachments: Vec::new(),
             },
         );
         a.flight = rx.map(|rx| Flight {

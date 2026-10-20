@@ -21,7 +21,8 @@
 use std::sync::Mutex;
 
 use serde_json::json;
-use theseus_judge::builders::{InboundInput, OntoInput, OntoItem, OntoKind, OntoTable};
+use theseus_judge::builders::{InboundInput, OntoInput, OntoItem, OntoKind, OntoTable, OntoText};
+use theseus_judge::pic::Picture;
 use theseus_judge::Judgment;
 use theseus_ontology::{Basis, Ontology, Origin};
 use tokio::time::Instant;
@@ -29,6 +30,7 @@ use tokio::time::Instant;
 use super::inbound::Inbound;
 use super::offer::{Book, Owed, Waiting};
 use super::JudgeService;
+use crate::node::AttachmentContent;
 use crate::rpc::Core;
 
 pub mod decide;
@@ -51,13 +53,16 @@ pub struct Point {
 }
 
 impl JudgeService {
-    /// Whether `onto.v1` is asked about this message: a person's, in a
-    /// private place, not a task's, and the switch on. A shared place's
-    /// message files nothing.
+    /// Whether `onto.v1` is asked about this message: a person's, not a
+    /// task's, and the switch on, in a private place; in a shared place
+    /// only when it carries a picture, and then only the picture's own
+    /// questions (`OntoInput.shared`), which file nothing.
     pub(super) fn onto_wanted(&self, msg: &Inbound) -> bool {
-        !msg.task
-            && msg.place_kind.ends_with("(private)")
-            && self.core().is_some_and(|c| c.cfg.ontology.judge)
+        let place = match msg.place_kind.ends_with("(private)") {
+            true => true,
+            false => has_picture(msg),
+        };
+        !msg.task && place && self.core().is_some_and(|c| c.cfg.ontology.judge)
     }
 
     /// Whether `onto.v1` goes in a request of its own (`[ontology] request`).
@@ -104,6 +109,11 @@ impl JudgeService {
         if !(j.pack == ONTO_PACK && j.actionable() && j.mode != theseus_judge::Mode::Shadow) {
             return;
         }
+        // A shared place's picture was asked about for its own sake: no
+        // footer, no filing, no mark.
+        if j.context["onto"]["shared"].as_bool() == Some(true) {
+            return;
+        }
         let Some(core) = self.core() else { return };
         let Some(o) = core.runner.ontology.held() else {
             return;
@@ -136,8 +146,52 @@ pub(super) fn fill(core: &Core, msg: &Inbound, input: &mut InboundInput) -> bool
     let Ok(o) = core.runner.ontology.snapshot(&core.store) else {
         return false;
     };
-    input.onto = Some(Box::new(onto_input(core, &o, msg)));
+    let mut onto = onto_input(core, &o, msg);
+    let (pictures, texts) = attached(core, msg);
+    onto.pictures = pictures;
+    onto.texts = texts;
+    onto.shared = !msg.place_kind.ends_with("(private)");
+    if onto.shared {
+        // Nothing of any session's goes with a shared place's picture.
+        onto = OntoInput {
+            pictures: onto.pictures,
+            shared: true,
+            ..OntoInput::default()
+        };
+    }
+    input.onto = Some(Box::new(onto));
     true
+}
+
+/// Whether the message carries a picture.
+fn has_picture(msg: &Inbound) -> bool {
+    msg.attachments
+        .iter()
+        .any(|a| matches!(a.content, AttachmentContent::Image { .. }))
+}
+
+/// The message's pictures, prepared from the blobs' bytes (a picture whose
+/// blob is gone is a skipped row), and its text attachments.
+fn attached(core: &Core, msg: &Inbound) -> (Vec<Picture>, Vec<OntoText>) {
+    let mut images: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut texts = Vec::new();
+    for a in &msg.attachments {
+        match &a.content {
+            AttachmentContent::Image { digest, .. } => {
+                let bytes = core.store.blobs().read(digest).unwrap_or_default();
+                images.push((a.name.clone(), bytes));
+            }
+            AttachmentContent::Text { text, .. } => texts.push(OntoText {
+                name: a.name.clone(),
+                text: text
+                    .chars()
+                    .take(theseus_judge::builders::ONTO_EXCERPT_CHARS)
+                    .collect(),
+            }),
+            _ => {}
+        }
+    }
+    (theseus_judge::pic::prepare_all(&images), texts)
 }
 
 /// The input: see [`fill`]. A category's last use is when a session last held it.
@@ -253,6 +307,6 @@ pub(super) fn context(core: &Core, session: &str, input: &InboundInput) -> serde
             (p.kind.clone(), json!(ids))
         })
         .collect();
-    json!({"kinds": kinds, "names": o.names(&input.message, input.previous_human_message.as_deref()),
+    json!({"shared": o.shared, "kinds": kinds, "names": o.names(&input.message, input.previous_human_message.as_deref()),
            "described": name::described(core, session)})
 }

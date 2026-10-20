@@ -655,3 +655,53 @@ impl FakeJev {
         );
     }
 }
+
+/// What [`gps_png`] hides in its metadata chunks: no request may carry it.
+pub const GPS_NEEDLE: &[u8] = b"GPSLatitude 33.4484";
+
+/// A readable PNG of `w` x `h` with a text and an eXIf chunk that carry
+/// [`GPS_NEEDLE`], for tests that follow a picture to the fake and check no
+/// metadata arrived.
+pub fn gps_png(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([(x % 251) as u8, (y % 241) as u8, 90])
+    });
+    let mut png = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("a PNG encodes");
+    let crc = |data: &[u8]| {
+        let mut c = 0xffff_ffffu32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 == 1 {
+                    0xedb8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    };
+    let chunk = |kind: &[u8; 4], data: &[u8]| {
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        let mut c = (data.len() as u32).to_be_bytes().to_vec();
+        c.extend_from_slice(&body);
+        c.extend_from_slice(&crc(&body).to_be_bytes());
+        c
+    };
+    // The signature (8 bytes) and IHDR (4 + 4 + 13 + 4) come first.
+    let at = 8 + 25;
+    let mut out = png[..at].to_vec();
+    out.extend(chunk(
+        b"tEXt",
+        &[b"Comment\0".as_slice(), GPS_NEEDLE].concat(),
+    ));
+    out.extend(chunk(
+        b"eXIf",
+        &[b"MM\x00\x2a\x00\x00\x00\x08".as_slice(), GPS_NEEDLE].concat(),
+    ));
+    out.extend_from_slice(&png[at..]);
+    out
+}
