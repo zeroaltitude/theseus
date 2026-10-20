@@ -534,6 +534,202 @@ async fn judge_latency_counts_each_batch_request_once() {
     assert_eq!((d.requests, d.with_onto), (1, 1), "{d:?}");
 }
 
+/// A project the owner made, as the task graph holds it.
+fn project_named(core: &Core, id: &str, title: &str) {
+    use theseus_protocol::tasks::{TaskKind, TaskRecord, TaskState};
+    let t = TaskRecord {
+        id: id.into(),
+        title: title.into(),
+        objective: "Move the ledger to the new store".into(),
+        kind: TaskKind::Project,
+        state: TaskState::Accepted,
+        version: 1,
+        owner: "agent".into(),
+        ..TaskRecord::default()
+    };
+    core.store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+}
+
+fn project_of(core: &Core, sid: &str) -> Option<String> {
+    core.store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap()
+        .project
+}
+
+/// KEY (theseus-jrf4c): `project = c1` at the act band attaches the session to
+/// the project, whose slice reaches its next compile; the footer says so, the
+/// `onto.filed` row records it, and no category is minted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_project_answer_at_the_act_band_attaches_an_unattached_session() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("project", "c1", 0.9);
+    let r = rig(jev);
+    project_named(&r.core, "tsk_ledger", "Lantern Ledger migration");
+    let sid = bound(&r.core);
+    assert_eq!(project_of(&r.core, &sid), None);
+    said(&r, &sid, SAID).await;
+    assert_eq!(project_of(&r.core, &sid).as_deref(), Some("tsk_ledger"));
+    assert_eq!(
+        reply(&r.core)["result"]["filed"],
+        "filed: project › Lantern Ledger migration"
+    );
+    let filed = kinds(&r.core.store, "onto.filed");
+    assert_eq!(filed[0].data["steps"][0]["outcome"], "attached");
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    assert!(
+        o.member_list(&sid, "project").is_none(),
+        "no list is written"
+    );
+    assert!(cards(&r.core).is_empty(), "a plain attach sends no card");
+}
+
+/// A project the session already has is never moved by Jev, and the confirm
+/// band attaches nothing: it asks, with the command that does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn jev_never_moves_a_project_and_the_confirm_band_only_asks() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("project", "c1", 0.7);
+    let r = rig(jev);
+    project_named(&r.core, "tsk_ledger", "Lantern Ledger migration");
+    let sid = bound(&r.core);
+    said(&r, &sid, SAID).await;
+    assert_eq!(project_of(&r.core, &sid), None, "nothing is attached");
+    let cards = cards(&r.core);
+    assert_eq!(cards.len(), 1);
+    let text = cards[0]["text"].as_str().unwrap();
+    assert!(text.contains("Lantern Ledger migration"), "{text}");
+    assert!(
+        text.contains(&format!("theseus project attach {sid} tsk_ledger")),
+        "{text}"
+    );
+    // The owner attaches another; a later act-band answer leaves it alone.
+    project_named(&r.core, "tsk_other", "Harbour survey");
+    r.core
+        .store
+        .update_session(&sid, |s| {
+            s.project = Some("tsk_other".into());
+            Ok(vec![])
+        })
+        .unwrap();
+    crate::judge::onto::stage::attach(&r.core, &sid, "tsk_ledger");
+    assert_eq!(project_of(&r.core, &sid).as_deref(), Some("tsk_other"));
+}
+
+/// KEY (theseus-jrf4c): recall's category term reads what two sessions share:
+/// a project, a topic, a thread's weight; none in a shared place, none with
+/// the term off, and the asking session's own notes are not lifted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_category_scene_weights_what_two_sessions_share() {
+    use theseus_memory::{Candidate, Place};
+    let r = rig(FakeJev::start().unwrap());
+    let mk = |s: &str| {
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        r.core.store.put_session(&rec.session_id, &rec).unwrap();
+        let _ = s;
+        rec.session_id
+    };
+    let (here, topical, projected, stranger) =
+        (mk("here"), mk("topical"), mk("projected"), mk("x"));
+    operator_writes(
+        &r.core,
+        vec![
+            Record::Category(Category::new(id("topic:web"), "web", "ada")),
+            held(&here, &["topic:web"]),
+            held(&topical, &["topic:web"]),
+        ],
+    );
+    for s in [&here, &projected] {
+        r.core
+            .store
+            .update_session(s, |rec| {
+                rec.project = Some("tsk_ledger".into());
+                Ok(vec![])
+            })
+            .unwrap();
+    }
+    let _ = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let cand = |node: &str, session: &str| Candidate {
+        node_id: node.into(),
+        chunk: 0,
+        session_id: session.into(),
+        position: 1,
+        kind: "user_message".into(),
+        origin: "operator".into(),
+        external: false,
+        text: "words".into(),
+        fused: 0.05,
+        index_rank: 1,
+        place: Place::Private,
+        time_ms: 0,
+        entities: Vec::new(),
+        matched: Vec::new(),
+    };
+    let cands = [
+        cand("a", &topical),
+        cand("b", &projected),
+        cand("c", &stranger),
+        cand("d", &here),
+    ];
+    let scene = r
+        .core
+        .runner
+        .category_scene(Some(&here), true, None)
+        .expect("a scene");
+    let b = scene.boost(&cands).expect("something is shared");
+    assert_eq!(b.gain, 0.25);
+    assert_eq!(b.shared.get(&topical), Some(&0.6), "a topic");
+    assert_eq!(b.shared.get(&projected), Some(&1.0), "a project");
+    assert!(!b.shared.contains_key(&stranger), "nothing shared");
+    assert!(
+        !b.shared.contains_key(&here),
+        "its own notes are not lifted"
+    );
+    // A shared place reads no interpretation.
+    assert!(r
+        .core
+        .runner
+        .category_scene(Some(&here), false, None)
+        .is_none());
+}
+
+/// With `recall_boost = 0` the scene is none, and the persona question's
+/// state carries the session's interpreted categories by path, never a
+/// person's, and nothing in a shared place.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_term_is_off_at_zero_and_the_persona_state_names_the_categories() {
+    use crate::places::PlaceClass;
+    let r = rig_with(FakeJev::start().unwrap(), Vec::new(), |c| {
+        c.ontology.recall_boost = 0.0;
+    });
+    let sid = bound(&r.core);
+    operator_writes(
+        &r.core,
+        vec![
+            Record::Category(Category::new(id("topic:web"), "web", "ada")),
+            held(&sid, &["topic:web"]),
+        ],
+    );
+    let _ = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    assert!(r
+        .core
+        .runner
+        .category_scene(Some(&sid), true, None)
+        .is_none());
+    assert_eq!(
+        r.core.runner.category_names(&sid, PlaceClass::Private),
+        vec!["web".to_string()]
+    );
+    assert!(r
+        .core
+        .runner
+        .category_names(&sid, PlaceClass::Shared)
+        .is_empty());
+}
+
 /// A picture file as a message carries it.
 fn picture_file(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
     theseus_protocol::Attachment {

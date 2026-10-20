@@ -689,6 +689,9 @@ pub struct Scene<'a> {
     /// The engaged persona's part of the recall (theseus-a8n7); none when no
     /// persona is engaged.
     pub persona: Option<crate::persona_recall::PersonaScene>,
+    /// The categories the asking session shares with a note's (theseus-jrf4c);
+    /// none in a shared place, for a lookup, or with the term off.
+    pub category: Option<crate::category_recall::CategoryScene>,
 }
 
 impl Scene<'_> {
@@ -837,6 +840,7 @@ impl Memory {
         };
         let mut params = begun.params(self.cfg.params(), m.budget_tokens);
         params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
+        params.category = scene.category.as_ref().and_then(|c| c.boost(&candidates));
         (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
         let pack = match begun.temporal {
             Some(kind) => temporal::pack(kind, &*scene.science, &asker, &candidates, &params),

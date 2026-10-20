@@ -26,6 +26,10 @@ pub const PERSONAS: usize = 12;
 pub const THREAD_TURNS: usize = 3;
 /// A turn's words in the state: about 120 tokens.
 const TURN_CHARS: usize = 480;
+/// The most category names the state shows.
+pub const CATEGORIES: usize = 8;
+/// A category name in the state.
+const CATEGORY_CHARS: usize = 80;
 /// A card's words in the state and as an option: about 60 tokens, with room.
 const CARD_CHARS: usize = 400;
 
@@ -95,6 +99,23 @@ pub(super) fn state(
             left_out(&i.personas, personas.len()),
         )
         .cut_if("personas", c.cut());
+        // What the session has been about, as evidence for the choice
+        // (theseus-jrf4c): its categories' names, the question unchanged.
+        if !i.categories.is_empty() {
+            let shown = &i.categories[..i.categories.len().min(CATEGORIES)];
+            let items: Vec<Value> = shown
+                .iter()
+                .map(|n| json!(c.clip(n, CATEGORY_CHARS)))
+                .collect();
+            b.list_head(
+                "session_categories",
+                6,
+                share(cap, 8),
+                items,
+                left_out(&i.categories, shown.len()),
+            )
+            .cut_if("session_categories", c.cut());
+        }
     }
     let Some(t) = &i.thread_now else {
         return Vec::new();

@@ -156,6 +156,8 @@ mod tests;
 #[cfg(test)]
 mod tests_kinds;
 #[cfg(test)]
+mod tests_manifest;
+#[cfg(test)]
 mod tests_origins;
 #[cfg(test)]
 mod tests_people;

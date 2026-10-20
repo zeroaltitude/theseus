@@ -183,3 +183,31 @@ fn a_stored_state_reads_with_no_personas_or_thread() {
     let back = serde_json::to_string(&serde_json::from_str::<InboundInput>(text).unwrap()).unwrap();
     assert!(!back.contains("personas") && !back.contains("speaker"));
 }
+
+/// The session's category names ride the `persona` question's state as
+/// evidence (theseus-jrf4c), and only where that question is asked: with
+/// fewer than two personas, or none named, the state is the one before.
+#[test]
+fn the_session_categories_are_evidence_for_the_persona_question() {
+    let p = by_name("route.v6").unwrap();
+    let mut i = input();
+    i.personas = two();
+    i.categories = vec!["theseus › ontology".into(), "Lantern Ledger".into()];
+    let prepared = prepare(&p, &Input::Inbound(i.clone()), &NoScrub).unwrap();
+    let state = prepared.state.value();
+    assert_eq!(
+        state["session_categories"],
+        serde_json::json!(["theseus › ontology", "Lantern Ledger"])
+    );
+    let asked = p.ask(&prepared.dynamic);
+    assert!(asked.iter().any(|a| a.id == "persona"), "no new question");
+    // One persona: the question is not asked and the names are not sent.
+    i.personas.truncate(1);
+    let one = prepare(&p, &Input::Inbound(i.clone()), &NoScrub).unwrap();
+    assert!(one.state.value().get("session_categories").is_none());
+    // None named: the state is the one without the key.
+    i.personas = two();
+    i.categories.clear();
+    let none = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
+    assert!(none.state.value().get("session_categories").is_none());
+}

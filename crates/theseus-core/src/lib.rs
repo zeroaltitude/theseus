@@ -22,6 +22,7 @@ pub mod cancel;
 pub mod capture;
 pub mod card;
 pub mod catalog;
+pub mod category_recall;
 pub mod ceiling;
 pub mod census;
 pub mod cgroup;

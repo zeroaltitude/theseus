@@ -218,11 +218,18 @@ impl TurnRunner {
                 tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
                 BTreeSet::new()
             });
+        let place = self.place_of(t.tc.session_id);
+        let threads = self.thread_scene(Some(t.tc.session_id), message, true);
+        let category = self.category_scene(
+            Some(t.tc.session_id),
+            place == theseus_memory::Place::Private,
+            threads.as_ref(),
+        );
         Scene {
             mode,
             session_id: Some(t.tc.session_id),
             turn_id: Some(t.tc.turn_id),
-            place: self.place_of(t.tc.session_id),
+            place,
             in_context,
             labeled,
             budget_tokens: t
@@ -231,8 +238,9 @@ impl TurnRunner {
                 .then(|| self.memory.cfg().assembled_budget_tokens),
             science: self.memory.science_for(arm),
             activation: None,
-            threads: self.thread_scene(Some(t.tc.session_id), message, true),
+            threads,
             persona: self.persona_scene(t.target.persona.as_deref()),
+            category,
         }
     }
 

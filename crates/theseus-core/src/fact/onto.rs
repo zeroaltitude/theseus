@@ -31,6 +31,12 @@ fn step_row(s: &Step) -> Value {
         } => {
             json!({"kind": kind, "outcome": "asked", "confidence": confidence})
         }
+        Step::Attached {
+            project,
+            confidence,
+            ..
+        } => json!({"kind": "project", "outcome": "attached", "project": project,
+                    "confidence": confidence}),
         Step::Unnamed { kind, confidence } => {
             json!({"kind": kind, "outcome": "unnamed", "confidence": confidence})
         }
@@ -61,7 +67,7 @@ impl Fact for OntoFiled<'_> {
                         Step::Ask { kind, .. } => format!("a question about the {kind}"),
                         Step::Unnamed { kind, .. } => format!("a new {kind} with no name yet"),
                         Step::Refused { kind, why, .. } => format!("refused for the {kind}: {why}"),
-                        Step::Filed { .. } => String::new(),
+                        Step::Filed { .. } | Step::Attached { .. } => String::new(),
                     })
                     .collect::<Vec<_>>()
                     .join(", ")

@@ -600,6 +600,7 @@ async fn by_words(
         // Asked for, so no distance; a sealed thread's notes stay out.
         threads: core.runner.thread_scene(session, &words, false),
         persona: None,
+        category: None,
     };
     let m = memory.manifest(
         &scene,

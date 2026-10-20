@@ -223,6 +223,10 @@ pub struct Params {
     /// The engaged persona's own memories rank higher (theseus-a8n7); none
     /// when no persona is engaged.
     pub persona: Option<PersonaBoost>,
+    /// A note from a session that shares a category with the asker's ranks
+    /// higher (theseus-jrf4c); none when the asker shares none, or in a
+    /// shared place.
+    pub category: Option<CategoryBoost>,
 }
 
 /// While a persona is engaged, its own agent's imported episodes are worth
@@ -249,6 +253,53 @@ impl PersonaBoost {
     }
 }
 
+/// A note from a session that shares a category with the asking session
+/// gets a reciprocal-rank term, as activation's reached hits do (theseus-jrf4c):
+/// the candidates that share one, in the order of their own score, are
+/// worth `1 + gain * weight * (K + 1) / (K + rank)`, rank from 1, where
+/// `weight` is the heaviest kind among the categories they share (project and
+/// thread highest, topic next, the rest low). Only the rank moves: a filter
+/// still sees the index's score and the place rule has already run, so the
+/// term admits nothing.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CategoryBoost {
+    /// `[ontology] recall_boost`: 0 (off) to 1.
+    pub gain: f64,
+    /// The weight (0 to 1) of the heaviest category each candidate session
+    /// shares with the asker; a session sharing none is absent.
+    pub shared: BTreeMap<String, f64>,
+}
+
+/// The reciprocal rank's constant: the one the fusion uses.
+const RANK_K: f64 = 60.0;
+
+impl CategoryBoost {
+    /// What each candidate's score is multiplied by, by its key: 1 for a
+    /// candidate whose session shares nothing. Rank among the sharers is by
+    /// score, best first, ties by key, so the term does not depend on the
+    /// candidates' order.
+    pub fn factors<'a>(
+        &self,
+        candidates: impl IntoIterator<Item = (&'a str, &'a str, f64)>,
+    ) -> BTreeMap<String, f64> {
+        let gain = self.gain.clamp(0.0, 1.0);
+        let mut sharers: Vec<(&str, &str, f64)> = candidates
+            .into_iter()
+            .filter(|(_, session, _)| self.shared.contains_key(*session))
+            .collect();
+        sharers.sort_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.0.cmp(b.0)));
+        sharers
+            .into_iter()
+            .enumerate()
+            .map(|(i, (key, session, _))| {
+                let weight = self.shared[session].clamp(0.0, 1.0);
+                let rr = (RANK_K + 1.0) / (RANK_K + (i + 1) as f64);
+                (key.to_string(), 1.0 + gain * weight * rr)
+            })
+            .collect()
+    }
+}
+
 impl Default for Params {
     fn default() -> Self {
         Self {
@@ -258,6 +309,7 @@ impl Default for Params {
             include_external: false,
             floor: Floor::default(),
             persona: None,
+            category: None,
         }
     }
 }
@@ -457,13 +509,24 @@ pub fn recall(
     if science.prefers_newer() {
         kept = fresher(kept, asker, &mut pack.dropped);
     }
+    let shared = p.category.as_ref().map(|b| {
+        b.factors(
+            kept.iter()
+                .map(|c| (c.node_id.as_str(), c.session_id.as_str(), c.fused)),
+        )
+    });
     let order = science.rank(
         kept.iter()
             .map(|c| Scored {
                 key: c.key(),
                 score: c.fused
                     * distance(asker, c)
-                    * p.persona.as_ref().map_or(1.0, |b| b.factor(&c.session_id)),
+                    * p.persona.as_ref().map_or(1.0, |b| b.factor(&c.session_id))
+                    * shared
+                        .as_ref()
+                        .and_then(|f| f.get(c.node_id.as_str()))
+                        .copied()
+                        .unwrap_or(1.0),
             })
             .collect(),
         &asker.rank_ctx(&kept),
@@ -841,6 +904,7 @@ mod tests {
             include_external: false,
             floor: Floor::default(),
             persona: None,
+            category: None,
         };
         let pack = run(&Place::Private, &[], cands, &p);
         let admitted: Vec<_> = pack

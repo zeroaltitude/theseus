@@ -57,10 +57,28 @@ impl Pending<'_> {
             self.core
                 .rec(Some(&p.session))
                 .announce(&OntoFiled { plan: p });
+            if let Some(project) = &p.attach {
+                attach(self.core, &p.session, project);
+            }
         }
         for post in &self.posts {
             self.core.outbox.posted(post);
         }
+    }
+}
+
+/// Attach `session` to `project`, only while it has none (theseus-jrf4c): what
+/// the owner or the model attached first stands, and Jev never moves it. The
+/// slice reaches the session's next compile, as `project.attach`'s does.
+pub fn attach(core: &Core, session: &str, project: &str) {
+    let done = core.store.update_session(session, |r| {
+        if r.project.is_none() {
+            r.project = Some(project.to_string());
+        }
+        Ok(vec![])
+    });
+    if let Err(e) = done {
+        tracing::warn!(session, error = %format!("{e:#}"), "judge: the project was not attached");
     }
 }
 
