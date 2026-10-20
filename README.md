@@ -155,11 +155,12 @@ through three compactions (`crates/theseus-core/src/tests_projects.rs`); and tha
 recalls, drops and gated tools (`crates/theseus/tests/why.rs`). We have started to prove it live: the v1 patch1
 project is attached to the owner's sessions, and in a check on 2026-10-19 a session attached the same way quoted the
 project's goal and first "done when" line from its context, while `theseus why` listed the slice (2 lines, 177
-tokens), five context files, five recalled notes with their reasons, and 30 more left out for the budget. Not yet
-proven: that it brings back what matters. A turn Jev sends to a small model as a quick question carries only its last
-few exchanges, without the project or recall, and `theseus why` can't show it yet. That is how, on 2026-10-18, a fresh
-session asked about that evening's decisions did not bring them back, though recall had found them. The fix is in v1
-patch1.
+tokens), five context files, five recalled notes with their reasons, and 30 more left out for the budget. A turn Jev
+sends to a small model as a quick question used to carry only its last few exchanges, without recall. That is how, on
+2026-10-18, a fresh session asked about that evening's decisions did not bring them back, though recall had found
+them. The fix is in v1 patch1, and on the owner's daemon on 2026-10-19 the same kind of question, sent to the small
+model as a quick one, was answered from recall: it named the release tag chosen for 1.0.0. One gap remains: `theseus
+why` can't show a turn that went to the small model yet.
 
 ## 9. Talk to it
 
