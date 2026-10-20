@@ -45,6 +45,43 @@ fn self_session(
         .then_some((core, trees))
 }
 
+/// Whether `session` belongs to a task of the self principal. No trees
+/// needed: the fail-open rule (theseus-cudar) holds in any `[self] mode`.
+pub(crate) fn is_self(rt: &ToolRuntime, session: &str) -> bool {
+    let Some(core) = rt.self_pr.core.get().and_then(std::sync::Weak::upgrade) else {
+        return false;
+    };
+    let rec: Option<crate::session::SessionRecord> = core.store.get_session(session).ok().flatten();
+    rec.and_then(|r| r.execution_id)
+        .is_some_and(|e| crate::task_graph::principal_of(&core.kernel, &e) == SELF_PRINCIPAL)
+}
+
+/// A self session's call that waited for approval, now a notice that runs
+/// (theseus-cudar): the posture's own reason is kept, so the notice says
+/// what would have asked. The floor and the owner's other holds never come
+/// here (`ToolPolicy::fails_open`).
+pub(crate) fn fail_open(d: crate::policy::Decision, tool: &str) -> crate::policy::Decision {
+    let rule = format!("{tool} — notify (self-repair fails open: {})", d.reason);
+    crate::policy::Decision {
+        notify: Some(crate::policy::Notice {
+            kind: "notify".into(),
+            setting: "self-improvement fails open".into(),
+            rule: rule.clone(),
+        }),
+        ..crate::policy::Decision::new(crate::policy::Posture::Notify, rule)
+    }
+}
+
+/// The slug of the self item `session` works on, which names its reports and
+/// its tree, or none for a session that is no self task's.
+pub(crate) fn item_slug(store: &Store, session: &str) -> Option<String> {
+    let rec = crate::task_graph::all(store)
+        .ok()?
+        .into_iter()
+        .find(|t| t.session.as_deref() == Some(session) && t.origin.principal == SELF_PRINCIPAL)?;
+    Some(tree::slug(&budget::root_in(store, rec)))
+}
+
 /// The tree directory the self task that owns `session` works in, or none:
 /// the session is no self session, or it has no task of the self principal.
 pub(crate) fn of(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {

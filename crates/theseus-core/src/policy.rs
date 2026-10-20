@@ -558,6 +558,50 @@ impl ToolPolicy {
         None
     }
 
+    /// Whether a call of a self session that waits for approval may go ahead
+    /// with a notice instead (theseus-cudar; the owner, 2026-10-19 20:08 and
+    /// 2026-10-20 07:26: self-improvement fails open, no answer means go
+    /// ahead). Only the soft holds open: a tool's own `approve` posture, a
+    /// read outside the roots, and a read of the state dir the approve list
+    /// holds. Everything the owner keeps stays a wait: the floor (store,
+    /// spool, bindings, the 1Password token, sealed sets), a task's layer 1,
+    /// an AWS call, a private address, an approve-listed program, any path
+    /// on the approve list but the state dir's own (keys, credentials), and
+    /// any write the approve list holds.
+    pub(crate) fn fails_open(&self, plan: &Plan, state: &Path) -> bool {
+        if plan.authority.is_some() || plan.aws.is_some() {
+            return false;
+        }
+        if plan
+            .url
+            .as_deref()
+            .and_then(crate::web::net::private_url)
+            .is_some()
+        {
+            return false;
+        }
+        let (resources, nargv, args) = self.view(plan);
+        if self.floor(&resources, &nargv, &args).is_some()
+            || self.approve_argv.iter().any(|p| prefix_match(&nargv, p))
+        {
+            return false;
+        }
+        let state = paths::canonical_best_effort(state);
+        // An entry that holds a path is the state dir's own when it is the
+        // state dir or inside it; any other entry (`~/.ssh`, `~`) keeps asking.
+        let state_only = |p: &Path, write: bool| {
+            let mut held = self.approve_paths.iter().filter(|d| paths::within(p, d));
+            held.clone().next().is_none() || (!write && held.all(|d| paths::within(d, &state)))
+        };
+        resources
+            .iter()
+            .zip(plan.resources.iter().map(|r| r.access))
+            .all(|(p, a)| state_only(p, a == Access::Write))
+            && args
+                .iter()
+                .all(|(_, p)| !self.approve_paths.iter().any(|d| paths::within(p, d)))
+    }
+
     /// Whether only the tool's posture would decide this call: nothing the
     /// floor, a layer-1 change, the approve lists or an AWS rule asks for
     /// comes first. An earned grant (`earned`) loosens that alone.

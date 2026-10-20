@@ -121,6 +121,21 @@ impl ToolRuntime {
             .and_then(|session| crate::rsi::own_tree::open_to(self, session, tool));
         let (decision, bound) =
             crate::sandbox::unbrokered(self, tool, plan, input, t, open_to.as_deref());
+        // A self session's soft hold is a notice that runs: self-improvement
+        // fails open (theseus-cudar). The floor and the keel still wait, and
+        // every later layer (web text, a place's floor) may still hold it.
+        let decision = match at.session {
+            Some(s)
+                if decision.posture == crate::policy::Posture::Approve
+                    && !decision.floor
+                    && !bound.l1()
+                    && crate::rsi::own_tree::is_self(self, s)
+                    && self.policy.fails_open(plan, &self.self_pr.state) =>
+            {
+                crate::rsi::own_tree::fail_open(decision, tool.name())
+            }
+            _ => decision,
+        };
         seen(Layer::Policy, &decision);
         let decision = crate::policy::earned::gate(
             self,
