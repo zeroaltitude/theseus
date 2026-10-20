@@ -27,7 +27,8 @@ fn the_slowest_frame_since_a_mark_is_the_one_made_slow() {
         "no frame since the mark"
     );
     let one = s.append(&[rec("one")]).unwrap();
-    s.inner.commit_delay_ms.store(40, Ordering::Relaxed);
+    // Ten seconds counted, not slept: the disk's own fsync cannot outrun it.
+    s.inner.commit_extra_ms.store(10_000, Ordering::Relaxed);
     let slow = s.append(&[rec("slow-a"), rec("slow-b")]).unwrap();
     let last = s.append(&[rec("last")]).unwrap();
     let got = s.slowest_frame_since(since).unwrap();
@@ -48,7 +49,7 @@ fn the_ring_forgets_the_oldest_frames() {
     let dir = tempfile::tempdir().unwrap();
     let s = open(dir.path());
     let since = std::time::Instant::now();
-    s.inner.commit_delay_ms.store(20, Ordering::Relaxed);
+    s.inner.commit_extra_ms.store(20, Ordering::Relaxed);
     let slow = s.append(&[rec("slow")]).unwrap();
     assert_eq!(s.slowest_frame_since(since).unwrap().first, slow[0]);
     for i in 0..70 {

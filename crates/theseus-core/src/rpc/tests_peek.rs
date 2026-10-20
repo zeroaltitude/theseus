@@ -474,6 +474,11 @@ async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
         }
     }
     assert!(frames_with_a_job > 0);
+    // A sample goes out only when the line changed, so each sample is a new line.
+    // Any other frame that touches the job's view (the warm-up's, which lands when
+    // the machine lets it) sends the line it holds again with that frame's time
+    // (`settle`'s stale views): the same line, not another sample (theseus-1b2zm).
+    seen.dedup_by(|later, first| later.1 == first.1);
     assert!(seen.len() >= 2, "it was sampled while it ran: {seen:?}");
     assert!(
         seen.len() <= 6,

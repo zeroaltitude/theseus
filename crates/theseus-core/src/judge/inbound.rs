@@ -927,6 +927,17 @@ fn urgencies(packs: &[(Arc<Pack>, String, PackMode)], total: u64) -> (Urgency, U
     (of(true), of(false))
 }
 
+/// A route verdict has gone to its turn: a test waits for it (theseus-1b2zm).
+fn route_sent(me: &Weak<JudgeService>) {
+    #[cfg(test)]
+    if let Some(svc) = me.upgrade() {
+        svc.route_answers
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    #[cfg(not(test))]
+    let _ = me;
+}
+
 /// One inbound decision point, in its own task: `route.v1`'s ask in a
 /// request of its own, and the other packs' asks batched into one, the two
 /// at once (theseus-ddbi). The verdict goes to the turn as its request
@@ -998,6 +1009,7 @@ async fn judge_inbound(
                 at: tokio::time::Instant::now(),
                 cost_micros,
             });
+            route_sent(&me);
         }
         judgments
     };

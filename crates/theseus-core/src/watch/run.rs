@@ -133,26 +133,30 @@ impl Core {
             return;
         };
         let Step::News(news) = step else { return };
+        // A watch that ends leaves the board before its row can be read
+        // (theseus-1b2zm), as a reply watch does.
+        let ends = matches!(
+            news.verdict,
+            ProbeVerdict::Met { .. } | ProbeVerdict::Expired
+        );
+        if ends {
+            self.watches.remove(wake_id);
+        }
         match self.watch_write(&before, &news) {
-            Ok(true) => {
-                if matches!(
-                    news.verdict,
-                    ProbeVerdict::Met { .. } | ProbeVerdict::Expired
-                ) {
-                    self.watches.remove(wake_id);
-                }
-            }
+            Ok(true) => {}
             // Cancelled, or its conversation ended.
             Ok(false) => self.watches.remove(wake_id),
             Err(e) => {
                 tracing::warn!(wake_id, error = %format!("{e:#}"), "a watch's news was not written; it is checked again");
-                self.watches.with(wake_id, |e| {
-                    *e = Entry {
-                        next_ms: now + 30_000,
-                        running: false,
-                        ..before
-                    };
-                });
+                let again = Entry {
+                    next_ms: now + 30_000,
+                    running: false,
+                    ..before
+                };
+                match ends {
+                    true => self.watches.insert(again),
+                    false => drop(self.watches.with(wake_id, |e| *e = again)),
+                }
             }
         }
     }
@@ -207,6 +211,8 @@ impl Core {
         let Some(done) = applied else {
             return Ok(false);
         };
+        #[cfg(test)]
+        tests_hook::after_frame(&e.wake_id);
         let posted_to = done.post.as_ref().map(crate::outbox::target_of);
         if let Some(a) = &done.post {
             self.outbox.posted(a);
@@ -327,4 +333,28 @@ pub fn shown_value(kernel: &theseus_kernel::Kernel, w: &PendingWake) -> Option<S
         ),
         _ => "not checked yet".into(),
     })
+}
+
+/// A test's look at the instant a watch's row is written (theseus-1b2zm): what
+/// the board holds then is what a reader of the row finds. A hook is told the
+/// wake's id and stays for the test binary's life, so it names its own wake.
+#[cfg(test)]
+pub(super) mod tests_hook {
+    use std::sync::Mutex;
+
+    type Look = Box<dyn Fn(&str) + Send>;
+    static LOOKS: Mutex<Vec<Look>> = Mutex::new(Vec::new());
+
+    pub fn add(f: impl Fn(&str) + Send + 'static) {
+        LOOKS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(Box::new(f));
+    }
+
+    pub fn after_frame(wake_id: &str) {
+        for f in LOOKS.lock().unwrap_or_else(|p| p.into_inner()).iter() {
+            f(wake_id);
+        }
+    }
 }

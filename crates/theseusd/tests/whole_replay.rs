@@ -76,12 +76,9 @@ fn says_why_it_was_refused(r: &Value) {
     assert!(why.is_some_and(|w| w.contains("runs as root")), "{r}");
 }
 
-#[test]
-fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
-    let root = unsafe { libc::geteuid() } == 0;
-    let work_cell = std::sync::Arc::new(std::sync::OnceLock::<std::path::PathBuf>::new());
-    let cell = work_cell.clone();
-    let model = FakeModel::start(move |prompt| {
+/// The stand-in model: an edit of the directory, then the check that reads it.
+fn the_stand_in_model(cell: std::sync::Arc<std::sync::OnceLock<std::path::PathBuf>>) -> FakeModel {
+    FakeModel::start(move |prompt| {
         if !prompt.starts_with("Make the greeting") {
             return Vec::new();
         }
@@ -96,7 +93,30 @@ fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
                 json!({"argv": ["sh", "check.sh", "test"], "cwd": work}),
             ),
         ]
-    });
+    })
+}
+
+thread_local! {
+    /// What the next replay's daemon is told to hold its wait for the check's init by
+    /// (`THESEUS_TEST_L1_WAIT_DELAY_MS`): this test's thread alone, so no other test sees it.
+    static WAIT_DELAY_MS: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+/// The replay's check is an L1 job the daemon itself waits for, and the daemon's
+/// reaper is woken by the same exit (theseus-1b2zm): held, the wait looks at its
+/// init after the sweep has had the exit, and the init is still its own to read.
+/// Before, `proc.run` failed with `wait: No child processes`.
+#[test]
+fn a_late_wait_for_the_replays_check_still_reads_its_exit() {
+    WAIT_DELAY_MS.set(Some("1500"));
+    a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was();
+}
+
+#[test]
+fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
+    let root = unsafe { libc::geteuid() } == 0;
+    let work_cell = std::sync::Arc::new(std::sync::OnceLock::<std::path::PathBuf>::new());
+    let model = the_stand_in_model(work_cell.clone());
     let base = model.base.clone();
     let opbin = std::sync::OnceLock::<std::path::PathBuf>::new();
     let s = Served::start_with(
@@ -114,6 +134,11 @@ fn a_whole_turn_replay_on_a_real_daemon_leaves_the_directory_as_it_was() {
         |cmd: &mut Command| {
             let path = std::env::var("PATH").unwrap_or_default();
             cmd.env("PATH", format!("{}:{path}", opbin.get().unwrap().display()));
+            cmd.envs(
+                WAIT_DELAY_MS
+                    .get()
+                    .map(|ms| ("THESEUS_TEST_L1_WAIT_DELAY_MS", ms)),
+            );
         },
     );
     let work = work_cell.get().unwrap().clone();

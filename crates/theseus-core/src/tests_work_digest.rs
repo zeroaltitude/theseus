@@ -460,6 +460,11 @@ async fn a_slot_with_no_lines_posts_nothing_and_is_marked() {
 async fn the_slot_waits_behind_a_just_written_unprompted_post() {
     let (told, _) = told().await;
     let c = told.r.core.clone();
+    // The window closes first (theseus-1b2zm): the scene's own driver ticks on the
+    // real clock, and once the slot and the DM are in place it would claim a slot
+    // the pacer had not yet closed.
+    let now = theseus_protocol::now_unix_ms();
+    c.outbox.pacer.took(now);
     c.initiative
         .digest
         .slots
@@ -471,8 +476,6 @@ async fn the_slot_waits_behind_a_just_written_unprompted_post() {
         name: "DM @wren".into(),
         ..Default::default()
     }]);
-    let now = theseus_protocol::now_unix_ms();
-    c.outbox.pacer.took(now);
     assert!(!c.digest_tick(now + 1_000), "the window is closed");
     assert!(c.initiative.digest.claimed.lock().unwrap().is_none());
     let window = 1000 * c.cfg.notify.unprompted_pace_secs;

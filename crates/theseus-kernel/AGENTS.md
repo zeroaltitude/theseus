@@ -157,7 +157,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - **Lock order** is always the session, then the execution, and no kernel transition takes a session's lock.
 - **Time is injected** (`Clock`: `RealClock`, `VirtualClock`). The kernel never reads the wall clock.
 - **Every child goes through `children::spawn`.** A child spawned another way, and waited for, can be reaped by the
-  sweep as an orphan, and its `wait()` fails with `ECHILD`. Never call `waitpid(-1)`.
+  sweep as an orphan, and its `wait()` fails with `ECHILD`. Never call `waitpid(-1)`. The in-process L1 probe's init
+  is one (`job_l1`, `Reap::Command`: the thread that waits for it is its owner, `Kind::Owned`), and the sweep is woken
+  by the very exit the wait looks for (theseus-1b2zm).
 - **A wrapper's pid can be reused**, so "alive" is `wrapper_alive(pid, job)`, whose command line names the job. A
   process in the middle of its exec has an empty command line: `holder` counts it as still starting (Item 35).
 - **A cancel's verdict says how it knows** (M4 18a): `termination_verified` only with a means (`pidns`, `tree`,

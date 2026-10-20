@@ -107,6 +107,10 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 
 - `tests/*.rs` run the real binary. `tests/common/mod.rs` has `Daemon`, which kills and reaps its process when
   dropped: use it for every spawned daemon (an explicit stop alone once leaked one for 45 minutes).
+- `tests/whole_replay.rs` runs an L1 check in the daemon's own process: unprivileged (uid 65534 under `setpriv` on a
+  root-only machine) it checks the check ran; as root, only L1's refusal. A debug build's
+  `THESEUS_TEST_L1_WAIT_DELAY_MS` holds the wait's next look at its init (`job_l1`), so the sweep comes first as it
+  does on a loaded machine (theseus-1b2zm).
 - `tests/common/model.rs` is a stand-in Messages API: tool calls per prompt, and `FakeModel::requests()` keeps
   every request, so a test reads which model each turn asked for.
 - `tests/postmortem_incident.rs` (theseus-m2tiu) scripts an incident on a real daemon (a task with a 33 s command, a

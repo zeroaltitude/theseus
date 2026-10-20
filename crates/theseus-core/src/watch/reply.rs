@@ -227,12 +227,12 @@ impl Core {
             return;
         };
         let Step::News(news) = step else { return };
-        match self.watch_write(&before, &news) {
-            Ok(_) => self.watches.remove(wake_id),
-            Err(e) => {
-                tracing::warn!(wake_id, error = %format!("{e:#}"), "a reply watch's news was not written; it still waits");
-                self.watches.with(wake_id, |e| *e = before);
-            }
+        // The watch leaves the board before its row can be read: whoever sees
+        // `watch.met` never finds the watch still waiting (theseus-1b2zm).
+        self.watches.remove(wake_id);
+        if let Err(e) = self.watch_write(&before, &news) {
+            tracing::warn!(wake_id, error = %format!("{e:#}"), "a reply watch's news was not written; it still waits");
+            self.watches.insert(before);
         }
     }
 

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use theseus_sandbox::{Exit, Init, SandboxChild, Spec, Stdio};
 
+use crate::children::{self, Kind};
 use crate::job::{Reap, WrapperArgs, L1};
 use crate::job_egress as egress;
 use crate::tree::{self, Proc};
@@ -105,15 +106,25 @@ pub(crate) fn run(
         (Reap::Descendants, Some(u)) => Some(unsafe { libc::umask(u) }),
         _ => None,
     };
-    let spawned = theseus_sandbox::spawn(
-        &spec,
-        &Init::default(),
-        Stdio {
-            stdin: None,
-            stdout,
-            stderr,
-        },
-    );
+    let start = || {
+        theseus_sandbox::spawn(
+            &spec,
+            &Init::default(),
+            Stdio {
+                stdin: None,
+                stdout,
+                stderr,
+            },
+        )
+    };
+    // A thread that waits for the init itself (the daemon's own probe, not a
+    // wrapper's subreaper) is its init's owner: registered as one, under the
+    // registry's lock, so the daemon's sweep never takes its exit for an
+    // orphan's and its wait fails with `ECHILD` (theseus-1b2zm).
+    let spawned = match reap {
+        Reap::Command => children::spawn(Kind::Owned, start, |c| Some(c.id())),
+        Reap::Descendants => start(),
+    };
     if let Some(u) = old {
         unsafe { libc::umask(u) };
     }
@@ -239,6 +250,19 @@ fn wait(
         // Asleep until the init exits, a stop or a child's exit pokes the
         // wake pipe, or the deadline comes (7.1).
         crate::job_wait::wait(child.pidfd(), deadline.saturating_sub(t0.elapsed()));
+        #[cfg(debug_assertions)]
+        planted_delay();
+    }
+}
+
+/// A debug build's plant (theseus-1b2zm): `THESEUS_TEST_L1_WAIT_DELAY_MS` holds the
+/// wait's next look at its init, so a test can have the daemon's own sweep come
+/// first, as a loaded machine does.
+#[cfg(debug_assertions)]
+fn planted_delay() {
+    let ms = std::env::var("THESEUS_TEST_L1_WAIT_DELAY_MS").ok();
+    if let Some(ms) = ms.and_then(|v| v.parse().ok()) {
+        std::thread::sleep(Duration::from_millis(ms));
     }
 }
 

@@ -8,7 +8,9 @@
 //! on purpose.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 use theseus_protocol::index::{IndexQueryParams, IndexSourceRank};
 
@@ -163,8 +165,10 @@ async fn a_fast_vector_search_yields_the_hybrid_answer() {
 }
 
 /// A vector search that fails at once leaves the word hits too, without
-/// waiting for the deadline; with nothing at all in time, `deadline`.
-#[tokio::test]
+/// waiting for the deadline; with nothing at all in time, `deadline`. On the
+/// paused clock (theseus-1b2zm): the bound is on the deadline's own virtual
+/// time, which a loaded machine's late wake-ups cannot stretch.
+#[tokio::test(start_paused = true)]
 async fn a_failed_vector_search_leaves_the_words_and_a_stalled_index_the_deadline() {
     let (m, _, _, _c, _r) = one_turn(MemoryMode::Live, Vectors::Failed).await;
     assert_eq!(m.outcome, WORDS_ONLY);

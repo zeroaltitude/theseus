@@ -353,13 +353,17 @@ async fn ending_a_task_thread_removes_the_guests_the_war_room_added() {
         r.fake.thread_members(thread).is_empty()
     })
     .await;
-    let guests: Vec<u64> = r
-        .core
-        .store
-        .get_meta(&format!("discord.task_guests.{id}"))
-        .unwrap()
-        .unwrap_or_default();
-    assert!(guests.is_empty(), "{guests:?}");
+    // The list is cleared once the removals are done, after the thread's members
+    // are gone: the effect first and the record after is the order a crash between
+    // them forgives (a guest left listed is removed again, never one left in
+    // unlisted). So the record is waited for, not read as the members clear
+    // (theseus-1b2zm).
+    let guests = || -> Vec<u64> {
+        let kept = r.core.store.get_meta(&format!("discord.task_guests.{id}"));
+        kept.unwrap().unwrap_or_default()
+    };
+    until(&r, "the guest list cleared", || guests().is_empty()).await;
+    assert!(guests().is_empty(), "{:?}", guests());
 }
 
 /// A shared place is not narrowed to guests, and its thread keeps the guest
