@@ -64,6 +64,8 @@ mod judged;
 mod notes;
 pub(super) mod tasks;
 #[cfg(test)]
+mod tests_config;
+#[cfg(test)]
 mod tests_deaf;
 #[cfg(test)]
 mod tests_heard;
@@ -500,10 +502,7 @@ impl Place {
             core: Arc::downgrade(&shared.core),
             key: place.key.clone(),
         };
-        let mut config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
-        config.join_guard = voice.cfg.join_guard;
-        config.echo_cancel = voice.cfg.echo_cancel;
-        config.judge_ms = Duration::from_millis(voice.cfg.judge_ms);
+        let config = engine_config(place.users.iter().map(|&u| Speaker(u)), &voice.cfg);
         // In the persona's voice, once the join has succeeded and the call's
         // audio flows (theseus-sro04), or after `GREETING_WAIT`.
         let greeting = shared.core.greeting_for(Some(&self.session_id));
@@ -889,6 +888,18 @@ async fn greet(
 ) {
     let _ = tokio::time::timeout(GREETING_WAIT, flowing.wait_for(|f| *f)).await;
     let _ = commands.send(Command::Report { text });
+}
+
+/// The engine's settings for a call: the design's, with the switches `[voice]`
+/// owns (`join_guard`, `echo_cancel`, `judge_ms`). The engine's own default has
+/// the first two off, so the engine's tests read as they did; this is the one
+/// place the config turns them on.
+fn engine_config(users: impl IntoIterator<Item = Speaker>, cfg: &VoiceConfig) -> EngineConfig {
+    let mut config = EngineConfig::new(users);
+    config.join_guard = cfg.join_guard;
+    config.echo_cancel = cfg.echo_cancel;
+    config.judge_ms = Duration::from_millis(cfg.judge_ms);
+    config
 }
 
 /// The voice settings as Deepgram takes them.

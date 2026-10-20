@@ -333,6 +333,27 @@ mod tests {
         assert!(!printed.contains("[voice]"), "{printed}");
     }
 
+    /// The switches a call reads are on in a config with no `[voice]` section
+    /// (theseus-sa4m5): that config gets `VoiceConfig::default()`, not the
+    /// serde field defaults the section's keys fall back to, so the two are held
+    /// together here. `echo_cancel` once read false there, unseen by every test.
+    #[test]
+    fn a_config_without_voice_has_every_switch_on_as_the_section_would() {
+        let none = Config::example().voice;
+        for (name, on) in [
+            ("join_guard", none.join_guard),
+            ("echo_cancel", none.echo_cancel),
+            ("judge_unclear", none.judge_unclear),
+            ("speak_tasks", none.speak_tasks),
+            ("status", none.status),
+        ] {
+            assert!(on, "{name} is on without a [voice] section");
+        }
+        assert_eq!(none.judge_ms, 250);
+        let (empty, _) = Config::parse(&format!("{}\n[voice]\n", Config::EXAMPLE_TOML)).unwrap();
+        assert_eq!(empty.voice, none, "an empty section is the absent one");
+    }
+
     #[test]
     fn a_voice_section_reads_and_each_key_is_optional() {
         let with = |section: &str| {
