@@ -667,19 +667,18 @@ fn summary(v: &WorkView, origin: &str) -> String {
 }
 
 impl Place {
-    /// A task's channel was made while its turn ran: the turn's start was
-    /// never heard here, and the renderer shows no loop of a turn it did not
-    /// see begin. The first event that names such a turn tells the renderer
-    /// the turn started (a task is mostly one long turn).
+    /// A task's channel (or thread) was made while its turn ran: the turn's
+    /// start was never heard here, and the renderer shows no loop of a turn it
+    /// did not see begin. The first event that names such a turn tells the
+    /// renderer the turn started (a task is mostly one long turn). A thread is
+    /// begun before its task's turn on a busy machine, and after it on a fast
+    /// one, whose task's whole first turn then never reached its thread
+    /// (theseus-ihu7l).
     pub(super) fn adopt_turn(&mut self, e: &CoreEvent) {
         let (Some(turn), Some(channel)) = (e.turn_id(), self.channel) else {
             return;
         };
-        let ours = self
-            .shared
-            .task_threads
-            .made_in(channel.get())
-            .is_some_and(|m| m.kind == PlaceKind::Channel);
+        let ours = self.shared.task_threads.made_in(channel.get()).is_some();
         let ends = matches!(
             e,
             CoreEvent::TurnStarted(_) | CoreEvent::TurnEnded(_) | CoreEvent::TurnFailed(_)

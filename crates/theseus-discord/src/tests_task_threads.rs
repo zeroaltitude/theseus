@@ -3,16 +3,17 @@
 //! REST and gateway, and a stand-in model that starts tasks (the rig of
 //! `tests_board.rs`).
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_core::policy::Posture;
 use theseus_core::provider::{
     DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
 };
-use theseus_sim::fake_discord::{FakeThread, Guild, Msg, DEFAULT_GUILD};
+use theseus_sim::fake_discord::{FakeDiscord, FakeThread, Guild, Msg, DEFAULT_GUILD};
 
 use crate::runtime::threads::{task_name, Mark};
 use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
@@ -27,6 +28,45 @@ pub(crate) const BUOY: &str = "Buoy-paint: paint the buoy";
 struct Switch {
     parent: FakeProvider,
     kids: Vec<(&'static str, FakeProvider)>,
+    /// With the rig's Discord: each task's last answer waits for its place.
+    places: Option<Places>,
+}
+
+/// A task's answer that ends it (no tool call) waits, up to `HOLD`, until
+/// the binding has made as many places (a thread, or a channel of its own)
+/// as tasks have started: the task ends with its place made. A place is made
+/// for a task that is working, never for one that has ended, and a scripted
+/// task that answers at once could end before it on a fast host. Every fresh
+/// host (a cloud x86 host, an aarch64 laptop) ended it first, and the tests
+/// that wait for the thread timed out; the owner's busier machine made the
+/// thread first (theseus-ihu7l). A shared place's task gets no `proc_run`
+/// (only the public tools), so `gate` cannot hold it there. A task with no
+/// place (a DM's) ends `HOLD` late.
+struct Places {
+    fake: Arc<FakeDiscord>,
+    /// Each task's place count to wait for: the order it started in.
+    started: Mutex<HashMap<usize, usize>>,
+}
+
+const HOLD: Duration = Duration::from_secs(3);
+
+impl Places {
+    /// How many places there are now: threads, and the task channels made.
+    fn made(&self) -> usize {
+        let channels = self.fake.made_channels();
+        self.fake.threads().len()
+            + channels
+                .iter()
+                .filter(|c| c.kind == 0 && !c.deleted)
+                .count()
+    }
+
+    /// The places task `kid` waits for.
+    fn wanted(&self, kid: usize) -> usize {
+        let mut started = self.started.lock().unwrap();
+        let n = started.len() + 1;
+        *started.entry(kid).or_insert(n)
+    }
 }
 
 impl Provider for Switch {
@@ -43,12 +83,21 @@ impl Provider for Switch {
             .first()
             .map(Value::to_string)
             .unwrap_or_default();
-        let p = self
-            .kids
-            .iter()
-            .find(|(m, _)| first.contains(m))
-            .map_or(&self.parent, |(_, p)| p);
-        p.stream_message(req, on_delta)
+        let kid = self.kids.iter().position(|(m, _)| first.contains(m));
+        let p = kid.map_or(&self.parent, |k| &self.kids[k].1);
+        let Some((w, n)) = self.places.as_ref().zip(kid).map(|(w, k)| (w, w.wanted(k))) else {
+            return p.stream_message(req, on_delta);
+        };
+        Box::pin(async move {
+            let answer = p.stream_message(req, on_delta).await?;
+            if answer.stop_reason.as_deref() != Some("tool_use") {
+                let t0 = Instant::now();
+                while w.made() < n && t0.elapsed() < HOLD {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+            Ok(answer)
+        })
     }
 }
 
@@ -146,13 +195,35 @@ pub(crate) fn model(
     parent: Vec<Scripted>,
     kids: Vec<(&'static str, Vec<Scripted>)>,
 ) -> Arc<dyn Provider> {
-    Arc::new(Switch {
+    Arc::new(switch(parent, kids, None))
+}
+
+/// `model`, each task's last answer waiting for its place (`Places`).
+pub(crate) fn placed_model(
+    fake: Arc<FakeDiscord>,
+    parent: Vec<Scripted>,
+    kids: Vec<(&'static str, Vec<Scripted>)>,
+) -> Arc<dyn Provider> {
+    let places = Places {
+        fake,
+        started: Mutex::default(),
+    };
+    Arc::new(switch(parent, kids, Some(places)))
+}
+
+fn switch(
+    parent: Vec<Scripted>,
+    kids: Vec<(&'static str, Vec<Scripted>)>,
+    places: Option<Places>,
+) -> Switch {
+    Switch {
         parent: FakeProvider::scripted(parent),
         kids: kids
             .into_iter()
             .map(|(m, s)| (m, FakeProvider::scripted(s)))
             .collect(),
-    })
+        places,
+    }
 }
 
 pub(crate) fn guild() -> Guild {
@@ -200,7 +271,7 @@ pub(crate) async fn rig(
     private: bool,
 ) -> Rig {
     Rig::start_tweaked(
-        |dir, _| model(parent, kids(dir)),
+        |dir, fake| placed_model(fake, parent, kids(dir)),
         guild(),
         &bindings(private, ""),
         &[],
@@ -738,8 +809,9 @@ async fn a_forum_post_is_the_tasks_live_card_and_its_tags_follow_its_state() {
 #[tokio::test]
 async fn a_shared_forum_shows_a_shared_places_tasks_and_never_a_private_ones() {
     let r = Rig::start_tweaked(
-        |_, _| {
-            model(
+        |_, fake| {
+            placed_model(
+                fake,
                 vec![
                     start(&[REEF]),
                     Scripted::text("Started."),

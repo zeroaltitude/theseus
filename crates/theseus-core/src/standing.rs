@@ -432,13 +432,15 @@ impl Board {
             let mut records = Vec::new();
             for r in store.inner().latest_with_prefix(kinds::META, PREFIX)? {
                 match r.decode::<StandingRecord>() {
-                    Ok(rec) => records.push(rec),
+                    Ok(rec) => records.push((r.position, rec)),
                     Err(e) => tracing::warn!(key = ?r.key, error = %e,
                         "a standing record does not read: left out"),
                 }
             }
-            records.sort_by(|a, b| (a.since_ms, &a.id).cmp(&(b.since_ms, &b.id)));
-            let all = Arc::new(records);
+            // By start, then as written: the order memory keeps (`write`). Two records of one millisecond (a fast
+            // host's) came back in their ids' order, not memory's (theseus-ihu7l).
+            records.sort_by_key(|(at, r)| (r.since_ms, *at));
+            let all = Arc::new(records.into_iter().map(|(_, r)| r).collect::<Vec<_>>());
             *self.records.write().unwrap() = Some(all.clone());
             Ok(all)
         })
@@ -470,6 +472,8 @@ impl Board {
             store.append(&frame)?;
             let mut next = (*now).clone();
             next.extend(records.iter().cloned());
+            // The order a restart's scan gives (`all`): by start, then as written.
+            next.sort_by_key(|r| r.since_ms);
             *self.records.write().unwrap() = Some(Arc::new(next));
             Ok(records)
         })
