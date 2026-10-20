@@ -469,15 +469,21 @@ pub struct ThreadMergeResult {
     pub topics_left_out: Vec<String>,
 }
 
-/// `thread.split`: a new thread `slug` that opens with turns of thread
-/// `from` quoted, by WAL position (the `@` numbers of `theseus history`):
-/// the inclusive `range` `[first, last]`, or the `positions` of single
-/// nodes. One of the two. Nothing of `from` moves: its session gets one note
-/// at its tail (theseus-vt9k).
+/// `thread.split`: turns of `from` move into a thread (theseus-vt9k, theseus-q9b85).
+/// `from` is a thread's slug, a place's own session by its whole id
+/// (`ses_…`, `theseus places` lists them), or `home@<place>`. The turns are
+/// chosen by WAL position (the `@` numbers of `theseus history`): the
+/// inclusive `range` `[first, last]`, several `ranges`, or the `positions` of
+/// single nodes; whole turns only. They are quoted into a new thread `slug`,
+/// or at the tail of the existing thread `into`; the source keeps every
+/// node, but its compile holds one line, `moved to thread «X»: <gist>`, in
+/// their place. `thread.unsplit` undoes it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ThreadSplitParams {
     pub from: String,
+    /// The new thread's name; empty with `into`.
+    #[serde(default)]
     pub slug: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -491,6 +497,18 @@ pub struct ThreadSplitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub positions: Option<Vec<u64>>,
+    /// Several inclusive ranges, each `[first, last]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ranges: Vec<[u64; 2]>,
+    /// An existing thread that takes the turns at its tail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub into: Option<String>,
+    /// What the moved range is about, as its place in the source's compile says it
+    /// (default: the range's first human message, cut to 80 characters).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub gist: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
@@ -499,9 +517,9 @@ pub struct ThreadSplitParams {
     pub discord: Option<DiscordOrigin>,
 }
 
-/// What `thread.split` made: the new thread, how many messages it quotes
-/// (and the span of their positions), and whether the note reached the tail
-/// of the source (not while a turn runs there).
+/// What `thread.split` made: the thread, how many messages it quotes (and
+/// the span of their positions), and whether the source's compile now holds
+/// the moved line (not while a turn runs there).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ThreadSplitResult {
@@ -511,6 +529,78 @@ pub struct ThreadSplitResult {
     pub first_pos: u64,
     pub last_pos: u64,
     pub noted: bool,
+    /// The split's id: `thread.unsplit` takes it.
+    #[serde(default)]
+    pub split: String,
+    /// The nodes the source's compile left out.
+    #[serde(default)]
+    pub moved: u32,
+    /// The turns went into a thread that already existed.
+    #[serde(default)]
+    pub into: bool,
+}
+
+/// A request's size in tokens as `context.census` estimates it, before and
+/// after a split, and the bytes and nodes that moved.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SplitEstimate {
+    pub before: u64,
+    pub after: u64,
+}
+
+/// `thread.split_plan`: what a split would do, written nowhere: the turns,
+/// nodes and bytes that would move, and the next request's tokens of the
+/// source (compiled with the range left out) and of the target, before and
+/// after. No model is called.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadSplitPlan {
+    pub from: String,
+    /// The target's slug, and whether it exists already.
+    pub thread: String,
+    pub into: bool,
+    pub turns: u32,
+    pub nodes: u32,
+    pub bytes: u64,
+    pub quoted: u32,
+    /// What the quoted messages come to in tokens, as the thread takes them.
+    pub quoted_tokens: u64,
+    pub first_pos: u64,
+    pub last_pos: u64,
+    pub gist: String,
+    pub source: SplitEstimate,
+    /// The target's estimate; none for a thread that does not exist yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub target: Option<SplitEstimate>,
+}
+
+/// `thread.unsplit`: a split undone, by its id (`thread.split` printed it).
+/// Nothing is deleted: the source's compile reads the range again in its
+/// own place, the quoted turns leave the target's, a new thread is retired.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadUnsplitParams {
+    pub split: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadUnsplitResult {
+    pub split: String,
+    pub from: String,
+    pub thread: ThreadRow,
+    /// The nodes the source's compile reads again.
+    pub restored: u32,
+    /// The target was a thread the split opened, and is done now.
+    pub retired: bool,
 }
 
 #[cfg(test)]

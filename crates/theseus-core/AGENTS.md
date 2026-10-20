@@ -565,14 +565,40 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   range | positions}` (WAL positions, the `@` numbers of `theseus history`) opens the new thread's session first
   (`opened_from` the source, so it holds what the source holds), writes its brief and one `Body::Arrangement` of the
   chosen messages (role `context`, verbatim, an edge to each quoted node), then writes the thread, its place record and
-  the `thread.split` row in one frame with the session already bound (`Threads::write_bound`), then one note at the
-  source's tail: the source keeps every node, so a split is a quote, never a move, and `thread.done` on the new thread
-  is its undo. The new thread inherits topics, persona and seal; its working set is read from what the chosen turns did
+  the `thread.split` row in one frame with the session already bound (`Threads::write_bound`), then one
+  `Body::Moved` node at the source's tail (see **Home split** below): the source keeps every node in the store, but its
+  compile leaves them out. The new thread inherits topics, persona and seal; its working set is read from what the chosen turns did
   (paths, hosts, `#` refs: `thread_split::working_set_of`). The model's `thread.split {slug, from, to?}` (a thread
   session's tool, async, the owner's tap at every posture by `Plan::authority`) quotes the first message and
-  optionally the last, resolved as an arrangement's quotes are; its result is the source's note. A conversation's first
-  compile admits an arrangement (`compiler::situation`) for it. Tests: `rpc/tests_thread_join.rs`, `thread_split::tests`,
-  `thread_join::tests`.
+  optionally the last, resolved as an arrangement's quotes are; its result is the source's note (it quotes only: the
+  running turn's own compile is not rewritten mid-turn, so it writes no `Moved` node and takes no whole-turn check). A
+  conversation's first compile admits an arrangement (`compiler::situation`) for it. Tests: `rpc/tests_thread_join.rs`,
+  `thread_split::tests`, `thread_join::tests`.
+  **Home split** (theseus-q9b85; `rpc/thread_home.rs`, `moved.rs`, `split_turns.rs`, `compiler/situation.rs`; store format
+  47: `Body::Moved`, the META keys `thread.split.<id>` and `moved.of.<node>`, the ledger kind `thread.unsplit`).
+  `thread.split` (the owner's act) takes a thread's slug, a place's own session by its whole id (`ses_…`), or
+  `home@<place>` as `from`; `range`, `ranges` or `positions` name the turns, which must be whole (`split_turns::close`:
+  every node of a `turn_id` and every call, its reply and its result move together, a turn's recall notes with their
+  turn; a pick that cuts one is refused with the positions to type). The target is a new thread `slug`, or the existing
+  thread `into`, which takes the brief and the arrangement at its tail (its prefix unchanged), never across a seal.
+  Over `MAX_PIECES` or `MAX_CHARS` is refused with "split it in parts": a large stream moves as several splits into the
+  same thread. The source keeps every node, and one `Body::Moved` node (split id, thread, the moved ids, the first and
+  last position, the gist: `--gist`, else the first human message cut to 80 characters) takes them out of its compile:
+  `compiler::compile_with` reads the stubs' `Moved` records (`moved::read`, decoding only those), selects a recompile's
+  nodes without the hidden ones (`Moves::shows`), recompiles once, trigger `moved`, when its frozen compilation holds one
+  of them or a record since undone (`Moves::stale`), places the note `moved to thread «X»: <gist>` before the first node
+  after the range began (`moved::in_place`, called by `situation::selected`), and keeps the hidden nodes out of a tail
+  (`selected`'s tail filter) where the note renders at its own place, so a range that was in the tail changes no prefix.
+  The nodes stay in the store: `session.history` marks them (`detail.moved_to`), and recall indexes them as before: the
+  turn's `in_context` leaves them out of the source's, so it may bring them back, and a recalled node's header names the
+  thread it moved to (`moved.of.<node>`, `ThreadScene::other_title_of`). `thread.unsplit {split}` writes a second `Moved`
+  node that `undoes` the first (the source reads the range again in its own place), a quiet `Moved` node in an existing
+  target that hides the quoted turns without a note, and `thread.done` on a thread the split opened; a ledger row
+  (`thread.unsplit`) records it and nothing is deleted. `thread.split_plan` is the dry run: it plans as a split does,
+  writes nothing, and compiles the source once more with a hypothetical `Moved` node (`census_request_with`) for its
+  before and after tokens. The cache: the source's prefix changes once, at the next turn after a split; no other
+  turn's does. Tests: `rpc/tests_thread_home.rs` (the key test, into, unsplit, recall, dry run, refusals),
+  `moved::tests`, `split_turns::tests`, `tests_layouts` (format 46 opens and takes a `Moved` node).
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

@@ -2,10 +2,31 @@
 import type { DiscordOrigin } from "./DiscordOrigin";
 
 /**
- * `thread.split`: a new thread `slug` that opens with turns of thread
- * `from` quoted, by WAL position (the `@` numbers of `theseus history`):
- * the inclusive `range` `[first, last]`, or the `positions` of single
- * nodes. One of the two. Nothing of `from` moves: its session gets one note
- * at its tail (theseus-vt9k).
+ * `thread.split`: turns of `from` move into a thread (theseus-vt9k, theseus-q9b85).
+ * `from` is a thread's slug, a place's own session by its whole id
+ * (`ses_…`, `theseus places` lists them), or `home@<place>`. The turns are
+ * chosen by WAL position (the `@` numbers of `theseus history`): the
+ * inclusive `range` `[first, last]`, several `ranges`, or the `positions` of
+ * single nodes; whole turns only. They are quoted into a new thread `slug`,
+ * or at the tail of the existing thread `into`; the source keeps every
+ * node, but its compile holds one line, `moved to thread «X»: <gist>`, in
+ * their place. `thread.unsplit` undoes it.
  */
-export type ThreadSplitParams = { from: string, slug: string, title?: string, goal?: string, range?: [number, number], positions?: Array<number>, author?: string, discord?: DiscordOrigin, };
+export type ThreadSplitParams = { from: string, 
+/**
+ * The new thread's name; empty with `into`.
+ */
+slug: string, title?: string, goal?: string, range?: [number, number], positions?: Array<number>, 
+/**
+ * Several inclusive ranges, each `[first, last]`.
+ */
+ranges?: Array<[number, number]>, 
+/**
+ * An existing thread that takes the turns at its tail.
+ */
+into?: string, 
+/**
+ * What the moved range is about, as its place in the source's compile says it
+ * (default: the range's first human message, cut to 80 characters).
+ */
+gist?: string, author?: string, discord?: DiscordOrigin, };

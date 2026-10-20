@@ -556,7 +556,10 @@ pub fn working_text(n: &Node) -> Option<String> {
         | Body::Synthesis { text, .. }
         | Body::Imported { text, .. }
         | Body::ImportedSummary { text, .. } => parts.push(text),
-        Body::Arrangement { .. } | Body::Recall { .. } | Body::Erased { .. } => return None,
+        Body::Arrangement { .. }
+        | Body::Recall { .. }
+        | Body::Moved { .. }
+        | Body::Erased { .. } => return None,
     }
     let t = parts.join("\n");
     (!t.trim().is_empty()).then_some(t)

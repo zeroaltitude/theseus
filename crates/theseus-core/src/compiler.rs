@@ -671,6 +671,15 @@ fn compile_with(
     if let (None, Some(why), Some(_)) = (&decided, input.strip, input.current) {
         decided = Some((why.to_string(), "transcript", true));
     }
+    // A range the session moved to a thread stays out of a recompile, one
+    // line in its place (theseus-q9b85); a frozen compilation that holds
+    // what has moved, or lacks what came back, recompiles once.
+    let moves = crate::moved::read(input.nodes);
+    if let (None, Some(c)) = (&decided, input.current) {
+        if moves.stale(c) {
+            decided = Some(("moved".into(), "transcript", true));
+        }
+    }
     // A recompile, or a ring, renders the walk's current memberships.
     let now_manifest = if std::ptr::eq(appended, recompiled) {
         now_manifest
@@ -684,9 +693,11 @@ fn compile_with(
     } else {
         appended
     };
-
     // Past a compaction, its summary stands for its range (30c).
-    let all_renderable = compaction::visible(input.nodes);
+    let all_renderable: Vec<_> = compaction::visible(input.nodes)
+        .into_iter()
+        .filter(|(_, n)| moves.shows(n))
+        .collect();
     let make =
         |trigger: String, strategy: &str, strip: bool, includes: Vec<String>, base: &Manifest| {
             Compilation {

@@ -672,7 +672,10 @@ const BULK: usize = 4096;
 /// `retired_ms`, `examples` and `mined_from`, in `onto:kind:` META records,
 /// and the origins `jev`, `sweep` and `dream` in a row's `assigned_by` and a
 /// list entry's `origin`; the ledger kind `ontology.undo`.
-const MANIFEST_FORMAT: u32 = 46;
+/// 47 = a range a split moved (theseus-q9b85): the node body `moved` (`Body::Moved`) that takes
+/// nodes out of its session's compile, the META records `thread.split.<id>` and `moved.of.<node>`,
+/// and the ledger kind `thread.unsplit`.
+const MANIFEST_FORMAT: u32 = 47;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

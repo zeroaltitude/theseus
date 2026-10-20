@@ -166,6 +166,14 @@ impl ThreadScene {
             .flatten()
     }
 
+    /// The title of the thread `slug`, when it is another thread than the asking turn's: what the
+    /// provenance of a node a split moved names (theseus-q9b85).
+    pub fn other_title_of(&self, slug: &str) -> Option<String> {
+        (self.here.as_deref() != Some(slug))
+            .then(|| self.board.get(slug).map(|t| t.title.clone()))
+            .flatten()
+    }
+
     /// The lens over candidates given as (session, fused score).
     pub fn lens<'a>(&self, candidates: impl IntoIterator<Item = (&'a str, f64)>) -> ThreadLens {
         let mut of_session = BTreeMap::new();

@@ -136,6 +136,7 @@ impl Core {
                         (format!("the imported {id}"), text.clone())
                     }
                     Body::Erased { .. } => bail!("{id} was erased: it has nothing to publish"),
+                    Body::Moved { .. } => bail!("{id} notes a moved range: it has nothing to publish"),
                     Body::Recall { .. } => bail!(
                         "{id} is a recall, which copies nothing of its own: publish its sources"
                     ),

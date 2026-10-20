@@ -225,6 +225,7 @@ pub fn text_of(n: &Node) -> Option<String> {
         | Body::Arrangement { .. }
         | Body::Recall { .. }
         | Body::Summary { .. }
+        | Body::Moved { .. }
         | Body::Synthesis { .. }
         | Body::Imported { .. }
         | Body::ImportedSummary { .. }

@@ -64,6 +64,9 @@ pub enum Class {
     Quoted,
     /// A compaction's summary, first in its prefix (30c).
     Summary,
+    /// The one line a moved range leaves in its source's compile
+    /// (theseus-q9b85): admitted where a summary is.
+    Moved,
     /// An assembled prefix's recall section (30c).
     RecallSection,
     /// A recall note in the conversation (30b).
@@ -85,6 +88,7 @@ impl Class {
             Self::Arrangement => "arrangement",
             Self::Quoted => "quoted",
             Self::Summary => "summary",
+            Self::Moved => "moved",
             Self::RecallSection => "recall_section",
             Self::RecallNote => "recall_note",
             Self::TaskView => "task_view",
@@ -117,19 +121,21 @@ pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
         Inbound | Reply | ToolResult | LateResult | Repair | Quoted
     );
     match situation {
-        Situation::ConversationStart => common || matches!(class, Summary | TaskView | RecallNote),
+        Situation::ConversationStart => {
+            common || matches!(class, Summary | Moved | TaskView | RecallNote)
+        }
         Situation::TaskStart => {
             common || matches!(class, Arrangement | TaskView) || (class == RecallSection && new)
         }
         Situation::Continuation => {
             common
-                || matches!(class, Arrangement | Summary | TaskView | RecallNote)
+                || matches!(class, Arrangement | Summary | Moved | TaskView | RecallNote)
                 || (class == RecallSection && !new)
         }
         Situation::Recompile { .. } | Situation::Unknown => class != Lesson,
         Situation::Resume => {
             common
-                || matches!(class, Arrangement | Summary | TaskView)
+                || matches!(class, Arrangement | Summary | Moved | TaskView)
                 || (matches!(class, RecallNote | RecallSection) && !new)
         }
         Situation::Detour => common || matches!(class, Arrangement | RecallNote),
@@ -192,12 +198,16 @@ pub(super) fn selected<'n>(c: &Compilation, nodes: &'n [(u64, Stub)]) -> Selecte
         })
         .map(|(p, n)| (*p, &**n))
         .collect();
+    // A range a split moved stays out of a tail as it does out of a recompile, and a record
+    // undone renders no note (theseus-q9b85); a frozen prefix is never changed after the fact.
+    let moves = crate::moved::read(nodes);
     let tail = nodes
         .iter()
-        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n))
+        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n) && moves.shows(n))
         .map(|(p, n)| (*p, &**n))
         .collect();
-    (prefix, tail)
+    // A moved range's note stands where the range began.
+    (crate::moved::in_place(prefix), tail)
 }
 
 /// One piece of a request: its class, the node it renders (none for a
@@ -248,6 +258,11 @@ pub fn pieces(
             // In a tail a summary renders nothing: its range is still in
             // the prefix.
             Body::Summary { .. } if in_prefix => Class::Summary,
+            Body::Moved {
+                undoes: None,
+                quiet: false,
+                ..
+            } => Class::Moved,
             Body::Recall { .. } if c.recall_id.as_deref() == Some(n.id.as_str()) => {
                 Class::RecallSection
             }
@@ -419,6 +434,7 @@ mod tests {
             (Arrangement, false, [false, true, true, true, true, true]),
             (Quoted, false, [true, true, true, true, true, true]),
             (Summary, false, [true, false, true, true, true, false]),
+            (Moved, false, [true, false, true, true, true, false]),
             (
                 RecallSection,
                 false,

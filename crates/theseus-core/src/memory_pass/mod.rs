@@ -810,6 +810,7 @@ pub fn eligible(n: &Node) -> bool {
         Body::ToolCall { .. }
         | Body::Recall { .. }
         | Body::Arrangement { .. }
+        | Body::Moved { .. }
         | Body::Synthesis { .. }
         | Body::Erased { .. } => false,
         // The operator's past history (theseus-0lrr.6): labeled as any
@@ -829,7 +830,12 @@ fn kept_kind(kind: crate::stub::Kind) -> bool {
     use crate::stub::Kind;
     !matches!(
         kind,
-        Kind::ToolCall | Kind::Recall | Kind::Arrangement | Kind::Synthesis | Kind::Erased
+        Kind::ToolCall
+            | Kind::Recall
+            | Kind::Arrangement
+            | Kind::Moved
+            | Kind::Synthesis
+            | Kind::Erased
     )
 }
 
@@ -851,6 +857,7 @@ fn shape_of(n: &Node, nodes: &Transcript) -> Option<(Shape, bool)> {
         Body::ToolCall { .. }
         | Body::Recall { .. }
         | Body::Arrangement { .. }
+        | Body::Moved { .. }
         | Body::Synthesis { .. }
         | Body::Erased { .. } => None,
     }

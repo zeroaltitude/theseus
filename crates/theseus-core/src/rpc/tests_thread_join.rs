@@ -380,12 +380,13 @@ async fn a_merge_with_a_sealed_thread_is_sealed_and_so_is_a_split_of_one() {
     turn(c, &s, "A question about the weir.").await;
     seal(c, "e");
     let first = pos_of(c, &s, "A question");
+    let last = said(c, &s).last().unwrap().0;
     let res = c
         .thread_split(
             &ThreadSplitParams {
                 from: "e".into(),
                 slug: "e-part".into(),
-                range: Some([first, first]),
+                range: Some([first, last]),
                 ..Default::default()
             },
             cli(),
@@ -546,8 +547,8 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
     assert_eq!(got, want);
     assert!(got[0].1.contains("Why is the log disk") && got[5].1.contains("Answer 5"));
 
-    // The source: every node it had, one note more, and the same bytes in
-    // the request that follows.
+    // The source: every node it had, one record more (the moved range's),
+    // and a compile that leaves the turns out.
     let after = c.store.transcript(&a).unwrap();
     assert_eq!(
         before
@@ -561,8 +562,14 @@ async fn a_split_quotes_exactly_the_chosen_turns_and_moves_nothing() {
             .collect::<Vec<_>>()
     );
     assert_eq!(after.len(), before.len() + 1);
-    let note = crate::arrangement::text_of(&after.last().unwrap().1).unwrap();
-    assert!(note.starts_with("Split to «disk»"), "{note}");
+    let Body::Moved { thread, nodes, .. } = &after.last().unwrap().1.body else {
+        panic!("{:?}", after.last().unwrap().1.body)
+    };
+    assert_eq!(thread, "disk");
+    assert!(
+        nodes.len() >= want.len(),
+        "every quoted message left the compile"
+    );
 
     both_go_on(&r, &sid, &a, &want, &last_before).await;
 }
@@ -593,19 +600,22 @@ async fn both_go_on(
         "the other concern stayed behind"
     );
     assert!(seen.contains("split out of the thread harbour"), "{seen}");
-    // And A goes on: its request is the earlier one's bytes, the reply, the
-    // note, and the new message.
+    // And A goes on: its request lacks the moved turns, holds the moved line
+    // where they began, and keeps the rest.
     turn(c, a, "Back to the tides, please.").await;
     let reqs = r.model.requests.lock().unwrap().clone();
     assert!(reqs.len() > requests_before);
     let next = reqs.last().unwrap();
     let old = serde_json::to_string(&last_before.messages).unwrap();
     let new = serde_json::to_string(&next.messages).unwrap();
-    assert!(
-        new.starts_with(old.trim_end_matches(']')),
-        "A's earlier request is a prefix of its next one"
+    assert!(old.contains("Why is the log disk"));
+    assert_eq!(
+        new.matches("Why is the log disk").count(),
+        1,
+        "only in the line's gist"
     );
-    assert!(new.contains("Split to «disk»"));
+    assert!(!new.contains("Which file is the biggest") && new.contains("tide table for Friday"));
+    assert!(new.contains("moved to thread «disk»"));
 }
 
 #[test]
@@ -883,12 +893,13 @@ async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
         })
         .unwrap();
     let p = pos_of(c, &a, "Where is the weir");
+    let last = said(c, &a).last().unwrap().0;
     let res = c
         .thread_split(
             &ThreadSplitParams {
                 from: "harbour".into(),
                 slug: "weir".into(),
-                range: Some([p, p]),
+                range: Some([p, last]),
                 ..Default::default()
             },
             cli(),

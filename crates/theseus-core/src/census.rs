@@ -137,6 +137,19 @@ impl TurnRunner {
         place_kind: &str,
         live: &str,
     ) -> Result<NextRequest> {
+        self.census_request_with(rec, place_kind, live, None)
+    }
+
+    /// `census_request` over the session's transcript with one more node written at its end, that
+    /// nothing wrote: a split's dry run reads the next request as a `Moved` node would leave it
+    /// (theseus-q9b85).
+    pub fn census_request_with(
+        &self,
+        rec: Option<&SessionRecord>,
+        place_kind: &str,
+        live: &str,
+        extra: Option<&crate::node::Node>,
+    ) -> Result<NextRequest> {
         let (kind, view, sid, mut notes) = self.census_place(rec, place_kind);
         let target = self.census_target(rec, place_kind, live)?;
         let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
@@ -162,29 +175,24 @@ impl TurnRunner {
             notes.push("a fresh session has no category guidance yet".to_string());
         }
         let standing = self.census_standing(&sid, target.persona.as_deref(), view.class, &mut spec);
-        let nodes = match rec {
+        let mut nodes = match rec {
             Some(r) => self.store.transcript(&r.session_id)?,
             None => Vec::new(),
         };
+        if let Some(n) = extra {
+            let at = self.store.last_position();
+            nodes.push((
+                at,
+                crate::stub::Stub::hydrated(at, std::sync::Arc::new(n.clone())),
+            ));
+        }
         let hidden = rec.map(|r| r.not_shown.as_slice()).unwrap_or_default();
         let (nodes, _) = self.stubbed_view(&sid, &spec.model, hidden, nodes, None);
         let current = match rec.and_then(|r| r.compilation_id.as_deref()) {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
         };
-        let recalls = nodes
-            .iter()
-            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let recall_tokens = recalls
-            .clone()
-            .map(|(_, n)| match &n.body {
-                crate::node::Body::Recall { items, .. } => items.iter().map(|i| i.tokens).sum(),
-                _ => 0,
-            })
-            .sum();
-        let sources = self
-            .memory
-            .read_sources(&self.store, recalls.map(|(_, n)| &**n));
+        let (recall_tokens, sources) = self.recall_part(&nodes);
         let situation = crate::compiler::situation::given(false, false, false);
         let compiled = crate::compiler::compile(crate::compiler::CompileInput {
             session_id: &sid,
@@ -239,6 +247,28 @@ impl TurnRunner {
             spec,
             notes,
         })
+    }
+
+    /// The tokens of the recall notes a transcript holds, and the sources they render from.
+    fn recall_part(
+        &self,
+        nodes: &crate::store::Transcript,
+    ) -> (u64, crate::recall::render::Sources) {
+        let recalls = nodes
+            .iter()
+            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
+        let tokens = recalls
+            .clone()
+            .map(|(_, n)| match &n.body {
+                crate::node::Body::Recall { items, .. } => items.iter().map(|i| i.tokens).sum(),
+                _ => 0,
+            })
+            .sum();
+        (
+            tokens,
+            self.memory
+                .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
+        )
     }
 
     /// The kind of session, the place it speaks in and its id for a census: the session's own, or a fresh

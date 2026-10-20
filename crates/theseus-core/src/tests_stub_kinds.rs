@@ -33,10 +33,31 @@ fn number(b: &Body) -> usize {
         Body::Imported { .. } => 8,
         Body::ImportedSummary { .. } => 9,
         Body::Erased { .. } => 10,
+        Body::Moved { .. } => 11,
     }
 }
 
-const VARIANTS: usize = 11;
+const VARIANTS: usize = 12;
+
+/// A moved range's record (theseus-q9b85).
+fn moved_sample() -> Node {
+    Node::harness_body(
+        "mov",
+        SID,
+        "harness:moved",
+        Body::Moved {
+            split: "spl_1".into(),
+            undoes: None,
+            thread: "gauges".into(),
+            to_session: "ses_gauges".into(),
+            nodes: vec!["msg_x".into()],
+            first: 3,
+            last: 7,
+            gist: "the wren's songs".into(),
+            quiet: false,
+        },
+    )
+}
 
 fn sample(i: usize) -> Node {
     match i {
@@ -127,6 +148,7 @@ fn sample(i: usize) -> Node {
             },
         ),
         8..=10 => import_sample(i),
+        11 => moved_sample(),
         _ => unreachable!(),
     }
 }
@@ -194,6 +216,7 @@ fn expected(i: usize) -> Kind {
         Kind::Imported,
         Kind::ImportedSummary,
         Kind::Erased,
+        Kind::Moved,
     ][i]
 }
 

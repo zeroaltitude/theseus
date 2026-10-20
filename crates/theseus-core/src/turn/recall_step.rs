@@ -245,7 +245,12 @@ impl TurnRunner {
             // a compaction, the summarized range is out of it (30c).
             let floor = crate::compiler::compaction::floor(&nodes).map(|(_, last)| last);
             let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
-            for (_, n) in nodes.iter().filter(|(p, _)| *p > after) {
+            // A range a split moved is out of the compile, so recall may bring it back.
+            let moves = crate::moved::read(&nodes);
+            for (_, n) in nodes
+                .iter()
+                .filter(|(p, n)| *p > after && !moves.hidden.contains(&n.id))
+            {
                 in_context.insert(n.id.clone());
                 if n.kind != crate::stub::Kind::Recall {
                     continue;
@@ -510,10 +515,21 @@ impl TurnRunner {
                 .flatten();
             let mut header =
                 render::item_header(&source, item.position, &place, chunk, session.as_ref());
-            if let Some(title) = threads
-                .as_ref()
-                .and_then(|th| th.other_title(&item.session_id))
-            {
+            // A node a split moved is credited to the thread it moved to (theseus-q9b85).
+            let moved = self
+                .store
+                .get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(
+                    &item.node_id,
+                ))
+                .ok()
+                .flatten()
+                .flatten()
+                .and_then(|m| threads.as_ref().and_then(|th| th.other_title_of(&m.thread)));
+            if let Some(title) = moved.or_else(|| {
+                threads
+                    .as_ref()
+                    .and_then(|th| th.other_title(&item.session_id))
+            }) {
                 header = format!(
                     "{} {header}",
                     render::thread_mark(&title, &source, item.position)

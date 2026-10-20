@@ -18,27 +18,24 @@
 use std::cell::{Cell, RefCell};
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::{json, Value};
+use theseus_protocol::method;
 use theseus_protocol::threads::{
-    place_of, slug_ok, ThreadInfo, ThreadMergeParams, ThreadMergeResult, ThreadNameParams,
-    ThreadSplitParams, ThreadSplitResult, ThreadState,
+    ThreadInfo, ThreadMergeParams, ThreadMergeResult, ThreadNameParams, ThreadSplitParams,
+    ThreadState,
 };
-use theseus_protocol::{error_code, method, SessionOpenParams};
 use theseus_store::{kinds, NewRecord};
 
 use super::server::{route, Conn, RpcFailure};
-use super::threads::{failure, line};
+use super::threads::failure;
 use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
-use crate::fact::thread::{ThreadMerged, ThreadSplit, ThreadUnmerged};
+use crate::fact::thread::{ThreadMerged, ThreadUnmerged};
 use crate::node::{Node, Origin};
 use crate::session::SessionRecord;
 use crate::thread_join::{
-    day, merge_key, merged_card, merged_note, split_note, union_set, union_topics, with_line,
-    MergeRecord,
+    day, merge_key, merged_card, merged_note, union_set, union_topics, with_line, MergeRecord,
 };
-use crate::thread_split::{self, Pick};
 
 /// The author of the notes a join leaves in a session.
 const NOTE_AUTHOR: &str = "thread";
@@ -58,6 +55,15 @@ impl Core {
             method::THREAD_UNMERGE => route(params, |p: ThreadNameParams| {
                 self.thread_unmerge(&p.slug, conn.answerer(p.author, p.discord))
             }),
+            method::THREAD_SPLIT_PLAN => route(params, |p: ThreadSplitParams| {
+                self.thread_split_plan(&p, conn.answerer(p.author.clone(), p.discord.clone()))
+            }),
+            method::THREAD_UNSPLIT => route(
+                params,
+                |p: theseus_protocol::threads::ThreadUnsplitParams| {
+                    self.thread_unsplit(&p, conn.answerer(p.author.clone(), p.discord.clone()))
+                },
+            ),
             _ => route(params, |p: ThreadSplitParams| {
                 self.thread_split(&p, conn.answerer(p.author.clone(), p.discord.clone()))
             }),
@@ -265,294 +271,6 @@ impl Core {
         Ok(self.join_result(a, b, vec![]))
     }
 
-    /// `thread.split`, from a person: turns of `from` by position.
-    pub fn thread_split(
-        &self,
-        p: &ThreadSplitParams,
-        who: impl Into<Answerer>,
-    ) -> Result<ThreadSplitResult, RpcFailure> {
-        let who = who.into();
-        self.judge_thread_pair(&who, method::THREAD_SPLIT, &p.from, &p.slug)?;
-        let pick = match (&p.range, &p.positions) {
-            (Some([a, b]), None) => Pick::Range(*a, *b),
-            (None, Some(ps)) if !ps.is_empty() => Pick::Positions(ps.clone()),
-            _ => {
-                return Err(RpcFailure::invalid(anyhow!(
-                    "name the turns to split: a range [first, last] of positions, or a list of \
-                     positions (the `@` numbers of `theseus history`)"
-                )))
-            }
-        };
-        let ask = SplitAsk {
-            from: p.from.trim(),
-            slug: &p.slug,
-            title: p.title.as_deref(),
-            goal: p.goal.as_deref(),
-            pick,
-            who: &who.who(),
-            via: &who.via(),
-            note: Note::Node,
-        };
-        self.split_thread(&ask).map(|(r, _)| r)
-    }
-
-    /// `thread.split`, from the model's tool in the session `session`, which
-    /// serves the thread to split. Its result text is the note the source
-    /// keeps, so nothing else is written there; the owner's tap was the gate.
-    pub fn split_from_session(
-        &self,
-        session: &str,
-        slug: &str,
-        title: Option<&str>,
-        goal: Option<&str>,
-        pick: Pick,
-    ) -> Result<(String, Value), String> {
-        let from = self
-            .threads()
-            .of_session(session)
-            .map(|t| t.slug.clone())
-            .ok_or("Not split: this session serves no thread")?;
-        let ask = SplitAsk {
-            from: &from,
-            slug,
-            title,
-            goal,
-            pick,
-            who: "model",
-            via: thread_split::SPLIT,
-            note: Note::Result,
-        };
-        let (r, text) = self
-            .split_thread(&ask)
-            .map_err(|e| format!("Not split: {}", e.message))?;
-        let meta = json!({"thread": r.thread.thread.slug, "from": from, "quoted": r.quoted,
-                          "first_pos": r.first_pos, "last_pos": r.last_pos});
-        Ok((text, meta))
-    }
-
-    /// Open the new thread with the turns quoted. The note for the source:
-    /// written to its tail (a person's call) or returned (the tool's result).
-    fn split_thread(&self, ask: &SplitAsk<'_>) -> Result<(ThreadSplitResult, String), RpcFailure> {
-        let Planned {
-            new,
-            chosen,
-            source,
-            title,
-        } = self.plan_split(ask)?;
-        let slug = new.slug.clone();
-        let slug = slug.as_str();
-        let quoted = chosen.pieces.len() as u32;
-        let max_live = self.cfg.threads.max_live as usize;
-        // The session, holding what its source holds, with its brief and the
-        // quoted turns in place before any message can reach it.
-        let rec = self
-            .open_session(SessionOpenParams {
-                label: Some(place_of(slug)),
-                opened_from: Some(source.clone()),
-                ..SessionOpenParams::default()
-            })
-            .map_err(RpcFailure::invalid)?;
-        let sid = rec.session_id.clone();
-        if let Err(e) = self.write_quoted_turns(&rec, &new, ask.from, &chosen) {
-            self.drop_orphan(&sid);
-            return Err(RpcFailure::invalid(e));
-        }
-        let place = place_of(slug);
-        let bound = self
-            .outbox
-            .place_record(&place, &sid)
-            .map_err(RpcFailure::invalid)?;
-        let (from_s, pos) = (ask.from.to_string(), (chosen.first_pos, chosen.last_pos));
-        let written = self
-            .runner
-            .threads
-            .write_bound(
-                &self.store,
-                |board| {
-                    refuse_taken(board, slug, max_live).map_err(|e| anyhow!(e.message))?;
-                    let a = board.get(&from_s).ok_or_else(|| no_thread(&from_s))?;
-                    if a.merged_into.is_some() {
-                        bail!("the thread {from_s} was merged away while the split opened");
-                    }
-                    Ok(vec![new.clone()])
-                },
-                |_, ts| {
-                    Ok(vec![
-                        bound,
-                        fact::row(
-                            &ThreadSplit {
-                                thread: &ts[0],
-                                from: &from_s,
-                                quoted,
-                                first_pos: pos.0,
-                                last_pos: pos.1,
-                                who: ask.who,
-                                via: ask.via,
-                            },
-                            None,
-                            None,
-                        )?,
-                    ])
-                },
-                Some((slug, &sid)),
-            )
-            .map_err(|e| {
-                self.drop_orphan(&sid);
-                RpcFailure::invalid(e)
-            })?;
-        let mut t = written.into_iter().next().expect("one thread");
-        t.session_id = Some(sid.clone());
-        if let Err(e) = self.outbox.place_bound(&place, &sid) {
-            tracing::warn!(thread = %slug, error = %format!("{e:#}"), "the split thread's place was not bound");
-        }
-        self.rec(None).announce(&ThreadSplit {
-            thread: &t,
-            from: ask.from,
-            quoted,
-            first_pos: pos.0,
-            last_pos: pos.1,
-            who: ask.who,
-            via: ask.via,
-        });
-        let text = split_note(ask.from, slug, &title, quoted, pos.0, pos.1);
-        let noted = match ask.note {
-            Note::Result => true,
-            Note::Node => self.write_tail_note(&source, &text).is_ok_and(|()| true),
-        };
-        let thread = self.thread_rows(&mut [t]).pop().expect("one row");
-        Ok((
-            ThreadSplitResult {
-                thread,
-                from: ask.from.to_string(),
-                quoted,
-                first_pos: pos.0,
-                last_pos: pos.1,
-                noted,
-            },
-            text,
-        ))
-    }
-
-    /// What a split will make, read and refused before anything is opened:
-    /// the new thread's record, the turns it quotes, the source's session.
-    fn plan_split(&self, ask: &SplitAsk<'_>) -> Result<Planned, RpcFailure> {
-        self.threads_on()?;
-        let slug = ask.slug.trim();
-        if !slug_ok(slug) {
-            return Err(RpcFailure::invalid(anyhow!(
-                "{slug:?} is not a slug: lower-case letters, digits and hyphens, at most 40, \
-                 starting with a letter or digit"
-            )));
-        }
-        let title = match ask.title {
-            Some(t) => line(t, "title")?,
-            None => slug.to_string(),
-        };
-        let goal = line(ask.goal.unwrap_or(""), "goal")?;
-        let board = self.threads();
-        let a = board.get(ask.from).ok_or_else(|| {
-            RpcFailure::new(error_code::NOT_FOUND, no_thread(ask.from).to_string())
-        })?;
-        if let Some(m) = &a.merged_into {
-            return Err(RpcFailure::invalid(anyhow!(
-                "the thread {} was merged into {m}: split from that one",
-                a.slug
-            )));
-        }
-        let source = a.session_id.clone().ok_or_else(|| {
-            RpcFailure::invalid(anyhow!(
-                "the thread {} has no turns yet: nothing to split",
-                a.slug
-            ))
-        })?;
-        let nodes = self
-            .store
-            .transcript(&source)
-            .map_err(|e| RpcFailure::invalid(anyhow!("{e:#}")))?;
-        let chosen =
-            thread_split::choose(&nodes, &ask.pick).map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
-        let quoted = chosen.pieces.len() as u32;
-        let now = theseus_protocol::now_unix_ms();
-        let max_live = self.cfg.threads.max_live as usize;
-        let new = ThreadInfo {
-            slug: slug.to_string(),
-            title: title.clone(),
-            goal,
-            topics: a.topics.clone(),
-            working_set: chosen.working_set.clone(),
-            card: vec![format!(
-                "split from «{}», {}: {} quoted at the head of this thread.",
-                a.slug,
-                day(now),
-                crate::narrative::count(quoted as u64, "message", "messages")
-            )],
-            persona: a.persona.clone(),
-            state: ThreadState::Active,
-            sealed: a.sealed.clone(),
-            seal_pending: a.seal_pending.clone(),
-            surfaces: vec![],
-            parent: None,
-            merged_into: None,
-            split_from: Some(a.slug.clone()),
-            session_id: None,
-            last_active_ms: now,
-            created_at_ms: now,
-        };
-        // Cheap refusals before anything is opened; the write checks again
-        // under the board's lock.
-        refuse_taken(&board, slug, max_live)?;
-        Ok(Planned {
-            new,
-            chosen,
-            source,
-            title,
-        })
-    }
-
-    /// The new session's first nodes: the brief, the arrangement of quoted
-    /// turns, and an edge from the arrangement to each quoted node. One frame
-    /// under the session's execution.
-    fn write_quoted_turns(
-        &self,
-        rec: &SessionRecord,
-        new: &ThreadInfo,
-        from: &str,
-        chosen: &thread_split::Chosen,
-    ) -> Result<()> {
-        let sid = &rec.session_id;
-        let exec = rec
-            .execution_id
-            .clone()
-            .ok_or_else(|| anyhow!("session {sid} has no execution"))?;
-        let author = format!("{}{from}", thread_split::AUTHOR_PREFIX);
-        let text = thread_split::brief(
-            new,
-            from,
-            chosen.pieces.len() as u32,
-            chosen.first_pos,
-            chosen.last_pos,
-        );
-        let brief = Node::relayed(sid, None, Origin::Harness, &author, &text);
-        let arrangement = Node::arrangement(sid, &author, chosen.pieces.clone(), false);
-        let mut records = vec![brief.record()?, arrangement.record()?];
-        for p in &chosen.pieces {
-            records.push(
-                crate::graph::Edge::new(
-                    crate::graph::EdgeKind::DerivedFrom,
-                    &arrangement.id,
-                    &p.node,
-                    crate::graph::VIA_ARRANGEMENT,
-                )
-                .record()?,
-            );
-        }
-        self.kernel.frame(&[&exec], |k| {
-            k.stage(&records)?;
-            Ok(())
-        })?;
-        Ok(())
-    }
-
     /// A session opened for a split that did not happen: retired, so it is
     /// not left looking like a conversation. Best effort, and said.
     pub(super) fn drop_orphan(&self, sid: &str) {
@@ -624,7 +342,7 @@ impl Core {
         }
     }
 
-    fn judge_thread_pair(
+    pub(super) fn judge_thread_pair(
         &self,
         who: &Answerer,
         method: &'static str,
@@ -643,40 +361,12 @@ impl Core {
     }
 }
 
-/// A split read and checked.
-struct Planned {
-    new: ThreadInfo,
-    chosen: thread_split::Chosen,
-    source: String,
-    title: String,
-}
-
-/// How a split names its source and where the source's note goes.
-struct SplitAsk<'a> {
-    from: &'a str,
-    slug: &'a str,
-    title: Option<&'a str>,
-    goal: Option<&'a str>,
-    pick: Pick,
-    who: &'a str,
-    via: &'a str,
-    note: Note,
-}
-
-#[derive(Clone, Copy)]
-enum Note {
-    /// A node at the source's tail.
-    Node,
-    /// The tool's result is the note.
-    Result,
-}
-
-fn no_thread(slug: &str) -> anyhow::Error {
+pub(super) fn no_thread(slug: &str) -> anyhow::Error {
     anyhow!("no thread {slug}: `theseus thread list` names them")
 }
 
 /// A slug taken, or the live limit reached.
-fn refuse_taken(
+pub(super) fn refuse_taken(
     board: &crate::threads::Board,
     slug: &str,
     max_live: usize,

@@ -106,6 +106,7 @@ pub fn header_in(
         Body::Recall { .. } => "a recall".to_string(),
         Body::Arrangement { .. } => "a task's arrangement".to_string(),
         Body::Summary { .. } => "a summary".to_string(),
+        Body::Moved { .. } => "a moved range's note".to_string(),
         Body::Synthesis { sources, .. } => format!("a synthesis of {} notes", sources.len()),
         // The operator's past history (theseus-0lrr.6): imported, whose,
         // and outside text named as such; its time is the message's own.

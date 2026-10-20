@@ -59,6 +59,9 @@ pub enum Pick {
     Range(u64, u64),
     /// The messages at these positions.
     Positions(Vec<u64>),
+    /// The messages in any of these inclusive position ranges (a home's old
+    /// streams interleave by date).
+    Ranges(Vec<(u64, u64)>),
     /// From the message `first` (a node id) through `last`, or, with none,
     /// through the end of the thread, up to but not including `stop` (the
     /// person's request that began the turn of the call that asked).
@@ -76,6 +79,10 @@ pub struct Chosen {
     pub first_pos: u64,
     pub last_pos: u64,
     pub working_set: WorkingSet,
+    /// With whole turns asked for: what leaves the source's compile.
+    pub closed: Option<crate::split_turns::Closed>,
+    /// What the range is about, when its owner did not say.
+    pub gist: String,
 }
 
 fn index_of(nodes: &Transcript, id: &str) -> Result<usize, String> {
@@ -94,6 +101,14 @@ fn indexes(nodes: &Transcript, pick: &Pick) -> Result<Vec<usize>, String> {
             }
             Ok((0..nodes.len())
                 .filter(|i| (*a..=*b).contains(&nodes[*i].0))
+                .collect())
+        }
+        Pick::Ranges(rs) => {
+            if let Some((a, b)) = rs.iter().find(|(a, b)| a > b) {
+                return Err(format!("the range @{a} to @{b} ends before it begins"));
+            }
+            Ok((0..nodes.len())
+                .filter(|i| rs.iter().any(|(a, b)| (*a..=*b).contains(&nodes[*i].0)))
                 .collect())
         }
         Pick::Positions(ps) => {
@@ -198,8 +213,15 @@ fn working_set_of(nodes: &Transcript, idx: &[usize], texts: &[&str]) -> WorkingS
 /// The messages `pick` names, as the pieces of an arrangement, and what the
 /// turns touched. Only messages with text are quoted (a call is read with its
 /// result); an empty choice, or one past the limits, is said.
-pub fn choose(nodes: &Transcript, pick: &Pick) -> Result<Chosen, String> {
+pub fn choose(nodes: &Transcript, pick: &Pick, whole: bool) -> Result<Chosen, String> {
     let idx = indexes(nodes, pick)?;
+    if idx.is_empty() {
+        return Err("no message is in the part chosen: nothing to split".into());
+    }
+    let closed = whole
+        .then(|| crate::split_turns::close(nodes, &idx))
+        .transpose()?;
+    let gist = crate::split_turns::default_gist(nodes, &idx);
     let mut pieces = Vec::new();
     let mut texts: Vec<String> = Vec::new();
     let (mut first_pos, mut last_pos) = (u64::MAX, 0);
@@ -241,7 +263,8 @@ pub fn choose(nodes: &Transcript, pick: &Pick) -> Result<Chosen, String> {
     if pieces.len() > MAX_PIECES || chars > MAX_CHARS {
         return Err(format!(
             "the part chosen is {} messages and {chars} characters, over the {MAX_PIECES} messages \
-             or {MAX_CHARS} characters a new thread opens with: split a smaller part",
+             or {MAX_CHARS} characters one split carries: split it in parts, each its own `thread \
+             split` into the same thread (`--into`), the turns in their order",
             pieces.len()
         ));
     }
@@ -251,7 +274,21 @@ pub fn choose(nodes: &Transcript, pick: &Pick) -> Result<Chosen, String> {
         first_pos,
         last_pos,
         working_set: working_set_of(nodes, &idx, &refs),
+        closed,
+        gist,
     })
+}
+
+/// The first message of an existing thread's session after turns are quoted into it: what they
+/// are and where they came from. The arrangement follows it, at the tail.
+pub fn brief_into(slug: &str, from: &str, quoted: u32, first: u64, last: u64) -> String {
+    format!(
+        "{} moved into this thread, {slug}, from {from} on {}: the part of {from} that is this \
+         thread's concern, quoted verbatim from @{first} to @{last} of it, in the order they were \
+         said. Nothing of {from} was deleted; its own conversation goes on without them.",
+        crate::narrative::count(quoted as u64, "message", "messages"),
+        crate::thread_join::day(theseus_protocol::now_unix_ms()),
+    )
 }
 
 /// The first message of a new thread's session: what it is, where its turns
@@ -540,7 +577,7 @@ mod tests {
     #[test]
     fn a_range_quotes_exactly_the_messages_in_it() {
         let t = transcript();
-        let c = choose(&t, &Pick::Range(20, 30)).unwrap();
+        let c = choose(&t, &Pick::Range(20, 30), false).unwrap();
         assert_eq!(
             texts(&c),
             [
@@ -554,14 +591,14 @@ mod tests {
             .pieces
             .iter()
             .all(|p| p.role == Role::Context && p.superseded_by.is_none()));
-        let one = choose(&t, &Pick::Range(10, 10)).unwrap();
+        let one = choose(&t, &Pick::Range(10, 10), false).unwrap();
         assert_eq!(texts(&one), ["What is the tide table for Friday?"]);
     }
 
     #[test]
     fn positions_quote_those_messages_and_a_missing_one_is_said() {
         let t = transcript();
-        let c = choose(&t, &Pick::Positions(vec![30, 10])).unwrap();
+        let c = choose(&t, &Pick::Positions(vec![30, 10]), false).unwrap();
         assert_eq!(
             texts(&c),
             [
@@ -570,11 +607,11 @@ mod tests {
             ],
             "the source's order, not the order asked"
         );
-        let e = choose(&t, &Pick::Positions(vec![11])).unwrap_err();
+        let e = choose(&t, &Pick::Positions(vec![11]), false).unwrap_err();
         assert!(e.contains("no message at @11"), "{e}");
-        let e = choose(&t, &Pick::Range(30, 20)).unwrap_err();
+        let e = choose(&t, &Pick::Range(30, 20), false).unwrap_err();
         assert!(e.contains("ends before it begins"), "{e}");
-        let e = choose(&t, &Pick::Range(21, 21)).unwrap_err();
+        let e = choose(&t, &Pick::Range(21, 21), false).unwrap_err();
         assert!(
             e.contains("nothing to split"),
             "a call alone has no text: {e}"
@@ -594,6 +631,7 @@ mod tests {
                 last: None,
                 stop: Some(id(5)),
             },
+            false,
         )
         .unwrap();
         assert_eq!(c.pieces.len(), 2, "through the message before the stop");
@@ -604,6 +642,7 @@ mod tests {
                 last: None,
                 stop: None,
             },
+            false,
         )
         .unwrap();
         assert_eq!(c.pieces.len(), 3);
@@ -614,6 +653,7 @@ mod tests {
                 last: Some(id(1)),
                 stop: None,
             },
+            false,
         )
         .unwrap();
         assert_eq!(c.pieces.len(), 1);
@@ -624,6 +664,7 @@ mod tests {
                 last: Some(id(1)),
                 stop: None,
             },
+            false,
         )
         .unwrap_err();
         assert!(e.contains("comes before"), "{e}");
@@ -634,12 +675,12 @@ mod tests {
     #[test]
     fn the_working_set_is_what_the_chosen_turns_touched() {
         let t = transcript();
-        let c = choose(&t, &Pick::Range(20, 30)).unwrap();
+        let c = choose(&t, &Pick::Range(20, 30), false).unwrap();
         let w = c.working_set;
         assert_eq!(w.files, ["/var/log/gauge.log"]);
         assert_eq!(w.hosts, ["metrics.example.org"]);
         assert_eq!(w.refs, ["#41", "#7"]);
-        let none = choose(&t, &Pick::Range(10, 10)).unwrap().working_set;
+        let none = choose(&t, &Pick::Range(10, 10), false).unwrap().working_set;
         assert!(none.is_empty(), "{none:?}");
     }
 
@@ -654,9 +695,9 @@ mod tests {
                 )
             })
             .collect();
-        let e = choose(&t, &Pick::Range(1, 30)).unwrap_err();
-        assert!(e.contains("split a smaller part"), "{e}");
-        assert!(choose(&t, &Pick::Range(1, 5)).is_ok());
+        let e = choose(&t, &Pick::Range(1, 30), false).unwrap_err();
+        assert!(e.contains("split it in parts"), "{e}");
+        assert!(choose(&t, &Pick::Range(1, 5), false).is_ok());
     }
 
     #[test]
