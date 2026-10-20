@@ -2,9 +2,9 @@
 // Invented categories and sessions.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
+import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
 import { readFileSync } from 'node:fs'
-import { ancestorsOf, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, nothingPending, parents, pendingOf, recordedOf, shown, treeOrder, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
+import { ancestorsOf, confidenceWords, GROWTH_DAYS, growthOf, growthWords, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, judgmentHref, lastDays, mintedOf, nothingPending, parents, pendingOf, recordedOf, seriesOf, shown, treeOrder, undoAsk, undoneWrites, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
 
 const cat = (id: string, name: string, parent?: string, guidance?: [number, string], members = 0): OntologyCategory => ({
   id, kind: id.split(':')[0], name, parent, depth: 1, description: '', added_by: 'the operator', members,
@@ -156,4 +156,144 @@ test('the view starts with every group closed, opens a selected category’s gro
   assert.match(v, /const \[groupsOpen, setGroupsOpen\] = useState<Set<string>>\(new Set\(\)\)/)
   assert.match(v, /groupKeyOf\(groups, selected\)/)
   assert.match(v, /\{gopen\.has\(g\.key\) && visibleOf\(g\)\.map\(/)
+})
+
+// ---------------------------------------------------------------- growth: the chart and the minted list
+
+// A fixture ledger on invented days. `NOW` is noon on the 20th of October; local noon keeps a row on its day in any zone.
+const NOW = new Date(2026, 9, 20, 12)
+const at = (daysAgo: number, hour = 9) => new Date(2026, 9, 20 - daysAgo, hour).getTime()
+let pos = 0
+const row = (kind: string, when: number, data: unknown, session: string | null = null): LedgerEntry =>
+  ({ position: ++pos, at_unix_ms: when, kind, session_id: session, turn_id: null, data })
+const undoRec = (write: string, key: string, wrote: unknown, before: unknown = null) => ({ write, key, wrote, before })
+const catRow = (when: number, id: string, origin: string, undo?: ReturnType<typeof undoRec>) =>
+  row('ontology.category', when, { id, kind: id.split(':')[0], name: id.split(':')[1], parent: null, origin, who: 'x', via: 'y', ...(undo ? { undo } : {}) })
+const memRow = (when: number, session: string, write: string, category: string, confidence: number) =>
+  row('ontology.membership', when, {
+    kind: 'topic', categories: [category], who: 'x', via: 'machine',
+    undo: undoRec(write, `onto:member:${session}:topic`, { session, kind: 'topic', members: [{ category, origin: 'jev', confidence, as_of_ms: 1 }] }),
+  }, session)
+const kindRow = (when: number, name: string, retired = false) => row('ontology.kind', when, { name, version: 1, retired, assigned_by: ['jev'], who: 'x', via: 'y' })
+const undoRow = (when: number, write: string) => row('ontology.undo', when, { write, label: 'wrong', keys: ['k'], who: 'x', via: 'y' })
+
+const ledger: LedgerEntry[] = [
+  catRow(at(200), 'topic:old', 'operator'),                                                  // before the window: not counted
+  catRow(at(10), 'topic:lab', 'operator'),
+  catRow(at(3, 8), 'topic:kelp', 'jev', undoRec('j1', 'onto:cat:topic:kelp', { id: 'topic:kelp' })),
+  memRow(at(3, 8), 'ses_a', 'j1', 'topic:kelp', 0.82),
+  catRow(at(3, 10), 'topic:tides', 'jev', undoRec('j2', 'onto:cat:topic:tides', { id: 'topic:tides' })),
+  catRow(at(3, 10), 'topic:tides', 'jev'),                                                   // a change of the same id: not a new one
+  memRow(at(3, 10), 'ses_b', 'j2', 'topic:tides', 0.64),
+  undoRow(at(2), 'j2'),
+  catRow(at(1), 'topic:moss', 'sweep', undoRec('s1', 'onto:cat:topic:moss', { id: 'topic:moss' })),
+  catRow(at(1), 'topic:reed', 'sweep', undoRec('s1', 'onto:cat:topic:reed', { id: 'topic:reed' })),
+  catRow(at(0), 'topic:adopted', 'jev', undoRec('j3', 'onto:cat:topic:adopted', { id: 'topic:adopted' }, { id: 'topic:adopted', was: 'earlier' })),
+  kindRow(at(5), 'expertise'),
+  kindRow(at(4), 'expertise'),                                                               // a second row of the same kind
+  kindRow(at(4), 'culture', true),                                                           // a retire is not an addition
+  kindRow(at(0), 'resource'),
+]
+
+test('the window is ninety local days ending today, by the calendar', () => {
+  const days = lastDays(NOW, GROWTH_DAYS)
+  assert.equal(days.length, 90)
+  assert.equal(days.at(-1), '2026-10-20')
+  assert.equal(days.at(-2), '2026-10-19')
+  assert.equal(days[0], '2026-07-23')
+  assert.equal(new Set(days).size, 90)
+})
+
+test('a spring-forward day, 23 hours long, is still one day of the window', () => {
+  // A zone that shifts its clocks, set for this test alone: 24-hour steps back from 00:30 on the 9th skip the 8th.
+  const was = process.env.TZ
+  process.env.TZ = 'America/New_York'
+  try {
+    assert.deepEqual(lastDays(new Date(2026, 2, 9, 0, 30), 4), ['2026-03-06', '2026-03-07', '2026-03-08', '2026-03-09'])
+  } finally {
+    if (was === undefined) delete process.env.TZ
+    else process.env.TZ = was
+  }
+})
+
+test('the growth chart stacks categories by origin per day, counts kinds, and marks undone writes', () => {
+  const g = growthOf(ledger, NOW)
+  assert.equal(g.days.length, 90)
+  const on = (daysAgo: number) => g.days.find((d) => d.day === `2026-10-${String(20 - daysAgo).padStart(2, '0')}`)!
+  assert.deepEqual(on(10).categories, { operator: 1 })
+  assert.deepEqual(on(3).categories, { jev: 2 })
+  assert.equal(on(3).undone, 1, 'the write j2 was taken back: its day is marked')
+  assert.deepEqual(on(1).categories, { sweep: 2 })
+  assert.equal(on(1).undone, 0)
+  assert.deepEqual(on(0).categories, { jev: 1 })
+  assert.equal(on(5).kinds, 1)
+  assert.equal(on(4).kinds, 0, 'a second row of a kind, and a retire, are not additions')
+  assert.equal(on(0).kinds, 1)
+  assert.deepEqual(g.origins, ['operator', 'jev', 'sweep'], 'the owner first, the machines after')
+  assert.equal(g.made, 6)
+  assert.equal(g.undone, 1)
+  assert.equal(g.kinds, 2)
+  assert.equal(growthWords(g), '6 categories made, 1 taken back and 2 kinds added in 90 days')
+})
+
+test('a snapshot of the growth panel from the fixture ledger', () => {
+  const s = seriesOf(growthOf(ledger, NOW))
+  const tail = (xs: number[]) => xs.slice(-11)
+  assert.deepEqual(s.days.slice(-11), ['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18', '2026-10-19', '2026-10-20'])
+  assert.deepEqual(s.stacks.map((x) => [x.origin, tail(x.values)]), [
+    ['operator', [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
+    ['jev', [0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1]],
+    ['sweep', [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]],
+  ])
+  assert.deepEqual(tail(s.kinds), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+  assert.deepEqual(tail(s.undone), [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+  assert.equal(s.max, 2)
+})
+
+test('a ledger with nothing of the ontology grows nothing, and a category outside the window is not counted', () => {
+  const g = growthOf([row('turn.start', at(1), {})], NOW)
+  assert.equal(g.made, 0)
+  assert.deepEqual(g.origins, [])
+  assert.ok(g.days.every((d) => d.kinds === 0 && Object.keys(d.categories).length === 0))
+  assert.equal(growthWords(g), '0 categories made and 0 kinds added in 90 days')
+  assert.equal(growthOf(ledger, NOW).days.some((d) => d.day === '2026-04-02'), false)
+})
+
+test('the minted list is the machines new categories, newest first, with session, confidence and undo state', () => {
+  const m = mintedOf(ledger)
+  assert.deepEqual(m.map((x) => x.category), ['topic:moss', 'topic:reed', 'topic:tides', 'topic:kelp'], 'a re-write (before not null) and an operator row are not mints')
+  const [moss, , tides, kelp] = m
+  assert.equal(moss.origin, 'sweep')
+  assert.equal(moss.siblings, 2, 'one write minted two categories')
+  assert.equal(moss.session, null, 'the category row has no session of its own')
+  assert.equal(kelp.write, 'j1')
+  assert.equal(kelp.session, 'ses_a')
+  assert.equal(kelp.confidence, 0.82)
+  assert.equal(kelp.undone, false)
+  assert.equal(kelp.undoneAt, null)
+  assert.equal(tides.confidence, 0.64)
+  assert.equal(tides.undone, true)
+  assert.equal(tides.undoneAt, at(2))
+  assert.equal(tides.siblings, 1)
+  assert.equal(moss.confidence, null, 'no membership row for the write: no confidence is invented')
+})
+
+test('the minted list can be narrowed to one origin', () => {
+  assert.deepEqual(mintedOf(ledger, ['jev']).map((x) => x.category), ['topic:tides', 'topic:kelp'])
+})
+
+test('an undo of a write names it, and the judgment link is its id', () => {
+  const [moss, , tides] = mintedOf(ledger)
+  assert.match(undoAsk(tides), /Undo the write j2 \(ontology\.undo\)\?/)
+  assert.match(undoAsk(tides), /the category tides \(topic:tides\)/)
+  assert.match(undoAsk(moss), /all 2 categories that write minted/)
+  assert.equal(judgmentHref('j2'), '/judgment?id=j2')
+  assert.equal(judgmentHref('a b&c'), '/judgment?id=a%20b%26c')
+  assert.equal(confidenceWords(0.5), '0.50')
+  assert.equal(confidenceWords(null), '—')
+})
+
+test('only the first undo of a write counts, and a row with no write is ignored', () => {
+  const u = undoneWrites([undoRow(100, 'w'), undoRow(200, 'w'), row('ontology.undo', 300, { label: 'wrong' })])
+  assert.deepEqual([...u], [['w', 100]])
 })

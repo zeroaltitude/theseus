@@ -1,7 +1,8 @@
 // The ontology view's pure parts (theseus-8kk.2): the category tree's order and depth, and what a session's memberships
 // and guidance say that its newest compilation's manifest does not yet. Pure, with no import but the protocol's types,
 // so `node --test` runs its test (`cockpit/test/ontology.test.ts`) as it is.
-import type { OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
+import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
+import { localDay } from './learning.ts'
 
 export interface TreeRow { category: OntologyCategory; depth: number }
 
@@ -220,3 +221,213 @@ export function refusalWords(e: unknown): string {
   const m = (e as { message?: unknown } | null)?.message
   return typeof m === 'string' && m ? m : String(e)
 }
+
+// ---------------------------------------------------------------- growth (theseus-dd3kw, R7)
+
+/** The origins that write through an undoable record: Jev, the sweep, and the dream. Their ledger rows carry `undo`. */
+export const MACHINE_ORIGINS: readonly string[] = ['jev', 'sweep', 'dream']
+
+/** The origins in the order a chart stacks them (the owner's own first, the machines last); one not named here is stacked
+ *  after these, by name. */
+export const ORIGIN_ORDER: readonly string[] = ['operator', 'transport', 'import', 'jev', 'sweep', 'dream']
+
+/** The window of the growth chart, in days. */
+export const GROWTH_DAYS = 90
+
+type D = Record<string, unknown>
+const obj = (v: unknown): D => (v && typeof v === 'object' && !Array.isArray(v) ? (v as D) : {})
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+
+/** The `undo` record a machine origin's ledger row carries: the write's id, the key, the record as written, and as it
+ *  was (`null` when it was new). `null` when the row has none. */
+function undoOf(data: D): { write: string; key: string; wrote: D; before: unknown } | null {
+  const u = obj(data.undo)
+  const write = str(u.write)
+  if (write === null) return null
+  return { write, key: str(u.key) ?? '', wrote: obj(u.wrote), before: u.before ?? null }
+}
+
+/** The writes the operator took back: the `write` of each `ontology.undo` row, each with the time of its first undo. */
+export function undoneWrites(rows: readonly LedgerEntry[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of rows) {
+    if (r.kind !== 'ontology.undo') continue
+    const w = str(obj(r.data).write)
+    if (w !== null && !out.has(w)) out.set(w, r.at_unix_ms)
+  }
+  return out
+}
+
+export interface GrowthDay {
+  /** The local date, `2026-10-04`. */
+  day: string
+  /** Categories made that day, by the origin that made them. */
+  categories: Record<string, number>
+  /** Kinds added that day. */
+  kinds: number
+  /** Of the categories made that day, how many a later undo took back (their own row stays; the mark says so). */
+  undone: number
+}
+
+export interface Growth {
+  /** `GROWTH_DAYS` days, oldest first, the last one today. */
+  days: GrowthDay[]
+  /** The origins seen in the window, in stacking order. */
+  origins: string[]
+  /** Categories made in the window, and of those, how many were taken back. */
+  made: number
+  undone: number
+  /** Kinds added in the window. */
+  kinds: number
+}
+
+/** The local dates of the `n` days that end at `now`'s, oldest first. Built from the calendar (not by 24-hour steps), so
+ *  a day that is 23 or 25 hours long is still one day. */
+export function lastDays(now: Date, n: number): string[] {
+  const out: string[] = []
+  for (let i = n - 1; i >= 0; i--) out.push(localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)))
+  return out
+}
+
+/** The ledger's `ontology.category` and `ontology.kind` rows folded by local day over the window. A category counts once,
+ *  on the day of its first row (a later row of the same id is a change, not a new category, and a category made before the
+ *  window is not counted in it); a kind counts on its first row that does not retire it. A category whose write was
+ *  undone is counted all the same, and marked in `undone` on its own day: the chart shows what was written and what was
+ *  taken back, not only what is left. */
+export function growthOf(rows: readonly LedgerEntry[], now: Date, days = GROWTH_DAYS): Growth {
+  const keys = lastDays(now, days)
+  const by = new Map(keys.map((d) => [d, { day: d, categories: {} as Record<string, number>, kinds: 0, undone: 0 } as GrowthDay]))
+  const undone = undoneWrites(rows)
+  const seenCategory = new Set<string>()
+  const seenKind = new Set<string>()
+  const origins = new Set<string>()
+  let made = 0, took = 0, kinds = 0
+  for (const r of rows) {
+    if (r.kind !== 'ontology.category' && r.kind !== 'ontology.kind') continue
+    const d = obj(r.data)
+    const slot = by.get(localDay(new Date(r.at_unix_ms)))
+    if (r.kind === 'ontology.category') {
+      const id = str(d.id)
+      if (id === null || seenCategory.has(id)) continue
+      seenCategory.add(id)
+      if (!slot) continue
+      const origin = str(d.origin) ?? 'unknown'
+      origins.add(origin)
+      slot.categories[origin] = (slot.categories[origin] ?? 0) + 1
+      made++
+      const w = undoOf(d)?.write
+      if (w !== undefined && undone.has(w)) { slot.undone++; took++ }
+    } else {
+      const name = str(d.name)
+      if (name === null || d.retired === true || seenKind.has(name)) continue
+      seenKind.add(name)
+      if (!slot) continue
+      slot.kinds++
+      kinds++
+    }
+  }
+  const rank = (o: string) => { const i = ORIGIN_ORDER.indexOf(o); return i < 0 ? ORIGIN_ORDER.length : i }
+  const ordered = [...origins].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+  return { days: keys.map((k) => by.get(k)!), origins: ordered, made, undone: took, kinds }
+}
+
+export interface GrowthSeries {
+  days: string[]
+  /** One column per origin, stacked, a count a day. */
+  stacks: { origin: string; values: number[] }[]
+  kinds: number[]
+  undone: number[]
+  /** The tallest day's categories, for the axis. */
+  max: number
+}
+
+/** The growth as a chart reads it: columns by origin, and the lines for kinds and for undone writes. */
+export function seriesOf(g: Growth): GrowthSeries {
+  const stacks = g.origins.map((origin) => ({ origin, values: g.days.map((d) => d.categories[origin] ?? 0) }))
+  const max = Math.max(0, ...g.days.map((d) => Object.values(d.categories).reduce((a, b) => a + b, 0)))
+  return { days: g.days.map((d) => d.day), stacks, kinds: g.days.map((d) => d.kinds), undone: g.days.map((d) => d.undone), max }
+}
+
+/** The words under the chart: what the window holds. */
+export function growthWords(g: Growth): string {
+  const n = (k: number, one: string, many: string) => `${k.toLocaleString()} ${k === 1 ? one : many}`
+  const undone = g.undone > 0 ? `, ${g.undone.toLocaleString()} taken back` : ''
+  return `${n(g.made, 'category', 'categories')} made${undone} and ${n(g.kinds, 'kind', 'kinds')} added in ${g.days.length} days`
+}
+
+export interface Minted {
+  /** The write's id (a judgment's, for Jev's): what `ontology.undo` takes. One write may mint several categories. */
+  write: string
+  category: string
+  name: string
+  kind: string
+  parent: string | null
+  origin: string
+  /** When the category row was written, ms. */
+  at: number
+  /** The session whose memberships the write set, when the ledger holds that row. */
+  session: string | null
+  /** The origin's confidence in the membership it set, when the ledger holds it. */
+  confidence: number | null
+  undone: boolean
+  /** When the write was taken back, ms. */
+  undoneAt: number | null
+  /** How many categories this write minted: an undo takes all of them back. */
+  siblings: number
+}
+
+/** What a machine origin minted, newest first: the `ontology.category` rows that carry an `undo` whose `before` is null
+ *  (the category was new), each with its session and confidence from the write's membership row, and whether the write
+ *  was taken back. Rows of an operator or the transport carry no `undo` and are not in it. */
+export function mintedOf(rows: readonly LedgerEntry[], origins: readonly string[] = MACHINE_ORIGINS): Minted[] {
+  const undone = undoneWrites(rows)
+  // The membership rows of each write: its session, and the confidence it gave each category.
+  const lists = new Map<string, { session: string | null; confidence: Map<string, number> }>()
+  for (const r of rows) {
+    if (r.kind !== 'ontology.membership') continue
+    const u = undoOf(obj(r.data))
+    if (!u) continue
+    const wrote = u.wrote
+    const slot = lists.get(u.write) ?? { session: null, confidence: new Map<string, number>() }
+    slot.session ??= str(wrote.session) ?? r.session_id
+    for (const m of Array.isArray(wrote.members) ? wrote.members : []) {
+      const mo = obj(m)
+      const c = str(mo.category)
+      if (c !== null && typeof mo.confidence === 'number') slot.confidence.set(c, mo.confidence)
+    }
+    lists.set(u.write, slot)
+  }
+  const out: Minted[] = []
+  const seen = new Set<string>()
+  for (const r of rows) {
+    if (r.kind !== 'ontology.category') continue
+    const d = obj(r.data)
+    const origin = str(d.origin)
+    const u = undoOf(d)
+    const id = str(d.id)
+    if (!u || id === null || origin === null || !origins.includes(origin) || u.before !== null || seen.has(`${u.write}\u0000${id}`)) continue
+    seen.add(`${u.write}\u0000${id}`)
+    const list = lists.get(u.write)
+    out.push({
+      write: u.write, category: id, name: str(d.name) ?? id, kind: str(d.kind) ?? '', parent: str(d.parent), origin,
+      at: r.at_unix_ms, session: list?.session ?? r.session_id, confidence: list?.confidence.get(id) ?? null,
+      undone: undone.has(u.write), undoneAt: undone.get(u.write) ?? null, siblings: 0,
+    })
+  }
+  const per = new Map<string, number>()
+  for (const m of out) per.set(m.write, (per.get(m.write) ?? 0) + 1)
+  for (const m of out) m.siblings = per.get(m.write) ?? 1
+  return out.sort((a, b) => b.at - a.at || a.category.localeCompare(b.category))
+}
+
+/** The address of the judgment that made a write (the Judgment view reads `?id=`). */
+export const judgmentHref = (write: string): string => `/judgment?id=${encodeURIComponent(write)}`
+
+/** The confirm for an undo, in the words of what it sends: the write's id, and what it takes back. */
+export function undoAsk(m: Minted): string {
+  const what = m.siblings > 1 ? `all ${m.siblings} categories that write minted, ${m.name} among them` : `the category ${m.name} (${m.category})`
+  return `Undo the write ${m.write} (ontology.undo)?\n\nIt takes back ${what}, and puts the earlier member lists back as they were. It is labelled wrong in the learning ledger. A category another session now uses is kept, and the undo is refused.`
+}
+
+/** A confidence as the list shows it: `0.82`, or a dash when the ledger holds none. */
+export const confidenceWords = (c: number | null): string => (c === null ? '—' : c.toFixed(2))

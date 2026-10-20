@@ -16,6 +16,7 @@ import { useAsOf } from '@/lib/timemachine'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { Act, Refused, useInPast, useOntology, useOntologyWrite } from '@/components/OntologyParts'
 import { AddPerson, PeoplePanel, PersonPage, ProposalsPanel } from '@/components/People'
+import { GrowthPanel, MintedPanel } from '@/components/OntologyGrowth'
 
 const field = 'rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40 disabled:opacity-50'
 
@@ -73,6 +74,8 @@ export default function Ontology() {
           </tbody>
         </table></div>
       </Panel>
+      <GrowthPanel />
+      <MintedPanel disabled={past} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Panel help="ontology.categories" title={<>categories · {rows.length}{(branches.size > 0 || groups.length > 0) && (
           <span className="ml-2 normal-case tracking-normal">
