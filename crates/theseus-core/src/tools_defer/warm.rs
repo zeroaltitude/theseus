@@ -32,7 +32,7 @@ pub fn read(store: &Store, board: &Board, now_ms: u64, days: u64) -> anyhow::Res
     .iter()
     .map(|k| ledger_kind(k.as_str()))
     .collect();
-    let mut before = None;
+    let (mut before, mut applied, mut pages) = (None, 0u32, 0u32);
     loop {
         let page = Page {
             kind: kinds::LEDGER,
@@ -46,6 +46,7 @@ pub fn read(store: &Store, board: &Board, now_ms: u64, days: u64) -> anyhow::Res
         let Some(got) = store.ledger_page(&page)? else {
             return Ok(false);
         };
+        pages += 1;
         for r in &got.records {
             let Ok(row) = r.decode::<LedgerRow>() else {
                 continue;
@@ -53,6 +54,7 @@ pub fn read(store: &Store, board: &Board, now_ms: u64, days: u64) -> anyhow::Res
             if row.at_unix_ms < since_ms {
                 continue;
             }
+            applied += 1;
             match row.kind.as_str() {
                 k if k == LedgerKind::ToolsUsed.as_str() => {
                     board.apply_used(row.at_unix_ms, &row.data)
@@ -71,6 +73,15 @@ pub fn read(store: &Store, board: &Board, now_ms: u64, days: u64) -> anyhow::Res
             _ => break,
         }
     }
+    // What the read found is said, so a count that comes up short names its cause
+    // (theseus-nyczg: a restart once read none of two turns' rows).
+    tracing::info!(
+        applied,
+        pages,
+        since_ms,
+        last_position = store.last_position(),
+        "tools: the ledger's tool use read"
+    );
     board.set_warmed();
     Ok(true)
 }
