@@ -18,7 +18,9 @@
 //! - keys: `keyctl`, `add_key`, and `request_key`;
 //! - `io_uring_*`, whose operations would bypass the filter.
 //!
-//! A foreign ABI (i386 on x86_64, or x32) kills the process.
+//! A foreign ABI (i386 or x32 on x86_64, 32-bit Arm on aarch64) kills the
+//! process. The numbers are each architecture's own (`libc::SYS_*`), and the
+//! x86-only calls and the x32 check are compiled for x86_64 alone.
 
 use std::io;
 
@@ -62,7 +64,7 @@ pub const CLONE_NEW_MASK: u32 = (libc::CLONE_NEWNS
 
 /// The denied system calls, each with its name: every one gets `EPERM`.
 pub fn denied() -> Vec<(&'static str, libc::c_long)> {
-    let mut v = vec![
+    let v = vec![
         ("unshare", libc::SYS_unshare),
         ("setns", libc::SYS_setns),
         ("mount", libc::SYS_mount),
@@ -108,12 +110,17 @@ pub fn denied() -> Vec<(&'static str, libc::c_long)> {
         ("io_uring_enter", libc::SYS_io_uring_enter),
         ("io_uring_register", libc::SYS_io_uring_register),
     ];
+    // x86_64 alone has these (aarch64 has no port I/O and no `uselib`).
     #[cfg(target_arch = "x86_64")]
-    v.extend([
-        ("iopl", libc::SYS_iopl),
-        ("ioperm", libc::SYS_ioperm),
-        ("uselib", libc::SYS_uselib),
-    ]);
+    let v = [
+        v,
+        vec![
+            ("iopl", libc::SYS_iopl),
+            ("ioperm", libc::SYS_ioperm),
+            ("uselib", libc::SYS_uselib),
+        ],
+    ]
+    .concat();
     v
 }
 
@@ -136,6 +143,8 @@ struct Insn {
 
 const LD_W_ABS: u16 = (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16;
 const JEQ: u16 = (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16;
+// The x32 check alone uses it (and the tests' interpreter).
+#[cfg(any(target_arch = "x86_64", test))]
 const JGE: u16 = (libc::BPF_JMP | libc::BPF_JGE | libc::BPF_K) as u16;
 const JSET: u16 = (libc::BPF_JMP | libc::BPF_JSET | libc::BPF_K) as u16;
 const RET: u16 = (libc::BPF_RET | libc::BPF_K) as u16;
@@ -367,7 +376,9 @@ mod tests {
     fn a_foreign_abi_is_killed() {
         let p = program();
         const AUDIT_ARCH_I386: u32 = 0x4000_0003;
+        const AUDIT_ARCH_ARM: u32 = 0x4000_0028; // 32-bit Arm, aarch64's compat ABI
         assert_eq!(run(&p, AUDIT_ARCH_I386, 20, 0), RET_KILL_PROCESS);
+        assert_eq!(run(&p, AUDIT_ARCH_ARM, 20, 0), RET_KILL_PROCESS);
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
             run(&p, AUDIT_ARCH, X32_SYSCALL_BIT | libc::SYS_getpid as u32, 0),
