@@ -759,6 +759,25 @@ pub fn close(p: &Place, tree: &Tree) -> Result<()> {
     Ok(())
 }
 
+/// How many commits `branch` holds beyond `origin/main`, the base a tree is
+/// cut from.
+pub fn commits_beyond_base(p: &Place, branch: &str) -> Result<u64> {
+    let range = format!("origin/main..refs/heads/{branch}");
+    let n = p.git_ok(&p.repo, &["rev-list", "--count", &range])?;
+    n.trim()
+        .parse()
+        .with_context(|| format!("git counted {n:?} commits"))
+}
+
+/// Delete a `self/*` branch that holds nothing of its own (the caller has
+/// counted); never another.
+pub fn delete_branch(p: &Place, branch: &str) -> Result<()> {
+    if !is_self_branch(branch) {
+        bail!("{branch} is no self branch");
+    }
+    p.git_ok(&p.repo, &["branch", "-D", branch]).map(|_| ())
+}
+
 /// The `self/*` branches the repo holds, with their heads, newest name first.
 pub fn branches(p: &Place) -> Result<Vec<(String, String)>> {
     let out = p.git_ok(

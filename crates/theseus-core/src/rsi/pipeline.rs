@@ -57,6 +57,14 @@
 //! the next tick (each returns to ready) and starts nothing until the
 //! owner's resume. Each wakes the tender ([`Shared::kick`]).
 //!
+//! **A closed item leaves no tree** (theseus-czlzg): each tick also closes the
+//! tree of every item that is failed or done and whose branch waits on no
+//! review, join or owner ([`queues`]'s `closed`), whatever ended it (the
+//! backlog's sweep, a cancel, a drop): one `cleared` row, and its branch is
+//! deleted when it holds no commit beyond main (one with commits stays, as
+//! the evidence `theseus self branches` lists). A tree whose item is
+//! building, reviewing, joining or held at the keel is never touched.
+//!
 //! Every transition is one `self.pipeline.*` row ([`crate::fact::rsi_pipeline`]),
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
@@ -65,6 +73,8 @@ mod queues;
 mod tender;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_trees;
 mod view;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -369,6 +379,10 @@ impl Core {
         for e in &q.joined {
             clear(place, e, "joined", w)?;
         }
+        // Whatever else ended an item without a join leaves no tree.
+        for e in &q.closed {
+            clear(place, e, "closed", w)?;
+        }
         Ok(())
     }
 
@@ -471,13 +485,26 @@ impl Core {
         seams: &Seams,
         place: &tree::Place,
         building: usize,
+        waiting: &[Entry],
     ) -> (capacity::Room, Option<(String, String)>) {
         let cfg = &self.cfg.self_improve;
         let at = [place.root(), place.state.clone()]
             .into_iter()
             .find(|p| p.exists())
             .unwrap_or_else(|| place.state.clone());
-        let trees = capacity::trees_open(&place.trees());
+        // A ready item's own tree (a halted build's) is no slot taken: its
+        // start uses it.
+        let waits = waiting
+            .iter()
+            .filter(|e| {
+                place
+                    .trees()
+                    .join(tree::slug(&e.item))
+                    .join(".git")
+                    .exists()
+            })
+            .count();
+        let trees = capacity::trees_open(&place.trees()).saturating_sub(waits);
         let (room, hold) = capacity::check(
             &*seams.probe,
             &at,
@@ -499,6 +526,28 @@ impl Core {
         (room, hold)
     }
 
+    /// The next start waits: say why once, until the reason changes.
+    fn pipeline_held(
+        &self,
+        w: &mut Write,
+        tick: &mut Tick,
+        name: &str,
+        why: String,
+        numbers: serde_json::Value,
+    ) -> Result<()> {
+        tick.hold = Some(name.to_string());
+        if w.mark.hold.as_deref() != Some(name) {
+            w.mark.hold = Some(name.to_string());
+            let m = Moved::new("", format!("the next start waits: {name}"))
+                .with("hold", name)
+                .why(why)
+                .numbers(numbers);
+            w.say(format!("held:{name}"), Transition::Held(Held(m)))?;
+            tick.said.extend(self.pipeline_write(w)?);
+        }
+        Ok(())
+    }
+
     /// Start the top ready items while there is room.
     fn pipeline_starts(
         self: &Arc<Self>,
@@ -509,29 +558,27 @@ impl Core {
         tick: &mut Tick,
     ) -> Result<()> {
         let mut building = q.building.len();
-        for e in &q.ready {
+        for (i, e) in q.ready.iter().enumerate() {
             if gate(&self.self_ctx()) != Gate::Allowed {
                 break;
             }
-            let (room, hold) = self.pipeline_hold(seams, place, building);
+            let (room, hold) = self.pipeline_hold(seams, place, building, &q.ready[i..]);
             if let Some((name, why)) = hold {
-                tick.hold = Some(name.clone());
-                if w.mark.hold.as_deref() != Some(&name) {
-                    w.mark.hold = Some(name.clone());
-                    let m = Moved::new("", format!("the next start waits: {name}"))
-                        .with("hold", name.clone())
-                        .why(why)
-                        .numbers(json!(room));
-                    w.say(format!("held:{name}"), Transition::Held(Held(m)))?;
-                    tick.said.extend(self.pipeline_write(w)?);
-                }
-                return Ok(());
+                return self.pipeline_held(w, tick, &name, why, json!(room));
             }
             let findings = (e.rejections > 0).then(|| e.why.clone()).flatten();
             let core = self.clone();
             let (b, item) = (seams.builder.clone(), e.item.clone());
-            let session =
-                theseus_store::blocking(move || b.start(&core, &item, findings.as_deref()))?;
+            let started =
+                theseus_store::blocking(move || b.start(&core, &item, findings.as_deref()));
+            let session = match started {
+                Ok(s) => s,
+                // No tree, no start: the hold says why, as the guard's do.
+                Err(e) if e.is::<super::backlog::NoTree>() => {
+                    return self.pipeline_held(w, tick, "tree", e.to_string(), json!(room));
+                }
+                Err(e) => return Err(e),
+            };
             let Some(session) = session else {
                 continue;
             };
@@ -631,7 +678,8 @@ impl Core {
 }
 
 /// Delete an item's trees (its worktree and its build tree: regenerable,
-/// never moved to a trash), with one `cleared` row when there was any.
+/// never moved to a trash) and its branch when it holds no commit, with one
+/// `cleared` row when there was any.
 fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<()> {
     // git and the disk, off the runtime's worker (theseus_store::blocking).
     let gone = theseus_store::blocking(|| -> Result<Vec<String>> {
@@ -639,6 +687,12 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
         if let Some(t) = tree::find(place, &e.item) {
             tree::close(place, &t)?;
             gone.push(t.dir.display().to_string());
+            // A branch with no commit of its own is nothing to keep; one
+            // with commits stays, as the evidence `self branches` lists.
+            if tree::commits_beyond_base(place, &t.branch)? == 0 {
+                tree::delete_branch(place, &t.branch)?;
+                gone.push(format!("branch {}", t.branch));
+            }
         }
         let target = place.targets().join(tree::slug(&e.item));
         if target.exists() {

@@ -1,14 +1,15 @@
 //! The owner's word on the backlog: `self.backlog` (a read), `self.drop` and
-//! `self.move` (the owner's, from any place, as the resume is). A drop
-//! abandons the item and remembers its cause, so the cause is never filed
-//! again; a move pins the item to a rank until it is moved again.
+//! `self.move` and `self.retry` (the owner's, from any place, as the resume
+//! is). A drop abandons the item and remembers its cause, so the cause is
+//! never filed again; a move pins the item to a rank until it is moved
+//! again; a retry queues a failed item again.
 
 use anyhow::Result;
 use theseus_protocol::rsi::{
     SelfBacklogItem, SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult,
-    SelfMoveParams, SelfMoveResult,
+    SelfMoveParams, SelfMoveResult, SelfRetryParams, SelfRetryResult,
 };
-use theseus_protocol::tasks::{TaskRecord, TaskState};
+use theseus_protocol::tasks::{TaskEvidence, TaskRecord, TaskState};
 
 use super::state::State;
 use super::{is_open, rank, Night, Work};
@@ -266,6 +267,76 @@ impl Core {
             item: id.clone(),
             title: w.tasks[&id].title.clone(),
             was,
+            rank,
+        })
+    }
+
+    /// Queue a failed item again: the owner's word. It is proposed with its
+    /// session cleared and takes its place in the order, so the pipeline
+    /// starts it on its next free slot. Any other state is refused, with
+    /// words.
+    pub fn self_retry(&self, p: &SelfRetryParams, who: &Answerer) -> Result<SelfRetryResult> {
+        let from_job = p
+            .from_job
+            .as_deref()
+            .map(str::trim)
+            .filter(|j| !j.is_empty());
+        self.judge_act(
+            who,
+            Act::SelfBacklog {
+                method: theseus_protocol::method::SELF_RETRY,
+                what: &p.item,
+                from_job,
+            },
+        )?;
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut w = self.backlog_work()?;
+        let id = Self::backlog_item(&w, &p.item)?;
+        if w.tasks[&id].state != TaskState::Failed {
+            return Err(BadItem(format!(
+                "{id} is {}: only a failed item can be retried",
+                w.tasks[&id].state.as_str()
+            ))
+            .into());
+        }
+        let now = w.now;
+        if let Some(t) = w.tasks.get_mut(&id) {
+            t.state = TaskState::Proposed;
+            t.session = None;
+            t.version += 1;
+            t.updated_at_ms = now;
+            t.evidence.push(TaskEvidence {
+                node: None,
+                identity: "retried:owner".into(),
+                note: Some("retried by the owner".into()),
+                by: who.who(),
+                at_ms: now,
+            });
+        }
+        // Ranked as the order now has it, so it shows ready at once.
+        let order = open_order(&mut w);
+        let mut night = Night::default();
+        for (i, o) in order.iter().enumerate() {
+            if let Some(m) = w.st.items.get_mut(o) {
+                m.score = rank::score(m, w.now);
+            }
+            w.set_rank(o, i as u32 + 1, "owner", &mut night);
+        }
+        w.touch(&id);
+        let rank = order
+            .iter()
+            .position(|o| *o == id)
+            .map_or(0, |i| i as u32 + 1);
+        let title = w.tasks[&id].title.clone();
+        self.backlog_write(&mut w)?;
+        self.rsi.pipeline.kick();
+        Ok(SelfRetryResult {
+            item: id,
+            title,
             rank,
         })
     }

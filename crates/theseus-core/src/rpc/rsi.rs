@@ -10,7 +10,7 @@ use serde_json::Value;
 use theseus_protocol::patterns::SelfPatternsParams;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfDropParams, SelfHaltParams, SelfMoveParams, SelfResumeParams,
-    SelfRevertParams,
+    SelfRetryParams, SelfRevertParams,
 };
 use theseus_protocol::{error_code, method};
 
@@ -19,7 +19,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 13] = [
+pub(super) const OWN: [&str; 14] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
@@ -27,6 +27,7 @@ pub(super) const OWN: [&str; 13] = [
     method::SELF_BACKLOG,
     method::SELF_DROP,
     method::SELF_MOVE,
+    method::SELF_RETRY,
     method::SELF_BRANCHES,
     method::SELF_EXAMS,
     method::SELF_NARROW,
@@ -63,6 +64,10 @@ impl Core {
             method::SELF_MOVE => route(params, |p: SelfMoveParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.self_move(&p, &who).map_err(word_refused)
+            }),
+            method::SELF_RETRY => route(params, |p: SelfRetryParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.self_retry(&p, &who).map_err(word_refused)
             }),
             method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             method::SELF_PIPELINE => route(params, |p| Ok(self.self_pipeline(&p)?)),

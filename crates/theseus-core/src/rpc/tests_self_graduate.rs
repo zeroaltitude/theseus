@@ -35,12 +35,21 @@ fn core_with(mode: SelfMode, starts: u32) -> Arc<Core> {
     cfg.self_improve.mode = mode;
     cfg.server.disk_warn_mb = 0;
     cfg.self_improve.backlog_starts = starts;
-    Core::build(Parts::for_tests(
+    // A started item opens a tree (theseus-qh2tt): a throwaway repo, kept
+    // for the process.
+    let repo = crate::rsi::tests_tree::fixture();
+    cfg.self_improve.repo = Some(repo.place.repo.display().to_string());
+    std::mem::forget(repo);
+    let core = Core::build(Parts::for_tests(
         cfg,
         Arc::new(FakeProvider::default()),
         base.store.clone(),
     ))
-    .unwrap()
+    .unwrap();
+    core.tools
+        .self_pr
+        .set_env(crate::rsi::tests_tree::hermetic());
+    core
 }
 
 fn cli() -> Answerer {

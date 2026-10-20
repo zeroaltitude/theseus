@@ -23,7 +23,7 @@ echo "gate: ok"
 /// A planted weakened gate: what a tree could write over its own copy.
 const WEAK: &str = "#!/bin/bash\necho 'gate: ok'\nexit 0\n";
 
-pub(super) fn hermetic() -> Vec<(OsString, OsString)> {
+pub(crate) fn hermetic() -> Vec<(OsString, OsString)> {
     [
         ("GIT_CONFIG_GLOBAL", "/dev/null"),
         ("GIT_CONFIG_NOSYSTEM", "1"),
@@ -60,7 +60,7 @@ pub(crate) struct Fixture {
     _dir: tempfile::TempDir,
 }
 
-pub(super) fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     fixture_with(GATE)
 }
 

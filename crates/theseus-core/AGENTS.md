@@ -1038,8 +1038,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   class, `keel.rs`, which never starts). A cause open already gets the night's evidence; a dropped cause is never
   filed again (`self.backlog` META, `state.rs`, no format change). `rank.rs` documents the score; `[self]
   backlog_max_open` trims the lowest; `backlog_starts` top unmarked items start in a session under the reserved
-  `"self"` principal (`start.rs`: `open_session_as`), and the first turn runs from the tender. `word.rs`:
-  `self.backlog`, `self.drop` and `self.move`, the owner's by `Act::SelfBacklog` (`owner_anywhere`). The index dates a
+  `"self"` principal (`start.rs`: `open_session_as`), and the first turn runs from the tender. A fix item's tree is
+  opened first (`self_tree_open`: the one open already, else `tree::open`, off the runtime's worker), the session's `dir`
+  is that tree, and its first turn's input ends "Your tree is <path> on branch <branch>; read and edit there, by
+  absolute path." (theseus-qh2tt); a tree that cannot be opened leaves the item proposed (`NoTree`, `Night.held`) and the
+  pipeline's next start held as `tree`, with the reason. A mint's start is its own and opens no tree. `word.rs`:
+  `self.backlog`, `self.drop`, `self.move` and `self.retry` (a failed item is proposed again, its session cleared, an
+  evidence row "retried by the owner"; any other state is refused with words), the owner's by `Act::SelfBacklog`
+  (`owner_anywhere`). The index dates a
   ledger row by its frame's write time: a test seeds rows, then runs the night at a clock read after the seeding.
   Tests: `rpc/tests_self_backlog.rs`.
   **The branch builder** (theseus-pw1q.8, seam S6; `rsi/tree.rs`, `rsi/pr.rs`, `toolrun/self_pr.rs`, `fact/rsi_pr.rs`):
@@ -1053,7 +1059,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which
   joins the workspace roots while `[self]` builds: `toolrun/guarded.rs`; the state dir's approve-list hold does not reach it for
   the self session that owns it, theseus-pw1q.21.9: `rsi/own_tree.rs` names the one tree of the session's task, `toolrun/order.rs` passes it to
-  `ToolPolicy::decide_in` for `fs.*` calls only, and every other path, the floor and the sealed sets ask as before; the edit hook's server start is the same case, theseus-kq4z4: a self session's `fs.write|edit|patch` in its own tree starts no language server, so `lsp::edits::gate` judges no start as `proc.run` and the result's `meta.lsp.not_started` says `self tree`, since rust-analyzer runs a tree's build scripts and proc macros outside L1; a server already up still answers, and an `lsp.*` call's own start is judged as before), the next commits, gates, writes the frozen
+  `ToolPolicy::decide_in` for the `fs.*` tools that write, and for the read-only `fs.*` and `git.*` tools of any self session
+  it passes the trees root instead (`own_tree::open_to`, theseus-qh2tt: reading every tree, writing only its own), and every other path, the floor and the sealed sets ask as before; the edit hook's server start is the same case, theseus-kq4z4: a self session's `fs.write|edit|patch` in its own tree starts no language server, so `lsp::edits::gate` judges no start as `proc.run` and the result's `meta.lsp.not_started` says `self tree`, since rust-analyzer runs a tree's build scripts and proc macros outside L1; a server already up still answers, and an `lsp.*` call's own start is judged as before), the next commits, gates, writes the frozen
   report (`<state>/self/reports/<branch, / as ->.md`, 0444, ending `<!-- REPORT COMPLETE -->`), pushes a green branch
   when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
   a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.

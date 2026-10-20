@@ -115,8 +115,12 @@ impl ToolRuntime {
             .session
             .filter(|_| tool.name().starts_with("fs."))
             .and_then(|session| crate::rsi::own_tree::of(self, session));
+        // ... and its reads, and git's, reach the trees root (theseus-qh2tt).
+        let open_to = at
+            .session
+            .and_then(|session| crate::rsi::own_tree::open_to(self, session, tool));
         let (decision, bound) =
-            crate::sandbox::unbrokered(self, tool, plan, input, t, own_tree.as_deref());
+            crate::sandbox::unbrokered(self, tool, plan, input, t, open_to.as_deref());
         seen(Layer::Policy, &decision);
         let decision = crate::policy::earned::gate(
             self,

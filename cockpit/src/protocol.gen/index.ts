@@ -577,6 +577,8 @@ export type * from './SelfPipelineResult';
 export type * from './SelfPipelineRoom';
 export type * from './SelfPipelineWeek';
 export type * from './SelfResumeParams';
+export type * from './SelfRetryParams';
+export type * from './SelfRetryResult';
 export type * from './SelfRevertParams';
 export type * from './SelfRevertResult';
 export type * from './SelfState';

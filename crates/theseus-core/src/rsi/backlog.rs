@@ -56,7 +56,7 @@ mod tender;
 mod word;
 
 pub use read::{of_motif, Obs};
-pub(crate) use start::Settled;
+pub(crate) use start::{NoTree, Settled};
 pub use word::BadItem;
 
 use std::collections::BTreeMap;
@@ -98,6 +98,8 @@ pub struct Night {
     pub too_low: usize,
     pub ranked: usize,
     pub started: Vec<Started>,
+    /// Items that did not start, with why: their tree could not be opened.
+    pub held: Vec<(String, String)>,
     /// Open items waiting on the owner (keel marks), filed this night.
     pub waiting: Vec<String>,
 }

@@ -14,7 +14,11 @@
 //!   items (`waiting_human`), and branches a join stopped and holds;
 //! - and the moves a tick makes: proposed items rejected twice (`parking`),
 //!   builds whose turn ended with no green branch (`ended`), dropped items
-//!   with a live build or trees (`dropped`), and joined ones (`joined`).
+//!   with a live build or trees (`dropped`), and joined ones (`joined`);
+//! - and `closed`: failed or done items whose trees are still on disk, with
+//!   no green branch waiting on a review, a join or the owner (theseus-czlzg),
+//!   so a path nobody thought of (the backlog's sweep marking a build failed)
+//!   leaves no tree behind.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -57,6 +61,7 @@ pub(crate) struct Queues {
     pub ended: Vec<Entry>,
     pub dropped: Vec<Entry>,
     pub joined: Vec<Entry>,
+    pub closed: Vec<Entry>,
 }
 
 /// A green branch, as its row says it.
@@ -234,6 +239,28 @@ fn branches(
     }
 }
 
+/// Failed or done items whose trees are still on disk, but for those whose
+/// branch waits on a review, a join or the owner (or a keel mark).
+fn closed(q: &mut Queues, tasks: &[TaskRecord], place: &Place) {
+    let waiting: Vec<&str> = [&q.reviewing, &q.joining, &q.held, &q.joined]
+        .into_iter()
+        .flatten()
+        .map(|e| e.item.as_str())
+        .collect();
+    let closed = tasks
+        .iter()
+        .filter(|t| matches!(t.state, TaskState::Failed | TaskState::Done))
+        .filter(|t| !waiting.contains(&t.id.as_str()))
+        .filter(|t| {
+            let slug = tree::slug(&t.id);
+            (tree::find(place, &t.id).is_some() || place.targets().join(&slug).exists())
+                && !place.trees().join(format!("{slug}.keel")).exists()
+        })
+        .map(entry)
+        .collect();
+    q.closed = closed;
+}
+
 impl Core {
     /// Whether an execution's turn runs, queues, or waits on the owner.
     fn live(&self, exec: Option<&str>) -> bool {
@@ -340,6 +367,7 @@ impl Core {
             }
         }
         branches(&mut q, &greens, &verdicts, &joined, &stopped, &by_id);
+        closed(&mut q, &tasks, place);
         Ok(Some(q))
     }
 }

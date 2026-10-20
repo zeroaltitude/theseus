@@ -629,6 +629,31 @@ pub struct SelfMoveResult {
     pub rank: u32,
 }
 
+/// `self.retry`'s params: the owner's. A failed item is queued again.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfRetryParams {
+    pub item: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// `self.retry`'s answer: the item is proposed again, at this rank.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfRetryResult {
+    pub item: String,
+    pub title: String,
+    pub rank: u32,
+}
+
 // ---- self-exams (theseus-pw1q.11) ----
 
 /// `self.exams`' params: none yet.

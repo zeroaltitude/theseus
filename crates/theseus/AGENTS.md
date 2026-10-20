@@ -211,7 +211,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   `render/later.rs` is the status line's words for what a run left behind.
 - `src/self_cmd.rs` (theseus-pw1q): `theseus self log [--since 7d] [--json]`, `self halt [why]`, `self resume`
   (sends the shell's `THESEUS_SESSION` as `from_job`, so the daemon refuses a job's resume and ledgers it, rather
-  than the CLI refusing it unseen), `self digest`, and `self revert MERGE` (`self_cmd/revert.rs`, theseus-pw1q.10: the owner's
+  than the CLI refusing it unseen), `self digest`, `self retry ITEM` (`self_cmd/backlog.rs`, theseus-czlzg: queues a failed backlog item again; the owner's, sent with `from_job` as `drop` and `move` are), and `self revert MERGE` (`self_cmd/revert.rs`, theseus-pw1q.10: the owner's
   veto of a self-join, sent with `from_job` as the resume is; the daemon runs main's gate on the revert before it answers). `self narrow [list|show ID|run [--profile owner|read] [--dry]|apply ID|decline ID|revert ID]`
   (`self_cmd/narrow.rs`, theseus-pw1q.15) is the narrower policies Theseus proposes for its hand roles: `list` and `show` read; `run`,
   `apply`, `decline` and `revert` are the owner's (`client::OPERATORS`; the daemon refuses a non-owner and a job's shell and ledgers it). The state's words are the library's `render/rsi.rs`

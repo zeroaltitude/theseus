@@ -468,6 +468,14 @@ mod own_tree {
 
     /// A self session, the task of that name it belongs to, and the task's tree.
     fn task(r: &Rig, id: &str) -> (String, PathBuf) {
+        let sid = task_record(r, id);
+        let tree = r.f.place.state.join("self").join("trees").join(id);
+        std::fs::create_dir_all(&tree).unwrap();
+        (sid, tree.canonicalize().unwrap())
+    }
+
+    /// A self session and its task's record, with no tree made.
+    fn task_record(r: &Rig, id: &str) -> String {
         let sid = r.session("self");
         let t = TaskRecord {
             id: id.into(),
@@ -486,9 +494,7 @@ mod own_tree {
             .store
             .append(&[crate::task_graph::record(&t).unwrap()])
             .unwrap();
-        let tree = r.f.place.state.join("self").join("trees").join(id);
-        std::fs::create_dir_all(&tree).unwrap();
-        (sid, tree.canonicalize().unwrap())
+        sid
     }
 
     /// Whether the session has a call waiting for the owner.
@@ -522,7 +528,6 @@ mod own_tree {
         std::fs::create_dir_all(state.join("store")).unwrap();
         std::fs::write(state.join("store/db"), "the store\n").unwrap();
         for (i, (what, target)) in [
-            ("another task's tree", other.join("theirs.txt")),
             ("the rest of the state dir", state.join("notes.txt")),
             ("a link out to the state dir", state.join("notes.txt")),
             ("a link out to the store", state.join("store/db")),
@@ -543,13 +548,62 @@ mod own_tree {
             let reason = &r.core.pending_confirms(&sid).unwrap()[0].reason;
             assert!(reason.contains("fs.read — approve"), "{what}: {reason}");
         }
-        // A write to the state dir's other files asks too.
-        let (sid, _) = task(&r, "sails-w");
-        let path = state.join("planted.txt");
-        r.turn(&sid, "fs_write", json!({"path": path, "content": "x"}))
+        // A write to the state dir's other files asks too, and so does one
+        // in another task's tree (it may read there, never write).
+        for (i, (what, path)) in [
+            ("the rest of the state dir", state.join("planted.txt")),
+            ("another task's tree", other.join("planted.txt")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (sid, _) = task(&r, &format!("sails-w{i}"));
+            r.turn(&sid, "fs_write", json!({"path": path, "content": "x"}))
+                .await;
+            assert!(asked(&r, &sid), "a write to {what}");
+            assert!(!path.exists(), "and it did not run");
+        }
+    }
+
+    /// Reads reach the trees root and every tree under it (theseus-qh2tt):
+    /// a self session's `fs.grep` and `fs.list` of the root and its `git.log`
+    /// in its own tree run without asking; what a link inside a tree points
+    /// at is judged where it lands, and a session that is not self asks.
+    #[tokio::test]
+    async fn a_self_session_reads_the_trees_root_without_asking() {
+        let r = held(|_| {});
+        let sid = task_record(&r, "sails");
+        let mine =
+            crate::rsi::tree::open(&r.f.place, "sails", theseus_protocol::now_unix_ms()).unwrap();
+        let (_, other) = task(&r, "tides");
+        std::fs::write(other.join("theirs.txt"), "a needle here\n").unwrap();
+        let state = r.f.place.state.canonicalize().unwrap();
+        std::fs::create_dir_all(state.join("store")).unwrap();
+        std::fs::write(state.join("store/db"), "the store\n").unwrap();
+        std::os::unix::fs::symlink(state.join("store/db"), mine.dir.join("link")).unwrap();
+        let root = state.join("self/trees");
+        let found = r
+            .turn(&sid, "fs_grep", json!({"pattern": "needle", "path": root}))
             .await;
-        assert!(asked(&r, &sid), "a write to the rest of the state dir");
-        assert!(!path.exists(), "and it did not run");
+        assert!(!asked(&r, &sid), "fs.grep of the trees root");
+        assert!(found.contains("theirs.txt"), "{found}");
+        let listed = r.turn(&sid, "fs_list", json!({"path": root})).await;
+        assert!(!asked(&r, &sid), "fs.list of the trees root");
+        assert!(
+            listed.contains("tides") && listed.contains("sails"),
+            "{listed}"
+        );
+        r.turn(&sid, "git_log", json!({"path": mine.dir})).await;
+        assert!(!asked(&r, &sid), "git.log in its own tree");
+        // Judged where it lands: the store asks, as the floor does.
+        r.turn(&sid, "fs_read", json!({"path": mine.dir.join("link")}))
+            .await;
+        assert!(asked(&r, &sid), "a link to the store");
+        // A session of any other principal gets nothing new.
+        let op = r.session("operator");
+        r.turn(&op, "fs_grep", json!({"pattern": "needle", "path": root}))
+            .await;
+        assert!(asked(&r, &op), "an operator's grep of the trees root");
     }
 
     #[tokio::test]
@@ -561,10 +615,15 @@ mod own_tree {
         r.turn(&sid, "fs_read", json!({"path": tree.join("a.txt")}))
             .await;
         assert!(asked(&r, &sid), "an operator's read of the tree");
-        // And a self session with no task of its own has no tree to work in.
+        // And a self session with no task of its own has no tree to write in
+        // (it may read there, as every self session may).
         let sid = r.session("self");
-        r.turn(&sid, "fs_read", json!({"path": tree.join("a.txt")}))
-            .await;
+        r.turn(
+            &sid,
+            "fs_write",
+            json!({"path": tree.join("b.txt"), "content": "x"}),
+        )
+        .await;
         assert!(asked(&r, &sid), "a self session of no task");
     }
 
