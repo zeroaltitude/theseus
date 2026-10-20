@@ -14,8 +14,8 @@
 //!   letters or digits, with at least one digit, or any suffix after the
 //!   prefix `theseus`.
 //! - **branches**: `feat/…`, `fix/…`, `feature/…`, `lane/…`, `cloud/…`,
-//!   `release/…`, `hotfix/…`, `chore/…`, `self/…`, and the word after `branch`
-//!   or `checkout -b`/`switch -c`.
+//!   `release/…`, `hotfix/…`, `chore/…`, `self/…`, the word after `branch` when it has a
+//!   branch's shape (a separator or a digit, or `main`), or `checkout -b`/`switch -c`.
 //! - **files**: a token with a `/` whose last part has an extension, or a bare
 //!   name with a code extension (`rs`, `py`, `ts`, `tsx`, `js`, `toml`, `md`,
 //!   `json`, `yaml`, `yml`, `sh`).
@@ -107,7 +107,7 @@ fn scan(text: &str, c: &mut Counts) {
             bump(&mut c.branches, tok.to_string());
         } else if matches!(prev.as_deref(), Some("-r" | "--repo" | "repo" | "clone")) {
             repo(tok, c);
-        } else if matches!(prev.as_deref(), Some("branch"))
+        } else if (matches!(prev.as_deref(), Some("branch")) && branch_word(tok))
             || (matches!(prev.as_deref(), Some("-b" | "-c"))
                 && matches!(prev2.as_str(), "checkout" | "switch"))
         {
@@ -186,6 +186,14 @@ fn bead(t: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
         && (PREFIXES.contains(&prefix) || suffix.bytes().any(|b| b.is_ascii_digit()))
+}
+
+/// The word after "branch" in prose names a branch only when it has a branch's shape (a separator or
+/// a digit in it) or is a usual trunk name: "the branch and", "branch has", "branch. Then" name none
+/// (theseus-mg1ox).
+fn branch_word(t: &str) -> bool {
+    matches!(t, "main" | "master" | "develop" | "trunk")
+        || t.chars().any(|c| "-_./".contains(c) || c.is_ascii_digit())
 }
 
 fn branch_like(t: &str) -> bool {
