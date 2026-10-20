@@ -287,9 +287,15 @@ impl TaskThreads {
         self.inner.lock().unwrap().threads.contains(&channel)
     }
 
-    /// A place here renders this task session.
-    pub(crate) fn has_session(&self, session: &str) -> bool {
-        self.inner.lock().unwrap().places.contains_key(session)
+    /// A place here renders this task session, and it is the place whose
+    /// lane is `target`: only that lane is told when the place has shown the
+    /// session's call (theseus-r8fnh).
+    pub(crate) fn has_session_on(&self, session: &str, target: &str) -> bool {
+        let i = self.inner.lock().unwrap();
+        i.places.contains_key(session)
+            && i.made
+                .iter()
+                .any(|m| m.session == session && format!("discord:channel:{}", m.thread) == target)
     }
 
     /// The thread place that runs the task session `session`.
@@ -1027,6 +1033,26 @@ mod tests {
         let mut v = view(id, "task", state, "Chart the reef", None);
         v.session_id = Some(format!("ses_{id}"));
         v
+    }
+
+    /// A task's thread place is told when it has shown the task's call, so only
+    /// its own lane holds a card for that call; a card on another lane (the DM's,
+    /// made before the thread ran) does not wait for a tool line that never comes
+    /// there (theseus-r8fnh).
+    #[test]
+    fn only_the_lane_of_the_running_thread_waits_for_its_calls_tool_line() {
+        let t = TaskThreads::default();
+        let thread = 900_000_000_000_500_007;
+        let own = format!("discord:channel:{thread}");
+        let dm = "discord:dm:900000000000000101";
+        t.add(made("exe_reef", thread));
+        // Its thread is made but its place is not running yet: nobody waits.
+        assert!(!t.has_session_on("ses_exe_reef", &own));
+        let (tx, _rx) = mpsc::unbounded_channel();
+        t.running("ses_exe_reef", tx);
+        assert!(t.has_session_on("ses_exe_reef", &own));
+        assert!(!t.has_session_on("ses_exe_reef", dm));
+        assert!(!t.has_session_on("ses_other", &own));
     }
 
     /// What a restart finds: the open threads come back from the store, a

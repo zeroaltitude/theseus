@@ -1467,15 +1467,15 @@ impl Shared {
         r.users.get(&channel).cloned().unwrap_or_default()
     }
 
-    /// A place here renders this session's turns: its calls' tool lines are
-    /// shown here, before their cards (theseus-50p).
-    pub(crate) fn renders(&self, session_id: &str) -> bool {
+    /// Whether the place with lane `target` renders this session's calls; a
+    /// card on another lane has no tool line to wait for (theseus-r8fnh).
+    pub(crate) fn renders_on(&self, session_id: &str, target: &str) -> bool {
         self.routes
             .lock()
             .unwrap()
             .by_session
             .contains_key(session_id)
-            || self.task_threads.has_session(session_id)
+            || self.task_threads.has_session_on(session_id, target)
     }
 
     /// The DM an approval card goes to when its place is shared (the place

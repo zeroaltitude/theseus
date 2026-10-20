@@ -637,7 +637,7 @@ impl Lane {
         let rendered_here = !asked
             && fresh
             && matches!(self.shared.core.kernel.action(&q), Ok(Some(question))
-                if self.shared.renders(&question.session_id));
+                if self.shared.renders_on(&question.session_id, &self.target));
         let held = self.held.as_ref().filter(|(h, _)| *h == q).map(|h| h.1);
         match card_hold(
             asked,
