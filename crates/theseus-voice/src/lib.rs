@@ -26,6 +26,7 @@ mod sentences;
 #[cfg(feature = "voice")]
 mod songbird_io;
 mod speech;
+mod unclear;
 mod vad;
 
 pub use audio::{read_wav, write_wav, Audio, WavError, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
@@ -38,6 +39,10 @@ pub use io::{ClipId, Frame, Heard, PlayLog, Played, Speaker, VoiceIo, WavIo};
 pub use sentences::{sentences, speakable, CODE, TABLE};
 pub use speech::{
     Speech, SpeechError, SpeechFuture, StandInSpeech, Synthesis, Transcript, Usage, ACKNOWLEDGMENT,
+};
+pub use unclear::{
+    Began, Case, Judge, Judged, Said, StandInJudge, Timing, Verdict, LOW_CONFIDENCE, SAID,
+    SHORT_WORDS,
 };
 
 /// songbird, as this crate depends on it, so the binding (44b) builds on the

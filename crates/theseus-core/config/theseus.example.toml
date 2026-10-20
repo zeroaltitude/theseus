@@ -908,6 +908,11 @@ max_events = 10                         # at most this many events stand at once
 #                                       # the Set Voice Channel Status permission (a 403 is said once in health)
 # join_guard = true                     # a short or unclear sound before the greeting finished is no turn (the join's chime heard back), and one or two
 #                                       # words of the greeting's head heard back are its echo; false restores the old reading
+# judge_unclear = true                  # a short (3 words or fewer) or low-confidence transcript that would be a turn, heard over
+#                                       # Theseus's speech, just after it or at the join, is asked of Jev (heard.v1) first: speech to
+#                                       # answer, Theseus's own echo, or noise; at Jev's act band it decides, else the rules do.
+#                                       # false: the rules alone, as before
+# judge_ms = 250                        # how long such a transcript waits for Jev (1 to 2000); past it the rules decide
 # speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
 #                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"
 #                                       # answers the question as you (the core judges it as it judges a button)

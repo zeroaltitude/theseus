@@ -52,6 +52,8 @@ pub mod stop;
 #[cfg(test)]
 mod tests_ahead;
 #[cfg(test)]
+mod tests_heard;
+#[cfg(test)]
 mod tests_reserve;
 pub mod warm;
 

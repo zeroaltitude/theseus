@@ -485,6 +485,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 
 - **The join guard** (theseus-yf9ct; `[voice] join_guard`, on): the engine's `Config::join_guard` is set from it at the join; see
   theseus-voice's AGENTS.md. Off restores the old reading of a sound at the join and of a one-word echo.
+- **A call's judge of unclear transcripts** (theseus-s3dwj, `runtime/voice/judged.rs`; `[voice] judge_unclear`, on, and `judge_ms`, 250): the
+  engine's `Judge`, answered by the core's `heard.v1` (`JudgeService::judge_heard`, live, one `judge.call` row a call, scoped `judge:heard`).
+  It maps the engine's case onto the pack's input and Jev's answer back; the core decides nothing here. Off, no judge is given to the
+  engine and its events and times are byte for byte the rules'. The `voice.utterance` row's `judged` holds the judgment id, answer,
+  probability, whether it acted and its time (null when the rules decided alone).
 - **A task's question and report in the call** (theseus-bh3t.3, `runtime/voice/tasks.rs`; `[voice] speak_tasks`, on): fed by the voice
   status's one work watch (`voice_status::Handle.tasks`; the watch runs when the status or `speak_tasks` is on, and `Handle.board`
   says whether the status is written and the board's line told). A new question of a task and a task's end are one `Command::Report`

@@ -60,6 +60,7 @@ use super::{Place, PlaceMsg, Shared};
 use crate::bindings::Bindings;
 
 mod deaf;
+mod judged;
 mod notes;
 pub(super) mod tasks;
 #[cfg(test)]
@@ -501,6 +502,7 @@ impl Place {
         };
         let mut config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
         config.join_guard = voice.cfg.join_guard;
+        config.judge_ms = Duration::from_millis(voice.cfg.judge_ms);
         // In the persona's voice, once the join has succeeded and the call's
         // audio flows (theseus-sro04), or after `GREETING_WAIT`.
         let greeting = shared.core.greeting_for(Some(&self.session_id));
@@ -512,6 +514,7 @@ impl Place {
             greeting.clone(),
             Some(flowing),
         );
+        let engine = judged::attach(engine, shared, &self.session_id, &self.target);
         let serial = voice
             .calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -979,7 +982,7 @@ async fn pump(
                 });
                 let detail = json!({"speaker": u.speaker.0.to_string(),
                     "empty": u.text.trim().is_empty(), "heard_as": heard_as(u.heard_as),
-                    "over": over(u.over.as_ref())});
+                    "over": over(u.over.as_ref()), "judged": judgment(u.judged.as_ref())});
                 book(
                     &shared,
                     &place,
@@ -1138,7 +1141,18 @@ fn heard_as(h: HeardAs) -> &'static str {
         HeardAs::Backchannel => "backchannel",
         HeardAs::Resume => "resume",
         HeardAs::Join => "join",
+        HeardAs::Other => "other",
     }
+}
+
+/// What the judge said of an utterance: its judgment's id (the `judge.call`
+/// row), its answer and probability, whether it acted, and how long it took;
+/// null when the rules decided alone (theseus-s3dwj).
+fn judgment(j: Option<&theseus_voice::Judged>) -> serde_json::Value {
+    j.map_or(serde_json::Value::Null, |j| {
+        json!({"judgment": j.verdict.judgment, "said": format!("{:?}", j.verdict.said).to_lowercase(),
+            "p": j.verdict.probability, "acted": j.verdict.acts, "ms": j.took.as_millis() as u64})
+    })
 }
 
 /// What an utterance was said over: a sentence's index in what was being
@@ -1483,6 +1497,7 @@ mod tests {
             latency: Duration::from_millis(300),
             over: None,
             heard_as: HeardAs::Words,
+            judged: None,
         }
     }
 

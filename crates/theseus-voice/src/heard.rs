@@ -20,6 +20,9 @@ pub enum HeardAs {
     /// A short or unclear sound before the greeting finished: the join's own
     /// chime, back through a microphone (theseus-yf9ct). Not a turn.
     Join,
+    /// A judge heard noise, or someone else, in a short or unclear sound that
+    /// the rules would have made a turn (theseus-s3dwj). Not a turn.
+    Other,
 }
 
 /// Where an utterance's first speech frame came, for the rules that apply.

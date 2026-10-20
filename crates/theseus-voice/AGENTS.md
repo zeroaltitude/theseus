@@ -32,3 +32,16 @@ or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "The
 `Config::join_guard`, off in the engine so its own tests read as before, on from `[voice] join_guard` (default true).
 `songbird_io` sends `LEAD_IN_FRAMES` (5, 100 ms; 0 is off) of silence before the first clip after quiet (`Spell`), so
 the head of the greeting isn't eaten; the next sentence of a reply gets none.
+
+A short or unclear transcript is asked of a judge (theseus-s3dwj, `src/unclear.rs`): when the rules would make a turn of a
+transcript of at most 3 words, or one the recogniser gave under 0.80 confidence (`Transcript::confidence`, Deepgram's), that began
+over Theseus's speech, within the echo tail after it, or at the join, the engine asks its `Judge` (`Engine::with_judge`; none: nothing
+is asked and the rules decide alone, today's events and times) and holds that one utterance's handling for at most
+`Config::judge_ms` (250 ms), on tokio's timer in its own work future, so the floor and the audio never wait. A `Verdict` that
+`acts` (the pack's act band, 0.80) decides: `Echo` is heard as an echo (and counts toward echo-proneness), `Other` as `HeardAs::Other`,
+`Addressed` is the rules' turn; any other answer, no answer, or one past the deadline leaves the rules' verdict. The utterance carries
+what the judge said (`Utterance::judged`: the judgment's id, answer, probability, whether it acted, how long it took) and the
+journal line names the judgment id. The case holds the transcript, Theseus's last 3 sentences (the strings `heard.rs` matches),
+when it began against them (`Began`, `Timing`), its length, confidence and echo-proneness. The session supplies the judge
+(theseus-discord's `runtime/voice/judged.rs`, over the core's `heard.v1`); `StandInJudge` is the test one. `tests/judged.rs` holds
+it all through the seam, in virtual time.

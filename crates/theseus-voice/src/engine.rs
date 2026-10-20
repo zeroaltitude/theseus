@@ -59,6 +59,7 @@ use crate::heard::{classify, is_fragment_echo, is_join_noise, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
 use crate::sentences::speakable;
 use crate::speech::{Speech, SpeechError, Synthesis, Transcript, Usage, ACKNOWLEDGMENT};
+use crate::unclear::{self, Case, Judge, Judged, Said, Timing, Verdict};
 use crate::vad::{Closed, Vad, VadSettings};
 
 /// The engine's settings. [`Config::new`] gives the design's.
@@ -97,6 +98,10 @@ pub struct Config {
     /// here, so the engine's own tests read as they did; the session turns
     /// it on from `[voice] join_guard`, which defaults to true.
     pub join_guard: bool,
+    /// How long a short or unclear transcript that the rules would make a turn
+    /// of waits for the engine's [`Judge`], if it has one: 250 ms
+    /// (theseus-s3dwj). Nothing else waits for it.
+    pub judge_ms: Duration,
 }
 
 impl Config {
@@ -114,6 +119,7 @@ impl Config {
             transcript_bound: Duration::from_secs(3),
             floor_bound: Duration::from_secs(8),
             join_guard: false,
+            judge_ms: Duration::from_millis(250),
         }
     }
 
@@ -163,7 +169,7 @@ pub enum Command {
 }
 
 /// An utterance, transcribed: a user message by its speaker (🎙️).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Utterance {
     pub speaker: Speaker,
     /// When its audio began, from the call's start: its first speech frame,
@@ -183,6 +189,9 @@ pub struct Utterance {
     pub over: Option<Over>,
     /// What it was heard as. Only words make a turn.
     pub heard_as: HeardAs,
+    /// What the judge said of it, when the rules would have made a turn of
+    /// it and it was asked (theseus-s3dwj).
+    pub judged: Option<Judged>,
 }
 
 /// What Theseus was doing when an utterance began.
@@ -225,7 +234,7 @@ pub enum Failure {
 }
 
 /// What the engine tells the session, the ledger, and the observatory.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// An utterance closed and was transcribed (`voice.utterance`, `speech.stt`).
     Utterance(Utterance),
@@ -314,6 +323,9 @@ pub struct Engine {
     barge_frames: u32,
     io: Box<dyn VoiceIo>,
     speech: Arc<dyn Speech>,
+    /// Asked about a short or unclear transcript the rules would make a turn
+    /// of (theseus-s3dwj); none: nothing is asked.
+    judge: Option<Arc<dyn Judge>>,
     commands: mpsc::UnboundedReceiver<Command>,
     events: mpsc::UnboundedSender<Event>,
     ticks: u64,
@@ -402,6 +414,8 @@ struct Opening {
     /// It began at the join: before the greeting finished, or within
     /// `JOIN_GUARD` of it (theseus-yf9ct).
     at_join: bool,
+    /// Its first speech frame's timing against Theseus's speech.
+    timing: Timing,
     /// Its number, so a probe of its audio so far finds it.
     id: u64,
     /// What the floor's bound heard of it so far.
@@ -511,6 +525,15 @@ enum Done {
         result: Result<Transcript, SpeechError>,
         latency: Duration,
     },
+    /// A short or unclear transcript's judge, answered or not in time
+    /// (theseus-s3dwj).
+    Judged {
+        seq: u64,
+        transcript: Transcript,
+        latency: Duration,
+        asked: Instant,
+        verdict: Option<Verdict>,
+    },
     Synthesized {
         generation: u64,
         seq: u64,
@@ -549,6 +572,7 @@ impl Engine {
             config,
             io,
             speech,
+            judge: None,
             commands,
             events,
             ticks: 0,
@@ -585,6 +609,15 @@ impl Engine {
             events: event_rx,
         };
         (engine, handle)
+    }
+
+    /// Ask `judge` about a short or unclear transcript the rules would make
+    /// a turn of (theseus-s3dwj, `Config::judge_ms`). Without one, nothing is
+    /// asked and the rules decide alone.
+    #[must_use]
+    pub fn with_judge(mut self, judge: Arc<dyn Judge>) -> Self {
+        self.judge = Some(judge);
+        self
     }
 
     /// Run the call until [`Command::Leave`], the handle's drop, or the
@@ -717,6 +750,7 @@ impl Engine {
                         last: false,
                         head: None,
                         at_join: false,
+                        timing: Timing::default(),
                         id: 0,
                         sound: Sound::Unheard,
                     });
@@ -782,12 +816,20 @@ impl Engine {
         };
         let mut last = false;
         let mut head = None;
+        let mut timing = Timing {
+            after_start: None,
+            after_end: self
+                .recent
+                .back()
+                .map(|(ended, _)| now.saturating_duration_since(*ended)),
+        };
         let (over, overlap) = match self.queue.front() {
             Some(item) => {
                 if item.clip.is_some() || self.hold.is_some() {
                     sentences.push(item.text.clone());
                 }
                 let begun = item.started.filter(|_| item.clip.is_some());
+                timing.after_start = begun.map(|s| now.saturating_duration_since(s));
                 if begun.is_some_and(|s| now.saturating_duration_since(s) <= ECHO_HEAD) {
                     head = Some(item.text.clone());
                 }
@@ -829,6 +871,7 @@ impl Engine {
             sentences,
             last,
             head,
+            timing,
             id,
             sound: Sound::Unheard,
         }
@@ -1229,6 +1272,13 @@ impl Engine {
                 result,
                 latency,
             } => self.heard(seq, result, latency, now),
+            Done::Judged {
+                seq,
+                transcript,
+                latency,
+                asked,
+                verdict,
+            } => self.judged(seq, transcript, latency, asked, verdict, now),
             Done::Probed {
                 speaker,
                 id,
@@ -1336,6 +1386,95 @@ impl Engine {
         {
             heard_as = HeardAs::Echo;
         }
+        // A short or unclear one that the rules would make a turn of waits
+        // for the judge, at most `judge_ms`, and nothing else does
+        // (theseus-s3dwj).
+        if heard_as == HeardAs::Words && self.judge.is_some() {
+            let o = &p.opening;
+            let echo_prone = self.echoes.get(&speaker).is_some_and(|n| *n >= ECHO_PRONE);
+            let case = unclear::case(&t, p.length, (overlap, o.at_join), &o.sentences, o.timing);
+            if let Some(case) = case.map(|c| Case { echo_prone, ..c }) {
+                if let Some(judge) = self.judge.clone() {
+                    let (deadline, asked) = (self.config.judge_ms, Instant::now());
+                    self.work.push(Box::pin(async move {
+                        let verdict = tokio::time::timeout(deadline, judge.judge(case))
+                            .await
+                            .ok()
+                            .flatten();
+                        Done::Judged {
+                            seq,
+                            transcript: t,
+                            latency,
+                            asked,
+                            verdict,
+                        }
+                    }));
+                    return;
+                }
+            }
+        }
+        self.settle(seq, t, latency, heard_as, None, now);
+    }
+
+    /// A short or unclear transcript's judge, answered or not in time: at
+    /// its act band its word is what the utterance was heard as; otherwise,
+    /// or with none, the rules' verdict (`Words`) stands (theseus-s3dwj).
+    fn judged(
+        &mut self,
+        seq: u64,
+        t: Transcript,
+        latency: Duration,
+        asked: Instant,
+        verdict: Option<Verdict>,
+        now: Instant,
+    ) {
+        let took = now.saturating_duration_since(asked);
+        let ms = took.as_millis() as u64;
+        let Some(v) = verdict else {
+            tracing::info!(
+                "voice: no judgment within {ms} ms for '{}': the rules decide",
+                t.text
+            );
+            return self.settle(seq, t, latency, HeardAs::Words, None, now);
+        };
+        let (heard_as, what) = match (v.acts, v.said) {
+            (true, Said::Echo) => (HeardAs::Echo, "its own echo, no turn"),
+            (true, Said::Other) => (HeardAs::Other, "noise or another speaker, no turn"),
+            (true, Said::Addressed) => (HeardAs::Words, "addressed to it, a turn"),
+            (false, _) => (HeardAs::Words, "below the act band, the rules decide"),
+        };
+        tracing::info!(
+            "voice: the judge heard '{}' as {:?} at {:.2} in {ms} ms ({}): {what}",
+            t.text,
+            v.said,
+            v.probability,
+            v.judgment
+        );
+        let judged = Some(Judged { verdict: v, took });
+        self.settle(seq, t, latency, heard_as, judged, now);
+    }
+
+    /// An utterance's transcript, heard as `heard_as`: told to the session,
+    /// and over speech, what that decides.
+    fn settle(
+        &mut self,
+        seq: u64,
+        t: Transcript,
+        latency: Duration,
+        heard_as: HeardAs,
+        judged: Option<Judged>,
+        now: Instant,
+    ) {
+        // One that the hold's bound decided while it waited for the judge is
+        // dropped, as a late transcript is.
+        let Some(p) = self
+            .pending
+            .iter_mut()
+            .find(|p| p.seq == seq && matches!(p.state, Transcribed::Waiting))
+        else {
+            return;
+        };
+        let (speaker, overlap) = (p.speaker, p.opening.overlap);
         let utterance = Utterance {
             speaker,
             started: p.started,
@@ -1346,6 +1485,7 @@ impl Engine {
             latency,
             over: p.opening.over.clone(),
             heard_as,
+            judged,
         };
         p.state = match heard_as {
             HeardAs::Words => Transcribed::Got(Box::new(utterance.clone())),
