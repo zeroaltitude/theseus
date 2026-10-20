@@ -392,6 +392,13 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     install is rebuilt after every reviewed step: so the chain installed `release-thin`, and a tagged release kept
     `release`; theseus-o2myi moved the install to `release` for its size (below). If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
     the least user time.
+  - **The install moved to `release` (theseus-o2myi, measured 2026-10-20).** `theseusd` alone, cold, no compile cache,
+    `CARGO_INCREMENTAL=0`, at nice 15 on a loaded 16-core host (so the times are upper bounds): `release-thin` at the
+    old base 90.2 MB in 500 s; `release-thin` with one cockpit copy and the cold crates at `opt-level = "s"` 86.3 MB in
+    424 s; `release` with both 70.5 MB in 1,145 s. So the fat link takes the install from 90.2 to 70.5 MB (-21.8 %) and
+    costs about two and a half times the cold build; the cockpit copy and the cold crates together are 4 MB of it
+    (4.4 %). The 60 MB target is still 10.5 MB away. Resident memory follows the size: read it with `ps -o rss` on the
+    installed `theseusd` after two idle minutes.
 - **glibc or static musl.** An install is the host's glibc build. Static musl is the portable build, which
   `build.sh --target x86_64-unknown-linux-musl` builds anywhere (CI built it on every push until theseus-o8nk, and nothing
   used its artifact; §3.18 says "static musl"; the recipe had always built
