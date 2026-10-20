@@ -228,16 +228,24 @@ impl Core {
             })
         };
         if let Some(place) = from.strip_prefix("home@") {
-            let sid = self
-                .outbox
-                .place_session(place)
-                .map_err(invalid)?
-                .ok_or_else(|| {
-                    RpcFailure::new(
-                        error_code::NOT_FOUND,
-                        format!("no place {place} runs a session: `theseus places` lists them"),
-                    )
-                })?;
+            // The place as `theseus places` prints it (`discord:dm:ID`) or as it is stored
+            // (`dm:ID`): the name as given first, then without its `discord:` (theseus-7j00b).
+            let mut sid = self.outbox.place_session(place).map_err(invalid)?;
+            if sid.is_none() {
+                if let Some(bare) = place.strip_prefix("discord:") {
+                    sid = self.outbox.place_session(bare).map_err(invalid)?;
+                }
+            }
+            let sid = sid.ok_or_else(|| {
+                RpcFailure::new(
+                    error_code::NOT_FOUND,
+                    format!(
+                        "no place {place} runs a session (a place is typed as `theseus places` \
+                         prints it, `discord:dm:ID`, or as stored, `dm:ID`): `theseus places` \
+                         lists them"
+                    ),
+                )
+            })?;
             return of_session(from, sid);
         }
         if from.starts_with("ses_") {
