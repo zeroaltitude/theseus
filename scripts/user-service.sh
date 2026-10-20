@@ -298,7 +298,7 @@ check_binaries() {
   fi
   if [ -z "$exe" ]; then
     fail "theseusd: not on PATH"
-    hint "install it: scripts/build.sh --profile release-thin, then copy it into ~/.local/bin (AGENTS.md, \"Installing\")"
+    hint "install it: scripts/build.sh --profile release, then copy it into ~/.local/bin (AGENTS.md, \"Installing\")"
   else
     version=$(probe theseusd --version | head -n 1)
     case $exe in
@@ -778,7 +778,7 @@ cmd_uninstall() {
 need_theseusd() {
   dry && return 0
   command -v theseusd >/dev/null 2>&1 || {
-    say "theseusd is not on PATH: install it first (scripts/build.sh --profile release-thin, then copy it into ~/.local/bin)"
+    say "theseusd is not on PATH: install it first (scripts/build.sh --profile release, then copy it into ~/.local/bin)"
     return 1
   }
 }

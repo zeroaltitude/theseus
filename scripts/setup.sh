@@ -5,7 +5,7 @@
 #                 (rust-toolchain.toml) and node 22+ with npm, to build; `op` when the config names op://
 #                 references; the token file, if one is named. A FAIL stops the run before anything changes.
 #   2. build      the cockpit (npm ci, npm run build: the web UI the daemon embeds), then the five binaries (four are installed)
-#                 (scripts/build.sh --profile release-thin, the install profile: the host's glibc).
+#                 (scripts/build.sh --profile release, the install profile: the host's glibc).
 #   3. install    each binary into the prefix (default ~/.local/bin) by copy-then-rename, so a running daemon
 #                 keeps its image until it restarts. A binary that matches the build is left alone.
 #   4. config     /etc/theseus/theseus.toml (or --config): when there is none, the template cut to what differs
@@ -34,7 +34,7 @@
 #   --unit NAME            the user unit (default theseusd). Another name is a second daemon beside yours, and
 #   --state-dir DIR          then these two are required, so it never shares your daemon's store
 #   --socket PATH            or socket
-#   --no-build             install what the target dir's release-thin build holds, without building
+#   --no-build             install what the target dir's release build holds, without building
 #   --yes, -y              never ask a question (the Jev key's): a run with no terminal never does either
 #   --jev-key REF          the Jev key's reference, answering that question: op://<vault>/<item>/<field> or
 #                          env:NAME, never the value itself ("skip" answers it with no key)
@@ -211,7 +211,7 @@ fi
 UNIT=$UNIT_NAME.service
 UNIT_FILE=$CONFIG_HOME/systemd/user/$UNIT
 SOCKET=${SOCKET_OPT:-${THESEUS_SOCKET:-$HOME/.theseus/theseus.sock}}
-TARGET=${CARGO_TARGET_DIR:-$ROOT/target}/release-thin
+TARGET=${CARGO_TARGET_DIR:-$ROOT/target}/release
 TOKEN_ARGS=()
 [ -n "$TOKEN" ] && TOKEN_ARGS=(--op-token-file "$TOKEN")
 
@@ -423,7 +423,7 @@ if [ $FAILS -gt 0 ]; then
 fi
 
 # ===================================================================================================
-step "2. build: the cockpit, then the five binaries (release-thin)"
+step "2. build: the cockpit, then the five binaries (release)"
 if [ "$BUILD" = 0 ]; then
   info "skipped (--no-build)"
 else
@@ -460,12 +460,12 @@ else
     npm_step run -s build || stop_here 1 "Not set up: the cockpit's build failed (above)."
     dry || ok "cockpit: built into $(dirname "$dist")"
   fi
-  run scripts/build.sh --profile release-thin || stop_here 1 "Not set up: the build failed (above)."
+  run scripts/build.sh --profile release || stop_here 1 "Not set up: the build failed (above)."
   dry && note "cargo builds what changed; a second run finds everything fresh"
 fi
 if ! dry; then
   for b in "${SHIPPED[@]}"; do
-    [ -x "$TARGET/$b" ] || stop_here 1 "Not set up: $TARGET/$b is missing: build first (scripts/build.sh --profile release-thin)."
+    [ -x "$TARGET/$b" ] || stop_here 1 "Not set up: $TARGET/$b is missing: build first (scripts/build.sh --profile release)."
   done
 fi
 

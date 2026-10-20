@@ -8,9 +8,10 @@
 #   scripts/build.sh --shipped   (prints the five packages below, and builds nothing)
 #   scripts/build.sh --installed (prints the four binaries an install copies, and builds nothing)
 #
-#   release       fat LTO and one codegen unit: a tagged release (the default).
-#   release-thin  thin LTO and 16 codegen units: the install profile, for a chain's
-#                 install, built far faster (Cargo.toml says why it is not `install`,
+#   release       fat LTO and one codegen unit: the install profile and a tagged release (the
+#                 default; theseus-o2myi).
+#   release-thin  thin LTO and 16 codegen units: the quick build, for a bench, the AWS hand,
+#                 or a try-out, never an install (Cargo.toml says why it is not `install`,
 #                 and scripts/AGENTS.md has the measurements).
 #
 # What it builds: the five binaries an install ships, theseusd, theseus, theseus-tui,

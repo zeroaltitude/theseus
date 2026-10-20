@@ -95,6 +95,9 @@ debug = "line-tables-only"
 debug = false
 opt-level = 2
 
+# The install profile, and a tagged release's (theseus-o2myi): fat LTO and one codegen unit, the smallest and the
+# quickest binary, for the cost of one slow link. `scripts/build.sh --profile release` builds it, and an install copies
+# it (scripts/AGENTS.md has the measurements).
 [profile.release]
 lto = "fat"
 codegen-units = 1
@@ -102,10 +105,10 @@ opt-level = 3
 strip = true
 panic = "abort"
 
-# The install profile (theseus-goa8; review 2's S7), for an install by the chain or by anyone building for themselves:
-# the release profile without fat LTO and its single codegen unit, so a build after a change takes minutes less.
-# Cargo reserves the name `install`, hence this one. `scripts/build.sh --profile release-thin` builds it; a tagged
-# release keeps `release`. The measurements, and what the bench says of the binary's speed, are in scripts/AGENTS.md.
+# The quick build (theseus-goa8; review 2's S7): the release profile without fat LTO and its single codegen unit, so a
+# build after a change takes minutes less, for a bench, the AWS hand, or a try-out. Never an install: since
+# theseus-o2myi an install is `release`. Cargo reserves the
+# name `install`, hence this one. `scripts/build.sh --profile release-thin` builds it.
 [profile.release-thin]
 inherits = "release"
 lto = "thin"

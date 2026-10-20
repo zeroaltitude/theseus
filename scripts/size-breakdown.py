@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What makes `theseusd` big (theseus-2m7jg): the top crates by bytes, and the embedded cockpit bundle's.
 
-    scripts/size-breakdown.py [--profile release-thin|release] [--top 20] [--binary PATH] [--package theseusd]
+    scripts/size-breakdown.py [--profile release|release-thin] [--top 20] [--binary PATH] [--package theseusd]
 
 Both profiles strip (`strip = true`), and a stripped binary has no symbols to count, so this builds an unstripped
 copy with `CARGO_PROFILE_<PROFILE>_STRIP=false`, which changes nothing else, into its own target directory
@@ -124,7 +124,7 @@ def dist_bytes():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--profile", default="release-thin")
+    ap.add_argument("--profile", default="release")
     ap.add_argument("--package", default="theseusd")
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--binary", help="an unstripped binary to read instead of building one")
