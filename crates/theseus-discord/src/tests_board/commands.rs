@@ -7,7 +7,6 @@
 //! task's Retry and Dismiss.
 
 use super::*;
-use std::time::Instant;
 use theseus_protocol::LedgerKind;
 use theseus_sim::fake_discord::commands::{Sender, Upload};
 use theseus_sim::fake_discord::Reply;
@@ -239,13 +238,16 @@ async fn task_autocomplete_ranks_needs_you_first_stops_at_25_and_asks_the_daemon
     let mut ms = Vec::new();
     let mut first = None;
     for typed in ["", "b", "bu", "buo", "buoy"] {
-        let t0 = Instant::now();
+        // The work a keystroke costs, in CPU time: a loaded machine makes the
+        // wall clock say how long the binding waited for a turn on the CPU,
+        // and the 25 ms poll below is on it too (theseus-1b2zm).
+        let t0 = theseus_sim::process_cpu();
         let iid = r
             .fake
             .autocomplete_typed(&ana(), "task", "name", typed)
             .unwrap();
         let rep = answered(&r, &iid).await;
-        ms.push(t0.elapsed().as_millis());
+        ms.push((theseus_sim::process_cpu() - t0).as_millis());
         if typed.is_empty() {
             first = Some(rep);
         } else if typed == "buoy" {
@@ -284,7 +286,7 @@ async fn task_autocomplete_ranks_needs_you_first_stops_at_25_and_asks_the_daemon
     ms.sort_unstable();
     assert!(
         ms[2] < 50,
-        "the median keystroke took {}ms (all {ms:?})",
+        "the median keystroke took {}ms of CPU (all {ms:?})",
         ms[2]
     );
 }
