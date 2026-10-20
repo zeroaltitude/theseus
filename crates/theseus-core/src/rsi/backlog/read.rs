@@ -150,6 +150,28 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// A settled action's producer, for a key. A producer is `<kind>` or
+/// `<kind>:<name>`; [`word`] alone would cut `provider:anthropic` to
+/// `provider` and fold every provider's failures into one cause that names
+/// none. A `provider` producer keeps its name (a small, fixed set); any other
+/// kind keeps only itself, because its tail is an id (`wrapper:7`,
+/// `async:mcp:<tool>`) that would split one problem into many.
+fn producer_word(v: &Value) -> String {
+    let s = v.as_str().unwrap_or("").trim();
+    let kind = word(v);
+    match (kind.as_str(), s.split_once(':')) {
+        ("provider", Some((_, name))) => {
+            let name = word(&Value::from(name));
+            if name == "unknown" {
+                kind
+            } else {
+                format!("{kind}:{name}")
+            }
+        }
+        _ => kind,
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,7 +196,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
-            let p = word(&d["producer"]);
+            let p = producer_word(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
             o.note = format!(
@@ -467,5 +489,40 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str) -> Obs {
+        let row = LedgerRow::named(
+            "action.failed",
+            None,
+            None,
+            json!({"correlation_id": "act_1", "producer": producer, "duration_ms": 5}),
+        );
+        of_row(1, &row).unwrap()
+    }
+
+    #[test]
+    fn a_failed_provider_call_is_a_cause_per_provider() {
+        let a = failed("provider:anthropic");
+        assert_eq!(a.key, "action.failed:provider:anthropic");
+        assert_eq!(a.title, "Calls from provider:anthropic fail");
+        assert_ne!(a.key, failed("provider:zai").key);
+        assert_eq!(a.key, failed("provider:Anthropic").key);
+    }
+
+    #[test]
+    fn other_producers_keep_their_kind_alone() {
+        assert_eq!(failed("proc").key, "action.failed:proc");
+        assert_eq!(failed("wrapper:1").key, failed("wrapper:2").key);
+        assert_eq!(failed("async:mcp:ext/count").key, "action.failed:async");
+        assert_eq!(failed("provider").key, "action.failed:provider");
+        assert_eq!(failed("provider:").key, "action.failed:provider");
+        assert_eq!(failed("").key, "action.failed:unknown");
     }
 }
