@@ -193,6 +193,22 @@ fn posts(core: &Core) -> Vec<(String, Value)> {
         .collect()
 }
 
+/// The first `wake.noticed` to come, waited for: the notification follows the frame that
+/// wrote the post, so a reader that finds the post may be ahead of it (theseus-1b2zm).
+async fn next_noticed(r: &mut Rig) -> WakeNoticed {
+    loop {
+        let m = tokio::time::timeout(Duration::from_secs(20), r.events.recv())
+            .await
+            .expect("a wake.noticed within 20 s")
+            .expect("the events stay open");
+        if let Message::Notification(n) = m {
+            if n.method == "wake.noticed" {
+                return serde_json::from_value(n.params).unwrap();
+            }
+        }
+    }
+}
+
 fn noticed(r: &mut Rig) -> Vec<WakeNoticed> {
     let mut out = vec![];
     while let Ok(m) = r.events.try_recv() {
@@ -260,10 +276,10 @@ async fn a_reminder_in_a_placeless_session_posts_to_the_owners_dm_when_it_fires(
     until("the reminder's post", 10, || !posts(&r.core).is_empty()).await;
     let (target, _) = posts(&r.core).remove(0);
     assert_eq!(target, TARGET, "0 silent: the DM hears it");
-    let n = noticed(&mut r);
-    assert_eq!(n.len(), 1);
-    assert_eq!(n[0].posted_to.as_deref(), Some(TARGET));
-    assert!(n[0].home, "it was Home's DM that took it");
+    let n = next_noticed(&mut r).await;
+    assert!(noticed(&mut r).is_empty(), "heard once");
+    assert_eq!(n.posted_to.as_deref(), Some(TARGET));
+    assert!(n.home, "it was Home's DM that took it");
     assert!(r.model.requests.lock().unwrap().is_empty());
 }
 
@@ -321,8 +337,7 @@ async fn a_snooze_from_a_button_sets_a_fired_reminder_again_and_it_fires_again()
     .unwrap();
     until("the first post", 10, || posts(&r.core).len() == 1).await;
     let id = posts(&r.core)[0].1["wake_id"].as_str().unwrap().to_string();
-    let n = noticed(&mut r);
-    assert_eq!(n[0].wake_id, id);
+    assert_eq!(next_noticed(&mut r).await.wake_id, id);
     // The button's call: wake.snooze with the whole id, fired, for 2 s.
     let again = rpc(
         &r.core,
@@ -420,10 +435,10 @@ async fn the_models_say_only_reminder_for_the_owner_is_a_notice_and_takes_no_tur
         before,
         "the notice took no turn and made no model call"
     );
-    let n = noticed(&mut r);
-    assert_eq!(n.len(), 1);
-    assert_eq!(n[0].note, "stretch");
-    assert_eq!(n[0].session_id, sid);
+    let n = next_noticed(&mut r).await;
+    assert!(noticed(&mut r).is_empty(), "heard once");
+    assert_eq!(n.note, "stretch");
+    assert_eq!(n.session_id, sid);
 }
 
 /// A reminder is answered through `work.answer` (theseus-ds5os): a fired one
