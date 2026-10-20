@@ -246,6 +246,81 @@ fn a_near_miss_project_is_not_reused() {
     assert!(b.plan.header.contains("-p tides") && !b.plan.header.contains("-p gauges"));
 }
 
+/// What a prefix carries into a thread's request (theseus-wncdv): the layer
+/// is the thread's own sections and nothing else. Each stream has guidance
+/// that holds its own colliding facts (a port, a test command); across 90 picks
+/// in a seeded order, whatever the library holds, the header and the delta
+/// together hold the asking stream's facts and none of another's. A header holding
+/// a section the fresh layer lacks (another stream's topic) is never the pick,
+/// so the library may be warm for one stream and cold for the next with
+/// no crossing. (The threadbench's A1 vs A1n difference was routing, not this:
+/// no header, reused or minted, can hold a foreign section.)
+#[test]
+fn a_prefix_carries_only_the_asking_streams_own_sections() {
+    let streams = [
+        (
+            "sec-fix",
+            "ledgerweb staging port 8443, tests: make check-sec",
+        ),
+        (
+            "pipeline",
+            "datatidy preview port 8444, tests: make test-data",
+        ),
+        ("local-ops", "homesvc staging port 8453, tests: ./verify.sh"),
+        (
+            "pr-round",
+            "tarnlib docs preview port 9443, tests: make test-pr",
+        ),
+    ];
+    let lib = library();
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    for i in 0..90 {
+        let me = (next() % 4) as usize;
+        let mut sections = vec![guidance("project", "Work in the owner's workspace.")];
+        // Each stream's own guidance, and now and then a sibling's topic of its own.
+        sections.push(guidance(streams[me].0, streams[me].1));
+        if next() % 3 == 0 {
+            sections.push(guidance(
+                &format!("{}-topic", streams[me].0),
+                "Keep it short.",
+            ));
+        }
+        let ask = Ask::new(files(300), sections);
+        let p = ask.pick(&lib);
+        let carried = fit::join(
+            [&*p.plan.header, &*p.plan.delta]
+                .into_iter()
+                .filter(|t| !t.is_empty()),
+        );
+        assert!(
+            carried.contains(streams[me].1),
+            "pick {i} ({}) lost its own section",
+            streams[me].0
+        );
+        for (j, (name, fact)) in streams.iter().enumerate() {
+            assert!(
+                j == me || !carried.contains(fact),
+                "pick {i} for {} carries {name}'s section ({:?})",
+                streams[me].0,
+                p.choice
+            );
+        }
+        // The two halves are exactly the fresh layer's sections.
+        let mut have: Vec<&str> = carried.split("\n\n").collect();
+        let fresh = ask.fresh_text();
+        let mut want: Vec<&str> = fresh.split("\n\n").collect();
+        have.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(have, want, "pick {i}");
+    }
+}
+
 /// A shared place reuses only a shared place's header, and a private place
 /// only a private one's, the same bytes notwithstanding.
 #[test]

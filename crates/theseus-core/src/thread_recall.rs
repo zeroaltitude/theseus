@@ -10,6 +10,11 @@
 //!   included, is kept (`Memo`); an unreadable record is not kept.
 //! - **Nothing is read** while no thread exists: [`TurnRunner::thread_scene`]
 //!   gives none, and recall is as it was before threads.
+//! - **Streams do not mix** (theseus-wncdv): a node's own thread (`moved_to`, what a
+//!   split moved) outranks its session's; `[threads] base_distance` makes a node of
+//!   the place's own conversation another stream's to a threaded asker;
+//!   `cross_recall_beats_own` and `cross_recall_needs_entity` make another stream's
+//!   hit outrank what the thread holds and share an entity with the message.
 //! - **Naming** (`waived`): the message names a thread by its slug, its
 //!   title, or one of its working set's entities (a repo, branch, ref, file,
 //!   root or host), as whole words, in any case.
@@ -140,6 +145,9 @@ pub struct ThreadScene {
     waived: BTreeSet<String>,
     penalty: f64,
     bar: f64,
+    base: bool,
+    beats_own: bool,
+    needs_entity: bool,
     board: Arc<Board>,
     store: Store,
     memo: Arc<Memo>,
@@ -174,11 +182,32 @@ impl ThreadScene {
             .flatten()
     }
 
-    /// The lens over candidates given as (session, fused score).
-    pub fn lens<'a>(&self, candidates: impl IntoIterator<Item = (&'a str, f64)>) -> ThreadLens {
+    /// The thread a split moved `node` to, when it did (`moved.of.<node>`):
+    /// the node's own thread, which outranks its session's.
+    fn moved_to(&self, node: &str) -> Option<SessionThread> {
+        let m = self
+            .store
+            .get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node))
+            .ok()
+            .flatten()
+            .flatten()?;
+        let t = self.board.get(&m.thread)?;
+        Some(SessionThread {
+            held: t.sealed.is_some() || t.seal_pending.is_some(),
+            slug: m.thread,
+        })
+    }
+
+    /// The lens over candidates given as (session, node, fused score).
+    pub fn lens<'a>(
+        &self,
+        candidates: impl IntoIterator<Item = (&'a str, &'a str, f64)>,
+    ) -> ThreadLens {
         let mut of_session = BTreeMap::new();
+        let mut of_node = BTreeMap::new();
         let mut top: f64 = 0.0;
-        for (session, fused) in candidates {
+        let mut seen = Vec::new();
+        for (session, node, fused) in candidates {
             if fused.is_finite() {
                 top = top.max(fused);
             }
@@ -187,13 +216,33 @@ impl ThreadScene {
                     of_session.insert(session.to_string(), t);
                 }
             }
+            if let Some(t) = self.moved_to(node) {
+                of_node.insert(node.to_string(), t);
+            }
+            seen.push((session, node, fused));
         }
+        // What the asking thread already holds: its own best hit.
+        let own_top = seen
+            .iter()
+            .filter(|(session, node, fused)| {
+                fused.is_finite()
+                    && of_node
+                        .get(*node)
+                        .or_else(|| of_session.get(*session))
+                        .is_some_and(|t| self.here.as_deref() == Some(t.slug.as_str()))
+            })
+            .fold(0.0_f64, |a, (_, _, fused)| a.max(*fused));
         ThreadLens {
             here: self.here.clone(),
             distance: self.distance,
             of_session,
+            of_node,
+            base: self.base,
             waived: self.waived.clone(),
             top_fused: top,
+            own_top,
+            beats_own: self.beats_own,
+            needs_entity: self.needs_entity,
             penalty: self.penalty,
             bar: self.bar,
         }
@@ -233,6 +282,9 @@ impl TurnRunner {
             waived,
             penalty: cfg.cross_recall_penalty,
             bar: cfg.cross_recall_bar,
+            base: cfg.base_distance,
+            beats_own: cfg.cross_recall_beats_own,
+            needs_entity: cfg.cross_recall_needs_entity,
             board,
             store: self.store.clone(),
             memo,

@@ -24,7 +24,7 @@ use crate::policy::{Decision, Posture};
 use crate::recall::{Ask, AskFuture, Scene};
 use crate::tests_recall::{rig_with, session, turn, Rig};
 
-fn cli() -> Answerer {
+pub(super) fn cli() -> Answerer {
     Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
@@ -33,11 +33,11 @@ fn cli() -> Answerer {
     }
 }
 
-fn canary() -> Rig {
+pub(super) fn canary() -> Rig {
     rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
 }
 
-fn new_thread(c: &Core, slug: &str, title: &str) {
+pub(super) fn new_thread(c: &Core, slug: &str, title: &str) {
     c.thread_new(
         &ThreadNewParams {
             slug: slug.into(),
@@ -50,12 +50,12 @@ fn new_thread(c: &Core, slug: &str, title: &str) {
 }
 
 /// The thread's session, opened and bound.
-fn thread_session(c: &Core, slug: &str) -> String {
+pub(super) fn thread_session(c: &Core, slug: &str) -> String {
     c.thread_session(slug, cli()).unwrap().session_id
 }
 
 /// A note in `sid`.
-fn say(c: &Core, sid: &str, text: &str) -> String {
+pub(super) fn say(c: &Core, sid: &str, text: &str) -> String {
     let n = Node::user(sid, None, "test", text);
     c.store.append(&[n.record().unwrap()]).unwrap();
     n.id
@@ -63,7 +63,17 @@ fn say(c: &Core, sid: &str, text: &str) -> String {
 
 /// A stand-in index that answers `picks`: (session, the index of its node,
 /// the fused score), in order.
-fn scored(c: &Arc<Core>, picks: Vec<(String, usize, f64)>) -> Ask {
+pub(super) fn scored(c: &Arc<Core>, picks: Vec<(String, usize, f64)>) -> Ask {
+    scored_with(c, picks, Vec::new())
+}
+
+/// The same, each hit with the entities its chunk holds and the question's it
+/// shares (`entities[i]` for `picks[i]`; none for a hit past the list).
+pub(super) fn scored_with(
+    c: &Arc<Core>,
+    picks: Vec<(String, usize, f64)>,
+    entities: Vec<(Vec<String>, Vec<String>)>,
+) -> Ask {
     let store = c.store.clone();
     Arc::new(move |_| -> AskFuture {
         let hits = picks
@@ -71,6 +81,7 @@ fn scored(c: &Arc<Core>, picks: Vec<(String, usize, f64)>) -> Ask {
             .enumerate()
             .map(|(i, (sid, k, fused))| {
                 let (position, n) = store.session_nodes(sid).unwrap().remove(*k);
+                let (held, shared) = entities.get(i).cloned().unwrap_or_default();
                 IndexHit {
                     text: crate::recall::text_of(&n),
                     node_id: n.id,
@@ -84,8 +95,8 @@ fn scored(c: &Arc<Core>, picks: Vec<(String, usize, f64)>) -> Ask {
                     tool: None,
                     time_ms: 0,
                     external: false,
-                    entities_matched: vec![],
-                    entities: vec![],
+                    entities_matched: shared,
+                    entities: held,
                     sources: [(
                         "bm25".to_string(),
                         IndexSourceRank {
@@ -113,7 +124,7 @@ fn scored(c: &Arc<Core>, picks: Vec<(String, usize, f64)>) -> Ask {
 
 /// A turn's recall as the pipeline runs it for `asker` saying `message`
 /// (ambient: the distance applies in a threaded session), without a turn.
-async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask) -> RecallManifest {
+pub(super) async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask) -> RecallManifest {
     let memory = &c.runner.memory;
     memory.set_ask(ask);
     let mut begun = memory.begin(
@@ -147,7 +158,7 @@ async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask) -> RecallM
     )
 }
 
-fn nodes_of(m: &RecallManifest) -> Vec<&str> {
+pub(super) fn nodes_of(m: &RecallManifest) -> Vec<&str> {
     m.admitted.iter().map(|a| a.session_id.as_str()).collect()
 }
 

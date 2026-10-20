@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::floor::Floor;
 use crate::fsrs::Retention;
 use crate::science::{MemoryScience, RankCtx, Scored, SynthesisAdmit};
-use crate::threads::{ThreadLens, Verdict};
+use crate::threads::{ThreadLens, Tie, Verdict};
 
 /// Where a session speaks, as the core read it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -337,7 +337,12 @@ fn filter(
         return Some(Reason::Place);
     }
     if let Some(l) = asker.threads {
-        match l.judge(&c.session_id, c.fused) {
+        match l.judge(
+            &c.session_id,
+            &c.node_id,
+            c.fused,
+            Tie::of(&c.entities, &c.matched),
+        ) {
             Verdict::Sealed => return Some(Reason::Sealed),
             Verdict::Distant => return Some(Reason::Thread),
             Verdict::Pass | Verdict::Costs(_) => {}
@@ -416,7 +421,14 @@ fn fresher(kept: Vec<Candidate>, asker: &Asker<'_>, dropped: &mut Vec<Dropped>) 
 /// What a candidate's score is multiplied by for its thread's distance
 /// (theseus-f2g0): 1 for all but another thread's.
 fn distance(asker: &Asker<'_>, c: &Candidate) -> f64 {
-    match asker.threads.map(|l| l.judge(&c.session_id, c.fused)) {
+    match asker.threads.map(|l| {
+        l.judge(
+            &c.session_id,
+            &c.node_id,
+            c.fused,
+            Tie::of(&c.entities, &c.matched),
+        )
+    }) {
         Some(Verdict::Costs(f)) => f,
         _ => 1.0,
     }
@@ -640,6 +652,7 @@ mod tests {
             top_fused: 0.9,
             penalty: 0.35,
             bar: 0.75,
+            ..ThreadLens::default()
         };
         let none = BTreeSet::new();
         let asker = Asker {

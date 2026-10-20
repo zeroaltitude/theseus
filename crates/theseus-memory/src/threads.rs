@@ -10,10 +10,22 @@
 //! - **The distance**: in a threaded session, a candidate of *another*
 //!   thread pays `penalty` of its score and is admitted only when its score,
 //!   against the index's best hit of the query (`top_fused`), is above `bar`
-//!   (else it is dropped as `thread`), unless the message names that thread
-//!   (`waived`: its slug, its title, or one of its working set's entities),
-//!   which waives both. An unthreaded candidate, and every candidate of an
-//!   unthreaded session's recall, is as before.
+//!   and, once it has paid, it still outranks the asking thread's own best
+//!   hit of the query (`own_top`; `beats_own`: a note of another stream
+//!   that is no better than what the thread already holds is not worth
+//!   its room, whatever the question's shape shares with it). Else it is
+//!   dropped as `thread`. Naming the thread (`waived`: its slug, its
+//!   title, or one of its working set's entities) waives all of it.
+//!   A candidate that holds concrete entities (a path, a ticket, a host)
+//!   and shares none with the message (`needs_entity`; its [`Tie`] is
+//!   `Apart`) is about something else and is dropped the same way: the
+//!   question's shape alone is no reason to pull another stream's note.
+//! - **Whose a node is.** A node's own thread (`of_node`: a range a split
+//!   moved) outranks its session's. A node of a session no thread serves
+//!   (the place's own conversation, where each stream's first messages
+//!   run before its thread exists) is another stream's to a threaded asker
+//!   when `base` is on: it pays the same distance and is never waived by a
+//!   name. Every candidate of an unthreaded session's recall is as before.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,6 +35,30 @@ pub struct SessionThread {
     pub slug: String,
     /// Sealed, or a seal proposed and not yet answered.
     pub held: bool,
+}
+
+/// What a candidate's chunk shares with the message by concrete entity (the
+/// index's exact terms: paths, files, tickets, commits, hosts, crates).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tie {
+    /// The chunk holds entities and the message names one of them.
+    Shared,
+    /// The chunk holds entities and the message names none of them.
+    Apart,
+    /// The chunk holds none, or the index does not say: no evidence.
+    #[default]
+    Unknown,
+}
+
+impl Tie {
+    /// From the chunk's entities and the message's that it holds.
+    pub fn of(entities: &[String], matched: &[String]) -> Tie {
+        match (entities.is_empty(), matched.is_empty()) {
+            (_, false) => Tie::Shared,
+            (false, true) => Tie::Apart,
+            (true, true) => Tie::Unknown,
+        }
+    }
 }
 
 /// What the threads do to one recall.
@@ -36,11 +72,26 @@ pub struct ThreadLens {
     pub distance: bool,
     /// The thread of each candidate session that has one.
     pub of_session: BTreeMap<String, SessionThread>,
+    /// The thread of each candidate node that has one of its own (a node a
+    /// split moved to a thread): it outranks the node's session's.
+    pub of_node: BTreeMap<String, SessionThread>,
+    /// `[threads] base_distance`: a candidate no thread claims (by node or
+    /// by session) is another stream's to a threaded asker.
+    pub base: bool,
     /// The threads the message names: no distance for these.
     pub waived: BTreeSet<String>,
     /// The index's best fused score of the query: what a candidate's is
     /// weighed against.
     pub top_fused: f64,
+    /// The best fused score among the candidates the asking thread owns:
+    /// what another stream's hit must outrank once it has paid.
+    pub own_top: f64,
+    /// `[threads] cross_recall_beats_own`: whether another stream's hit
+    /// must outrank `own_top` after its penalty.
+    pub beats_own: bool,
+    /// `[threads] cross_recall_needs_entity`: another stream's hit whose
+    /// chunk holds entities that the message shares none of is dropped.
+    pub needs_entity: bool,
     /// `[threads] cross_recall_penalty`: the share of its score another
     /// thread's candidate pays.
     pub penalty: f64,
@@ -73,18 +124,32 @@ impl ThreadLens {
         self.of_session.is_empty() && self.here.is_none()
     }
 
-    /// What the lens does to a candidate of `session` with `fused`.
-    pub fn judge(&self, session: &str, fused: f64) -> Verdict {
-        let Some(t) = self.of_session.get(session) else {
-            return Verdict::Pass;
+    /// The thread of the candidate `node` of `session`: its own (a moved
+    /// node), else its session's.
+    pub fn thread_of_node(&self, session: &str, node: &str) -> Option<&SessionThread> {
+        self.of_node
+            .get(node)
+            .or_else(|| self.of_session.get(session))
+    }
+
+    /// What the lens does to the candidate `node` of `session` with `fused`.
+    pub fn judge(&self, session: &str, node: &str, fused: f64, tie: Tie) -> Verdict {
+        let slug = match self.thread_of_node(session, node) {
+            Some(t) => {
+                if self.here.as_deref() == Some(t.slug.as_str()) {
+                    return Verdict::Pass;
+                }
+                if t.held {
+                    return Verdict::Sealed;
+                }
+                Some(t.slug.as_str())
+            }
+            // No thread claims it: the place's own conversation, another
+            // stream's to a threaded asker when `base` is on.
+            None if self.base && self.here.is_some() => None,
+            None => return Verdict::Pass,
         };
-        if self.here.as_deref() == Some(t.slug.as_str()) {
-            return Verdict::Pass;
-        }
-        if t.held {
-            return Verdict::Sealed;
-        }
-        if !self.distance || self.waived.contains(&t.slug) {
+        if !self.distance || slug.is_some_and(|s| self.waived.contains(s)) {
             return Verdict::Pass;
         }
         let share = if self.top_fused > 0.0 {
@@ -92,7 +157,11 @@ impl ThreadLens {
         } else {
             1.0
         };
-        if share > self.bar {
+        if self.needs_entity && tie == Tie::Apart {
+            return Verdict::Distant;
+        }
+        let paid = fused * (1.0 - self.penalty).clamp(0.0, 1.0);
+        if share > self.bar && !(self.beats_own && paid <= self.own_top) {
             Verdict::Costs((1.0 - self.penalty).clamp(0.0, 1.0))
         } else {
             Verdict::Distant
@@ -128,48 +197,61 @@ mod tests {
             top_fused: 0.04,
             penalty: 0.35,
             bar: 0.75,
+            ..ThreadLens::default()
         }
     }
 
     #[test]
     fn another_threads_candidate_pays_and_needs_the_bar() {
         let l = lens(Some("here"));
-        assert_eq!(l.judge("ses_pr", 0.04), Verdict::Costs(0.65));
-        assert_eq!(l.judge("ses_pr", 0.031), Verdict::Costs(0.65));
         assert_eq!(
-            l.judge("ses_pr", 0.03),
+            l.judge("ses_pr", "n", 0.04, Tie::Unknown),
+            Verdict::Costs(0.65)
+        );
+        assert_eq!(
+            l.judge("ses_pr", "n", 0.031, Tie::Unknown),
+            Verdict::Costs(0.65)
+        );
+        assert_eq!(
+            l.judge("ses_pr", "n", 0.03, Tie::Unknown),
             Verdict::Distant,
             "at the bar is not above it"
         );
-        assert_eq!(l.judge("ses_pr", 0.01), Verdict::Distant);
-        assert_eq!(l.judge("ses_unthreaded", 0.001), Verdict::Pass);
+        assert_eq!(l.judge("ses_pr", "n", 0.01, Tie::Unknown), Verdict::Distant);
+        assert_eq!(
+            l.judge("ses_unthreaded", "n", 0.001, Tie::Unknown),
+            Verdict::Pass
+        );
     }
 
     #[test]
     fn naming_the_thread_waives_both() {
         let mut l = lens(Some("here"));
         l.waived.insert("pr-round".into());
-        assert_eq!(l.judge("ses_pr", 0.001), Verdict::Pass);
+        assert_eq!(l.judge("ses_pr", "n", 0.001, Tie::Unknown), Verdict::Pass);
     }
 
     #[test]
     fn an_unthreaded_session_pays_no_distance_but_a_seal_holds() {
         let l = lens(None);
-        assert_eq!(l.judge("ses_pr", 0.001), Verdict::Pass);
-        assert_eq!(l.judge("ses_fix", 0.04), Verdict::Sealed);
+        assert_eq!(l.judge("ses_pr", "n", 0.001, Tie::Unknown), Verdict::Pass);
+        assert_eq!(l.judge("ses_fix", "n", 0.04, Tie::Unknown), Verdict::Sealed);
     }
 
     #[test]
     fn a_sealed_thread_reads_itself_and_no_one_else() {
-        assert_eq!(lens(Some("fix")).judge("ses_fix", 0.04), Verdict::Pass);
         assert_eq!(
-            lens(Some("pr-round")).judge("ses_fix", 0.04),
+            lens(Some("fix")).judge("ses_fix", "n", 0.04, Tie::Unknown),
+            Verdict::Pass
+        );
+        assert_eq!(
+            lens(Some("pr-round")).judge("ses_fix", "n", 0.04, Tie::Unknown),
             Verdict::Sealed
         );
         let mut l = lens(Some("pr-round"));
         l.waived.insert("fix".into());
         assert_eq!(
-            l.judge("ses_fix", 0.04),
+            l.judge("ses_fix", "n", 0.04, Tie::Unknown),
             Verdict::Sealed,
             "naming never opens a seal"
         );
