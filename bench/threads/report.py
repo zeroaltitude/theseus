@@ -78,7 +78,10 @@ def legend(runs: list[dict]) -> dict[str, str]:
 
 # The threads arms are configurations inside Theseus: the chart palette's slots 6 to 8 (the memory family's, which
 # never meet a threads arm in one figure), so no shared file changes. The records keep their own keys.
-CHART_KEY = {"theseus-threads": "vector", "theseus-threads-noprefix": "fused", "theseus-threads-addressed": "entity"}
+# The +onto arm is a ninth series beside A1 to A7's eight, which the palette has no slot for: it takes slot 5 (`bm25`'s),
+# shared with Pi, so a figure that holds both A1o and A7 tells them apart by their labels alone.
+CHART_KEY = {"theseus-threads": "vector", "theseus-threads-noprefix": "fused", "theseus-threads-addressed": "entity",
+             "theseus-threads-onto": "bm25"}
 
 
 def figures(runs: list[dict], prog: tf.Progression) -> list[dict]:
@@ -264,7 +267,32 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
         "\nFirst-token latency is carried by Theseus's turn result only; Claude Code and Pi report none, so their cells say "
         "so (a T0r that needs it reads each harness's own trace). CPU and RSS are the driven processes' "
         "(`getrusage` of the children: the harness's CLI, and a Theseus daemon), apart from the model's work.\n")
+    out["Decisions taken off the main model"] = decisions_section(runs)
     return out
+
+
+def decisions_section(runs: list[dict]) -> str:
+    """The thesis column (theseus-mqqc2; the design's section 9): routing, filing and privacy decisions per message
+    that Jev made instead of the main model, with the dollars each way. Reported whatever it says."""
+    rows = []
+    for r in runs:
+        d = r.get("decisions")
+        if not d:
+            rows.append([r["arm"], "none: the arm asks Jev no decision", "–", "–", "–", "–"])
+            continue
+        by = d["by_class"]
+        per = " / ".join(f'{by.get(c, {}).get("per_turn", 0):.2f}' for c in ("routing", "filing", "privacy"))
+        rows.append([r["arm"], f'{d["per_turn"]:.2f} ({per})', usd(d["jev_usd"]), usd(d["main_model_usd"]),
+                     usd(d["saved_usd"]), str(d["unanswered"])])
+    return (table(["arm", "decisions per message by Jev, all (routing / filing / privacy)", "Jev's dollars",
+                   "the main model's, modelled", "saved", "unanswered"], rows) +
+            "\nA decision is one answered judgment of a routing pack (`route.*`, `classify.*`), a filing pack (`onto.*`, "
+            "`categorize.*`) or a privacy pack (`security.*`), read from the run's `judge.call` rows "
+            "(`judgments.json`). The main model's dollars are modelled, not measured: the same tokens Jev read, at the "
+            "model's uncached input price, and the tokens Jev wrote at its output price; a free-form answer is longer "
+            "than Jev's choice, so it is a floor. The oracle arm makes these decisions by asking the main model, one "
+            "extra call each, so its count is the Jev arm's and its dollars are that column. Judgments Jev did not "
+            "answer are counted apart: a decision not taken off the main model.\n")
 
 
 LOSE = """## Where threads would lose
@@ -452,7 +480,8 @@ def write_report(runs: list[dict], prog: tf.Progression, out: Path, slug: str, d
     lines = [f"# {title}", "", ANSWER.format(sentences=answer_text(runs, prog)), "", "| | |", "|---|---|"]
     lines += [f"| {k} | {v} |" for k, v in glance]
     for head in ("Per-stream correctness by arm", "Contamination and leaks", "Context tokens per turn over the run",
-                 "Dollars measured and modelled", "Routing", "Latency"):
+                 "Dollars measured and modelled", "Routing", "Latency",
+                 "Decisions taken off the main model"):
         lines += ["", f"## {head}", "", sections[head].rstrip()]
     lines += ["", "## The persona track", "", persona_section(persona).rstrip(),
               "", "## The prefix-library track", "", prefix_section(prefix_runs or []).rstrip(),

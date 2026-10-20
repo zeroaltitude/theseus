@@ -11,18 +11,23 @@
 //! answers: [`what_changes`] says so, and [`reband`] bands the stored answers
 //! again under the candidate's thresholds.
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::band::band;
+use crate::band::{band, Band};
+use crate::builders::{prepare, InboundInput, Input};
 use crate::builders::{
     ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTINUE_VERSION,
     HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION, MEMORY_VERSION, PEOPLE_SEEN_VERSION,
     PEOPLE_VERSION, PROBE_VERSION, RERANK_VERSION, SECURITY2_VERSION, SECURITY_VERSION,
 };
-use crate::judge::{AnswerRecord, StateRecord};
+use crate::client::{Answer, Urgency};
+use crate::judge::{AnswerRecord, Ask, DecisionPoint, Judge, Mode, StateRecord};
 use crate::pack::{Builder, Pack, QuestionDef};
-use crate::state::BuiltState;
+use crate::state::{BuiltState, NoScrub};
 
 /// What a candidate changes beside its incumbent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,11 +160,296 @@ pub fn reband(answers: &[AnswerRecord], candidate: &Pack) -> Vec<AnswerRecord> {
         .collect()
 }
 
+// ---------------------------------------------------- onto.v1's labelled replay
+
+/// A session the import labelled (`theseus import topics`), as the replay
+/// asks it: the input `onto.v1` would have seen, and the import's labels,
+/// which Jev is never shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LabelledCase {
+    pub session: String,
+    pub input: InboundInput,
+    /// Per kind, the ids of the categories the import filed the session under.
+    pub labels: BTreeMap<String, BTreeSet<String>>,
+}
+
+/// What `onto.v1` chose for one kind of one session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "pick", content = "category", rename_all = "snake_case")]
+pub enum Pick {
+    /// A listed category, by its id.
+    Candidate(String),
+    /// `new`: none listed covers it. Never a hit (the labels are all listed),
+    /// counted as `minted` and as a miss for the label's recall.
+    New,
+    /// `none`: the message is filed under nothing.
+    Nothing,
+}
+
+/// One kind's answer, with the band it landed in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Chosen {
+    pub pick: Pick,
+    pub band: Band,
+}
+
+/// A replayed session beside its labels.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Scored {
+    pub session: String,
+    pub labels: BTreeMap<String, BTreeSet<String>>,
+    /// Per kind asked. A kind absent here was not answered (the call failed
+    /// or the builder left the kind out).
+    pub picks: BTreeMap<String, Chosen>,
+}
+
+/// The weakest band a pick counts at: `Act` is what the sink would write on
+/// its own, `Confirm` adds what it would put on a card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Floor {
+    Act,
+    Confirm,
+}
+
+impl Floor {
+    fn admits(self, band: Band) -> bool {
+        match self {
+            Floor::Act => band == Band::Act,
+            Floor::Confirm => band != Band::Escalate,
+        }
+    }
+}
+
+/// Precision and recall of one kind. `precision` is `None` when nothing was
+/// picked at the floor, `recall` when nothing was labelled: no number is
+/// better than a made-up one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KindScore {
+    pub kind: String,
+    /// Sessions the kind was answered for.
+    pub sessions: usize,
+    /// Labels the import holds for the kind, over those sessions.
+    pub labelled: usize,
+    /// Picks of a listed category at the floor.
+    pub picked: usize,
+    pub hits: usize,
+    pub wrong: usize,
+    pub missed: usize,
+    /// `new` answers at the floor.
+    pub minted: usize,
+    pub precision: Option<f64>,
+    pub recall: Option<f64>,
+}
+
+fn ratio(n: usize, d: usize) -> Option<f64> {
+    (d > 0).then(|| n as f64 / d as f64)
+}
+
+/// Each kind's precision and recall against the import's labels, at `floor`.
+/// A pick is a hit when its category is one of the session's labels for the
+/// kind, wrong otherwise; a label no pick matched is missed. A pick below the
+/// floor is as if Jev had said nothing: its labels are missed.
+pub fn score_onto(cases: &[Scored], floor: Floor) -> Vec<KindScore> {
+    let mut kinds: BTreeMap<String, KindScore> = BTreeMap::new();
+    for case in cases {
+        for (kind, picked) in &case.picks {
+            let k = kinds.entry(kind.clone()).or_insert_with(|| KindScore {
+                kind: kind.clone(),
+                sessions: 0,
+                labelled: 0,
+                picked: 0,
+                hits: 0,
+                wrong: 0,
+                missed: 0,
+                minted: 0,
+                precision: None,
+                recall: None,
+            });
+            let gold = case.labels.get(kind);
+            let held = gold.map_or(0, BTreeSet::len);
+            k.sessions += 1;
+            k.labelled += held;
+            let counts = floor.admits(picked.band);
+            match &picked.pick {
+                Pick::Candidate(id) if counts => {
+                    k.picked += 1;
+                    if gold.is_some_and(|g| g.contains(id)) {
+                        k.hits += 1;
+                        k.missed += held - 1;
+                    } else {
+                        k.wrong += 1;
+                        k.missed += held;
+                    }
+                }
+                Pick::New if counts => {
+                    k.minted += 1;
+                    k.missed += held;
+                }
+                _ => k.missed += held,
+            }
+        }
+    }
+    kinds
+        .into_values()
+        .map(|mut k| {
+            k.precision = ratio(k.hits, k.picked);
+            k.recall = ratio(k.hits, k.hits + k.missed);
+            k
+        })
+        .collect()
+}
+
+/// The replay's report: both floors, and what could not be scored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OntoReplay {
+    pub pack: String,
+    pub sessions: usize,
+    /// Sessions whose judgment never answered (skipped, failed, or drifted
+    /// off the pinned model): they are left out of the scores.
+    pub unanswered: usize,
+    pub at_act: Vec<KindScore>,
+    pub at_confirm: Vec<KindScore>,
+}
+
+pub fn onto_report(pack: &str, sessions: usize, scored: &[Scored]) -> OntoReplay {
+    OntoReplay {
+        pack: pack.to_string(),
+        sessions,
+        unanswered: sessions - scored.len().min(sessions),
+        at_act: score_onto(scored, Floor::Act),
+        at_confirm: score_onto(scored, Floor::Confirm),
+    }
+}
+
+fn cell(v: Option<f64>) -> String {
+    v.map_or_else(|| "n/a".into(), |v| format!("{v:.3}"))
+}
+
+/// The report as the Markdown a `docs/benchmarks/` page quotes.
+pub fn onto_markdown(r: &OntoReplay) -> String {
+    let mut out = format!(
+        "# {} against the import's labels\n\n{} sessions replayed, {} unanswered (left out).\n",
+        r.pack, r.sessions, r.unanswered
+    );
+    for (title, rows) in [
+        ("At the act band", &r.at_act),
+        ("At confirm and above", &r.at_confirm),
+    ] {
+        out.push_str(&format!(
+            "\n## {title}\n\n| kind | sessions | labelled | picked | hits | wrong | missed | minted | precision | recall |\n|---|---|---|---|---|---|---|---|---|---|\n"
+        ));
+        for k in rows {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                k.kind,
+                k.sessions,
+                k.labelled,
+                k.picked,
+                k.hits,
+                k.wrong,
+                k.missed,
+                k.minted,
+                cell(k.precision),
+                cell(k.recall)
+            ));
+        }
+    }
+    out
+}
+
+/// Hides the import's labels from the input: a label's category is not the
+/// session's own membership (the state's `memberships`, and its candidate
+/// order, would give the answer away).
+pub(crate) fn hide_labels(case: &LabelledCase) -> InboundInput {
+    let mut input = case.input.clone();
+    if let Some(o) = input.onto.as_mut() {
+        for kind in &mut o.kinds {
+            if let Some(gold) = case.labels.get(&kind.kind) {
+                for item in &mut kind.pool {
+                    if gold.contains(&item.id) {
+                        item.session = false;
+                    }
+                }
+            }
+        }
+    }
+    input
+}
+
+/// Replays `cases` through `pack` (`onto.v1`) on `judge`: one decision point,
+/// one ask per session, every label hidden. Sessions whose judgment did not
+/// answer are left out of the result (see [`OntoReplay::unanswered`]).
+pub async fn replay_onto<J: Judge>(
+    judge: &J,
+    pack: Arc<Pack>,
+    cases: &[LabelledCase],
+) -> Result<Vec<Scored>, String> {
+    let mut asks = Vec::new();
+    let mut picked_from = Vec::new();
+    for case in cases {
+        let input = hide_labels(case);
+        let prepared = prepare(&pack, &Input::Inbound(input.clone()), &NoScrub)
+            .map_err(|e| format!("{}: {e}", case.session))?;
+        let picks = input
+            .onto
+            .as_ref()
+            .map(|o| o.pick(&input.message))
+            .unwrap_or_default();
+        asks.push(Ask::new(
+            pack.clone(),
+            &prepared,
+            Mode::Shadow,
+            serde_json::json!({"session": case.session}),
+        ));
+        picked_from.push(picks);
+    }
+    let judgments = judge
+        .judge(DecisionPoint {
+            asks,
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    let mut out = Vec::new();
+    for ((case, j), candidates) in cases.iter().zip(&judgments).zip(&picked_from) {
+        if !j.actionable() {
+            continue;
+        }
+        let mut picks = BTreeMap::new();
+        for p in candidates {
+            let Some(a) = j.answer(&p.kind) else { continue };
+            let Answer::Choice { choice, .. } = &a.answer else {
+                continue;
+            };
+            let pick = match choice.as_str() {
+                "new" => Pick::New,
+                "none" => Pick::Nothing,
+                c => c
+                    .strip_prefix('c')
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .and_then(|n| p.candidates.get(n.checked_sub(1)?))
+                    .map_or(Pick::Nothing, |m| Pick::Candidate(m.id.clone())),
+            };
+            picks.insert(
+                p.kind.clone(),
+                Chosen {
+                    pick,
+                    band: a.band.band,
+                },
+            );
+        }
+        out.push(Scored {
+            session: case.session.clone(),
+            labels: case.labels.clone(),
+            picks,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::band::Band;
-    use crate::client::Answer;
     use crate::pack::by_name;
 
     const LOOP: &str = include_str!("../packs/loop.v1.toml");

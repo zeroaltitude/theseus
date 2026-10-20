@@ -5,8 +5,11 @@
     A1n  A1 with `[prefix] enabled = false`: what the prefix library buys on top of threads
     A1p  A1 with a prompt layer per persona: NOT MEASURABLE (the daemon has no switch for that layout)
     A2   threads, explicit addressing: a stream's message goes out with `ask --thread <its slug>`
+    A1o  A1 with the ontology on (`+onto`, theseus-mqqc2): Jev files each message (`onto.v1`), a project answer
+         attaches the thread, and recall's category boost is on. The other threads arms turn all three off, so
+         the pair differs by the ontology and nothing else.
 
-All three measurable arms share the scratch config (the bench profile, the five persona cards, the prefix library
+All four measurable arms share the scratch config (the bench profile, the five persona cards, the prefix library
 at its default) and the simulated owner (`th_owner.py`). Each message is one `theseus ask`; its answer is read
 from what the daemon says, never from the message's label:
 
@@ -43,7 +46,11 @@ import th_owner as owner_mod
 HOME = owner_mod.HOME
 ROUTING = "routing.jsonl"
 # The arms' scratch-config differences from the common one: a dotted table path, its keys.
-OVERRIDES = {"A1": {}, "A2": {}, "A1n": {"prefix": {"enabled": False}}}
+# `[ontology]` is on by default in the product, so a control arm turns it off explicitly: the pair differs by it alone.
+ONTO_OFF = {"ontology": {"judge": False, "recall_boost": 0.0}}
+ONTO_ON = {"ontology": {"judge": True, "recall_boost": 0.25}}  # the shipped defaults, named so the arm stays what it was
+OVERRIDES = {"A1": ONTO_OFF, "A2": ONTO_OFF, "A1n": {"prefix": {"enabled": False}, **ONTO_OFF}, "A1o": ONTO_ON}
+JUDGMENTS = "judgments.json"
 UNMEASURABLE = {"A1p": "the daemon builds one persona-set layer whenever two or more [personas] are configured "
                        "(config.rs `context_paths`, `persona_engaging`) and has no switch for a layer per persona; "
                        "the arm is not built as a product change, so it is not measurable (as A8 is not)"}
@@ -70,6 +77,17 @@ def merge(base: dict, over: dict) -> dict:
     for k, v in over.items():
         out[k] = merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
     return out
+
+
+def judgment_row(row: dict) -> dict:
+    """One `judge.call` ledger row, kept as the few fields the decisions column reads (the answers and the state
+    stay in the daemon's ledger): the pack, how it ended, what Jev billed, and the tokens it read and wrote."""
+    d = row.get("data") or row
+    outcome = d.get("outcome")
+    usage = d.get("usage") or {}
+    return {"pack": d.get("pack"), "outcome": outcome.get("outcome") if isinstance(outcome, dict) else outcome,
+            "cost_micros": d.get("cost_micros") or 0, "input_tokens": usage.get("input_tokens") or 0,
+            "output_tokens": usage.get("output_tokens") or 0}
 
 
 def tag_of(result: dict) -> dict | None:
@@ -158,7 +176,9 @@ class ThreadsTheseus(rd.Theseus):
         super().__init__(a, run)
         self.arm, self.tprog = arm, prog
         cfg = arm_config(tomllib.loads(self.cfg.read_text()), arm, prog.personas, self.dir / "personas")
-        self.cfg.write_text(rd.toml_dumps(merge(cfg, overlay or {})))
+        merged = merge(cfg, overlay or {})
+        self.cfg.write_text(rd.toml_dumps(merged))
+        run.meta["ontology"] = merged.get("ontology")  # what the arm ran with, kept beside its numbers
         self.owner = owner_mod.Owner()
         self.slug_stream: dict[str, str] = {}  # a thread's slug -> the stream the owner means by it
         self.last: dict[str, int] = {}  # a ledger kind -> the newest position read
@@ -251,6 +271,8 @@ class ThreadsTheseus(rd.Theseus):
                 (run.raw / f"history-{name}.json").write_text(text)
                 transcript.extend(rd.strings(whole)) if whole is not None else transcript.append(text)
             run.meta["thread_sessions"] = sessions
+            # Jev's judgments over the whole run (the sink writes them between turns, so only now are they all in).
+            (run.out / JUDGMENTS).write_text(json.dumps([judgment_row(x) for x in self.ledger("judge.call")]))
         finally:
             out_f.close()
             run.meta["killed"] = self.stop()

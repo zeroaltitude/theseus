@@ -476,6 +476,34 @@ class ThreadsSmoke(TheseusSmoke):
             self.assertIn("A2 Theseus with threads, explicit addressing", doc)
             self.assertTrue(list((d / "docs" / "img" / "2026-10-16-threadbench-threads").glob("*.svg")))
 
+    def test_a1o_runs_with_the_ontology_on_and_keeps_its_judgments_for_the_decisions_column(self):
+        import report as rep
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rc, said, out = self.run_arm(d, "A1o")
+            self.assertEqual(rc, 0, said)
+            meta = json.loads((out / "run.json").read_text())
+            self.assertEqual((meta["arm_id"], meta["left_running"]), ("A1o", []))
+            self.assertEqual(meta["ontology"], {"judge": True, "recall_boost": 0.25})
+            recs = [json.loads(x) for x in (out / "routing.jsonl").read_text().splitlines()]
+            self.assertEqual([r["msg"] for r in recs], [m.index for m in SMOKE.messages])
+            rows = json.loads((out / "judgments.json").read_text())  # the stand-in serves no Jev: a list, maybe empty
+            self.assertIsInstance(rows, list)
+            sc = ts.score_run(ts.load_run(out))
+            self.assertEqual(sc["arm"], "A1o")
+            self.assertIn("top1", sc["routing"])  # Jev's router, not the owner's: routing is scored
+            self.assertEqual(sc["embargo"]["leak_count"], 0)
+            self.assertEqual(sc["oracle_mean"], 1.0)
+            self.assertEqual("decisions" in sc, any(r.get("outcome") == "answered" for r in rows))
+            (d / "a1").mkdir()
+            rc1, said1, out1 = self.run_arm(d / "a1", "A1")
+            self.assertEqual(rc1, 0, said1)
+            self.assertEqual(json.loads((out1 / "run.json").read_text())["ontology"], {"judge": False, "recall_boost": 0.0})
+            doc = rep.write_report([sc, ts.score_run(ts.load_run(out1))], SMOKE, d / "docs", slug="onto", date="2026-10-20",
+                                   scratch=True)
+            self.assertIn("A1o Theseus with threads and the ontology (+onto)", doc)
+            self.assertIn("## Decisions taken off the main model", doc)
+
 
 if __name__ == "__main__":
     unittest.main()

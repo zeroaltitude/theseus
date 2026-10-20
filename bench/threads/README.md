@@ -91,6 +91,7 @@ A probe whose fact never reached the arm (its marker is not in the transcript) i
 | A8 | OpenCode | only if its CLI continues a named session headless: `--probe-opencode` runs `opencode run --help` and says; the report says "not measurable" and why |
 | A1 | Theseus with threads, natural addressing | every message to one home session, unaddressed: the router places it; the prefix library on; the five persona cards configured, engagement at the shipped default |
 | A1n | A1 with `[prefix] enabled = false` | what the prefix library buys on top of threads |
+| A1o | A1 with the ontology on (`+onto`, theseus-mqqc2): `[ontology] judge = true`, `recall_boost = 0.25` | Jev files each message (`onto.v1`), a `project` answer attaches the thread, recall's category boost is on. A1, A1n and A2 now name `[ontology] judge = false, recall_boost = 0` so the pair differs by the ontology alone (it is on by default in the product); `run.json` keeps the table the arm ran with (`ontology`) |
 | A1p | A1 with a prompt layer per persona | **not measurable**: the daemon builds one persona-set layer whenever two or more `[personas]` exist and has no switch for another layout; no product switch is built for a bench |
 | A2 | Theseus with threads, explicit addressing | each stream's message goes out with `ask --thread <its stream's slug>`, `home` messages unaddressed to the home session: routing's share of any gap |
 
@@ -108,6 +109,17 @@ The drivers are `bench/recall/drive.py`'s (Theseus, Claude Code, Pi), unchanged 
 progression becomes the recall bench's turns and sessions (`th_drive.view`), one layout per arm. The one change to
 the shared file is that a progression may return to a session it left (`opened` in the Theseus driver, `slot` in Claude Code's; Pi's one-session arm never returns to a session): sessions that only go forward
 behave as before, and the recall suite proves it.
+
+## The decisions column (`+onto`, theseus-mqqc2)
+
+A threads run keeps `judgments.json`: its daemon's `judge.call` rows reduced to the pack, how it ended, what Jev billed
+and the tokens it read and wrote. `th_score.py` counts the **decisions taken off the main model** from it: each
+answered judgment of a routing pack (`route.*`, `classify.*`), a filing pack (`onto.*`, `categorize.*`) or a privacy pack
+(`security.*`) is one decision of its class, reported per message, with Jev's dollars and the main model's, modelled
+(the tokens Jev read, at the main model's uncached input price, and those it wrote at its output price: a floor, since
+a free-form answer is longer than Jev's choice). The oracle arm makes the same decisions by asking the main model, one
+call each, so its count is the Jev arm's and its dollars are the modelled column. An arm whose daemon asked Jev nothing
+has no column and the report says so. The number is reported whatever it says, and nothing is tuned to the bench.
 
 ## The scorer
 

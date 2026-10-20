@@ -5,12 +5,13 @@ harness: it turns a threads progression into the recall bench's turns and sessio
 writes the same run directory (`run.json`, `turns.jsonl`, `delivered.json`, `workspace/`, `raw/`) plus
 `threads-progression.json` and `arm.json`, which `th_score.py` reads.
 
-The arms (A1, A1n and A2 are the threads build's, driven by `th_threads.py`; A1p has no switch to build it on):
+The arms (A1, A1n, A1o and A2 are the threads build's, driven by `th_threads.py`; A1p has no switch to build it on):
 
     A1  Theseus with threads, natural addressing                    the router places each unaddressed message
     A1n A1 with the prefix library off                              what the library buys on top of threads
     A1p A1 with a prompt layer per persona                          NOT measurable: the daemon has no such layout
     A2  Theseus with threads, explicit addressing                   `ask --thread <the stream's slug>`
+    A1o A1 with the ontology on (+onto)                             Jev files, a project answer attaches, recall boosts
     A3  Theseus, one session for the whole run                      measurable now
     A4  Claude Code (2.1.290, pinned), one session                  measurable now
     A5  Theseus, one session per stream: the oracle split           measurable now (a person splitting by hand)
@@ -68,6 +69,9 @@ ARMS: dict[str, dict] = {
             "what": "A1 with a prompt layer per persona instead of one persona-set layer"},
     "A2": {"name": "Theseus with threads, explicit addressing", "harness": "theseus", "layout": "thread",
            "key": "theseus-threads-addressed", "what": "each stream message sent with `ask --thread`: routing's share"},
+    "A1o": {"name": "Theseus with threads and the ontology (+onto)", "harness": "theseus", "layout": "thread",
+            "key": "theseus-threads-onto", "what": "A1 with [ontology] on: onto.v1 files each message, a project "
+                                                  "answer attaches the thread, recall's category boost is on"},
     "A3": {"name": "Theseus, one session", "harness": "theseus", "layout": "one", "key": "theseus",
            "what": "one long session in Theseus, memory as shipped (baseline)"},
     "A4": {"name": "Claude Code, one session", "harness": "claude-code", "layout": "one", "key": "claude-code",
