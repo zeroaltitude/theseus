@@ -383,6 +383,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
             // first compile (a slow one up to this long).
             c.judge.packs.remove(crate::judge::inbound::ROUTE_PACK);
             c.routing.max_wait_ms = 5_000;
+            crate::tests_route::glm_placements(c);
         });
         let sid = bound(&r.core);
         let t0 = Instant::now();
@@ -390,7 +391,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
         took.push(t0.elapsed());
     }
     assert!(
-        took.iter().all(|t| *t < Duration::from_millis(1_800)),
+        took.iter().all(|t| *t < Duration::from_millis(1_000)),
         "the turn did not wait for the batch: {took:?}"
     );
     assert!(
@@ -446,4 +447,89 @@ async fn the_naming_call_is_made_once_a_session_kind_and_day() {
         .rfind(|b| b["questions"].to_string().contains("onto.v1/topic_name"))
         .unwrap();
     assert!(batch["state"].to_string().contains("Ledger move"));
+}
+
+/// `ontology.kind.add` adds an interpreted kind Jev may assign, after the
+/// last one; it is not added twice, and `retire` takes away only a kind
+/// nothing holds and that is not seeded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_operator_adds_and_retires_a_kind() {
+    use theseus_protocol::{OntologyKindAddParams, OntologyKindRetireParams};
+    let r = rig(FakeJev::start().unwrap());
+    let add = |name: &str| OntologyKindAddParams {
+        name: name.into(),
+        description: "A dataset the work uses".into(),
+        mined_from: vec!["paths".into()],
+        ..Default::default()
+    };
+    let k = r
+        .core
+        .ontology_kind_add(&add("dataset"), "the CLI")
+        .unwrap()
+        .kind;
+    assert_eq!(k.assigned_by, ["operator", "jev"]);
+    assert_eq!(k.precedence, 100, "ten after the last seeded kind");
+    let again = r
+        .core
+        .ontology_kind_add(&add("dataset"), "the CLI")
+        .unwrap_err();
+    assert!(format!("{again:#}").contains("already"), "{again:#}");
+    let retire = |name: &str| OntologyKindRetireParams {
+        name: name.into(),
+        ..Default::default()
+    };
+    let seeded = r
+        .core
+        .ontology_kind_retire(&retire("topic"), "the CLI")
+        .unwrap_err();
+    assert!(format!("{seeded:#}").contains("seeded"), "{seeded:#}");
+    operator_writes(
+        &r.core,
+        vec![Record::Category(Category::new(
+            id("dataset:tides"),
+            "tides",
+            "ada",
+        ))],
+    );
+    assert!(r
+        .core
+        .ontology_kind_retire(&retire("dataset"), "the CLI")
+        .is_err());
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    assert!(
+        o.kind("dataset").unwrap().retired_ms.is_none(),
+        "still held"
+    );
+    operator_writes(
+        &r.core,
+        vec![Record::Category(
+            Category::new(id("dataset:tides"), "tides", "ada").retired(2_000),
+        )],
+    );
+    assert!(
+        r.core
+            .ontology_kind_retire(&retire("dataset"), "the CLI")
+            .unwrap()
+            .retired
+    );
+    assert_eq!(
+        kinds(&r.core.store, "ontology.kind").len(),
+        2,
+        "its add and its retire"
+    );
+}
+
+/// `judge.latency` reads the batch's requests by day from the judgments' rows:
+/// one request, carrying onto.v1.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn judge_latency_counts_each_batch_request_once() {
+    let r = rig(FakeJev::start().unwrap());
+    let sid = bound(&r.core);
+    said(&r, &sid, SAID).await;
+    let l = r.core.judge_latency(Default::default()).unwrap();
+    assert_eq!(l.point, "inbound");
+    let [d] = l.days.as_slice() else {
+        panic!("{l:?}")
+    };
+    assert_eq!((d.requests, d.with_onto), (1, 1), "{d:?}");
 }
