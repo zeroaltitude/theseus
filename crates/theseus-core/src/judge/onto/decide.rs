@@ -177,23 +177,20 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
             continue;
         }
         let act = confidence >= bands.act;
+        let at = At {
+            j,
+            o,
+            plan: &plan,
+            bands,
+            now_ms,
+        };
         let step = if answer == "new" {
-            new_category(
-                j,
-                o,
-                &plan,
-                kind,
-                &candidates,
-                &names,
-                bands,
-                now_ms,
-                confidence,
-            )
+            new_category(&at, kind, &names, confidence)
         } else {
             let Some(id) = nth(&candidates, &answer, 'c') else {
                 continue;
             };
-            existing(j, o, &plan, kind, id, act, confidence, now_ms)
+            existing(&at, kind, id, act, confidence)
         };
         match step {
             Ok(Done::Step(s)) => plan.steps.push(s),
@@ -210,6 +207,15 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
         }
     }
     plan
+}
+
+/// What a step reads: the judgment, the ontology, the plan so far.
+struct At<'a> {
+    j: &'a Judgment,
+    o: &'a Ontology,
+    plan: &'a Plan,
+    bands: Bands,
+    now_ms: u64,
 }
 
 enum Done {
@@ -290,17 +296,8 @@ fn path_of(o: &Ontology, id: &CategoryId) -> Vec<String> {
 }
 
 /// The candidate `id`, filed, asked about, or left.
-#[allow(clippy::too_many_arguments)]
-fn existing(
-    j: &Judgment,
-    o: &Ontology,
-    plan: &Plan,
-    kind: &str,
-    id: &str,
-    act: bool,
-    confidence: f64,
-    now_ms: u64,
-) -> Result<Done, String> {
+fn existing(at: &At, kind: &str, id: &str, act: bool, confidence: f64) -> Result<Done, String> {
+    let (o, plan, now_ms) = (at.o, at.plan, at.now_ms);
     let id = CategoryId::parse(id).map_err(|e| e.to_string())?;
     let Some(c) = o.category(&id) else {
         return Ok(Done::Nothing);
@@ -327,7 +324,7 @@ fn existing(
             }))
         }
     };
-    let _ = (j, c);
+    let _ = c;
     check_write(
         o,
         plan,
@@ -364,18 +361,8 @@ fn check_write(
 }
 
 /// `new`: a minted category when a mined name is named at the act band.
-#[allow(clippy::too_many_arguments)]
-fn new_category(
-    j: &Judgment,
-    o: &Ontology,
-    plan: &Plan,
-    kind: &str,
-    _candidates: &[String],
-    names: &[String],
-    bands: Bands,
-    now_ms: u64,
-    confidence: f64,
-) -> Result<Done, String> {
+fn new_category(at: &At, kind: &str, names: &[String], confidence: f64) -> Result<Done, String> {
+    let (j, o, plan, bands, now_ms) = (at.j, at.o, at.plan, at.bands, at.now_ms);
     let named = choice(j, &format!("{kind}_name"))
         .filter(|(_, c)| *c >= bands.confirm)
         .and_then(|(a, c)| Some((nth(names, &a, 'n')?.clone(), c)));
@@ -406,7 +393,7 @@ fn new_category(
         .find(|c| c.kind() == kind && c.name.eq_ignore_ascii_case(&name));
     if let Some(c) = held {
         let id = c.id.clone();
-        return existing(j, o, plan, kind, id.as_str(), true, confidence, now_ms);
+        return existing(at, kind, id.as_str(), true, confidence);
     }
     let id = o.mint_id(kind, &name).map_err(|e| e.to_string())?;
     let parent = parent_for(o, plan, kind);
