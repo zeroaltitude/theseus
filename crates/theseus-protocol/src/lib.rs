@@ -46,6 +46,8 @@ pub mod import;
 pub mod import_sync;
 pub mod index;
 pub mod initiative;
+pub mod plain;
+pub use plain::PlainWords;
 pub mod inspect;
 pub mod job_follow;
 pub mod jsonrpc;
@@ -2480,6 +2482,11 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub grant_offer: Option<grants::GrantOffer>,
+    /// The question in plain words, worded once for every surface
+    /// (theseus-cudar): who asks, what, why, the risk, and what Yes and No do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub plain: Option<plain::PlainWords>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its

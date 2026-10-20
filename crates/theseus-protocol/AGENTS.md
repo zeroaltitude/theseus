@@ -200,6 +200,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   (store format 34), `SURFACES` names the five (`terminal`, `discord`, `voice`, `cockpit`, `mcp`); `StandingListParams.surface`
   is the asker's surface with a `session_id`. `turn.submit`'s optional `surface` (in `submit.rs`) lets the Discord binding say
   `voice`; `context.compiled` names the tail's records in `standing_here`.
+- `plain.rs` (theseus-cudar): `PlainWords` (who, what, the model's why, the rule that holds it, a risk badge, what Yes and No do), `ConfirmRequest::plain`: an approval worded once by the core for every surface; absent from a daemon that does not say.
 - `initiative.rs` (theseus-slvl.9): `Initiative` (the persona's `quiet|normal|chatty`, re-exported by core's config),
   `Proactive` (the kinds of message sent first) and `Initiative::lets`, the one table of what each level lets through;
   `notices::Rules::initiative` carries it into `policy()` (`Rules::shaped`: at `quiet` a finished root and a no-purpose or

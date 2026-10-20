@@ -558,6 +558,50 @@ impl ToolPolicy {
         None
     }
 
+    /// Whether a call of a self session that waits for approval may go ahead
+    /// with a notice instead (theseus-cudar; the owner, 2026-10-19 20:08 and
+    /// 2026-10-20 07:26: self-improvement fails open, no answer means go
+    /// ahead). Only the soft holds open: a tool's own `approve` posture, a
+    /// read outside the roots, and a read of the state dir the approve list
+    /// holds. Everything the owner keeps stays a wait: the floor (store,
+    /// spool, bindings, the 1Password token, sealed sets), a task's layer 1,
+    /// an AWS call, a private address, an approve-listed program, any path
+    /// on the approve list but the state dir's own (keys, credentials), and
+    /// any write or run the approve list holds.
+    pub(crate) fn fails_open(&self, plan: &Plan, state: &Path) -> bool {
+        if plan.authority.is_some() || plan.aws.is_some() {
+            return false;
+        }
+        if plan
+            .url
+            .as_deref()
+            .and_then(crate::web::net::private_url)
+            .is_some()
+        {
+            return false;
+        }
+        let (resources, nargv, args) = self.view(plan);
+        if self.floor(&resources, &nargv, &args).is_some()
+            || self.approve_argv.iter().any(|p| prefix_match(&nargv, p))
+        {
+            return false;
+        }
+        let state = paths::canonical_best_effort(state);
+        // An entry that holds a path is the state dir's own when it is the
+        // state dir or inside it; any other entry (`~/.ssh`, `~`) keeps asking.
+        let state_only = |p: &Path, read: bool| {
+            let mut held = self.approve_paths.iter().filter(|d| paths::within(p, d));
+            held.clone().next().is_none() || (read && held.all(|d| paths::within(d, &state)))
+        };
+        resources
+            .iter()
+            .zip(plan.resources.iter().map(|r| r.access))
+            .all(|(p, a)| state_only(p, a == Access::Read))
+            && args
+                .iter()
+                .all(|(_, p)| !self.approve_paths.iter().any(|d| paths::within(p, d)))
+    }
+
     /// Whether only the tool's posture would decide this call: nothing the
     /// floor, a layer-1 change, the approve lists or an AWS rule asks for
     /// comes first. An earned grant (`earned`) loosens that alone.
@@ -1265,6 +1309,64 @@ mod tests {
             own,
         );
         assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
+    }
+
+    /// A self session's soft holds open and its hard ones stay (theseus-cudar):
+    /// a read of the state dir the approve list holds, and a read outside the
+    /// roots, fail open; the floor, any other approve-listed path, a write or
+    /// a run in the state dir, an approve-listed program and a layer-1 change
+    /// still ask. Planted reverts: each `false` below.
+    #[test]
+    fn a_self_sessions_soft_holds_fail_open_and_the_hard_ones_stay() {
+        let (_d, root) = workspace();
+        let state = root.join("state");
+        let keys = root.join("keys");
+        let p = ToolPolicy {
+            approve_paths: vec![state.clone(), keys.clone()],
+            floor_paths: vec![state.join("store")],
+            ..policy(&root, Posture::Open)
+        };
+        let outside = tempfile::tempdir().unwrap();
+        let outside = outside.path().canonicalize().unwrap();
+        let ok = |plan: &Plan| p.fails_open(plan, &state);
+        let read = |path: PathBuf| plan(path, Access::Read, None);
+        assert!(ok(&read(state.join("self/reports/r.md"))), "a report");
+        assert!(ok(&read(state.join("self/gates/g.sh"))), "a gate script");
+        assert!(ok(&read(outside.join("x"))), "a read outside the roots");
+        assert!(!ok(&read(state.join("store/db"))), "the store is the floor");
+        assert!(!ok(&read(keys.join("id"))), "keys stay held");
+        assert!(!ok(&plan(state.join("n"), Access::Write, None)), "a write");
+        let run = |cwd: PathBuf, argv: Vec<&str>| plan(cwd, Access::Exec, Some(argv));
+        assert!(
+            !ok(&run(state.clone(), vec!["ls"])),
+            "a run in the state dir"
+        );
+        assert!(
+            !ok(&run(root.clone(), vec!["sudo", "ls"])),
+            "an approve-listed program"
+        );
+        assert!(
+            !ok(&run(
+                root.clone(),
+                vec!["cat", &keys.join("id").display().to_string()]
+            )),
+            "a key as an argument"
+        );
+        assert!(
+            ok(&run(root.clone(), vec!["cargo", "test"])),
+            "an ordinary program"
+        );
+        let layer1 = Plan {
+            authority: Some("abandon a task".into()),
+            ..read(root.join("a"))
+        };
+        assert!(!ok(&layer1), "a layer-1 change");
+        // An entry that holds more than the state dir (`~`) opens nothing.
+        let wide = ToolPolicy {
+            approve_paths: vec![root],
+            ..p.clone()
+        };
+        assert!(!wide.fails_open(&read(state.join("self/reports/r.md")), &state));
     }
 
     #[test]

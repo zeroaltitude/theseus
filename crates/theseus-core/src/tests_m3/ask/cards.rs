@@ -23,9 +23,29 @@ async fn a_dm_question_is_a_card_in_plain_words() {
         card["what"].as_str().unwrap().starts_with("write `"),
         "{card}"
     );
-    assert!(card["why"].as_str().unwrap().contains("asks:"), "{card}");
+    // In plain words (theseus-cudar): who wants to do what, the risk, what
+    // Yes and No do, and the rule that holds it; no reason without one given.
+    assert_eq!(card["who"], "write out.txt", "{card}");
+    assert_eq!(card["risk"], "writes", "{card}");
+    assert_eq!(card["why"], "", "the model gave no reason: {card}");
+    assert!(
+        card["held"].as_str().unwrap().contains("set to ask"),
+        "{card}"
+    );
     assert_eq!(card["yes"], "Yes runs this one call.");
+    assert!(
+        card["no"].as_str().unwrap().starts_with("No refuses it"),
+        "{card}"
+    );
+    assert!(
+        card["line"].as_str().unwrap().contains("wanted to write"),
+        "{card}"
+    );
     let text = body["text"].as_str().unwrap();
+    assert!(
+        text.contains("wants to write `") && text.contains("risk: writes"),
+        "{text}"
+    );
     assert!(
         !text.contains(req.reason.as_str()),
         "the reason is not the card: {text}"

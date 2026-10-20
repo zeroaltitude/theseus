@@ -439,6 +439,7 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         may_answer: None,
         preview: None,
         grant_offer: None,
+        plain: None,
     }
 }
 

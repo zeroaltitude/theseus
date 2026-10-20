@@ -38,6 +38,18 @@ pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> B
     }
 }
 
+/// The line a card's settle repeats: a card in plain words repeats all of it
+/// (who, what, risk, the model's reason), so an Expired card is still the
+/// question it was (theseus-cudar); any other post repeats its prompt.
+fn line_of(body: &Value) -> String {
+    body["card"]["line"]
+        .as_str()
+        .filter(|l| !l.is_empty())
+        .or(body["prompt"].as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
 impl Lane {
     /// The post: to the owner's DM alone, never a shared place. A post with a
     /// `card` (`[notify] dm_cards`, theseus-suvpe) is a card of its own with
@@ -110,7 +122,7 @@ impl Lane {
             self.shared.replies.asked().plan(&key, vec![entry]);
         }
         let content = crate::render::needs_you(body);
-        let line = body["prompt"].as_str().unwrap_or("").to_string();
+        let line = line_of(body);
         let ping = body["silent"] != true && self.pings(Event::NeedsYou);
         Ok(Plan {
             writes: vec![Write {
@@ -125,5 +137,27 @@ impl Lane {
             }],
             extra: json!({"place": place, "question": q, "line": line}),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    /// The settle's line is the card's whole question, else the prompt.
+    #[test]
+    fn a_settled_card_repeats_the_whole_question() {
+        let card = json!({"prompt": "write `out.txt`",
+            "card": {"line": "write out.txt wanted to write `out.txt` · writes"}});
+        assert_eq!(
+            super::line_of(&card),
+            "write out.txt wanted to write `out.txt` · writes"
+        );
+        let old = json!({"prompt": "Ship it?"});
+        assert_eq!(super::line_of(&old), "Ship it?");
+        assert_eq!(
+            super::line_of(&json!({"prompt": "p", "card": {"line": ""}})),
+            "p"
+        );
     }
 }

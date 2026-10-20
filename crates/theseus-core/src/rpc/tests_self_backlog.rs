@@ -600,3 +600,37 @@ async fn a_started_items_turn_spends_on_the_self_budget_under_the_item() {
         .unwrap();
     assert_eq!(rows(&c, "self.budget.settled").len(), 1);
 }
+
+/// `self.evidence`'s cause read (theseus-cudar): the rows of one cause key
+/// in a time range, from the same read the night makes, so a self session
+/// never greps the store for them. Planted reverts: a wrong key, or a range
+/// that ends before the rows, finds none.
+#[test]
+fn the_evidence_tool_reads_a_causes_rows_in_a_range() {
+    let c = acting(0, 20);
+    let t0 = theseus_protocol::now_unix_ms();
+    failed_turn(&c, "kernel: the call panicked", t0);
+    failed_turn(&c, "kernel: the call panicked", t0);
+    failed_turn(&c, "timeout: the provider did not answer", t0);
+    let state = c.tools.self_pr.state_dir().to_path_buf();
+    let call =
+        |input: Value| crate::rsi::evidence::run(&state, &c.store, tick(), &input).map(|(t, _)| t);
+    let said =
+        call(json!({"kind": "cause", "cause": "turn.failed:kernel", "since_hours": 1})).unwrap();
+    assert!(said.starts_with("2 rows of `turn.failed:kernel`"), "{said}");
+    assert!(
+        said.contains("turn failed (kernel)") && said.contains("ledger:"),
+        "{said}"
+    );
+    let other =
+        call(json!({"kind": "cause", "cause": "turn.failed:timeout", "since_hours": 1})).unwrap();
+    assert!(other.starts_with("1 rows of"), "{other}");
+    let none =
+        call(json!({"kind": "cause", "cause": "turn.failed:nothing", "since_hours": 1})).unwrap();
+    assert!(none.starts_with("0 rows"), "{none}");
+    let past = call(json!({"kind": "cause", "cause": "turn.failed:kernel", "since_hours": 48, "until_hours": 2})).unwrap();
+    assert!(
+        past.starts_with("0 rows"),
+        "a range that ended before the rows: {past}"
+    );
+}

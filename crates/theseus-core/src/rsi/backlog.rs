@@ -55,7 +55,7 @@ mod state;
 mod tender;
 mod word;
 
-pub use read::{of_motif, Obs};
+pub use read::{from_ledger, of_motif, Obs};
 pub(crate) use start::{NoTree, Settled};
 pub use word::BadItem;
 

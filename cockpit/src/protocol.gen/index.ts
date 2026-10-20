@@ -424,6 +424,7 @@ export type * from './PlacePublishParams';
 export type * from './PlaceStatus';
 export type * from './PlaceWarning';
 export type * from './PlacesHealth';
+export type * from './PlainWords';
 export type * from './Plan';
 export type * from './PlanItem';
 export type * from './PlanState';

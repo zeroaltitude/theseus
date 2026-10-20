@@ -115,7 +115,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         SessionHistoryParams, NodeInfo, SessionHistoryResult, SessionRecompileParams,
         NodeListParams, NodeListResult, NodeReachParams, ReachCompilation, ReachExposure,
         ReachDescendant, ReachTotals, NodeReachResult, CompilationListParams, CompilationInfo,
-        CompilationListResult, CatalogModel, CatalogListResult, ConfirmRequest, BudgetAsk,
+        CompilationListResult, CatalogModel, CatalogListResult, ConfirmRequest, plain::PlainWords, BudgetAsk,
         ConfirmListResult, ActionConfirmParams, ActionConfirmResult, ToolInfo, ToolListResult, defer::DeferListResult, defer::DeferPlace, defer::DeferFamily, defer::DeferHealth,
         ProviderErrorData, TurnStarted, TurnFailed, LoopStarted, ModelDelta, LoopEnded,
         NarrativePart, NarrativeLine, NarrativeWatchResult, ToolProposed, ContextFileRef,

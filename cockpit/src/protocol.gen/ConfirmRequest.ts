@@ -4,6 +4,7 @@ import type { BudgetAsk } from "./BudgetAsk";
 import type { ConfirmPreview } from "./ConfirmPreview";
 import type { ExternalText } from "./ExternalText";
 import type { GrantOffer } from "./GrantOffer";
+import type { PlainWords } from "./PlainWords";
 import type { TaskChange } from "./TaskChange";
 import type { TaskRef } from "./TaskRef";
 
@@ -62,4 +63,9 @@ preview?: ConfirmPreview,
 /**
  * "Yes, and don't ask again" for this conversation (theseus-drjs).
  */
-grant_offer?: GrantOffer, };
+grant_offer?: GrantOffer, 
+/**
+ * The question in plain words, worded once for every surface
+ * (theseus-cudar): who asks, what, why, the risk, and what Yes and No do.
+ */
+plain?: PlainWords, };

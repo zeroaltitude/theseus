@@ -81,7 +81,7 @@ impl Core {
             .as_ref()
             .and_then(|g| g.decision.clone())
             .unwrap_or_default();
-        Some(super::answer::offer(ConfirmRequest {
+        let mut req = super::answer::offer(ConfirmRequest {
             correlation_id: a.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: a.execution_id.clone(),
@@ -106,7 +106,10 @@ impl Core {
             may_answer: None,
             preview: self.tools.preview(session.dir.as_deref(), tool, input),
             grant_offer: self.grant_offer_of(session, tool, input, gate.as_deref()),
-        }))
+            plain: None,
+        });
+        req.plain = self.plain_of(&req, nodes);
+        Some(req)
     }
 
     /// An open budget question, as the confirm it is (theseus-0sg): its
@@ -158,6 +161,7 @@ impl Core {
             may_answer: None,
             preview: None,
             grant_offer: None,
+            plain: None,
         }))
     }
 

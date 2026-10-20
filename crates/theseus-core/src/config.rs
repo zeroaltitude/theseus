@@ -1610,6 +1610,7 @@ impl Config {
                 .chain(crate::memory_lookup::NAMES)
                 .chain(crate::thread_read::NAMES)
                 .chain(crate::rsi::pr::NAMES)
+                .chain(crate::rsi::evidence::NAMES)
         };
         for name in self.policy.tools.keys() {
             let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {

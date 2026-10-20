@@ -79,6 +79,17 @@ impl Board {
         }
     }
 
+    /// The core, once attached (theseus-cudar: what a card and the
+    /// evidence tool read the record through).
+    pub(crate) fn core(&self) -> Option<Arc<Core>> {
+        self.core.get().and_then(Weak::upgrade)
+    }
+
+    /// The state dir the self trees, reports and gates live under.
+    pub(crate) fn state_dir(&self) -> &Path {
+        &self.state
+    }
+
     pub fn attach(&self, core: &Arc<Core>) {
         let _ = self.core.set(Arc::downgrade(core));
     }

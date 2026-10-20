@@ -185,10 +185,11 @@ impl Core {
                 });
             }
             let objective = format!(
-                "{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.",
+                "{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.{}",
                 t.objective,
                 tree.dir.display(),
-                tree.branch
+                tree.branch,
+                crate::rsi::evidence::briefing(&self.tools.self_pr.state, &id),
             );
             if let Some(m) = w.st.items.get_mut(&id) {
                 m.rank = 0;

@@ -905,14 +905,16 @@ pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
         ask::lines(&mut out, c);
         return out;
     }
-    push(
-        &mut out,
-        Tag::Ask,
-        &format!(
-            "  ? {} waits for you in {}: {}",
-            c.tool, c.session_id, c.reason
-        ),
-    );
+    if !ask::plain_lines(&mut out, c) {
+        push(
+            &mut out,
+            Tag::Ask,
+            &format!(
+                "  ? {} waits for you in {}: {}",
+                c.tool, c.session_id, c.reason
+            ),
+        );
+    }
     answers(&mut out, c);
     out
 }

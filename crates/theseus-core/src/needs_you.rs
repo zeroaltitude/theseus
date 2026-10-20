@@ -39,7 +39,10 @@ use theseus_protocol::ConfirmRequest;
 
 use crate::rpc::Core;
 
+mod plain;
 mod words;
+
+pub use plain::{plain, Gloss};
 
 /// The outbox post's kind.
 pub const KIND: &str = "needs_you";
@@ -128,6 +131,47 @@ impl Core {
         let req = self.confirm_request(a, &rec, &nodes)?;
         let asked = crate::ask::input_of(a).map(|i| i.question);
         Some(words::words(asked, &req, &self.asker_name(&req)).1.what)
+    }
+
+    /// An approval's words, once, for every surface (theseus-cudar): who
+    /// asks, what, the model's reason, the risk, and what Yes and No do. None
+    /// for the other kinds, which have words of their own (`words::words`).
+    pub(crate) fn plain_of(
+        &self,
+        req: &ConfirmRequest,
+        nodes: &[(u64, crate::node::Node)],
+    ) -> Option<theseus_protocol::PlainWords> {
+        use crate::node::Body;
+        if crate::rpc::answer::kind_of(req) != QuestionKind::Approval || req.tool.is_empty() {
+            return None;
+        }
+        let model_why = nodes.iter().find_map(|(_, n)| match &n.body {
+            Body::ToolCall {
+                correlation_id: Some(c),
+                assistant_node,
+                ..
+            } if *c == req.correlation_id => Some(assistant_node.clone()),
+            _ => None,
+        });
+        let model_why = model_why.and_then(|id| {
+            nodes.iter().find_map(|(_, n)| match &n.body {
+                Body::AssistantMessage { blocks, .. } if n.id == id => {
+                    plain::reason_line(&crate::provider::text_of(blocks))
+                }
+                _ => None,
+            })
+        });
+        let state = self.cfg.state_dir();
+        let own_task = crate::rsi::own_tree::item_slug(&self.store, &req.session_id);
+        Some(plain(
+            req,
+            &Gloss {
+                state,
+                who: self.asker_name(req),
+                own_task,
+                model_why,
+            },
+        ))
     }
 
     /// A question as the owner sees it; None when it closed meanwhile.
@@ -228,7 +272,19 @@ pub fn card_body(
         Some((n, of)) => format!("{n} of {of}"),
         None => "needs you".to_string(),
     };
-    let mut text = format!("● {head}: {}\n{}\n{}", w.what, w.why, w.yes);
+    let mut text = match w.who.is_empty() {
+        true => format!("● {head}: {}\n{}\n{}", w.what, w.why, w.yes),
+        false => {
+            let why = match w.why.is_empty() {
+                true => String::new(),
+                false => format!(" · why: {}", w.why),
+            };
+            format!(
+                "● {head}: {} wants to {}\nrisk: {}{why}\n{} · {}",
+                w.who, w.what, w.risk, w.yes, w.no
+            )
+        }
+    };
     for (i, c) in choices.iter().enumerate() {
         text.push_str(&format!("\n{}. {c}", i + 1));
     }
