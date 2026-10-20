@@ -501,6 +501,7 @@ impl Place {
         };
         let mut config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
         config.join_guard = voice.cfg.join_guard;
+        config.echo_cancel = voice.cfg.echo_cancel;
         // In the persona's voice, once the join has succeeded and the call's
         // audio flows (theseus-sro04), or after `GREETING_WAIT`.
         let greeting = shared.core.greeting_for(Some(&self.session_id));

@@ -17,8 +17,10 @@
 //! Deepgram's client spawn nothing and send nothing when they're built
 //! (FAST).
 
+mod aec;
 pub mod audio;
 pub mod deepgram;
+mod echo;
 mod engine;
 mod heard;
 mod io;

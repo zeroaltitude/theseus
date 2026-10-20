@@ -1,0 +1,10 @@
+1.5s Utterance(Utterance { speaker: Speaker(101), started: 200ms, length: 600ms, closed: 1.5s, text: "[utterance 0.6 s]", usage: Usage { provider: "stand-in", model: "fixture", audio: 600ms, chars: 0 }, latency: 0ns, over: None, heard_as: Words })
+1.5s Turn { id: TurnId(0), utterances: [Utterance { speaker: Speaker(101), started: 200ms, length: 600ms, closed: 1.5s, text: "[utterance 0.6 s]", usage: Usage { provider: "stand-in", model: "fixture", audio: 600ms, chars: 0 }, latency: 0ns, over: None, heard_as: Words }] }
+1.5s Synthesized { what: Reply(TurnId(0)), usage: Usage { provider: "stand-in", model: "babble", audio: 3.96s, chars: 72 }, latency: 0ns }
+1.5s Speaking { what: Reply(TurnId(0)), sentences: 2, first_audio: 0ns }
+1.5s Synthesized { what: Reply(TurnId(0)), usage: Usage { provider: "stand-in", model: "babble", audio: 3.905s, chars: 71 }, latency: 0ns }
+2.78s Utterance(Utterance { speaker: Speaker(101), started: 1.68s, length: 400ms, closed: 2.78s, text: "[utterance 0.4 s]", usage: Usage { provider: "stand-in", model: "fixture", audio: 400ms, chars: 0 }, latency: 0ns, over: Some(Saying { what: Reply(TurnId(0)), sentence: 0, text: "This first sentence runs on for quite a while, long enough to talk over." }), heard_as: Words })
+2.78s Cut { what: Reply(TurnId(0)), why: Words, sentences: 2, heard: 0, into: 540ms, last_heard: None, cut: "This first sentence runs on for quite a while, long enough to talk over." }
+2.78s BargeIn { speaker: Speaker(101), what: Reply(TurnId(0)), dropped: 2 }
+2.78s Turn { id: TurnId(1), utterances: [Utterance { speaker: Speaker(101), started: 1.68s, length: 400ms, closed: 2.78s, text: "[utterance 0.4 s]", usage: Usage { provider: "stand-in", model: "fixture", audio: 400ms, chars: 0 }, latency: 0ns, over: Some(Saying { what: Reply(TurnId(0)), sentence: 0, text: "This first sentence runs on for quite a while, long enough to talk over." }), heard_as: Words }] }
+Played { id: ClipId(0), length: 3.96s, started: 1.5s, ended: Some(2.04s), stopped: true }

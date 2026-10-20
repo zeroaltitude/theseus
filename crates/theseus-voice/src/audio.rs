@@ -62,6 +62,42 @@ impl Audio {
         Self::new(samples)
     }
 
+    /// A stand-in for a voice: low-passed noise in syllables of 120 to 280 ms
+    /// with 40 to 120 ms between, at `level` of full scale in RMS over the
+    /// whole of it. A tone has no envelope for a delay to be read from, so
+    /// the echo canceller's tests use this; another `seed` is another voice.
+    pub fn babble(seed: u64, length: Duration, level: f64) -> Self {
+        let n = samples_in(length);
+        let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut next = move |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound
+        };
+        let (mut voice, mut low) = (Vec::with_capacity(n), 0.0f64);
+        while voice.len() < n {
+            let syllable = samples_in(Duration::from_millis(120 + next(160)));
+            let gap = samples_in(Duration::from_millis(40 + next(80)));
+            let fade = samples_in(Duration::from_millis(20));
+            for i in 0..syllable {
+                let envelope = (i.min(syllable - 1 - i) as f64 / fade as f64).min(1.0);
+                low = 0.9 * low + (next(20_001) as f64 - 10_000.0) / 10_000.0;
+                voice.push(low * envelope);
+            }
+            voice.resize(voice.len() + gap, 0.0);
+        }
+        voice.truncate(n);
+        let power = voice.iter().map(|v| v * v).sum::<f64>() / n.max(1) as f64;
+        let scale = level.clamp(0.0, 1.0) * f64::from(i16::MAX) / power.sqrt().max(1e-9);
+        Self::new(
+            voice
+                .into_iter()
+                .map(|v| (v * scale).round() as i16)
+                .collect(),
+        )
+    }
+
     /// The RMS of its last 20 ms: speech still sounding there means the clip
     /// ends mid-word ([`CUT_RMS`]).
     pub fn tail_rms(&self) -> f64 {

@@ -73,6 +73,11 @@ pub struct VoiceConfig {
     /// (theseus-yf9ct).
     #[serde(default = "default_status")]
     pub join_guard: bool,
+    /// While Theseus speaks, a barge-in is judged on what the listener sends
+    /// once its own voice, as it sent it, is taken out, so its echo on
+    /// speakers never stops it (theseus-yaxcp). False judges the raw stream.
+    #[serde(default = "default_status")]
+    pub echo_cancel: bool,
 }
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
@@ -119,6 +124,7 @@ impl Default for VoiceConfig {
             greeting: default_greeting(),
             speak_tasks: default_status(),
             join_guard: default_status(),
+            echo_cancel: default_status(),
         }
     }
 }
@@ -318,6 +324,9 @@ mod tests {
         assert_eq!(cfg.voice.api_base, super::DEEPGRAM_API);
         // On, its key is the harness's, whether or not [secrets] has it yet.
         assert_eq!(cfg.voice_key_secret(), Some("deepgram_api_key"));
+        assert!(cfg.voice.echo_cancel, "on by default");
+        let cfg = with("[voice]\necho_cancel = false").unwrap();
+        assert!(!cfg.voice.echo_cancel);
         let cfg = with("[voice]\ntts_voice = \"aura-2-thalia-en\"\nlanguage = \"en-GB\"").unwrap();
         assert!(!cfg.voice.enabled);
         assert_eq!(

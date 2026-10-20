@@ -908,6 +908,8 @@ max_events = 10                         # at most this many events stand at once
 #                                       # the Set Voice Channel Status permission (a 403 is said once in health)
 # join_guard = true                     # a short or unclear sound before the greeting finished is no turn (the join's chime heard back), and one or two
 #                                       # words of the greeting's head heard back are its echo; false restores the old reading
+# echo_cancel = true                    # while Theseus speaks, a barge-in is judged on what you send once its own voice, as it sent it, is
+#                                       # taken out (your speakers' echo never stops it, your voice over it does); false judges the raw stream
 # speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
 #                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"
 #                                       # answers the question as you (the core judges it as it judges a button)

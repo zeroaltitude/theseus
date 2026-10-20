@@ -55,6 +55,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep_until, Instant};
 
 use crate::audio::{Audio, FRAME};
+use crate::echo::Echo;
 use crate::heard::{classify, is_fragment_echo, is_join_noise, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
 use crate::sentences::speakable;
@@ -97,6 +98,11 @@ pub struct Config {
     /// here, so the engine's own tests read as they did; the session turns
     /// it on from `[voice] join_guard`, which defaults to true.
     pub join_guard: bool,
+    /// A barge-in is judged on what the listener sends once Theseus's own
+    /// voice, as it sent it, is taken out (theseus-yaxcp). Off here, so the
+    /// engine's own tests read as they did; the session turns it on from
+    /// `[voice] echo_cancel`, which defaults to true.
+    pub echo_cancel: bool,
 }
 
 impl Config {
@@ -114,6 +120,7 @@ impl Config {
             transcript_bound: Duration::from_secs(3),
             floor_bound: Duration::from_secs(8),
             join_guard: false,
+            echo_cancel: false,
         }
     }
 
@@ -343,6 +350,7 @@ pub struct Engine {
     talk_frames: BTreeMap<Speaker, u32>,
     /// A stop that waits for the words over it.
     hold: Option<Hold>,
+    echo: Echo,
     /// The sentences that played to their end, in the echo tail.
     recent: VecDeque<(Instant, String)>,
     /// The last sentence heard whole of each reply or report still queued.
@@ -546,6 +554,7 @@ impl Engine {
         let engine = Self {
             vad: config.vad(),
             barge_frames: frames(config.barge_in).max(1),
+            echo: Echo::new(config.echo_cancel),
             config,
             io,
             speech,
@@ -644,8 +653,14 @@ impl Engine {
             self.advance(now);
             for out in std::mem::take(&mut self.outbox) {
                 match out {
-                    Out::Play(id, clip) => self.io.play(id, clip).await,
-                    Out::Stop => self.io.stop().await,
+                    Out::Play(id, clip) => {
+                        self.io.play(id, clip.clone()).await;
+                        self.echo.play(&clip, self.io.lead_in(), Instant::now());
+                    }
+                    Out::Stop => {
+                        self.io.stop().await;
+                        self.echo.stop();
+                    }
                 }
             }
         }
@@ -678,6 +693,7 @@ impl Engine {
             .filter(|(_, v)| v.is_open())
             .map(|(s, _)| *s);
         let speakers: BTreeSet<Speaker> = heard.keys().copied().chain(open).collect();
+        let residuals = self.echo.tick(&heard, now);
         let mut barge = false;
         for speaker in speakers {
             let frame = heard.get(&speaker).copied();
@@ -702,7 +718,12 @@ impl Engine {
                     .opening
                     .get(&speaker)
                     .is_some_and(|o| o.sound == Sound::Wordless || o.at_join);
-            if step.speech && talking && !prone {
+            // Over Theseus's own voice, the voice that counts is what is left
+            // of the frame once that is taken out (theseus-yaxcp).
+            let speech = residuals
+                .get(&speaker)
+                .map_or(step.speech, |r| r.speaks(self.vad.speech_rms));
+            if speech && talking && !prone {
                 let n = self.talk_frames.entry(speaker).or_default();
                 *n += 1;
                 barge |= *n >= self.barge_frames;

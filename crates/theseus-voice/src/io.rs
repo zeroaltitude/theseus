@@ -62,6 +62,11 @@ pub trait VoiceIo: Send {
     fn gone(&self) -> Option<String> {
         None
     }
+    /// The samples of silence sent before the clip last played, which the
+    /// listener hears as delay (theseus-yaxcp).
+    fn lead_in(&self) -> usize {
+        0
+    }
 }
 
 /// A clip played through a [`WavIo`], with its times from the call's start.
@@ -111,6 +116,19 @@ pub struct WavIo {
     playing: Option<(ClipId, Instant)>,
     ended: VecDeque<ClipId>,
     log: PlayLog,
+    echo: Option<Echo>,
+}
+
+/// A speaker's room on speakers: what the engine plays comes back in their
+/// stream (theseus-yaxcp).
+struct Echo {
+    speaker: Speaker,
+    delay: Duration,
+    gain: f64,
+    /// The one-pole low-pass's coefficient: the room's filtering.
+    smoothing: f64,
+    /// The line holding the clip playing's echo, and where the clip began.
+    line: Option<(usize, Duration)>,
 }
 
 struct Line {
@@ -132,7 +150,28 @@ impl WavIo {
             playing: None,
             ended: VecDeque::new(),
             log: PlayLog::default(),
+            echo: None,
         }
+    }
+
+    /// What the engine plays comes back in `speaker`'s stream `delay` later,
+    /// `attenuation_db` quieter and low-passed by `smoothing` (a one-pole
+    /// coefficient, 0 for none), the part of a stopped clip that played only.
+    pub fn echo(
+        &mut self,
+        speaker: Speaker,
+        delay: Duration,
+        attenuation_db: f64,
+        smoothing: f64,
+    ) -> &mut Self {
+        self.echo = Some(Echo {
+            speaker,
+            delay,
+            gain: 10f64.powf(-attenuation_db / 20.0),
+            smoothing,
+            line: None,
+        });
+        self
     }
 
     /// `speaker` says `audio`, starting `at` from the call's start.
@@ -163,6 +202,40 @@ impl WavIo {
 
     fn since_origin(&self, at: Instant) -> Duration {
         at.saturating_duration_since(self.origin)
+    }
+
+    /// The clip playing was cut at `now`: its echo stops at what played.
+    fn cut_echo(&mut self, now: Instant) {
+        let at = self.since_origin(now);
+        let Some((index, began)) = self.echo.as_mut().and_then(|e| e.line.take()) else {
+            return;
+        };
+        let line = &mut self.lines[index];
+        let played = samples_in(at.saturating_sub(began)).min(line.audio.len());
+        line.audio = Audio::new(line.audio.samples()[..played].to_vec());
+    }
+
+    /// `clip`'s echo, from `now`.
+    fn start_echo(&mut self, clip: &Audio, now: Instant) {
+        let began = self.since_origin(now);
+        let Some(echo) = &mut self.echo else {
+            return;
+        };
+        let mut low = 0.0;
+        let samples = clip
+            .samples()
+            .iter()
+            .map(|&s| {
+                low = echo.smoothing * low + (1.0 - echo.smoothing) * f64::from(s) * echo.gain;
+                low.round() as i16
+            })
+            .collect();
+        echo.line = Some((self.lines.len(), began));
+        self.lines.push(Line {
+            speaker: echo.speaker,
+            at: samples_in(began + echo.delay),
+            audio: Audio::new(samples),
+        });
     }
 
     /// The frames of tick `tick`: each speaker's samples in its 20 ms, with
@@ -235,7 +308,9 @@ impl VoiceIo for WavIo {
         if let Some((old, _)) = self.playing.take() {
             self.log.end(old, self.since_origin(now), true);
             self.ended.push_back(old);
+            self.cut_echo(now);
         }
+        self.start_echo(&clip, now);
         self.playing = Some((id, now + clip.duration()));
         self.log.push(Played {
             id,
@@ -251,6 +326,7 @@ impl VoiceIo for WavIo {
         if let Some((id, _)) = self.playing.take() {
             self.log.end(id, self.since_origin(Instant::now()), true);
             self.ended.push_back(id);
+            self.cut_echo(Instant::now());
         }
         Box::pin(std::future::ready(()))
     }

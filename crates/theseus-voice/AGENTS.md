@@ -32,3 +32,16 @@ or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "The
 `Config::join_guard`, off in the engine so its own tests read as before, on from `[voice] join_guard` (default true).
 `songbird_io` sends `LEAD_IN_FRAMES` (5, 100 ms; 0 is off) of silence before the first clip after quiet (`Spell`), so
 the head of the greeting isn't eaten; the next sentence of a reply gets none.
+
+Theseus cancels its own voice from what a listener sends (theseus-yaxcp, `Config::echo_cancel`, `[voice] echo_cancel`, default
+true). `src/echo.rs` is the engine's side: the clips it plays, tick by tick as the seam was told to send them (a clip begun
+inside the tick its predecessor ended in shares it, and `VoiceIo::lead_in` says the silence the seam put before one), and one
+`Aec` per listener. `src/aec.rs` is pure DSP at 8 kHz: the delay (40 to 500 ms) found by correlating 10 ms energy envelopes
+over the last second, an NLMS filter of 48 ms around it on pre-emphasised audio, frozen while the listener is much louder
+than the echo expected. It does nothing while Theseus has been silent for a second (`None`; nothing is computed, and the
+delay and taps wait for the next reply). Only the barge-in's count of speech frames reads the residual: the VAD, the
+hold and the transcript rules read the raw frame as before. A residual is `warming` (not counted) until the delay is found
+(800 ms, then the raw frame counts, as on headphones) and for 500 ms after it is found, while the filter converges. Off, the
+engine is byte for byte what it was (`tests/aec.rs`, a golden). `Audio::babble` and `WavIo::echo` are the stand-ins for a
+voice and a room; a tone has no envelope for a delay to be read from. The journal says the delay found and, when a spell
+ends, its mean ERLE (`voice: an echo spell ended`).
