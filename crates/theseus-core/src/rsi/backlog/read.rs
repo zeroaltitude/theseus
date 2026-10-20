@@ -201,6 +201,12 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         }
         "provider.error" => {
             let (c, p) = (word(&d["class"]), word(&d["provider"]));
+            // The floor under the sensitive names refusing a request is the
+            // privacy policy working, with nothing sent: the provider never
+            // failed, so there is no fault of its to file.
+            if c == crate::data_gate::DATA_GATE_CLASS {
+                return None;
+            }
             o.key = format!("provider.error:{c}:{p}");
             o.title = format!("{p} answers {c}");
             o.note = format!(
@@ -467,5 +473,31 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn provider_error(class: &str) -> LedgerRow {
+        LedgerRow::named(
+            "provider.error",
+            None,
+            None,
+            json!({"class": class, "provider": "zai", "elapsed_ms": 0, "message": "refused"}),
+        )
+    }
+
+    /// The floor under the sensitive names refusing a request to a restricted
+    /// model is the privacy policy working, with nothing sent: it files no
+    /// cause (`provider.error:data_gate:zai`, "zai answers data_gate"), while
+    /// a real provider failure on the same provider still does.
+    #[test]
+    fn a_data_gate_refusal_is_no_providers_fault() {
+        assert_eq!(of_row(1, &provider_error("data_gate")), None);
+        let real = of_row(2, &provider_error("overloaded")).expect("a real failure");
+        assert_eq!(real.key, "provider.error:overloaded:zai");
     }
 }
