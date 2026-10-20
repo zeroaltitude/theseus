@@ -1,5 +1,4 @@
 <!-- CLOUD_TASK.md: your whole task. It came with your branch as its first commit, "cloud task (not for main)". Leave this file in place: the maintainer drops it at the merge, as he drops CLOUD_REPORT.md. Your commits go on top of it, on this branch. -->
-
 You are a cloud build session for Theseus, a Rust agent harness: this repository, a Cargo workspace under crates/, with the cockpit (its web app) under cockpit/. The repository is public. A maintainer (an AI agent working with the repository's owner) reviews your branch, runs the full gate on the owner's machine, runs any live check that needs the owner's keys, and merges it. You can't reach the owner, his machine, or any issue tracker, so everything you need is in this prompt and in the repository.
 
 **Read first:** the root AGENTS.md (the principles, the workflow, the commit style, the store's version rule, the reader rule), the AGENTS.md of every crate or directory you touch (cockpit/ has its own), scripts/AGENTS.md, and .config/nextest.toml. AGENTS.md's "This machine" section describes the owner's machine, not this one. This one is a 4-core VM with 15 GB of RAM and no swap. You run as root, there is no sccache, and nothing else runs here: no operator daemon and no other agents. Use only the tools you need for the code (Bash, Read, Write, Edit, Glob, Grep); call no connector or MCP tool.
@@ -24,35 +23,19 @@ You are a cloud build session for Theseus, a Rust agent harness: this repository
 
 Timing tests also fail here more often than on the owner's 16-core machine. A test on .config/nextest.toml's flaky list that passes on a retry is fine. Any other failure is yours to explain.
 
-**Other changes in flight.** About fifteen other changes are being built against `main` or merged into it while you work. Stay out of their areas unless your task needs it. If it does, keep the edit small and say so in the report.
+**Other changes in flight.** Several other changes are being built against `main` or merged into it while you work. Stay out of their areas unless your task needs it. If it does, keep the edit small and say so in the report.
 
-These are reviewed, and merging into `main` one at a time tonight. Your clone may hold some of them already:
-- route.v1 on the turn path (`[routing]`, detours and switches; store format 15);
-- the live rerank (rerank's own breaker, a bounded live wait, per-item grading);
-- security.v3's live notices and their brake;
-- replay, audit and backfill of judgments;
-- the ladder (`pack.mode`, `mode_for`, `ask_mode`, `pack_arm`, `theseus packs`, the cockpit's Ladder panel);
-- the tools smalls (categorize on an empty ontology, the LSP's `start_on_edit`, AWS hands' runaway mode);
-- the tasks smalls (layer 1 for the owner's tasks only, `task.change_expired`, place warnings, a check's restricted view; store format 16).
+Merged into `main` tonight (your clone holds them if your base is main): turn-end facts, the shared tool catalog
+(speed-send-path), the store's one blocking wait, the fleet's full-screen view, a self task's acts in its own tree,
+the task's home thread, the owner's needs-you cards, and voice at the join (theseus-yf9ct) with its two join fixes.
 
-These are other cloud sessions like you, each on its own branch:
-- consolidation, `Synthesis` nodes and the `+synthesis` arm;
-- FSRS-6 retention and the `+retention` arm;
-- activation's adjacency and the `+activation` arm;
-- tiering: stubs and the bounded heat cache;
-- situations, the precedence line and testimony;
-- claim leases, the task board, `/tasks` and the cockpit's task graph;
-- the cockpit's Budgets, Ledger and Policy tabs;
-- the learning loop, if it launches beside them.
-
-On the owner's machine:
-- gliding with the place rule (`channel.post` and `channel.read`; places.rs, rpc/publish.rs, approval.rs, outbox.rs);
-- the cockpit's Ship view (a gentle roll);
-- the Linux lanes: spawn without fork and a light job cgroup (the job launch path), one sync per job completion, background work that yields, LSP watching, then socket activation;
-- a benchmark run (bench/).
+Other cloud sessions like you, each on its own branch: the ontology in core (R2, reviewed, joining next); the job
+truths; the release build's size (release-size); the timing flakes; the thread bench's threads arms. And this batch,
+fired together: home-split (a place's home split into threads), onto-wire (the ontology's in-loop wire, stacked on
+R2), voice-aec (voice layer 3, echo cancellation) and voice-jev (voice layer 4, a Jev judgment on unclear transcripts).
 
 **Shared files, and how to stay mergeable.** Several of those changes add to the same files, so:
-- **The store's format.** The store has one format number, `MANIFEST_FORMAT` (AGENTS.md, "The store's version rule"). If your task adds a field or a variant to a stored record (a new NODE body is one), or a new record kind, bump it by one from main's number as you cloned it (main is at 15 since route, and 16 after the tasks smalls), and add the literal sample of the old layout to theseus-core's tests_layouts.rs, as the rule says. A body variant alone owes no old-layout sample. Others bump it too: the maintainer renumbers at the merge.
+- **The store's format.** The store has one format number, `MANIFEST_FORMAT` (AGENTS.md, "The store's version rule"). If your task adds a field or a variant to a stored record (a new NODE body is one), or a new record kind, bump it by one from main's number as you cloned it (your base, the ontology-core row, is at 46 as you clone it; this row should need no bump), and add the literal sample of the old layout to theseus-core's tests_layouts.rs, as the rule says. A body variant alone owes no old-layout sample. Others bump it too: the maintainer renumbers at the merge.
 - **Files at or near their line ceiling** (scripts/long-files.txt): at it, crates/theseus-protocol/src/lib.rs (2,696) and crates/theseus-core/src/compiler.rs (2,547); near it, crates/theseus-discord/src/runtime.rs, crates/theseus-discord/src/render.rs, crates/theseus/src/render.rs, crates/theseus-kernel/src/kernel.rs, and crates/theseus-core/src/turn.rs. Other changes add to them as well. Put new code in new modules: protocol types in a module file of their own, config types under crates/theseus-core/src/config/, compiler code in crates/theseus-core/src/compiler/, turn logic in a module beside turn.rs, tests in a tests_<subject>.rs of their own. In the long files, add only the field, the call, or the `mod` line.
 - **The protocol's TypeScript** is in cockpit/src/protocol.gen/, written from the Rust types by theseus-protocol's test (AGENTS.md says how). Regenerate it if you add or change protocol types; the maintainer regenerates it again at the merge. theseus-protocol's ts.rs type-list test sits at clippy's 100-line limit: add a new type to an existing line, never a new line.
 - **The config.** The owner's config holds only what differs from the defaults, so every new key needs a default. If you add a config section, add it to `theseusd example-config`'s template the way the existing sections are, with its template tests (AGENTS.md).
@@ -62,10 +45,10 @@ On the owner's machine:
 The gate's shape phase fails a file over its line ceiling in scripts/long-files.txt. If you grow a file past its ceiling, split it, or raise the ceiling in the same commit and say why.
 
 **Commits:**
-- One commit per green sub-step, on the branch named below, created from `main` as you cloned it. Don't merge or rebase onto a newer main; the maintainer merges.
+- One commit per green sub-step, on the branch named below, on top of its first commit (CLOUD_TASK.md), whose base your task names. Don't merge or rebase onto a newer main; the maintainer merges.
 - The subject is `area: what changed (<issue id>)`, as in `git log`. The body says what changed and why, in plain words. End each message with the trailer `Co-Authored-By: Claude (cloud session, Sonnet 5.5) <noreply@anthropic.com>`.
 - You can't sign here: commit without `-S`. The maintainer's merge commit is signed.
-- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261019-onto-core`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
+- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261019-onto-wire`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
 - No new dependencies: Cargo.lock and the package-lock.json files must not gain a package. If the right design needs one, say so in the report instead.
 - Use invented names in fixtures, tests, and commits (AGENTS.md, Item 16). Write nothing about the owner, his machine, his accounts, or anyone else.
 - Don't edit the spec, docs/status.md, the README, or docs/design/. The maintainer writes those at review. Where a doc should change, say what and where in the report.
@@ -84,180 +67,92 @@ Then the gate's result, naming each failing test and why. Your final message is 
 
 **Load:** where your task asks for runs under load, use AGENTS.md's recipe. Priority, not count, makes the load: run the test with `nice -n 19`, and beside it four busy loops at nice 0, each `sh -c 'while :; do :; done' &`. Kill the loops by the pids you started, never by a name pattern.
 
-## Your task: onto-core, the ontology crate grows: Jev, the sweep and the dream may write; the kinds of the design filled; an undo record (theseus-e3mjc)
 
-Branch: `cloud/20261019-onto-core`. Every commit's subject carries `theseus-e3mjc`. Deadline for the report: 5 hours
-after you start.
+## Your task: onto-wire, Jev in the inbound loop grows the ontology: onto.v1 in the batch, writes at the act band, cards, undo (theseus-xzxqv, with the rest of theseus-s1vkl)
 
-**Why.** The owner approved a design on 2026-10-19: Jev, judging every inbound message, files it into the ontology
-and grows the ontology itself, minting new categories and new kinds as the world shows them ("category expansion,
-not just category inclusion"). Today the ontology crate refuses everything that design needs. Only four kinds exist
-(guild, channel, person, topic). The guild kind is never written, and a channel category never gets its guild as its
-parent. The origins `jev`, `sweep` and `dream` are refused by name as "not built" (`Origin::comes_with`,
-`Origin::built` in `crates/theseus-ontology/src/kind.rs`). This row is the crate side only: it makes those writes
-legal, checked and undoable. Nothing calls Jev here: the in-loop wire, the RPCs, the sweep's logic and the cockpit
-are later rows (R3, R5, R7). Build no caller beyond what the tests need.
+Branch: `cloud/20261019-onto-wire`. Every commit's subject carries `theseus-xzxqv` (or `theseus-s1vkl` for step 1's
+pack commits). Deadline for the report: 5 hours after you start.
 
-## What exists (read these; lines move)
-- `crates/theseus-ontology/src/kind.rs`: `GIVEN` (three names), `Basis`, `Rule`, `Origin` with `comes_with`/`built`,
-  `Kind` and `check_row`/`check_basis`, `seeds()` (the four rows), `given_seed`.
-- `crates/theseus-ontology/src/ontology.rs`: `Ontology::put`/`check` (who may write which record), `load` (rebuilds
-  from stored records, dropping a record that never checks, with its key and why), `check_member`/`check_members`,
-  `check_table`, and the helpers `interprets` and `stored_by` at the bottom, which today name only the operator and
-  the import.
-- `crates/theseus-ontology/src/category.rs`: `Category` (`added_by`, `parent`, `retired_ms`, `merged_into`),
-  `Membership` (`origin`, a confidence, `given`/`operator`/`import` constructors), `MemberList`.
-- `crates/theseus-ontology/src/refusal.rs`: `Refusal` (`UnbuiltOrigin`, `Writer`, `Given`, `InUse`, ...).
-- `crates/theseus-ontology/src/lib.rs`: `Record` and the store keys (`onto:kind:<name>`, ...).
-- `crates/theseus-ontology/src/tests.rs`, `tests_people.rs`, `tests/golden.rs` and `tests/golden/seed-kinds.json`
-  (the seed rows as stored), `tests/props.rs`.
-- `crates/theseus-core/src/ontology.rs`: `place_category`, `given` (a session's given memberships, read from its
-  place at compile, never stored), `bound_category` (the category a place makes at its first bind: today it sets
-  `parent: None`), `Walk`.
-- `crates/theseus-core/src/rpc/ontology.rs`: `bind_categories` (called from `rpc/bindings.rs`'s `bind_places`), which
-  writes the bound places' categories in one frame. `crates/theseus-core/src/places.rs`: `BoundPlace`, whose
-  `guild` is a guild channel's guild id.
-- `crates/theseus-core/src/fact/ontology.rs`: the ledger rows' facts. `crates/theseus-protocol/src/ledger.rs`: the
-  ledger kinds (`OntologyCategory`, `OntologyGuidance`, `OntologyMembership`, `OntologyMerged`).
-- The design's sections this row builds, for reference (you have no copy of the design; everything you need is here).
+**Base: stacked on the ontology-core row (R2), not on main.** This branch starts from `1b663c65`, the code head of
+`cloud/20261019-onto-core` (R2, theseus-e3mjc: origins jev/sweep/dream built, operator wins, the kinds rows, `examples`
+and `mined_from`, `Ontology::undo`, the `ontology.undo` ledger kind, store format 46), with R2's CLOUD_TASK.md and
+CLOUD_REPORT.md commits left out. R2 is reviewed and joins first; this row joins right after it. So the store is at
+46 as you clone it, and this row should need no bump. R2's base is an older main (`6fc5884b`): the owner's
+needs-you cards and the task home are not in your tree. Use the DM card path your tree has (as the people proposals'
+cards do); the maintainer moves it onto the needs-you cards at the join. Don't pull main in.
+
+**The design** is not in your tree: read it with `git fetch origin lane/design-jev-ontology && git show
+FETCH_HEAD:docs/design/jev-ontology-growth.md`. Your scope is its sections 3.1, 4.1-4.4 and row R3 in section 10, plus
+R1's unfinished part. The owner approved the design and both of section 11's questions on 2026-10-19 at 12:14 (the
+naming call: yes; images and the private mark: yes, but images and the mark are row R4's, not yours).
 
 ## What to build
+1. **R1's rest (theseus-s1vkl): the `onto.v1` pack.** `crates/theseus-judge/packs/onto.v1.toml` with section 4.3's
+   text questions (`topic`, `project`, `event`, `resource`, `capability`, `expertise` as Choice over at most 20
+   candidates plus `new` and `none`; `<kind>_name` as Choice over at most 10 mined names plus `none`; `still_<kind>`
+   Noul per current membership, at most 5; `kind_of_thing`; `personal` and `elicits` recorded only, no effect yet).
+   Image questions are R4's: leave them out. An `OntoInput` builder (`crates/theseus-judge/src/builders/onto.rs`) with
+   the per-kind candidate picker (session's categories, then the thread's, then a cheap word match on name and
+   description, then most recent; at most 20) and a name miner (a new `mine.rs`: thread and project titles, repository
+   and directory names, hosts and services, capitalised terms, file paths; at most 10, deduplicated). The state stays
+   under about 3,000 tokens; questions whose evidence is absent are left out. Scripted answers in `fake.rs`.
+2. **The wire.** `onto.v1` joins the inbound batch (`crates/theseus-core/src/judge/inbound.rs`) beside `classify.v3`
+   and `role.v1`: one state, one request, cost split by question count as the batch does. Never in `route.v6`'s
+   request. The turn waits exactly as today (the `thread` answer and the route verdict, at most `route_wait_ms`).
+   `project` is asked only when the thread has no project. `categorize.v1` keeps running unchanged in shadow.
+3. **The sink** (`judge/sink.rs`, a new `judge/onto.rs`): at the act band (>= 0.80) it writes the membership with
+   origin `jev`, its confidence and `added_by = jev:<judgment id>`, in the judgment's frame with its row, through R2's
+   checks (the operator's entries always win; a refusal is a row, never a panic). `new` at the act band plus a
+   `<kind>_name` at the act band mints the category in the same frame. The confirm band (0.55 to 0.80) sends one DM
+   card asking and writes nothing; below it, a row only. The reply's footer gets `filed: topic › <parent> › <name>`
+   with `(new)` on a mint. A mint sends one DM card with an undo button; a plain membership sends none.
+4. **The naming call**, off the turn's path: when Jev says `new` at the act band and no mined name fits, one call to
+   `[ontology] name_profile` (default `haiku`) for three names and a one-line description, the way `people.v1`'s
+   extract step does it; the session's next `onto.v1` offers them. At most once per session per kind per day, priced
+   and counted like every judgment. A test with the fake model shows the cap.
+5. **RPCs and CLI**: `ontology.undo` (R2's `Ontology::undo`, an `ontology.undo` row labelled `wrong` for the pack's
+   learning ledger), `ontology.kind.add`, `ontology.kind.retire`; `theseus ontology undo|kind add|kind retire`. Protocol
+   types in a module file of their own (lib.rs is at its ceiling); regenerate the TypeScript.
+6. **`[ontology]` config** (`crates/theseus-core/src/config/ontology.rs`, in the example-config template with its
+   tests): `judge = true` (the rollback: off, the batch is byte for byte today's and nothing is written), `act = 0.80`,
+   `confirm = 0.55`, `name_profile = "haiku"`, and `request = "batch"` with `"own"` as the latency fallback (onto.v1 in
+   a third request the turn never waits on).
+7. **The latency measurement.** `judge.call` rows already carry each call's time. Add a small reader
+   (`theseus judge latency --pack inbound --since <date>` or the nearest existing command's flag) printing the batch's
+   p50 and p95 per day, so the maintainer can compare a week before and after; if p95 grows by more than 50 ms the
+   owner flips `request = "own"`. The week itself is the maintainer's.
 
-1. **The three origins are built.** `Origin::comes_with` returns `None` for `Jev`, `Sweep` and `Dream`, and their
-   doc comments say who writes from them: `jev` is an inbound judgment, `sweep` the nightly re-association, `dream`
-   the nightly consolidation. If nothing else then uses `Refusal::UnbuiltOrigin`, keep it only if `comes_with` still
-   has a `Some` arm; otherwise remove the variant and its arm (a refusal nothing can raise is dead code).
-2. **Who may write what.** Extend `Ontology::check` so that:
-   - an interpreted kind's categories and member lists may be written by any origin the kind's `assigned_by` names
-     (today: the operator always, the import when named). The operator keeps writing any of them;
-   - a given kind's stored side (person's) may be written by `jev` when its row names it, as the import's is today;
-   - **the operator wins on conflict.** A list written by `jev`, `sweep` or `dream` must keep every entry of the
-     current list whose origin is `operator` or `import`, unchanged. It may add its own entries and replace or drop
-     entries from the machine origins. A list that drops or changes an operator's entry is refused with a `Writer`
-     refusal that names the entry. The operator may still replace anything;
-   - a category written by a machine origin has `added_by` of the form `<origin>:<id>`, for example
-     `jev:<judgment id>`. Check the prefix matches the writer, and keep the id free text within `ADDED_BY_MAX`;
-   - **kinds:** the operator writes any row, as today. `sweep` may add a *new* interpreted kind only. It may not
-     change an existing row, may not add a given kind, and its row's `assigned_by` must name `sweep` and `jev`.
-     `jev` and `dream` never write a kind.
-3. **Kind retire.** A `Kind` gains `retired_ms: Option<u64>` (serde default, skipped when `None`). A retired kind
-   takes no new categories or lists. Retiring is refused, with `InUse`, while any category of the kind is live or any
-   stored list names it. A given or seeded kind cannot be retired. The operator may retire any other kind, and the
-   sweep only a kind the sweep added. Precedence uniqueness ignores retired rows.
-4. **Two optional fields on `Kind`:** `examples: Vec<String>` (at most five category names, each a valid name) and
-   `mined_from: Vec<MinedFrom>`, a closed enum of the name sources code can mine: `titles`, `paths`, `hosts`,
-   `capitalised`. Both are serde default and skipped when empty, so a row without them serialises to exactly
-   today's bytes.
-5. **The kinds of the design.** `GIVEN` grows to five, `["guild", "channel", "thread", "project", "person"]`, and
-   `check_basis` learns the two new seeds. `thread` and `project` are *given by the harness*: facts the core holds,
-   read at compile from the thread and project records the way a channel is read from the place, never stored per
-   session and never set through the API. Their memberships' origin is `Transport`: widen its doc to "a session's
-   place, or the harness's own thread and project records: given kinds only". Add no new origin. `seeds()` becomes
-   this table (precedence orders a compile: higher governs):
-
-   | Kind | Basis | assigned_by | Per session | Parent | Precedence | Rule |
-   |---|---|---|---|---|---|---|
-   | guild | given | transport | 1 | – | 10 | chain |
-   | channel | given | transport | 1 | guild | 20 | chain |
-   | thread | given | transport | 1 | channel | 25 | chain |
-   | project | given | transport | 1 | – | 28 | chain |
-   | person | given | transport, operator, import, jev | many | – | 30 | intent_line |
-   | topic | interpreted | operator, import, jev, sweep, dream | 3 | topic | 40 | chain |
-   | event | interpreted | operator, jev, sweep | 3 | project | 50 | chain |
-   | resource | interpreted | operator, jev, sweep | many | – | 60 | intent_line |
-   | capability | interpreted | operator, jev, sweep | many | – | 70 | intent_line |
-   | expertise | interpreted | operator, jev, sweep | 3 | expertise | 80 | chain |
-   | culture | interpreted | operator, dream | many | – | 90 | chain |
-
-   Each row gets a one- or two-sentence description in the existing rows' style:
-   - event: a dated happening (a release, an outage, a meeting, a deadline); the date is mined in code, never Jev's;
-   - resource: a repository, service, host, document or dataset the session works with;
-   - capability: a tool, skill or extension the session needed;
-   - expertise: the domain the session draws on;
-   - culture: how things are done here, learned from corrections over time.
-
-   Seed `examples` and `mined_from` where they are obvious (resource: `paths`, `hosts`; capability: none; topic:
-   `titles`, `capitalised`) and leave the rest empty. `seed-kinds.json` changes by exactly the new rows and the two
-   widened `assigned_by` lists. Check that the guild-channel and DM compile goldens do not move. If they do, the walk
-   changed and you must find out why before you update one.
-6. **The guild is filled and a channel's parent set, at bind.** In `bound_category` / `bind_categories`, a guild
-   channel's place with a `guild` id also makes the guild's category (`guild:<id>`, named by the guild's name if the
-   binding knows one, else the id), and the channel category's `parent` is that guild category. One frame, as today.
-   A re-bind that changes nothing writes nothing, and an existing store's channel categories with `parent: None` are
-   updated once at the next bind. `given()` then yields the guild membership too, read through the channel category's
-   parent at compile, never stored. A DM is unchanged.
-7. **Thread and project at compile.** Find where the core builds a session's given memberships for the walk
-   (`given()` and its callers, `Walk::of`). If the session's thread place and its project (`crates/theseus-core/src/
-   project/`, `thread_*.rs`) are reachable there without new plumbing across modules, add their memberships, and make
-   the categories at the thread's or project's creation the way a place's are made at bind. If that needs more than a
-   small, local change, build only the kinds rows, leave the reader to row R6, and say exactly what is missing in
-   the report. Either way the reader rule holds: no row without its reader. If you leave the reader, say so in the
-   rows' descriptions ("read at compile from R6").
-8. **The undo record.** A machine origin's write must be undoable byte for byte:
-   - add `ontology.undo` to the ledger kinds (`OntologyUndo` in `crates/theseus-protocol/src/ledger.rs`, next to
-     the other ontology rows);
-   - in the crate, add one function, for example `Ontology::undo(&self, wrote: &[Record], before: &[Option<Record>])
-     -> Result<Vec<Record>, Refusal>`, that gives the records restoring each key to `before`: the previous member
-     list as it was, and a category minted by the write retired if nothing else now uses it (else refused with
-     `InUse`);
-   - in the core (`fact/ontology.rs`), a machine write's ledger rows carry what undo needs (the prior list, or "none"
-     for a minted category) in the row's existing payload;
-   - add one core function that, given such a frame, writes the inverse records and an `ontology.undo` row (its
-     label `wrong`, the undone frame's id) in one frame. Origin of the undo: the operator.
-   - The RPC and the CLI are R3's: build only the function and its test.
-
-**Store format.** The design plans no format bump: new fields are optional with serde defaults, and the undo data
-rides in the ledger rows' existing payloads, which the store keeps as it does any row. Read AGENTS.md's version rule.
-If adding `retired_ms`, `examples` and `mined_from` to the stored kind row still owes a bump in your reading, bump it
-by one as the preamble says, add the old-layout sample, and say why in the report. Either way, an old store must
-load with nothing dropped (a test below).
+**Jev's API, for reference** (a live probe, 2026-10-19): Jev takes PNG and JPEG images only behind the header
+`TypeSafe-Danger-Zone-Images: true` (else 400); images go in a top-level `assets` map `{ "<uuid>": { "type": "image",
+"format": "png", "data_base64": "..." } }` referenced from the state; 280 to 1,568 px per side, never resized; 16 MiB
+per image, 32 MiB per body; one bad image fails the whole request. That is R4's work: send no image here, and keep the
+builder's shape able to carry an assets map later.
 
 ## Tests (each with a planted revert; the first is the key test)
-- KEY: a `jev` member list for `topic` (whose `assigned_by` names jev) with a confidence is admitted by `put`, and so
-  is a `jev`-minted topic category with `added_by = "jev:j-0001"` in the same records. Plant: restore `Origin::Jev`'s
-  `comes_with` to `Some("M5, with Jev's categorize.v1")`. The test fails with `UnbuiltOrigin`.
-- A `jev` list for `culture` (whose `assigned_by` does not name jev) is refused with `Writer`. So is a `jev`
-  category of `culture`.
-- Operator wins: the current topic list holds an operator entry. A `jev` list that drops it is refused, naming it. A
-  `jev` list that keeps it and adds one is admitted. An operator list that drops a `jev` entry is admitted.
-- A `jev` category with `added_by = "sweep:x"` is refused, as is a bare `"jev"`.
-- Kinds: `sweep` adds a new interpreted kind (assigned_by naming sweep and jev): admitted. `sweep` changing `topic`,
-  `jev` writing any kind, and `sweep` adding a given kind: each refused.
-- Retire: retiring a kind with a live category is refused with `InUse`. Once its categories are retired, it
-  succeeds. A retired kind refuses a new category. A seed kind's retire is refused.
-- `examples`/`mined_from`: a row without them serialises byte for byte as before (compare with a literal of
-  today's JSON), and six examples are refused.
-- The new seeds pass `check_table`. `seed-kinds.json` matches. The compile goldens are unchanged.
-- Bind: binding a guild channel with guild id `g-1` makes `guild:g-1` and a channel category whose parent is it.
-  `given()` for that session yields both. A second identical bind writes no frame. A store from before this row
-  (channel category with `parent: None`) gets the parent at the next bind.
-- Undo: Jev writes a topic list over an earlier list and mints a category. Undo restores the earlier list byte for
-  byte (compare the serialised records), retires the minted category, and writes one `ontology.undo` row. Undo of a
-  mint whose category another session's list now uses is refused with `InUse`.
-- Load: a fixture of today's stored ontology records (four seed rows, a guild channel and a DM category, an operator
-  topic list, a person list from the import) loads with no record dropped and serves the same memberships.
-- Replace, never delete: today's tests that assert `Jev`/`Sweep`/`Dream` are refused (tests.rs, near
-  `(Origin::Jev, "M5")`, `UnbuiltOrigin` at about lines 166-184 and 845, and the `jev.origin = Origin::Jev` case
-  near 1334) assert a rule this row deliberately changes. Rewrite each to assert the new rule in its place (built
-  now, admitted where `assigned_by` names it, refused where it does not). Delete none. List each rewrite in the
-  report with its before and after assertion, so the reviewer can see no guard was lost.
-
-Put new tests in new files (`tests_origins.rs`, `tests_kinds.rs`, and a core `tests_ontology_bind.rs` or the
-nearest existing place-test file), not in the long `tests.rs`.
-
-## After the join (the maintainer's, not yours)
-The maintainer runs the full gate, installs, and checks that a live re-bind fills the guild and the channel's
-parent in the cockpit's Ontology view.
+- KEY: with the fake judge scripted `topic = new` at 0.9 and `topic_name = <a mined name>` at 0.9, an inbound message
+  ends with the session a member of a newly minted category (`added_by jev:<id>`, the ledger row in the judgment's
+  frame), the footer line on the reply, and one mint card. Plant: make the sink skip the write -> the test fails on
+  the missing membership.
+- A confirm-band answer (0.7) writes nothing and sends one confirm card. Plant: lower the act band to 0.6.
+- `ontology.undo` through the RPC restores the member list byte for byte and retires the minted category. Plant: skip
+  the retire.
+- The operator's membership is never overwritten by a Jev answer (a disagreement row instead).
+- A text message's batch state is byte for byte today's plus the onto fields (a golden). With `[ontology] judge =
+  false` the batch request is byte for byte today's. Plant: leave onto.v1 in when off.
+- The turn's wait is unchanged: with the fake judge holding onto.v1's answer 2 s, the turn's request leaves at the
+  same virtual time as without it (paused clock). Plant: await the sink before the turn.
+- The builder round-trips; the miner on five message shapes (a path, a host, a repo URL, capitalised terms, plain
+  chat); a scripted judgment parses into the three bands; the naming call's once-per-day cap.
 
 ## The checks for this row (these replace the preamble's gate line)
-- `cargo fmt --all --check`; `bash scripts/shape.sh`;
-  `cargo clippy -p theseus-ontology -p theseus-core -p theseus-protocol --all-targets -- -D warnings`.
-- `cargo nextest run -p theseus-ontology` (all of it), `cargo nextest run -p theseus-protocol`, and
-  `TZ=America/Phoenix cargo nextest run -p theseus-core -E 'test(/ontology|bind|place|person|topic|layout|golden|people|output/)'`
-  (scope runs to these crates: the VM is 4 cores with no sccache). If you touched protocol types, regenerate the
-  TypeScript as AGENTS.md says and include it.
-- `python3 scripts/keel-guard.py --base <your base> --head HEAD --quiet` empty.
-- Not here: the full gate, the benches, cargo-deny. Say so in the report.
+- `cargo fmt --all --check`; `bash scripts/shape.sh`; `cargo clippy -p theseus-judge -p theseus-ontology -p theseus-core -p theseus-protocol -p theseus --all-targets -- -D warnings`.
+- `TZ=America/Phoenix cargo nextest run -p theseus-judge -p theseus-ontology -p theseus-core -p theseus-protocol -p theseus`;
+  `tests_first_request` on the defaults (nothing new before a request leaves); the example-config template tests.
+- The full gate once before the report if time allows; if not, say so.
+
+## After the join (the maintainer's, not yours)
+Install, watch a day of DMs for memberships and mints with their cards, try one undo, and run the latency reader daily
+for a week. Give the exact commands in the report.
 
 ## Rules for every row of this batch
 
