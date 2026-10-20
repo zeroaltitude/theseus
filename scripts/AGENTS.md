@@ -369,7 +369,9 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
 - **The profiles.** `release` is fat LTO with one codegen unit: **the install profile** and a tagged release's (since
   theseus-o2myi; the owner's yes, 2026-10-19). `release-thin` (cargo reserves the name `install`) is thin LTO with 16
   codegen units: the quick build, for the benches, the AWS hand, or a try-out, never an install. Outputs are
-  `target/release/` and `target/release-thin/`. The measurements below are the 2026-10-02 pair that made `release-thin` the install; the size and
+  `target/release/` and `target/release-thin/`. `release` also builds the cold crates (Cargo.toml's
+  `[profile.release.package.*]`: AWS, Google, file conversion, MCP, LSP) at `opt-level = "s"`, and `release-thin`
+  inherits that. The measurements below are the 2026-10-02 pair that made `release-thin` the install; the size and
   speed of the choice now made are in the last bullet. Measured on 2026-10-02 (commit 364b82e, the four binaries, uncached,
   one 16-core machine under a load of 10 to 30, the two builds interleaved):
   - **Build time.** A cold build costs the same: 10 min 47 s against 10 min 44 s for the first of each pair, and thin
