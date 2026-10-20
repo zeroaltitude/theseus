@@ -33,6 +33,7 @@ mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
 mod notify;
+pub mod ontology;
 mod outputs;
 pub(crate) mod people;
 pub mod persona;
@@ -239,6 +240,10 @@ pub struct Config {
     /// (theseus-slvl.6), `config/card.rs`.
     #[serde(default, skip_serializing_if = "card::CardConfig::is_default")]
     pub card: card::CardConfig,
+    /// `[ontology]`: Jev files each message's session into the ontology
+    /// (theseus-xzxqv), `config/ontology.rs`.
+    #[serde(default, skip_serializing_if = "ontology::OntologyConfig::is_default")]
+    pub ontology: ontology::OntologyConfig,
     /// `[import]`: the nightly OpenClaw sync (theseus-pjmj7), off until `[import.openclaw] state_dir` is set,
     /// in `config/import.rs`.
     #[serde(default, skip_serializing_if = "import::ImportConfig::is_default")]
@@ -1478,6 +1483,7 @@ impl Config {
         self.cache.validate(self)?;
         self.people.validate()?;
         self.card.validate()?;
+        self.ontology.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1958,5 +1964,7 @@ mod tests_fresh;
 mod tests_google;
 #[cfg(test)]
 mod tests_inherit;
+#[cfg(test)]
+mod tests_ontology;
 #[cfg(test)]
 mod tests_persona;

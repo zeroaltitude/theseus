@@ -216,6 +216,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   absent from the bytes when no filter is set. `work_digest.rs`: a reported task's `DigestLine` carries its `report` and is
   never folded without its title (`NAMED_MAX` told, the rest named together); `WorkDigestResult.more` (`DigestMore`) says where a
   ledger read stopped.
+- `ontology.rs` also holds `ontology.undo` and `ontology.kind.add|retire` (theseus-xzxqv), and `judge.rs` `judge.latency`'s params and
+  result (the batch's p50 and p95 by day); `TurnSubmitResult.filed` is Jev's `filed:` footer line.
 - `ts.rs`: the TypeScript export.
 
 ## The CLI's spellings and the wire (theseus-rwpbg.10)

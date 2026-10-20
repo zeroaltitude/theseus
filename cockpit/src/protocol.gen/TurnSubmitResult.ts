@@ -94,6 +94,10 @@ cites?: Array<Citation>,
  */
 thread?: ThreadTag, 
 /**
+ * Where Jev filed the session (theseus-xzxqv): `topic › theseus › ontology (new)`, a reply's footer line.
+ */
+filed?: string, 
+/**
  * The turn in the cockpit (`[cockpit] public_url`, theseus-x9swu): the link a reply's footer carries.
  */
 inspect_url?: string, };

@@ -347,6 +347,12 @@ impl JudgeService {
         if let Some(shed) = shed {
             records.extend(crate::fact::row(&JudgeShed { shed }, None, None).ok());
         }
+        // What an `onto.v1` judgment came to rides its own frame, with its
+        // row (theseus-xzxqv): the records, their rows and the owner's cards.
+        let core = self.core();
+        let filing = core
+            .as_deref()
+            .and_then(|c| super::onto::stage::stage_into(c, batch, &mut records));
         let marks = self.unwritten_marks(batch);
         for (key, mark) in &marks {
             records.extend(NewRecord::json(theseus_store::kinds::META, Some(key), mark).ok());
@@ -368,6 +374,15 @@ impl JudgeService {
             tracing::warn!(error = %format!("{e:#}"), rows = batch.len(), "judge: the judgments' frame was not written");
             return;
         }
+        if let Some(f) = filing {
+            f.written();
+        }
+        self.announce_written(batch, shed);
+    }
+
+    /// Once the frame is written: each judgment's sentences, its breaker's
+    /// move and its metrics, and the shed count.
+    fn announce_written(&self, batch: &[Judgment], shed: Option<u64>) {
         for j in batch {
             let (session, turn) = where_of(j);
             self.announce(session, turn, &call(j));

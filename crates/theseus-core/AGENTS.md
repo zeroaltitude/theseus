@@ -1289,6 +1289,37 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`ontology.proposal.accept`/`reject`, through `judge_act`): an accept's membership, its topic for
     `new_topic`, and its `judge.label` row (`fact::judge::ProposalLabel`) in one frame. Tests:
     `tests_categorize.rs`.
+  - **Jev files the session into the ontology** (theseus-xzxqv; no store format change: two ledger kinds, `onto.filed` and
+    `onto.named`, and a META key `onto.named.<session>.<kind>`; `judge/onto/`, `config/ontology.rs`, `rpc/ontology_kinds.rs`,
+    `rpc/judge_latency.rs`, `fact/onto.rs`; pack `onto.v1`): `onto.v1` is live (`WIRED`) and rides the inbound batch beside
+    `classify.v3` and `role.v1` (one state, one request, cost split by question count), in a private place, for a person's
+    message, never a task's, while `[ontology] judge` is on (off: the batch is byte for byte what it was and nothing is written).
+    Its state is the inbound state plus `thread`, `project`, `memberships` and `mined_names` (`theseus_judge::builders::onto`);
+    `route.v6`, which the turn waits on, never carries them (`prepare_inbound` builds its state from the plain input), and
+    `request = "own"` moves `onto.v1` to a third request no turn waits on. The kinds asked are those whose row lists `jev` in
+    `assigned_by` among the six the pack asks about (the seeded `project` is given by the harness, so it is not asked until a row
+    lets Jev assign it); each kind's options are the picker's (at most 20: the session's, the thread's, a word match, the most
+    recent), `new` and `none`, and a mined name's `<kind>_name`. **Three steps, none on the turn's path.** (1) Asked
+    (`inbound.rs`: `onto_wanted`, `onto::fill`, `onto::context` puts the category ids and names behind `c1`, `n1` into the judgment's
+    context). (2) Landed (`JudgeService::onto_landed`, from `hand_thread_answer`): `decide::decide` (pure) reads the answers in the
+    bands (`[ontology] act` 0.80, `confirm` 0.55), and its words are all that is used: the reply's footer (`take_filed` in
+    `reply_step`, `TurnSubmitResult.filed`, `filed: topic › a › b (new)`, the same early-or-late rule the task offer has, the late
+    one a `notice` post) and the naming call. (3) Written (`sink.rs`): the sink decides again under the ontology's writer lock
+    (`Board::stage`, `Staged`) and adds the records, their rows (`Machine`, `rpc/ontology_machine.rs`, scope
+    `ontology.write:<judgment>`, `added_by jev:<judgment>`), an `onto.filed` row and the owner's cards to the judgment's own frame;
+    the snapshot is held only after that frame is written. A mint (`new` at the act band with a `<kind>_name` at the act band,
+    which files under a same-named category instead of minting twice) sends one `onto_card` post to the owner's DM with its undo;
+    a confirm-band answer sends one asking and writes nothing; a plain filing sends none; below the confirm band nothing
+    but the judgment's row. The operator's entries are never changed: a list full of them refuses Jev's, a refusal is a step
+    in the `onto.filed` row (`disagrees`), never a panic. **The naming call** (`onto/name.rs`): `new` at the act band and no mined
+    name fits, one call to `[ontology] name_profile` for three names and a line, reserved on the day ceiling, an `onto.named` row
+    (a spend, `day_ceiling::SPEND_KINDS`), at most once a session, kind and local day (the META marker); the session's next
+    `onto.v1` offers the names first. **Undo**: `ontology.undo` (`rpc/ontology_kinds.rs`; `theseus ontology undo <judgment>`,
+    refused in a job) is `Core::ontology_undo`; `ontology.kind.add|retire` write the kinds table (`ontology.kind` rows).
+    `judge.latency` (`theseus judge latency --since <date>`) reads the batch's p50 and p95 by local day from the `judge.call`
+    rows. Known limits: a message the thread router judges early files the home session, not the thread's; the cards carry
+    their undo as a command until the binding's button lands. Tests: `tests_onto.rs`, `judge/onto/decide.rs`' own,
+    `rpc/judge_latency.rs`'s, theseus-judge's `tests_onto.rs`.
   - **People from text** (theseus-wy7y, `judge/people/`): `people.v1`, live (`WIRED`), at the same exchange end as
     `categorize.v1` (`live.rs`: private places only, never a task's, `categorize::due` over the records after its own
     mark, META `judge.people.<session>`, moved in the extraction's frame), and the owner's backfill

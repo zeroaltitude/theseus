@@ -57,6 +57,7 @@ fn with_onto(kinds: Vec<OntoKind>) -> InboundInput {
             name: "topic".into(),
             meaning: "a subject of work".into(),
         }],
+        suggested: Vec::new(),
     });
     i
 }
@@ -286,4 +287,15 @@ fn the_state_with_ontology_matches_its_golden() {
         "fixtures/golden/inbound.onto.state.json",
         &serde_json::to_string_pretty(&state).unwrap(),
     );
+}
+
+/// Names the naming call suggested come before the mined ones, and the ten
+/// is the most either way.
+#[test]
+fn suggested_names_lead_the_mined_ones() {
+    let mut i = with_onto(vec![kind("topic", vec![])]);
+    i.message = "about Lantern Ledger".into();
+    i.onto.as_mut().unwrap().suggested = vec!["Ledger work".into(), "lantern ledger".into()];
+    let names = i.onto.as_ref().unwrap().names(&i.message, None);
+    assert_eq!(names, ["Ledger work", "lantern ledger", "Lantern roll-out"]);
 }

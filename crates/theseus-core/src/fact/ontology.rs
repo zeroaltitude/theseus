@@ -246,3 +246,37 @@ impl Fact for OntologyUndo<'_> {
         );
     }
 }
+
+/// A row of the kinds table was written (`ontology.kind`): a kind added, or
+/// taken away, by the operator.
+pub struct KindSet<'a> {
+    pub kind: &'a theseus_ontology::Kind,
+    pub retired: bool,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for KindSet<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::OntologyKind);
+
+    fn row(&self) -> Value {
+        let k = self.kind;
+        json!({"name": k.name, "version": k.version, "retired": self.retired,
+               "assigned_by": k.assigned_by.iter().map(|o| o.name()).collect::<Vec<_>>(),
+               "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let k = self.kind;
+        say.line(
+            Session,
+            format!(
+                "Ontology: {} {} the kind {} ({}).",
+                self.who,
+                if self.retired { "took away" } else { "added" },
+                k.name,
+                k.description
+            ),
+        );
+    }
+}

@@ -82,6 +82,10 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     // here. Its live use at a turn's stop, the default, is
     // `tests_stop_nudge`'s (theseus-fh0u).
     cfg.judge.stop_nudge = false;
+    // onto.v1 (theseus-xzxqv) rides the inbound batch and writes the
+    // ontology: these tests count the batch's questions and frames, so it is
+    // off here and `tests_onto` turns it on.
+    cfg.ontology.judge = false;
     cfg
 }
 
@@ -249,6 +253,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "role.v1: off",
             "route.v6: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-17))",
         "directive.v1: off",
+        "onto.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
@@ -441,6 +446,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "role.v1: off",
             "route.v6: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-17))",
         "directive.v1: off",
+        "onto.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

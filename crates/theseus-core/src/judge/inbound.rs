@@ -37,6 +37,7 @@ use theseus_judge::builders::{
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
+use super::onto::ONTO_PACK;
 use super::{sampled, spend, Built, JudgeService, ScrubWith};
 use crate::config::PackMode;
 use crate::node::{Body, Node, Origin};
@@ -66,7 +67,18 @@ pub const ROUTE_PACK: &str = "route.v6";
 /// message in a place only the owner writes in (`Inbound.capture`).
 pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 4] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK, DIRECTIVE_PACK];
+pub const PACKS: [&str; 5] = [
+    CLASSIFY_PACK,
+    ROLE_PACK,
+    ROUTE_PACK,
+    DIRECTIVE_PACK,
+    ONTO_PACK,
+];
+
+/// Whether `pack` is `onto.v1` or a learned version standing in its place.
+pub(super) fn is_onto(pack: &Pack) -> bool {
+    pack.name().starts_with("onto.")
+}
 
 /// What a turn waits on for `route.v1`'s verdict: `None` when Jev gave none
 /// (a failure, a skip, model drift); a dropped sender (nothing sent, the
@@ -339,6 +351,7 @@ impl JudgeService {
             .map(|(p, root)| (mode_of(&p), p, root))
             .filter(|(m, _, _)| *m != PackMode::Off)
             .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
+            .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(&msg)))
             .filter(|(_, _, root)| !route_only || *root == ROUTE_PACK)
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
@@ -543,22 +556,54 @@ impl JudgeService {
         msg: &Inbound,
         today: &str,
     ) -> Option<Ready> {
-        let input = self.inbound_input(msg)?;
+        let mut input = self.inbound_input(msg)?;
         let built = self
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .ok()?;
         let scrub = ScrubWith(self.scrubber.clone());
-        let input = Input::Inbound(input);
+        // onto.v1's fields ride the shared state: the batch's packs read them
+        // (one state, one request), `route.v6` never does, and with
+        // `request = "own"` only `onto.v1` does (theseus-xzxqv).
+        let core = self.core();
+        let onto = packs.iter().any(|(p, _, _)| is_onto(p))
+            && core
+                .as_ref()
+                .is_some_and(|c| super::onto::fill(c, msg, &mut input));
+        let onto_context = match (&core, onto) {
+            (Some(c), true) => super::onto::context(c, &msg.session_id, &input),
+            _ => serde_json::Value::Null,
+        };
+        let own = onto && self.onto_own();
+        let plain = Input::Inbound(InboundInput {
+            onto: None,
+            ..input.clone()
+        });
+        let shared = Input::Inbound(input);
         let mut asks = Vec::with_capacity(packs.len());
         for (pack, id, mode) in packs {
-            let state = theseus_judge::prepare(&pack, &input, &scrub).ok()?;
+            if is_onto(&pack) && !onto {
+                continue;
+            }
+            let carries = match (is_onto(&pack), pack.name() == ROUTE_PACK) {
+                (true, _) => &shared,
+                (false, true) => &plain,
+                (false, false) => {
+                    if own {
+                        &plain
+                    } else {
+                        &shared
+                    }
+                }
+            };
+            let state = theseus_judge::prepare(&pack, carries, &scrub).ok()?;
             // The packs share the state, so this is one blob, which the sink
             // writes before their rows (theseus-otny).
             let blob = self.stage_blob(state.state.json.as_bytes());
             let baseline = match pack.name().as_str() {
                 CLASSIFY_PACK => "conversation",
                 ROUTE_PACK => "session_profile",
+                _ if is_onto(&pack) => "no_membership",
                 _ => "current_role",
             };
             let mut context = json!({
@@ -566,6 +611,9 @@ impl JudgeService {
                 "node": msg.node_id, "baseline": baseline, "place_kind": msg.place_kind,
                 "blob": blob, "on_path_ms": 0, "class": class(msg.task),
             });
+            if is_onto(&pack) {
+                context["onto"] = onto_context.clone();
+            }
             if pack.name() == CLASSIFY_PACK && !msg.threads.is_empty() {
                 // The slugs the `thread` question offered, so a label of its
                 // answer names what was on offer (theseus-rha2).
@@ -605,14 +653,17 @@ impl JudgeService {
             ask.id = Some(id);
             asks.push(ask);
         }
-        // Two requests, each reserved as it goes out (theseus-ddbi).
+        // Two requests, each reserved as it goes out (theseus-ddbi), and a
+        // third for onto.v1 when the owner moved it out of the batch.
         let (route, rest): (Vec<&Ask>, Vec<&Ask>) =
             asks.iter().partition(|a| a.pack.name() == ROUTE_PACK);
+        let (alone, rest): (Vec<&Ask>, Vec<&Ask>) =
+            rest.into_iter().partition(|a| own && is_onto(&a.pack));
         let reserve = |a: Vec<&Ask>| {
             let a: Vec<Ask> = a.into_iter().cloned().collect();
             built.judge.inner().reserve_micros(&a).unwrap_or(0)
         };
-        let need = reserve(route) + reserve(rest);
+        let need = reserve(route) + reserve(alone) + reserve(rest);
         let beside = self.reserve_beside(today, need)?;
         Some(Ready {
             built,
@@ -879,6 +930,14 @@ fn urgency_of(modes: impl Iterator<Item = PackMode>, total_secs: u64) -> Urgency
     }
 }
 
+/// One request of the point's asks: none when it has none.
+async fn lane(built: &Built, asks: Vec<Ask>, urgency: Urgency) -> Vec<theseus_judge::Judgment> {
+    if asks.is_empty() {
+        return Vec::new();
+    }
+    built.judge.judge(DecisionPoint { asks, urgency }).await
+}
+
 /// The thread answer goes to the router the moment the batch lands, and an
 /// offer is noted for the reply.
 async fn hand_thread_answer(
@@ -889,6 +948,11 @@ async fn hand_thread_answer(
     let judgments = batch.await;
     if let (true, Some(svc)) = (judgments.iter().any(offer_answer), offer.0.upgrade()) {
         svc.note_offer(offer.1, offer.2);
+    }
+    if let Some(svc) = offer.0.upgrade() {
+        for j in judgments.iter().filter(|j| j.pack.starts_with("onto.")) {
+            svc.onto_landed(j, offer.1, offer.2);
+        }
     }
     if let Some(tx) = thread {
         if let Some(a) = judgments.iter().find_map(thread_answer) {
@@ -941,6 +1005,7 @@ async fn judge_inbound(
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
+    let svc_own = svc.onto_own();
     let total = svc.cfg.total_secs;
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
@@ -965,8 +1030,11 @@ async fn judge_inbound(
     // (theseus-otny).
     let wrote = beside.spawn(&me);
     let t0 = Instant::now();
+    let own = svc_own;
     let (route_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
         asks.into_iter().partition(|a| a.pack.name() == ROUTE_PACK);
+    let (own_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
+        rest_asks.into_iter().partition(|a| own && is_onto(&a.pack));
     let routed = async {
         if route_asks.is_empty() {
             return Vec::new();
@@ -995,19 +1063,21 @@ async fn judge_inbound(
         }
         judgments
     };
-    let rest = async {
-        if rest_asks.is_empty() {
-            return Vec::new();
-        }
-        let point = DecisionPoint {
-            asks: rest_asks,
-            urgency: rest_urgency,
-        };
-        built.judge.judge(point).await
-    };
-    let rest = hand_thread_answer(rest, thread, (&me, &turn, &brief));
-    let (mut judgments, rest) = futures_util::future::join(routed, rest).await;
+    let rest = hand_thread_answer(
+        lane(&built, rest_asks, rest_urgency),
+        thread,
+        (&me, &turn, &brief),
+    );
+    // onto.v1 in a request of its own: no turn waits on it, and it is
+    // reserved and recorded as the batch's judgments are.
+    let alone = hand_thread_answer(
+        lane(&built, own_asks, rest_urgency),
+        None,
+        (&me, &turn, &brief),
+    );
+    let (mut judgments, rest, alone) = futures_util::future::join3(routed, rest, alone).await;
     judgments.extend(rest);
+    judgments.extend(alone);
     seal_of(&me, &session, &judgments);
     tracing::debug!(
         ms = t0.elapsed().as_millis() as u64,

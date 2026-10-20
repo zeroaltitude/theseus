@@ -491,6 +491,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "role.v1: off",
             "route.v6: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-17))",
         "directive.v1: off",
+        "onto.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

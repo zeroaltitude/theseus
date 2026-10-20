@@ -109,6 +109,10 @@ pub struct OntoInput {
     /// The table's interpreted kinds, for `kind_of_thing`.
     #[serde(default)]
     pub table: Vec<OntoTable>,
+    /// Names the naming call suggested for this session earlier: offered
+    /// before the mined ones.
+    #[serde(default)]
+    pub suggested: Vec<String>,
 }
 
 /// What [`OntoInput::pick`] chose for one kind.
@@ -213,7 +217,7 @@ impl OntoInput {
                 }
             }
         }
-        mine::mine(
+        let mined = mine::mine(
             &mine::Text {
                 message,
                 previous,
@@ -221,7 +225,14 @@ impl OntoInput {
                 project_title: self.project_title.as_deref(),
             },
             &sources,
-        )
+        );
+        let mut all: Vec<String> = Vec::new();
+        for n in self.suggested.iter().chain(&mined) {
+            if all.len() < mine::MAX_NAMES && !all.iter().any(|a| a.eq_ignore_ascii_case(n)) {
+                all.push(n.clone());
+            }
+        }
+        all
     }
 }
 

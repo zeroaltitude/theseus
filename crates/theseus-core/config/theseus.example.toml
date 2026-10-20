@@ -1292,6 +1292,21 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # ask_days = 14                           # an unanswered proposal becomes "Not this" after this long
 # every_days = 7                          # the nightly run at most this often; 0: only `theseus card propose`
 
+# ---------------------------------------------------------------- ontology
+# Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
+# beside `classify.v3` and `role.v1`): which topic, project, event, resource, capability
+# and expertise it is about, and whether a new one is called for. From `act` Theseus
+# writes the membership (origin `jev`) and mints a new category, and tells you in the
+# reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
+# your DM with an undo button. From `confirm` it asks you in a card and writes nothing.
+# Below that the answer is only a record. `theseus ontology undo` takes a write back.
+# [ontology]
+# judge = true                            # the rollback: off, onto.v1 is not asked and nothing is written
+# act = 0.80                              # at and above this, Jev's answer is written
+# confirm = 0.55                          # from this, you are asked
+# name_profile = "haiku"                  # names a new category when no mined name fits; once a session, kind and day
+# request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
+
 # ---------------------------------------------------------------- import
 # The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that
 # `scripts/user-service.sh sync-timer install` installs): OpenClaw's own session stores

@@ -3260,6 +3260,7 @@ impl TurnRunner {
             nudged: t.nudge.result(t.tool_calls),
             cites,
             thread: None,
+            filed: None,
             inspect_url: Some(self.cfg.cockpit.turn_url(t.tc.session_id, t.tc.turn_id)),
         };
         self.defer_ended(&mut t);

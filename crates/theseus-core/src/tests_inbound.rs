@@ -92,19 +92,24 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::rerank::RERANK_PACK.into(), off());
+    // onto.v1 (theseus-xzxqv) rides this batch when it is on; `tests_onto` is its own.
+    c.judge
+        .packs
+        .insert(crate::judge::onto::ONTO_PACK.into(), off());
 }
 
 /// Health's pack list under `inbound_only`.
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 15] = [
+const INBOUND_ALONE: [&str; 16] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v3: live",
     "role.v1: shadow",
     "route.v6: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-17))",
     "directive.v1: live",
+    "onto.v1: off",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",

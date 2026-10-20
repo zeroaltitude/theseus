@@ -51,6 +51,7 @@ mod ledger_verify;
 mod mcp;
 mod mode_cmd;
 mod notices_cmd;
+mod onto_cmd;
 mod ontology;
 mod open;
 mod own_bench;
@@ -890,6 +891,15 @@ enum OntologyCmd {
         #[command(subcommand)]
         cmd: TopicCmd,
     },
+    /// Take back what Jev wrote: WRITE is the judgment's id (`filed:` and the mint card name it).
+    /// The member lists come back as they were, a category it minted is retired, and the pack's
+    /// ledger counts the write as wrong. Only you, from a private place.
+    Undo { write: String },
+    /// Add a kind to the kinds table, or take one away. Only you, from a private place.
+    Kind {
+        #[command(subcommand)]
+        cmd: onto_cmd::KindCmd,
+    },
     /// Set CATEGORY's guidance (its id, or a topic's or a person's name): TEXT, or stdin with
     /// `-` or nothing. Empty text takes it away. Only you, from a private place (the CLI is
     /// one), may. A person's guidance is one line of role facts, never an evaluation of them.
@@ -1135,6 +1145,10 @@ enum MemoryCmd {
 
 #[derive(Subcommand, Debug)]
 enum JudgeCmd {
+    /// How long the batch's requests took, by local day: p50 and p95, and the requests that
+    /// carried `onto.v1`. If the batch's p95 grows by more than 50 ms once it joined, set
+    /// `[ontology] request = "own"`.
+    Latency(onto_cmd::LatencyArgs),
     /// The recent judgments, oldest first: time, pack and rung, session, answers (each with its
     /// band), cost, and how long Jev took; a failed or skipped one says why.
     Log {

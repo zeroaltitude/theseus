@@ -296,7 +296,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 88] = [
+pub const OPERATORS: [(&str, &str); 91] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -319,6 +319,9 @@ pub const OPERATORS: [(&str, &str); 88] = [
     (method::AWS_BOOTSTRAP, "theseus aws bootstrap"),
     (method::AWS_CONFIRM_ALERTS, "theseus aws confirm-alerts"),
     (method::ONTOLOGY_CATEGORY_ADD, "theseus ontology topic add"),
+    (method::ONTOLOGY_UNDO, "theseus ontology undo"),
+    (method::ONTOLOGY_KIND_ADD, "theseus ontology kind add"),
+    (method::ONTOLOGY_KIND_RETIRE, "theseus ontology kind retire"),
     (method::ONTOLOGY_GUIDANCE_SET, "theseus ontology guide"),
     (method::ONTOLOGY_MEMBERSHIP_SET, "theseus ontology member"),
     (method::ONTOLOGY_PROPOSAL_ACCEPT, "theseus ontology accept"),
@@ -491,6 +494,9 @@ mod tests {
         for m in [
             method::ONTOLOGY_GUIDANCE_SET,
             method::ONTOLOGY_CATEGORY_ADD,
+            method::ONTOLOGY_UNDO,
+            method::ONTOLOGY_KIND_ADD,
+            method::ONTOLOGY_KIND_RETIRE,
             method::ONTOLOGY_MEMBERSHIP_SET,
             method::ONTOLOGY_PROPOSAL_ACCEPT,
             method::ONTOLOGY_PROPOSAL_REJECT,

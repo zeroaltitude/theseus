@@ -37,10 +37,19 @@ impl TurnRunner {
         else {
             return Ok(());
         };
+        // Where Jev filed the session, when its judgment had landed by now
+        // (theseus-xzxqv); else it comes as a notice when it does.
+        let filed = self.judge.take_filed(crate::judge::offer::Waiting {
+            turn: t.tc.turn_id,
+            session: t.tc.session_id,
+            execution: t.tc.execution_id,
+            target: &target,
+        });
         let footer = TurnSubmitResult {
             output: String::new(),
             trace: None,
             later: None,
+            filed,
             ..result.clone()
         };
         let mut body = json!({
