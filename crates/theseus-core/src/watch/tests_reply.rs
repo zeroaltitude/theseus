@@ -6,6 +6,7 @@
 //! the binding does (`say`). A shared channel `#ops` and the owner's DM are
 //! bound, the DM private.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -172,6 +173,46 @@ async fn a_reply_from_the_named_person_fires_and_another_persons_does_not() {
     settle().await;
     assert_eq!(rows(&l.core, "watch.met").len(), 1);
     assert!(l.model.requests().is_empty(), "no model call");
+}
+
+/// A met watch leaves the board before its row can be read (theseus-1b2zm): looked
+/// at the instant the frame lands, on the thread that writes it. A reader that finds `watch.met` and then asks the
+/// board never finds the watch still waiting.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_met_reply_watch_is_off_the_board_when_its_row_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = rig(dir.path(), false);
+    dm_session(&l.core);
+    let made = reply_watch(&l.core, json!({"words": "berth"})).await;
+    let id = made["watch"]["wake_id"].as_str().unwrap().to_string();
+    let (core, looked) = (Arc::downgrade(&l.core), Arc::new(AtomicUsize::new(0)));
+    super::run::tests_hook::add({
+        let looked = looked.clone();
+        move |wake| {
+            if wake != id {
+                return;
+            }
+            let core = core.upgrade().expect("the core");
+            assert!(
+                core.watches.get(wake).is_none(),
+                "the row is written and the watch still waits"
+            );
+            looked.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+    say(
+        &l.core,
+        OPS,
+        STRANGER,
+        "deckhand",
+        "1",
+        "berth four is free",
+    );
+    until("it was met", 10, || rows(&l.core, "watch.met").len() == 1).await;
+    until("the frame was looked at", 10, || {
+        looked.load(Ordering::Relaxed) == 1
+    })
+    .await;
 }
 
 /// `words` match as text in any case, or as a /pattern/; both given with

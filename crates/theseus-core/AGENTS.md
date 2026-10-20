@@ -2154,7 +2154,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `ToolRuntime.watches`), `watch/run.rs` (`Core::watch_tick`, which the driver's 500 ms tick calls: the first tick reads
   the open watches in with `Kernel::open_watches`, each then checks once at once; at most four checks run at once, off
   every turn's thread, the core held by `Weak`; `watch_finish` applies a result and writes news through
-  `Kernel::probe_result`: one frame, with `watch.checked|met|expired|failing`, the state in META `watch.state.<wake id>`,
+  `Kernel::probe_result` (a watch that ends, or a reply that meets it, leaves the board before its frame is written, so a
+  reader that finds `watch.met` never finds the watch waiting: theseus-1b2zm): one frame, with `watch.checked|met|expired|failing`, the state in META `watch.state.<wake id>`,
   and the post; `fact/watch.rs` announces `wake.noticed` with purpose `watch.met` (an Interrupt with sound),
   `watch.expired` or `watch.failing` (Inform)). A `then: turn` or `task` turns the met wake into a due turn wake of the
   same conversation whose node reads `👁 watch met: <title> → <value>, after 2 d 4 h and 611 checks` (`wake::fired_text`);
