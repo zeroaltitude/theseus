@@ -333,11 +333,12 @@ struct Inner {
     queued: std::sync::atomic::AtomicI64,
     /// The time the writer took over each recent frame (theseus-w7dk).
     frame_times: FrameTimes,
-    /// A test's way to slow the next batch, as a disk that stalls does:
-    /// the writer sleeps this many milliseconds once, inside its timed
-    /// stretch.
+    /// A test's way to make the next batch slow, as a disk that stalls does:
+    /// the writer counts this many milliseconds once into the frames' time, as
+    /// if the commit had taken them, and sleeps none, so no fsync of the
+    /// disk's own can outrun the plant (theseus-1b2zm).
     #[cfg(test)]
-    commit_delay_ms: AtomicU64,
+    commit_extra_ms: AtomicU64,
     /// A test's way to hold a checkpoint, as a disk under writeback holds
     /// one: the next checkpoint waits until this channel's sender sends or
     /// drops.
@@ -1309,7 +1310,7 @@ impl Inner {
             queued: std::sync::atomic::AtomicI64::new(0),
             frame_times: FrameTimes::default(),
             #[cfg(test)]
-            commit_delay_ms: AtomicU64::new(0),
+            commit_extra_ms: AtomicU64::new(0),
             #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
@@ -1588,15 +1589,10 @@ impl Inner {
             self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
             *self.chain.lock().unwrap() = chained;
         }
-        #[cfg(test)]
-        {
-            let ms = self.commit_delay_ms.swap(0, Ordering::Relaxed);
-            if ms > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(ms));
-            }
-        }
         let answered = std::time::Instant::now();
         let us = answered.duration_since(began).as_micros() as u64;
+        #[cfg(test)]
+        let us = us + 1000 * self.commit_extra_ms.swap(0, Ordering::Relaxed);
         for (job, placed) in batch.into_iter().zip(written) {
             if let (Ok((p, _)), Ok(())) = (&placed, &indexed) {
                 if let Some((first, _)) = p.first() {
