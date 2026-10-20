@@ -150,6 +150,34 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// A turn's failure reason, for a key. The reason is `<class>` or
+/// `<class>: <message>`; `word` keeps the class alone. A `kernel: <message>`
+/// reason is the one whose class says nothing (every refusal of the kernel to
+/// plan a call is `kernel`), so it keeps the first four words of its message
+/// that carry no digit (ids and counts change from row to row), joined by `_`:
+/// `kernel:execution_is_not_locked`. The other classes' tails stay out of the
+/// key: they are free text (a timeout's, a provider's) and would split one
+/// problem into many.
+fn reason_word(v: &Value) -> String {
+    let head = word(v);
+    if head != "kernel" {
+        return head;
+    }
+    let s = v.as_str().unwrap_or("").trim();
+    let tail = s.split_once(':').map_or("", |(_, t)| t);
+    let slug: Vec<String> = tail
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty() && w.len() <= 24 && !w.chars().any(|c| c.is_ascii_digit()))
+        .take(4)
+        .map(str::to_lowercase)
+        .collect();
+    if slug.is_empty() {
+        head
+    } else {
+        format!("{head}:{}", slug.join("_"))
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -185,10 +213,11 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.task_failed = true;
         }
         "turn.failed" => {
-            let r = word(&d["reason"]);
+            let r = reason_word(&d["reason"]);
             o.key = format!("turn.failed:{r}");
             o.title = format!("Turns fail with {r}");
-            o.note = format!("turn failed ({r}) after {} loops", d["loops"]);
+            let full: String = d["reason"].as_str().unwrap_or("").chars().take(200).collect();
+            o.note = format!("turn failed ({full}) after {} loops", d["loops"]);
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             (o.person, o.task_failed, o.work) = (true, true, 3);
         }
@@ -467,5 +496,44 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(reason: &str) -> Obs {
+        let row = LedgerRow::named(
+            "turn.failed",
+            Some("s"),
+            Some("t"),
+            json!({ "reason": reason, "loops": 1 }),
+        );
+        of_row(1, &row).expect("a turn.failed row is an observation")
+    }
+
+    #[test]
+    fn kernel_failures_are_told_apart_by_what_the_kernel_said() {
+        let a = failed("kernel: execution ex_01a is not locked by this transaction");
+        let b = failed("kernel: execution ex_77f is not locked by this transaction");
+        let c = failed("kernel: the store refused the frame");
+        // The same message with another id is one problem; another message is another.
+        assert_eq!(a.key, b.key);
+        assert_ne!(a.key, c.key);
+        assert_eq!(a.key, "turn.failed:kernel:execution_is_not_locked");
+        assert_eq!(c.key, "turn.failed:kernel:the_store_refused_the");
+        // The evidence keeps the message.
+        assert!(c.note.contains("the store refused the frame"), "{}", c.note);
+    }
+
+    #[test]
+    fn a_bare_kernel_reason_and_other_reasons_keep_their_old_keys() {
+        assert_eq!(failed("kernel").key, "turn.failed:kernel");
+        assert_eq!(failed("kernel: 42 7").key, "turn.failed:kernel");
+        // A timeout's or a provider's tail is free text: it stays out of the key.
+        assert_eq!(failed("timeout: no answer in 120 s").key, "turn.failed:timeout");
+        assert_eq!(failed("provider:rate_limited").key, "turn.failed:provider");
     }
 }
