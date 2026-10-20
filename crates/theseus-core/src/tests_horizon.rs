@@ -419,9 +419,14 @@ async fn a_met_watch_ends_done_and_status_short_counts_the_future() {
     )
     .await
     .unwrap();
-    let short = r.core.push.status_short();
-    assert!(short.next_due_ms.is_some(), "{short:?}");
-    assert_eq!(short.routines_failed, 0);
+    // The board is a projection the push applies after the frame commits
+    // (theseus-hanu), so the reminder is counted once it has: awaited as the
+    // views below are, never read the instant `wake.create` answers.
+    until("the reminder ahead", 10, || {
+        r.core.push.status_short().next_due_ms.is_some()
+    })
+    .await;
+    assert_eq!(r.core.push.status_short().routines_failed, 0);
     std::fs::write(&file, "OPEN\n").unwrap();
     until("its value", 10, || {
         of_kind(&w.held(), WorkKind::Watch)
