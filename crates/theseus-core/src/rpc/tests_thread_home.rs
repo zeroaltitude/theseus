@@ -583,6 +583,14 @@ async fn a_split_is_refused_when_it_cuts_a_turn_or_names_nothing() {
     }
     let e = split(c, params(&many, "most", [1, u64::MAX])).unwrap_err();
     assert!(e.contains("split it in parts"), "{e}");
+    // Turns a split moved are not moved twice: the refusal names the split to undo.
+    let first = split(c, params(&sid, "once", range)).unwrap();
+    let e = split(c, params(&sid, "twice", range)).unwrap_err();
+    assert!(
+        e.contains("moved to «once» already") && e.contains(&first.split),
+        "{e}"
+    );
+    assert!(c.threads().get("twice").is_none());
     // Not the owner's: a shared place's answerer is turned away.
     let guest = Answerer {
         label: "a guest".into(),

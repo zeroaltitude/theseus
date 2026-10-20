@@ -388,6 +388,7 @@ impl Core {
             .map_err(|e| invalid(format!("{e:#}")))?;
         let chosen =
             thread_split::choose(&nodes, &ask.pick, ask.note == Note::Node).map_err(invalid)?;
+        self.refuse_moved(&chosen)?;
         let (target, title) = self.split_target(ask, &source, &chosen)?;
         let gist = match ask.gist {
             Some(g) => crate::split_turns::one_line(g, 200),
@@ -406,6 +407,27 @@ impl Core {
             title,
             split: crate::new_id("spl"),
         })
+    }
+
+    /// A part that holds a node an earlier split moved is refused, with the split to undo.
+    fn refuse_moved(&self, chosen: &Chosen) -> Result<(), RpcFailure> {
+        let Some(closed) = &chosen.closed else {
+            return Ok(());
+        };
+        for id in &closed.moved {
+            let to: Option<Option<MovedTo>> = self
+                .store
+                .get_meta(&moved::moved_of_key(id))
+                .map_err(invalid)?;
+            if let Some(Some(m)) = to {
+                return Err(invalid(format!(
+                    "the part chosen holds {id}, which split {} moved to «{}» already: choose \
+                     other turns, or `theseus thread unsplit {}` first",
+                    m.split, m.thread, m.split
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Whether a turn runs in `sid`'s session (its tail is that turn's). Reads the kernel's view
