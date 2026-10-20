@@ -240,6 +240,28 @@ fn an_undo_of_a_mint_another_session_now_uses_is_refused() {
     assert!(matches!(e, Refusal::InUse { .. }), "{e:?}");
 }
 
+/// The operator edits the list after Jev's write: the undo is refused, and
+/// the operator's list stays as the operator wrote it.
+#[test]
+fn an_undo_of_a_list_changed_since_the_write_is_refused() {
+    let mut o = base();
+    let wrote = [Record::Members(list(
+        "s1",
+        "topic",
+        vec![entry("topic:web", JEV)],
+    ))];
+    let before = written(&o, &wrote);
+    apply_all(&mut o, &wrote, JEV);
+    let edited = list("s1", "topic", vec![entry("topic:ops", OP)]);
+    apply_all(&mut o, &[Record::Members(edited.clone())], OP);
+    let e = o.undo(&wrote, &before, 9_000).unwrap_err();
+    assert!(
+        format!("{e:?}").contains("changed since the write"),
+        "{e:?}"
+    );
+    assert_eq!(o.member_list("s1", "topic"), Some(&edited));
+}
+
 #[test]
 fn an_undo_that_does_not_pair_its_records_is_refused() {
     let o = base();

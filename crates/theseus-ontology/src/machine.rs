@@ -238,7 +238,10 @@ impl Ontology {
     /// category or a kind (a sweep's) is retired at `at_ms`, and is refused
     /// with `InUse` if something else uses it now. Lists come first, so a
     /// category the write's own lists named is free to go. Each record
-    /// checks as the operator's write; the ontology is not changed.
+    /// checks as the operator's write; the ontology is not changed. A record
+    /// changed since the write (the operator's later edit, or a later write
+    /// of the same key) is refused: an undo never puts a key back over a
+    /// write it did not make.
     pub fn undo(
         &self,
         wrote: &[Record],
@@ -250,6 +253,17 @@ impl Ontology {
                 "an undo",
                 "it needs what each written record replaced, one for one",
             ));
+        }
+        for (w, now) in wrote.iter().zip(self.replaced(wrote)) {
+            if now.as_ref() != Some(w) {
+                return Err(Refusal::invalid(
+                    "an undo",
+                    format!(
+                        "`{}` changed since the write, so it is not taken back",
+                        w.key()
+                    ),
+                ));
+            }
         }
         let mut inverse: Vec<Record> = Vec::new();
         for (w, b) in wrote.iter().zip(before) {
