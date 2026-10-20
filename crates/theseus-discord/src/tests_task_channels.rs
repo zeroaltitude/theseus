@@ -21,8 +21,8 @@ use crate::runtime::task_channels::{channel_name, qualifies, work_view, Why};
 use crate::runtime::threads::{Made, Mark, PlaceKind};
 use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 use crate::tests_task_threads::{
-    answers, gate, guild, held, model, open_gate, said, sleeps, start, task_session, tweak, until,
-    ASK, BUOY, REEF,
+    answers, gate, guild, held, model, open_gate, placed_model, said, sleeps, start, task_session,
+    tweak, until, ASK, BUOY, REEF,
 };
 use crate::tests_war_room::answered;
 
@@ -98,7 +98,7 @@ async fn rig(
     more: impl FnOnce(&mut theseus_core::Config),
 ) -> Rig {
     Rig::start_tweaked(
-        |dir, _| model(parent, kids(dir)),
+        |dir, fake| placed_model(fake, parent, kids(dir)),
         guild(),
         &bindings(lab_private),
         &[],

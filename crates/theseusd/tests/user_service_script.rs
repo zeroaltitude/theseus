@@ -1175,9 +1175,16 @@ fn status_says_when_the_running_binary_was_replaced_on_disk() {
     let r = rig!();
     installed(&r);
     // A process whose image is gone, as a daemon is after an install renames a new binary over it.
+    // A shell blocked in its builtin `read`: a copied coreutils `sleep` may be a multi-call binary (uutils, Ubuntu
+    // 26.04's), which refuses to run under another file's name, or once its file is gone (theseus-ihu7l's fresh
+    // hosts).
     let image = r.home().join("old-image");
-    std::fs::copy("/usr/bin/sleep", &image).unwrap();
-    let mut child = Command::new(&image).arg("30").spawn().unwrap();
+    std::fs::copy("/bin/sh", &image).unwrap();
+    let mut child = Command::new(&image)
+        .args(["-c", "read line"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
     std::fs::remove_file(&image).unwrap();
     r.set("mainpid", &child.id().to_string());
     let (code, out) = r.run(&["status"]);

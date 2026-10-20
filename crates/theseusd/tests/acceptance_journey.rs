@@ -412,6 +412,15 @@ impl Rig {
             .find(|t| t.name.contains(short))
     }
 
+    /// The task's post, once made: a fast host shows the task's question before its post is made
+    /// (theseus-ihu7l).
+    fn post_made(&self, short: &str) -> FakeThread {
+        within(&format!("the post of {short}"), 8000, || {
+            self.post(short).is_some()
+        });
+        self.post(short).unwrap()
+    }
+
     /// A post's card, its first message, as it reads now.
     fn card(&self, post: &FakeThread) -> String {
         self.fake
@@ -1050,7 +1059,7 @@ fn a_paused_task_says_paused_first_and_the_cli_pauses_and_resumes_it() {
     let (code, out, err) = r.cli(&["task", "pause", &quay]);
     assert_eq!(code, 0, "{out}{err}");
     within("paused", 1000, || r.view(&quay)["paused"] == true);
-    let post = r.post(&quay).unwrap();
+    let post = r.post_made(&quay);
     within("the card's paused line", 4000, || {
         let card = r.card(&post);
         card.contains("paused") && card.contains("$0.03 of $25")
@@ -1069,7 +1078,7 @@ fn the_report_links_the_tasks_post() {
     within("the quay question", 8000, || {
         r.question_card("Which pace").is_some()
     });
-    let post = r.post(&quay).unwrap();
+    let post = r.post_made(&quay);
     let qid = r.answer_id(&quay).unwrap();
     r.cli_on_a_terminal(&["answer", &qid, "2", "--no-wait"]);
     r.open_gate("join");
