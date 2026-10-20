@@ -60,12 +60,11 @@ mod encoded;
 
 /// The app, the cockpit (theseus-45n5), served at `/`. It is built by `npm run build` in `cockpit/`, and the
 /// build is not committed (it is several MB and changes with every edit): a binary built without it answers each
-/// page with a 404 that says how to build it. `/ws` is the same either way. Only the compressed copies the cockpit's build
+/// page with a 404 that says how to build it. `/ws` is the same either way. Only the brotli copies the cockpit's build
 /// writes beside each file are embedded, and the fonts, which are packed already (`encoded`).
 #[derive(Embed)]
 #[folder = "cockpit/dist/"]
 #[include = "*.br"]
-#[include = "*.gz"]
 #[include = "*.woff2"]
 #[allow_missing = true]
 struct Cockpit;

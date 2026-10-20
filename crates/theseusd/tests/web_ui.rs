@@ -342,7 +342,7 @@ fn the_web_ui_on_ipv6_serves_its_own_user() {
 }
 
 /// The cockpit is embedded compressed and sent in the coding the client takes (theseus-rwpbg.5), through a real
-/// daemon: brotli, else gzip, else the plain bytes, each with the file's own type and `Vary`.
+/// daemon: brotli when taken, else the plain bytes (a gzip client too), each with the file's own type and `Vary`.
 #[test]
 fn the_cockpit_is_sent_in_the_coding_the_client_takes() {
     let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("cockpit/dist/assets");
@@ -388,7 +388,7 @@ fn the_cockpit_is_sent_in_the_coding_the_client_takes() {
     };
     for (accept, coding) in [
         ("Accept-Encoding: gzip, br\r\n", Some("br")),
-        ("Accept-Encoding: gzip\r\n", Some("gzip")),
+        ("Accept-Encoding: gzip\r\n", None),
         ("", None),
     ] {
         let (head, body) = raw(accept);

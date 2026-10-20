@@ -46,14 +46,14 @@ pub fn script(target: &Path, merge: &str) -> String {
         "#!/bin/bash\n# A self-join's install (theseus-pw1q.9) of {merge}: the copy and the \
          restart. The build ran in L1.\nset -euo pipefail\ntarget={target}\n\
          prefix=\"$HOME/.local/bin\"\nfor b in {names}; do\n  \
-         cp \"$target/release-thin/$b\" \"$prefix/.$b.new\" && mv -f \"$prefix/.$b.new\" \"$prefix/$b\"\n\
+         cp \"$target/release/$b\" \"$prefix/.$b.new\" && mv -f \"$prefix/.$b.new\" \"$prefix/$b\"\n\
          done\nsystemctl --user restart {SERVICE}\n",
         target = shell(&target.to_string_lossy()),
         names = BINARIES.join(" "),
     )
 }
 
-/// The build, in L1: `scripts/build.sh --profile release-thin` in the merged
+/// The build, in L1: `scripts/build.sh --profile release` in the merged
 /// tree, into its build tree, as the install always built it, at nice 19.
 fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
     let jail = p
@@ -67,7 +67,7 @@ fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
         "19",
         "scripts/build.sh",
         "--profile",
-        "release-thin",
+        "release",
     ]
     .map(Into::into)
     .to_vec();
@@ -303,7 +303,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        let out = root.join("target/release-thin");
+        let out = root.join("target/release");
         let (home, bin) = (root.join("home"), root.join("bin"));
         for d in [&out, &home.join(".local/bin"), &bin] {
             std::fs::create_dir_all(d).unwrap();

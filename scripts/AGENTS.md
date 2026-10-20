@@ -335,7 +335,7 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   change `channel`, run the gate, fix what the new clippy finds in the same commit, run `repro.sh`, and commit it alone as
   `toolchain: bump to <version>`. A machine without the pinned release downloads it on its first `cargo` call (rustup's
   auto-install): run `rustup toolchain install` in the tree once, before the gate. CI does.
-- **`build.sh [--profile release|release-thin] [cargo args]`** is the one way to build for an install or a
+- **`build.sh [--profile release|release-thin] [cargo args]`** (`release` by default) is the one way to build for an install or a
   release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
   target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the five binaries an
   install ships**, `theseusd`, `theseus`, `theseus-tui`, `theseus-sim`, and `theseus-index`, and what they link, and not
@@ -366,9 +366,13 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     builds: a feature a dev-dependency adds reaches the tests alone, and the check does not see it.
   - rust-embed's `deterministic-timestamps` (theseusd's manifest) gives the embedded web files no modification time. A
     plain `cargo build --release` still works, and embeds the directory it was built in.
-- **The profiles.** `release` is fat LTO with one codegen unit: a tagged release. `release-thin` (cargo reserves the name
-  `install`) is thin LTO with 16 codegen units: the install profile, for the chain's installs and for anyone building for
-  themselves. Its output is `target/release-thin/`. Measured on 2026-10-02 (commit 364b82e, the four binaries, uncached,
+- **The profiles.** `release` is fat LTO with one codegen unit: **the install profile** and a tagged release's (since
+  theseus-o2myi; the owner's yes, 2026-10-19). `release-thin` (cargo reserves the name `install`) is thin LTO with 16
+  codegen units: the quick build, for the benches, the AWS hand, or a try-out, never an install. Outputs are
+  `target/release/` and `target/release-thin/`. `release` also builds the cold crates (Cargo.toml's
+  `[profile.release.package.*]`: AWS, Google, file conversion, MCP, LSP) at `opt-level = "s"`, and `release-thin`
+  inherits that. The measurements below are the 2026-10-02 pair that made `release-thin` the install; the size and
+  speed of the choice now made are in the last bullet. Measured on 2026-10-02 (commit 364b82e, the four binaries, uncached,
   one 16-core machine under a load of 10 to 30, the two builds interleaved):
   - **Build time.** A cold build costs the same: 10 min 47 s against 10 min 44 s for the first of each pair, and thin
     used about 10 % more CPU (1,600 against 1,460 CPU-seconds: 16 codegen units repeat work). An incremental rebuild after
@@ -385,9 +389,16 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     turns.
   - **The call.** Review 2's S7 expected an install "a little slower" and asked for a measurement. Ten percent of
     CPU-bound work is more than a few percent, but a daemon that waits on its disk and its model does not show it, and the
-    install is rebuilt after every reviewed step: so the chain installs `release-thin`, and a tagged release keeps
-    `release`. If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
+    install is rebuilt after every reviewed step: so the chain installed `release-thin`, and a tagged release kept
+    `release`; theseus-o2myi moved the install to `release` for its size (below). If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
     the least user time.
+  - **The install moved to `release` (theseus-o2myi, measured 2026-10-20).** `theseusd` alone, cold, no compile cache,
+    `CARGO_INCREMENTAL=0`, at nice 15 on a loaded 16-core host (so the times are upper bounds): `release-thin` at the
+    old base 90.2 MB in 500 s; `release-thin` with one cockpit copy and the cold crates at `opt-level = "s"` 86.3 MB in
+    424 s; `release` with both 70.5 MB in 1,145 s. So the fat link takes the install from 90.2 to 70.5 MB (-21.8 %) and
+    costs about two and a half times the cold build; the cockpit copy and the cold crates together are 4 MB of it
+    (4.4 %). The 60 MB target is still 10.5 MB away. Resident memory follows the size: read it with `ps -o rss` on the
+    installed `theseusd` after two idle minutes.
 - **glibc or static musl.** An install is the host's glibc build. Static musl is the portable build, which
   `build.sh --target x86_64-unknown-linux-musl` builds anywhere (CI built it on every push until theseus-o8nk, and nothing
   used its artifact; §3.18 says "static musl"; the recipe had always built

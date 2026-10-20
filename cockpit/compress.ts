@@ -1,14 +1,13 @@
-import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
+import { brotliCompressSync, constants } from 'node:zlib'
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import type { Plugin } from 'vite'
 
 // Formats that are compressed already: a second pass would only add bytes.
-const PACKED = new Set(['.woff2', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.br', '.gz'])
+const PACKED = new Set(['.woff2', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.br'])
 
-// theseusd embeds the build as `<file>.br` and `<file>.gz` beside each file it can shrink (theseus-rwpbg.5) and
-// serves one by Accept-Encoding. Node's own zlib, so no package: brotli at quality 11 and gzip at level 9, and the
-// gzip header carries no time (node writes mtime 0), so the same build makes the same bytes.
+// theseusd embeds the build as `<file>.br` beside each file it can shrink (theseus-rwpbg.5), one copy (theseus-o2myi),
+// and sends it to a client that takes brotli, else decoded. Node's own zlib, so no package: brotli at quality 11.
 export function compressed(): Plugin {
   let out = ''
   return {
@@ -30,7 +29,6 @@ export function compressed(): Plugin {
               [constants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
             },
           }))
-          writeFileSync(`${path}.gz`, gzipSync(bytes, { level: 9 }))
         }
       },
     },

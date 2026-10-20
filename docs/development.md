@@ -343,7 +343,7 @@ yes for installs.
 1. **Build** the joined commit, from a clean `main` equal to `origin/main`:
    - Build the cockpit first (`npm ci && npm run build` in `cockpit/`). Its output is embedded when present and is not
      committed. After a red cockpit join, rebuild it, because an untracked build survives a reset.
-   - Then run `scripts/build.sh --profile release-thin`. It builds with `--locked`, fixed embedded paths, and
+   - Then run `scripts/build.sh --profile release`. It builds with `--locked`, fixed embedded paths, and
      `SOURCE_DATE_EPOCH` from the commit, so two builds of one commit are the same bytes (`scripts/repro.sh` proves
      it).
    - It also checks size: a binary that grew more than 1 MB fails, unless the owner accepted the growth
@@ -354,7 +354,7 @@ yes for installs.
 
    ```bash
    for b in $(scripts/build.sh --installed); do
-     cp "target/release-thin/$b" "$HOME/.local/bin/.$b.new" && mv -f "$HOME/.local/bin/.$b.new" "$HOME/.local/bin/$b"
+     cp "target/release/$b" "$HOME/.local/bin/.$b.new" && mv -f "$HOME/.local/bin/.$b.new" "$HOME/.local/bin/$b"
    done
    ```
 
@@ -375,8 +375,9 @@ yes for installs.
 
 `scripts/setup.sh` does all of this on a new machine, from a checkout to a running service ([setup.md](setup.md)).
 
-**Why `release-thin`, and why glibc.** The daily install is thin LTO, which rebuilds incrementally in a fraction of
-fat LTO's time. A tagged release is fat LTO ([below](#version-cuts-and-releases)). The install is the host's glibc
+**Why `release`, and why glibc.** The install is fat LTO with one codegen unit: the smallest binary, which also stays
+the least resident, and 8 to 10 % quicker at CPU-bound work. The cost is one slow link per install; a quick build for a
+bench or a try-out keeps `release-thin` ([below](#version-cuts-and-releases)). The install is the host's glibc
 build, not static musl: the gate, the review's live check and the benches all run glibc builds, so what is installed
 is what was tested. The measurements behind both choices are in `scripts/AGENTS.md`.
 
@@ -385,7 +386,8 @@ is what was tested. The measurements behind both choices are in `scripts/AGENTS.
 - **A version cut** freezes features at a named commit and runs the benchmarks on exactly that commit. It then builds
   the `release` profile (fat LTO, one codegen unit) of that commit, tags it, keeps the binaries as a versioned
   artefact, and installs them.
-- **Daily installs are always `release-thin`; a tagged release is always `release`.**
+- **Installs and tagged releases are always `release`; `release-thin` is the quick build** (benches, the AWS hand, a
+  try-out), never an install.
 - **Names.** The first release is **v1**. The fix releases after it are **v1 patch1**, **v1 patch2**, and so on.
 - **The freeze holds for what is measured.** The benchmarks build the freeze commit, and a version's benchmark reports
   name it. Fixes may join between the freeze and the cut; the tag names the cut commit, and its message names both.

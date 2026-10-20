@@ -7,7 +7,7 @@
 #
 # The daemon is a scratch one: its own socket and state dir in a temp directory, a stand-in model
 # (`theseus-sim fake-model`), a stand-in Discord (in the test's process) and the real `theseus`.
-# It never touches the owner's daemon, its socket, its port or its bindings. `--profile release-thin`
+# It never touches the owner's daemon, its socket, its port or its bindings. `--profile release`
 # runs it on an install build (nextest builds the tests with that profile, so the daemon and the CLI
 # are the install's binaries): do that only with the owner's OK, and still never on the owner's own
 # daemon, which this script cannot reach.

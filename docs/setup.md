@@ -35,7 +35,7 @@ Each step prints one line per thing it checks or does, and the commands it runs 
    `stat` alone (a regular file, yours, mode 0600 or stricter, not empty). A `FAIL` stops the run before anything
    changes, and says how to fix it.
 2. **Build**: in `cockpit/`, `npm ci` (skipped when `node_modules` matches the lock file) and `npm run build`
-   (skipped when its output is newer than every source), then `scripts/build.sh --profile release-thin`, the
+   (skipped when its output is newer than every source), then `scripts/build.sh --profile release`, the
    install profile: the host's glibc build of the five shipped binaries (`theseusd`, `theseus`, `theseus-tui`,
    `theseus-sim`, `theseus-index`; `theseus-sim` is built for the benches and the size check, and stays in `target/`). Cargo rebuilds only what changed.
 3. **Install**: each of the four binaries but `theseus-sim` into `~/.local/bin` (`--prefix`), by a copy to a temporary name and a rename over the
@@ -101,7 +101,7 @@ knows a new table before you add the table: the loader refuses a key it does not
 | `--config PATH` | The config file (default `/etc/theseus/theseus.toml`). |
 | `--unit NAME` | The user unit (default `theseusd`). Another name is a second daemon beside yours, and needs the next two. |
 | `--state-dir DIR`, `--socket PATH` | The daemon's state dir and socket, written into its unit. |
-| `--no-build` | Installs what the target dir's `release-thin` build holds, without building. |
+| `--no-build` | Installs what the target dir's `release` build holds, without building. |
 
 Exit status: 0 done, or nothing to do; 1 a step failed; 2 a usage error; 3 stopped before the service for you to act,
 as its last lines say.
@@ -127,9 +127,9 @@ The same steps, one at a time:
 
 ```bash
 (cd cockpit && npm ci && npm run build)          # the cockpit first: it is embedded in theseusd
-scripts/build.sh --profile release-thin
+scripts/build.sh --profile release
 for b in theseusd theseus theseus-tui theseus-index; do
-  cp target/release-thin/$b ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b
+  cp target/release/$b ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b
 done
 sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 /etc/theseus
 theseusd example-config > /tmp/template.toml

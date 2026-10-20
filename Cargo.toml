@@ -95,6 +95,9 @@ debug = "line-tables-only"
 debug = false
 opt-level = 2
 
+# The install profile, and a tagged release's (theseus-o2myi): fat LTO and one codegen unit, the smallest and the
+# quickest binary, for the cost of one slow link. `scripts/build.sh --profile release` builds it, and an install copies
+# it (scripts/AGENTS.md has the measurements).
 [profile.release]
 lto = "fat"
 codegen-units = 1
@@ -102,10 +105,33 @@ opt-level = 3
 strip = true
 panic = "abort"
 
-# The install profile (theseus-goa8; review 2's S7), for an install by the chain or by anyone building for themselves:
-# the release profile without fat LTO and its single codegen unit, so a build after a change takes minutes less.
-# Cargo reserves the name `install`, hence this one. `scripts/build.sh --profile release-thin` builds it; a tagged
-# release keeps `release`. The measurements, and what the bench says of the binary's speed, are in scripts/AGENTS.md.
+# The cold crates (theseus-o2myi): code that runs when a tool is called or a file is read, once in a while and waiting
+# on a network, a child, or a disk, never on a turn's path, the store, the kernel, the index, the sandbox, voice's audio
+# loop, or the TUI's draw loop. Built for size, about a fifth less code each. The owner may veto a crate, and one that
+# lands on a hot path comes out of this list.
+# AWS: its whole model, one call per tool use, parsed on first use.
+[profile.release.package.theseus-aws]
+opt-level = "s"
+[profile.release.package.theseus-aws-catalog]
+opt-level = "s"
+[profile.release.package.theseus-aws-guard]
+opt-level = "s"
+# Google Workspace: JSON REST, one request per tool call.
+[profile.release.package.theseus-google]
+opt-level = "s"
+# A document read for the model (PDF, Office, archives, OCR): only when a file is read, in a capped child process.
+[profile.release.package.theseus-files]
+opt-level = "s"
+# MCP and LSP: a protocol over a child's pipes or a socket, one round trip per call.
+[profile.release.package.theseus-mcp]
+opt-level = "s"
+[profile.release.package.theseus-lsp]
+opt-level = "s"
+
+# The quick build (theseus-goa8; review 2's S7): the release profile without fat LTO and its single codegen unit, so a
+# build after a change takes minutes less, for a bench, the AWS hand, or a try-out. Never an install: since
+# theseus-o2myi an install is `release`. It inherits the release profile's package sections above. Cargo reserves the
+# name `install`, hence this one. `scripts/build.sh --profile release-thin` builds it.
 [profile.release-thin]
 inherits = "release"
 lto = "thin"

@@ -33,14 +33,13 @@ axum = { version = "0.8", features = ["ws"] }
 # bytes (theseus-goa8; review 2's SC3; scripts/repro.sh).
 rust-embed = { version = "8", features = ["include-exclude", "deterministic-timestamps"] }
 mime_guess = "2"
-# The cockpit is embedded as brotli and gzip copies (theseus-rwpbg.5); a client that takes neither is sent the brotli
-# copy decoded. The same version as theseus-files' PDF reader brings, so the binary links one decoder.
+# The cockpit is embedded as brotli copies (theseus-rwpbg.5, theseus-o2myi); a client that does not take brotli is sent
+# the copy decoded. The same version as theseus-files' PDF reader brings, so the binary links one decoder.
 brotli-decompressor = { version = "5", default-features = false, features = ["std"] }
 futures-util.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
-flate2 = "1"
 theseus-sim = { path = "../theseus-sim" }
 # The fake Jev, for the judge's daemon test (M5 23a).
 theseus-judge = { path = "../theseus-judge", features = ["fake"] }

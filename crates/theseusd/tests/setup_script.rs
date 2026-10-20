@@ -55,7 +55,7 @@ fn write_exe(at: &Path, text: &str) {
     std::fs::set_permissions(at, PermissionsExt::from_mode(0o755)).unwrap();
 }
 
-/// A scratch dir: `bin/` the stand-ins, `fake/` their log, `home/`, and `target/release-thin/` a build of the five
+/// A scratch dir: `bin/` the stand-ins, `fake/` their log, `home/`, and `target/release/` a build of the five
 /// binaries, whose `theseusd` runs the real one and whose others are stubs.
 struct Rig {
     dir: tempfile::TempDir,
@@ -70,7 +70,7 @@ impl Rig {
         }
         std::fs::create_dir_all(d.join("fake")).unwrap();
         std::fs::create_dir_all(d.join("home")).unwrap();
-        let built = d.join("target/release-thin");
+        let built = d.join("target/release");
         write_exe(
             &built.join("theseusd"),
             &format!(
@@ -298,7 +298,7 @@ fn a_first_run_writes_the_config_a_second_changes_nothing_and_the_check_follows_
     for b in ["theseusd", "theseus", "theseus-tui", "theseus-index"] {
         assert_eq!(
             std::fs::read(r.at("prefix").join(b)).unwrap(),
-            std::fs::read(r.at("target/release-thin").join(b)).unwrap(),
+            std::fs::read(r.at("target/release").join(b)).unwrap(),
             "{b}"
         );
     }
