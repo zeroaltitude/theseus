@@ -73,7 +73,10 @@ pub fn zip_members(bytes: &[u8]) -> Vec<String> {
     let Ok(z) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
         return Vec::new();
     };
-    z.file_names().map(str::to_string).collect()
+    // A name zip 9 cannot decode is left out: the sniff looks only for known names.
+    z.file_names()
+        .filter_map(|n| n.ok().map(String::from))
+        .collect()
 }
 
 type Zip<'a> = zip::ZipArchive<std::io::Cursor<&'a [u8]>>;
@@ -435,6 +438,7 @@ fn pptx(bytes: &[u8]) -> Result<Doc, String> {
     let mut slides: Vec<(usize, String)> = z
         .file_names()
         .filter_map(|n| {
+            let n = n.ok()?;
             let num = n
                 .strip_prefix("ppt/slides/slide")?
                 .strip_suffix(".xml")?
