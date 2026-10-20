@@ -17,6 +17,29 @@ pub struct Words {
     pub what: String,
     pub why: String,
     pub yes: String,
+    /// An approval's plain words (theseus-cudar), empty for the other kinds:
+    /// who asks, what No does, the risk badge, the rule that holds it, and
+    /// the one line a settled card repeats.
+    pub who: String,
+    pub no: String,
+    pub risk: String,
+    pub held: String,
+    pub line: String,
+}
+
+impl Words {
+    fn of(what: String, why: String, yes: String) -> Self {
+        Self {
+            what,
+            why,
+            yes,
+            who: String::new(),
+            no: String::new(),
+            risk: String::new(),
+            held: String::new(),
+            line: String::new(),
+        }
+    }
 }
 
 /// `s` in at most `max` characters: cut at a word, or for one long token
@@ -78,45 +101,58 @@ fn rule_of(req: &ConfirmRequest) -> String {
 pub fn words(asked: Option<String>, req: &ConfirmRequest, who: &str) -> (QuestionKind, Words) {
     let kind = crate::rpc::answer::kind_of(req);
     let w = match kind {
-        QuestionKind::Ask => Words {
-            what: asked.unwrap_or_else(|| "a question".into()),
-            why: format!("{who} asks you to choose."),
-            yes: "Your pick is what it goes on with.".into(),
-        },
+        QuestionKind::Ask => Words::of(
+            asked.unwrap_or_else(|| "a question".into()),
+            format!("{who} asks you to choose."),
+            "Your pick is what it goes on with.".into(),
+        ),
         QuestionKind::Budget => {
             let b = req.budget.clone().unwrap_or_default();
             let d = |x: f64| dollars(usd_to_micros(x));
-            Words {
-                what: format!("spend {} more on {who}", d(b.needed_usd)),
-                why: format!(
+            Words::of(
+                format!("spend {} more on {who}", d(b.needed_usd)),
+                format!(
                     "it has used {} of its {} limit",
                     d(b.spent_usd),
                     d(b.limit_usd)
                 ),
-                yes: "Yes resets its spend to $0 and the call runs.".into(),
-            }
+                "Yes resets its spend to $0 and the call runs.".into(),
+            )
         }
-        QuestionKind::Change => Words {
-            what: req.change.as_ref().map_or_else(
+        QuestionKind::Change => Words::of(
+            req.change.as_ref().map_or_else(
                 || short(&summarize(&req.tool, &req.input), 120),
                 |c| short(&c.question(), 160),
             ),
-            why: format!("{who} wants to change a task, and a task's layer 1 is yours."),
-            yes: "Yes makes the change; no leaves the task as it is.".into(),
-        },
+            format!("{who} wants to change a task, and a task's layer 1 is yours."),
+            "Yes makes the change; no leaves the task as it is.".into(),
+        ),
+        QuestionKind::Approval if req.plain.is_some() => {
+            let p = req.plain.clone().unwrap_or_default();
+            Words {
+                what: p.what.clone(),
+                why: p.why.clone(),
+                yes: format!("Yes {}", p.yes),
+                no: format!("No {}", p.no),
+                who: p.who.clone(),
+                risk: p.risk.clone(),
+                held: p.held.clone(),
+                line: p.line(),
+            }
+        }
         QuestionKind::Extension | QuestionKind::Approval => {
             let trust = req.external_text.is_some();
-            Words {
-                what: what_of(&req.tool, &req.input),
-                why: format!("{who} asks: {}.", rule_of(req)),
-                yes: match (kind, trust) {
+            Words::of(
+                what_of(&req.tool, &req.input),
+                format!("{who} asks: {}.", rule_of(req)),
+                match (kind, trust) {
                     (QuestionKind::Extension, _) => "Yes loads it.".into(),
                     (_, true) => {
                         "Yes runs this one call. Trust also lets the session act again.".into()
                     }
                     _ => "Yes runs this one call.".into(),
                 },
-            }
+            )
         }
     };
     (kind, w)
@@ -129,6 +165,11 @@ pub fn card_of(kind: QuestionKind, w: &Words, trust: bool, nth: Option<(usize, u
         "what": w.what,
         "why": w.why,
         "yes": w.yes,
+        "who": w.who,
+        "no": w.no,
+        "risk": w.risk,
+        "held": w.held,
+        "line": w.line,
         "trust": trust,
         "n": nth.map(|(n, _)| n),
         "of": nth.map(|(_, of)| of),
@@ -204,6 +245,39 @@ mod tests {
         let (_, w) = words(None, &web, "x");
         assert!(w.why.contains("read web text"), "{}", w.why);
         assert!(w.yes.contains("Trust"), "{}", w.yes);
+    }
+
+    /// A request with plain words speaks them (theseus-cudar): who wants to
+    /// do what, the risk and the reason, and what Yes and No do; the line a
+    /// settled card keeps is the whole question again.
+    #[test]
+    fn an_approval_with_plain_words_speaks_them() {
+        let mut r = req("fs.read", json!({"path": "x"}), "raw");
+        r.plain = Some(theseus_protocol::PlainWords {
+            who: "Theseus's self-repair: fix the tides".into(),
+            what: "read its own report from the 05:12 run".into(),
+            why: "to see why the last run stopped".into(),
+            held: "`fs.read` is set to ask before it runs".into(),
+            risk: "read-only".into(),
+            yes: "runs this one call.".into(),
+            no: "refuses it; the session is told and carries on without it.".into(),
+        });
+        let (_, w) = words(None, &r, "ignored");
+        assert_eq!(w.what, "read its own report from the 05:12 run");
+        assert_eq!(w.yes, "Yes runs this one call.");
+        assert!(w.no.starts_with("No refuses it"), "{}", w.no);
+        for must in [
+            "self-repair: fix the tides",
+            "05:12",
+            "read-only",
+            "to see why",
+        ] {
+            assert!(w.line.contains(must), "{must} in {}", w.line);
+        }
+        let card = card_of(QuestionKind::Approval, &w, false, None);
+        assert_eq!(card["risk"], "read-only");
+        assert_eq!(card["who"], "Theseus's self-repair: fix the tides");
+        assert_eq!(card["line"], json!(w.line));
     }
 
     #[test]

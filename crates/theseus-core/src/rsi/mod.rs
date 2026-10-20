@@ -42,6 +42,7 @@ pub mod backlog;
 pub mod budget;
 pub mod capacity;
 mod digest;
+pub mod evidence;
 pub mod exams;
 pub mod jail;
 pub mod join;

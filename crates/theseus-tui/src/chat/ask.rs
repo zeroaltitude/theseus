@@ -336,7 +336,11 @@ impl Chat {
         if q.budget.is_some() {
             return "the spend limit is reached".to_string();
         }
-        let words = self.tool_words(&q.tool, &q.input);
+        // An approval in plain words (theseus-cudar): who wants to do what.
+        let words = match &q.plain {
+            Some(p) => format!("{} wants to {}", p.who, p.what),
+            None => self.tool_words(&q.tool, &q.input),
+        };
         match change_words(q) {
             Some(c) => format!("{words} · {c}"),
             None => words,
@@ -422,12 +426,15 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     if !who.is_empty() {
         out.push(one(Sty::Dim, format!("  {}", who.join(" · "))));
     }
-    if !q.reason.is_empty() {
-        for row in wrap_words(
-            &format!("why: {}", q.reason),
-            ctx.width.saturating_sub(2),
-            2,
-        ) {
+    // The plain words say risk, the model's reason and what Yes and No do
+    // (theseus-cudar); the gate's own reason stands in for a daemon without.
+    let said = match &q.plain {
+        Some(p) => p.lines().split_off(1).join(" · "),
+        None if q.reason.is_empty() => String::new(),
+        None => format!("why: {}", q.reason),
+    };
+    if !said.is_empty() {
+        for row in wrap_words(&said, ctx.width.saturating_sub(2), 2) {
             out.push(one(Sty::Dim, format!("  {}", row.trim_start())));
         }
     }

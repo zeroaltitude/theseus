@@ -655,5 +655,6 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         may_answer: None,
         preview: None,
         grant_offer: None,
+        plain: None,
     })
 }

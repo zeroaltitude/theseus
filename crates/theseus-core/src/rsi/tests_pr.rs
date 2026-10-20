@@ -517,7 +517,8 @@ mod own_tree {
     }
 
     /// Planted reverts: each of these asks the owner, from a self session
-    /// that can work in its own tree.
+    /// that can work in its own tree. (A read of the rest of the state dir
+    /// no longer asks: it runs with a notice, `a_self_sessions_soft_hold_...`.)
     #[tokio::test]
     async fn nothing_else_is_open_to_it() {
         let r = held(|_| {});
@@ -528,8 +529,6 @@ mod own_tree {
         std::fs::create_dir_all(state.join("store")).unwrap();
         std::fs::write(state.join("store/db"), "the store\n").unwrap();
         for (i, (what, target)) in [
-            ("the rest of the state dir", state.join("notes.txt")),
-            ("a link out to the state dir", state.join("notes.txt")),
             ("a link out to the store", state.join("store/db")),
             ("the store", state.join("store/db")),
         ]
@@ -563,6 +562,65 @@ mod own_tree {
             assert!(asked(&r, &sid), "a write to {what}");
             assert!(!path.exists(), "and it did not run");
         }
+    }
+
+    /// Self-improvement fails open (theseus-cudar): a self session's read the
+    /// approve list holds (the rest of the state dir: a report, a gate) runs
+    /// with a notice and no card, where the floor (the store), a key on the
+    /// approve list and a write still ask, and a session of another principal
+    /// asks for the same read. Planted reverts: each `asked` below.
+    #[tokio::test]
+    async fn a_self_sessions_soft_hold_runs_with_a_notice_and_no_card() {
+        let keys = tempfile::tempdir().unwrap();
+        let keys = keys.path().canonicalize().unwrap();
+        std::fs::write(keys.join("id"), "a key\n").unwrap();
+        let r = held(|cfg| cfg.tools.approve_paths.push(keys.display().to_string()));
+        let state = r.f.place.state.canonicalize().unwrap();
+        std::fs::create_dir_all(state.join("self/reports")).unwrap();
+        std::fs::write(state.join("self/reports/earlier.md"), "the 05:12 run\n").unwrap();
+        std::fs::create_dir_all(state.join("store")).unwrap();
+        std::fs::write(state.join("store/db"), "the store\n").unwrap();
+        let sid = task_record(&r, "sails");
+        let said = r
+            .turn(
+                &sid,
+                "fs_read",
+                json!({"path": state.join("self/reports/earlier.md")}),
+            )
+            .await;
+        assert!(!asked(&r, &sid), "a report waited for the owner");
+        assert!(said.contains("the 05:12 run"), "{said}");
+        let notified: Vec<Value> = r
+            .core
+            .store
+            .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, row)| row.kind == "tool.notified")
+            .map(|(_, row)| row.data)
+            .collect();
+        assert!(
+            notified
+                .iter()
+                .any(|n| n["session_id"] == sid.as_str() && n.to_string().contains("fails open")),
+            "{notified:?}"
+        );
+        for (what, path) in [
+            ("the store", state.join("store/db")),
+            ("a key", keys.join("id")),
+        ] {
+            let (sid, _) = task(&r, &format!("tides-{}", what.replace(' ', "-")));
+            r.turn(&sid, "fs_read", json!({"path": path})).await;
+            assert!(asked(&r, &sid), "{what} waits for the owner");
+        }
+        let op = r.session("operator");
+        r.turn(
+            &op,
+            "fs_read",
+            json!({"path": state.join("self/reports/earlier.md")}),
+        )
+        .await;
+        assert!(asked(&r, &op), "an operator's read of the same report");
     }
 
     /// Reads reach the trees root and every tree under it (theseus-qh2tt):
@@ -781,7 +839,11 @@ mod own_tree_edits {
         let hover = json!({"path": file2, "line": 1, "symbol": "wind"});
         r.turn(&sid, "lsp_hover", hover).await;
         let reason = asked(&r, &sid).unwrap_or_default();
-        assert!(reason.contains("lsp.hover — approve"), "{reason}");
+        // The server's start is a run (L2), judged as proc.run: it still asks.
+        assert!(
+            reason.contains("starts rust-analyzer") && reason.contains("proc.run — approve"),
+            "{reason}"
+        );
         assert_eq!(spawner.count(), 0, "held before it starts");
         assert!(file.exists());
     }

@@ -51,13 +51,42 @@ fn card_text(body: &serde_json::Value) -> String {
         (Some(n), Some(of)) => format!("**{n} of {of}** · "),
         _ => String::new(),
     };
-    let mut t = format!("🔔 {lead}**{}**", clip(said("what"), 400));
+    // An approval in plain words (theseus-cudar): who wants to do what, the
+    // risk and the model's reason, what Yes and No do, and the rule that held it.
+    let plain = !said("who").is_empty();
+    let mut t = match plain {
+        true => format!(
+            "🔔 {lead}**{}** wants to **{}**",
+            clip(said("who"), 160),
+            clip(said("what"), 300)
+        ),
+        false => format!("🔔 {lead}**{}**", clip(said("what"), 400)),
+    };
     for (i, ch) in body["choices"].as_array().into_iter().flatten().enumerate() {
         t.push_str(&format!("\n{}. {}", i + 1, ch.as_str().unwrap_or("")));
     }
-    t.push_str(&format!("\n{}", clip(said("why"), 300)));
-    if body["choices"].as_array().is_none_or(Vec::is_empty) {
-        t.push_str(&format!("\n{}", clip(said("yes"), 200)));
+    if plain {
+        t.push_str(&format!(
+            "\n{} **{}**",
+            risk_mark(said("risk")),
+            said("risk")
+        ));
+        if !said("why").is_empty() {
+            t.push_str(&format!(" · why: {}", clip(said("why"), 200)));
+        }
+        t.push_str(&format!(
+            "\n✅ {}\n❎ {}",
+            clip(said("yes"), 200),
+            clip(said("no"), 200)
+        ));
+        if !said("held").is_empty() {
+            t.push_str(&format!("\n-# held because {}", clip(said("held"), 200)));
+        }
+    } else {
+        t.push_str(&format!("\n{}", clip(said("why"), 300)));
+        if body["choices"].as_array().is_none_or(Vec::is_empty) {
+            t.push_str(&format!("\n{}", clip(said("yes"), 200)));
+        }
     }
     t.push_str("\n-# Needs you");
     if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
@@ -68,6 +97,19 @@ fn card_text(body: &serde_json::Value) -> String {
         false => " · tap, or reply with its number",
     });
     t
+}
+
+/// The mark that goes with a risk badge's words.
+fn risk_mark(risk: &str) -> &'static str {
+    match risk {
+        "read-only" => "👁️",
+        "writes" => "✏️",
+        "runs a program" => "⚙️",
+        "network" => "🌐",
+        "spends" => "💲",
+        "touches secrets" => "🔑",
+        _ => "▫️",
+    }
 }
 
 /// What the Details press shows its presser alone: the whole request, as the
@@ -89,10 +131,14 @@ pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
     }
     t.push_str(&format!("\n**Tool:** `{}`", req.tool));
     t.push_str(&format!("\n**Rule:** {}", clip(req.reason.trim(), 400)));
-    let asker = match &req.task {
-        Some(task) => format!("task {}", task.short),
-        None => format!("conversation …{}", tail(&req.session_id)),
+    let asker = match (&req.plain, &req.task) {
+        (Some(p), _) => p.who.clone(),
+        (_, Some(task)) => format!("task {}", task.short),
+        _ => format!("conversation …{}", tail(&req.session_id)),
     };
+    if let Some(p) = &req.plain {
+        t.push_str(&format!("\n**Risk:** {}", p.risk));
+    }
     t.push_str(&format!("\n**Asked by:** {asker}"));
     if req.expires_at_ms > 0 {
         t.push_str(&format!(
@@ -205,6 +251,57 @@ mod tests {
             super::needs_you(&old),
             "🔔 **Needs you** · Theseus\n**Ship it?**"
         );
+    }
+
+    /// A card in plain words (theseus-cudar) says who wants to do what, the
+    /// risk and the model's reason, what Yes and No do, and why it is held;
+    /// the line its settle repeats keeps all of that, so an Expired card is
+    /// still the question it was.
+    #[test]
+    fn an_approval_card_names_who_what_why_risk_and_yes_no() {
+        let line = "Theseus's self-repair: fix the tides wanted to read its own report from the 05:12 run · read-only · why: to see why the last run stopped";
+        let card = json!({"kind": "approval", "what": "read its own report from the 05:12 run",
+            "who": "Theseus's self-repair: fix the tides", "risk": "read-only",
+            "why": "to see why the last run stopped", "held": "`fs.read` is set to ask before it runs",
+            "yes": "Yes runs this one call.", "no": "No refuses it; the session is told and carries on without it.",
+            "line": line});
+        let body = json!({"kind": "needs_you", "card": card, "choices": [], "prompt": "x"});
+        let t = super::needs_you(&body);
+        assert!(
+            t.starts_with("🔔 **Theseus's self-repair: fix the tides** wants to **read its own report from the 05:12 run**"),
+            "{t}"
+        );
+        assert!(
+            t.contains("👁️ **read-only** · why: to see why the last run stopped"),
+            "{t}"
+        );
+        assert!(
+            t.contains("✅ Yes runs this one call.\n❎ No refuses it"),
+            "{t}"
+        );
+        assert!(t.contains("-# held because `fs.read` is set to ask"), "{t}");
+        for raw in ["tsk_", "ses_", "…", "enforcement"] {
+            assert!(!t.contains(raw), "{raw} in {t}");
+        }
+        // The Expired edit repeats the whole question.
+        let closed = theseus_core::outbox::Closed {
+            how: "expired".into(),
+            note: Some("5 min".into()),
+            ..Default::default()
+        };
+        let settled = crate::render::settled(&closed, line, false);
+        assert!(
+            settled.starts_with("⌛ **Expired**: nobody answered within 5 min"),
+            "{settled}"
+        );
+        for kept in [
+            "self-repair: fix the tides",
+            "05:12 run",
+            "read-only",
+            "why: to see why",
+        ] {
+            assert!(settled.contains(kept), "{kept} in {settled}");
+        }
     }
 
     #[test]

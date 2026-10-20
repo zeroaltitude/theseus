@@ -56,6 +56,32 @@ pub(crate) fn is_self(rt: &ToolRuntime, session: &str) -> bool {
         .is_some_and(|e| crate::task_graph::principal_of(&core.kernel, &e) == SELF_PRINCIPAL)
 }
 
+/// The policy layer's decision for a call of `session`, with a self
+/// session's soft approval hold made a notice that runs (theseus-cudar):
+/// not the floor, not an L1 call, and only what `ToolPolicy::fails_open`
+/// lets through.
+pub(crate) fn failing_open(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    tool: &dyn Tool,
+    plan: &theseus_tools::Plan,
+    l1: bool,
+    decision: crate::policy::Decision,
+) -> crate::policy::Decision {
+    match session {
+        Some(s)
+            if decision.posture == crate::policy::Posture::Approve
+                && !decision.floor
+                && !l1
+                && is_self(rt, s)
+                && rt.policy.fails_open(plan, rt.self_pr.state_dir()) =>
+        {
+            fail_open(decision, tool.name())
+        }
+        _ => decision,
+    }
+}
+
 /// A self session's call that waited for approval, now a notice that runs
 /// (theseus-cudar): the posture's own reason is kept, so the notice says
 /// what would have asked. The floor and the owner's other holds never come

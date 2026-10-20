@@ -5,9 +5,35 @@
 //! countdown; a budget question shows spent, limit, needed, and lifetime.
 
 use theseus_client::render::{self, held_what, Tag};
-use theseus_protocol::usd;
+use theseus_protocol::{usd, ConfirmRequest};
 
 use crate::board::Question;
+
+/// An approval's first line: who wants to do what in plain words
+/// (theseus-cudar), else the tool and its call.
+fn confirm_head(c: &ConfirmRequest) -> String {
+    match &c.plain {
+        Some(p) => format!("⏸ {} wants to {}", p.who, p.what),
+        None => format!(
+            "⏸ confirm {}: {}",
+            c.tool,
+            theseus_protocol::term::words::summarize(&c.tool, &c.input)
+        ),
+    }
+}
+
+/// Its risk, the model's reason and what Yes and No do, else the gate's reason.
+fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
+    match &c.plain {
+        Some(p) => p
+            .lines()
+            .split_off(1)
+            .into_iter()
+            .map(|l| (Tag::Dim, format!("  {l}")))
+            .collect(),
+        None => vec![(Tag::Dim, format!("  why: {}", c.reason))],
+    }
+}
 
 /// The card's lines, each with its tag. `refused`: why the last answer to it
 /// did not count. `more`: how many questions wait behind it.
@@ -41,21 +67,14 @@ pub fn lines(
         // A question with options (`owner_ask`, theseus-j7cje).
         Question::Whole(c) if q.is_ask() => ask_lines(c, now_ms, refused, &mut out),
         Question::Whole(c) => {
-            out.push((
-                Tag::Ask,
-                format!(
-                    "⏸ confirm {}: {}",
-                    c.tool,
-                    theseus_protocol::term::words::summarize(&c.tool, &c.input)
-                ),
-            ));
+            out.push((Tag::Ask, confirm_head(c)));
             // The countdown and the floor on a line of their own, before the
             // reason: a long reason (a path, a command) wraps over rows of its
             // own (`ui::card_rows`), and would push them down.
             out.extend(when(c.floor, c.expires_at_ms, now_ms));
-            out.push((Tag::Dim, format!("  why: {}", c.reason)));
+            out.extend(confirm_why(c));
             out.extend(preview(c));
-            if let Some(t) = &c.task {
+            if let Some(t) = c.task.as_ref().filter(|_| c.plain.is_none()) {
                 out.push((
                     Tag::Dim,
                     format!(

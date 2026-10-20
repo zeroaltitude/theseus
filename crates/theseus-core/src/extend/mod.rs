@@ -849,5 +849,6 @@ pub fn confirm_request(
         may_answer: None,
         preview: None,
         grant_offer: None,
+        plain: None,
     })
 }

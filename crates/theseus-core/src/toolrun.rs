@@ -1332,7 +1332,7 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         // Asked at its plan's time, and expiring then plus the TTL, as
         // `confirm.list`, the watch's snapshot, and the board say.
-        let req = crate::rpc::offer(ConfirmRequest {
+        let mut req = crate::rpc::offer(ConfirmRequest {
             grant_offer: crate::policy::grants::offered(self, tc, tool, &call.input, &g),
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
@@ -1356,6 +1356,13 @@ impl ToolRuntime {
             preview: self.preview(tc.dir, tool, &call.input),
             ..Default::default()
         });
+        // The question in plain words, for the screens that hear it pushed
+        // (theseus-cudar); `confirm.list` words it again from the record.
+        if let (Some(core), Ok(nodes)) =
+            (self.self_pr.core(), tc.store.session_nodes(tc.session_id))
+        {
+            req.plain = core.plain_of(&req, &nodes);
+        }
         tc.record(&fact::tool::CallAsked { request: &req });
         // It expires at its plan's time and the TTL, as `confirm.list` says
         // (theseus-830): the driver reads the questions by then.
@@ -1535,6 +1542,18 @@ impl ToolRuntime {
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
+            // Read-only, and for a self session alone (theseus-cudar).
+            crate::rsi::evidence::EVIDENCE => {
+                match crate::rsi::own_tree::is_self(self, tc.session_id) {
+                    true => crate::rsi::evidence::run(
+                        self.self_pr.state_dir(),
+                        tc.store,
+                        theseus_protocol::now_unix_ms(),
+                        &call.input,
+                    ),
+                    false => Err("only a self session may read its evidence".into()),
+                }
+            }
             name if crate::task_graph::tools::is_edit(name) => {
                 let how = (ran_at == Posture::Approve, self.leases.lease_ms());
                 crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
@@ -2228,6 +2247,7 @@ pub fn build_runtime(
         // Another thread's card and notes, read on purpose (theseus-f2g0).
         r.register(Arc::new(crate::thread_read::ThreadRead));
         crate::rsi::pr::register(cfg, &mut r);
+        crate::rsi::evidence::register(cfg, &mut r);
         r.register(Arc::new(crate::tools_defer::find::FindTool));
         r
     } else {
