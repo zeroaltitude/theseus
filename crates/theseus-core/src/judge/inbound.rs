@@ -1023,7 +1023,7 @@ async fn judge_inbound(
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let svc_own = svc.onto_own();
+    let own = svc.onto_own();
     let total = svc.cfg.total_secs;
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
@@ -1048,7 +1048,6 @@ async fn judge_inbound(
     // (theseus-otny).
     let wrote = beside.spawn(&me);
     let t0 = Instant::now();
-    let own = svc_own;
     let (route_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
         asks.into_iter().partition(|a| a.pack.name() == ROUTE_PACK);
     let (own_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
