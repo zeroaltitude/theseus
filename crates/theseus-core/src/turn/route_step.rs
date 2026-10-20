@@ -549,7 +549,7 @@ impl TurnRunner {
             return self.keep_first(t, session, compiled, spec, i);
         };
         // The first compile is not the call's: its rows go with it.
-        t.route.deferred = None;
+        self.drop_first(t, &compiled);
         if d.detour {
             Self::detouring(t, verdict.as_ref().filter(|_| steering.is_none()));
         }
@@ -765,6 +765,16 @@ impl TurnRunner {
             .clone()
             .or(before)
             .unwrap_or_else(|| TargetRef::from(t.target))
+    }
+
+    /// The first compile is not the call's: its deferred rows go, and its pick
+    /// in the prefix library, which `compile_step` made in memory
+    /// (theseus-i4y7l).
+    fn drop_first(&self, t: &mut Turn<'_>, compiled: &Compiled) {
+        t.route.deferred = None;
+        if let Some(p) = compiled.prefix.as_deref() {
+            self.prefix.discard(p);
+        }
     }
 
     /// The first compile is the one the call uses: persist it, and record

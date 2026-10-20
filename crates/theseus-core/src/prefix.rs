@@ -349,6 +349,29 @@ impl Library {
         }
     }
 
+    /// Undo what a pick did in memory when its compilation is not the one the
+    /// call uses (routing moved the turn, `route_step`): a mint's header is
+    /// forgotten, so the compile the call uses mints it, with its record and
+    /// its `prefix.picked` row, instead of reusing a header that was never
+    /// stored; a reuse gives back its hit (theseus-i4y7l).
+    pub fn discard(&self, p: &Picked) {
+        let mut g = self.0.lock().unwrap();
+        let Some(s) = g.as_mut() else { return };
+        let digest = &p.plan.used.header;
+        let minted = p
+            .records
+            .iter()
+            .any(|(k, _)| k.strip_prefix(HEADER) == Some(digest.as_str()));
+        if minted {
+            if let Some(e) = s.entries.remove(digest) {
+                s.bytes -= e.bytes();
+            }
+        } else if let Some(e) = s.entries.get_mut(digest) {
+            e.hits.reuses = e.hits.reuses.saturating_sub(1);
+        }
+        s.deltas.retain(|(h, _), _| h != digest);
+    }
+
     /// Pick the third layer for `q` (`fit`'s rule). None while the library is
     /// not loaded, or for an empty layer.
     pub fn pick(&self, q: &Query<'_>) -> Option<Picked> {
