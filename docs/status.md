@@ -90,6 +90,8 @@ follow.
     messages with a scripted Jev.
   - The thread benchmark (`bench/threads/`) is built and has not been run on the real model.
   - A Discord thread for each thread needs `discord_channel`, which is off by default.
+  - A place's home that grows past `[threads] working_tokens` (60,000 tokens a request unless set) tells the owner once,
+    in the DM, with its size and `theseus thread split home@<place>` (undone by `thread unsplit`). Nothing splits on its own.
 - **Personas** (`[personas.<name>]`). Five are set up on the owner's daemon.
   - Addressing a persona by name (`name,`, `@name` or `/as name`) and binding one to a channel work live.
   - Jev's per-message pick (the `persona` question of `route.v5` and `route.v6`) runs in shadow

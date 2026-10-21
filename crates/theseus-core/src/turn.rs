@@ -79,6 +79,7 @@ pub mod end_note_step;
 mod end_step;
 mod fallback_step;
 mod fill_step;
+pub(crate) mod home_size_step;
 mod inbound_step;
 mod join_step;
 mod later_step;

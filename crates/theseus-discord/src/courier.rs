@@ -885,11 +885,11 @@ impl Lane {
             // to re-run (theseus-2ced), and a self branch the keel stopped
             // (theseus-pw1q.8), a self-join's card or notice (theseus-pw1q.9), a narrower policy for a
             // hand role and the red after its apply (theseus-pw1q.15), and Jev's privacy warning
-            // (theseus-gasov): the owner's DM alone.
+            // (theseus-gasov), and a home past its size (theseus-jg1eg): the owner's DM alone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
             | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning"
-            | "onto_card" => self.jev_post(a, &body).await,
+            | "onto_card" | "home_size" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,

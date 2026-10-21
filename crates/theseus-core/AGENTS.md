@@ -1608,6 +1608,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     judgment, posted, folded). A late verdict, kept for the next message, warns nothing (a known gap). Nothing is held: the turn and its reply go on, and
     the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
     that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
+  - **A home past its size** (theseus-jg1eg, the follow-up of theseus-vydhq; `turn/home_size_step.rs`): a place's own session (`Outbox::place_session`,
+    never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] working_tokens` (the tokens a
+    thread's request stays within; 60,000) posts one `home_size` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices) naming the size, the bound, `theseus thread split home@<place> NAME --first @A --last @B --dry-run`
+    and `thread unsplit`. Nothing splits itself: a split moves context. Once is the META row `home.size.warned.<session>` (`warned`,
+    written in the post's frame, so a restart keeps it and a successor home starts unwarned); a request back at or under the bound
+    writes it `warned: false`, so the home is told again if it grows back. With no owner DM bound nothing is posted or marked.
+    Tests: `tests_home_size.rs`, `turn/home_size_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web
