@@ -49,6 +49,7 @@ charts = draft.charts
 import th_format as tf  # noqa: E402
 import th_drive as td  # noqa: E402
 import th_generate as gen  # noqa: E402
+import th_decisions  # noqa: E402
 
 pct, usd = draft.pct, draft.usd
 
@@ -287,27 +288,44 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
 
 
 def decisions_section(runs: list[dict]) -> str:
-    """The thesis column (theseus-mqqc2; the design's section 9): routing, filing and privacy decisions per message
-    that Jev made instead of the main model, with the dollars each way. Reported whatever it says."""
-    rows = []
+    """The thesis column (theseus-mqqc2; the design's section 9, sharpened by theseus-2e6c1): the routing, filing and
+    privacy decisions per message that Jev made instead of the main model, with the dollars each way. A decision is a
+    decision question answered at the act band (`th_decisions.py`), so one `onto.v1` judgment that filed a topic and a
+    resource and answered `personal` is three, not one. Reported whatever it says."""
+    rows, per_q = [], []
     for r in runs:
         d = r.get("decisions")
         if not d:
-            rows.append([r["arm"], "none: the arm asks Jev no decision", "–", "–", "–", "–"])
+            rows.append([r["arm"], "none: the arm asks Jev no decision", "–", "–", "–", "–", "–", "–"])
             continue
         by = d["by_class"]
         per = " / ".join(f'{by.get(c, {}).get("per_turn", 0):.2f}' for c in ("routing", "filing", "privacy"))
+        share = (d.get("turns") or {}).get("share_with_decision")
         rows.append([r["arm"], f'{d["per_turn"]:.2f} ({per})', usd(d["jev_usd"]), usd(d["main_model_usd"]),
-                     usd(d["saved_usd"]), str(d["unanswered"])])
+                     usd(d["saved_usd"]), str(d["unanswered"]), str(d.get("judgments", d["n"])),
+                     pct(share) if share is not None else th_decisions.NOT_RECORDED])
+        qs = d.get("questions")
+        if not isinstance(qs, dict):
+            per_q.append([r["arm"], f"per-question numbers {th_decisions.NOT_RECORDED} (counted by judgment)", "–", "–", "–", "–"])
+            continue
+        for q, v in sorted(qs.items()):
+            per_q.append([r["arm"], f"`{q}`", v["class"], str(v["answered"]), str(v["act"]), str(v["chose"])])
     return (table(["arm", "decisions per message by Jev, all (routing / filing / privacy)", "Jev's dollars",
-                   "the main model's, modelled", "saved", "unanswered"], rows) +
-            "\nA decision is one answered judgment of a routing pack (`route.*`, `classify.*`), a filing pack (`onto.*`, "
-            "`categorize.*`) or a privacy pack (`security.*`), read from the run's `judge.call` rows "
-            "(`judgments.json`). The main model's dollars are modelled, not measured: the same tokens Jev read, at the "
-            "model's uncached input price, and the tokens Jev wrote at its output price; a free-form answer is longer "
-            "than Jev's choice, so it is a floor. The oracle arm makes these decisions by asking the main model, one "
-            "extra call each, so its count is the Jev arm's and its dollars are that column. Judgments Jev did not "
-            "answer are counted apart: a decision not taken off the main model.\n")
+                   "the main model's, modelled", "saved", "unanswered", "judgments", "messages with a decision"], rows) +
+            ("\nPer question (answered; at the act band, which are the decisions; of those, the ones that chose "
+             "something):\n\n" + table(["arm", "question", "class", "answered", "act band", "chose"], per_q) if per_q else "") +
+            "\nA decision is one decision question answered at the act band: a filing (`onto.*`'s topic, project, event, "
+            "resource, capability and expertise questions, and `categorize.*`), a routing (`route.*`, and `classify.*`'s "
+            "`thread`) or a privacy decision (`security.*`, and `onto.*`'s `personal`, `elicits` and `shows_*`); one "
+            "judgment holds as many as it has such answers. A judgment belongs to the turn its `context.turn` names, else "
+            "to the turn of its session whose window holds its time, else to no turn; the mean is over all messages and "
+            "the share counts the messages with a decision attributed to them. The dollars are per judgment, read from the "
+            "run's `judge.call` rows (`judgments.json`). The main model's dollars are modelled, not measured: the same "
+            "tokens Jev read, at the model's uncached input price, and the tokens Jev wrote at its output price; a "
+            "free-form answer is longer than Jev's choice, so it is a floor. The oracle arm makes these decisions by "
+            "asking the main model, one extra call each, so its count is the Jev arm's and its dollars are that column. "
+            "Judgments Jev did not answer are counted apart: a decision not taken off the main model. A run from before "
+            "the questions were recorded counts judgments and says so.\n")
 
 
 ONTO, CONTROL = "A1o", "A1"
