@@ -279,13 +279,17 @@ async fn below_the_bar_unclear_or_fixed_the_profiles_own_effort_stands() {
     }
 }
 
-/// A turn the owner pinned records Jev's effort and applies none.
+/// A turn the owner pinned records Jev's effort and applies none. A pin does
+/// not wait for its verdict, so it records only a verdict that came before the
+/// compile ended: the test has the turn wait, so the verdict has always come
+/// (theseus-fpvn8).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_turn_records_the_effort_and_applies_none() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "sophisticated", 0.95);
     effort(&jev, "max", 0.95);
     let r = rig(Some(&jev), 1, |_| {});
+    r.core.runner.judge.pins_wait_for_verdicts();
     let res = turn(&r.core, None, "Weigh two designs.", Some("sonnet")).await;
     assert_eq!(res.profile, "sonnet");
     assert_eq!(sent(&r.claude.requests()[0]), None);

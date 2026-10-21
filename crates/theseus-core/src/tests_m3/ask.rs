@@ -369,7 +369,10 @@ async fn a_question_at_half_its_life_is_reminded_of_once() {
     use theseus_protocol::notices::{Urgency, Why};
     let r = rig(asking(2, json!({"expires_in": 10})));
     r.core.push.ensure(&r.core).await.unwrap();
-    let (_, _, corr) = asked(&r).await;
+    let (sid, _, corr) = asked(&r).await;
+    // The board applies frames on a thread of its own: until it has the
+    // question, a reminder finds none to remind (theseus-fpvn8).
+    crate::test_support::board_caught_up(&r.core, &sid).await;
     let t0 = r.core.kernel.action(&corr).unwrap().unwrap().planned_at_ms;
     r.core.push.remind_questions(&r.core, t0 + 4 * 60_000);
     let told = |r: &Rig| {

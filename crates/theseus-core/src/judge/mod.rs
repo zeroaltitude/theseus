@@ -196,6 +196,11 @@ pub struct JudgeService {
     /// have come before it lets the turn go on (theseus-1b2zm).
     #[cfg(test)]
     pub(crate) route_answers: std::sync::atomic::AtomicU64,
+    /// Set by a test of a pinned turn's record: the turn waits for its verdict
+    /// as a live one does, so the verdict is in when the record is made, and
+    /// the test never rests on a verdict beating the compile (theseus-fpvn8).
+    /// Nothing but a test sets it.
+    pins_wait: std::sync::atomic::AtomicBool,
     /// `route.v1` verdicts that came after their turn's wait, by session:
     /// each applies from the session's next message (25e).
     late: Mutex<std::collections::HashMap<String, crate::routing::Verdict>>,
@@ -288,6 +293,7 @@ impl JudgeService {
             rerank_deadline: rerank::RerankDeadline::default(),
             #[cfg(test)]
             route_answers: Default::default(),
+            pins_wait: Default::default(),
             late: Mutex::default(),
             routed: Mutex::default(),
             offers: Mutex::default(),
@@ -801,6 +807,19 @@ impl JudgeService {
                 );
             }
         });
+    }
+
+    /// Whether a turn that does not wait for its verdict (a pin) waits for it
+    /// anyway: never, but in a test that has called `pins_wait_for_verdicts`.
+    pub(crate) fn pins_wait(&self) -> bool {
+        self.pins_wait.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// A test's pins wait for their verdicts (theseus-fpvn8).
+    #[cfg(test)]
+    pub(crate) fn pins_wait_for_verdicts(&self) {
+        self.pins_wait
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Whether Jev is known unreachable now (theseus-otny): its last try,
