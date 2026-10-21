@@ -963,6 +963,8 @@ impl Core {
         );
         if seeded.later {
             core.seed_day_ceiling_later();
+        } else {
+            core.keep_day_total();
         }
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
