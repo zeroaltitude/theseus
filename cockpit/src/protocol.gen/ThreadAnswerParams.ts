@@ -3,7 +3,8 @@ import type { DiscordOrigin } from "./DiscordOrigin";
 
 export type ThreadAnswerParams = { ask_id: string, 
 /**
- * An option's key: `1`, `2`, `new`, `home` (`n` and `h` too).
+ * An option's key: `1`, `2`, …, `new`, `home` (`n` and `h` too), or a
+ * live thread's slug (theseus-98bz.4).
  */
 choice: string, 
 /**

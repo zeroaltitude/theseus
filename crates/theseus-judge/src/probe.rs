@@ -59,7 +59,7 @@ struct Args {
     /// Run against an in-process fake Jev, with no key and no spend.
     #[arg(long)]
     fake: bool,
-    /// Run a pack's planted-injection eval set (`security.v3`): one call per
+    /// Run a pack's eval set (`security.v3`, `heard.v1`, `classify.v4`): one call per
     /// case, each expectation printed as met or missed, then a tally. With
     /// `--fake` the fake is scripted to agree with every case (a dry run of
     /// the plumbing, not of Jev). `--only` runs the named cases.
@@ -255,6 +255,9 @@ async fn run_eval(
     if name == "heard.v1" {
         return run_heard_eval(only, client, fake, tally).await;
     }
+    if crate::eval_labelled::PACKS.contains(&name) {
+        return run_labelled_eval(name, only, client, fake, tally).await;
+    }
     let pack = eval::pack_of(name)?;
     let mut cases = eval::set(name)?;
     if !only.is_empty() {
@@ -413,6 +416,82 @@ async fn run_heard_eval(
         "== eval heard.v1: {} case(s); accuracy {right}/{}, {wrong_acting} wrong at the act band, {unanswered} unanswered",
         cases.len(),
         cases.len() - unanswered
+    );
+    Ok(())
+}
+
+/// A labelled set (`eval_labelled`), one call per case: each expectation met
+/// or missed, then the tally.
+async fn run_labelled_eval(
+    name: &str,
+    only: &[String],
+    client: JevClient,
+    fake: Option<&FakeJev>,
+    tally: &mut Tally,
+) -> Result<()> {
+    let pack = eval::pack_of(name)?;
+    let mut cases = crate::eval_labelled::set(name)?;
+    if !only.is_empty() {
+        cases.retain(|c| only.contains(&c.name));
+    }
+    let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
+    let (mut met, mut missed, mut unanswered) = (0usize, 0usize, 0usize);
+    for case in &cases {
+        println!("==== case {}\n{}", case.name, case.why);
+        if let Some(f) = fake {
+            for (q, want) in &case.expect {
+                let answer = match want.as_str() {
+                    "high" => Scripted::Noul(0.93),
+                    "low" => Scripted::Noul(0.05),
+                    option => Scripted::Choice {
+                        option: option.into(),
+                        confidence: 0.9,
+                    },
+                };
+                f.script(&format!("{name}/{q}"), answer);
+            }
+        }
+        let input = Input::parse(pack.builder, &case.input.to_string())?;
+        let prepared = prepare(&pack, &input, &NoScrub)?;
+        let ask = Ask::new(
+            pack.clone(),
+            &prepared,
+            Mode::Shadow,
+            json!({"eval": case.name}),
+        );
+        let judgments = judge
+            .judge(DecisionPoint {
+                asks: vec![ask.clone()],
+                urgency: Urgency::Shadow,
+            })
+            .await;
+        let j = &judgments[0];
+        report_judgment(&ask, j);
+        tally.add(j.timing.http_ms, j.usage);
+        if j.outcome != Outcome::Answered {
+            unanswered += 1;
+            println!("EVAL {}: not answered", case.name);
+            continue;
+        }
+        for c in eval::check_expect(&case.expect, &pack, &j.answers) {
+            if c.met {
+                met += 1;
+            } else {
+                missed += 1;
+            }
+            println!(
+                "EVAL {} {}: wanted {}, got {} ... {}",
+                case.name,
+                c.question,
+                c.wanted,
+                c.got,
+                if c.met { "met" } else { "MISSED" }
+            );
+        }
+    }
+    println!(
+        "== eval {name}: {} case(s); {met} expectation(s) met, {missed} missed, {unanswered} case(s) unanswered",
+        cases.len()
     );
     Ok(())
 }

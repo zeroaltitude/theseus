@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::floor::Floor;
 use crate::fsrs::Retention;
 use crate::science::{MemoryScience, RankCtx, Scored, SynthesisAdmit};
-use crate::threads::{ThreadLens, Tie, Verdict};
+use crate::threads::{Cause, Distant, ThreadLens, Tie, Verdict};
 
 /// Where a session speaks, as the core read it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -82,12 +82,13 @@ pub enum Reason {
     Budget,
     /// Its thread is sealed, or a seal is proposed for it (theseus-f2g0).
     Sealed,
-    /// Another thread's, and not above the bar (theseus-f2g0).
-    Thread,
+    /// Another stream's, kept out by one of the distance's rules
+    /// (theseus-f2g0; the rule named since theseus-98bz.2).
+    Thread(Cause),
 }
 
 impl Reason {
-    pub const ALL: [Reason; 14] = [
+    pub const ALL: [Reason; 17] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
@@ -101,7 +102,10 @@ impl Reason {
         Reason::Subject,
         Reason::Budget,
         Reason::Sealed,
-        Reason::Thread,
+        Reason::Thread(Cause::Bar),
+        Reason::Thread(Cause::Own),
+        Reason::Thread(Cause::Entity),
+        Reason::Thread(Cause::Base),
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -119,7 +123,19 @@ impl Reason {
             Reason::Subject => "subject",
             Reason::Budget => "budget",
             Reason::Sealed => "sealed",
-            Reason::Thread => "thread",
+            Reason::Thread(Cause::Bar) => "thread_bar",
+            Reason::Thread(Cause::Own) => "thread_own",
+            Reason::Thread(Cause::Entity) => "thread_entity",
+            Reason::Thread(Cause::Base) => "thread_base",
+        }
+    }
+
+    /// The reason's family, which a recall's tally counts by: `thread` for
+    /// each of the distance's rules, else the reason itself.
+    pub fn family(self) -> &'static str {
+        match self {
+            Reason::Thread(_) => "thread",
+            r => r.as_str(),
         }
     }
 }
@@ -332,6 +348,8 @@ pub struct Dropped {
     pub reason: Reason,
     /// Its excerpt's tokens, for a `budget` drop; else 0.
     pub tokens: u64,
+    /// What the distance weighed, for a `thread_*` drop; else none.
+    pub distance: Option<Distant>,
 }
 
 /// What a recall would admit, and what it dropped.
@@ -378,15 +396,15 @@ pub fn excerpt(text: &str, tokens: u64) -> String {
 }
 
 /// The filter that drops `c`, if one does, in the order the place rule
-/// first.
+/// first, with what the distance weighed when it was the one.
 fn filter(
     c: &Candidate,
     asker: &Asker<'_>,
     p: &Params,
     science: &dyn MemoryScience,
-) -> Option<Reason> {
+) -> Option<(Reason, Option<Distant>)> {
     if !asker.place.may_draw_on(&c.place) {
-        return Some(Reason::Place);
+        return Some((Reason::Place, None));
     }
     if let Some(l) = asker.threads {
         match l.judge(
@@ -395,11 +413,21 @@ fn filter(
             c.fused,
             Tie::of(&c.entities, &c.matched),
         ) {
-            Verdict::Sealed => return Some(Reason::Sealed),
-            Verdict::Distant => return Some(Reason::Thread),
+            Verdict::Sealed => return Some((Reason::Sealed, None)),
+            Verdict::Distant(d) => return Some((Reason::Thread(d.cause), Some(d))),
             Verdict::Pass | Verdict::Costs(_) => {}
         }
     }
+    other_filters(c, asker, p, science).map(|r| (r, None))
+}
+
+/// The filters after the place rule and the threads'.
+fn other_filters(
+    c: &Candidate,
+    asker: &Asker<'_>,
+    p: &Params,
+    science: &dyn MemoryScience,
+) -> Option<Reason> {
     if asker.in_context.contains(&c.node_id) {
         return Some(Reason::InContext);
     }
@@ -463,6 +491,7 @@ fn fresher(kept: Vec<Candidate>, asker: &Asker<'_>, dropped: &mut Vec<Dropped>) 
                 candidate: c,
                 reason: *reason,
                 tokens: 0,
+                distance: None,
             }),
             None => out.push(c),
         }
@@ -498,10 +527,11 @@ pub fn recall(
     let mut kept = Vec::new();
     for c in candidates {
         match filter(&c, asker, p, science) {
-            Some(reason) => pack.dropped.push(Dropped {
+            Some((reason, distance)) => pack.dropped.push(Dropped {
                 candidate: c,
                 reason,
                 tokens: 0,
+                distance,
             }),
             None => kept.push(c),
         }
@@ -544,6 +574,7 @@ pub fn recall(
                 candidate: c,
                 reason: Reason::InContext,
                 tokens: 0,
+                distance: None,
             });
             continue;
         }
@@ -554,6 +585,7 @@ pub fn recall(
                 candidate: c,
                 reason: Reason::Budget,
                 tokens,
+                distance: None,
             });
             continue;
         }
@@ -572,6 +604,7 @@ pub fn recall(
             candidate: c,
             reason: Reason::Threshold,
             tokens: 0,
+            distance: None,
         });
     }
     pack
@@ -689,8 +722,8 @@ mod tests {
         assert_eq!(reason_of(&synth, "syn_no"), Some(Reason::Unchecked));
     }
 
-    /// The threads' two reasons (theseus-f2g0): a sealed thread's note, and
-    /// another thread's under the bar.
+    /// The threads' reasons (theseus-f2g0): a sealed thread's note, and
+    /// another stream's by each of the distance's rules (theseus-98bz.2).
     fn threaded_pack(p: &Params) -> Pack {
         let lens = ThreadLens {
             here: Some("here".into()),
@@ -713,10 +746,16 @@ mod tests {
             ]),
             waived: BTreeSet::new(),
             top_fused: 0.9,
+            own_top: 0.55,
+            beats_own: true,
+            needs_entity: true,
+            base: true,
             penalty: 0.35,
             bar: 0.75,
             ..ThreadLens::default()
         };
+        let mut apart = cand("apart", "ses_far", Place::Private, 0.85);
+        apart.entities = vec!["file:far.rs".into()];
         let none = BTreeSet::new();
         let asker = Asker {
             session_id: "ses_here",
@@ -737,12 +776,22 @@ mod tests {
             vec![
                 cand("held", "ses_sealed", Place::Private, 0.9),
                 cand("distant", "ses_far", Place::Private, 0.3),
-                cand("near", "ses_far", Place::Private, 0.8),
+                cand("near", "ses_far", Place::Private, 0.88),
+                cand("beaten", "ses_far", Place::Private, 0.82),
+                apart,
+                cand("base", "ses_none", Place::Private, 0.3),
             ],
             p,
         );
         assert_eq!(reason_of(&threaded, "held"), Some(Reason::Sealed));
-        assert_eq!(reason_of(&threaded, "distant"), Some(Reason::Thread));
+        for (node, cause) in [
+            ("distant", Cause::Bar),
+            ("beaten", Cause::Own),
+            ("apart", Cause::Entity),
+            ("base", Cause::Base),
+        ] {
+            assert_eq!(reason_of(&threaded, node), Some(Reason::Thread(cause)));
+        }
         assert_eq!(threaded.admitted.len(), 1);
         threaded
     }

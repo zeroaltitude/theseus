@@ -83,14 +83,11 @@ impl TurnRunner {
             && self.cfg.standing.capture
             && t.tc.task.is_none()
             && crate::capture::owner_alone(class, place.as_deref());
-        let wait = match begun {
-            Some(early) => early.adopt(
-                &mut t.trace,
-                Some((t.tc.session_id.to_string(), node.id.clone())),
-            ),
-            None => self.judge.at_inbound(
-                &mut t.trace,
-                Inbound {
+        let early = match begun {
+            Some(early) => Some((early, Some((t.tc.session_id.to_string(), node.id.clone())))),
+            None => self
+                .judge
+                .inbound_early(Inbound {
                     session_id: t.tc.session_id.into(),
                     execution_id: t.tc.execution_id.into(),
                     turn_id: t.tc.turn_id.into(),
@@ -103,6 +100,7 @@ impl TurnRunner {
                     chosen: t.target.chosen.clone(),
                     task: t.tc.task.is_some(),
                     threads: Vec::new(),
+                    in_thread: !steered && self.scope_in_thread(t.tc.session_id),
                     persona: self.persona_ctx(t.tc.session_id, class),
                     capture,
                     data_names: self.cfg.routing.data.names(&self.cfg.privacy),
@@ -112,9 +110,17 @@ impl TurnRunner {
                         t.tc.session_id,
                     ),
                     attachments: attachments.clone(),
-                },
-            ),
+                })
+                .map(|e| (e, None)),
         };
+        // classify.v4's `scope` answer, for the place digest (theseus-98bz.9):
+        // a steered message's is not the running turn's.
+        let wait = early.and_then(|(mut e, said)| {
+            if !steered {
+                t.digest.scope = e.scope.take();
+            }
+            e.adopt(&mut t.trace, said)
+        });
         if steered {
             return;
         }

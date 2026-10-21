@@ -163,7 +163,7 @@ export function ThreadView() {
             {(t.topics?.length ?? 0) > 0 && <p className="text-ink-faint">Topics: {t.topics!.join(', ')}</p>}
             {links.length > 0 && (
               <p className="text-ink-faint">{links.map((l, i) => (
-                <span key={l.label}>{i > 0 && ' · '}{l.label} <Link to={`/threads/${l.slug}`} className="text-live">{l.slug}</Link></span>
+                <span key={`${l.label}:${l.slug}`}>{i > 0 && ' · '}{l.label} <Link to={`/threads/${l.slug}`} className="text-live">{l.slug}</Link></span>
               ))}</p>
             )}
           </div>

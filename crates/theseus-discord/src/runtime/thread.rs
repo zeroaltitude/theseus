@@ -351,6 +351,7 @@ mod tests {
                 parent: None,
                 merged_into: None,
                 split_from: None,
+                links: vec![],
                 session_id: None,
                 last_active_ms: 1_790_000_000_000,
                 created_at_ms: 1_790_000_000_000,

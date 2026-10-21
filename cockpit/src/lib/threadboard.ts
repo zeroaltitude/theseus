@@ -156,12 +156,13 @@ export function details(t: GroupedThread, now: number): string[] {
 }
 
 /** The history links of a thread record: where it came from and where it went. */
-export interface Links { parent?: string; merged_into?: string; split_from?: string }
+export interface Links { parent?: string; merged_into?: string; split_from?: string; links?: string[] }
 export function historyLinks(l: Links): Array<{ label: string; slug: string }> {
   const out: Array<{ label: string; slug: string }> = []
   if (l.parent) out.push({ label: 'Under', slug: l.parent })
   if (l.split_from) out.push({ label: 'Split from', slug: l.split_from })
   if (l.merged_into) out.push({ label: 'Merged into', slug: l.merged_into })
+  for (const slug of l.links ?? []) out.push({ label: 'Linked with', slug })
   return out
 }
 

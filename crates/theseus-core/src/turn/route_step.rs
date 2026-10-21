@@ -17,7 +17,10 @@
 //!   `trivial_context_turns` exchanges outside the session's compilation,
 //!   which it never writes; the session's profile, `last_target`, and
 //!   compilation stay as they were. Its loops record `loop.started` and no
-//!   `context.compiled`: its compilation is never stored, so no row names it.
+//!   `context.compiled`: its compilation is never stored, so its row is
+//!   `context.detoured` (names and counts, in the same frame), which
+//!   `context.explain` reads (theseus-r5ydi). The conversation's project slice
+//!   rides it as it rides any request (theseus-v4u66).
 //! - **The effort** (route.v3, `routing::effort`): decided with the route,
 //!   for the profile the turn moves to, and set on the spec and the first
 //!   loop's request once the compile the call uses is made (`apply_effort`),
@@ -81,6 +84,9 @@ pub(super) struct RouteState {
     /// The detour's request carries the turn's recall (a quick one,
     /// theseus-pa1xx).
     pub(super) detour_recall: bool,
+    /// The mode that sent the turn on a detour (`trivial`, `quick`), for the
+    /// `context.detoured` row (theseus-r5ydi).
+    pub(super) detour_kind: String,
     /// What the turn's result says.
     pub(super) result: Option<TurnRoute>,
     /// Where the owner's correction, or the layer, steers the turn ahead of
@@ -599,7 +605,7 @@ impl TurnRunner {
         // The first compile is not the call's: its rows go with it.
         self.drop_first(t, &compiled);
         if d.detour {
-            Self::detouring(t, verdict.as_ref().filter(|_| steering.is_none()));
+            Self::detouring(t, verdict.as_ref(), steering.as_ref());
         }
         self.route_to(t, session, spec, slot, target, &d)?;
         *provider = Some(p);
@@ -610,12 +616,18 @@ impl TurnRunner {
     }
 
     /// The turn detours: its record keeps the session's own target, and the
-    /// verdict's mode (none for a steered turn) says whether the detour's
-    /// request carries the turn's recall (theseus-pa1xx).
-    fn detouring(t: &mut Turn<'_>, verdict: Option<&Verdict>) {
+    /// verdict's mode (none for a steered turn: it names the mode, but sends no
+    /// recall) says whether the detour's request carries the turn's recall
+    /// (theseus-pa1xx). The mode is the row's `kind` (theseus-r5ydi).
+    fn detouring(t: &mut Turn<'_>, verdict: Option<&Verdict>, steering: Option<&Steering>) {
         t.route.keeps = Some(TargetRef::from(t.target));
-        t.route.detour_recall =
-            verdict.is_some_and(|v| crate::config::routing::detour_recalls(&v.mode));
+        t.route.detour_kind = match steering.map(|s| &s.steer) {
+            Some(Steer::Mode(m)) => m.clone(),
+            Some(_) => String::new(),
+            None => verdict.map_or_else(String::new, |v| v.mode.clone()),
+        };
+        t.route.detour_recall = steering.is_none()
+            && verdict.is_some_and(|v| crate::config::routing::detour_recalls(&v.mode));
     }
 
     /// The verdict the turn reads, or why it has none: its own, else a late
@@ -904,8 +916,9 @@ impl TurnRunner {
         Ok(())
     }
 
-    /// A detour's request: the persona and the profile's own header, and the
-    /// last `trivial_context_turns` exchanges with the message, compiled
+    /// A detour's request: the profile's own header (`detour_spec`), the last
+    /// `trivial_context_turns` exchanges with the message, and the project's
+    /// slice, compiled
     /// outside the session's compilation, which it never writes. A trivial
     /// detour reads the transcript without `recall_view`, so the turn's recall
     /// reaches no request, and `recall_routed` drops it; a quick one reads it
@@ -939,15 +952,10 @@ impl TurnRunner {
             true => self.recall_view(t, nodes),
             false => (nodes, crate::recall::render::Sources::default()),
         };
-        let mut detour = spec.clone();
         // The owner's standing records ride a detour too (theseus-a7vi): they
         // hold in every prompt of their scope, a cheap turn's included.
         // (The standing block is in the header layer already.)
-        detour.context_text = String::new();
-        detour.persona_text = String::new();
-        (detour.card, detour.cold) = (None, None);
-        detour.context_files = Vec::new();
-        detour.walk = None;
+        let detour = detour_step::detour_spec(spec);
         let mut compiled = compile(CompileInput {
             session_id: sid,
             current: None,
@@ -970,8 +978,17 @@ impl TurnRunner {
         if t.route.detour_recall {
             Self::recall_compiled(t, &mut compiled);
         }
+        let mut tail = detour_step::Tail::default();
+        let before = compiled.est_tokens;
         Self::standing_here(t, &mut compiled);
+        tail.standing = compiled.est_tokens - before;
+        let before = compiled.est_tokens;
         Self::persona_line(t, &mut compiled);
+        tail.persona = compiled.est_tokens - before;
+        // The project the conversation serves, last of all as `tail_blocks`
+        // does (theseus-v4u66): a cheap turn about it is as wrong without it.
+        let project =
+            crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled);
         // The board notes this request's loaded set (theseus-zs6mm).
         self.defer_noted(t, &detour, &compiled);
         let last = self.store.last_position();
@@ -981,6 +998,14 @@ impl TurnRunner {
         if let Some(f) = Self::standing_dropped(t, &compiled, i) {
             return Ok(Err(f));
         }
+        let row = self.detoured_row(
+            t,
+            &detour,
+            &compiled,
+            (&nodes, &tail, project.map_or(0, |p| p.tokens)),
+            i,
+        );
+        t.record(&fact::detour::Detoured { request: &row });
         t.record(&fact::turn::LoopStarted {
             turn_id: t.tc.turn_id,
             index: i,

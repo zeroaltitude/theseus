@@ -3,7 +3,8 @@ import type { RecallRetention } from "./RecallRetention";
 
 /**
  * A candidate dropped, and why: `place`, `in_context`, `untrusted`,
- * `recursion`, `threshold`, or `budget`.
+ * `recursion`, `threshold`, `budget`, `sealed`, or a thread distance's rule
+ * (`thread_bar`, `thread_own`, `thread_entity`, `thread_base`), among others.
  */
 export type RecallDrop = { node_id: string, chunk: number, session_id: string, reason: string, fused: number, 
 /**
@@ -14,4 +15,10 @@ tokens?: number,
  * Under `+retention` (32a): its node's retention, as for an item, so a
  * node a label dropped still shows what the label did to it.
  */
-retention?: RecallRetention, };
+retention?: RecallRetention, 
+/**
+ * A `thread_*` drop's numbers (theseus-98bz.2): the asking thread's own
+ * best hit, this note's share of the query's best, and its score once it
+ * paid the distance.
+ */
+own_top?: number, share?: number, paid?: number, };

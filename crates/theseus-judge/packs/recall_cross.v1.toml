@@ -1,0 +1,28 @@
+# recall_cross.v1 (theseus-98bz.10): whether a note another thread holds is
+# about the very subject the message asks about, or only the same kind of fact.
+# At `recall`, after the thread lens: at most `[threads] cross_recall_judge_k`
+# of the notes the lens dropped as another stream's (reason `thread`) whose
+# score is above the bar, best first, in one request. A yes is admitted with
+# the distance's penalty and labelled with its thread; a no, a timeout or a
+# failure leaves the drop as it was. A sealed or seal-pending thread's note is
+# dropped before this and never reaches the state.
+id = "recall_cross"
+version = 1
+jev_model = "jev-1.13.0"
+point = "recall"
+state = "recall_cross"
+state_cap_tokens = 4000
+sample = 1.0
+baseline = "fused"
+action = "none"
+description = "Recall across threads: whether each note another thread holds is about the same subject the message asks about, not only the same kind of fact."
+
+[questions.same_subject]
+type = "noul"
+per = "notes"
+max = 10
+instructions = "Is the note numbered {item} about the same subject the message asks about, not only the same kind of fact?"
+act = 0.90
+confirm = 0.60
+when_true = "The note states something about the very thing the message asks about, so an answer to the message would use it, whichever thread it was said in."
+when_false = "The note is about another subject that has the same shape: the same kind of value, setting or step for a different piece of work."

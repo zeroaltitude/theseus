@@ -62,7 +62,7 @@ sources?: { [key in string]: number },
  */
 skipped?: { [key in string]: string }, admitted: Array<RecallItem>, dropped: Array<RecallDrop>, 
 /**
- * The drops by reason.
+ * The drops by reason, a thread distance's rules together as `thread`.
  */
 drops?: { [key in string]: number }, 
 /**

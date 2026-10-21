@@ -47,6 +47,7 @@ pub mod capture;
 pub mod card;
 pub mod check;
 pub mod compaction;
+pub mod detour;
 pub mod disk;
 pub mod driver;
 pub mod durability;
@@ -316,6 +317,7 @@ facts![
     place::GlidePosted<'static>,
     place::GlideRead<'static>,
     turn::LoopStarted<'static>,
+    detour::Detoured<'static>,
     route::RouteDecided<'static>,
     route::RouteCorrected<'static>,
     turn::LoopCut<'static>,
@@ -602,6 +604,9 @@ facts![
     thread::ThreadUnmerged<'static>,
     thread::ThreadSplit<'static>,
     thread::ThreadUnsplit<'static>,
+    thread::ThreadLinked<'static>,
+    thread::ThreadUnlinked<'static>,
+    thread::ThreadLinkProposed<'static>,
     extend_hands::HandsLaunched<'static>,
     extend_hands::HandsSettled<'static>,
     extend_hands::HandsRefused<'static>,

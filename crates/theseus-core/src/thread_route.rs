@@ -452,6 +452,9 @@ pub struct Pre {
     pub chain: f64,
     pub score: f64,
     pub hits: Vec<String>,
+    /// The owner moved a message like this one to the thread: its score was
+    /// lifted to [`LEARNED`] (`rpc/thread_flow.rs`'s `learned_thread`).
+    pub learned: bool,
 }
 
 /// Score every thread from the message, the place's last exchange and the
@@ -510,6 +513,7 @@ pub fn pre_route(
                 chain,
                 score: noisy_or(&[entity, sticky, chain]),
                 hits: h.iter().map(|(_, e)| e.clone()).collect(),
+                learned: false,
             }
         })
         .collect()
@@ -559,6 +563,73 @@ pub enum Choice {
     Thread(String),
     New,
     Home,
+    /// A thread the ask does not list: answered by its slug (theseus-98bz.4).
+    Other,
+}
+
+/// What the decision reads beside the scores (theseus-eqp1v).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Rules {
+    /// `[threads] sticky_alone_asks`: a thread that stands on stickiness and
+    /// the reply chain alone (no entity named, no learned correction) cannot
+    /// overrule Jev's other pick; the message is asked about instead.
+    pub sticky_alone_asks: bool,
+    /// The message's concrete entities that no live thread's working set
+    /// holds ([`new_entities`]): with two or more, an ask offers a new thread.
+    pub new_entities: usize,
+    /// `[threads] ask_every_thread` (theseus-98bz.4): an ask lists every live,
+    /// unsealed thread (four at most, else three and `other`), not the best two.
+    pub ask_every_thread: bool,
+}
+
+/// The most threads an ask lists by name; past it, [`LISTED_PAST`] and `other`.
+const LISTED: usize = 4;
+const LISTED_PAST: usize = 3;
+
+/// Just below the confirm bar: where a sticky-only thread Jev disagrees with
+/// is held, so the decision falls to the ask.
+const STICKY_CAP: f64 = CONFIRM - 0.01;
+
+/// The message's concrete entities (refs, branches, files, hosts, repos, as
+/// the import's extractor finds them) that no live thread's working set holds.
+pub fn new_entities(text: &str, threads: &[&ThreadInfo]) -> usize {
+    let named = crate::threads_import::extract::working_set([text]);
+    let held = |e: &str| {
+        threads.iter().any(|t| {
+            let w = &t.working_set;
+            [&w.refs, &w.branches, &w.files, &w.hosts, &w.repos, &w.roots]
+                .iter()
+                .any(|l| l.iter().any(|x| x.eq_ignore_ascii_case(e)))
+        })
+    };
+    [
+        &named.refs,
+        &named.branches,
+        &named.files,
+        &named.hosts,
+        &named.repos,
+    ]
+    .iter()
+    .flat_map(|l| l.iter())
+    .filter(|e| !held(e))
+    .count()
+}
+
+/// Stickiness alone does not overrule Jev (theseus-eqp1v): a top thread whose
+/// score stands on no entity and no learned correction, which Jev did not
+/// pick, is held just below the confirm bar.
+fn hold_sticky(ranked: &mut [(Choice, f64)], pre: &[Pre], jev: &Jev) {
+    let Some((Choice::Thread(slug), score)) = ranked.first_mut() else {
+        return;
+    };
+    let alone = pre
+        .iter()
+        .find(|p| &p.slug == slug)
+        .is_some_and(|p| p.entity <= 0.0 && !p.learned);
+    if alone && jev.pick != Pick::Thread(slug.clone()) {
+        *score = score.min(STICKY_CAP);
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+    }
 }
 
 /// Every choice's fused score, best first.
@@ -635,22 +706,51 @@ fn tag(
     }
 }
 
-/// The ask: the two best threads (or one), `new` when Jev offered it, and
-/// home. Keys are `1`, `2`, `new`, `home`.
+/// The threads an ask may name: the live ones not sealed.
+pub fn askable<'a>(threads: &[&'a ThreadInfo]) -> Vec<&'a ThreadInfo> {
+    threads
+        .iter()
+        .copied()
+        .filter(|t| t.sealed.is_none())
+        .collect()
+}
+
+/// The ask: its threads by fused score (every live, unsealed one when there
+/// are four or fewer, else the best three and `other`, with `every`; else the
+/// best two), `new` when raised, and home. Keys are `1`, `2`, …, `other`,
+/// `new`, `home`.
 pub fn ask_options(
     threads: &[&ThreadInfo],
     ranked: &[(Choice, f64)],
     new_title: Option<&str>,
+    every: bool,
 ) -> Vec<AskChoice> {
     let mut out = Vec::new();
+    let named: Vec<&ThreadInfo> = match every {
+        true => askable(threads),
+        false => threads.to_vec(),
+    };
+    let listed = |s: &str| named.iter().any(|t| t.slug == s);
+    let total = ranked
+        .iter()
+        .filter(|(c, _)| matches!(c, Choice::Thread(s) if listed(s)))
+        .count();
+    let most = match (every, total > LISTED) {
+        (false, _) => 2,
+        (true, false) => LISTED,
+        (true, true) => LISTED_PAST,
+    };
     let mut n = 0;
     for (c, _) in ranked {
         if let Choice::Thread(s) = c {
-            if n >= 2 {
+            if n >= most {
                 break;
             }
+            if !listed(s) {
+                continue;
+            }
             n += 1;
-            let title = threads
+            let title = named
                 .iter()
                 .find(|t| &t.slug == s)
                 .map_or(s.as_str(), |t| t.title.as_str());
@@ -662,6 +762,15 @@ pub fn ask_options(
                 },
             });
         }
+    }
+    if every && total > n {
+        out.push(AskChoice {
+            choice: Choice::Other,
+            option: AskOption {
+                key: "other".into(),
+                label: "another thread".into(),
+            },
+        });
     }
     if let Some(t) = new_title {
         out.push(AskChoice {
@@ -702,17 +811,23 @@ pub fn offer_new(title: &str) -> Vec<AskChoice> {
     ]
 }
 
-/// The question in one line, from an ask's thread options.
+/// The question in one line, from an ask's thread options: every thread it
+/// lists, and "or another thread" when it does not list them all.
 pub fn question(options: &[AskChoice]) -> String {
-    let titles: Vec<&str> = options
+    let titles: Vec<String> = options
         .iter()
         .filter(|o| matches!(o.choice, Choice::Thread(_)))
-        .map(|o| o.option.label.as_str())
+        .map(|o| format!("the {}", o.option.label))
         .collect();
-    match titles.as_slice() {
-        [] => "Which thread is this about?".to_string(),
-        [one] => format!("Is this about the {one} thread?"),
-        [a, b, ..] => format!("Is this about the {a} or the {b}?"),
+    let other = options.iter().any(|o| o.choice == Choice::Other);
+    match (titles.as_slice(), other) {
+        ([], _) => "Which thread is this about?".to_string(),
+        ([one], false) => format!("Is this about {one} thread?"),
+        (all, false) => {
+            let (last, rest) = all.split_last().expect("two or more");
+            format!("Is this about {} or {last}?", rest.join(", "))
+        }
+        (all, true) => format!("Is this about {} or another thread?", all.join(", ")),
     }
 }
 
@@ -733,8 +848,12 @@ pub fn decide(
     jev: Option<&Jev>,
     voice: Voice,
     new_title: Option<&str>,
+    rules: Rules,
 ) -> Decision {
-    let ranked = fuse(pre, jev);
+    let mut ranked = fuse(pre, jev);
+    if let (true, Voice::Jev, Some(j)) = (rules.sticky_alone_asks, voice, jev) {
+        hold_sticky(&mut ranked, pre, j);
+    }
     let top = ranked[0].clone();
     let second = ranked
         .iter()
@@ -749,7 +868,7 @@ pub fn decide(
                 Decision::Route(tag(threads, &top.0, RouteHow::Guess, *s, true))
             }
             (Choice::Thread(_), s) if *s >= GUESS => Decision::Ask {
-                options: ask_options(threads, &ranked, None),
+                options: ask_options(threads, &ranked, None, rules.ask_every_thread),
             },
             _ => Decision::Route(tag(threads, &Choice::Home, RouteHow::Guess, top.1, true)),
         };
@@ -766,10 +885,17 @@ pub fn decide(
             Decision::Route(tag(threads, c, RouteHow::Visible, top.1, true))
         }
         _ => {
-            // A new thread is an option only when Jev raised it.
-            let raised = ranked.iter().any(|(c, _)| *c == Choice::New);
+            // A new thread is an option when Jev raised it, or when the
+            // message names two or more entities no live thread holds.
+            let raised = ranked.iter().any(|(c, _)| *c == Choice::New)
+                || (rules.sticky_alone_asks && rules.new_entities >= 2);
             Decision::Ask {
-                options: ask_options(threads, &ranked, new_title.filter(|_| raised)),
+                options: ask_options(
+                    threads,
+                    &ranked,
+                    new_title.filter(|_| raised),
+                    rules.ask_every_thread,
+                ),
             }
         }
     }
@@ -856,6 +982,7 @@ mod tests {
             parent: None,
             merged_into: None,
             split_from: None,
+            links: vec![],
             session_id: None,
             last_active_ms: 1,
             created_at_ms: 1,
@@ -1197,8 +1324,32 @@ mod tests {
                 chain: 0.0,
                 score: *p,
                 hits: vec![],
+                learned: false,
             })
             .collect()
+    }
+
+    /// The rules as they were before theseus-eqp1v, and as they ship.
+    const OFF: Rules = Rules {
+        sticky_alone_asks: false,
+        new_entities: 0,
+        ask_every_thread: false,
+    };
+    const ON: Rules = Rules {
+        sticky_alone_asks: true,
+        new_entities: 0,
+        ask_every_thread: true,
+    };
+
+    /// `decide` under today's rules, before theseus-eqp1v.
+    fn today(
+        t: &[&ThreadInfo],
+        pre: &[Pre],
+        jev: Option<&Jev>,
+        voice: Voice,
+        new_title: Option<&str>,
+    ) -> Decision {
+        decide(t, pre, jev, voice, new_title, OFF)
     }
 
     /// Every band of the table, with Jev answering.
@@ -1211,7 +1362,7 @@ mod tests {
             p,
         };
         // Jev sure, the router silent: quiet.
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.0), ("security-fix", 0.0)]),
             Some(&jev("pr-round", 0.95)),
@@ -1220,7 +1371,7 @@ mod tests {
         );
         assert_eq!(tags(&d), (RouteHow::Quiet, Some("pr-round"), false));
         // Jev likely: a visible tag and a move handle.
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.0), ("security-fix", 0.0)]),
             Some(&jev("security-fix", 0.75)),
@@ -1229,7 +1380,7 @@ mod tests {
         );
         assert_eq!(tags(&d), (RouteHow::Visible, Some("security-fix"), true));
         // Jev unsure: ask, with both threads and home.
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.0), ("security-fix", 0.0)]),
             Some(&jev("security-fix", 0.45)),
@@ -1242,7 +1393,7 @@ mod tests {
         let keys: Vec<&str> = options.iter().map(|o| o.option.key.as_str()).collect();
         assert_eq!(keys, ["1", "2", "home"]);
         // Two threads within 0.15 of each other: ask, whatever the top.
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.80), ("security-fix", 0.0)]),
             Some(&jev("security-fix", 0.70)),
@@ -1252,7 +1403,7 @@ mod tests {
         assert!(matches!(d, Decision::Ask { .. }), "{d:?}");
         // Jev and the router agree: the evidence adds (Jev's 0.85 alone is
         // only likely).
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.0), ("security-fix", 0.0)]),
             Some(&jev("pr-round", 0.85)),
@@ -1260,7 +1411,7 @@ mod tests {
             None,
         );
         assert_eq!(tags(&d), (RouteHow::Visible, Some("pr-round"), true));
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.50), ("security-fix", 0.0)]),
             Some(&jev("pr-round", 0.85)),
@@ -1269,7 +1420,7 @@ mod tests {
         );
         assert_eq!(tags(&d), (RouteHow::Quiet, Some("pr-round"), false));
         // Jev overrules a sticky router when it is sure.
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.80), ("security-fix", 0.0)]),
             Some(&jev("security-fix", 0.96)),
@@ -1282,7 +1433,7 @@ mod tests {
             pick: Pick::Home,
             p,
         };
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.2), ("security-fix", 0.0)]),
             Some(&home(0.95)),
@@ -1292,7 +1443,7 @@ mod tests {
         assert_eq!(tags(&d), (RouteHow::Home, None, false));
         // A new thread at the confirm bar is offered; below it, asked.
         let new = |p: f64| Jev { pick: Pick::New, p };
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.1), ("security-fix", 0.0)]),
             Some(&new(0.7)),
@@ -1300,7 +1451,7 @@ mod tests {
             Some("tide gauge"),
         );
         assert!(matches!(d, Decision::OfferNew { .. }), "{d:?}");
-        let d = decide(
+        let d = today(
             &t,
             &pre_with(&[("pr-round", 0.1), ("security-fix", 0.0)]),
             Some(&new(0.5)),
@@ -1315,6 +1466,139 @@ mod tests {
             .any(|o| o.option.key == "new" && o.option.label.contains("tide gauge")));
     }
 
+    /// The rule changes no band of the table (theseus-eqp1v): with
+    /// `sticky_alone_asks` on, each of its rows decides as it does off, since
+    /// none of them stands on stickiness alone.
+    #[test]
+    fn the_decision_table_is_the_same_with_the_sticky_rule_on() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let j = |pick: Pick, p: f64| Jev { pick, p };
+        let pr = |s: &str| Pick::Thread(s.into());
+        let rows = [
+            (0.0, j(pr("pr-round"), 0.95)),
+            (0.0, j(pr("security-fix"), 0.75)),
+            (0.0, j(pr("security-fix"), 0.45)),
+            (0.80, j(pr("security-fix"), 0.70)),
+            (0.0, j(pr("pr-round"), 0.85)),
+            (0.50, j(pr("pr-round"), 0.85)),
+            (0.80, j(pr("security-fix"), 0.96)),
+            (0.2, j(Pick::Home, 0.95)),
+            (0.1, j(Pick::New, 0.7)),
+            (0.1, j(Pick::New, 0.5)),
+        ];
+        for (score, jev) in rows {
+            let pre = pre_with(&[("pr-round", score), ("security-fix", 0.0)]);
+            let at = |r| decide(&t, &pre, Some(&jev), Voice::Jev, Some("tide gauge"), r);
+            assert_eq!(at(OFF), at(ON), "{score} {jev:?}");
+        }
+    }
+
+    /// The threadbench's msg-5 shape (theseus-eqp1v): a new stream's first
+    /// message scores the place's last thread 0.88 from stickiness and the
+    /// reply chain alone. Jev picks another thread, or a new one: the sticky
+    /// thread no longer routes `visible` (0.88 x 0.85 = 0.748), the message
+    /// is asked about, and two entities no thread holds offer a new thread.
+    #[test]
+    fn stickiness_alone_does_not_overrule_jev() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let text =
+            "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214, bump the base image";
+        let last = Last {
+            slug: Some("pr-round".into()),
+            at_ms: 1_000,
+            replied_ms: Some(1_000),
+        };
+        let pre = pre_route(text, &t, Some(&last), 1_000, 600_000);
+        assert!(
+            (pre[0].score - 0.88).abs() < 1e-9 && pre[0].entity == 0.0,
+            "{pre:?}"
+        );
+        let rules = Rules {
+            new_entities: new_entities(text, &t),
+            ..ON
+        };
+        assert_eq!(rules.new_entities, 2, "a branch and a ticket");
+        let keys = |d: &Decision| match d {
+            Decision::Ask { options } => options
+                .iter()
+                .map(|o| o.option.key.clone())
+                .collect::<Vec<_>>(),
+            other => panic!("not an ask: {other:?}"),
+        };
+        let other = Jev {
+            pick: Pick::Thread("security-fix".into()),
+            p: 0.3,
+        };
+        let d = decide(&t, &pre, Some(&other), Voice::Jev, Some("homesvc"), rules);
+        assert_eq!(keys(&d), ["1", "2", "new", "home"]);
+        let quiet = Rules {
+            new_entities: 0,
+            ..rules
+        };
+        let d = decide(&t, &pre, Some(&other), Voice::Jev, Some("homesvc"), quiet);
+        assert_eq!(keys(&d), ["1", "2", "home"], "no new entity, no new thread");
+        let new = Jev {
+            pick: Pick::New,
+            p: 0.52,
+        };
+        let d = decide(&t, &pre, Some(&new), Voice::Jev, Some("homesvc"), quiet);
+        assert!(keys(&d).contains(&"new".to_string()), "{d:?}");
+        // Off: today's table routes it to the sticky thread with no question.
+        let d = decide(&t, &pre, Some(&other), Voice::Jev, Some("homesvc"), OFF);
+        assert_eq!(tags(&d), (RouteHow::Visible, Some("pr-round"), true));
+        // Jev new at the confirm bar is still the offer, on or off.
+        let sure = Jev {
+            pick: Pick::New,
+            p: 0.65,
+        };
+        let d = decide(&t, &pre, Some(&sure), Voice::Jev, Some("homesvc"), rules);
+        assert!(matches!(d, Decision::OfferNew { .. }), "{d:?}");
+    }
+
+    /// The rule holds back stickiness alone, nothing else: a sticky thread
+    /// the message names an entity of, one a learned correction lifted, one
+    /// Jev agrees with, and a router alone all decide as before.
+    #[test]
+    fn evidence_beyond_stickiness_still_routes() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let last = Last {
+            slug: Some("pr-round".into()),
+            at_ms: 1_000,
+            replied_ms: None,
+        };
+        let pre = pre_route(
+            "and the formatter on lighthouse.rs",
+            &t,
+            Some(&last),
+            1_000,
+            600_000,
+        );
+        assert!(pre[0].entity > 0.0, "{pre:?}");
+        let other = Jev {
+            pick: Pick::Thread("security-fix".into()),
+            p: 0.3,
+        };
+        let d = decide(&t, &pre, Some(&other), Voice::Jev, None, ON);
+        assert_eq!(tags(&d), (RouteHow::Visible, Some("pr-round"), true));
+        let mut learned = pre_route("and the formatter too", &t, Some(&last), 1_000, 600_000);
+        learned[0].score = LEARNED;
+        learned[0].learned = true;
+        let d = decide(&t, &learned, Some(&other), Voice::Jev, None, ON);
+        assert_eq!(tags(&d), (RouteHow::Visible, Some("pr-round"), true));
+        let sticky = pre_route("and the formatter too", &t, Some(&last), 1_000, 600_000);
+        let agree = Jev {
+            pick: Pick::Thread("pr-round".into()),
+            p: 0.3,
+        };
+        let d = decide(&t, &sticky, Some(&agree), Voice::Jev, None, ON);
+        assert_eq!(tags(&d).1, Some("pr-round"));
+        let d = decide(&t, &sticky, None, Voice::Alone, None, ON);
+        assert_eq!(tags(&d), (RouteHow::Guess, Some("pr-round"), true));
+    }
+
     /// Without Jev (a timeout or none), the router's pick stands as a guess,
     /// and two close threads are asked.
     #[test]
@@ -1327,6 +1611,7 @@ mod tests {
             None,
             Voice::Alone,
             None,
+            OFF,
         );
         assert_eq!(tags(&d), (RouteHow::Guess, Some("security-fix"), true));
         let d = decide(
@@ -1335,6 +1620,7 @@ mod tests {
             None,
             Voice::Alone,
             None,
+            OFF,
         );
         assert!(matches!(d, Decision::Ask { .. }), "{d:?}");
         let d = decide(
@@ -1343,6 +1629,7 @@ mod tests {
             None,
             Voice::Alone,
             None,
+            OFF,
         );
         assert_eq!(
             tags(&d),
@@ -1374,7 +1661,7 @@ mod tests {
             (Choice::Thread("security-fix".into()), 0.45),
             (Choice::Home, 0.0),
         ];
-        let opts = ask_options(&t, &ranked, Some("tide gauge"));
+        let opts = ask_options(&t, &ranked, Some("tide gauge"), false);
         assert_eq!(
             question(&opts),
             "Is this about the pr round or the security fix?"
@@ -1383,6 +1670,55 @@ mod tests {
         assert_eq!(keys, ["1", "2", "new", "home"]);
         assert_eq!(opts[2].option.label, "New thread \u{ab}tide gauge\u{bb}");
         assert_eq!(question(&opts[..1]), "Is this about the pr round thread?");
+    }
+
+    /// An ask names every live, unsealed thread (theseus-98bz.4): all four of
+    /// four, ranked by fused score; of five, the best three and `other`; never a
+    /// sealed one. Off, the best two as before.
+    #[test]
+    fn an_ask_lists_every_thread_up_to_four_then_three_and_other() {
+        let th_n = |n: usize| th(&format!("t-{n}"), &format!("t {n}"), WorkingSet::default());
+        let ranked = |n: usize| -> Vec<(Choice, f64)> {
+            (1..=n)
+                .rev()
+                .map(|i| (Choice::Thread(format!("t-{i}")), i as f64 / 10.0))
+                .chain([(Choice::Home, 0.0)])
+                .collect()
+        };
+        let keys = |o: &[AskChoice]| o.iter().map(|o| o.option.key.clone()).collect::<Vec<_>>();
+        let four: Vec<ThreadInfo> = (1..=4).map(th_n).collect();
+        let o = ask_options(&refs(&four), &ranked(4), None, true);
+        assert_eq!(keys(&o), ["1", "2", "3", "4", "home"]);
+        assert_eq!(o[0].option.label, "t 4", "the best first");
+        assert_eq!(
+            question(&o),
+            "Is this about the t 4, the t 3, the t 2 or the t 1?"
+        );
+        let five: Vec<ThreadInfo> = (1..=5).map(th_n).collect();
+        let o = ask_options(&refs(&five), &ranked(5), Some("x"), true);
+        assert_eq!(keys(&o), ["1", "2", "3", "other", "new", "home"]);
+        assert_eq!(
+            question(&o),
+            "Is this about the t 5, the t 4, the t 3 or another thread?"
+        );
+        let o = ask_options(&refs(&five), &ranked(5), None, false);
+        assert_eq!(keys(&o), ["1", "2", "home"], "off: the best two");
+        assert_eq!(question(&o), "Is this about the t 5 or the t 4?");
+        // A sealed thread is never named; four askable ones are all listed.
+        let mut sealed = five;
+        sealed[4].sealed = Some(theseus_protocol::threads::Seal {
+            reason: "embargo".into(),
+            at_ms: 1,
+            by: "the owner".into(),
+        });
+        let o = ask_options(&refs(&sealed), &ranked(5), None, true);
+        assert_eq!(keys(&o), ["1", "2", "3", "4", "home"]);
+        assert!(o.iter().all(|c| c.choice != Choice::Thread("t-5".into())));
+        assert_eq!(
+            askable(&refs(&sealed)).len(),
+            4,
+            "a sealed thread answers no ask"
+        );
     }
 
     #[test]

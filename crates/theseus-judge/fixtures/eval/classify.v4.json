@@ -1,0 +1,379 @@
+[
+ {
+  "name": "place_pipe_11",
+  "why": "The pipeline stream's 'also this week' probe (threadbench pipe.11): it asks about the other streams, so the turn needs the place digest.",
+  "input": {
+   "message": "Add an 'also this week' section to NOTES.md about anything else going out from our side that this data's readers should know.",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": "Which group changed the most between the two cutoffs? One line, no edits.",
+   "last_reply": "The east group moved the most: 14 rows crossed the new cutoff.",
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [
+    {
+     "id": "pr-round",
+     "title": "the tarnlib PR",
+     "goal": "Answer four review comments on a library's PR and land it.",
+     "entities": [
+      "tarnlib",
+      "tarnlib/PR_DESCRIPTION.md",
+      "tarnlib/reviews"
+     ]
+    },
+    {
+     "id": "pipeline",
+     "title": "the datatidy cleanup",
+     "goal": "Clean three CSVs and write a per-group report.",
+     "entities": [
+      "datatidy",
+      "datatidy/NOTES.md"
+     ]
+    },
+    {
+     "id": "harness-dev",
+     "title": "the quillhn work",
+     "goal": "A CLI flag and a follow-up bug in a word-count tool.",
+     "entities": [
+      "quillhn",
+      "quillhn/wc.py",
+      "quillhn/NOTES.md"
+     ]
+    },
+    {
+     "id": "local-ops",
+     "title": "the homesvc maintenance",
+     "goal": "A version bump, a config migration and a restart script.",
+     "entities": [
+      "homesvc",
+      "homesvc/NOTES.md",
+      "scripts/restart.sh"
+     ]
+    },
+    {
+     "id": "sec-fix",
+     "title": "the ledgerweb fix",
+     "goal": "A path-traversal fix in a small web service.",
+     "entities": [
+      "ledgerweb"
+     ]
+    }
+   ],
+   "current_role": null,
+   "roles": []
+  },
+  "expect": {
+   "scope": "place"
+  }
+ },
+ {
+  "name": "place_pr_11",
+  "why": "The PR round's 'also this week' probe (threadbench pr.11).",
+  "input": {
+   "message": "Last touch on PR_DESCRIPTION.md: add an 'also this week' section covering anything else we are shipping that the reviewers should know about.",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": "The reviewer moved the merge date: it is 2026-11-19 now.",
+   "last_reply": "Noted: the merge date is 2026-11-19.",
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [
+    {
+     "id": "pr-round",
+     "title": "the tarnlib PR",
+     "goal": "Answer four review comments on a library's PR and land it.",
+     "entities": [
+      "tarnlib",
+      "tarnlib/PR_DESCRIPTION.md",
+      "tarnlib/reviews"
+     ]
+    },
+    {
+     "id": "pipeline",
+     "title": "the datatidy cleanup",
+     "goal": "Clean three CSVs and write a per-group report.",
+     "entities": [
+      "datatidy",
+      "datatidy/NOTES.md"
+     ]
+    },
+    {
+     "id": "harness-dev",
+     "title": "the quillhn work",
+     "goal": "A CLI flag and a follow-up bug in a word-count tool.",
+     "entities": [
+      "quillhn",
+      "quillhn/wc.py",
+      "quillhn/NOTES.md"
+     ]
+    },
+    {
+     "id": "local-ops",
+     "title": "the homesvc maintenance",
+     "goal": "A version bump, a config migration and a restart script.",
+     "entities": [
+      "homesvc",
+      "homesvc/NOTES.md",
+      "scripts/restart.sh"
+     ]
+    },
+    {
+     "id": "sec-fix",
+     "title": "the ledgerweb fix",
+     "goal": "A path-traversal fix in a small web service.",
+     "entities": [
+      "ledgerweb"
+     ]
+    }
+   ],
+   "current_role": null,
+   "roles": []
+  },
+  "expect": {
+   "scope": "place"
+  }
+ },
+ {
+  "name": "place_qh_9",
+  "why": "The quillhn stream's release-note probe (threadbench qh.9): whatever else ships this week is the other streams. Asked in the thread's own session, with no list of threads (a message the router placed by its own score).",
+  "input": {
+   "message": "Add a release note section to NOTES.md about whatever else ships with this tool this week.",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": "Show me what --help prints now, and tell me if it reads well.",
+   "last_reply": "Here is --help; it reads well.",
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [],
+   "current_role": null,
+   "roles": [],
+   "in_thread": true
+  },
+  "expect": {
+   "scope": "place"
+  }
+ },
+ {
+  "name": "place_ops_8",
+  "why": "The homesvc stream's 'queued this week' probe (threadbench ops.8). Asked in the thread's own session, with no list of threads (a message the router placed by its own score).",
+  "input": {
+   "message": "Put a 'queued this week' section in NOTES.md listing what else is going out from our side.",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": "Run the verification again and tell me the result.",
+   "last_reply": "./verify.sh passed.",
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [],
+   "current_role": null,
+   "roles": [],
+   "in_thread": true
+  },
+  "expect": {
+   "scope": "place"
+  }
+ },
+ {
+  "name": "thread_whats_left",
+  "why": "A status question about one stream, named: no digest.",
+  "input": {
+   "message": "what's left on the tarnlib PR?",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": null,
+   "last_reply": null,
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [
+    {
+     "id": "pr-round",
+     "title": "the tarnlib PR",
+     "goal": "Answer four review comments on a library's PR and land it.",
+     "entities": [
+      "tarnlib",
+      "tarnlib/PR_DESCRIPTION.md",
+      "tarnlib/reviews"
+     ]
+    },
+    {
+     "id": "pipeline",
+     "title": "the datatidy cleanup",
+     "goal": "Clean three CSVs and write a per-group report.",
+     "entities": [
+      "datatidy",
+      "datatidy/NOTES.md"
+     ]
+    },
+    {
+     "id": "harness-dev",
+     "title": "the quillhn work",
+     "goal": "A CLI flag and a follow-up bug in a word-count tool.",
+     "entities": [
+      "quillhn",
+      "quillhn/wc.py",
+      "quillhn/NOTES.md"
+     ]
+    },
+    {
+     "id": "local-ops",
+     "title": "the homesvc maintenance",
+     "goal": "A version bump, a config migration and a restart script.",
+     "entities": [
+      "homesvc",
+      "homesvc/NOTES.md",
+      "scripts/restart.sh"
+     ]
+    },
+    {
+     "id": "sec-fix",
+     "title": "the ledgerweb fix",
+     "goal": "A path-traversal fix in a small web service.",
+     "entities": [
+      "ledgerweb"
+     ]
+    }
+   ],
+   "current_role": null,
+   "roles": []
+  },
+  "expect": {
+   "scope": "thread",
+   "thread": "pr-round"
+  }
+ },
+ {
+  "name": "thread_security_view_comment",
+  "why": "A PR-round comment that begins with a persona cue: the cue picks a voice, so the message keeps its stream (a miss here routed it to the ledgerweb fix at p 0.75).",
+  "input": {
+   "message": "Security view: comment-3.md asks whether the retry helper's cap still bounds how long a caller can wait. Answer it in the review file.",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": "Second comment is in, comment-2.md. Do that one too.",
+   "last_reply": "Done: comment-2 is answered.",
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [
+    {
+     "id": "pr-round",
+     "title": "the tarnlib PR",
+     "goal": "Answer four review comments on a library's PR and land it.",
+     "entities": [
+      "tarnlib",
+      "tarnlib/PR_DESCRIPTION.md",
+      "tarnlib/reviews"
+     ]
+    },
+    {
+     "id": "pipeline",
+     "title": "the datatidy cleanup",
+     "goal": "Clean three CSVs and write a per-group report.",
+     "entities": [
+      "datatidy",
+      "datatidy/NOTES.md"
+     ]
+    },
+    {
+     "id": "harness-dev",
+     "title": "the quillhn work",
+     "goal": "A CLI flag and a follow-up bug in a word-count tool.",
+     "entities": [
+      "quillhn",
+      "quillhn/wc.py",
+      "quillhn/NOTES.md"
+     ]
+    },
+    {
+     "id": "local-ops",
+     "title": "the homesvc maintenance",
+     "goal": "A version bump, a config migration and a restart script.",
+     "entities": [
+      "homesvc",
+      "homesvc/NOTES.md",
+      "scripts/restart.sh"
+     ]
+    },
+    {
+     "id": "sec-fix",
+     "title": "the ledgerweb fix",
+     "goal": "A path-traversal fix in a small web service.",
+     "entities": [
+      "ledgerweb"
+     ]
+    }
+   ],
+   "current_role": null,
+   "roles": []
+  },
+  "expect": {
+   "scope": "thread",
+   "thread": "pr-round"
+  }
+ },
+ {
+  "name": "thread_regenerate_report",
+  "why": "A follow-up inside one stream: no digest.",
+  "input": {
+   "message": "Regenerate the report with the new cutoff.",
+   "author": "operator",
+   "place_kind": "cli (private)",
+   "previous_human_message": "The cutoff for flagging changed: use 0.55 from now on.",
+   "last_reply": "Noted: the cutoff is 0.55.",
+   "minutes_since_last_message": 4,
+   "live_tasks": [],
+   "live_threads": [
+    {
+     "id": "pr-round",
+     "title": "the tarnlib PR",
+     "goal": "Answer four review comments on a library's PR and land it.",
+     "entities": [
+      "tarnlib",
+      "tarnlib/PR_DESCRIPTION.md",
+      "tarnlib/reviews"
+     ]
+    },
+    {
+     "id": "pipeline",
+     "title": "the datatidy cleanup",
+     "goal": "Clean three CSVs and write a per-group report.",
+     "entities": [
+      "datatidy",
+      "datatidy/NOTES.md"
+     ]
+    },
+    {
+     "id": "harness-dev",
+     "title": "the quillhn work",
+     "goal": "A CLI flag and a follow-up bug in a word-count tool.",
+     "entities": [
+      "quillhn",
+      "quillhn/wc.py",
+      "quillhn/NOTES.md"
+     ]
+    },
+    {
+     "id": "local-ops",
+     "title": "the homesvc maintenance",
+     "goal": "A version bump, a config migration and a restart script.",
+     "entities": [
+      "homesvc",
+      "homesvc/NOTES.md",
+      "scripts/restart.sh"
+     ]
+    },
+    {
+     "id": "sec-fix",
+     "title": "the ledgerweb fix",
+     "goal": "A path-traversal fix in a small web service.",
+     "entities": [
+      "ledgerweb"
+     ]
+    }
+   ],
+   "current_role": null,
+   "roles": []
+  },
+  "expect": {
+   "scope": "thread"
+  }
+ }
+]

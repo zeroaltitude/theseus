@@ -646,6 +646,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   before and after tokens. The cache: the source's prefix changes once, at the next turn after a split; no other
   turn's does. Tests: `rpc/tests_thread_home.rs` (the key test, into, unsplit, recall, dry run, refusals),
   `moved::tests`, `split_turns::tests`, `tests_layouts` (format 46 opens and takes a `Moved` node).
+  **Linked threads** (theseus-98bz.11; store format 48: `ThreadInfo.links`, the ledger kinds `thread.linked`, `thread.unlinked` and, for part B, `thread.link_proposed`;
+  `rpc/thread_link.rs`, `fact/thread.rs`). `thread.link {slug, other}` and `thread.unlink` are the owner's act (`judge_thread_pair`, from a
+  private place; no model tool reaches them): one frame holds both records (each holds the other's slug, sorted, at most 8) and the row; a
+  link that holds and an unlink that is absent write nothing; a sealed, seal-pending, merged or unknown end, or one linked with itself, is
+  refused with the reason, and an unlink is allowed whatever the seal. `ThreadScene` takes `Board::linked_with(here)` (the ends of its
+  `links` and every thread whose `links` hold it, each with the live thread a merge left it in) into `waived`, so a linked thread's notes
+  pass unpaid and ask Jev nothing; `ThreadLens::judge` checks the seal before `waived`, so a seal set after the link still holds them out.
+  **Jev offers a link once** (`thread_link_seen.rs`, `[threads] link_proposals`, on): in `cross_judged`, once Jev's yes is admitted,
+  each other thread it drew on (live, unsealed, not merged, not linked, never the place's own conversation) is counted once a
+  recall, in a spawned blocking task after the recall (META `thread.link_seen.<a>.<b>`, the slugs sorted: `{recalls, asked}`; no
+  frame of any turn's). At a pair's second recall, with the owner's DM bound, one frame holds the record with `asked`, a
+  `thread.link_proposed` row and one outbox post to the owner's DM: Discord's `onto_card` with `undo: false` and no `write`, a text
+  card with no button (`theseus thread link a b` is in its words); a pair is asked once, whatever the owner did. Off, nothing is
+  counted, written or posted. Not yet: a card with Link / Not needed buttons and a Discord `/thread link` (theseus-98bz.12).
+  Tests: `rpc/tests_thread_link.rs`, the layouts' format-47 thread sample.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
@@ -1516,8 +1531,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
-    `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` alone,
-    since its compilation is never stored (`tests_route_rows.rs`). The row is `route.decided`
+    `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` and
+    `context.detoured` (the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
+    in the one frame with `loop.started`) and no `context.compiled`, since its compilation is never stored (`tests_route_rows.rs`); `context.explain`
+    explains a turn with no compile from that row (`ContextExplainResult.detour`, the turn list's `detoured`; theseus-r5ydi), and the
+    conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`
     (`fact/route.rs`: `wait_ms`, `late` when the verdict missed the wait, `answered_ms` when the request came back
     after the turn's start, if it had; each live turn's wait is `theseus.route.wait` by `theseus.route.late`,
     `tests_route_late.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
@@ -2416,9 +2434,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Actions panel show it all. Per-message additions are the `extra` argument of `Board::select` (Jev's branches, later).
   **A model without tool search** (theseus-jpjcd) does not get `tools_find` alone: a small model never called it, so
   `tools_defer::want` loads, with the fresh choice, the hidden families the turn's message names (a tool's whole wire
-  name, `aws_whoami`, or a family's name unless it is an everyday word), best first, while the request's tool tokens stay
-  within the place kind's budget (`PlaceKind::tools_budget_tokens`: 8,000 for cli, task and headless, 15,000 for dm and
-  channel). The text is `RouteState.ask`, set at the inbound point; a model with tool search never reads it. It takes
+  name, `aws_whoami`, or a family's name unless it is an everyday word), best first, while the whole first request stays
+  within the place kind's budget (`tools_defer::fit::Fit`: the system, what deferring costs, the families already loaded and this
+  one; theseus-3bs4e; 8,000 for cli, task and headless, 15,000 for dm and channel); a detour's is counted on the request it sends
+  (`turn/detour_step.rs`'s `detour_spec`, which its compile takes too). The text is `RouteState.ask`, set at the inbound point; a model with tool search never reads it. It takes
   effect where a compile takes the fresh set (a first compile, a detour, a boundary): an append keeps its recorded set.
   **The AWS tools are six families by use** (theseus-3msy0; `family::aws_family`): `aws` (call, describe, whoami),
   `aws-s3`, `aws-logs`, `aws-review` (inventory, cost, trail), `aws-stacks`, `aws-hands`. The whole set is 6,869 tokens,
@@ -2427,7 +2446,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   to a full family goes to a new one). A hyphenated family name is said when each of its words is, and its name's
   point is scored once per family. Evidence from before the split names `aws` for every AWS tool; a place that
   learned to load `aws` loads the generic three now, and the others learn from use again. The detour's test is
-  `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`.
+  `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`, run in the owner's DM since the whole-request
+  rule: at the cli a detour's request is about 7,300 tokens before a named family, so no AWS family (900 to 1,300) fits beside it there and the
+  model reaches one with `tools_find` (`tests_detour::a_detour_naming_a_family_stays_within_its_place_budget`).
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
 - **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
   `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]

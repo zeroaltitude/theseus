@@ -81,6 +81,54 @@ pub struct ContextTurn {
     #[cfg_attr(test, ts(type = "number"))]
     pub est_tokens: u64,
     pub compilation_id: String,
+    /// The turn detoured (`context.detoured`): it compiled no context.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub detoured: bool,
+}
+
+/// One part of a detour's request: its block and name, and its tokens.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct DetourPart {
+    /// `header`, `session`, `tools`, `persona`, `standing`, `recall`,
+    /// `project`, `exchanges` (the last exchanges) or `message`.
+    pub block: String,
+    pub name: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub tokens: u64,
+}
+
+/// A detour's request, as `context.detoured` records it (names and counts, no
+/// text): the compile of a turn the router sent to a cheaper profile is never
+/// stored, so this row is what `context.explain` reads for it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ContextDetoured {
+    pub session_id: String,
+    pub turn_id: String,
+    #[serde(rename = "loop")]
+    pub loop_index: u32,
+    /// What it ran on: the routed profile and its model.
+    pub profile: String,
+    pub model: String,
+    /// `trivial` or `quick`.
+    pub kind: String,
+    /// The place class its turn speaks in (`private`, `shared`).
+    pub class: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub est_tokens: u64,
+    pub parts: Vec<DetourPart>,
+    /// The tool families the request loaded.
+    pub families: Vec<String>,
+}
+
+/// How a turn ran when it detoured: on `profile`, in a request of its own.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ContextDetour {
+    pub kind: String,
+    pub profile: String,
+    pub model: String,
 }
 
 /// Where a recalled node came from: its session's place by name, and for an
@@ -129,6 +177,12 @@ pub struct ContextExplainResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub compilation: Option<CompilationInfo>,
+    /// The turn detoured: it ran on a cheaper profile, in a request built
+    /// outside the session's compilation, so `compiled` and `compilation`
+    /// are absent and `parts` are that request's. Absent for any other turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub detour: Option<ContextDetour>,
     /// What the turn ran on (the session's last target), and its window.
     pub profile: String,
     pub model: String,

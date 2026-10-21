@@ -21,7 +21,7 @@
 //! - **The outbox ignores the place** (`outbox::virtual_place`): a thread's
 //!   session has no Discord target to post to, as a CLI session has none.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use anyhow::Result;
@@ -135,6 +135,26 @@ impl Board {
             by(|t| t.merged_into.as_deref()),
             by(|t| t.split_from.as_deref()),
         )
+    }
+
+    /// The threads the owner linked with `here` (theseus-98bz.11), by slug: the ends of its own
+    /// `links` and every thread whose `links` hold it, each with the live thread a merge left it
+    /// in. Both directions are read, so a half-written pair can never make the lens one-sided.
+    pub fn linked_with(&self, here: &str) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        let mut add = |slug: &str| {
+            out.insert(slug.to_string());
+            out.extend(self.live_of(slug).map(|t| t.slug.clone()));
+        };
+        let holds_here = |l: &String| l == here || self.live_of(l).is_some_and(|t| t.slug == here);
+        if let Some(t) = self.get(here) {
+            t.links.iter().for_each(|l| add(l));
+        }
+        for t in self.all().filter(|t| t.links.iter().any(holds_here)) {
+            add(&t.slug);
+        }
+        out.remove(here);
+        out
     }
 
     /// Threads not done: what `[threads] max_live` bounds.
@@ -418,6 +438,7 @@ mod tests {
             parent: None,
             merged_into: None,
             split_from: None,
+            links: vec![],
             session_id: None,
             last_active_ms: active,
             created_at_ms: 1,

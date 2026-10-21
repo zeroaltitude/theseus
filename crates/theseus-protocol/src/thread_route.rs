@@ -84,7 +84,7 @@ impl ThreadTag {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AskOption {
-    /// What an answer names: `1`, `2`, `new` or `home`.
+    /// What an answer names: `1`, `2`, …, `other`, `new` or `home`.
     pub key: String,
     /// The label: the thread's title, `New thread «…»`, or `home`.
     pub label: String,
@@ -109,13 +109,18 @@ pub struct ThreadAsk {
     pub message: String,
     /// When the wait ends and the message runs at home.
     pub expires_ms: u64,
+    /// With an `other` option (theseus-98bz.4): every live, unsealed thread,
+    /// its slug as the key, any of which answers the question.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub others: Vec<AskOption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ThreadAnswerParams {
     pub ask_id: String,
-    /// An option's key: `1`, `2`, `new`, `home` (`n` and `h` too).
+    /// An option's key: `1`, `2`, …, `new`, `home` (`n` and `h` too), or a
+    /// live thread's slug (theseus-98bz.4).
     pub choice: String,
     /// Who answered, and from where: a card's press carries the presser's ids,
     /// which the core judges as an approval's (the owner, from a private place).

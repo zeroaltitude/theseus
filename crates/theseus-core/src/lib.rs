@@ -135,6 +135,7 @@ pub mod term;
 pub mod thread_context;
 pub mod thread_flow;
 pub mod thread_join;
+pub mod thread_link_seen;
 pub mod thread_read;
 pub mod thread_recall;
 pub mod thread_route;
@@ -273,6 +274,8 @@ mod tests_day_notify;
 mod tests_day_total;
 #[cfg(test)]
 mod tests_defer;
+#[cfg(test)]
+mod tests_detour;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
@@ -479,6 +482,8 @@ mod tests_route_measure;
 mod tests_route_model;
 #[cfg(test)]
 mod tests_route_rows;
+#[cfg(test)]
+mod tests_route_vocab;
 #[cfg(test)]
 mod tests_route_wait;
 #[cfg(test)]

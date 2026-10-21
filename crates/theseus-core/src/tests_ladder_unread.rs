@@ -98,7 +98,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     // the loop's end. The compile's point is on too; continue.v1 judges
     // only a compile whose signal fired, and this turn's fires none.
     let want = [
-        "classify.v3",
+        "classify.v4",
         "role.v1",
         "route.v7",
         "security.v3",

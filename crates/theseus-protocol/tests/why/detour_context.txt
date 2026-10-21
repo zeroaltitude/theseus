@@ -1,0 +1,10 @@
+7,369 of 200,000 tokens (3.7%)
+detour: ran as a quick detour on haiku (claude-haiku-5-5); its request was built outside the conversation's compilation
+  system and persona               735  █░░░░░░░░░░░░░░░░░░░  0.4%
+  tools (17)                     6,400  █░░░░░░░░░░░░░░░░░░░  3.2%
+  context files                      0  ░░░░░░░░░░░░░░░░░░░░  0.0%
+  recalled (0)                       0  ░░░░░░░░░░░░░░░░░░░░  0.0%
+  conversation                     114  █░░░░░░░░░░░░░░░░░░░  0.1%
+  project slice                    120  █░░░░░░░░░░░░░░░░░░░  0.1%
+  free space                   192,631  ████████████████████  96.3%
+`theseus why` names every part and the rule that put it there

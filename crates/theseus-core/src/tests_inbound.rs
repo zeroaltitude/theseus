@@ -1,4 +1,4 @@
-//! The inbound point (M5 25a; design §3, "25a"): `classify.v3` and
+//! The inbound point (M5 25a; design §3, "25a"): `classify.v4` and
 //! `role.v1` about each message a person sends, in shadow, against the fake
 //! Jev. One request per message, two rows that share its state's blob with
 //! the cost split by question count, each judgment marked on the turn's
@@ -102,10 +102,10 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 19] = [
+const INBOUND_ALONE: [&str; 20] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
-    "classify.v3: live",
+    "classify.v4: live",
     "role.v1: shadow",
     "route.v7: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-19))",
     "directive.v1: live",
@@ -115,6 +115,7 @@ const INBOUND_ALONE: [&str; 19] = [
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
+    "recall_cross.v1: live",
     "memory.v1: shadow",
     "attribution.v1: shadow",
     "citation.v1: shadow",
@@ -155,7 +156,7 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!(seen.len(), 1);
     let q = &seen[0].body["questions"];
     let ids: Vec<&String> = q.as_object().unwrap().keys().collect();
-    assert!(ids.iter().any(|i| *i == "classify.v3/kind"), "{ids:?}");
+    assert!(ids.iter().any(|i| *i == "classify.v4/kind"), "{ids:?}");
     // role.v1's options are the twelve seed roles and its no-match option.
     let roles = q["role.v1/role"]["criteria"].as_object().unwrap();
     assert_eq!(roles.len(), 13, "{roles:?}");
@@ -163,10 +164,10 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     // No live tasks: `addressed_task` is not asked.
     assert!(!ids.iter().any(|i| i.ends_with("/addressed_task")));
     let (c, ro) = (&classify[0].data, &role[0].data);
-    // classify.v3 acts at its bars (the thread question, theseus-rha2); role.v1
+    // classify.v4 acts at its bars (the thread question, theseus-rha2); role.v1
     // is recorded only.
     for (row, pack, mode) in [
-        (&classify[0], "classify.v3", "live"),
+        (&classify[0], "classify.v4", "live"),
         (&role[0], "role.v1", "shadow"),
     ] {
         assert_eq!(row.kind, "judge.call");

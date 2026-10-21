@@ -36,8 +36,8 @@ use crate::client::{
 use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
-/// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` and `classify.v3`
-/// (the `thread` and `offer_task` questions, theseus-rha2 and theseus-bh3t.5), and `route.v5` to `route.v7`
+/// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
+/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v7`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
 /// theseus-a1wvq). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
@@ -48,6 +48,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("security.v3", include_str!("../packs/security.v3.toml")),
     ("classify.v2", include_str!("../packs/classify.v2.toml")),
     ("classify.v3", include_str!("../packs/classify.v3.toml")),
+    ("classify.v4", include_str!("../packs/classify.v4.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("directive.v1", include_str!("../packs/directive.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
@@ -72,6 +73,10 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("onto.v1", include_str!("../packs/onto.v1.toml")),
     ("same_thing.v1", include_str!("../packs/same_thing.v1.toml")),
     ("two_things.v1", include_str!("../packs/two_things.v1.toml")),
+    (
+        "recall_cross.v1",
+        include_str!("../packs/recall_cross.v1.toml"),
+    ),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -132,6 +137,9 @@ pub enum Builder {
     SameThing,
     /// `two_things.v1`'s: one category and a sample of its sessions (theseus-nzzz4).
     TwoThings,
+    /// `recall_cross.v1`'s: the message and the notes the thread lens dropped
+    /// near the bar (theseus-98bz.10).
+    RecallCross,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -203,6 +211,10 @@ pub enum Source {
     /// The thread a message arrives in: one item, or none (`route.v5`'s
     /// `seal` is asked only in a thread).
     ThreadNow,
+    /// One item when the place has live threads: the router listed them, or
+    /// the message arrives in a thread (`classify.v4`'s `scope`,
+    /// theseus-98bz.9).
+    Scope,
     /// `onto.v1`'s candidate categories of a kind, picked by code (at most
     /// twenty, the kind's `new` option last): a kind is asked when its list
     /// is there. A topic's are [`Source::Topics`].
@@ -1244,6 +1256,22 @@ mod tests {
                 ],
             ),
             (
+                "classify.v4",
+                &[
+                    "Inbound Inbound Conversation ThreadRoute",
+                    "addressed_task Choice from Tasks + [none] only_when Tasks",
+                    "fragment Noul",
+                    "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
+                    "mentions_other_conversation Noul",
+                    "offer_task Noul",
+                    "scope Choice [thread place] only_when Scope",
+                    "should_promote Noul decides",
+                    "thread Choice decides from Threads + [new_thread home] only_when Threads",
+                    "wants_fresh_look Noul",
+                    "rollback [labels_per_day]",
+                ],
+            ),
+            (
                 "role.v1",
                 &[
                     "Inbound Inbound CurrentRole RoleHint",
@@ -1406,6 +1434,11 @@ mod tests {
             "classify.v3 keeps v2's rules"
         );
         assert_eq!(
+            rules("classify.v4"),
+            rules("classify.v2"),
+            "classify.v4 keeps v2's rules"
+        );
+        assert_eq!(
             rules("directive.v1"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong capture".into(),
@@ -1432,8 +1465,8 @@ mod tests {
             six.len(),
             23,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
-             citation.v1, people.v1, people_seen.v1, classify.v2 and v3, compare.v1, heard.v1, directive.v1, \
-             onto.v1, same_thing.v1 and two_things.v1"
+             citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
+             onto.v1, same_thing.v1, two_things.v1 and recall_cross.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

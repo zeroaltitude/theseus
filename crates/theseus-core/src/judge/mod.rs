@@ -33,6 +33,7 @@ pub mod categorize;
 pub mod citation;
 pub mod compare;
 pub mod compile;
+pub mod cross;
 pub mod gate;
 pub mod heard;
 pub mod inbound;
@@ -105,6 +106,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),
+    (cross::CROSS_PACK, PackMode::Live),
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
     (citation::CITATION_PACK, PackMode::Shadow),

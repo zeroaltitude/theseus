@@ -206,6 +206,7 @@ class ThreadsTheseus(rd.Theseus):
             raise RuntimeError(f"thread new {stream.id} failed: {(r.stderr or r.stdout).strip()[-300:]}")
         self.slug_stream[stream.id] = stream.id
         self.owner.title[stream.id] = stream.title
+        self.owner.slug[stream.id] = stream.id
 
     def drive(self) -> str:
         prog, run, a = self.tprog, self.run, self.a
@@ -250,11 +251,12 @@ class ThreadsTheseus(rd.Theseus):
                     v = {}
                 tag = tag_of(v)
                 slug = (tag or {}).get("slug")
-                # An accepted offer made the thread: it is the stream's. A thread the owner makes by hand when the
-                # product offered nothing is the stream's too.
-                if slug and slug not in self.slug_stream and any(x["offer"] and x["choice"] == "new" for x in answered):
+                # An accepted offer, or a question answered `new`, made the thread: it is the stream's. A thread the
+                # owner makes by hand when the product offered nothing is the stream's too.
+                if slug and slug not in self.slug_stream and any(x["choice"] == "new" for x in answered):
                     self.slug_stream[slug] = m.stream
                     self.owner.title[m.stream] = tag.get("title", slug)
+                    self.owner.slug[m.stream] = slug
                 if not addressed and self.owner.needs_thread(m.stream, first, slug) and not answered:
                     self.make_thread(streams[m.stream])
                     self.owner.started_by_hand += 1

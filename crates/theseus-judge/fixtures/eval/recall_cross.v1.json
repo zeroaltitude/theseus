@@ -1,0 +1,76 @@
+[
+ {
+  "name": "cutoff_answers_the_regenerate",
+  "why": "The threadbench's msg 113: the home note holds the new cutoff the message refers to; the pipeline thread answered 'you haven't given me the new cutoff' in 6 of 6 runs without it.",
+  "input": {
+   "message": "Regenerate the report with the new cutoff.",
+   "notes": [
+    {
+     "key": "nod_0",
+     "thread": "the place's own conversation",
+     "text": "The cutoff for flagging changed: use 0.55 from now on."
+    }
+   ]
+  },
+  "expect": {
+   "same_subject.1": "high"
+  }
+ },
+ {
+  "name": "another_streams_port_is_the_same_shape",
+  "why": "A question about this stream's staging port; the note is another stream's port: the same kind of fact about a different service, the contamination the lens was built to stop.",
+  "input": {
+   "message": "which port is the staging copy on?",
+   "notes": [
+    {
+     "key": "nod_0",
+     "thread": "homesvc maintenance",
+     "text": "the staging copy of homesvc listens on port 8453"
+    }
+   ]
+  },
+  "expect": {
+   "same_subject.1": "low"
+  }
+ },
+ {
+  "name": "two_notes_one_answers",
+  "why": "Two near misses: the merge date the reviewer moved (the asked-about PR's), and another stream's deadline of the same shape.",
+  "input": {
+   "message": "When does the tarnlib PR have to merge now?",
+   "notes": [
+    {
+     "key": "nod_0",
+     "thread": "the tarnlib PR",
+     "text": "The reviewer moved the merge date: it is 2026-11-19 now."
+    },
+    {
+     "key": "nod_1",
+     "thread": "the homesvc maintenance",
+     "text": "The maintenance window closes 2026-11-13."
+    }
+   ]
+  },
+  "expect": {
+   "same_subject.1": "high",
+   "same_subject.2": "low"
+  }
+ },
+ {
+  "name": "another_streams_branch",
+  "why": "A branch question in the quillhn thread; the note names the homesvc branch.",
+  "input": {
+   "message": "which branch is this work on?",
+   "notes": [
+    {
+     "key": "nod_0",
+     "thread": "homesvc maintenance",
+     "text": "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214"
+    }
+   ]
+  },
+  "expect": {
+   "same_subject.1": "low"
+  }
+ }
+]

@@ -45,6 +45,7 @@ pub mod compaction;
 pub mod effort;
 pub mod layers;
 pub(crate) mod phases;
+pub mod place_digest;
 mod ring;
 pub mod session_block;
 #[cfg(test)]

@@ -115,6 +115,9 @@ test('the history links name where a thread came from and went', () => {
     { label: 'Under', slug: 'a' }, { label: 'Split from', slug: 'b' }, { label: 'Merged into', slug: 'c' },
   ])
   assert.deepEqual(historyLinks({}), [])
+  assert.deepEqual(historyLinks({ parent: 'a', links: ['b', 'c'] }), [
+    { label: 'Under', slug: 'a' }, { label: 'Linked with', slug: 'b' }, { label: 'Linked with', slug: 'c' },
+  ])
   assert.deepEqual(workingSetLines({ repos: ['harbour'], files: [], hosts: ['quay.example'] }), ['Repos: harbour', 'Hosts: quay.example'])
 })
 

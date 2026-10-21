@@ -36,6 +36,24 @@
 //!   thread exists) is another stream's to a threaded asker: it pays the same
 //!   distance and a name never waives it. Off, it recalls as before. A node a
 //!   split moved belongs to the thread it moved to, whichever session it is in.
+//! - `own_top_admissible` (true; theseus-98bz.8): the asking thread's own
+//!   best hit that another stream's must outrank (`cross_recall_beats_own`)
+//!   is its best not already in the turn's context. A note in context is
+//!   dropped `in_context` and adds nothing, so it no longer keeps out the one
+//!   fact the thread lacks. Off, every own hit counts, in context or not.
+//! - `cross_recall_judge` (true; theseus-98bz.10): the notes the distance
+//!   dropped whose score is above the bar go to Jev (`recall_cross.v1`), at
+//!   most `cross_recall_judge_k` (3, 1 to 10) of them, best first, in one
+//!   request the turn waits for at most `route_wait_ms`: a note Jev reads as
+//!   about the message's subject, not only the same kind of fact, is
+//!   admitted with the penalty and labelled with its thread. Off, none is
+//!   asked about and the drops stand.
+//! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
+//!   (classify.v4) says a message in a thread asks across everything going on,
+//!   that turn's request gains a digest of the place's other live threads, one
+//!   labelled line each, a sealed or seal-pending one only counted. Off, no
+//!   turn waits for the answer and no request carries a digest.
+//! - `place_digest_line_chars` (200): the longest a digest's line is.
 //! - `sticky_half_life_secs`: how fast a place's last thread stops being the
 //!   likely one for its next message (600): the router's stickiness halves
 //!   every this many seconds of gap (theseus-rha2).
@@ -44,6 +62,15 @@
 //!   router's pick stands, tagged as a guess.
 //! - `ask_wait_secs`: how long a message waits for the owner's answer to
 //!   "which thread?" before it runs in the place's own conversation (900).
+//! - `sticky_alone_asks` (true; theseus-eqp1v): a thread that stands on
+//!   stickiness and the reply chain alone (no entity of its named, no learned
+//!   correction) cannot overrule Jev's other pick: the message is asked about,
+//!   and the ask offers a new thread when the message names two or more
+//!   entities no live thread holds. Off, the decision table is as before.
+//! - `ask_every_thread` (true; theseus-98bz.4): "which thread?" lists every
+//!   live, unsealed thread (four at most; past four, the best three and
+//!   `other`), and any live thread's slug answers it. Off, it lists the best
+//!   two, as before.
 //! - `resume_keep_turns`: the newest turns a thread keeps whole when its next
 //!   message finds its cache gone (6; `thread-context`).
 //! - `working_tokens`: what a thread's request stays within after such a cold
@@ -56,6 +83,10 @@
 //! - `seal_recommend` (false): whether a `yes` of route.v5's `seal` question
 //!   at the confirm bar or above, in a thread, proposes sealing it (a card to
 //!   the owner's DM; Jev recommends, the owner seals). Off until its holdout.
+//! - `link_proposals` (true; theseus-98bz.11): when Jev admits notes of another live, unsealed thread
+//!   into a thread's recall in two recalls, one sentence to the owner's DM offers `theseus thread link`
+//!   (once a pair, whatever the owner does). It links nothing itself. Off, nothing is counted, written
+//!   or posted.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -94,12 +125,26 @@ pub struct ThreadsConfig {
     pub cross_recall_needs_entity: bool,
     #[serde(default = "default_true")]
     pub base_distance: bool,
+    #[serde(default = "default_true")]
+    pub own_top_admissible: bool,
+    #[serde(default = "default_true")]
+    pub cross_recall_judge: bool,
+    #[serde(default = "default_judge_k")]
+    pub cross_recall_judge_k: usize,
+    #[serde(default = "default_true")]
+    pub place_digest: bool,
+    #[serde(default = "default_digest_line_chars")]
+    pub place_digest_line_chars: usize,
     #[serde(default = "default_half_life")]
     pub sticky_half_life_secs: u64,
     #[serde(default = "default_route_wait")]
     pub route_wait_ms: u64,
     #[serde(default = "default_ask_wait")]
     pub ask_wait_secs: u64,
+    #[serde(default = "default_true")]
+    pub sticky_alone_asks: bool,
+    #[serde(default = "default_true")]
+    pub ask_every_thread: bool,
     #[serde(default = "default_resume_keep_turns")]
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
@@ -108,6 +153,8 @@ pub struct ThreadsConfig {
     pub persona_engage: PersonaEngage,
     #[serde(default)]
     pub seal_recommend: bool,
+    #[serde(default = "default_true")]
+    pub link_proposals: bool,
 }
 
 fn default_enabled() -> bool {
@@ -130,6 +177,12 @@ fn default_penalty() -> f64 {
 }
 fn default_bar() -> f64 {
     0.75
+}
+fn default_judge_k() -> usize {
+    3
+}
+fn default_digest_line_chars() -> usize {
+    200
 }
 fn default_half_life() -> u64 {
     600
@@ -160,13 +213,21 @@ impl Default for ThreadsConfig {
             cross_recall_beats_own: true,
             cross_recall_needs_entity: true,
             base_distance: true,
+            own_top_admissible: true,
+            cross_recall_judge: true,
+            cross_recall_judge_k: default_judge_k(),
+            place_digest: true,
+            place_digest_line_chars: default_digest_line_chars(),
             sticky_half_life_secs: default_half_life(),
             route_wait_ms: default_route_wait(),
             ask_wait_secs: default_ask_wait(),
+            sticky_alone_asks: true,
+            ask_every_thread: true,
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
+            link_proposals: true,
         }
     }
 }
@@ -200,6 +261,15 @@ impl ThreadsConfig {
             if !(0.0..=1.0).contains(&v) {
                 bail!("threads.{key} = {v} is outside 0 to 1");
             }
+        }
+        if !(1..=10).contains(&self.cross_recall_judge_k) {
+            bail!(
+                "threads.cross_recall_judge_k is {}: Jev reads 1 to 10 notes a request",
+                self.cross_recall_judge_k
+            );
+        }
+        if self.place_digest_line_chars < 40 {
+            bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
         }
         if self.sticky_half_life_secs == 0 {
             bail!("threads.sticky_half_life_secs is 0: a half-life is at least a second");
@@ -271,8 +341,9 @@ mod tests {
     fn the_streams_do_not_mix_keys_are_on_by_default_and_each_turns_off() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert!(cfg.threads.cross_recall_beats_own && cfg.threads.base_distance);
-        assert!(cfg.threads.cross_recall_needs_entity);
+        assert!(cfg.threads.cross_recall_needs_entity && cfg.threads.own_top_admissible);
         assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_needs_entity = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# own_top_admissible = true"));
         assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_beats_own = true"));
         assert!(crate::Config::EXAMPLE_TOML.contains("# base_distance = true"));
         let loose = crate::Config::from_toml(
@@ -282,6 +353,57 @@ mod tests {
         .unwrap();
         assert!(!loose.threads.cross_recall_beats_own && !loose.threads.base_distance);
         assert!(!loose.threads.cross_recall_needs_entity);
+    }
+
+    /// Jev's read of the near misses (theseus-98bz.10) is on, three notes a
+    /// request, named in the template; it turns off, and a k outside 1 to 10
+    /// is refused.
+    #[test]
+    fn the_cross_judge_reads_three_and_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.cross_recall_judge);
+        assert_eq!(cfg.threads.cross_recall_judge_k, 3);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_judge = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_judge_k = 3"));
+        let off = crate::Config::from_toml("[threads]\ncross_recall_judge = false\n").unwrap();
+        assert!(!off.threads.cross_recall_judge);
+        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        for k in [0, 11] {
+            let bad = format!("{secrets}\n[threads]\ncross_recall_judge_k = {k}\n");
+            assert!(crate::Config::parse(&bad).is_err(), "{k}");
+        }
+    }
+
+    /// The place digest (theseus-98bz.9) is on by default, named in the
+    /// template with its line cap, turns off, and refuses a cap too short to
+    /// name a thread.
+    #[test]
+    fn the_place_digest_is_on_by_default_and_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.place_digest);
+        assert_eq!(cfg.threads.place_digest_line_chars, 200);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest_line_chars = 200"));
+        let off = crate::Config::from_toml("[threads]\nplace_digest = false\n").unwrap();
+        assert!(!off.threads.place_digest);
+        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        let bad = format!("{secrets}\n[threads]\nplace_digest_line_chars = 10\n");
+        assert!(crate::Config::parse(&bad).is_err());
+    }
+
+    /// The router's rules (theseus-eqp1v) are on by default, named in the
+    /// template, and each turns off.
+    #[test]
+    fn the_routers_rules_are_on_by_default_and_each_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.sticky_alone_asks && cfg.threads.ask_every_thread);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# sticky_alone_asks = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# ask_every_thread = true"));
+        let off = crate::Config::from_toml(
+            "[threads]\nsticky_alone_asks = false\nask_every_thread = false\n",
+        )
+        .unwrap();
+        assert!(!off.threads.sticky_alone_asks && !off.threads.ask_every_thread);
     }
 
     /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
@@ -316,5 +438,15 @@ mod tests {
             let t = format!("{secrets}\n[threads]\ndiscord_channel = \"{bad}\"\n");
             assert!(crate::Config::parse(&t).is_err(), "{bad}");
         }
+    }
+
+    /// Link proposals (theseus-98bz.11) are on by default, named in the template, and turn off.
+    #[test]
+    fn link_proposals_are_on_by_default_and_turn_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.link_proposals && ThreadsConfig::default().link_proposals);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# link_proposals = true"));
+        let off = crate::Config::from_toml("[threads]\nlink_proposals = false\n").unwrap();
+        assert!(!off.threads.link_proposals);
     }
 }

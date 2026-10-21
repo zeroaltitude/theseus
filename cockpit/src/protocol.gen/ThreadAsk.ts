@@ -25,4 +25,9 @@ message: string,
 /**
  * When the wait ends and the message runs at home.
  */
-expires_ms: number, };
+expires_ms: number, 
+/**
+ * With an `other` option (theseus-98bz.4): every live, unsealed thread,
+ * its slug as the key, any of which answers the question.
+ */
+others?: Array<AskOption>, };

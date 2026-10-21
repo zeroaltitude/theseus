@@ -107,7 +107,7 @@ pub struct RecallManifest {
     pub skipped: BTreeMap<String, String>,
     pub admitted: Vec<RecallItem>,
     pub dropped: Vec<RecallDrop>,
-    /// The drops by reason.
+    /// The drops by reason, a thread distance's rules together as `thread`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub drops: BTreeMap<String, u64>,
     /// The pack's limit, and what the admitted items would take.
@@ -522,7 +522,8 @@ pub struct RecallItem {
 }
 
 /// A candidate dropped, and why: `place`, `in_context`, `untrusted`,
-/// `recursion`, `threshold`, or `budget`.
+/// `recursion`, `threshold`, `budget`, `sealed`, or a thread distance's rule
+/// (`thread_bar`, `thread_own`, `thread_entity`, `thread_base`), among others.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RecallDrop {
@@ -539,6 +540,18 @@ pub struct RecallDrop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub retention: Option<RecallRetention>,
+    /// A `thread_*` drop's numbers (theseus-98bz.2): the asking thread's own
+    /// best hit, this note's share of the query's best, and its score once it
+    /// paid the distance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub own_top: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub share: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub paid: Option<f64>,
 }
 
 fn is_zero(n: &u64) -> bool {

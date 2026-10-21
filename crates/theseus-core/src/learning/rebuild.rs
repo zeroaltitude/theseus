@@ -64,6 +64,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a compare state is a replay's two replies, kept in the replay's row and not by the \
              judgment's record alone",
         ),
+        Builder::RecallCross => Some(
+            "a cross-stream state is the notes the thread lens dropped at that turn, read from \
+             the index as it stood then, which is not kept",
+        ),
         Builder::Heard => Some(
             "a voice transcript's state is one utterance's text, the sentences it may echo and \
              its timing, which the record keeps only in the judgment's blob",

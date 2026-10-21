@@ -17,9 +17,9 @@ use theseus_protocol::thread_route::{
     ThreadAnswerParams, ThreadAnswerResult, ThreadMoveParams, ThreadMoveResult,
 };
 use theseus_protocol::threads::{
-    crossed_words, ThreadEditParams, ThreadListParams, ThreadListResult, ThreadMergeParams,
-    ThreadMergeResult, ThreadNameParams, ThreadNewParams, ThreadRow, ThreadSealParams,
-    ThreadSealResult, ThreadState, WorkingSet,
+    crossed_words, ThreadEditParams, ThreadLinkParams, ThreadListParams, ThreadListResult,
+    ThreadMergeParams, ThreadMergeResult, ThreadNameParams, ThreadNewParams, ThreadRow,
+    ThreadSealParams, ThreadSealResult, ThreadState, WorkingSet,
 };
 
 use crate::cmd::output;
@@ -144,6 +144,13 @@ pub enum ThreadCmd {
     /// Undo a merge: FROM is as it was before (its state, its surfaces; its session opens again).
     /// INTO keeps what it took and gains a card line saying so.
     Unmerge { slug: String },
+    /// Link thread SLUG with OTHER: each one's notes reach the other's recall with no distance.
+    /// Neither may be sealed, and a seal set later holds the notes out again. At most 8 links a
+    /// thread. `theseus thread unlink SLUG OTHER` undoes it.
+    Link { slug: String, other: String },
+    /// Undo a link: the distance applies between SLUG and OTHER again. A sealed thread may be
+    /// unlinked.
+    Unlink { slug: String, other: String },
     /// Move whole turns into a thread, and take them out of the source's compile. The source is a
     /// thread's slug, a place's own session (its home) by its whole id (`ses_…`, `theseus
     /// places`), or `home@<place>`. The turns are quoted verbatim, in order, into a new thread
@@ -284,8 +291,45 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Answer { ask, choice } => answer(conn, json, ask, choice).await,
         ThreadCmd::Move { to, session, turn } => move_message(conn, json, to, session, turn).await,
         cmd @ (ThreadCmd::Merge { .. } | ThreadCmd::Unmerge { .. }) => join(conn, json, cmd).await,
+        ThreadCmd::Link { slug, other } => linking(conn, json, true, slug, other).await,
+        ThreadCmd::Unlink { slug, other } => linking(conn, json, false, slug, other).await,
         ThreadCmd::Split(a) => split::split(conn, json, a).await,
         ThreadCmd::Unsplit { split } => split::unsplit(conn, json, split).await,
+    }
+}
+
+/// `link` and `unlink` (theseus-98bz.11).
+async fn linking(
+    conn: &mut Conn,
+    json: bool,
+    link: bool,
+    slug: String,
+    other: String,
+) -> Result<()> {
+    let p = ThreadLinkParams {
+        slug,
+        other,
+        ..Default::default()
+    };
+    let m = if link {
+        method::THREAD_LINK
+    } else {
+        method::THREAD_UNLINK
+    };
+    let v = conn.request(m, serde_json::to_value(&p)?).await?;
+    output(json, v, |r: ThreadRow| {
+        println!("{}", link_line(&r, &p.other, link));
+        Ok(())
+    })
+}
+
+/// What a link or an unlink left, in a line.
+fn link_line(r: &ThreadRow, other: &str, link: bool) -> String {
+    let slug = &r.thread.slug;
+    if link {
+        format!("Linked {slug} with {other}: each one's notes reach the other's recall with no distance; a seal still holds them out. `theseus thread unlink {slug} {other}` undoes it.")
+    } else {
+        format!("Unlinked {slug} from {other}: the distance applies between them again.")
     }
 }
 
@@ -709,6 +753,7 @@ pub fn show_lines(r: &ThreadRow) -> Vec<String> {
         ("merged from", r.merged_from.clone()),
         ("split from", t.split_from.iter().cloned().collect()),
         ("split to", r.split_to.clone()),
+        ("linked with", t.links.clone()),
     ] {
         if !v.is_empty() {
             out.push(format!("  {what}: {}", v.join(", ")));
@@ -743,6 +788,7 @@ mod tests {
                 parent: None,
                 merged_into: None,
                 split_from: None,
+                links: vec![],
                 session_id: None,
                 last_active_ms: 0,
                 created_at_ms: 0,
@@ -909,6 +955,45 @@ mod tests {
         assert!(!show_lines(&row("x", ThreadState::Active, None, 0.0))
             .join("\n")
             .contains("merged"));
+    }
+
+    #[test]
+    fn show_names_the_threads_it_is_linked_with() {
+        let mut r = row("io", ThreadState::Active, None, 0.0);
+        assert!(!show_lines(&r).join("\n").contains("linked"));
+        r.thread.links = vec!["harbour".into(), "tides".into()];
+        let s = show_lines(&r).join("\n");
+        assert!(s.contains("linked with: harbour, tides"), "{s}");
+    }
+
+    #[test]
+    fn link_and_unlink_parse_and_say_how_to_undo() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Top {
+            #[command(subcommand)]
+            cmd: ThreadCmd,
+        }
+        let link = Top::try_parse_from(["t", "link", "io", "tides"])
+            .unwrap()
+            .cmd;
+        assert!(
+            matches!(link, ThreadCmd::Link { slug, other } if slug == "io" && other == "tides")
+        );
+        let un = Top::try_parse_from(["t", "unlink", "io", "tides"])
+            .unwrap()
+            .cmd;
+        assert!(
+            matches!(un, ThreadCmd::Unlink { slug, other } if slug == "io" && other == "tides")
+        );
+        assert!(Top::try_parse_from(["t", "link", "io"]).is_err());
+        let r = row("io", ThreadState::Active, None, 0.0);
+        let l = link_line(&r, "tides", true);
+        assert!(
+            l.contains("Linked io with tides") && l.contains("`theseus thread unlink io tides`"),
+            "{l}"
+        );
+        assert!(link_line(&r, "tides", false).contains("Unlinked io from tides"));
     }
 
     fn args(first: Option<&str>, last: Option<&str>, at: &[&str]) -> split::SplitArgs {
