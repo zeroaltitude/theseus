@@ -10,6 +10,7 @@ use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 use super::super::board::seed_inputs;
 use super::super::work as board_work;
 use crate::provider::Scripted;
+use crate::test_support::board_caught_up;
 use crate::tests_tasks::{
     answers_a_call, arranged, first_user, last_user, parent_session, rig, turn, until, ASK,
 };
@@ -143,6 +144,10 @@ async fn a_fresh_seed_shows_the_open_work_the_frames_built() {
             && kinds(WorkKind::Question) == 1
     })
     .await;
+    // The tree holds its kinds, but the board applies frames on a thread of
+    // its own: a conversation's last frame can still be queued, and the seed
+    // reads it from the store (theseus-fpvn8).
+    board_caught_up(&r.core, &parent).await;
     // Let the warm-up read the job's command, as it would after the first
     // watch, then seed another board from the store alone.
     let core = r.core.clone();

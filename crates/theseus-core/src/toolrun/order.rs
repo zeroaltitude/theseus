@@ -191,7 +191,12 @@ impl ToolRuntime {
         // `wake.at` keep their postures (T1b), and cost no record read; a
         // repeating wake is persistence, and is held (37a).
         let class = plan.class.unwrap_or(tool.class());
-        let held = if granted || crate::external::exempt(class, tool.name(), input) {
+        // A task's own close is its own record's: the hold leaves it alone
+        // (theseus-ay0yx).
+        let own_close = at
+            .session
+            .is_some_and(|s| crate::task_graph::tools::is_own_close(tool.name(), input, s));
+        let held = if granted || own_close || crate::external::exempt(class, tool.name(), input) {
             Ok(None)
         } else {
             (at.held)()

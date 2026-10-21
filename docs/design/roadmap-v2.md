@@ -113,9 +113,9 @@ Rust: YAML, web, docs, or a short spike. Why (measured at 16:27 unless marked):
   Delete it when the lane joins.
 - **Agents: the gateway caps active subagents at 8** (`maxChildrenPerAgent`, raised 15:25). 3 are in use now
   (T1b, review 2, this re-cut). The spine, three lanes, and one light lane take 5, so agents are not the limit.
-- **The bench.** The lifecycle bench's §9 budgets have per-phase margins of 7/4/25/2 ms. Niced lanes can still
-  make it miss, and the gate syncs and reruns once. If misses repeat, pause the lane builds (`kill -STOP`, then
-  `-CONT`) for the bench's ten seconds.
+- **The bench.** The lifecycle bench's §9 budgets have per-phase margins of 7/4/25/2 ms (cold, shutdown, kill,
+  swap), and 2 ms on the seed and 3 on health (theseus-m1r2w). Niced lanes can still make it miss, and the gate syncs
+  and reruns once. If misses repeat, pause the lane builds (`kill -STOP`, then `-CONT`) for the bench's ten seconds.
 
 - The dogfood pilot's builder daemon (theseus-14s) also works in a worktree. For the machine it counts as a lane
   (its own target dir, niced), though it is not an OpenClaw subagent.

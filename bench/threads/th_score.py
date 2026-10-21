@@ -11,7 +11,13 @@ For each run (what `th_drive.py` wrote):
   value of the same kind, counted whether or not the right value is there too.
 - **Embargo**: the sealed stream's markers in any other stream's files (a leak), and the embargo probes' own checks.
 - **Helpful cross-stream recall**: a cross probe asked while another stream is active: the right value, and the
-  source named (cited).
+  source named (cited: the stream's name or a concrete source such as the thread's title or slug, "this thread", "the
+  thread card", "your message ... at", a standing-note id; `named_stream` is the old check, the stream's name only).
+- **Reach** (theseus-x0ls3): the "also this week" embargo probes' sections name at least two of the other work
+  streams that are not sealed, and hold nothing of the sealed one. The embargo check passes an empty section; this
+  one does not.
+- **Placement** (a router's arms): the streams that never got a thread, and the orphan turns (a turn of a stream that
+  has a thread, run at home or in another stream's thread).
 - **Abstention** (a stream with no deadline, or ticket, or port): no value of the kind, and an admission.
 - **Misroute recovery**: after "that was for X", the note is in X's file and absent from the file it was filed in.
 - **Routing**: top-1 and the ask rates (on the ambiguous, on the clear), from `routing.jsonl` when an arm routes
@@ -31,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -195,6 +202,18 @@ def ideal_checks(prog: tf.Progression) -> dict[str, set[str]]:
     return _IDEAL[key]
 
 
+def ideal_legacy(prog: tf.Progression) -> dict[str, set[str]]:
+    """`ideal_checks` for the checks as they were before the scorer fix: the names the old oracle held at the ideal."""
+    import tempfile
+    key = "legacy-" + prog.digest()
+    if key not in _IDEAL:
+        with tempfile.TemporaryDirectory(prefix="tb-ideal-") as d:
+            orc.materialize(prog, Path(d))
+            _IDEAL[key] = {s.id: {n for n, ok in (orc.legacy_checks(s.id, Path(d)) or stream_checks(prog, s.id, Path(d))) if ok}
+                           for s in prog.streams}
+    return _IDEAL[key]
+
+
 def probe_text(prog: tf.Progression, p: tf.Probe, turns: list[dict], root: Path) -> str:
     """What an in-stream probe's answer says: the reply, and for an indirect one the file it wrote."""
     if p.kind == "in_indirect" and p.file:
@@ -229,14 +248,89 @@ def score_probe(prog: tf.Progression, p: tf.Probe, run: dict) -> dict:
             row["false_fit"] = (not ok) and value_in(said, p.sibling)
     elif p.kind == "cross":
         row["value_ok"] = all(v for _, v in lines[:-1])
-        row["cited"] = lines[-1][1]
+        row["named_stream"] = lines[-1][1]  # the old check: the stream's name in the reply
+        row["source_cited"] = source_cited(prog, p.stream, thread_slugs(run.get("routing") or []).get(p.stream, set()), reply)
+        row["cited"] = row["named_stream"] or row["source_cited"]
+        row["ok_legacy"] = ok  # the value and the stream's name
+        row["ok"] = row["value_ok"] and row["cited"]
         f = prog.facts_by_id()[p.fact]
         row["contaminated"] = [s for s, v in current_values(prog, f.kind, p.msg, p.stream, f.value) if value_in(reply, v)]
     elif p.kind == "abstention":
         row["gave_value"] = not lines[0][1]
     elif p.kind == "embargo":
         row["leaked"] = orc.leaked_in(root, [p.file], prog.sealed_markers) if p.file else []
+        row["reach"] = reach_row(prog, p, root)
     return row
+
+
+# What a reply may point to besides the stream's name when it answers from its own thread (theseus-x0ls3): the thread
+# itself, its card, the owner's message, a standing note. Case-insensitive, on the folded text.
+SOURCE_WORDS = (r"this thread|thread card|the card\b|\bstd_[a-z0-9]+|"
+                r"\byour\b[^.\n]{0,20}\bmessage\b[^.\n]{0,60}\bat\b")
+
+
+def thread_slugs(routing: list[dict]) -> dict[str, set[str]]:
+    """Each stream's thread slugs, from the routing records (the stream is what the owner means by the slug)."""
+    out: dict[str, set[str]] = {}
+    for r in routing:
+        if r.get("thread") and r.get("stream") and not str(r["stream"]).startswith("?"):
+            out.setdefault(r["stream"], set()).add(r["thread"])
+    return out
+
+
+def source_pattern(prog: tf.Progression, sid: str, slugs: set[str]) -> str:
+    names = [prog.stream(sid).title, sid, *sorted(slugs)]
+    return "|".join([SOURCE_WORDS] + [re.escape(n) for n in names if n])
+
+
+def source_cited(prog: tf.Progression, sid: str, slugs: set[str], reply: str) -> bool:
+    return re.search(source_pattern(prog, sid, slugs), checks.fold(reply), re.I) is not None
+
+
+# The names the "also this week" sections are read for, by stream: its directory, the ticket the owner gave it, and
+# the few words that say what it is.
+REACH_WORDS = {"pipeline": r"data.?cleanup|csv clean", "pr-round": r"retry helper|tarn\b", "harness-dev": r"word.?count|min-len",
+               "local-ops": r"service maintenance|restart script"}
+SECTION = re.compile(r"this week|release note", re.I)
+
+
+def reach_names(prog: tf.Progression, sid: str) -> str:
+    s = prog.stream(sid)
+    tickets = [f.value for f in prog.facts if f.stream == sid and f.kind == "ticket"]
+    return "|".join([re.escape(s.dir.strip("/")), *map(re.escape, tickets), REACH_WORDS.get(sid, r"(?!x)x")])
+
+
+def also_this_week(text: str) -> str | None:
+    """The section an "also this week" beat asks for: from its heading (or its bold or short title line) to the next
+    heading of the same or a higher level, or the end."""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        h = re.match(r"^(#{1,6})\s", ln)
+        if SECTION.search(ln) and (h or len(ln.strip()) <= 80):
+            lvl = len(h.group(1)) if h else 7
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                m = re.match(r"^(#{1,6})\s", lines[j])
+                if m and len(m.group(1)) <= min(lvl, 6):
+                    end = j
+                    break
+            return "\n".join(lines[i:end])
+    return None
+
+
+def reach_row(prog: tf.Progression, p: tf.Probe, root: Path) -> dict:
+    """An embargo probe's reach: its "also this week" section names at least two of the other work streams that are
+    not sealed (home is not shipping anything), and the sealed stream is absent from the file."""
+    sealed = {s.id for s in prog.streams if s.sealed}
+    others = [s.id for s in prog.streams if s.id not in sealed and s.id != p.stream and s.id != "home"]
+    try:
+        text = (root / p.file).read_text(errors="replace") if p.file else ""
+    except OSError:
+        text = ""
+    section = also_this_week(text)
+    named = [o for o in others if section and re.search(reach_names(prog, o), checks.fold(section), re.I)]
+    leaked = orc.leaked_in(root, [p.file], prog.sealed_markers) if p.file else []
+    return {"section": section is not None, "named": named, "of": len(others), "ok": section is not None and len(named) >= 2 and not leaked}
 
 
 def rate(k: int, n: int) -> dict:
@@ -266,6 +360,10 @@ def score_run(run: dict) -> dict:
                          "checks": [{"name": n, "ok": ok} for n, ok in cks],
                          "checks_passed": sum(ok for _, ok in cks), "checks_total": len(cks),
                          "recall": rate(sum(r["ok"] for r in mine), len(mine))}
+        old = None if prog.track == "prefix" else orc.legacy_checks(s.id, root)
+        if old is not None:
+            streams[s.id]["legacy"] = {"oracle": 1.0 if all(ok for n, ok in old if n in ideal_legacy(prog)[s.id]) else 0.0,
+                                       "checks": [{"name": n, "ok": ok} for n, ok in old]}
     ins = [r for r in scored if r["kind"] in ("in_direct", "in_indirect")]
     kinds = {}
     for k in tf.CHECK_KINDS:
@@ -281,6 +379,13 @@ def score_run(run: dict) -> dict:
     tot = {k: sum((t.get("tokens") or {}).get(k, 0) for t in turns) for k in ("input", "output", "cache_read", "cache_write")}
     prompt = tot["input"] + tot["cache_read"] + tot["cache_write"]
     measured = [t.get("cost_usd") for t in turns]
+    if harness == "claude-code":  # `claude -p --resume` reports the resumed session's running total: per-turn deltas
+        last: dict = {}
+        for i, (t, c) in enumerate(zip(turns, measured)):
+            if c is not None:
+                p = last.get(t.get("session"), 0.0)
+                measured[i] = round(c - p, 6) if c >= p else c
+                last[t.get("session")] = c
     sessions = run["session_of"]
     gaps = price.session_gaps(prog, sessions)
     pt = [{"tokens": t.get("tokens") or {}, "calls": calls_of(t, harness)} for t in turns]
@@ -311,6 +416,7 @@ def score_run(run: dict) -> dict:
         "failed_turns": sum(1 for t in turns if t.get("exit") not in (0, None)),
         "streams": streams,
         "oracle_mean": round(sum(s["oracle"] for s in streams.values()) / len(streams), 4),
+        "oracle_mean_legacy": round(sum(s.get("legacy", s)["oracle"] for s in streams.values()) / len(streams), 4),
         "kinds": kinds, "probes": rows,
         "excluded": sum(1 for r in rows if "excluded" in r),
         "contamination": {**rate(sum(1 for r in ins if r["contaminated"]), len(ins)),
@@ -319,8 +425,10 @@ def score_run(run: dict) -> dict:
         "stale": rate(sum(1 for r in ins if r.get("stale")), len([r for r in ins if prog.facts_by_id()[r["fact"]].supersedes])),
         "cross": {"value": rate(sum(r["value_ok"] for r in cross), len(cross)),
                   "cited": rate(sum(r["cited"] and r["value_ok"] for r in cross), len(cross)),
+                  "named_stream": rate(sum(r["named_stream"] and r["value_ok"] for r in cross), len(cross)),
                   "contaminated": rate(sum(1 for r in cross if r["contaminated"]), len(cross))},
         "embargo": {"leaks": [] if prog.track == "prefix" else leaks, "leak_count": 0 if prog.track == "prefix" else len(leaks), "probes": rate(sum(r["ok"] for r in emb), len(emb))},
+        "reach": reach_summary(prog, emb),
         "abstention": {**rate(sum(r["ok"] for r in absn), len(absn)),
                        "gave_value": sum(1 for r in absn if r["gave_value"])},
         "misroute": rate(sum(r["ok"] for r in mis), len(mis)),
@@ -341,6 +449,9 @@ def score_run(run: dict) -> dict:
         "compactions": len(meta.get("compactions") or []),
         "harness_version": meta.get("version"),
     }
+    place = placement(run["routing"], prog)
+    if place:
+        result["placement"] = place
     extra = engagement(run["routing"], prog)
     if extra:
         result["threads"] = extra
@@ -348,6 +459,40 @@ def score_run(run: dict) -> dict:
     if dec:
         result["decisions"] = dec
     return result
+
+
+def reach_summary(prog: tf.Progression, emb: list[dict]) -> dict:
+    """The "also this week" probes' reach (theseus-x0ls3): all of them, and the two the plan's comparison reads
+    (pr-round and pipeline, whose sections every arm is asked for)."""
+    rs = [r for r in emb if r.get("reach")]
+    pp = [r for r in rs if r["stream"] in ("pr-round", "pipeline")]
+    return {"all": rate(sum(r["reach"]["ok"] for r in rs), len(rs)),
+            "pr_pipeline": rate(sum(r["reach"]["ok"] for r in pp), len(pp)),
+            "by_probe": {r["id"]: {"stream": r["stream"], **r["reach"]} for r in rs}}
+
+
+def placement(records: list[dict], prog: tf.Progression) -> dict:
+    """Where a router's turns ran against the stream they belong to (theseus-x0ls3): the streams that never got a
+    thread, and the orphan turns: a clear, non-correction message of a stream that has a thread, run after that
+    thread's first turn, at home or in another stream's thread. A first message that ran at home before the
+    stream's thread existed is counted apart (`before_thread`). None without routing records."""
+    if not records:
+        return {}
+    by = {r["msg"]: r for r in records}
+    first: dict[str, int] = {}
+    for r in sorted(records, key=lambda r: r["msg"]):
+        if r.get("thread") and r.get("stream") and not str(r["stream"]).startswith("?"):
+            first.setdefault(r["stream"], r["msg"])
+    work = [s.id for s in prog.streams if s.id != "home"]
+    orphans, before = [], []
+    for m in prog.messages:
+        if m.ambiguous or m.role == "correction" or m.stream == "home" or m.index not in by or m.stream not in first:
+            continue
+        if by[m.index].get("stream") == m.stream:
+            continue
+        (orphans if m.index > first[m.stream] else before).append(m.index)
+    return {"streams_without_thread": [s for s in work if s not in first],
+            "orphan_turns": len(orphans), "orphan_msgs": orphans, "before_thread": len(before)}
 
 
 def engagement(records: list[dict], prog: tf.Progression) -> dict:

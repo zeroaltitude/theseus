@@ -194,6 +194,9 @@ impl State {
                 } else {
                     blocks.clone()
                 };
+                // The provider's own calls go back whole and in order, or its
+                // API refuses the request (theseus-s0s4x).
+                let bl = super::server_calls::closed(bl);
                 if bl.is_empty() {
                     return;
                 }
