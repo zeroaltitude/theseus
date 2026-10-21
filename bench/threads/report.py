@@ -53,6 +53,14 @@ import th_generate as gen  # noqa: E402
 pct, usd = draft.pct, draft.usd
 
 
+def streamcell(r: dict, sid: str) -> str:
+    """A stream's oracle, and (for a stream whose checks the scorer fix changed, theseus-x0ls3) what the old checks said."""
+    x = r["streams"][sid]
+    cell = (f'{pct(x["oracle"])} ({x["ideal_passed"]} of {x["ideal_checks"]} checks); recall {fr(x["recall"])}')
+    old = x.get("legacy")
+    return cell + (f' [old checks: {pct(old["oracle"])}]' if old and old["oracle"] != x["oracle"] else "")
+
+
 def fr(r: dict | None) -> str:
     """k of n (rate) of a scorer rate."""
     if not r or not r.get("n"):
@@ -184,10 +192,10 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
     # ---- per-stream correctness
     rows = []
     for s in prog.streams:
-        rows.append([f"`{s.id}`" + (" (sealed)" if s.sealed else "")] + [
-            f'{pct(r["streams"][s.id]["oracle"])} ({r["streams"][s.id]["ideal_passed"]} of '
-            f'{r["streams"][s.id]["ideal_checks"]} checks); recall {fr(r["streams"][s.id]["recall"])}' for r in runs])
+        rows.append([f"`{s.id}`" + (" (sealed)" if s.sealed else "")] + [streamcell(r, s.id) for r in runs])
     rows.append(["**oracle mean**"] + [f'**{pct(r["oracle_mean"])}**' for r in runs])
+    rows.append(["oracle mean, the checks before the scorer fix (theseus-x0ls3)"]
+                + [pct(r.get("oracle_mean_legacy", r["oracle_mean"])) for r in runs])
     kinds = []
     for k in tf.CHECK_KINDS:
         kinds.append([k] + [f'{fr(r["kinds"][k])}' + (f' (+{r["kinds"][k]["excluded"]} excluded)' if r["kinds"][k]["excluded"] else "")
@@ -207,10 +215,16 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
         ["in-stream answers with a colliding value"] + [fr(r["contamination"]) for r in runs],
         ["stale value given (of superseded)"] + [fr(r["stale"]) for r in runs],
         ["cross-stream: right value"] + [fr(r["cross"]["value"]) for r in runs],
-        ["cross-stream: right value and source named"] + [fr(r["cross"]["cited"]) for r in runs],
+        ["cross-stream: right value and a source named (the stream's name, its thread's title or slug, \"this thread\", "
+         "\"the thread card\", a standing-note id)"] + [fr(r["cross"]["cited"]) for r in runs],
+        ["cross-stream: right value and the stream named (the old check, `named_stream`)"]
+        + [fr(r["cross"].get("named_stream", r["cross"]["cited"])) for r in runs],
         ["cross-stream: colliding value in the answer"] + [fr(r["cross"]["contaminated"]) for r in runs],
         ["abstention: no value, and admits it"] + [fr({k: v for k, v in r["abstention"].items() if k in ("k", "n", "rate")}) for r in runs],
         ["embargo: probes clean"] + [fr(r["embargo"]["probes"]) for r in runs],
+        ["reach: the \"also this week\" section names two other open streams, pr-round and pipeline probes"]
+        + [fr((r.get("reach") or {}).get("pr_pipeline")) for r in runs],
+        ["reach: the same on all four \"also this week\" probes"] + [fr((r.get("reach") or {}).get("all")) for r in runs],
         ["embargo: sealed markers in other streams' files"] + [str(r["embargo"]["leak_count"]) for r in runs],
         ["misroute recovery (note in the right file only)"] + [fr(r["misroute"]) for r in runs],
     ])
@@ -249,7 +263,18 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
             rt.append([r["arm"], fr(x["top1"]), fr(x["asked_on_ambiguous"]), fr(x["asked_on_clear"])])
         else:
             rt.append([r["arm"], "no router: nothing to score", "–", "–"])
-    out["Routing"] = (table(["arm", "top-1 (true stream)", "asked on ambiguous", "asked on clear"], rt) +
+    pl = []
+    for r in runs:
+        x = r.get("placement")
+        if x:
+            pl.append([r["arm"], ", ".join(f"`{s}`" for s in x["streams_without_thread"]) or "none",
+                       f'{x["orphan_turns"]} ({", ".join(map(str, x["orphan_msgs"])) or "–"})', str(x["before_thread"])])
+    place = ("\nWhere the router's turns ran (theseus-x0ls3): the streams that never got a thread, and the orphan turns "
+             "(a clear message of a stream that has a thread, run after that thread's first turn at home or in another "
+             "stream's thread; the message numbers follow). `before thread` counts a stream's first messages that ran "
+             "at home before its thread existed.\n\n" +
+             table(["arm", "streams without a thread", "orphan turns", "before thread"], pl)) if pl else ""
+    out["Routing"] = (table(["arm", "top-1 (true stream)", "asked on ambiguous", "asked on clear"], rt) + place +
                       f"\nThe progression labels every message's true stream and marks "
                       f"{sum(1 for m in prog.messages if m.ambiguous)} as ambiguous (a good router asks) and "
                       f"{sum(1 for m in prog.messages if m.role == 'misroute')} misrouted notes with their scripted "

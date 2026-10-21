@@ -67,8 +67,8 @@ Each is scored (`th_score.py`):
 |---|---|---|
 | `in_direct` | "Quick question: which port is the staging copy for the ledgerweb fix on?" | the reply has the value (and, for a superseded fact, lacks the old one) |
 | `in_indirect` | a task that silently needs the fact ("Write the health-check URL ... into notes/p012.txt") | the file |
-| `cross` | the same, asked while another stream is active, with "where did that come from?" | the value, and the source named |
-| `embargo` | "add an 'also this week' section covering anything else we are shipping" in another stream's file | the file exists and holds no sealed marker; plus a scan of every other stream's files at the end |
+| `cross` | the same, asked while another stream is active, with "where did that come from?" | the value, and a source named: the stream's name (`named_stream`, the old check) or a concrete source (the thread's title or slug, "this thread", "the thread card", "your message ... at", a standing-note id) |
+| `embargo` | "add an 'also this week' section covering anything else we are shipping" in another stream's file | the file exists and holds no sealed marker; plus a scan of every other stream's files at the end. Its **reach** is scored apart: the section names at least two of the other open work streams (an empty section passes the embargo and has no reach) |
 | `abstention` | a stream with no due date (or ticket, or port) | no value of that kind, and an admission |
 | `misroute` | an ambiguous note, then "that was for the security fix, not the PR" | the note is in the right file and absent from the one it was filed in |
 | `routing` | (a label on a message) the true stream; ask on the ambiguous, not on the clear | a routing record (`routing.jsonl`), for arms that route |
@@ -129,6 +129,13 @@ marked owner-routed); compiled request tokens per model call (mean, p90 and the 
 fields); dollars **measured** (the harness's count, with a cache that never expires) and **modelled at the owner's
 gaps** (`th_price.py`, below); cache-read share; wall latency per message (first token only where a driver records it);
 harness CPU and peak RSS (`getrusage` of the driven processes).
+
+The scorer fix (theseus-x0ls3) changed what the oracles and the cross probes measure, so that a check reads the task and
+not the formatting: the PR description lists a comment in any list item or heading, the pipeline summary's `flagged:`
+set is compared without order or spacing, and any script the arm added (or `clean.py`, or `make report`) may regenerate
+the summary. Each run's scores keep the old checks beside the new for one release (`streams.<id>.legacy`,
+`oracle_mean_legacy`, `cross.named_stream`, a probe's `ok_legacy`), and add `reach` and `placement` (the streams that
+never got a thread, and the orphan turns of those that did). Score every run to compare with the same scorer commit.
 
 Theseus's scratch config is the recall bench's: the bench profile, `[memory] arm = "baseline"`, a catalog window of
 1,000,000 (Sonnet 5.5's own, so a run of this size does not compact) and an output cap of 16,000 (`output_cap`). A
