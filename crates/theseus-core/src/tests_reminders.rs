@@ -305,21 +305,22 @@ async fn with_no_dm_it_lives_in_a_reminders_conversation_and_every_surface_hears
     .await
     .unwrap();
     assert_eq!(again["wake"]["session_id"], home, "one Home, made once");
-    until("the first notice", 10, || {
-        rows(&r.core, "wake.fired").len() == 1
-    })
-    .await;
-    let n = noticed(&mut r);
-    assert_eq!(n.len(), 1, "{n:?}");
-    assert_eq!(n[0].note, "stretch");
-    assert_eq!(n[0].purpose, "remind");
-    assert_eq!(n[0].posted_to, None, "no place hears it");
-    let ids: Vec<&str> = n[0].answers.iter().map(|a| a.label.as_str()).collect();
+    // The notice is the event: it follows the frame that wrote the fired row, so waiting
+    // for the row and draining once can run ahead of it (theseus-4vgw1).
+    let n = next_noticed(&mut r).await;
+    assert_eq!(n.note, "stretch");
+    assert_eq!(n.purpose, "remind");
+    assert_eq!(n.posted_to, None, "no place hears it");
+    let ids: Vec<&str> = n.answers.iter().map(|a| a.label.as_str()).collect();
     assert_eq!(
         ids,
         ["Done", "Snooze 10 min", "Snooze 1 h", "Tomorrow 9:00"],
         "the four answers"
     );
+    // Heard once: the next notice is the other reminder's, never the first's again.
+    let next = next_noticed(&mut r).await;
+    assert_eq!(next.note, "water");
+    assert_ne!(next.wake_id, n.wake_id, "heard once");
     assert!(posts(&r.core).is_empty(), "nothing to post to");
     assert!(r.model.requests.lock().unwrap().is_empty());
 }
