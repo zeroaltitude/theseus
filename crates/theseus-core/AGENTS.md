@@ -539,7 +539,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
 
 - **The thread router** (theseus-rha2; no store change): an unaddressed message in a place with live threads finds its
-  thread. `rpc/thread_flow.rs` (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order:
+  thread (never one `theseus ask -s` named: `via` is `ask`, `may_route`, theseus-0rfjx). `rpc/thread_flow.rs` (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order:
   addressing by place, an explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
   (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
   against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
