@@ -459,6 +459,8 @@ mod tests_route_model;
 #[cfg(test)]
 mod tests_route_rows;
 #[cfg(test)]
+mod tests_route_vocab;
+#[cfg(test)]
 mod tests_route_wait;
 #[cfg(test)]
 mod tests_route_warm;
