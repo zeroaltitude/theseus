@@ -536,6 +536,8 @@ mod tests_task_report;
 #[cfg(test)]
 mod tests_task_search;
 #[cfg(test)]
+mod tests_private_background;
+#[cfg(test)]
 mod tests_task_start;
 #[cfg(test)]
 mod tests_task_wakes;

@@ -340,6 +340,14 @@ impl Core {
             )?],
         };
         records.push(d.brief_node.record()?);
+        // A task of a private session is private from its first call: its
+        // brief and quotes came from there.
+        records.extend(crate::google::private::inherited(
+            &self.store,
+            &self.cfg,
+            d.common.home_session,
+            &task.session_id,
+        )?);
         if d.by_brief {
             records.push(crate::turn::brief_step::mark(&task.session_id)?);
         }

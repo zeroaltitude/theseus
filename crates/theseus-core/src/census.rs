@@ -539,6 +539,7 @@ impl crate::rpc::Core {
     ) -> Result<ContextCensusResult> {
         let core = self.clone();
         let exact = p.exact;
+        let session = p.session_id.clone();
         let (mut out, request, provider) =
             tokio::task::spawn_blocking(move || core.context_census(&p)).await??;
         if !exact {
@@ -548,6 +549,11 @@ impl crate::rpc::Core {
             out.exact_error = Some("the model's provider is not configured".to_string());
             return Ok(out);
         };
+        // The counter is sent the session's whole request: its mark holds it.
+        let private = session
+            .as_deref()
+            .is_some_and(|s| crate::google::private::session(&self.store, &self.cfg, s));
+        let provider = crate::google::private::bound(provider, session.as_deref(), private);
         match exact_counts(provider.as_ref(), &request).await {
             Ok(e) => out.exact = Some(e),
             Err(e) => out.exact_error = Some(format!("{e:#}")),

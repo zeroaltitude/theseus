@@ -45,9 +45,11 @@ any request to a model of another origin that contains one of those names is ref
 Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
 then on that conversation's requests, including the summary that shortens it, go only to models of US origin, by the
 same allowlist: the route skips every other model, and a request that would reach one is refused before it is sent. A
-conversation that has not read anything from Google is not affected. Theseus's other background steps do not yet
-carry the mark, so an owner who wants none of it to reach a model of another origin configures no provider of any other
-origin.
+conversation that has not read anything from Google is not affected. The background steps that send a conversation's
+content carry the mark the same way: the keep-warm read of its cache, the memory pass, the learning loop, the people and
+naming calls, cards, replays, the census's exact count, and the finding said from the memory pass. A request that
+holds content from several conversations (a memory note's sources, the learning writer's cases) is private when any
+one of them is, and a task a private conversation starts is private from its first call.
 
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
 assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's

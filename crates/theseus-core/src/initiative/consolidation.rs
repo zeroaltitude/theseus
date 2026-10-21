@@ -37,6 +37,16 @@ impl Core {
         {
             return;
         }
+        // The notes the finding quotes came from sessions: if one of those
+        // read a Google result the finding's call is held by the floor.
+        let private = crate::google::private::any_node(
+            &self.store,
+            &self.cfg,
+            r.clusters
+                .iter()
+                .filter(|c| c.outcome == "supported" || c.outcome == "unchecked")
+                .flat_map(|c| &c.sources),
+        );
         let n = kept.len() as u64;
         let named = kept
             .iter()
@@ -63,14 +73,16 @@ impl Core {
                 drop(core);
                 tokio::time::sleep(std::time::Duration::from_millis(wait.max(1_000))).await;
             };
-            let spoken = core
-                .initiative_speak(&Facts {
+            let spoken = crate::google::private::within(
+                private,
+                core.initiative_speak(&Facts {
                     kind: "consolidation",
                     brief: &brief,
                     line: Line::Consolidation,
                     n,
-                })
-                .await;
+                }),
+            )
+            .await;
             if let Err(e) = core.initiative_post("consolidation", &spoken) {
                 tracing::warn!(error = %format!("{e:#}"), "the consolidation finding was not written");
             }
