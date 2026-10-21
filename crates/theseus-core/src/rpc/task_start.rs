@@ -122,7 +122,8 @@ impl Core {
             arrangement.as_ref(),
             &home_session,
             &brief_node.id,
-        );
+        )
+        .map(|h| if p.open { crate::external::bare(h) } else { h });
         let (by, via) = (who.who(), who.via());
         let common = Common {
             title: &title,

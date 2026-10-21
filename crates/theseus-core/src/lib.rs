@@ -375,6 +375,8 @@ mod tests_ontology_bind;
 #[cfg(test)]
 mod tests_ontology_undo;
 #[cfg(test)]
+mod tests_open_request;
+#[cfg(test)]
 mod tests_open_task;
 #[cfg(test)]
 mod tests_open_view;

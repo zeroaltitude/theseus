@@ -655,13 +655,16 @@ pub fn create<'a>(
                 .transpose()?;
             let mut records = match &parent_hold {
                 Some(h) => {
-                    let taken = crate::external::taken(
+                    let mut taken = crate::external::taken(
                         h,
                         tc.session_id,
                         crate::external::VIA_TASK,
                         &brief.id,
                         theseus_protocol::now_unix_ms(),
                     );
+                    if i.open {
+                        taken = crate::external::bare(taken);
+                    }
                     crate::external::hold(rec, taken, None)?.unwrap_or_default()
                 }
                 None => vec![NewRecord::json(

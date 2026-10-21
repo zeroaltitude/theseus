@@ -91,10 +91,10 @@ pub(super) struct RouteState {
     /// The message names one of `[privacy] sensitive_names`: a profile not of
     /// US origin is unusable for the turn (`data_step.rs`).
     pub(super) sensitive: bool,
-    /// Whether the turn's requests may go to a model of restricted origin
-    /// (theseus-a1wvq.3). Closed, unchecked, at the turn's start (the
-    /// default); nothing clears one yet.
-    pub(super) clearance: crate::data::Clearance,
+    /// The turn's input judged open, and its open run, or why not
+    /// (theseus-a1wvq.8, `data::admits`). Unchecked at the turn's start; it
+    /// never mints a pass: each request's own `data::clearance` does.
+    pub(super) admitted: super::open_step::Admitted,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -142,7 +142,7 @@ pub struct Waited {
 
 /// The row's times (theseus-ddbi).
 #[derive(Default)]
-struct Timed {
+pub(super) struct Timed {
     waited: Duration,
     late: bool,
     answered_ms: Option<u64>,
@@ -368,6 +368,9 @@ impl TurnRunner {
         // inline, the turn's future overflowed a 2 MiB stack in debug builds.
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
             // A turn that asked no route meets the data floor here.
+            if i == 0 {
+                self.data_admit_unrouted(t, session);
+            }
             let floored = match i {
                 0 => match self.floor_unrouted(t, session, spec, provider, slot)? {
                     Ok(d) => d,
@@ -378,7 +381,7 @@ impl TurnRunner {
             let compiled =
                 Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
             if let (Some(d), Ok(Ok(c))) = (&floored, &compiled) {
-                Self::record_route(t, None, Some(d), None, c, Timed::default(), None);
+                Self::record_route(t, None, Some(d), None, c.est_tokens, Timed::default(), None);
             }
             return compiled;
         };
@@ -481,7 +484,7 @@ impl TurnRunner {
         // A steered turn runs where the owner said: it waits for no verdict.
         let steering = t.route.steer.take().filter(|_| live);
         t.route.defer_persist = live;
-        let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
+        let max_wait = self.route_wait(t);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
         let wait = (live && !unreachable && steering.is_none()) || self.judge.pins_wait();
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
@@ -511,7 +514,7 @@ impl TurnRunner {
             unreachable,
         );
         let ask = (&steering, &verdict, reason);
-        let decision = match self.decide_floored(t, session, ask, &compiled) {
+        let decision = match self.decide_floored(t, session, ask, (live, late), &compiled) {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
@@ -525,7 +528,7 @@ impl TurnRunner {
             verdict.as_ref(),
             decision.as_ref(),
             reason,
-            &compiled,
+            compiled.est_tokens,
             Timed {
                 waited,
                 late,
@@ -625,7 +628,7 @@ impl TurnRunner {
                 let judge = self.judge.clone();
                 let s = sid.to_string();
                 // A brief's late verdict picks nothing, now or for a later message.
-                let keep = !t.route.brief;
+                let keep = !t.route.brief && !t.data.brief;
                 tokio::spawn(async move {
                     if let Ok(Answered {
                         verdict: Some(v), ..
@@ -646,18 +649,27 @@ impl TurnRunner {
     }
 
     /// The decision the turn's verdict (or steer) makes, kept off restricted
-    /// profiles when the request names a sensitive name (theseus-oejh3).
+    /// profiles when the request names a sensitive name (theseus-oejh3), and
+    /// on one only for a turn its verdict admits open (theseus-a1wvq.8; a
+    /// steered turn has none).
     fn decide_floored(
         &self,
         t: &mut Turn<'_>,
         session: &SessionRecord,
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
+        (live, late): (bool, bool),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
+        let judged = verdict
+            .as_ref()
+            .filter(|_| steering.is_none() && reason.is_none());
+        self.data_admit(t, session, judged, live, late);
         t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decision = match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
+            // An open task's brief asked for its data alone picks nothing.
+            (None, Some(_), None) if t.data.brief && !t.route.brief => None,
             (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
             _ => None,
         };
@@ -696,7 +708,7 @@ impl TurnRunner {
                     from,
                     images: t.route.images,
                     cap,
-                    cleared: false,
+                    cleared: t.route.floor().cleared,
                 },
             )
         };
@@ -719,12 +731,12 @@ impl TurnRunner {
     }
 
     /// The `route.decided` row, and what the turn's result says.
-    fn record_route(
+    pub(super) fn record_route(
         t: &mut Turn<'_>,
         verdict: Option<&Verdict>,
         decision: Option<&Decision>,
         reason: Option<Reason>,
-        compiled: &Compiled,
+        est_tokens: u64,
         timed: Timed,
         steering: Option<&Steering>,
     ) {
@@ -748,7 +760,7 @@ impl TurnRunner {
             reason: reason.as_str(),
             detour: decision.is_some_and(|d| d.detour),
             switch: decision.is_some_and(|d| d.switch),
-            est_tokens: compiled.est_tokens,
+            est_tokens,
             wait_ms: timed.waited.as_millis() as u64,
             late: timed.late,
             answered_ms: timed.answered_ms,
@@ -890,6 +902,9 @@ impl TurnRunner {
         spec: &RequestSpec,
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
+        if let Some(run) = self.open_detour(t) {
+            return self.compile_open_detour(t, session, &run, i);
+        }
         let sid = t.tc.session_id;
         let nodes = t.tc.store.transcript(sid)?;
         let from = detour_start(&nodes, self.cfg.routing.trivial_context_turns);
