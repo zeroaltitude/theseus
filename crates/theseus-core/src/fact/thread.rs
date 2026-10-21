@@ -288,3 +288,75 @@ impl Fact for ThreadUnsplit<'_> {
         );
     }
 }
+
+/// Two threads were linked (`thread.linked`, theseus-98bz.11): the owner's word that their notes
+/// reach each other's recall with no distance. One row holds both ends; `thread` is the end the
+/// notification is for.
+pub struct ThreadLinked<'a> {
+    pub thread: &'a ThreadInfo,
+    pub other: &'a str,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ThreadLinked<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadLinked);
+    const METHOD: Option<&'static str> = Some(notify::THREAD_CHANGED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::ThreadChanged(ThreadChanged::of(
+            self.thread,
+            "linked",
+            self.who,
+        )))
+    }
+
+    fn row(&self) -> Value {
+        json!({"slug": self.thread.slug, "other": self.other, "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Thread: {} linked {} with {}; their notes reach each other's recall with no distance, a seal still holds.",
+                self.who, self.thread.slug, self.other
+            ),
+        );
+    }
+}
+
+/// A link was removed (`thread.unlinked`).
+pub struct ThreadUnlinked<'a> {
+    pub thread: &'a ThreadInfo,
+    pub other: &'a str,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ThreadUnlinked<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadUnlinked);
+    const METHOD: Option<&'static str> = Some(notify::THREAD_CHANGED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::ThreadChanged(ThreadChanged::of(
+            self.thread,
+            "unlinked",
+            self.who,
+        )))
+    }
+
+    fn row(&self) -> Value {
+        json!({"slug": self.thread.slug, "other": self.other, "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Thread: {} unlinked {} from {}; the distance applies between them again.",
+                self.who, self.thread.slug, self.other
+            ),
+        );
+    }
+}

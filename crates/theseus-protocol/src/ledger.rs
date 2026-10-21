@@ -332,6 +332,8 @@ ledger_kinds! {
     ThreadSealProposed = "thread.seal_proposed",
     ThreadSealed = "thread.sealed",
     ThreadUnsealed = "thread.unsealed",
+    ThreadLinked = "thread.linked",
+    ThreadUnlinked = "thread.unlinked",
     ThreadRouted = "thread.routed",
     ThreadAsked = "thread.asked",
     ThreadAnswered = "thread.answered",

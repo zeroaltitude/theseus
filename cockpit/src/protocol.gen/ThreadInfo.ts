@@ -26,6 +26,11 @@ seal_pending?: string,
  */
 surfaces?: Array<string>, parent?: string, merged_into?: string, split_from?: string, 
 /**
+ * Threads the owner linked to this one: their notes reach this thread's recall with no
+ * distance; a seal still holds them out.
+ */
+links?: Array<string>, 
+/**
  * The place's current session; none until the thread's first message.
  */
 session_id?: string, last_active_ms: number, created_at_ms: number, };

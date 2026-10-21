@@ -91,6 +91,7 @@ mod thread_flow;
 mod thread_home;
 mod thread_import;
 mod thread_join;
+mod thread_link;
 mod thread_move;
 mod thread_seal;
 mod thread_surface;
@@ -177,6 +178,8 @@ mod tests_thread_import;
 mod tests_thread_join;
 #[cfg(test)]
 mod tests_thread_keep_warm;
+#[cfg(test)]
+mod tests_thread_link;
 #[cfg(test)]
 mod tests_thread_mix;
 #[cfg(test)]

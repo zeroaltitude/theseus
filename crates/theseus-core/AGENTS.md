@@ -625,6 +625,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   before and after tokens. The cache: the source's prefix changes once, at the next turn after a split; no other
   turn's does. Tests: `rpc/tests_thread_home.rs` (the key test, into, unsplit, recall, dry run, refusals),
   `moved::tests`, `split_turns::tests`, `tests_layouts` (format 46 opens and takes a `Moved` node).
+  **Linked threads** (theseus-98bz.11; store format 48: `ThreadInfo.links`, the ledger kinds `thread.linked`, `thread.unlinked` and, for part B, `thread.link_proposed`;
+  `rpc/thread_link.rs`, `fact/thread.rs`). `thread.link {slug, other}` and `thread.unlink` are the owner's act (`judge_thread_pair`, from a
+  private place; no model tool reaches them): one frame holds both records (each holds the other's slug, sorted, at most 8) and the row; a
+  link that holds and an unlink that is absent write nothing; a sealed, seal-pending, merged or unknown end, or one linked with itself, is
+  refused with the reason, and an unlink is allowed whatever the seal. `ThreadScene` takes `Board::linked_with(here)` (the ends of its
+  `links` and every thread whose `links` hold it, each with the live thread a merge left it in) into `waived`, so a linked thread's notes
+  pass unpaid and ask Jev nothing; `ThreadLens::judge` checks the seal before `waived`, so a seal set after the link still holds them out.
+  Tests: `rpc/tests_thread_link.rs`, the layouts' format-47 thread sample.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

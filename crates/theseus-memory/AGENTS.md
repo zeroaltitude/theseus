@@ -25,7 +25,8 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   `judge(session, fused)`: a candidate of a held thread (sealed, or a seal proposed) is `sealed` for every asker but
   its own thread; in a threaded session (`distance`) another thread's candidate is `thread` unless its fused score is
   above `bar` of `top_fused` (the index's best), else it pays `penalty` in the pack's rank; naming the thread
-  (`waived`) waives the distance and never a seal. Reasons `sealed` and `thread` join `Reason::ALL`.
+  (`waived`) waives the distance and never a seal; the threads the owner linked with the asking one join `waived` (the
+  core's `Board::linked_with`, theseus-98bz.11), and the seal still comes first. Reasons `sealed` and `thread` join `Reason::ALL`.
   `own_top` is the asking thread's best hit not already in context (theseus-98bz.8, the core's `[threads]
   own_top_admissible`). `admitted` names the nodes Jev's `recall_cross.v1` read as about the message's subject
   (theseus-98bz.10): `judge` gives them `Costs` before any rule, so the core never puts a held thread's node there.

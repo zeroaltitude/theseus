@@ -173,6 +173,7 @@ mod tests {
             parent: None,
             merged_into: None,
             split_from: None,
+            links: vec![],
             session_id: None,
             last_active_ms: 0,
             created_at_ms: 0,

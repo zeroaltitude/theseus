@@ -19,7 +19,9 @@
 //!   (`own_top_admissible`, theseus-98bz.8).
 //! - **Naming** (`waived`): the message names a thread by its slug, its
 //!   title, or one of its working set's entities (a repo, branch, ref, file,
-//!   root or host), as whole words, in any case.
+//!   root or host), as whole words, in any case. The threads the owner linked
+//!   with the asking one are waived too (`Board::linked_with`, theseus-98bz.11);
+//!   a seal still holds them out, since the lens checks it first.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -300,10 +302,13 @@ impl TurnRunner {
         let memo = self.memory.thread_memo();
         let here = session.and_then(|s| memo.slug_of(&self.store, &board, s));
         let distance = ambient && here.is_some();
-        let waived = if distance {
-            named(&board, message)
-        } else {
-            BTreeSet::new()
+        let waived = match here.as_deref().filter(|_| distance) {
+            // A linked thread's notes pass unpaid; the lens still checks the seal first.
+            Some(h) => named(&board, message)
+                .union(&board.linked_with(h))
+                .cloned()
+                .collect(),
+            None => BTreeSet::new(),
         };
         Some(ThreadScene {
             here,

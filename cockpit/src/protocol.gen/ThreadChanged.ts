@@ -9,7 +9,7 @@ import type { ThreadState } from "./ThreadState";
  */
 export type ThreadChanged = { slug: string, title: string, state: ThreadState, sealed: boolean, persona?: string, surfaces?: Array<string>, 
 /**
- * `created`, `edited`, `paused`, `resumed`, `done`, `reopened` or
- * `opened` (the thread's session was opened by its first message).
+ * `created`, `edited`, `paused`, `resumed`, `done`, `reopened`, `linked`,
+ * `unlinked` or `opened` (the thread's session was opened by its first message).
  */
 change: string, who: string, };

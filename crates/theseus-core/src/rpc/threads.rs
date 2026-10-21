@@ -120,6 +120,9 @@ impl Core {
             | method::THREAD_SPLIT
             | method::THREAD_SPLIT_PLAN
             | method::THREAD_UNSPLIT => self.rpc_thread_joins(name, params, conn),
+            method::THREAD_LINK | method::THREAD_UNLINK => {
+                self.rpc_thread_links(name, params, conn)
+            }
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),
@@ -299,6 +302,7 @@ impl Core {
                         parent: None,
                         merged_into: None,
                         split_from,
+                        links: vec![],
                         session_id: None,
                         last_active_ms: now,
                         created_at_ms: now,

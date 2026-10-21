@@ -149,6 +149,10 @@ pub struct ThreadInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub split_from: Option<String>,
+    /// Threads the owner linked to this one: their notes reach this thread's recall with no
+    /// distance; a seal still holds them out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<String>,
     /// The place's current session; none until the thread's first message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -271,6 +275,21 @@ pub struct ThreadNameParams {
     pub discord: Option<DiscordOrigin>,
 }
 
+/// `thread.link` and `thread.unlink`: the owner's word that two threads belong together.
+/// The result is `slug`'s thread, as `thread.edit` gives it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadLinkParams {
+    pub slug: String,
+    pub other: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
 /// `thread.edit`: each field given replaces what the thread held.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -338,8 +357,8 @@ pub struct ThreadChanged {
     pub persona: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<String>,
-    /// `created`, `edited`, `paused`, `resumed`, `done`, `reopened` or
-    /// `opened` (the thread's session was opened by its first message).
+    /// `created`, `edited`, `paused`, `resumed`, `done`, `reopened`, `linked`,
+    /// `unlinked` or `opened` (the thread's session was opened by its first message).
     pub change: String,
     pub who: String,
 }

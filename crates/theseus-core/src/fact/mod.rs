@@ -604,6 +604,8 @@ facts![
     thread::ThreadUnmerged<'static>,
     thread::ThreadSplit<'static>,
     thread::ThreadUnsplit<'static>,
+    thread::ThreadLinked<'static>,
+    thread::ThreadUnlinked<'static>,
     extend_hands::HandsLaunched<'static>,
     extend_hands::HandsSettled<'static>,
     extend_hands::HandsRefused<'static>,
