@@ -209,8 +209,9 @@ impl WorkBoard {
         let mut d = v.doing.clone()?;
         d.loop_index = loop_index;
         if d.what == DoingKind::Thinking {
+            // The model has thought since the turn began, or since the last call's result came back.
             d.since_ms = if ei.turn_started_ms > 0 {
-                ei.turn_started_ms
+                ei.turn_started_ms.max(ei.last_settled_ms)
             } else {
                 d.since_ms
             };

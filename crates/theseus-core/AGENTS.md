@@ -675,6 +675,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **A job's handle** (theseus-n8gk): a job that goes on in the background, past `proc_sync_secs` or at once with
   `proc.run {background: true}`, gets a short id in its session (`j1`, `j2`, …; `toolrun/handles.rs`), which its
   placeholder's meta names (`job`), so a restart reads the map again from the transcript; the long id still works.
+  A job a restart found alive gets its short id too (`toolrun/resume.rs`, `check_dispatched`: the same meta, and words naming
+  its command and the job tools).
   `job.read`, `job.wait` and `job.stop` (schemas in theseus-tools' `jobs.rs`) run in `toolrun/jobs_tools.rs`, through
   the core (`Board`, attached as `memory.lookup`'s is): a read is the one tail reader, `toolrun/peek.rs`
   (`crate::toolrun::peek`, bounded: 64 KiB by seek, lines counted only up to 8 MiB), which the work board's
@@ -699,6 +701,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
   stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
   `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
+  **A silent job's wait returns at a beat** (theseus-53ujg.6; `[tools] job_wait_beat_secs`, 600, 0 off, else at
+  most 3600 and tied to neither `proc_sync_secs` nor the cap, since the bench profile's 900 s foreground wait keeps it; `toolrun/jobs_tools/wait_facts.rs`): a job whose spool output file has not
+  grown for that long in this wait (each look stats it; growth restarts the window) returns the wait early, with
+  meta `beat` and `silent_secs`, and every still-running result carries the same facts: the job's run time and this
+  wait's, its CPU time and share of one CPU where its cgroup gives one (`theseus_kernel::cgroup::job_cpu_usec`; none
+  for an L1 job or a daemon with no delegated cgroup, and then no CPU words), and its output through `peek` (no output
+  since it started, or no new output for N s and the last 10 lines). Facts only, no advice. The beat is off for a job
+  past its file's head. With the beat 0 the result is byte for byte the old one. Tests: `tests_wait_beat.rs` (a child
+  of `tests_wait_cost.rs`, whose config turns the beat off), `wait_facts::tests`, the kernel's cgroup test.
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
@@ -1605,9 +1616,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the confirm band (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
     courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, each line quoted and each link fenced, at most one post per
     place in 10 minutes (`may_post`; the rest `folded`), and writes `privacy.warned` (choice, confidence, place class,
-    judgment, posted, folded). A late verdict, kept for the next message, warns nothing (a known gap). Nothing is held: the turn and its reply go on, and
-    the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
-    that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
+    judgment, posted, folded, held). A late verdict, kept for the next message, warns nothing and holds nothing (a known gap).
+    In a place only the owner writes in, nothing is held: the turn and its reply go on. **In a shared place the reply is held**
+    (theseus-i1z13, the owner's 2026-10-18 20:46 spec): `warn` sets `RouteState::held`, and the turn loop, once the first compile
+    returns, ends the turn with `hold_reply` and no model call: `I don't share that here.` (`HELD_REPLY`) is the turn's assistant
+    node and output (so the next turn's history reads it), the stop reason stays `end_turn` (a footer says nothing of why),
+    and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
+    the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
+    posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message
+    that steered a running turn is not read. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
+  - **A home past its size** (theseus-jg1eg, the follow-up of theseus-vydhq; `turn/home_size_step.rs`): a place's own session (`Outbox::place_session`,
+    never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] working_tokens` (the tokens a
+    thread's request stays within; 60,000) posts one `home_size` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices) naming the size, the bound, `theseus thread split home@<place> NAME --first @A --last @B --dry-run`
+    and `thread unsplit`. Nothing splits itself: a split moves context. Once is the META row `home.size.warned.<session>` (`warned`,
+    written in the post's frame, so a restart keeps it and a successor home starts unwarned); a request back at or under the bound
+    writes it `warned: false`, so the home is told again if it grows back. With no owner DM bound nothing is posted or marked.
+    Tests: `tests_home_size.rs`, `turn/home_size_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

@@ -172,6 +172,13 @@ pub fn default_job_wait_max_secs() -> u64 {
     1800
 }
 
+/// `[tools] job_wait_beat_secs` (theseus-53ujg.6): how long a `job_wait` on a
+/// job that prints nothing goes before it returns with what it saw. 0 is off;
+/// else at most the tool's deadline (`theseus_tools::jobs::WAIT_SECS_MAX`).
+pub fn default_job_wait_beat_secs() -> u64 {
+    600
+}
+
 /// `[tools] job_wait_max_secs` is at least `proc_sync_secs` (a wait is never
 /// shorter than a foreground run's) and at most what the tool's deadline
 /// covers (`theseus_tools::jobs::WAIT_SECS_MAX`).
@@ -182,6 +189,15 @@ pub(super) fn check_job_wait(t: &super::ToolsConfig) -> anyhow::Result<()> {
             "tools.job_wait_max_secs = {} must be from tools.proc_sync_secs ({}) to {max}",
             t.job_wait_max_secs,
             t.proc_sync_secs
+        );
+    }
+    // Tied to neither `proc_sync_secs` nor `job_wait_max_secs` (the bench
+    // profile waits 900 s for a foreground run and keeps the default beat; a
+    // beat past the longest wait never fires): only the tool's deadline bounds it.
+    if t.job_wait_beat_secs > max {
+        anyhow::bail!(
+            "tools.job_wait_beat_secs = {} must be 0 (off) or at most {max}",
+            t.job_wait_beat_secs
         );
     }
     Ok(())

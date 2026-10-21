@@ -24,6 +24,9 @@ pub struct PrivacyWarned<'a> {
     pub posted: bool,
     /// Not posted: this place's warning in the window already was.
     pub folded: bool,
+    /// The reply was held (theseus-i1z13): no model call, and the requester
+    /// was told "I don't share that here."
+    pub held: bool,
 }
 
 impl Fact for PrivacyWarned<'_> {
@@ -32,7 +35,7 @@ impl Fact for PrivacyWarned<'_> {
     fn row(&self) -> Value {
         json!({"turn": self.turn, "choice": self.choice, "confidence": self.confidence,
                "place": self.place, "judgment": self.judgment, "posted": self.posted,
-               "folded": self.folded})
+               "folded": self.folded, "held": self.held})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -43,10 +46,14 @@ impl Fact for PrivacyWarned<'_> {
             }
             (false, false) => "no DM with the owner is bound, so it is recorded only",
         };
+        let held = match self.held {
+            true => "; the reply was held, and the requester was told it is not shared here",
+            false => "",
+        };
         say.line(
             Session,
             format!(
-                "Privacy: Jev read this message as `{}` ({:.2}); {after}.",
+                "Privacy: Jev read this message as `{}` ({:.2}); {after}{held}.",
                 self.choice, self.confidence
             ),
         );

@@ -96,6 +96,33 @@ fn job_wait_max_secs_has_a_default_and_a_range() {
     }
 }
 
+/// theseus-53ujg.6: `[tools] job_wait_beat_secs` is 600 in the template and by
+/// default; 0 is off, else it is at most the tool's deadline, whatever
+/// `proc_sync_secs` and `job_wait_max_secs` say (a beat past the longest wait
+/// never fires).
+#[test]
+fn job_wait_beat_secs_has_a_default_and_a_range() {
+    let t = Config::example().tools;
+    assert_eq!(t.job_wait_beat_secs, default_job_wait_beat_secs());
+    assert_eq!(t.job_wait_beat_secs, 600);
+    assert_eq!(ToolsConfig::default().job_wait_beat_secs, 600);
+    let mut cfg = Config::example();
+    for (beat, ok) in [(0, true), (1, true), (3600, true), (3601, false)] {
+        cfg.tools.job_wait_beat_secs = beat;
+        let r = cfg.validate();
+        assert_eq!(r.is_ok(), ok, "beat {beat}: {r:?}");
+        if let Err(e) = r {
+            assert!(format!("{e:#}").contains("job_wait_beat_secs"), "{e:#}");
+        }
+    }
+    // The default is valid beside the bench's 900 s foreground run and a short cap.
+    cfg.tools.job_wait_beat_secs = default_job_wait_beat_secs();
+    (cfg.tools.proc_sync_secs, cfg.tools.job_wait_max_secs) = (900, 1800);
+    cfg.validate().unwrap();
+    (cfg.tools.proc_sync_secs, cfg.tools.job_wait_max_secs) = (60, 60);
+    cfg.validate().unwrap();
+}
+
 /// theseus-n88g.1 (D6): a secret may come from outside the vault, from
 /// the daemon's environment or a private file, and a malformed entry is
 /// refused by its name.

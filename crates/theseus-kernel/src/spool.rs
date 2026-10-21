@@ -82,6 +82,7 @@ impl Spool {
     pub fn open(dir: &Path) -> Result<Self> {
         fs::create_dir_all(dir)?;
         fs::create_dir_all(dir.join("pids"))?;
+        fs::create_dir_all(dir.join("argv"))?;
         fs::create_dir_all(dir.join("lingering"))?;
         fs::create_dir_all(dir.join("results"))?;
         fs::create_dir_all(dir.join("stops"))?;
@@ -100,6 +101,17 @@ impl Spool {
     }
     pub fn pid_path(&self, id: &str) -> PathBuf {
         self.dir.join("pids").join(id)
+    }
+    /// Where a job's argv is kept while it runs: the wrapper reads it from
+    /// here, so the job's command is on no command line Theseus owns.
+    pub fn argv_path(&self, id: &str) -> PathBuf {
+        self.dir.join("argv").join(id)
+    }
+    /// Job `id`'s argv in the spool at `dir`, which a wrapper reads without opening the spool.
+    pub fn read_argv_in(dir: &Path, id: &str) -> Result<Vec<String>> {
+        Ok(serde_json::from_slice(&fs::read(
+            dir.join("argv").join(id),
+        )?)?)
     }
     pub fn result_path(&self, id: &str) -> PathBuf {
         self.dir.join("results").join(format!("{id}.out"))
@@ -301,6 +313,21 @@ impl Spool {
     }
     pub fn remove_pid(&self, id: &CorrelationId) {
         let _ = fs::remove_file(self.pid_path(id));
+        let _ = fs::remove_file(self.argv_path(id));
+    }
+
+    /// Keep job `id`'s argv (a JSON array of strings, mode 0600) for its wrapper.
+    pub fn write_argv(&self, id: &str, argv: &[String]) -> Result<()> {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(self.argv_path(id))?;
+        f.write_all(&serde_json::to_vec(argv)?)?;
+        Ok(())
     }
 
     fn stop_path(&self, id: &str) -> PathBuf {

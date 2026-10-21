@@ -80,8 +80,8 @@ pub use aws::{
 pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use limits::{
-    default_job_wait_max_secs, default_parallel_reads, default_parallel_runs,
-    default_parallel_writes, DailyCeilingMode, MaxLoopsMode, SpendLimitMode,
+    default_job_wait_beat_secs, default_job_wait_max_secs, default_parallel_reads,
+    default_parallel_runs, default_parallel_writes, DailyCeilingMode, MaxLoopsMode, SpendLimitMode,
 };
 pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 // Where the config comes from when nothing names one (theseus-5aqz).
@@ -445,6 +445,10 @@ pub struct ToolsConfig {
     /// The longest one `job_wait` waits (theseus-7m7w.3).
     #[serde(default = "default_job_wait_max_secs")]
     pub job_wait_max_secs: u64,
+    /// A `job_wait` on a job that printed nothing for this long returns, with
+    /// what it saw (theseus-53ujg.6); 0 waits as long as asked.
+    #[serde(default = "default_job_wait_beat_secs")]
+    pub job_wait_beat_secs: u64,
     #[serde(default = "default_parallel_runs")]
     pub parallel_runs: usize,
     #[serde(default = "default_parallel_reads")]
@@ -560,6 +564,7 @@ impl Default for ToolsConfig {
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
             job_wait_max_secs: default_job_wait_max_secs(),
+            job_wait_beat_secs: default_job_wait_beat_secs(),
             parallel_runs: default_parallel_runs(),
             parallel_reads: default_parallel_reads(),
             parallel_writes: default_parallel_writes(),

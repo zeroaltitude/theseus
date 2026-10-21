@@ -261,6 +261,7 @@ pub async fn watch(
         questions: Vec::new(),
         asked: None,
         resolved: HashSet::new(),
+        shown: HashSet::new(),
         pending: HashMap::new(),
         profile,
         title_asked_at: 0,
@@ -304,10 +305,7 @@ pub async fn watch(
         w.on_note(conn, n).await?;
     }
     if interactive {
-        let mut out = std::io::stderr().lock();
-        for c in w.questions.iter().filter(|c| !ask::is_ask(c)) {
-            crate::print::lines(&mut out, &render::confirm_lines(c))?;
-        }
+        w.show_questions()?;
     }
     w.ask();
     if w.thread.is_some() {
@@ -449,6 +447,9 @@ struct Watch {
     asked: Option<String>,
     /// Questions answered or withdrawn: a refused answer never brings one back.
     resolved: HashSet<String>,
+    /// Questions whose card is on the screen: a question the daemon tells again (the read and the
+    /// event both carry it) prints no second card (theseus-dowi0).
+    shown: HashSet<String>,
     pending: HashMap<Id, Purpose>,
     /// The profile the session's last turn ran on: a message continues the
     /// session on it, and not on the daemon's live profile (theseus-nu3z). None
@@ -559,14 +560,22 @@ impl Watch {
             self.on_note(conn, n).await?;
         }
         if self.interactive {
-            let mut out = std::io::stderr().lock();
-            // A question with choices says itself, once, when it is asked (`say_prompt`'s block).
-            for c in self.questions.iter().filter(|c| !ask::is_ask(c)) {
-                crate::print::lines(&mut out, &render::confirm_lines(c))?;
-            }
+            self.show_questions()?;
         }
         self.ask();
         Ok(true)
+    }
+
+    /// The cards of the questions read that no card shows yet. A question with choices says itself,
+    /// once, when it is asked (`say_prompt`'s block).
+    fn show_questions(&mut self) -> Result<()> {
+        let mut out = std::io::stderr().lock();
+        for c in self.questions.iter().filter(|c| !ask::is_ask(c)) {
+            if self.shown.insert(c.correlation_id.clone()) {
+                crate::print::lines(&mut out, &render::confirm_lines(c))?;
+            }
+        }
+        Ok(())
     }
 
     /// A read of the view and questions: the first, or one after
@@ -596,8 +605,19 @@ impl Watch {
     /// session's state and questions.
     async fn on_note(&mut self, conn: &mut Conn, n: Notification) -> Result<()> {
         let (printed, was_asked) = (self.printer.lines_printed(), self.asked.clone());
+        let event = Event::from_notification(&n.method, &n.params)
+            .ok()
+            .flatten();
+        // A question the daemon tells again, after its read showed it, is on the screen already.
+        let again = match &event {
+            Some(Event::ConfirmRequested(c)) if c.session_id == self.sid => {
+                !self.shown.insert(c.correlation_id.clone())
+            }
+            _ => false,
+        };
         if self.json {
             println!("{}", serde_json::to_string(&n)?);
+        } else if again {
         } else if n.method == notify::EVENTS_LOST {
             let lost: theseus_protocol::EventsLost = serde_json::from_value(n.params.clone())?;
             self.printer.settle();
@@ -609,10 +629,7 @@ impl Watch {
         } else {
             self.printer.on(&n.method, &n.params);
         }
-        match Event::from_notification(&n.method, &n.params)
-            .ok()
-            .flatten()
-        {
+        match event {
             Some(Event::ExecutionChanged(v)) if v.session_id == self.sid => {
                 let wants_title = self.reporter.as_mut().is_some_and(|rep| {
                     rep.observe(&v);
@@ -646,6 +663,7 @@ impl Watch {
             }
             Some(Event::ConfirmResolved(r)) if r.session_id == self.sid => {
                 self.resolved.insert(r.correlation_id.clone());
+                self.shown.remove(&r.correlation_id);
                 self.questions
                     .retain(|q| q.correlation_id != r.correlation_id);
                 if self.asked.as_deref() == Some(r.correlation_id.as_str()) {
@@ -731,7 +749,7 @@ impl Watch {
         // Under the card, in a herdr pane: links that open the answer card, never answer.
         if let Some(l) =
             crate::herdr_keys::links_under(q, std::env::var("HERDR_ENV").ok().as_deref())
-                .filter(|_| block || !ask::is_ask(q))
+                .filter(|_| block)
         {
             eprintln!("  {l}");
         }

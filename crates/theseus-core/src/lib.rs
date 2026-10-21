@@ -159,6 +159,7 @@ pub mod watch;
 pub mod watch_tool;
 pub mod web;
 pub mod webui;
+mod wrapper_lost;
 
 pub use config::Config;
 pub use rpc::Core;
@@ -243,6 +244,8 @@ mod tests_check;
 #[cfg(test)]
 mod tests_check_view;
 #[cfg(test)]
+mod tests_checkpoint_effort;
+#[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
 mod tests_commitments;
@@ -305,6 +308,8 @@ mod tests_grants;
 #[cfg(test)]
 mod tests_harness;
 #[cfg(test)]
+mod tests_home_size;
+#[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
 mod tests_inbound;
@@ -330,6 +335,8 @@ mod tests_ladder;
 mod tests_ladder_unread;
 #[cfg(test)]
 mod tests_layouts;
+#[cfg(test)]
+mod tests_leaks;
 #[cfg(test)]
 mod tests_learn_loop;
 #[cfg(test)]
@@ -382,6 +389,8 @@ mod tests_persona;
 mod tests_persona_layer;
 #[cfg(test)]
 mod tests_persona_recall;
+#[cfg(test)]
+mod tests_personal_hold;
 #[cfg(test)]
 mod tests_personal_warn;
 #[cfg(test)]
@@ -568,3 +577,5 @@ mod tests_wakes;
 mod tests_web_offer;
 #[cfg(test)]
 mod tests_work;
+#[cfg(test)]
+mod tests_work_doing;

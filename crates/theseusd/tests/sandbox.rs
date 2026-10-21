@@ -726,6 +726,58 @@ fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
     );
 }
 
+/// theseus-53ujg.2, in L1: a command that `pkill -f`s its own sleeper does not
+/// kill its shell, whose command line is the runner's, and its text is on no
+/// line of the init's either. (The wrapper is outside the job's pid
+/// namespace, which `pkill` cannot see.) A line keeps its semantics below the
+/// init: the exit code, `set -e`, a heredoc, `$0` and `$1`, and the runner's
+/// variable absent from the line's children.
+#[test]
+fn an_l1_jobs_own_pkill_f_does_not_kill_it_and_a_line_keeps_its_semantics() {
+    let r = Rig::start(|_| {});
+    let n = format!("{:06}", std::process::id() % 1_000_000);
+    // One call a turn: a response's calls run at once, and the history lists
+    // their results in the order they finished, not the order they were asked.
+    let mut k = 0;
+    let mut line = |s: &str, rest: &[&str]| {
+        let mut argv = vec!["bash", "-c", s];
+        argv.extend(rest);
+        k += 1;
+        let mut out = r.turn(
+            &format!("line {k} in L1"),
+            vec![("proc_run", json!({"argv": argv, "sandbox": true}))],
+        );
+        assert_eq!(out.len(), 1, "{out:?}");
+        out.remove(0)
+    };
+    let out = [
+        line(
+            &format!("sleep 30.{n} & pkill -f 'sleep 30.{n}'; wait; echo survived"),
+            &[],
+        ),
+        line("exit 3", &[]),
+        line("set -e; false; echo not-reached", &[]),
+        line("cat <<EOF\nhello $0 $1\nEOF", &["name", "x"]),
+        line(
+            "env | grep -c THESEUS_JOB_LINE; echo \"${THESEUS_JOB_LINE-unset}\"",
+            &[],
+        ),
+    ];
+    assert!(
+        out[0].contains("[exit code 0 ·") && out[0].contains("survived"),
+        "{}",
+        out[0]
+    );
+    assert!(out[1].contains("[exit code 3 ·"), "{}", out[1]);
+    assert!(
+        out[2].contains("[exit code 1 ·") && !out[2].contains("not-reached"),
+        "{}",
+        out[2]
+    );
+    assert!(out[3].contains("hello name x"), "{}", out[3]);
+    assert!(out[4].contains("0\nunset"), "{}", out[4]);
+}
+
 /// The jobs bench's L1 row (design §2.10; `theseus-sim bench jobs`): `/bin/true`
 /// through the real job wrapper, detached as the daemon starts a job, in L1,
 /// 20 times. Each start, from the wrapper's spawn to the command's exec, is

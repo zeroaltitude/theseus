@@ -79,6 +79,7 @@ pub mod end_note_step;
 mod end_step;
 mod fallback_step;
 mod fill_step;
+pub(crate) mod home_size_step;
 mod inbound_step;
 mod join_step;
 mod later_step;
@@ -376,6 +377,8 @@ struct Turn<'a> {
     /// `None` once any call's price is unknown.
     cost: Option<f64>,
     tool_calls: u32,
+    /// The home's size is weighed once a turn: a routed move compiles loop 0 twice.
+    home_weighed: bool,
     /// The model's latest response.
     last: Option<ModelResponse>,
     /// The tool call waiting on a confirm.
@@ -540,6 +543,7 @@ impl<'a> Turn<'a> {
             usage: Usage::default(),
             cost: Some(0.0),
             tool_calls: 0,
+            home_weighed: false,
             last: None,
             awaiting: None,
             budget_question: None,
@@ -1840,6 +1844,15 @@ impl TurnRunner {
                 Ok(c) => c,
                 Err(f) => return Ok(Next::Fail(f)),
             };
+            // A reach for the owner's personal details in a shared place: the
+            // reply is held, and the model is never called (theseus-i1z13).
+            if t.route.held {
+                if let Some(r) = recall {
+                    self.recall_end(t, r).await;
+                }
+                Self::hold_reply(t, i)?;
+                break;
+            }
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.

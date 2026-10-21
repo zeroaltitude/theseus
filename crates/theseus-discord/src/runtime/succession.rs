@@ -211,6 +211,10 @@ impl Place {
             }
             r.by_session.insert(sid, self.tx.clone());
         }
+        // Watched before the session's first turn runs, not a debounce later: the watch's snapshot carries
+        // no ended task, so one that began and ended before the watch did would never reach the place
+        // (theseus-hzdlf).
+        super::tasks::ask(&self.shared).await;
         self.shared.tasks.rewatch();
         if !old.is_empty() {
             self.shared.board.unplace(&self.label, &old);

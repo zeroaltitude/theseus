@@ -990,3 +990,38 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
     assert!(asked.requests().is_empty(), "no model call was made");
     assert_eq!(r.ledger("spend.ceiling").len(), 1);
 }
+
+/// A home past its size (theseus-jg1eg): a turn in `#lab`, bound shared, whose request passes
+/// `[threads] working_tokens` earns one post that names the size and the split command, in the
+/// owner's DM alone and never in `#lab`; a second message in `#lab` adds none.
+#[tokio::test]
+async fn a_home_size_warning_goes_to_the_owners_dm_alone() {
+    let fake = Arc::new(FakeProvider::scripted(vec![
+        Scripted::text("one"),
+        Scripted::text("two"),
+    ]));
+    let asked = fake.clone();
+    let model = move |_: &Path, _| -> Arc<dyn Provider> { fake.clone() };
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
+        c.threads.working_tokens = 2_000;
+    })
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "Hello there.");
+    let is_post = |m: &Msg| m.versions[0].contains("theseus thread split home@");
+    r.until("the warning in ana's DM", || {
+        r.posted(ANA_DM).iter().any(is_post)
+    })
+    .await;
+    r.until("the turn's reply in #lab", || {
+        r.posted(LAB).iter().any(|m| m.content.contains("one"))
+    })
+    .await;
+    assert!(r.posted(LAB).iter().all(|m| !is_post(m)), "never in #lab");
+    r.say((ANA, "ana"), Some(LAB), "And again.");
+    r.until("the second turn's reply", || {
+        r.posted(LAB).iter().any(|m| m.content.contains("two"))
+    })
+    .await;
+    assert_eq!(r.posted(ANA_DM).iter().filter(|m| is_post(m)).count(), 1);
+    assert_eq!(asked.requests().len(), 2, "both turns were made");
+}

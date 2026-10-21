@@ -513,7 +513,11 @@ impl Core {
         }
         // It rechecks under the execution's lock: a completion that landed
         // meanwhile wins, and this was no loss.
-        if self.kernel.mark_unknown(job, "wrapper_lost").is_err() {
+        if self
+            .kernel
+            .mark_unknown(job, &crate::wrapper_lost::reason(signal))
+            .is_err()
+        {
             return false;
         }
         // A turn waiting on the job hears at once (7.1).
