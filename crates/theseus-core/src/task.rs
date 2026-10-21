@@ -430,6 +430,8 @@ pub(crate) fn brief_text(task_session: &str, parent_session: &str, brief: &str) 
          decide and say what you decided. Your last message is your report to the \
          conversation that started you, so end with what you did and what you found. \
          {plan} \
+         The task graph is the system's business: your own task's record closes when you \
+         report, so do not report on it; open your report with the result. \
          You cannot start tasks of your own.]\n\n{brief}",
         short(task_session),
         narrative::short(parent_session),

@@ -519,6 +519,8 @@ mod tests_task_checkpoint;
 #[cfg(test)]
 mod tests_task_claims;
 #[cfg(test)]
+mod tests_task_close;
+#[cfg(test)]
 mod tests_task_graph;
 #[cfg(test)]
 mod tests_task_join;
