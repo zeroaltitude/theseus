@@ -128,7 +128,7 @@ pub(super) fn started(
 
 /// A job's argv, from its call's proposal: for a job named by its long id,
 /// or one whose short id a restart read again.
-fn argv_of(store: &crate::store::Store, a: &Action) -> Vec<String> {
+pub(super) fn argv_of(store: &crate::store::Store, a: &Action) -> Vec<String> {
     super::confirm_proposal(store, a, None)
         .ok()
         .and_then(|p| serde_json::from_value(p.args["argv"].clone()).ok())
