@@ -48,7 +48,7 @@ taken off the main model), as evidence for the thesis.
 | Threads | Built and on: up to 50 live, five live on the owner's daemon. A thread is a place; `classify.v3`'s `thread` question routes an unaddressed message to one | `crates/theseus-core/src/threads.rs`, `thread_route.rs` |
 | Projects | Built: a TASK record of kind `project`, with milestones and steps; a conversation attaches to one and its request ends with the project's slice | `crates/theseus-core/src/project/mod.rs` |
 | Attachments | A message node carries attachments; an image is a blob stored once by its SHA-256. The inbound state sends none of it to Jev | `crates/theseus-core/src/node.rs:88-115` |
-| Jev and images | Our reference (2026-09-21) observed Jev as text only. The owner says it is multimodal now. Unverified | `~/.openclaw/workspace/refs/jev.md` |
+| Jev and images | Our reference (2026-09-21) observed Jev as text only. The owner says it is multimodal now. Unverified | our Jev reference notes (kept outside the repo) |
 | Cockpit | `/ontology`: kinds, the category tree, add a topic, set guidance. No kinds added, no origin shown, no history | `cockpit/src/views/Ontology.tsx` |
 | Thread bench | Built, not yet run on the real model | `bench/threads/` |
 
@@ -238,8 +238,8 @@ before it reaches the turn, so it is text. Video is out of scope.
   candidates from any private session.
 - The owner's consent of 2026-09-30 covers sending session content to Jev. Images are session content, but they
   can show people, screens and documents, so the design asks him once more (decision 2).
-- Jev is a US-based model, so the BigHat rule (theseus-xs5ah: BigHat data to US models only) is satisfied. The
-  China-origin rule is untouched by this design, and no image or attachment goes to any model that rule excludes.
+- Jev is a US-based model, so the US-origin rule (theseus-xs5ah: `[privacy] sensitive_names` go to US models only)
+  is satisfied. The China-origin rule is untouched by this design, and no image or attachment goes to any model that rule excludes.
 - **The private mark.** A `personal` score at `discloses` or above, or `shows_people`/`shows_identifiers` at the act
   band, marks the node private (the private-node mark of theseus-a1wvq). From then on, a request to a model outside
   the US allowlist carries nothing before that node, as the rule already says. The mark is tell-after with undo and,
