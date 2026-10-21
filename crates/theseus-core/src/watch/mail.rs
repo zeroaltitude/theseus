@@ -98,6 +98,14 @@ fn nothing(cursor: String, rebaselined: bool) -> Observed {
     }
 }
 
+/// A mail's sender, lowercased. A From with no address is no one trusted: an
+/// empty sender, never a skipped one, so a look cannot pass as all trusted.
+fn sender_of(from: &str) -> String {
+    mime::address_of(from)
+        .map(|a| a.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
 /// One look at the mailbox for `q`, from `cursor` (none: the first look).
 pub async fn look(
     g: &Google,
@@ -183,13 +191,7 @@ pub async fn look(
         .json();
         let head = |n: &str| mime::header(&msg["payload"], n).unwrap_or_default();
         let (from, subject) = (head("From"), head("Subject"));
-        // A From with no address is no one trusted: an empty sender, never a
-        // skipped one, so the look cannot pass as all trusted.
-        senders.push(
-            mime::address_of(&from)
-                .map(|a| a.to_ascii_lowercase())
-                .unwrap_or_default(),
-        );
+        senders.push(sender_of(&from));
         let said = |t: &str| quote_of(&scrubber.scrub(t).0);
         lines.push(format!(
             "From: {} · Subject: {} · {}",
