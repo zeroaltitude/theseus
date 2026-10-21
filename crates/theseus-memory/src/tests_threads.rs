@@ -96,7 +96,7 @@ fn a_note_jev_admitted_pays_and_passes_under_the_bar() {
     };
     assert_eq!(
         reason_of(&run(&l, cands()), "far_low"),
-        Some(Reason::Thread)
+        Some(Reason::Thread(Cause::Bar))
     );
     l.admitted.insert("far_low".into());
     // 0.025 * 0.65 = 0.016 < 0.020: in, behind the own note.
