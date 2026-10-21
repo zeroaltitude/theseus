@@ -80,7 +80,13 @@ pub fn record(node: &Node, session_id: &str) -> Option<NewRecord> {
 /// config binds no account. A mark that cannot be read is a mark: the
 /// session is held as private until it can be.
 pub fn session(store: &Store, cfg: &crate::Config, session_id: &str) -> bool {
-    !cfg.google.is_empty()
+    session_on(store, &cfg.google, session_id)
+}
+
+/// [`session`], for a caller that holds only the `[google]` table (a tool's
+/// call, theseus-a1wvq.6).
+pub fn session_on(store: &Store, google: &crate::config::GoogleConfig, session_id: &str) -> bool {
+    !google.is_empty()
         && match store.get_meta::<String>(&meta_key(session_id)) {
             Ok(mark) => mark.is_some(),
             Err(_) => true,
@@ -126,7 +132,17 @@ pub fn inherited(
     parent: &str,
     child: &str,
 ) -> anyhow::Result<Option<NewRecord>> {
-    if !session(store, cfg, parent) {
+    inherited_on(store, &cfg.google, parent, child)
+}
+
+/// [`inherited`], for a caller that holds only the `[google]` table.
+pub fn inherited_on(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    parent: &str,
+    child: &str,
+) -> anyhow::Result<Option<NewRecord>> {
+    if !session_on(store, google, parent) {
         return Ok(None);
     }
     Ok(Some(NewRecord::json(

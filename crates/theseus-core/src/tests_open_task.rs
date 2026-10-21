@@ -316,3 +316,65 @@ fn the_wire_leaves_open_out_until_it_is_set() {
     let open = serde_json::to_string(&TaskStartParams { open: true, ..p }).unwrap();
     assert_eq!(open, r#"{"brief":"Count the boats","open":true}"#);
 }
+
+/// A session that read a Google result starts no open task, by either path:
+/// an open task's input is judged open, and this one's parent is private
+/// (theseus-a1wvq.6's join fix). Nothing opens and no row is written; the
+/// same task without `open` starts.
+#[tokio::test]
+async fn a_private_session_starts_no_open_task() {
+    use crate::tests_private_background::{google_on, mark};
+    const WORDS: &str = "an open task carries nothing of a private conversation";
+    // `task.start`.
+    let r = rig(|_| Scripted::text("ok"), google_on);
+    let home = r.core.home().unwrap().session_id;
+    mark(&r.core, &home);
+    let open = TaskStartParams {
+        open: true,
+        ..params("Count the boats in the north quay", None)
+    };
+    let err = r.core.task_start(&open, cli()).unwrap_err();
+    assert!(err.message.contains(WORDS), "{}", err.message);
+    assert!(r.core.kernel.tasks(None).unwrap().is_empty());
+    assert!(rows(&r.core, "session.data").is_empty());
+    let plain = params("Count the boats in the north quay", None);
+    assert!(r.core.task_start(&plain, cli()).is_ok(), "without `open`");
+
+    // A model's `task.create`: the refusal is the call's result.
+    let input = json!({"brief": "Count the boats", "open": true});
+    let r = rig(
+        move |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Started it.");
+            }
+            if last_user(req).starts_with("START") {
+                return Scripted::tools(
+                    "Starting it.",
+                    &[("t_task", "task_create", input.clone())],
+                );
+            }
+            Scripted::text("ok")
+        },
+        google_on,
+    );
+    let parent = parent_session(&r.core);
+    mark(&r.core, &parent);
+    turn(&r.core, &parent, ASK).await;
+    let said: String = r
+        .core
+        .store
+        .session_nodes(&parent)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(_, n)| match n.body {
+            Body::ToolResult { content, .. } => Some(format!("{content:?}")),
+            _ => None,
+        })
+        .collect();
+    assert!(said.contains(WORDS), "{said}");
+    assert!(
+        r.core.kernel.tasks(None).unwrap().is_empty(),
+        "opened a task"
+    );
+    assert!(rows(&r.core, "session.data").is_empty(), "wrote a row");
+}

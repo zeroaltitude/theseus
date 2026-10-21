@@ -71,6 +71,11 @@ pub const MAX_BRIEF_CHARS: usize = 32_000;
 /// The most of a report's text the parent's node carries, in characters.
 pub const REPORT_NODE_CHARS: usize = 8_000;
 
+/// `open` from a session that read a Google result (theseus-a1wvq.6): both
+/// task paths refuse it with these words.
+pub const PRIVATE_OPEN_REFUSAL: &str = "Not started: an open task carries nothing of a private \
+    conversation, and this one read private content. Start it without `open`.";
+
 /// What a task says to a model that asks it to start one (depth one).
 pub const DEPTH_REFUSAL: &str = "Refused: this session is itself a task, and a task cannot start \
     tasks (depth one). Do the work here, or finish and say in your report what should be started \
@@ -488,7 +493,7 @@ pub fn create<'a>(
         &std::collections::BTreeMap<String, TargetRef>,
         crate::project::Ext<'_>,
     ),
-    forecasts: &crate::forecast::Book,
+    (forecasts, google): (&crate::forecast::Book, &crate::config::GoogleConfig),
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -518,6 +523,9 @@ pub fn create<'a>(
         .ok_or("this session has no execution")?;
     if parent.parent.is_some() || parent.kind == SessionKind::Task {
         return Err(DEPTH_REFUSAL.into());
+    }
+    if i.open && crate::google::private::session_on(tc.store, google, tc.session_id) {
+        return Err(PRIVATE_OPEN_REFUSAL.into());
     }
     let nodes = tc
         .store
@@ -664,6 +672,14 @@ pub fn create<'a>(
             };
             records.extend(opened_row);
             records.push(brief.record()?);
+            // A task of a private session is private from its first call, as
+            // task.start's (theseus-a1wvq.10).
+            records.extend(crate::google::private::inherited_on(
+                tc.store,
+                google,
+                tc.session_id,
+                &task.session_id,
+            )?);
             if let Some(reply) = &holder {
                 records.push(
                     crate::graph::Edge::new(

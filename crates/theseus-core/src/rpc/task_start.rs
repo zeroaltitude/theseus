@@ -215,7 +215,7 @@ impl Core {
 
     /// The conversation the task goes under: the one `home` names, else the
     /// owner's Home. Its id, its execution, its record, and Home's DM target.
-    fn parent_of(
+    fn home_of(
         &self,
         p: &TaskStartParams,
     ) -> Result<(String, String, SessionRecord, Option<String>), RpcFailure> {
@@ -249,6 +249,19 @@ impl Core {
                 Ok((h.session_id, h.execution_id, rec, h.target))
             }
         }
+    }
+
+    /// [`Self::home_of`], for this task: an open task's input is judged open,
+    /// so a session that read private content starts none (theseus-a1wvq.6).
+    fn parent_of(
+        &self,
+        p: &TaskStartParams,
+    ) -> Result<(String, String, SessionRecord, Option<String>), RpcFailure> {
+        let got = self.home_of(p)?;
+        if p.open && crate::google::private::session(&self.store, &self.cfg, &got.0) {
+            return Err(refused(crate::task::PRIVATE_OPEN_REFUSAL.into()));
+        }
+        Ok(got)
     }
 
     /// The model the task starts on: the profile asked for (a pin), else the

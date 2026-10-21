@@ -33,6 +33,12 @@ pub(crate) const ACCOUNT: &str = "owner@example.test";
 /// host vouched EU.
 pub(crate) fn private_on(c: &mut Config) {
     c.serve_default_from_eu();
+    google_on(c);
+}
+
+/// `[google]` bound to an account, the default provider of US origin: a
+/// marked session's own turns still run (theseus-a1wvq.6's join).
+pub(crate) fn google_on(c: &mut Config) {
     c.google = GoogleConfig {
         account: ACCOUNT.into(),
         credentials: GoogleCredentialNames::default(),
@@ -268,4 +274,43 @@ async fn a_bound_provider_is_held_by_the_floor_on_any_task() {
     assert!(fake.requests().is_empty(), "nothing was sent");
     send(false).await.unwrap().unwrap();
     assert_eq!(fake.requests().len(), 1, "a plain call goes");
+}
+
+/// A task a private session's model creates (`task.create`) is private too,
+/// as `task.start`'s is: its mark rides in the frame that opens it, so
+/// docs/privacy.md's "a task a private session starts" holds on both paths
+/// (theseus-a1wvq.6's join fix). A plain session's task is plain.
+#[tokio::test]
+async fn a_task_a_private_sessions_model_creates_is_private() {
+    use crate::tests_tasks::{answers_a_call, arranged, last_user, only_task, parent_session, ASK};
+    for marked in [false, true] {
+        let r = crate::tests_tasks::rig(
+            |req| {
+                if answers_a_call(req) {
+                    return Scripted::text("Started it.");
+                }
+                if last_user(req).starts_with("START") {
+                    let input = serde_json::json!({
+                        "brief": "Count the boats in the west quay",
+                        "arrangement": arranged(),
+                    });
+                    return Scripted::tools("Starting it.", &[("t_task", "task_create", input)]);
+                }
+                Scripted::text("ok")
+            },
+            google_on,
+        );
+        let parent = parent_session(&r.core);
+        if marked {
+            mark(&r.core, &parent);
+        }
+        crate::test_support::turn(&r.core, &parent, ASK).await;
+        let task = only_task(&r.core, &parent);
+        assert_eq!(
+            private_now(&r.core, &task.session_id),
+            marked,
+            "the task of a {} session",
+            if marked { "private" } else { "plain" }
+        );
+    }
 }
