@@ -14,6 +14,8 @@ use base64::Engine;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
+pub mod gmail;
+
 use crate::http1::{read_request, write_response, Req};
 use crate::scopes::Service;
 
@@ -83,6 +85,7 @@ struct Inner {
     failures: VecDeque<Reply>,
     disabled: Option<(Service, String)>,
     forms: Vec<std::collections::BTreeMap<String, String>>,
+    mail: gmail::Mailbox,
 }
 
 pub struct Fake {
@@ -124,6 +127,7 @@ impl Fake {
             failures: VecDeque::new(),
             disabled: None,
             forms: Vec::new(),
+            mail: gmail::Mailbox::default(),
         }));
         let me = inner.clone();
         let task = tokio::spawn(async move {
@@ -212,6 +216,11 @@ impl Fake {
     /// `verb path` answers a fixed JSON body.
     pub fn json(&self, verb: &str, path: &str, body: Value) {
         self.route(verb, path, move |_| Reply::json(200, body.clone()));
+    }
+
+    /// The mailbox the Gmail stubs answer from.
+    pub fn mail(&self) -> gmail::Mailbox {
+        self.with(|i| i.mail.clone())
     }
 
     /// Every API request seen, oldest first.
@@ -335,9 +344,13 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
         .find(|(v, p, _)| *v == req.method && p == req.path())
         .map(|(_, _, h)| h.clone());
     let account = i.account.clone();
+    let mail = i.mail.clone();
     drop(i);
     if let Some(h) = handler {
         return h(req);
+    }
+    if let Some(r) = gmail::answer(&mail, req) {
+        return r;
     }
     match (req.method.as_str(), req.path()) {
         ("GET", "/gmail/v1/users/me/profile") => Reply::json(

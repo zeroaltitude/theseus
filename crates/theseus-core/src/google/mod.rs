@@ -37,6 +37,8 @@ use crate::secrets::{Secret, SecretBoard, Waited};
 pub mod auth;
 pub mod call;
 pub mod external;
+pub mod mail;
+pub mod mime;
 pub mod private;
 pub mod send_cap;
 pub mod tend;
@@ -50,12 +52,21 @@ mod tests_config;
 #[cfg(test)]
 mod tests_gate;
 #[cfg(test)]
+mod tests_mail;
+#[cfg(test)]
 mod tests_private;
 
 pub use external::{finish, Finished, Source};
 
 /// The Google tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 1] = [call::NAME];
+pub const NAMES: [&str; 6] = [
+    call::NAME,
+    mail::SEARCH,
+    mail::READ,
+    mail::DRAFT,
+    mail::SEND,
+    mail::LABEL,
+];
 
 /// How long a call waits for the account's check, as a turn waits for a secret.
 pub const BIND_WAIT: Duration = Duration::from_secs(30);
@@ -204,7 +215,8 @@ impl Google {
     /// never touch.
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
         let mut all: Vec<Arc<dyn Tool>> = Vec::new();
-        // gw-mail: all.extend(mail::tools(self));
+        // gw-mail:
+        all.extend(mail::tools(self));
         //
         // gw-drive: all.extend(drive::tools(self));
         //
