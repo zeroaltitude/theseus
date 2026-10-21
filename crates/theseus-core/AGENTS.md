@@ -1605,9 +1605,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **The restricted-origin floor** (theseus-a1wvq.3; `data.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/data_floor.rs`,
     `fact/data.rs`): no request reaches a model of restricted origin (`cn` or `unknown`, `catalog::origin_of`) without a
     `data::DataPass` minted for that one request (it holds the request's digest; not `Clone`, a copied `ProviderRequest`
-    carries none, and `#[serde(skip)]`, so body and digest are unchanged). Nothing mints one yet: every turn's
-    `RouteState.clearance` is `Clearance::closed(DataWhy::Unchecked)`, and `TurnRunner::data_pass` (before `call_model`) is
-    the seam where a cleared turn's request takes one. The chokepoint refuses the rest, class `data_gate`, nothing sent, one
+    carries none, and `#[serde(skip)]`, so body and digest are unchanged). Only an open request's own clearance mints
+    one (theseus-a1wvq.8, below), in `TurnRunner::data_pass` before `call_model`. The chokepoint refuses the rest, class `data_gate`, nothing sent, one
     `data_gate.blocked` row (provider, model, origin, the session from `data_gate::for_session`); an unrestricted model's
     request costs a memoised origin lookup, the digest is taken only for a restricted one, and a pass never lifts a name.
     The route's floor (`Floor`: the names and the clearance) marks a restricted profile unusable (`data_gate`), and
@@ -1618,7 +1617,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     import_profile`, `[judge.learn] writer_profile`, `[self] reviewer_profile`, `[initiative] profile`, `[ontology]
     name_profile`) and a China-origin `[judge] api_base`. Tests: `tests_data_floor.rs`, `config/data_floor.rs`.
   - **A session's data state** (theseus-a1wvq.5; store format 48; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
-    `DataState { opened, run, taint }`, structure only: nothing opens a session or computes a run yet. Absent is the
+    `DataState { opened, run, taint }`, opened by an open task (theseus-a1wvq.6), its run kept by an open request's turn (theseus-a1wvq.8). Absent is the
     private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.
     The turn's write-back merges it (`DataState::merge`): a stored taint always wins, `opened` is never cleared, and the
     turn's run is taken only while the stored one is still the run the turn read (a read copy remembers it, `Stored`):
@@ -1633,8 +1632,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `Open::offers` (public tools, file tools under the roots, `proc.run`/`job.*`/`term.*` only for a directory within
     them), and the gate refuses the rest (`Open::refusal`). Recall asks as `Place::Open` and reads each candidate by
     `drawn_place`: only open sessions, before their taint. A turn is open when its record's `data.opened` is
-    (`open_of`); `open_request` compiles one request of any other session in it (theseus-a1wvq.8's seam). Guard:
+    (`open_of`); `open_request` compiles an open detour's request of any other session in it, over its open run (theseus-a1wvq.8). Guard:
     `tests_open_view::a_private_sessions_request_is_byte_identical` (`tests/golden/private_requests.txt`).
+  - **The open request, per request** (theseus-a1wvq.8; `data.rs`, `turn/open_step.rs`, `turn/data_step.rs`): a message
+    Jev judged `open` at the act band may reach a restricted model. `data::admits` (pure, after the verdict is read:
+    the pack acting, no attachment, no seal, a verdict in time, `open` at `Act`, no taint) gives the turn's
+    `RouteState.admitted`, its open run: the stored run extended when the node just before the input is its
+    `through`, else the input alone; an open session's turn with no input keeps the stored run while its last node is
+    `through`. A restricted profile runs only for an admitted turn whose request is open: an open session (`open_of`),
+    or a detour (`trivial`'s `cn_profiles`), which compiles through `open_request` over the run (from `run.from`, never
+    before `detour_start`'s bound, no recall, no summary) and gates its calls in the open view; elsewhere the turn moves
+    to the `[model]` default (`data_gate`, data reason `private_view`). Each request gets its own pass: `data_pass`
+    builds its `data::Carried` (its prefix's and tail's transcript nodes with their writers) and `data::clearance`, the
+    only cleared `Clearance`, mints it for its digest. A later loop whose request would carry a node past the run its
+    loop did not write (a tool's result, until the tool-screen row) moves to the default first (`data_move`). The turn
+    stores the run (through its last node) in its own session write only when every request went out cleared and
+    only its own loop wrote after the run; anything else ends a run (a private-view reply, a steer, a wake, a report).
+    An open session's first input or request not admitted is its taint (`session.data` `tainted`, once), which closes
+    `admits` for it from then on and never blocks a Claude target. An open task's brief is asked about always while the
+    pack acts, waited for past `[routing] max_wait_ms` (`brief_step.rs`); an open task's hold from its parent names no
+    URL or query (`external::bare`). Tests: `tests_open_request.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

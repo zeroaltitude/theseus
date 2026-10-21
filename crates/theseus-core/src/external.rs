@@ -274,6 +274,16 @@ pub fn taken(
     }
 }
 
+/// The hold an open task takes from its parent (theseus-a1wvq.8): it still
+/// raises the posture, but names no URL and no query, since its reason
+/// reaches the task's model, which may be outside the owner's trust. Its
+/// reason names the tool and the time alone.
+pub fn bare(mut h: ExternalText) -> ExternalText {
+    h.url = String::new();
+    h.query = None;
+    h
+}
+
 /// When a hold began, in the daemon's local time as the reason says it
 /// (theseus-qiy): `12:55:01`, or `Sep 30 12:55:01` on another day than
 /// `now_ms`'s. Health and a trust's result say it so, never in UTC.
@@ -313,6 +323,7 @@ pub fn source_at(h: &ExternalText, now_ms: u64) -> String {
 
 fn source_said(h: &ExternalText, at: &str) -> String {
     let what = h.what();
+    let what = what.trim_end();
     let from = h.from_session.as_deref().map(crate::task::short);
     match (h.via.as_deref(), from) {
         (Some(VIA_TASK), Some(s)) => {

@@ -3,13 +3,14 @@
 //! minted for that one compiled request, covering its digest. The names here
 //! are shared with the rows that build open requests and judge them; keep them.
 //!
-//! Nothing mints a pass yet: every turn's clearance is
-//! `Clearance::closed(DataWhy::Unchecked)`, so the floor (`data_gate.rs`,
-//! `turn/data_step.rs`) keeps every request off a restricted model.
+//! Per request (theseus-a1wvq.8): `admits` says whether a turn's input is
+//! open and what its run is; `clearance`, over what one compiled request
+//! `Carried`, is the only cleared `Clearance`, and so the only source of a
+//! pass. The turn's side is `turn/open_step.rs`.
 //!
 //! A session's data state (theseus-a1wvq.5, `SessionRecord.data`): whether
-//! it was opened, its open run, and its taint. Structure only: nothing opens
-//! a session or computes a run yet; the later rows do.
+//! it was opened, its open run, and its taint. An open task opens one
+//! (theseus-a1wvq.6); an open request's turn stores its run.
 
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +41,7 @@ impl DataPass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DataWhy {
-    /// Nothing judged the request (every turn, until the open-request row).
+    /// Nothing judged the request.
     Unchecked,
     /// The request carries the owner's private view.
     PrivateView,
@@ -69,6 +70,16 @@ pub enum DataWhy {
 }
 
 impl DataWhy {
+    /// Whether an open session's refusal for this reason is its taint: what
+    /// was judged or carried was not open. A judgment that never came (or
+    /// came late, or in shadow) taints nothing: the input was not judged.
+    pub fn taints(self) -> bool {
+        !matches!(
+            self,
+            DataWhy::Unchecked | DataWhy::NoVerdict | DataWhy::Late | DataWhy::PackNotLive
+        )
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             DataWhy::Unchecked => "unchecked",
@@ -88,9 +99,8 @@ impl DataWhy {
     }
 }
 
-/// Whether a turn's requests may go to a restricted model. Opaque: only this
-/// module builds a cleared one (the open-request row adds the checked
-/// constructor), so anything else holds a closed one.
+/// Whether one request may go to a restricted model. Opaque: only
+/// [`clearance`] builds a cleared one, so anything else holds a closed one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clearance {
     closed: Option<DataWhy>,
@@ -123,6 +133,143 @@ impl Default for Clearance {
     fn default() -> Self {
         Self::closed(DataWhy::Unchecked)
     }
+}
+
+// ------------------------------------------------------------ admission and the pass
+
+/// What `admits` reads of one input (theseus-a1wvq.8): all of it held by the
+/// turn already, so the check is pure and costs nothing on a plain turn.
+pub struct Check<'a> {
+    /// The input node: a person's message, or a task's brief.
+    pub input: &'a str,
+    /// The node just before it in the transcript, if any.
+    pub before: Option<&'a str>,
+    /// The route pack's `data` answer (`Verdict.data`), if one came.
+    pub answer: Option<&'a crate::routing::data::DataAnswer>,
+    /// The verdict came after the wait.
+    pub late: bool,
+    /// The route pack acts for the session (canary or live, breaker closed).
+    pub live: bool,
+    /// The thread is sealed, a seal is pending, or the verdict recommends one.
+    pub sealed: bool,
+    /// The input carries an attachment.
+    pub attachment: bool,
+}
+
+/// Whether the input is open, and its run: each check in order, each failure
+/// its own reason. The run extends the stored one only when the node just
+/// before the input is the stored run's last (the chain); otherwise it is the
+/// input alone. A session's taint closes it for good (theseus-a1wvq.8, F1):
+/// no node at or after a taint reaches a restricted model.
+pub fn admits(s: Option<&DataState>, c: &Check<'_>) -> Result<OpenRun, DataWhy> {
+    if let Some(t) = s.and_then(|s| s.taint.as_ref()) {
+        return Err(t.why);
+    }
+    if !c.live {
+        return Err(DataWhy::PackNotLive);
+    }
+    if c.attachment {
+        return Err(DataWhy::Attachment);
+    }
+    if c.sealed {
+        return Err(DataWhy::Sealed);
+    }
+    if c.late {
+        return Err(DataWhy::Late);
+    }
+    let a = c.answer.ok_or(DataWhy::NoVerdict)?;
+    match a.choice.as_str() {
+        "open" => {}
+        "private" => return Err(DataWhy::VerdictPrivate),
+        _ => return Err(DataWhy::VerdictUnclear),
+    }
+    if a.band != theseus_judge::band::Band::Act {
+        return Err(DataWhy::BelowAct);
+    }
+    let from = match s.and_then(|s| s.run.as_ref()) {
+        Some(r) if c.before == Some(r.through.as_str()) => r.from.clone(),
+        _ => c.input.to_string(),
+    };
+    Ok(OpenRun {
+        from,
+        through: c.input.to_string(),
+    })
+}
+
+/// A turn with no new input in an open session (an open task's later turn):
+/// admitted with the stored run while its last node is the run's last, else
+/// `unvetted`; with no run, nothing was judged open (`no_verdict`).
+pub fn admits_again(s: Option<&DataState>, last: Option<&str>) -> Result<OpenRun, DataWhy> {
+    if let Some(t) = s.and_then(|s| s.taint.as_ref()) {
+        return Err(t.why);
+    }
+    let run = s.and_then(|s| s.run.as_ref()).ok_or(DataWhy::NoVerdict)?;
+    match last == Some(run.through.as_str()) {
+        true => Ok(run.clone()),
+        false => Err(DataWhy::Unvetted),
+    }
+}
+
+/// Who wrote a node a request carries, as `clearance` reads one past the
+/// run's last node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Writer {
+    /// This request's own turn: its answer, its calls, its recall.
+    Loop,
+    /// A tool's result: unscreened until the tool-screen row.
+    ToolResult,
+    /// Anyone else: a steer, a late result, a wake, a report.
+    Other,
+}
+
+/// One node a request carries: its id, its transcript position, its writer.
+#[derive(Debug, Clone)]
+pub struct Carry {
+    pub id: String,
+    pub at: u64,
+    pub writer: Writer,
+}
+
+/// What one compiled request carries (theseus-a1wvq.8): whether it was
+/// compiled in the open view, `run.from`'s position (none when the
+/// transcript does not hold it), and every transcript node it renders.
+#[derive(Debug, Clone)]
+pub struct Carried {
+    pub open_view: bool,
+    pub from: Option<u64>,
+    pub nodes: Vec<Carry>,
+}
+
+/// One request's clearance: the open view, every node at or after the run's
+/// first, the run's last among them, and every node past it written by this
+/// request's own loop and no tool's result. The only cleared `Clearance`.
+pub fn clearance(run: &OpenRun, c: &Carried) -> Clearance {
+    match refused(run, c) {
+        Some(why) => Clearance::closed(why),
+        None => Clearance { closed: None },
+    }
+}
+
+fn refused(run: &OpenRun, c: &Carried) -> Option<DataWhy> {
+    if !c.open_view {
+        return Some(DataWhy::PrivateView);
+    }
+    // The run's first and last must be in the transcript and the request.
+    let at = |id: &str| c.nodes.iter().find(|n| n.id == id).map(|n| n.at);
+    let (Some(from), Some(through)) = (c.from, at(&run.through)) else {
+        return Some(DataWhy::NotInRun);
+    };
+    if c.nodes.iter().any(|n| n.at < from) {
+        return Some(DataWhy::NotInRun);
+    }
+    c.nodes
+        .iter()
+        .filter(|n| n.at > through)
+        .find_map(|n| match n.writer {
+            Writer::Loop => None,
+            Writer::ToolResult => Some(DataWhy::ToolResult),
+            Writer::Other => Some(DataWhy::Unvetted),
+        })
 }
 
 // ------------------------------------------------------------ the session's state
@@ -159,10 +306,11 @@ pub struct Opened {
 ///
 /// **The chain of blessed writers.** The run extends over a node only when
 /// that node is:
-/// - a person's message Jev judged `open` at the act band;
-/// - a Theseus reply Jev judged `open` at the act band (asked off the turn's
-///   path, by the open-request row);
-/// - an open request's tool result that passed the screen.
+/// - a person's message Jev judged `open` at the act band (`admits`);
+/// - an open request's own answer and calls, every request of its turn
+///   cleared (`turn/open_step.rs`, `data_end`);
+/// - an open request's tool result that passed the screen (theseus-a1wvq.9;
+///   until then a tool result ends the run).
 ///
 /// Any other node ends it: a private or unclear message, a seal, an
 /// attachment, an unscreened tool result, `channel.read` text, a merge, a

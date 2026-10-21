@@ -335,7 +335,20 @@ async fn the_open_view_can_be_asked_for_one_compile() {
     let rec = c.store.get_session::<SessionRecord>(&sid).unwrap().unwrap();
     let (live, _) = c.live_profile();
     let target = c.runner.resolve_target(&live, None, None, None).unwrap();
-    let one = c.runner.open_request(&rec, &target).unwrap();
+    let newest = c
+        .store
+        .transcript(&sid)
+        .unwrap()
+        .last()
+        .unwrap()
+        .1
+        .id
+        .clone();
+    let run = crate::data::OpenRun {
+        from: newest.clone(),
+        through: newest,
+    };
+    let one = c.runner.open_request(&rec, &target, &run).unwrap();
     assert!(one.view.open.is_some() && one.view.class == PlaceClass::Private);
     let text = serde_json::to_string(&one.compiled.request).unwrap();
     assert!(text.contains(EARLIER), "the newest message: {text}");

@@ -137,12 +137,13 @@ pub fn open_roots(cfg: &crate::Config, _session: &SessionRecord) -> Vec<PathBuf>
 }
 
 /// One request compiled in the open view (`TurnRunner::open_request`): the
-/// view its calls are gated in, its spec (the tools it is offered), and the
-/// compiled request.
+/// view its calls are gated in, its spec (the tools it is offered), the
+/// compiled request, and the transcript's nodes it was compiled from.
 pub struct OpenRequest {
     pub view: PlaceView,
     pub spec: RequestSpec,
     pub compiled: Compiled,
+    pub nodes: crate::store::Transcript,
 }
 
 impl TurnRunner {
@@ -159,15 +160,20 @@ impl TurnRunner {
     }
 
     /// One request of `session` on `target` in the open view, for a session
-    /// that is not open (theseus-a1wvq.8 calls it for a detour in the
-    /// owner's DM, once Jev has judged the message open): the session's
-    /// newest message alone (no earlier exchange, no recall, no summary),
-    /// compiled outside its compilation as a detour is, under the open
-    /// view's content and tools. It reads and writes nothing of the session
-    /// or the turn: the next compile is the session's own view again. The
-    /// calls its answer makes are gated in `view`. Its caller is
-    /// theseus-a1wvq.8's; until then its test is.
-    pub fn open_request(&self, session: &SessionRecord, target: &Target) -> Result<OpenRequest> {
+    /// that is not open (an open detour, theseus-a1wvq.8, once Jev has judged
+    /// the message open): the transcript from `run`'s first node to its end
+    /// (so a later loop carries its own answer and calls), never before the
+    /// detour's bound, with no recall and no summary, compiled outside its
+    /// compilation as a detour is, under the open view's content and tools.
+    /// It reads and writes nothing of the session or the turn: the next
+    /// compile is the session's own view again. The calls its answer makes
+    /// are gated in `view`.
+    pub fn open_request(
+        &self,
+        session: &SessionRecord,
+        target: &Target,
+        run: &crate::data::OpenRun,
+    ) -> Result<OpenRequest> {
         let sid = session.session_id.as_str();
         let view = PlaceView {
             open: Some(self.reach_of(session)),
@@ -185,15 +191,24 @@ impl TurnRunner {
         spec.card = None;
         spec.defer = self.deferral(sid, session.task.is_some(), &spec);
         let nodes = self.store.transcript(sid)?;
-        let Some(at) = nodes.iter().rposition(|(_, n)| {
-            n.origin == crate::node::Origin::Operator && n.kind == crate::stub::Kind::UserMessage
-        }) else {
-            anyhow::bail!("{sid} has no message to compile in the open view");
+        let Some(at) = nodes.iter().position(|(_, n)| n.id == run.from) else {
+            anyhow::bail!("{sid} does not hold its open run's first node");
         };
+        let bound = crate::turn::detour_start(&nodes, self.cfg.routing.trivial_context_turns);
+        let nodes: crate::store::Transcript = nodes[at.max(bound)..]
+            .iter()
+            .filter(|(_, n)| {
+                !matches!(
+                    n.kind,
+                    crate::stub::Kind::Summary | crate::stub::Kind::Recall
+                )
+            })
+            .cloned()
+            .collect();
         let compiled = crate::compiler::compile(crate::compiler::CompileInput {
             session_id: sid,
             current: None,
-            nodes: &nodes[at..=at],
+            nodes: &nodes,
             last_position: self.store.last_position(),
             spec: &spec,
             catalog: &self.catalog,
@@ -213,6 +228,7 @@ impl TurnRunner {
             view,
             spec,
             compiled,
+            nodes,
         })
     }
 }

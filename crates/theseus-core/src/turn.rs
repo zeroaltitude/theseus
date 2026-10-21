@@ -84,6 +84,7 @@ mod join_step;
 mod later_step;
 mod noop_step;
 pub mod nudge_step;
+mod open_step;
 mod persona_engage;
 mod persona_step;
 pub(crate) mod personal_step;
@@ -107,7 +108,7 @@ mod surface_step;
 mod title_step;
 
 pub use request::TurnRequest;
-pub use route_step::{LiveSwitched, SWITCHED};
+pub use route_step::{detour_start, LiveSwitched, SWITCHED};
 
 /// The built-in persona at the front of the system prompt of a session whose
 /// persona in play has no readable file of its own (theseus-slvl.2): the
@@ -435,6 +436,8 @@ struct Turn<'a> {
     fill: fill_step::Fill,
     /// The standing blocks the turn's spec and tail carry, and its surface.
     standing: standing_step::Held,
+    /// Its open requests' clearances (theseus-a1wvq.8).
+    data: open_step::Held,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -565,6 +568,7 @@ impl<'a> Turn<'a> {
             end_note: end_note_step::Held::of(execution_id),
             fill: fill_step::Fill::default(),
             standing: standing_step::Held::default(),
+            data: open_step::Held::default(),
         }
     }
 
@@ -1555,7 +1559,7 @@ impl TurnRunner {
             .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
         // Where routing moves the turn (25e), a refusal (theseus-7gir.18), and
         // a task's checkpoints (theseus-ypnxt.9).
-        let slots = (OnceLock::new(), OnceLock::new(), checkpoint_step::slots());
+        let slots = open_step::slots();
         // What this turn runs on is the session's target from the turn's
         // start (theseus-kol): its copy carries it into every session write
         // the turn makes (a recompile's, a failure's, its end's), and an
@@ -1628,7 +1632,7 @@ impl TurnRunner {
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
         match boxed(|| {
-            let fork = (&slots.0, &slots.1, &slots.2);
+            let fork = (&slots.0, &slots.1, &slots.2, &slots.3);
             self.turn_body(&mut t, &mut session, provider.as_ref(), asked, fork)
         })
         .await
@@ -1651,10 +1655,11 @@ impl TurnRunner {
         session: &mut SessionRecord,
         provider: &dyn Provider,
         asked: Asked,
-        (routed, fallback, moves): (
+        (routed, fallback, moves, data_moved): (
             &'a OnceLock<Target>,
             &'a OnceLock<Target>,
             &'a checkpoint_step::Slots,
+            &'a OnceLock<Target>,
         ),
     ) -> Result<Next> {
         let Asked {
@@ -1805,6 +1810,11 @@ impl TurnRunner {
                 self.steer_in(t)?;
                 if let Some(f) =
                     self.checkpoint_apply(t, session, &mut spec, &mut routed_to, moves)?
+                {
+                    return Ok(Next::Fail(f));
+                }
+                if let Some(f) =
+                    self.data_move(t, session, &mut spec, &mut routed_to, data_moved)?
                 {
                     return Ok(Next::Fail(f));
                 }
@@ -3216,6 +3226,7 @@ impl TurnRunner {
             Ok(end) => end,
             Err(e) => return Err(Self::fault(t, session, e)),
         };
+        self.data_end(&mut t, session);
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();

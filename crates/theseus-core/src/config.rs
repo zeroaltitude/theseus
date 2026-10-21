@@ -1817,6 +1817,14 @@ impl Config {
         }
     }
 
+    /// A test's profile `name`, a copy of `like` (theseus-a1wvq.8's
+    /// `dsflash`, GLM's model on the `zai` fake).
+    #[cfg(test)]
+    pub(crate) fn copy_profile(&mut self, name: &str, like: &str) {
+        let p = self.resolved.profiles[like].clone();
+        self.resolved.profiles.insert(name.into(), p);
+    }
+
     /// A test's `zai` provider vouched of `origin`.
     #[cfg(test)]
     pub(crate) fn vouch_zai(&mut self, origin: crate::catalog::ModelOrigin) {

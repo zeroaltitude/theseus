@@ -1,9 +1,10 @@
 //! The route step's data floor (theseus-oejh3, theseus-xs5ah, theseus-a1wvq.3).
 //!
 //! - **Restricted origin**: a profile whose model is of restricted origin
-//!   (`cn` or `unknown`, `Config::profile_origin`) runs only for a turn whose
-//!   `Clearance` is cleared, and none is yet: every turn starts
-//!   `Clearance::closed(DataWhy::Unchecked)` (`RouteState.clearance`).
+//!   (`cn` or `unknown`, `Config::profile_origin`) runs only for a turn
+//!   admitted open (`RouteState.admitted`, `open_step.rs`) whose request will
+//!   be compiled in the open view: an open session, or a detour. Elsewhere
+//!   an admitted turn's data reason is `private_view`.
 //! - **The sensitive names**: a message that names one of `[privacy]
 //!   sensitive_names`, or a session that read private content, runs only on a
 //!   profile of US origin (`ModelOrigin::cleared_for_sensitive`).
@@ -22,7 +23,7 @@ use crate::provider::Provider;
 use crate::routing::{Decision, HoldNext, Reason};
 
 /// The profile the `[model]` section builds.
-const DEFAULT_PROFILE: &str = "default";
+pub(super) const DEFAULT_PROFILE: &str = "default";
 
 pub(super) const REFUSED: &str =
     "this message names something in `[privacy] sensitive_names`, and \
@@ -33,16 +34,16 @@ pub(super) const REFUSED: &str =
 pub(super) struct Floor {
     /// The names' floor: only a profile of US origin.
     pub(super) sensitive: bool,
-    /// The turn's clearance lets a profile of restricted origin run.
+    /// The turn is admitted open: a profile of restricted origin may run.
     pub(super) cleared: bool,
 }
 
 impl super::route_step::RouteState {
-    /// The turn's floor: its names and its clearance.
+    /// The turn's floor: its names and its admission.
     pub(super) fn floor(&self) -> Floor {
         Floor {
             sensitive: self.sensitive,
-            cleared: self.clearance.is_cleared(),
+            cleared: self.admitted.0.is_ok(),
         }
     }
 }
@@ -97,19 +98,26 @@ impl TurnRunner {
     /// The route's answer, kept where the floor lets the turn run: the
     /// decision stands when the floor lets its profile (else the turn's own)
     /// run, else the `[model]` default runs if the floor lets it and it is
-    /// usable, else the turn ends.
+    /// usable, else the turn ends. An admitted turn runs on a restricted
+    /// profile only where its request is open: an open session, or a detour
+    /// (theseus-a1wvq.8); elsewhere its data reason becomes `private_view`.
     pub(super) fn data_floor(
         &self,
-        t: &Turn<'_>,
+        t: &mut Turn<'_>,
         decision: Option<Decision>,
     ) -> Result<Option<Decision>, Failure> {
-        let floor = t.route.floor();
+        let mut floor = t.route.floor();
+        let open = t.tc.open.is_some() || decision.as_ref().is_some_and(|d| d.detour);
+        floor.cleared &= open;
         let ran = decision
             .as_ref()
             .map_or(t.target.profile.as_str(), |d| d.profile.as_str());
         let Some(why) = self.floor_refuses(floor, ran) else {
             return Ok(decision);
         };
+        if t.route.floor().cleared && !open {
+            t.route.admitted = super::open_step::Admitted(Err(crate::data::DataWhy::PrivateView));
+        }
         let usable = self
             .route_profiles(floor)
             .get(DEFAULT_PROFILE)
@@ -156,20 +164,10 @@ impl TurnRunner {
         *provider = Some(p);
         Ok(Ok(Some(d)))
     }
-
-    /// The seam where a turn's pass rides its request (theseus-a1wvq.3):
-    /// a cleared turn's request carries a pass for its own digest. No turn
-    /// is cleared yet (the open-request row clears one), so none does.
-    pub(super) fn data_pass(t: &Turn<'_>, compiled: &mut Compiled) {
-        if t.route.clearance.is_cleared() {
-            let digest = compiled.request.digest();
-            compiled.request.data_pass = t.route.clearance.pass(&digest);
-        }
-    }
 }
 
 /// The turn ends before any model call: no model cleared for its data.
-fn refusal(why: &str) -> Failure {
+pub(super) fn refusal(why: &str) -> Failure {
     let said = format!("No model cleared for this request's data is usable: {why}");
     Failure {
         class: crate::data_gate::DATA_GATE_CLASS.into(),

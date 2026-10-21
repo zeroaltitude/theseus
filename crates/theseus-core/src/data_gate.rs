@@ -5,8 +5,8 @@
 //!
 //! - a request to a model of restricted origin (`cn` or `unknown`) that does
 //!   not carry a [`DataPass`](crate::data::DataPass) covering its own digest.
-//!   Nothing mints a pass yet, so no request reaches such a model; each refusal
-//!   is a `data_gate.blocked` row;
+//!   Only an open request's own clearance mints one (theseus-a1wvq.8,
+//!   `turn/open_step.rs`); each refusal is a `data_gate.blocked` row;
 //! - a request that holds one of `[privacy] sensitive_names`, or is made for a
 //!   session that read private content, to a model not of US origin
 //!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). A pass never lifts

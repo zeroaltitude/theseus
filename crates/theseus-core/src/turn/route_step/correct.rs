@@ -445,7 +445,7 @@ impl TurnRunner {
             from: None,
             images: t.route.images,
             cap,
-            cleared: false,
+            cleared: t.route.floor().cleared,
         };
         match &s.steer {
             Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, at_once),
