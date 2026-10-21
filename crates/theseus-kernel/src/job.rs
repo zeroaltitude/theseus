@@ -1561,10 +1561,17 @@ mod tests {
 
         // `sh` stands in for a wrapper that runs: it sleeps, ignoring the flags.
         let args = spawn_args(d.path(), "act_spawned");
-        let pid = spawn_detached(Path::new("sh"), &["-c", "sleep 5", "job-wrapper"], &spool, &args)
-            .unwrap();
+        let pid = spawn_detached(
+            Path::new("sh"),
+            &["-c", "sleep 5", "job-wrapper"],
+            &spool,
+            &args,
+        )
+        .unwrap();
         assert!(spool.argv_path("act_spawned").exists());
-        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
     }
 
     /// A job's raw output is 0600 whatever the process's umask (theseus-wz2):
