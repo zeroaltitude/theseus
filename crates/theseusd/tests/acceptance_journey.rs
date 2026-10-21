@@ -55,9 +55,12 @@ fn rules(gates: &std::path::Path) -> Value {
             [{"label": "Careful"}, {"label": "Quick"}, {"label": "Skip it"}]}}]})
     };
     let wait_for = |gate: &str| {
+        // Ends on the gate, on its directory gone (the test ended), or in 300 s (a test killed
+        // outright leaves the directory): a job never outlives its test (theseus-ynfq9).
+        let d = gates.display();
         let script = format!(
-            "while [ ! -e {}/{gate} ]; do sleep 0.05; done",
-            gates.display()
+            "n=0; while [ ! -e {d}/{gate} ] && [ -d {d} ] && [ $n -lt 6000 ]; \
+             do sleep 0.05; n=$((n+1)); done"
         );
         json!({"calls": [{"name": "proc_run", "input": {"argv": ["sh", "-c", script],
             "timeout_secs": 600}}]})
