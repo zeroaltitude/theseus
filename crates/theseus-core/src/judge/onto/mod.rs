@@ -15,9 +15,12 @@
 //!   the decision is made again, under the ontology's writer lock, and its
 //!   records, their rows and the owner's cards ride that same frame.
 //!
-//! - **Swept** ([`sweep`], theseus-63tfk): nightly, with no model, a machine
-//!   membership unconfirmed for 30 days is dropped and a duplicate category a
-//!   machine wrote is merged into its twin; each an undoable write.
+//! - **Swept** ([`sweep`], theseus-63tfk): nightly, a machine membership
+//!   unconfirmed for 30 days is dropped and a duplicate category a machine
+//!   wrote is merged into its twin; three sessions' `other` answers about one
+//!   name mint a kind ([`mint`], theseus-81zx7); and Jev judges pairs that look
+//!   alike and categories too large to say anything ([`judged`], theseus-nzzz4,
+//!   under its own daily cap); each an undoable write.
 //!
 //! Interpretations route context and never grant access: a membership takes
 //! effect at the next recompile, and a shared place is never asked.
@@ -38,7 +41,10 @@ use crate::node::AttachmentContent;
 use crate::rpc::Core;
 
 pub mod decide;
+pub mod digest;
+pub mod judged;
 pub mod mark;
+pub mod mint;
 mod name;
 pub(crate) mod stage;
 pub mod sweep;

@@ -27,6 +27,7 @@
 
 pub mod category;
 pub mod compose;
+pub mod judged;
 pub mod kind;
 mod machine;
 pub mod merge;
@@ -159,6 +160,8 @@ impl Record {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_judged;
 #[cfg(test)]
 mod tests_kinds;
 #[cfg(test)]

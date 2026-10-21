@@ -22,6 +22,9 @@ use theseus_judge::client::Answer;
 use theseus_judge::Judgment;
 use theseus_ontology::{Category, CategoryId, MemberList, Membership, Ontology, Origin, Record};
 
+/// The mined names an `other` answer keeps.
+pub const OTHER_NAMES: usize = 10;
+
 /// The bands, from `[ontology]`.
 #[derive(Debug, Clone, Copy)]
 pub struct Bands {
@@ -58,6 +61,10 @@ pub enum Step {
     },
     /// `new` at the act band, and no mined name fits: the naming call.
     Unnamed { kind: String, confidence: f64 },
+    /// `kind_of_thing` said `other` at the act band (theseus-81zx7): none of
+    /// the table's kinds describes the message. Nothing is written or sent:
+    /// the row is the record the sweep reads, with the mined names.
+    Other { names: Vec<String>, confidence: f64 },
     /// The ontology refused, or the operator's entries won.
     Refused {
         kind: String,
@@ -75,6 +82,7 @@ impl Step {
             | Step::Unnamed { kind, .. }
             | Step::Refused { kind, .. } => kind,
             Step::Attached { .. } => "project",
+            Step::Other { .. } => "kind_of_thing",
         }
     }
 }
@@ -175,6 +183,14 @@ pub fn decide(j: &Judgment, o: &Ontology, bands: Bands, now_ms: u64) -> Plan {
     };
     let ctx = &j.context["onto"];
     let names = strings(&ctx["names"]);
+    if let Some((answer, confidence)) = choice(j, "kind_of_thing") {
+        if answer == "other" && confidence >= bands.act {
+            plan.steps.push(Step::Other {
+                names: names.iter().take(OTHER_NAMES).cloned().collect(),
+                confidence,
+            });
+        }
+    }
     let Some(kinds) = ctx.get("kinds").and_then(Value::as_object) else {
         return plan;
     };
