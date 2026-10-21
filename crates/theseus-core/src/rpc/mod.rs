@@ -104,6 +104,8 @@ pub(crate) use server::write_item;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cross_judge;
+#[cfg(test)]
 mod tests_exec_list;
 #[cfg(test)]
 mod tests_health_counts;
@@ -126,11 +128,15 @@ mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;
 #[cfg(test)]
+mod tests_own_top;
+#[cfg(test)]
 mod tests_peek;
 #[cfg(test)]
 mod tests_persona_import;
 #[cfg(test)]
 mod tests_persona_threads;
+#[cfg(test)]
+mod tests_place_digest;
 #[cfg(test)]
 mod tests_prefix;
 #[cfg(test)]

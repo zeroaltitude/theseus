@@ -265,7 +265,7 @@ fn tag(r: &TurnSubmitResult) -> ThreadTag {
         .unwrap_or_else(|| panic!("no thread tag in {r:?}"))
 }
 
-/// A rig of the inbound batch alone (classify.v3 acting, role.v1), against a
+/// A rig of the inbound batch alone (classify.v4 acting, role.v1), against a
 /// fake Jev, with `n` model replies.
 fn rig(jev: &FakeJev, n: usize) -> Rig {
     rig_on(texts(n), Some(jev), |c| {
@@ -399,7 +399,7 @@ async fn addressing_comes_first_and_is_certain() {
         jev.seen().iter().all(|s| !s.body["questions"]
             .as_object()
             .unwrap()
-            .contains_key("classify.v3/thread")),
+            .contains_key("classify.v4/thread")),
         "addressing asks Jev no thread question"
     );
 }
@@ -437,9 +437,9 @@ async fn jevs_thread_answer_rides_the_one_inbound_request_and_the_bands_route() 
     assert_eq!(jev.seen().len(), 1, "no call was added");
     let q = jev.seen()[0].body["questions"].clone();
     let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
-    assert!(ids.contains(&"classify.v3/thread".to_string()), "{ids:?}");
+    assert!(ids.contains(&"classify.v4/thread".to_string()), "{ids:?}");
     assert!(ids.contains(&"role.v1/role".to_string()), "{ids:?}");
-    let mut opts: Vec<String> = q["classify.v3/thread"]["criteria"]
+    let mut opts: Vec<String> = q["classify.v4/thread"]["criteria"]
         .as_object()
         .unwrap()
         .keys()
@@ -514,7 +514,7 @@ async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message(
     assert_eq!(jev.seen().len(), 1, "no call was added");
     let q = jev.seen()[0].body["questions"].clone();
     let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
-    assert!(ids.contains(&"classify.v3/thread".to_string()), "{ids:?}");
+    assert!(ids.contains(&"classify.v4/thread".to_string()), "{ids:?}");
     assert!(ids.contains(&"directive.v1/kind".to_string()), "{ids:?}");
     assert_eq!(rows(c, "thread.routed")[0].data["early"], true);
     let cap = &rows(c, "standing.captured")[0];

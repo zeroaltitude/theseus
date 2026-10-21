@@ -1,0 +1,15 @@
+{
+  "message": "Regenerate the report with the new cutoff.",
+  "notes": [
+    {
+      "key": "nod_cut",
+      "thread": "the place's own conversation",
+      "text": "The cutoff for flagging changed: use 0.55 from now on."
+    },
+    {
+      "key": "nod_port",
+      "thread": "homesvc maintenance",
+      "text": "the staging copy of homesvc listens on port 8453"
+    }
+  ]
+}

@@ -488,7 +488,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
         [
             "loop.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v3: off",
+            "classify.v4: off",
             "role.v1: off",
             "route.v7: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-19))",
         "directive.v1: off",
@@ -496,6 +496,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
+            "recall_cross.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow",
             "citation.v1: shadow",

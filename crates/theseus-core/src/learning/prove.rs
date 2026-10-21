@@ -359,8 +359,8 @@ pub fn classify_quality(
     // The discordant pairs: Jev right and the baseline wrong, and the
     // reverse.
     let (mut only_jev, mut only_base) = (0u32, 0u32);
-    // v1's, v2's (theseus-rha2) and v3's judgments: the same `should_promote`.
-    let judgments = [CLASSIFY_V1, "classify.v2", "classify.v3"]
+    // v1's, v2's (theseus-rha2), v3's and v4's judgments: the same `should_promote`.
+    let judgments = [CLASSIFY_V1, "classify.v2", "classify.v3", "classify.v4"]
         .into_iter()
         .flat_map(|p| scope.judgments.get(p).map_or(&[][..], Vec::as_slice));
     for s in judgments {

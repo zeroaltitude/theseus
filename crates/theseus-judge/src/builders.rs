@@ -49,6 +49,9 @@ pub const COMPARE_VERSION: u32 = 1;
 /// `heard.v1`'s builder (module `heard`, theseus-s3dwj).
 pub const HEARD_VERSION: u32 = 1;
 
+/// `recall_cross.v1`'s builder (module `cross`, theseus-98bz.10).
+pub const RECALL_CROSS_VERSION: u32 = 1;
+
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
 pub const SECURITY_CALLS: usize = 5;
@@ -250,6 +253,11 @@ pub struct InboundInput {
     /// threads is byte for byte the one before threads).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub live_threads: Vec<ThreadInput>,
+    /// The message arrives in a thread's own session (classify.v4's `scope`,
+    /// theseus-98bz.9); left out of the state when false, so a state outside a
+    /// thread is byte for byte the one before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_thread: bool,
     /// The personas the message may be answered as, and the one that answered
     /// last (`route.v5`'s `persona` question, theseus-c1uz); left out of the
     /// state, and the question not asked, with fewer than two.
@@ -382,6 +390,9 @@ pub enum Input {
     Compare(CompareInput),
     /// `heard.v1`'s (theseus-s3dwj): a short or unclear transcript in a call.
     Heard(HeardInput),
+    /// `recall_cross.v1`'s (theseus-98bz.10): the message and another
+    /// stream's notes near the bar.
+    RecallCross(CrossInput),
 }
 
 impl Input {
@@ -402,6 +413,7 @@ impl Input {
             Input::PeopleSeen(_) => Builder::PeopleSeen,
             Input::Compare(_) => Builder::Compare,
             Input::Heard(_) => Builder::Heard,
+            Input::RecallCross(_) => Builder::RecallCross,
         }
     }
 
@@ -423,6 +435,7 @@ impl Input {
             Builder::PeopleSeen => Input::PeopleSeen(serde_json::from_str(json)?),
             Builder::Compare => Input::Compare(serde_json::from_str(json)?),
             Builder::Heard => Input::Heard(serde_json::from_str(json)?),
+            Builder::RecallCross => Input::RecallCross(serde_json::from_str(json)?),
         })
     }
 }
@@ -461,6 +474,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::PeopleSeen(i) => people::people_seen(i, cap, scrub),
         Input::Compare(i) => compare::compare(i, cap, scrub),
         Input::Heard(i) => heard::heard(i, cap, scrub),
+        Input::RecallCross(i) => cross::cross(i, cap, scrub),
     })
 }
 
@@ -659,6 +673,7 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 
 mod citation;
 mod compare;
+mod cross;
 mod heard;
 mod memory;
 mod people;
@@ -667,6 +682,7 @@ mod security2;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
+pub use cross::{CrossInput, CrossNote, CROSS_NOTES};
 pub use heard::{HeardInput, HeardOverlap, SAID};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use people::{HeldPerson, PeopleInput, PeopleSeenInput, PersonCandidate, PEOPLE, SEEN};
@@ -862,6 +878,9 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     .cut_if("live_tasks", c.cut());
     let threads = &i.live_threads[..i.live_threads.len().min(LIVE_THREADS)];
     threads_state(&mut b, &c, cap, i, threads);
+    if i.in_thread {
+        b.scalar("in_thread", true);
+    }
     data_names_state(&mut b, &c, i);
     let in_thread = persona::state(&mut b, &c, cap, i);
     let role = i
@@ -887,18 +906,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
             })
             .collect(),
     );
-    if !threads.is_empty() {
-        dynamic.sources.insert(
-            Source::Threads,
-            threads
-                .iter()
-                .map(|t| Item {
-                    key: t.id.clone(),
-                    text: thread_text(t, &clip),
-                })
-                .collect(),
-        );
-    }
+    threads_dynamic(&mut dynamic, i, threads, &clip);
     persona::dynamic(&mut dynamic, i, &clip, in_thread);
     onto::dynamic(&mut dynamic, i, &clip);
     dynamic.sources.insert(
@@ -915,6 +923,38 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     Prepared {
         state: Arc::new(b.build()),
         dynamic,
+    }
+}
+
+/// The live threads as the `thread` question's options, and the `scope`
+/// question's one item when the place has live threads: listed, or the
+/// message arrives in one (theseus-98bz.9).
+fn threads_dynamic(
+    dynamic: &mut Dynamic,
+    i: &InboundInput,
+    threads: &[ThreadInput],
+    clip: &dyn Fn(&str, usize) -> String,
+) {
+    if !threads.is_empty() {
+        dynamic.sources.insert(
+            Source::Threads,
+            threads
+                .iter()
+                .map(|t| Item {
+                    key: t.id.clone(),
+                    text: thread_text(t, clip),
+                })
+                .collect(),
+        );
+    }
+    if !threads.is_empty() || i.in_thread {
+        dynamic.sources.insert(
+            Source::Scope,
+            vec![Item {
+                key: "scope".into(),
+                text: "The place has live threads.".into(),
+            }],
+        );
     }
 }
 
@@ -1159,6 +1199,16 @@ pub(crate) mod tests {
         .unwrap()
     }
 
+    /// The `inbound` fixture with three live threads, which backs
+    /// classify.v4's golden request (theseus-98bz.9).
+    fn threads_fixture() -> String {
+        std::fs::read_to_string(format!(
+            "{}/fixtures/inputs/inbound.threads.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
     /// The `inbound` fixture with the ontology fields (theseus-xzxqv), which
     /// backs onto.v1's golden request.
     pub(crate) fn onto_fixture() -> String {
@@ -1178,6 +1228,7 @@ pub(crate) mod tests {
             "security.v3",
             "classify.v2",
             "classify.v3",
+            "classify.v4",
             "route.v5",
             "continue.v1",
             "categorize.v1",
@@ -1189,6 +1240,7 @@ pub(crate) mod tests {
             "people_seen.v1",
             "compare.v1",
             "heard.v1",
+            "recall_cross.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(
@@ -1211,6 +1263,8 @@ pub(crate) mod tests {
             let (_, prepared) = match p.name().as_str() {
                 "route.v6" | "route.v7" => prepared_from(p, &names_fixture()),
                 "onto.v1" => prepared_from(p, &onto_fixture()),
+                // classify.v4's `scope` is asked only with live threads.
+                "classify.v4" => prepared_from(p, &threads_fixture()),
                 name => prepared(name),
             };
             let questions = p
@@ -1499,6 +1553,7 @@ pub(crate) mod tests {
                         })
                         .collect(),
                     live_threads: Vec::new(),
+                    in_thread: false,
                     personas: Vec::new(),
                     speaker: None,
                     thread_now: None,

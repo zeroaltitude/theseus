@@ -14,7 +14,9 @@
 //!   split moved) outranks its session's; `[threads] base_distance` makes a node of
 //!   the place's own conversation another stream's to a threaded asker;
 //!   `cross_recall_beats_own` and `cross_recall_needs_entity` make another stream's
-//!   hit outrank what the thread holds and share an entity with the message.
+//!   hit outrank what the thread holds and share an entity with the message;
+//!   what it holds is its own best hit not already in context
+//!   (`own_top_admissible`, theseus-98bz.8).
 //! - **Naming** (`waived`): the message names a thread by its slug, its
 //!   title, or one of its working set's entities (a repo, branch, ref, file,
 //!   root or host), as whole words, in any case.
@@ -147,13 +149,22 @@ pub struct ThreadScene {
     bar: f64,
     base: bool,
     beats_own: bool,
+    own_top_admissible: bool,
     needs_entity: bool,
+    /// The nodes Jev admitted across threads this recall (theseus-98bz.10).
+    admitted: BTreeSet<String>,
     board: Arc<Board>,
     store: Store,
     memo: Arc<Memo>,
 }
 
 impl ThreadScene {
+    /// Jev read these nodes as about the message's subject: the lens admits
+    /// them with the penalty (theseus-98bz.10).
+    pub fn admit(&mut self, nodes: BTreeSet<String>) {
+        self.admitted.extend(nodes);
+    }
+
     /// The thread of `session`, with whether it is held.
     pub fn of(&self, session: &str) -> Option<SessionThread> {
         let slug = self.memo.slug_of(&self.store, &self.board, session)?;
@@ -198,10 +209,12 @@ impl ThreadScene {
         })
     }
 
-    /// The lens over candidates given as (session, node, fused score).
+    /// The lens over candidates given as (session, node, fused score), the
+    /// nodes already in the turn's context being `in_context`.
     pub fn lens<'a>(
         &self,
         candidates: impl IntoIterator<Item = (&'a str, &'a str, f64)>,
+        in_context: &BTreeSet<String>,
     ) -> ThreadLens {
         let mut of_session = BTreeMap::new();
         let mut of_node = BTreeMap::new();
@@ -221,11 +234,26 @@ impl ThreadScene {
             }
             seen.push((session, node, fused));
         }
-        // What the asking thread already holds: its own best hit.
+        // Jev's yes, never a held thread's node.
+        let admitted = seen
+            .iter()
+            .filter(|(_, node, _)| self.admitted.contains(*node))
+            .filter(|(session, node, _)| {
+                !of_node
+                    .get(*node)
+                    .or_else(|| of_session.get(*session))
+                    .is_some_and(|t: &SessionThread| t.held)
+            })
+            .map(|(_, node, _)| (*node).to_string())
+            .collect();
+        // What the asking thread already holds: its own best hit that can
+        // still be admitted (`own_top_admissible`, theseus-98bz.8): a note
+        // already in context drops `in_context`, so it holds nothing back.
         let own_top = seen
             .iter()
             .filter(|(session, node, fused)| {
                 fused.is_finite()
+                    && !(self.own_top_admissible && in_context.contains(*node))
                     && of_node
                         .get(*node)
                         .or_else(|| of_session.get(*session))
@@ -245,6 +273,7 @@ impl ThreadScene {
             needs_entity: self.needs_entity,
             penalty: self.penalty,
             bar: self.bar,
+            admitted,
         }
     }
 }
@@ -284,7 +313,9 @@ impl TurnRunner {
             bar: cfg.cross_recall_bar,
             base: cfg.base_distance,
             beats_own: cfg.cross_recall_beats_own,
+            own_top_admissible: cfg.own_top_admissible,
             needs_entity: cfg.cross_recall_needs_entity,
+            admitted: BTreeSet::new(),
             board,
             store: self.store.clone(),
             memo,

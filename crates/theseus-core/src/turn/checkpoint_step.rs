@@ -380,6 +380,7 @@ impl TurnRunner {
                 chosen: None,
                 task: a.task,
                 threads: Vec::new(),
+                in_thread: false,
                 persona: self.persona_ctx(sid, class),
                 capture: false,
                 data_names: self.cfg.routing.data.names(&self.cfg.privacy),

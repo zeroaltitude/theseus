@@ -11,7 +11,7 @@
 //! - `name_profile`: the profile whose model names a new category when Jev
 //!   says `new` and no mined name fits (`haiku`), off the turn's path, at
 //!   most once a session, kind and day.
-//! - `request`: `"batch"` rides the inbound batch (`classify.v3`, `role.v1`);
+//! - `request`: `"batch"` rides the inbound batch (`classify.v4`, `role.v1`);
 //!   `"own"` sends `onto.v1` in a request of its own that no turn waits on,
 //!   the fallback when the batch's latency grows.
 //! - `recall_boost`: how much a note from a session that shares a category
@@ -53,7 +53,7 @@ pub struct OntologyConfig {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Request {
-    /// The inbound batch, beside `classify.v3` and `role.v1`.
+    /// The inbound batch, beside `classify.v4` and `role.v1`.
     #[default]
     Batch,
     /// A request of its own, never waited on.

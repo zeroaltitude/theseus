@@ -71,13 +71,23 @@ pub struct Check {
 /// A case's expectations against the answers of its judgment. A question
 /// that was not answered is a miss.
 pub fn check(case: &Case, pack: &Pack, answers: &[AnswerRecord]) -> Vec<Check> {
-    case.expect
+    check_expect(&case.expect, pack, answers)
+}
+
+/// `check`, over any set's expectations (`eval_labelled`'s too).
+pub fn check_expect(
+    expect: &BTreeMap<String, String>,
+    pack: &Pack,
+    answers: &[AnswerRecord],
+) -> Vec<Check> {
+    expect
         .iter()
         .map(|(q, wanted)| {
             let confirm = pack.question(q).map_or(0.6, |d| d.thresholds.confirm);
+            // A per-item Noul is expected by its asked id (`same_subject.1`).
             let answer = answers
                 .iter()
-                .find(|a| a.about.is_none() && a.def == *q)
+                .find(|a| (a.about.is_none() && a.def == *q) || a.question == *q)
                 .map(|a| &a.answer);
             let (got, met) = match (answer, wanted.as_str()) {
                 (Some(Answer::Noul { noul }), "high") => (format!("{noul:.2}"), *noul >= confirm),

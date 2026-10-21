@@ -1118,6 +1118,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # cross_recall_beats_own = true           # ...and, once it has paid its penalty, only when it still outranks the asking thread's own best hit of the query (false: the bar alone decides)
 # cross_recall_needs_entity = true        # ...and a recalled note from another thread whose chunk holds entities (a path, a ticket, a host) the message names none of is dropped: a question's shape alone pulls no other stream's note
 # base_distance = true                    # a note from no thread (the place's own conversation) is another stream's to a threaded session: it pays the same distance, and a name never waives it (false: it recalls as before)
+# own_top_admissible = true              # ...and the asking thread's own best hit it must outrank is one not already in context (false: in context or not)
+# cross_recall_judge = true              # the notes of another thread the distance dropped near the bar go to Jev, who reads whether each is about the message's subject, not only the same kind of fact; a yes is admitted with the penalty and labelled (false: the drops stand)
+# cross_recall_judge_k = 3                # at most this many notes a request (1 to 10)
+# place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
+# place_digest_line_chars = 200           # the longest a digest's line is, in characters
 # sticky_half_life_secs = 600             # a place's last thread stays the likely one for its next message, halving every this many seconds
 # route_wait_ms = 400                     # at most this long an unaddressed message waits for Jev's choice of thread; on timeout the router's own pick stands, tagged a guess
 # ask_wait_secs = 900                     # how long a message waits for your answer to "which thread?" before it runs in the place's own conversation
@@ -1322,7 +1327,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 
 # ---------------------------------------------------------------- ontology
 # Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
-# beside `classify.v3` and `role.v1`): which topic, project, event, resource, capability
+# beside `classify.v4` and `role.v1`): which topic, project, event, resource, capability
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
 # reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
@@ -1477,7 +1482,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
 # changes no turn. Today eight packs judge: loop.v1, at each turn that ends
 # with no tool calls (where does the work on the ask stand?); security.v3, at
-# each call that acts once the gate has decided (how risky is it?); classify.v3 and role.v1, in one request, at each message a person sends
+# each call that acts once the gate has decided (how risky is it?); classify.v4 and role.v1, in one request, at each message a person sends
 # (what kind of message is it, and which working role does its reply need?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
 # turn; continue.v1, at a compile that appends although one of CONTINUE's
@@ -1559,7 +1564,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 
 # ---------------------------------------------------------------- routing
 # Jev's model per task class (M5 25e). While [judge] is on, route.v7 asks at each
-# message you send which task class it needs (beside classify.v3 and role.v1), and
+# message you send which task class it needs (beside classify.v4 and role.v1), and
 # the turn runs on that class's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
 # own. "cheapest" is the usable profile cheapest for a short turn at catalog prices. A

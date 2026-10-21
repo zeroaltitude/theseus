@@ -313,7 +313,7 @@ fn batch_request(jev: &FakeJev) -> Value {
     jev.seen()
         .into_iter()
         .map(|s| s.body)
-        .find(|b| b["questions"].to_string().contains("classify.v3/"))
+        .find(|b| b["questions"].to_string().contains("classify.v4/"))
         .expect("the batch's request")
 }
 

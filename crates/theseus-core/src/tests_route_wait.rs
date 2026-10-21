@@ -2,7 +2,7 @@
 //! against the fake Jev with the latencies it is given:
 //!
 //! - `route.v1` asks in a request of its own beside the batch of
-//!   `classify.v3` and `role.v1`, so its verdict comes when its questions
+//!   `classify.v4` and `role.v1`, so its verdict comes when its questions
 //!   (route.v7's four: the mode, the reply's effort, the data question and
 //!   the personal one) are
 //!   answered, never after the batch's; each judgment is recorded once,
@@ -66,7 +66,7 @@ fn billed(body: &Value) -> Usage {
     }
 }
 
-/// (b): `route.v1` alone in one request, `classify.v3` and `role.v1` in
+/// (b): `route.v1` alone in one request, `classify.v4` and `role.v1` in
 /// the other; three judgments, each recorded once; `route.v1`'s cost is its
 /// whole request's, and the batch's two share theirs by question count.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -86,7 +86,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(
         by_pack,
         BTreeMap::from([
-            ("classify.v3".to_string(), 1),
+            ("classify.v4".to_string(), 1),
             ("role.v1".to_string(), 1),
             ("route.v7".to_string(), 1)
         ]),

@@ -703,6 +703,7 @@ impl Scene<'_> {
                 candidates
                     .iter()
                     .map(|c| (c.session_id.as_str(), c.node_id.as_str(), c.fused)),
+                &self.in_context,
             ),
         )
     }
