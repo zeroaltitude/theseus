@@ -340,7 +340,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'The loop proposes changes to its own judgment; none acts until you promote it.'),
   'judgment.learning': e(
     'Show what the learning loop found.',
-    'A report by date: what it labelled, learned and proposed. Pick a date for the report.',
+    'A report by date: what it labelled, learned and proposed. Pick a date for the report. The ontology pack’s block has a line of its own for that day: its judgments, acts, confirms and undos, and the undo rate per kind.',
     'It is where to review the loop’s work before it changes how a pack judges.'),
   'judgment.notices': e(
     'Show the notices Jev sent after a call it was sure was risky.',
