@@ -1360,9 +1360,11 @@ impl Lane {
     /// under a key of its own, so it posts once.
     async fn report_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
         let channel = self.place_channel().await?;
+        // A task that wrote nothing of its own carries its words in the post.
         let said = body["node"]
             .as_str()
-            .and_then(|n| self.shared.core.outbox.said(n));
+            .and_then(|n| self.shared.core.outbox.said(n))
+            .or_else(|| body["text"].as_str().map(str::to_string));
         // A routine's run speaks as the routine (theseus-j90w2).
         let routine = self.shared.routine_report(body, said.as_deref());
         if routine.is_some() {

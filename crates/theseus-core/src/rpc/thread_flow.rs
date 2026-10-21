@@ -274,9 +274,13 @@ impl Core {
         }
     }
 
-    /// Whether this message is one the router places at all.
+    /// Whether this message is one the router places at all. A session the
+    /// owner named with `theseus ask -s` is their choice, never re-routed
+    /// (theseus-0rfjx): `ask` says so with its `via`. The chat's own session
+    /// is the place's home, which the router may leave, and says so.
     fn may_route(&self, p: &TurnSubmitParams, conn: Conn<'_>, session: &SessionRecord) -> bool {
         self.cfg.threads.enabled
+            && p.via.as_deref() != Some("ask")
             && p.thread.is_none()
             && p.prompt.is_none()
             && p.opened_from.is_none()

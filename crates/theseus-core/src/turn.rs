@@ -1263,7 +1263,8 @@ impl TurnRunner {
             } else {
                 None
             };
-            let report = crate::task::Report::new(e, task_title.clone(), last);
+            let report = crate::task::Report::new(e, task_title.clone(), last)
+                .with_close(crate::task::close_of(&frames.store, &e.session_id));
             let mut records = closing.records(e, report.node.as_deref())?;
             let joined = self.tools.job_waits.steers.joined(&e.session_id);
             records.extend(crate::task::joined_record(&e.session_id, joined)?);

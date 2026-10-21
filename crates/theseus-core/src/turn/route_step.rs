@@ -470,7 +470,7 @@ impl TurnRunner {
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
-        let wait = live && !unreachable && steering.is_none();
+        let wait = (live && !unreachable && steering.is_none()) || self.judge.pins_wait();
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
         // Missed: the turn decides without its own verdict (theseus-ddbi).
         let late = live && steering.is_none() && w.got == Got::Late;

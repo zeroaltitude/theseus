@@ -69,6 +69,29 @@ impl Core {
             .filter(|t| !t.trim().is_empty())
     }
 
+    /// A task's report as `task show` and the ended list give it: `report_text`
+    /// for a task that failed or was stopped; for one that finished, its report
+    /// node, else its last message that has text (its model closed the task's
+    /// record before writing it, so no report evidence names it), else what its
+    /// own close said, else that it closed with no report. Never the word its
+    /// end is filed under (theseus-mgs4m).
+    pub(crate) fn report_of(
+        &self,
+        rec: Option<&TaskRecord>,
+        t: &theseus_protocol::TaskInfo,
+    ) -> Option<String> {
+        if t.state != "complete" {
+            return self.report_text(rec, t.ended_reason.as_deref());
+        }
+        self.report_text(rec, None)
+            .or_else(|| {
+                let nodes = self.store.session_nodes(&t.task_id).ok()?;
+                crate::task::last_message(nodes.iter().map(|(_, n)| n)).map(|(_, text)| text)
+            })
+            .or_else(|| rec.and_then(crate::task::close_summary))
+            .or_else(|| Some(crate::task::NO_REPORT.to_string()))
+    }
+
     /// `task.list` with a filter set. `tasks` and `records` are what the
     /// plain call would answer.
     pub(super) fn task_history(
@@ -100,7 +123,7 @@ impl Core {
             }
             let rec = by_session(&t.task_id);
             let line = (wants_report && is_ended)
-                .then(|| self.report_text(rec, t.ended_reason.as_deref()))
+                .then(|| self.report_of(rec, &t))
                 .flatten();
             if !words.is_empty() {
                 let hay = self.haystack(&t, rec, line.as_deref());
@@ -171,7 +194,7 @@ impl Core {
         kept.insert(0, rec.clone());
         let detail = info.map(|t| {
             let text = ended(&t.state)
-                .then(|| self.report_text(Some(rec), t.ended_reason.as_deref()))
+                .then(|| self.report_of(Some(rec), t))
                 .flatten();
             TaskDetail {
                 task_id: t.task_id.clone(),

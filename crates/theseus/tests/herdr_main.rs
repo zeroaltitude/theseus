@@ -196,3 +196,51 @@ fn prefix_i_opens_the_inspect_popup_on_the_focused_tasks_session() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("does not show a task"));
     assert_eq!(herdr.requests("plugin.pane.open").len(), 1);
 }
+
+/// A key's popup that needs the focused pane refuses without one, with a line that says so, and
+/// opens nothing: `answer` with no pane must never open the question that has waited longest (a `y`
+/// there would approve an unrelated request; theseus-us8e8). A link click names its question, so it
+/// needs no pane; the popups that need nothing still open.
+#[test]
+fn a_popup_that_needs_the_focused_pane_refuses_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(
+        dir.path(),
+        vec![json!({"pane_id": "p1", "tokens": {"kind": "task", "session": "ses_task9f2"}})],
+    );
+    for name in ["answer", "stop", "inspect"] {
+        let out = theseus(&herdr.sock, &["popup", name]);
+        assert!(!out.status.success(), "popup {name} without a pane");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("needs the focused pane"),
+            "popup {name}: the refusal says what is missing: {err}"
+        );
+        assert_eq!(
+            herdr.requests("plugin.pane.open").len(),
+            0,
+            "popup {name} without a pane opened a pane"
+        );
+    }
+    // An empty pane id is no pane: the manifest's `${P:+...}` never passes one, but a stray `--pane ""`
+    // must not slip through.
+    let out = theseus(&herdr.sock, &["popup", "answer", "--pane", ""]);
+    assert!(!out.status.success());
+    assert_eq!(herdr.requests("plugin.pane.open").len(), 0);
+    // A question named by a link click needs no pane; a pane is fine; the popups with no pane need none.
+    for args in [
+        &["popup", "answer", "--cid", "act_0c7e527d2a"][..],
+        &["popup", "answer", "--pane", "p1"][..],
+        &["popup", "stop", "--pane", "p1"][..],
+        &["popup", "tui"][..],
+        &["popup", "new"][..],
+    ] {
+        let out = theseus(&herdr.sock, args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert_eq!(herdr.requests("plugin.pane.open").len(), 5);
+}

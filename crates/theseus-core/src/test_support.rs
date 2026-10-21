@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_store::{kinds, NewRecord};
 
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
@@ -209,4 +210,27 @@ pub(crate) async fn until_within_10ms(what: &str, secs: u64, mut f: impl FnMut()
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+/// Until the push board has applied every frame committed so far (theseus-fpvn8).
+/// The board applies frames on a thread of its own, in the order their commits
+/// returned, so a turn's return does not say its frames are on the board. One
+/// more frame is committed, the session's own record unchanged, and the board's
+/// feed waited on until it reaches that frame's position: frames queue in commit
+/// order, so every frame committed before it is applied by then. The push must
+/// be seeded, so that it watches.
+pub(crate) async fn board_caught_up(core: &Arc<Core>, session_id: &str) {
+    let rec: SessionRecord = core.store.get_session(session_id).unwrap().unwrap();
+    let at = core
+        .store
+        .append(&[NewRecord::json(kinds::SESSION, Some(session_id), &rec).unwrap()])
+        .unwrap()
+        .into_iter()
+        .max()
+        .unwrap();
+    let mut feed = core.push.feed();
+    tokio::time::timeout(Duration::from_secs(20), feed.wait_for(|p| *p >= at))
+        .await
+        .expect("the board caught up within 20 s")
+        .expect("the board's feed is open");
 }

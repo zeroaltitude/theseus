@@ -62,6 +62,7 @@ pub mod situation;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 pub mod kept;
 mod render;
+mod server_calls;
 pub mod stubs;
 #[cfg(test)]
 use render::is_thinking;

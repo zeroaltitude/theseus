@@ -1200,6 +1200,98 @@ async fn a_strangers_answer_does_not_count() {
     );
 }
 
+/// A session the client names with `theseus ask -s` is the owner's choice
+/// (theseus-0rfjx): the router never moves it into a thread, however plainly
+/// the message names one. The same words through a surface that names no
+/// session choice (the chat's own home session) are placed as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_named_with_ask_s_is_never_placed_in_a_thread() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    let pinned = home(c, None);
+    let mut p = params(&pinned, "what is failing in PR 412?", None);
+    p.via = Some("ask".into());
+    let mut w = Wire::open(c);
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(res.session_id, pinned, "it ran in the session it named");
+    assert!(res.thread.is_none(), "no thread took it: {:?}", res.thread);
+    assert!(
+        c.threads().get("pr-round").unwrap().session_id.is_none(),
+        "the thread opened no session for it"
+    );
+    assert!(rows(c, "thread.routed").is_empty());
+    // The chat's own session, on the same words, is placed.
+    let chat = home(c, None);
+    let mut p = params(&chat, "what is failing in PR 412?", None);
+    p.via = Some("tui".into());
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(tag(&res).slug.as_deref(), Some("pr-round"));
+}
+
+/// What `theseus chat` does (theseus-wapgp): one connection sends
+/// `session.typing`, then a long message the router cannot place. The turn
+/// waits in the daemon for the owner's word, and the chat's own answer, sent
+/// on that same connection while the turn waits, frees it at once (the wait
+/// is a minute here: only the answer can). The message is stored when it
+/// does, in the order it was sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_that_types_then_sends_a_long_message_frees_it_by_answering_on_its_connection() {
+    let jev = FakeJev::start().unwrap();
+    thread_answer(&jev, "security-fix", 0.45);
+    let r = rig_on(texts(4), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.threads.route_wait_ms = 3000;
+        c.threads.ask_wait_secs = 60;
+    });
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    let mut w = Wire::open(c);
+    let typing = w
+        .send(
+            method::SESSION_TYPING,
+            json!({"session_id": dm, "author": "theseus chat"}),
+        )
+        .await;
+    assert!(w.response(typing).await["result"].is_object());
+    let long = format!(
+        "why is the build red? {}",
+        "and the weather is fine ".repeat(7)
+    );
+    assert!(long.len() >= 160, "the length that hung: {}", long.len());
+    let id = w.send(method::TURN_SUBMIT, params(&dm, &long, None)).await;
+    let asked = w.notice("thread.asked").await;
+    assert!(texts_of(c, &dm).is_empty(), "held for the question");
+    let t0 = Instant::now();
+    let a = w
+        .send(
+            method::THREAD_ANSWER,
+            ThreadAnswerParams {
+                ask_id: asked["ask_id"].as_str().unwrap().into(),
+                choice: "home".into(),
+                author: Some("theseus chat".into()),
+                discord: None,
+            },
+        )
+        .await;
+    assert!(w.response(a).await["result"].is_object());
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert!(
+        t0.elapsed() < Duration::from_secs(20),
+        "freed by the answer"
+    );
+    assert_eq!(res.session_id, dm);
+    assert_eq!(texts_of(c, &dm), [long]);
+}
+
 async fn wait_for(mut cond: impl FnMut() -> bool) {
     let t0 = Instant::now();
     while !cond() {
