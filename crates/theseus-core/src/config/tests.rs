@@ -196,9 +196,8 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
     // The two lines the model's wake.move and wake.cancel joined with (theseus-lherl), one (pw1q.8),
     // the model's routine.create (theseus-pvm5c), `watch` (f2r2b) and
-    // project.attach (theseus-n5ui2), google.call (theseus-batvg.1), the five gmail.* tools
-    // (theseus-batvg.2), the four drive.* lines (theseus-batvg.3) and the calendar's two
-    // (theseus-batvg.5).
+    // project.attach (theseus-n5ui2), google.call (batvg.1), and the rows' gmail.* (five,
+    // batvg.2), drive.* (four, batvg.3) and calendar.* (two, batvg.5).
     assert_eq!(cfg.policy.tools.len(), 71);
     assert_eq!(cfg.policy.tools["drive.share"], Posture::Approve);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
