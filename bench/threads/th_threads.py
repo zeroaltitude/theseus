@@ -41,6 +41,7 @@ from pathlib import Path
 
 import drive as rd  # noqa: E402  (the recall bench's drivers; th_drive has put it on the path)
 import progression as pg  # noqa: E402
+import th_decisions
 import th_owner as owner_mod
 
 HOME = owner_mod.HOME
@@ -80,14 +81,21 @@ def merge(base: dict, over: dict) -> dict:
 
 
 def judgment_row(row: dict) -> dict:
-    """One `judge.call` ledger row, kept as the few fields the decisions column reads (the answers and the state
-    stay in the daemon's ledger): the pack, how it ended, what Jev billed, and the tokens it read and wrote."""
+    """One `judge.call` ledger row, kept as the few fields the decisions column reads (the state and any text stay in
+    the daemon's ledger): the pack, how it ended, what Jev billed, and the tokens it read and wrote; and, when the row
+    has them, each answer's question, band and whether it chose something (`answers`), the turn and session it
+    judged (`turn`, `session`) and its time (`at_ms`)."""
     d = row.get("data") or row
     outcome = d.get("outcome")
     usage = d.get("usage") or {}
-    return {"pack": d.get("pack"), "outcome": outcome.get("outcome") if isinstance(outcome, dict) else outcome,
-            "cost_micros": d.get("cost_micros") or 0, "input_tokens": usage.get("input_tokens") or 0,
-            "output_tokens": usage.get("output_tokens") or 0}
+    out = {"pack": d.get("pack"), "outcome": outcome.get("outcome") if isinstance(outcome, dict) else outcome,
+           "cost_micros": d.get("cost_micros") or 0, "input_tokens": usage.get("input_tokens") or 0,
+           "output_tokens": usage.get("output_tokens") or 0}
+    answers = [x for x in map(th_decisions.answer_row, d.get("answers") or []) if x]
+    ctx = d.get("context") or {}
+    extra = {"answers": answers, "turn": ctx.get("turn"), "session": ctx.get("session"),
+             "at_ms": row.get("at_unix_ms") or ctx.get("event_at_ms")}
+    return {**out, **{k: v for k, v in extra.items() if v}}
 
 
 def tag_of(result: dict) -> dict | None:
@@ -263,6 +271,7 @@ class ThreadsTheseus(rd.Theseus):
                     "error": err.strip()[-400:] if code != 0 else None, "tokens": rd._tokens(v.get("usage")),
                     "cost_usd": v.get("cost_usd"), "latency_ms": ms, "compacted": False,
                     "tool_calls": v.get("tool_calls"), "ran_in": rec["thread"] or HOME,
+                    "turn_id": v.get("turn_id"), "ended_ms": int(time.time() * 1000),
                 })
                 run.save()
             sessions = self.thread_sessions()

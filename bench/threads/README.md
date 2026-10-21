@@ -112,14 +112,51 @@ behave as before, and the recall suite proves it.
 
 ## The decisions column (`+onto`, theseus-mqqc2)
 
-A threads run keeps `judgments.json`: its daemon's `judge.call` rows reduced to the pack, how it ended, what Jev billed
-and the tokens it read and wrote. `th_score.py` counts the **decisions taken off the main model** from it: each
-answered judgment of a routing pack (`route.*`, `classify.*`), a filing pack (`onto.*`, `categorize.*`) or a privacy pack
-(`security.*`) is one decision of its class, reported per message, with Jev's dollars and the main model's, modelled
-(the tokens Jev read, at the main model's uncached input price, and those it wrote at its output price: a floor, since
-a free-form answer is longer than Jev's choice). The oracle arm makes the same decisions by asking the main model, one
-call each, so its count is the Jev arm's and its dollars are the modelled column. An arm whose daemon asked Jev nothing
-has no column and the report says so. The number is reported whatever it says, and nothing is tuned to the bench.
+A threads run keeps `judgments.json`: its daemon's `judge.call` rows reduced to the pack, how it ended, what Jev billed,
+the tokens it read and wrote, and, per answer, its question, its band and whether it chose something, with the turn and
+session it judged and its time (`th_threads.judgment_row`; never the state or any text). `th_decisions.py` counts the
+**decisions taken off the main model** from it: a decision is a decision question answered at the act band, by class: filing
+(`onto.*`'s kind questions, `categorize.*`), routing (`route.*`, `classify.*`'s `thread`) and privacy (`security.*`, and
+`onto.*`'s `personal`, `elicits` and `shows_*`). One `onto.v1` judgment that filed a topic and a resource and answered
+`personal` is three decisions, two of them filings; the per-pack count stays beside it as `judgments`. A decision is counted to the
+turn its `context.turn` names when `turns.jsonl` carries that id (`turn_id`), else to the turn of its session whose window
+(`ended_ms` less `latency_ms`) holds its time, else to no turn; the report gives the mean per message and the share of messages
+with a decision. Jev's dollars and the main model's are per judgment, as before, the latter modelled (the tokens Jev read, at
+the main model's uncached input price, and those it wrote at its output price: a floor, since a free-form answer is longer than
+Jev's choice). The oracle arm makes the same decisions by asking the main model, one call each, so its count is the Jev arm's
+and its dollars are the modelled column. An arm whose daemon asked Jev nothing has no column and the report says so; a run from
+before the answers were kept still scores, by judgment, and its per-question numbers read "not recorded". The number is reported
+whatever it says, and nothing is tuned to the bench.
+
+## The first +onto report: plan, overlay and format (theseus-ri5up)
+
+`bench/plans/threadbench-t13-onto.json` is the attempt plan, committed before the run: `k` 3, A1o and A1 (the pair that
+differs by the ontology alone), the development progression of T12 and its held-out one (run once, after the development
+run is read), and the budget's line, pause line and per-arm spend limit. A3 and A5 are read from the T12 runs on the same
+frozen binaries and rerun only if the binaries differ. The daemon reaches Jev through an overlay: copy
+`bench/threads/jev-overlay.example.toml` (its one secret is a reference, never a value), fill it in, and pass the copy as
+`--config-overlay` to every arm. `report.py` ends with "What T13 needs", the commands from generate to report; when A1o and
+A1 are both scored it adds "The ontology arm against its control" (each metric A1o minus A1, a rate pooled over an arm's
+runs), and `--onto-replay <file>` puts the replay's Markdown under "Accuracy against the import's labels" (below), or says
+"not run". A1o is drawn in `bm25`'s palette slot, shared with Pi: `figures` refuses a figure that holds both.
+
+## The accuracy part of the +onto report (theseus-nngor)
+
+The bench says what the ontology does to a run; it cannot say whether Jev files right. That is a replay over the owner's
+own store: `theseus judge replay --onto [--limit 50]` sends the first message of each session the import labelled
+(`theseus import topics`; newest first, never a shared place's or a task's) to `onto.v1` with the import's memberships
+hidden, and scores each kind's picks against them at the act band and at confirm and above. It sends the owner's history
+to Jev, so the daemon runs it only under `[judge] backfill_consent = true`, inside `[judge] replay_limit_usd` (an estimate
+past it is refused with the numbers before any call). Its calls are `judge.call` rows scoped `judge.replay:onto`, which the
+nightly report never reads. It prints Markdown: the per-kind table at both floors, how many sessions Jev left unanswered or
+the run left out, and the share of Jev's own writes the owner undid in the last 7 days, per kind (`ontology.undo`).
+
+```bash
+theseus judge replay --onto --limit 50 > /tmp/onto-replay.md       # the owner's daemon; --json for the numbers
+python3 bench/threads/report.py ... --slug onto --onto-replay /tmp/onto-replay.md
+```
+
+`report.py --onto-replay` puts that Markdown under "Accuracy against the import's labels", and says "not run" without it.
 
 ## The scorer
 

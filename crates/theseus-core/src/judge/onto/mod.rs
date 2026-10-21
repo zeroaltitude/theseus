@@ -200,7 +200,7 @@ fn attached(core: &Core, msg: &Inbound) -> (Vec<Picture>, Vec<OntoText>) {
 }
 
 /// The input: see [`fill`]. A category's last use is when a session last held it.
-fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
+pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
     let sid = &msg.session_id;
     let threads = core.threads();
     let thread = threads.of_session(sid);

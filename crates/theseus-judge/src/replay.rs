@@ -377,46 +377,60 @@ pub(crate) fn hide_labels(case: &LabelledCase) -> InboundInput {
     input
 }
 
-/// Replays `cases` through `pack` (`onto.v1`) on `judge`: one decision point,
-/// one ask per session, every label hidden. Sessions whose judgment did not
-/// answer are left out of the result (see [`OntoReplay::unanswered`]).
-pub async fn replay_onto<J: Judge>(
-    judge: &J,
-    pack: Arc<Pack>,
+/// One session's ask, labels hidden, with the candidates each kind offered
+/// (read back to turn the answers into picks).
+#[derive(Clone)]
+pub struct OntoAsk {
+    pub ask: Ask,
+    pub session: String,
+    picked_from: Vec<crate::builders::Picked>,
+}
+
+/// The asks of `cases` through `pack` (`onto.v1`): one per session, every
+/// label hidden, `context`'s fields added to each ask's own.
+pub fn onto_asks(
+    pack: &Arc<Pack>,
     cases: &[LabelledCase],
-) -> Result<Vec<Scored>, String> {
-    let mut asks = Vec::new();
-    let mut picked_from = Vec::new();
+    context: &serde_json::Value,
+) -> Result<Vec<OntoAsk>, String> {
+    let mut out = Vec::new();
     for case in cases {
         let input = hide_labels(case);
-        let prepared = prepare(&pack, &Input::Inbound(input.clone()), &NoScrub)
+        let prepared = prepare(pack, &Input::Inbound(input.clone()), &NoScrub)
             .map_err(|e| format!("{}: {e}", case.session))?;
-        let picks = input
+        let picked_from = input
             .onto
             .as_ref()
             .map(|o| o.pick(&input.message))
             .unwrap_or_default();
-        asks.push(Ask::new(
-            pack.clone(),
-            &prepared,
-            Mode::Shadow,
-            serde_json::json!({"session": case.session}),
-        ));
-        picked_from.push(picks);
+        let mut ctx = serde_json::json!({"session": case.session});
+        if let (Some(m), Some(c)) = (ctx.as_object_mut(), context.as_object()) {
+            m.extend(c.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        out.push(OntoAsk {
+            ask: Ask::new(pack.clone(), &prepared, Mode::Shadow, ctx),
+            session: case.session.clone(),
+            picked_from,
+        });
     }
-    let judgments = judge
-        .judge(DecisionPoint {
-            asks,
-            urgency: Urgency::Shadow,
-        })
-        .await;
+    Ok(out)
+}
+
+/// What `onto.v1` chose for each session whose judgment answered, beside the
+/// labels. `judgments` holds one per ask, in order; a session whose judgment
+/// did not answer is left out (see [`OntoReplay::unanswered`]).
+pub fn onto_scored(
+    cases: &[LabelledCase],
+    asks: &[OntoAsk],
+    judgments: &[crate::judge::Judgment],
+) -> Vec<Scored> {
     let mut out = Vec::new();
-    for ((case, j), candidates) in cases.iter().zip(&judgments).zip(&picked_from) {
+    for ((case, ask), j) in cases.iter().zip(asks).zip(judgments) {
         if !j.actionable() {
             continue;
         }
         let mut picks = BTreeMap::new();
-        for p in candidates {
+        for p in &ask.picked_from {
             let Some(a) = j.answer(&p.kind) else { continue };
             let Answer::Choice { choice, .. } = &a.answer else {
                 continue;
@@ -444,7 +458,25 @@ pub async fn replay_onto<J: Judge>(
             picks,
         });
     }
-    Ok(out)
+    out
+}
+
+/// Replays `cases` through `pack` (`onto.v1`) on `judge`: one decision point,
+/// one ask per session, every label hidden. Sessions whose judgment did not
+/// answer are left out of the result (see [`OntoReplay::unanswered`]).
+pub async fn replay_onto<J: Judge>(
+    judge: &J,
+    pack: Arc<Pack>,
+    cases: &[LabelledCase],
+) -> Result<Vec<Scored>, String> {
+    let asked = onto_asks(&pack, cases, &serde_json::Value::Null)?;
+    let judgments = judge
+        .judge(DecisionPoint {
+            asks: asked.iter().map(|a| a.ask.clone()).collect(),
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    Ok(onto_scored(cases, &asked, &judgments))
 }
 
 #[cfg(test)]

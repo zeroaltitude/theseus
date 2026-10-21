@@ -1,0 +1,24 @@
+# The Jev overlay for a threadbench run with the ontology on (theseus-ri5up).
+#
+# The bench profile configures no [judge]: without one the pre-router places each message alone and `onto.v1` is
+# never asked. Copy this file out of the repository, fill the placeholder with a reference to the Jev key, and pass
+# the copy to the driver of every threads arm (A1o and its control A1 alike: the pair differs by the ontology alone):
+#
+#     cp bench/threads/jev-overlay.example.toml /tmp/jev.toml        # then edit /tmp/jev.toml
+#     python3 bench/threads/th_drive.py ... --config-overlay /tmp/jev.toml
+#
+# `--config-overlay` lays it over the scratch config table by table; its sha256 is kept in each run's `run.json`.
+# Never put a key's value in this file or in a copy that is committed: a [secrets] entry is a reference
+# (`op://vault/item/field`, or `env:NAME` and `file:PATH` where there is no vault), read behind the daemon's socket.
+
+[judge]
+enabled = true                  # Jev answers route.v7, classify.v3 and, with [ontology] judge on, onto.v1
+key_secret = "jev_api_key"      # the [secrets] entry below
+# api_base = "https://api.typesafe.ai"   # Jev's endpoint; the default is right for a real run
+connect_secs = 2
+total_secs = 5                  # a whole call, connect included
+max_in_flight = 8
+shadow_limit_usd_per_day = 5.0  # a run's judgments are shadow ones: this day line must hold the run's, or shadow pauses
+
+[secrets]
+jev_api_key = "op://<your vault>/<Jev API key item>/notesPlain"

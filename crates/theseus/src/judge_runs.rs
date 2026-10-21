@@ -36,6 +36,13 @@ pub struct ReplayArgs {
     /// The set by id instead (`jdg_…`, comma-separated).
     #[arg(long, value_delimiter = ',')]
     judgments: Vec<String>,
+    /// Replay `onto.v1` (or the named version) over the sessions the import
+    /// labelled, scored against its labels. Sends your history to Jev.
+    #[arg(long)]
+    onto: bool,
+    /// With `--onto`: at most this many sessions, newest first (50).
+    #[arg(long, requires = "onto")]
+    limit: Option<u32>,
 }
 
 #[derive(Args, Debug)]
@@ -82,6 +89,8 @@ pub async fn replay(conn: &mut Conn, json: bool, a: ReplayArgs) -> Result<()> {
         split: a.split,
         errors: a.errors,
         judgments: a.judgments,
+        onto: a.onto,
+        limit: a.limit,
     };
     let v = conn
         .request(method::JUDGE_REPLAY, serde_json::to_value(&p)?)

@@ -53,6 +53,14 @@ pub struct JudgeReplayParams {
     /// The set by id (`jdg_…`), instead of a report's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub judgments: Vec<String>,
+    /// `--onto`: replay `onto.v1` (or `candidate`) over the sessions the
+    /// import labelled, scored against the import's labels. Sends the
+    /// owner's history to Jev, so it needs `[judge] backfill_consent`.
+    #[serde(default)]
+    pub onto: bool,
+    /// With `onto`: at most this many sessions, newest first (50).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
 }
 
 /// A judgment the replay could not ask, and why.
@@ -157,6 +165,54 @@ pub struct JudgeReplayResult {
     /// A security candidate's planted-injection set, beside the incumbent.
     #[serde(default)]
     pub eval: Option<ReplayEval>,
+    /// An `onto` run's numbers against the import's labels.
+    #[serde(default)]
+    pub onto: Option<OntoReplayReport>,
+}
+
+/// One kind's precision and recall against the import's labels.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntoKindScore {
+    pub kind: String,
+    pub sessions: u32,
+    pub labelled: u32,
+    pub picked: u32,
+    pub hits: u32,
+    pub wrong: u32,
+    pub missed: u32,
+    pub minted: u32,
+    pub precision: Option<f64>,
+    pub recall: Option<f64>,
+}
+
+/// Jev's ontology writes of one kind in a window, and the share the owner
+/// took back (`ontology.undo`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct UndoRate {
+    pub kind: String,
+    pub writes: u32,
+    pub undone: u32,
+    pub rate: Option<f64>,
+}
+
+/// `judge.replay --onto`'s numbers: both floors, what could not be scored,
+/// the undo rates, and the Markdown the +onto report quotes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntoReplayReport {
+    pub pack: String,
+    pub sessions: u32,
+    /// Sessions whose judgment never answered (left out of the scores).
+    pub unanswered: u32,
+    /// Labelled sessions whose first message could not be read (the result's
+    /// `left_out` names each).
+    pub left_out: u32,
+    pub at_act: Vec<OntoKindScore>,
+    pub at_confirm: Vec<OntoKindScore>,
+    pub undo: Vec<UndoRate>,
+    pub markdown: String,
 }
 
 /// `judge.audit`'s params.
@@ -434,4 +490,54 @@ pub struct ClassifyQuality {
     /// Set when the sample is short: "compared 3 of 30".
     #[serde(default)]
     pub insufficient: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--onto` and `--limit` ride the params, and params written before
+    /// them still read; the result carries the numbers and its Markdown.
+    #[test]
+    fn the_onto_replay_round_trips() {
+        let p = JudgeReplayParams {
+            onto: true,
+            limit: Some(20),
+            ..Default::default()
+        };
+        let back: JudgeReplayParams =
+            serde_json::from_value(serde_json::to_value(&p).unwrap()).unwrap();
+        assert_eq!(back, p);
+        let old: JudgeReplayParams = serde_json::from_str(r#"{"candidate": "loop.v2"}"#).unwrap();
+        assert!(!old.onto && old.limit.is_none());
+        let r = JudgeReplayResult {
+            onto: Some(OntoReplayReport {
+                pack: "onto.v1".into(),
+                sessions: 3,
+                at_act: vec![OntoKindScore {
+                    kind: "topic".into(),
+                    sessions: 3,
+                    precision: Some(1.0),
+                    ..Default::default()
+                }],
+                undo: vec![UndoRate {
+                    kind: "topic".into(),
+                    writes: 4,
+                    undone: 1,
+                    rate: Some(0.25),
+                }],
+                markdown: "# onto.v1\n".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let back: JudgeReplayResult =
+            serde_json::from_value(serde_json::to_value(&r).unwrap()).unwrap();
+        assert_eq!(back, r);
+        // A result written before it has no `onto`.
+        let mut v = serde_json::to_value(JudgeReplayResult::default()).unwrap();
+        v.as_object_mut().unwrap().remove("onto");
+        let old: JudgeReplayResult = serde_json::from_value(v).unwrap();
+        assert!(old.onto.is_none());
+    }
 }

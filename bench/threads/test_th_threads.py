@@ -245,6 +245,35 @@ class Plan(unittest.TestCase):
                           plan["budget_usd"]["pause_with_before_run"], plan["spend_limit_usd_per_arm"]), (35, 60, 170, 25))
         self.assertEqual((plan["model"], plan["effort"], plan["size"]), ("anthropic/claude-sonnet-5-5", "medium", "standard"))
 
+    def test_the_onto_plan_pairs_the_ontology_arm_with_its_control_on_t12s_progressions(self):
+        sys.path.insert(0, str(td.HARBOR))
+        import plan as hp
+        path = REPO / "bench" / "plans" / "threadbench-t13-onto.json"
+        plan = json.loads(path.read_text())
+        hp.check(plan, "threadbench-t13-onto")
+        self.assertEqual((plan["arms"], plan["k"]), (["A1o", "A1"], 3))
+        self.assertEqual(plan["comparison"]["pair"], ["A1o", "A1"])
+        self.assertEqual(plan["comparison"]["read_from_t12"], ["A3", "A5"])
+        self.assertIn("binaries differ", plan["about"] + plan["comparison"]["rerun_only_if"])
+        t12 = json.loads(self.T12.read_text())
+        for name in ("dev", "held_out", "prefix"):
+            self.assertEqual((plan["progressions"][name]["seed"], plan["progressions"][name]["digest"]),
+                             (t12["progressions"][name]["seed"], t12["progressions"][name]["digest"]), name)
+        self.assertEqual((plan["model"], plan["effort"], plan["size"]), (t12["model"], t12["effort"], t12["size"]))
+        self.assertEqual((plan["budget_usd"]["expected_low"], plan["budget_usd"]["expected_high"],
+                          plan["spend_limit_usd_per_arm"]), (33, 40, 25))
+        self.assertIn("pause", plan["budget_usd"])
+        dev = gen.build(plan["progressions"]["dev"]["seed"], "standard")
+        self.assertEqual(dev.digest(), plan["progressions"]["dev"]["digest"])
+        from unittest import mock
+        full = {**plan, "file": path.name, "sha256": "x", "commit": "c", "head": "h"}
+        with mock.patch.object(hp, "load", return_value=full):
+            for arm in ("A1o", "A1"):
+                self.assertEqual(td.check_plan(path, arm, dev)["commit"], "c")
+            with self.assertRaises(SystemExit) as cm:
+                td.check_plan(path, "A3", dev)
+            self.assertIn("does not name arm A3", str(cm.exception))
+
     def test_each_plan_refuses_the_arm_it_does_not_name(self):
         from unittest import mock
         sys.path.insert(0, str(td.HARBOR))
