@@ -37,6 +37,7 @@ pub mod board;
 pub mod check;
 pub mod cond;
 pub mod mail;
+pub mod mail_auth;
 pub mod mail_then;
 pub mod reply;
 pub mod run;
@@ -47,6 +48,8 @@ pub mod step;
 mod tests_mail;
 #[cfg(test)]
 mod tests_mail_surfaces;
+#[cfg(test)]
+mod tests_mail_tail;
 #[cfg(test)]
 mod tests_reply;
 #[cfg(test)]

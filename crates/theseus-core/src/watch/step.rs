@@ -200,7 +200,8 @@ impl Entry {
             self.last = Some(seen.value.clone());
             if let Some(m) = &seen.mail {
                 let text = self.mail_text(now, &seen.value);
-                let detail = serde_json::json!({"external": true, "trusted": m.trusted});
+                let detail = serde_json::json!({"external": true, "trusted": m.trusted,
+                    "unverified": !m.unverified.is_empty()});
                 return self.news_with(ProbeVerdict::Met { turn: false }, text, detail);
             }
             let turn = !matches!(self.spec.then, Then::Notice);

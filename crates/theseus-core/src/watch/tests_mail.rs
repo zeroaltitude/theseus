@@ -26,6 +26,8 @@ use crate::Core;
 const STRANGER: &str = "Sam Stranger <stranger@example.test>";
 const DANA: &str = "Dana Colleague <dana@example.test>";
 const QUERY: &str = "from:example.test";
+/// What Gmail's own server writes for mail it authenticated for example.test.
+pub(super) const GMAIL_PASS: &str = "mx.google.com; dkim=pass header.i=@example.test header.s=s1; dmarc=pass (p=NONE) header.from=example.test";
 
 fn bound(core: &Core) {
     core.bind_places(vec![crate::places::BoundPlace {
@@ -252,7 +254,8 @@ async fn a_trusted_senders_mail_starts_a_held_task() {
     look(&r.core, &id).await;
     r.fake.mail().deliver(
         "t9",
-        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks."),
+        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks.")
+            .header("Authentication-Results", GMAIL_PASS),
     );
     look(&r.core, &id).await;
     assert_eq!(task_started(&r.core), 1);
@@ -296,7 +299,8 @@ async fn a_mail_with_no_address_beside_a_trusted_one_only_notices() {
     look(&r.core, &id).await;
     r.fake.mail().deliver(
         "t9",
-        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks."),
+        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks.")
+            .header("Authentication-Results", GMAIL_PASS),
     );
     r.fake.mail().deliver(
         "t10",
@@ -343,9 +347,11 @@ async fn history_poll_resumes_from_the_last_history_id() {
     look(&r.core, &id).await;
     assert_eq!(r.fake.mail().history_starts(), ["100", "100"]);
     // A match after the restart is found from there.
-    r.fake
-        .mail()
-        .deliver("t9", MsgSpec::new("m9", DANA, "Contract", "Signed."));
+    r.fake.mail().deliver(
+        "t9",
+        MsgSpec::new("m9", DANA, "Contract", "Signed.")
+            .header("Authentication-Results", GMAIL_PASS),
+    );
     look(&r.core, &id).await;
     assert_eq!(rows(&r.core, "watch.met").len(), 1);
     assert_eq!(

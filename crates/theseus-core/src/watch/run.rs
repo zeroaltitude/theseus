@@ -157,7 +157,7 @@ impl Core {
         }
         result.map(|mut seen| {
             if let Some(m) = &mut seen.mail {
-                m.trusted = self.mail_trusted(m);
+                self.mail_trust(m);
             }
             seen
         })
