@@ -334,6 +334,8 @@ mod tests_ladder_unread;
 #[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
+mod tests_leaks;
+#[cfg(test)]
 mod tests_learn_loop;
 #[cfg(test)]
 mod tests_learning;

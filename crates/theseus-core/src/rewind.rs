@@ -131,6 +131,17 @@ pub(crate) fn seed_written(execution_id: &str, path: &Path, created: bool, at_ms
         });
 }
 
+/// A turn began: the files its tools write are noted from here until
+/// `forget_written`. A write that settles after its turn ended (a cancelled
+/// turn's call finishing on the CPU pool) adds to nothing.
+pub(crate) fn begin_written(execution_id: &str) {
+    WRITTEN
+        .lock()
+        .unwrap()
+        .entry(execution_id.to_string())
+        .or_default();
+}
+
 /// Drop what a turn wrote, at its end.
 pub(crate) fn forget_written(execution_id: &str) {
     WRITTEN.lock().unwrap().remove(execution_id);
@@ -141,7 +152,9 @@ fn note_written(execution_id: &str, changed: &[PreImage]) {
         return;
     }
     let mut map = WRITTEN.lock().unwrap();
-    let all = map.entry(execution_id.to_string()).or_default();
+    let Some(all) = map.get_mut(execution_id) else {
+        return;
+    };
     for p in changed {
         let path = PathBuf::from(&p.path);
         let created = matches!(p.before, Before::Absent);
@@ -385,4 +398,43 @@ pub fn forget(store: &crate::store::Store, session_id: &str) -> anyhow::Result<u
         }
     }
     Ok(gone)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file tool's write that settles after its turn ended (a cancelled
+    /// turn's call finishing on the CPU pool) adds to no entry, and leaves
+    /// none behind (theseus-53ujg.5, F4).
+    #[test]
+    fn a_write_settling_after_its_turn_adds_nothing() {
+        let d = tempfile::tempdir().unwrap();
+        let file = d.path().join("made.txt");
+        let rewind = Rewind {
+            dir: d.path().to_path_buf(),
+            session_id: "ses_leak".into(),
+            execution_id: "exec_leak".into(),
+            call_id: "call_leak".into(),
+        };
+        let write = |rewind: &Rewind| {
+            let held = Held {
+                files: vec![(file.clone(), Before::Absent, None)],
+            };
+            std::fs::write(&file, "a line\n").unwrap();
+            let changed = rewind.settle(held, "fs.write");
+            std::fs::remove_file(&file).unwrap();
+            changed
+        };
+        begin_written("exec_leak");
+        assert_eq!(write(&rewind).len(), 1);
+        assert_eq!(written("exec_leak").len(), 1, "the turn's write is noted");
+        forget_written("exec_leak");
+        assert_eq!(
+            write(&rewind).len(),
+            1,
+            "the file is still kept for a restore"
+        );
+        assert!(WRITTEN.lock().unwrap().get("exec_leak").is_none());
+    }
 }

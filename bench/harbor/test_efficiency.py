@@ -145,6 +145,32 @@ class Theseus(unittest.TestCase):
             self.assertEqual((meta["exit_code"], meta["efficiency"]), (0, rec))
 
 
+class EndNote(unittest.TestCase):
+    def test_theseus_record_counts_the_end_note(self):
+        noted = {**PLAIN_TURN, "files": {
+            "changed": {"paths": ["a.py", "b.py"], "more": 3},
+            "left": {"paths": ["target/", "Cargo.lock"]},
+            "end_note": {"left": 2, "unrun": 1, "loop": 4, "acted": True}}}
+        plain = {**PLAIN_TURN, "files": {"changed": {"paths": ["a.py"]}, "left": {"paths": []}}}
+        with tempfile.TemporaryDirectory() as t:
+            logs = Path(t)
+            (logs / "theseus-history.json").write_text(json.dumps(PLAIN_HISTORY))
+            for turn, want in (
+                (noted, {"noted": True, "acted": True, "left": 2, "unrun": 1, "changed": 5}),
+                (plain, {"noted": False, "acted": None, "left": 0, "unrun": 0, "changed": 1}),
+                (PLAIN_TURN, {"noted": False, "acted": None, "left": 0, "unrun": 0, "changed": 0}),
+            ):
+                (logs / "theseus-turn.json").write_text(json.dumps(turn))
+                self.assertEqual(ef.theseus_record(logs)["end_note"], want)
+            # The record's other fields are the same whatever the note did.
+            (logs / "theseus-turn.json").write_text(json.dumps(noted))
+            a = ef.theseus_record(logs)
+            (logs / "theseus-turn.json").write_text(json.dumps(PLAIN_TURN))
+            b = ef.theseus_record(logs)
+            a.pop("end_note"), b.pop("end_note")
+            self.assertEqual(a, b)
+
+
 # Claude Code's session log: one line per content block, each repeating the
 # message's usage (the last line's is the final one), and a subagent's file.
 MSG_A = {"id": "msg_a", "model": SONNET, "role": "assistant"}

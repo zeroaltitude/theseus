@@ -33,6 +33,8 @@ use theseus_tools::{
 };
 use tokio::time::Instant;
 
+mod wait_facts;
+
 use super::handles::{Handles, KEY};
 use super::{ToolRuntime, TurnCtx};
 use crate::keep_warm::Outcome;
@@ -443,11 +445,25 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
         std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send + '_>>,
     > = None;
     let mut reads = 0u32;
+    // `[tools] job_wait_beat_secs`: a job whose output stands still that long
+    // returns the wait with what it saw. 0 watches nothing.
+    let beat = Duration::from_secs(core.cfg.tools.job_wait_beat_secs);
+    let clock = wait_facts::Clock::start(&f.action);
+    let mut silence = (!beat.is_zero()).then(|| {
+        let path = rt.spool.as_ref().map(|s| s.result_path(&f.corr));
+        theseus_store::blocking(|| wait_facts::Silence::start(path))
+    });
+    let mut held = false;
     loop {
         let settled = rt.job_waits.on_settle();
         tokio::pin!(settled);
         settled.as_mut().enable();
-        let a = theseus_store::blocking(|| now(&core, &f));
+        let a = theseus_store::blocking(|| {
+            if let Some(s) = silence.as_mut() {
+                s.look();
+            }
+            now(&core, &f)
+        });
         if ended(&a) {
             return theseus_store::blocking(|| delivered(&core, &f, &a, ""));
         }
@@ -462,26 +478,43 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
             return Ok((ToolOutput { text, meta }, None, None));
         }
         let left = until.saturating_duration_since(Instant::now());
+        let silent = silence.as_ref().filter(|s| !held && s.quiet() >= beat);
+        if let (Some(s), false) = (silent, left.is_zero()) {
+            match theseus_store::blocking(|| clock.beat(&core, &f, s, asked, reads)) {
+                Some(out) => return Ok((out, None, None)),
+                // A job past its file's head prints into its wrapper: not silent.
+                None => held = true,
+            }
+        }
         if left.is_zero() {
             let cap = match asked > secs {
                 true => format!(" (the longest one wait lasts; {asked} s was asked)"),
                 false => String::new(),
             };
-            let text = format!(
+            let mut text = format!(
                 "Still running after {secs} s{cap}. job_read {} shows its latest output; its \
                  result also arrives by itself when it ends.",
                 f.name
             );
+            if let Some(s) = &silence {
+                text.push('\n');
+                text.push_str(&theseus_store::blocking(|| clock.said(&core, &f, s)));
+            }
             let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
                 "warm_reads": reads});
             return Ok((ToolOutput { text, meta }, None, None));
         }
         // The next read of the turn's cache, if one falls inside this wait.
         let due = warmth.as_ref().and_then(|w| w.due_before(until));
+        // The look that finds the beat is at the beat, not up to a look later.
+        let look = match silence.as_ref().filter(|_| !held) {
+            Some(s) => super::waits::LOOK.min(s.until(beat).max(Duration::from_millis(1))),
+            None => super::waits::LOOK,
+        };
         tokio::select! {
             () = &mut settled => {}
             () = steer.raised() => {}
-            () = tokio::time::sleep(left.min(super::waits::LOOK)) => {}
+            () = tokio::time::sleep(left.min(look)) => {}
             () = async { tokio::time::sleep_until(due.unwrap_or(until)).await },
                 if due.is_some() && reading.is_none() => {
                 if let Some(w) = warmth.as_ref().filter(|w| w.claim(Instant::now())) {

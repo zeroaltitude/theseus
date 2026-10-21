@@ -476,6 +476,7 @@ transcribe_max_minutes = 60             # the most of one recording file_read he
 max_entries = 500                       # cap on fs.list / fs.glob / fs.grep entries
 proc_sync_secs = 60                     # a turn waits this long for proc.run, then it continues in the background
 job_wait_max_secs = 1800                # the longest one job_wait waits (at least proc_sync_secs, at most 3600); it still returns at once when the job ends or a message arrives
+job_wait_beat_secs = 600               # a job_wait on a job that has printed nothing for this long returns with what it saw (0 is off; at most 3600; one past job_wait_max_secs never fires); a job that prints keeps its wait
 parallel_runs = 16                      # the most programs of one response that run at once, each its own job (the rest wait for a slot); one response's programs run together unless they share a terminal, an MCP server, a file name in their argvs, or an operand (a service, container, host, port, directory)
 parallel_reads = 32                     # the most reads of one response that run at once (the rest wait for a slot, the results in order)
 parallel_writes = 16                    # the most writes, to different paths, of one response that run at once
