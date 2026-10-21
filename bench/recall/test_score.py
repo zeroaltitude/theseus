@@ -113,6 +113,39 @@ def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int],
                                             **(meta or {})}))
 
 
+def fact(i: str, subject: str, value: str) -> pg.Fact:
+    return pg.Fact(id=i, subject=subject, kind="port", value=value, salience="incidental", family="said",
+                   carrier="aside", turn=1, source="said", marker="")
+
+
+class AbstentionShapes(unittest.TestCase):
+    PROBE = pg.Probe(id="p1", fact=None, kind="abstention", bucket="near", salience="incidental", value_kind="port",
+                     turn=9, text="", check="", anchor="f1", subject="the cedar relay's port", distractors=["f1"])
+    FACTS = [fact("f1", "the alder relay's port", "44320"), fact("f2", "the birch relay's port", "51234")]
+
+    def test_abstention_shapes(self):
+        for reply, shape in [
+            ("I don't have any record of that.", "clean"),
+            ("No record of the cedar relay; the alder relay is on 44320.", "neighbours"),
+            ("I don't know the cedar relay's port. The alder relay is on 44320 and the birch relay on 51234.",
+             "neighbours"),
+            ("The cedar relay is on 44320.", "misleading"),
+            ("I'm not sure; maybe 44320.", "misleading"),
+            ("Not sure, but the cedar relay may be on 44320.", "misleading"),
+            ("It is somewhere else.", "misleading"),
+        ]:
+            self.assertEqual(score.abstained_as(reply, self.PROBE, self.FACTS), shape, reply)
+
+    def test_summary_counts_the_shapes(self):
+        rows = [row("near", ok, 2, 100, kind="abstention") for ok in (True, False, False, False)]
+        for r, shape in zip(rows, ("clean", "neighbours", "misleading", "misleading")):
+            r.abstained_as = shape
+        s = score.summarize(rows + [row("near", True, 2, 100)])
+        self.assertEqual(s["abstention_by_shape"], {"clean": 1, "neighbours": 1, "misleading": 2})
+        self.assertAlmostEqual(s["abstention_not_misleading"], 0.5)
+        self.assertAlmostEqual(s["abstention_accuracy"], 0.25)
+
+
 class Scoring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -156,6 +189,17 @@ class Scoring(unittest.TestCase):
         # Turns and tokens since: p005's fact at turn 5, its probe at 12, and
         # 6 turns between of 20 new tokens each.
         self.assertEqual((r["p005"].turns_since, r["p005"].tokens_since), (7, 120))
+
+    def test_strict_abstention_accuracy_unchanged(self):
+        """The shapes are beside the strict check, which stays as it was: a
+        reply that names a neighbour's value is still not correct."""
+        r, s = self.scored([], replies={"p003": "I don't know the lanyard version veery pins; the oakum version "
+                                                "veery pins is 6.13.15."})
+        self.assertEqual((r["p003"].correct, r["p003"].confident_wrong), (False, False))
+        self.assertEqual((r["p003"].abstained_as, r["p006"].abstained_as, r["p001"].abstained_as),
+                         ("neighbours", "clean", None))
+        self.assertAlmostEqual(s["abstention_accuracy"], 0.5)
+        self.assertEqual(s["abstention_by_shape"], {"clean": 1, "neighbours": 1, "misleading": 0})
 
     def test_an_invented_value_is_not_an_abstention(self):
         r, _ = self.scored([])

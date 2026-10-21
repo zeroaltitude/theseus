@@ -64,6 +64,9 @@ WHEN = (
 )
 
 
+ABSTENTION_SHAPES = ("clean", "neighbours", "misleading")
+
+
 @dataclass
 class Scored:
     arm: str
@@ -88,6 +91,8 @@ class Scored:
     # Right under `--stale retracted` with the old value named, only where
     # the reply retracts it ("ignore the 27340"); None off a supersession.
     old_named: bool | None = None
+    # An abstention's shape: clean | neighbours | misleading (`abstained_as`).
+    abstained_as: str | None = None
 
 
 @dataclass
@@ -374,6 +379,39 @@ def check_of(p: pg.Probe) -> str:
     return pg.kind_check(p.value_kind) if p.kind == "abstention" else p.check
 
 
+# Words that do not tell one subject from another: articles, possessives, and
+# the kind's own noun.
+_PLAIN = {"the", "a", "an", "of", "for", "s", "to", "port", "version", "host", "hostname", "path", "ticket", "date"}
+
+
+def _subject_words(subject: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", checks.normalize(subject))) - _PLAIN
+
+
+def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
+    """How an abstention reply stands. `clean`: it admits and gives no value
+    of the kind. `neighbours`: it admits, and every value it gives sits in a
+    clause that names another fact's subject and nothing of the asked one's.
+    `misleading`: anything else, which a reader could take for the asked
+    subject's value. Words both subjects share name neither."""
+    values_of = lambda text: pg.find_values(p.value_kind, text)
+    admits = re.search(pg.ADMIT, checks.fold(reply), re.I) is not None
+    if not admits:
+        return "misleading"
+    if not values_of(reply):
+        return "clean"
+    own = _subject_words(p.subject)
+    others = set().union(*(_subject_words(f.subject) for f in facts if f.kind == p.value_kind)) - own
+    own -= set().union(*(_subject_words(f.subject) for f in facts if f.kind == p.value_kind))
+    for c in _clauses(reply):
+        if not values_of(c):
+            continue
+        said = set(re.findall(r"[a-z0-9]+", checks.normalize(c)))
+        if not said & others or said & own:
+            return "misleading"
+    return "neighbours"
+
+
 def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
     prog = run.prog
     facts = prog.facts_by_id()
@@ -385,7 +423,7 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
                 carrier=anchor.carrier, planned=p.bucket, bucket=bucket, turns_since=p.turn - anchor.turn, tokens_since=since,
                 cost_usd=(rec or {}).get("cost_usd"), latency_ms=(rec or {}).get("latency_ms"))
     blank = dict(correct=None, confident_wrong=None, stale=None, hedged=None, cites_where=None, cites_when=None,
-                 old_named=None)
+                 old_named=None, abstained_as=None)
     if p.fact is not None and not run.delivered.get(p.fact, {}).get("delivered"):
         return Scored(status="undelivered", **base, **blank)
     if rec is None or rec.get("exit") not in (0,) or not (rec.get("reply") or "").strip():
@@ -436,8 +474,11 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
             where = src in n or src.removesuffix(".sh") in n
         s = prog.sessions[prog.turns[f.turn].session]
         when = any(checks.has_word(n, x) for x in _date_forms(s.date, s.weekday)) or re.search(WHEN, n) is not None
+    shape = None
+    if p.kind == "abstention":
+        shape = "clean" if correct else abstained_as(reply, p, prog.facts)
     return Scored(status="scored", correct=correct, confident_wrong=cw, stale=stale, hedged=hedged,
-                  cites_where=where, cites_when=when, old_named=old_named, **base)
+                  cites_where=where, cites_when=when, old_named=old_named, abstained_as=shape, **base)
 
 
 def score_run(run: ArmRun, stale_rule: str = "strict") -> list[Scored]:
@@ -515,6 +556,8 @@ def summarize(rows: list[Scored]) -> dict:
         "failed": sum(1 for r in rows if r.status == "failed"),
         "recall_accuracy": rate(recall, lambda r: r.correct),
         "abstention_accuracy": rate(abst, lambda r: r.correct),
+        "abstention_by_shape": {k: sum(1 for r in abst if r.abstained_as == k) for k in ABSTENTION_SHAPES},
+        "abstention_not_misleading": rate(abst, lambda r: r.abstained_as != "misleading"),
         "by_kind": {k: rate([r for r in scored if r.kind == k], lambda r: r.correct) for k in pg.PROBE_KINDS},
         "by_carrier": {c: rate([r for r in recall if r.carrier == c], lambda r: r.correct) for c in pg.CARRIERS},
         "by_value_kind": {k: rate([r for r in recall if r.value_kind == k], lambda r: r.correct)
@@ -613,7 +656,15 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
             for b in sums[r.label]["abstention_curves"][s]:
                 cells.append(f"{_pct(b['accuracy'])} ({b['correct']}/{b['n']})" if b["n"] else "—")
         lines.append(f"| {r.label} | " + " | ".join(cells) + " |")
-    lines += ["", "## By probe kind, and by how the fact was said", "",
+    lines += ["", "| Arm | clean | neighbours | misleading | not misleading |", "|---|---|---|---|---|"]
+    for r in runs:
+        s = sums[r.label]
+        lines.append(f"| {r.label} | " + " | ".join(str(s["abstention_by_shape"][k]) for k in ABSTENTION_SHAPES)
+                     + f" | {_pct(s['abstention_not_misleading'])} |")
+    lines += ["", "*clean*: it admits and gives no value of the kind. *neighbours*: it admits, and each value it gives "
+              "sits beside another fact's subject, never the asked one's. *misleading*: any other failure. "
+              "Abstention accuracy above counts only *clean*.",
+              "", "## By probe kind, and by how the fact was said", "",
               "Recall accuracy (direct and indirect) by the fact's carrier: a tool's output, an error message, an "
               "aside, a side remark, or the topic of the moment.", "",
               "| Arm | direct | indirect | abstention | " + " | ".join(pg.CARRIERS) + " |",
