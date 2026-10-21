@@ -648,6 +648,9 @@ fn haiku(req: &ProviderRequest) -> Scripted {
     if last_user(req).contains("terminal") && offered(req).contains(&"term_open".to_string()) {
         return Scripted::tools("", &[("h1", "term_open", json!({"argv": ["true"]}))]);
     }
+    if last_user(req).contains("project") && offered(req).contains(&"project_attach".to_string()) {
+        return Scripted::tools("", &[("h1", "project_attach", json!({"project": "none"}))]);
+    }
     Scripted::text("That tool is not loaded here.")
 }
 
@@ -670,10 +673,13 @@ fn rig_haiku() -> Rig {
 async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_message_names() {
     let r = rig_haiku();
     let sid = session(&r.core, None);
-    let res = say(&r.core, &sid, "open a terminal and run true").await;
+    // theseus-3bs4e: a family the message names is counted on the whole request, and at the cli the
+    // terminals' (1,264 tokens) no longer fit beside the default families, so the test names the
+    // projects' (153), which do; a model without tool search still reaches it with no `tools_find`.
+    let res = say(&r.core, &sid, "detach the project from this conversation").await;
     let req = &r.requests()[0];
     assert!(
-        offered(req).contains(&"term_open".to_string()),
+        offered(req).contains(&"project_attach".to_string()),
         "{:?}",
         offered(req)
     );
@@ -681,7 +687,7 @@ async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_messag
     assert!(rows(&r.core, "tools.missed").is_empty());
     // The conversation's next turn holds the set still: no cache rewrite.
     let first = tool_bytes(req);
-    say(&r.core, &sid, "and another terminal").await;
+    say(&r.core, &sid, "and detach the project again").await;
     assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
 }
 

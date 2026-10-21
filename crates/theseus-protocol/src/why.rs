@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::context::{ContextExplainResult, ContextPart, ContextSource};
+use crate::context::{ContextDetour, ContextExplainResult, ContextPart, ContextSource};
 use crate::memory::{RecallDrop, RecallItem, RecallManifest};
 use crate::{LedgerTailResult, NodeListResult, PolicyExplainResult, ToolExplain};
 
@@ -203,6 +203,9 @@ fn build(i: &WhyInput, largest_first: bool) -> Why {
             .push("no turn of this session has compiled a context yet".into());
         return w;
     }
+    if let Some(d) = &x.detour {
+        w.head.push(detour_words(d));
+    }
     w.ran = ran(i);
     w.blocks = blocks(i, largest_first);
     w.recalled = recalled(i, hide);
@@ -235,7 +238,10 @@ fn ran(i: &WhyInput) -> Vec<String> {
     };
     let (from, to) = (s("from").unwrap_or(""), s("profile").unwrap_or(""));
     if !from.is_empty() && !to.is_empty() && from != to {
-        why.push_str(&format!(", moved from {from} to {to}"));
+        match r["detour"] == true {
+            true => why.push_str(&format!(", on {to} instead of {from}")),
+            false => why.push_str(&format!(", moved from {from} to {to}")),
+        }
     }
     out.push(format!("routing: {why}"));
     if let Some(e) = s("effort") {
@@ -245,6 +251,32 @@ fn ran(i: &WhyInput) -> Vec<String> {
             _ => String::new(),
         };
         out.push(format!("effort: Jev said {e} ({how}){applied}"));
+    }
+    out
+}
+
+/// How a detoured turn ran (theseus-r5ydi): its request is built outside the
+/// conversation's compilation and never stored, so the parts below are the
+/// ones its `context.detoured` row names.
+pub fn detour_words(d: &ContextDetour) -> String {
+    format!(
+        "detour: ran as a {} detour on {} ({}); its request was built outside the conversation's compilation",
+        d.kind, d.profile, d.model
+    )
+}
+
+/// What a detour's request leaves out of the conversation's own, as plain
+/// lines: a quick detour carries the turn's own recall, a trivial one none.
+fn detour_left(d: &ContextDetour) -> Vec<String> {
+    let mut out = vec![
+        "  context files: a detour carries none".to_string(),
+        "  the persona's body: a detour carries only its tail line, when one answers".to_string(),
+        "  the conversation's summary and older turns: only the last exchanges ride a detour"
+            .to_string(),
+        "  earlier recall: a detour carries none".to_string(),
+    ];
+    if d.kind != "quick" {
+        out.push("  this turn's own recall: a trivial detour carries none".to_string());
     }
     out
 }
@@ -355,6 +387,13 @@ fn part_source(p: &ContextPart) -> String {
         "tools" => "the tools offered".into(),
         "recall" => "recalled in front of the model".into(),
         "conversation" => "the conversation so far".into(),
+        // A detour's request (theseus-r5ydi).
+        "session" => "the session's own block".into(),
+        "persona" => "the line saying who answers".into(),
+        "standing" => "the standing records of this surface".into(),
+        "exchanges" => "the last exchanges, kept for the detour".into(),
+        "message" => "this turn's message".into(),
+        "project" => "the project this conversation serves".into(),
         other => other.into(),
     }
 }
@@ -478,7 +517,7 @@ fn source_words(session_id: &str, x: &ContextExplainResult, hide: bool) -> Strin
 /// What was left out, and why.
 fn left_out(i: &WhyInput) -> Vec<String> {
     let x = i.explain;
-    let mut lines = Vec::new();
+    let mut lines = x.detour.as_ref().map(detour_left).unwrap_or_default();
     for m in &x.recalls {
         let mut by: BTreeMap<&str, u64> = BTreeMap::new();
         for (k, v) in &m.drops {

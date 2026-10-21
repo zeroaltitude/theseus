@@ -1,0 +1,19 @@
+turn trn_k3m9x2 · session ses_reef42 (the harbour survey)
+place: CLI (private)
+detour: ran as a quick detour on haiku (claude-haiku-5-5); its request was built outside the conversation's compilation
+ran on: haiku (claude-haiku-5-5), a window of 200,000 tokens
+routing: task class quick, a detour, outside the session's compilation, on haiku instead of sonnet
+context: 6 parts, 7,369 tokens
+  header       the profile's header and the standing records · 720 tok · the system's first block
+  session      the session's directory · 15 tok · the session's own block
+  tools        17 tools · 6,400 tok · the tools offered
+  exchanges    2 earlier exchanges · 90 tok · the last exchanges, kept for the detour
+  message      the message · 24 tok · this turn's message
+  project      the project's slice · 120 tok · the project this conversation serves
+recalled: nothing recorded for this turn
+left out:
+  context files: a detour carries none
+  the persona's body: a detour carries only its tail line, when one answers
+  the conversation's summary and older turns: only the last exchanges ride a detour
+  earlier recall: a detour carries none
+tools: the turn called none

@@ -140,6 +140,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   (each section's top items and a count of the rest, cut to a budget) from a `ContextExplainResult`, the turn's
   `route.decided` row, `ToolCalled`s (`tools_called` over `node.list`) and `policy.explain`. A shared place's class
   hides a private or imported source's words (`hide_sources`). No wire type; its goldens are `tests/why/`.
+- `context.rs` (theseus-7n3e, theseus-r5ydi): `context.explain`'s params and result. A turn the router detoured compiled nothing that was
+  stored, so its answer is read from the `context.detoured` row (`ContextDetoured`, `DetourPart`: names and token counts): the result's `detour`
+  (`ContextDetour`: kind, profile, model) is absent for any other turn, `ContextTurn.detoured` marks it in the turn list, and `why.rs`'s
+  `detour_words` and `fill.rs`'s `context_short` say it, with what a detour leaves out. Goldens: `tests/why/detour*.txt`.
 - `census.rs` (theseus-7m7w.1): `context.census`'s params and result (`ContextCensusParams`, `ContextCensusResult` with a
   `CensusBlock` of `CensusPart`s for the system and a `CensusTool` for each tool, `CensusExact`), and `PLACES`, the kinds of
   place a fresh session's first request is counted for. Counts are tokens at the model's figures, apportioned to add up.
