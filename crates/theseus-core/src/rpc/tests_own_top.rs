@@ -150,7 +150,7 @@ async fn an_own_note_that_can_be_admitted_still_outranks_it() {
     let m = recall(c, &w.pipe, &w.in_context, picks).await;
     assert_eq!(
         reason_of(&m, &w.cutoff),
-        Some("thread_own"),
+        Some("thread_base"),
         "{:?}",
         m.admitted
     );
@@ -170,6 +170,6 @@ async fn with_the_key_off_the_old_verdict_is_back() {
         vec![(w.pipe.clone(), 0, 0.104), (w.home.clone(), 0, 0.097)],
     )
     .await;
-    assert_eq!(reason_of(&m, &w.cutoff), Some("thread_own"));
+    assert_eq!(reason_of(&m, &w.cutoff), Some("thread_base"));
     assert!(!admitted(&m, &w.cutoff));
 }
