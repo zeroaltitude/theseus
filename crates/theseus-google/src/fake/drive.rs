@@ -367,6 +367,24 @@ impl Drive {
 
     fn upload_over(&self, r: &Req) -> Reply {
         let bytes = r.body.clone();
+        // As real Drive converts: a native Doc takes markdown and a Sheet CSV;
+        // any other type would land as literal text, so it is refused.
+        let sent = r
+            .headers
+            .get("content-type")
+            .map_or("", |t| t.split(';').next().unwrap_or("").trim());
+        let want = self
+            .with(&seg(r, 5), |f| match f.mime.as_str() {
+                DOC => Some("text/markdown"),
+                SHEET => Some("text/csv"),
+                _ => None,
+            })
+            .flatten();
+        if let Some(want) = want.filter(|w| *w != sent) {
+            return bad(&format!(
+                "a replace of this file takes {want}, not {sent:?}"
+            ));
+        }
         let reply = self.with(&seg(r, 5), |f| {
             f.content = if f.mime == SHEET {
                 csv(&bytes)

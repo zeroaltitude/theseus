@@ -1125,17 +1125,42 @@ impl Writing {
         bytes: Option<Vec<u8>>,
     ) -> Result<Called, ToolFailure> {
         let query = [("fields", FIELDS), ("supportsAllDrives", "true")];
+        // One read of the file, when a replace of inline content needs its type
+        // (a native Doc converts only markdown, a Sheet only CSV: plain text
+        // would land as literal text) or a move needs its parents.
+        let cur = if (bytes.is_some() && self.from.is_none()) || self.move_to.is_some() {
+            let got = call(
+                g,
+                meta(WRITE, "drive.files.get", Some(id), "read"),
+                get(
+                    format!("/drive/v3/files/{id}"),
+                    &[
+                        ("fields", "mimeType,parents"),
+                        ("supportsAllDrives", "true"),
+                    ],
+                ),
+            )
+            .await?;
+            got.response.json()
+        } else {
+            Value::Null
+        };
         let mut done = None;
         if let Some(data) = bytes {
             let mut q = query.to_vec();
             q.push(("uploadType", "media"));
+            let media = match (&self.from, cur["mimeType"].as_str()) {
+                (None, Some(DOC)) => "text/markdown",
+                (None, Some(SHEET)) => "text/csv",
+                _ => self.media,
+            };
             let req = sent(
                 Service::Drive,
                 "PATCH",
                 format!("/upload/drive/v3/files/{id}"),
                 &q,
                 Body::Bytes {
-                    content_type: self.media.into(),
+                    content_type: media.into(),
                     data,
                 },
                 Repeat::Safe,
@@ -1146,16 +1171,7 @@ impl Writing {
             // A move adds the new parent and removes the ones the file has.
             let parents = match &self.move_to {
                 Some(to) => {
-                    let cur = call(
-                        g,
-                        meta(WRITE, "drive.files.get", Some(id), "read"),
-                        get(
-                            format!("/drive/v3/files/{id}"),
-                            &[("fields", "parents"), ("supportsAllDrives", "true")],
-                        ),
-                    )
-                    .await?;
-                    let had = cur.response.json()["parents"]
+                    let had = cur["parents"]
                         .as_array()
                         .map(|p| {
                             p.iter()

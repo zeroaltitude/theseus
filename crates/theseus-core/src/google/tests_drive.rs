@@ -210,6 +210,16 @@ async fn markdown_round_trips_through_a_doc() {
         "{}",
         read.text
     );
+    // Replacing a Sheet's content sends CSV, as a Doc's sends markdown: plain
+    // text would land in the file as literal text (the fake refuses it).
+    ok(
+        &r,
+        "drive.write",
+        json!({"id": made.meta["id"], "content": "a,b\n3,4\n"}),
+    )
+    .await;
+    let (read, _) = ok(&r, "drive.read", json!({"id": made.meta["id"]})).await;
+    assert!(read.text.contains("| 3 | 4 |"), "{}", read.text);
 }
 
 #[tokio::test]
