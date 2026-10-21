@@ -49,6 +49,10 @@ pub const COMPARE_VERSION: u32 = 1;
 /// `heard.v1`'s builder (module `heard`, theseus-s3dwj).
 pub const HEARD_VERSION: u32 = 1;
 
+/// `same_thing.v1`'s and `two_things.v1`'s builders (module `sweep`, theseus-nzzz4).
+pub const SAME_THING_VERSION: u32 = 1;
+pub const TWO_THINGS_VERSION: u32 = 1;
+
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
 pub const SECURITY_CALLS: usize = 5;
@@ -382,6 +386,10 @@ pub enum Input {
     Compare(CompareInput),
     /// `heard.v1`'s (theseus-s3dwj): a short or unclear transcript in a call.
     Heard(HeardInput),
+    /// `same_thing.v1`'s (theseus-nzzz4): two categories of one kind.
+    SameThing(SameThingInput),
+    /// `two_things.v1`'s (theseus-nzzz4): one category and a sample of its sessions.
+    TwoThings(TwoThingsInput),
 }
 
 impl Input {
@@ -402,6 +410,8 @@ impl Input {
             Input::PeopleSeen(_) => Builder::PeopleSeen,
             Input::Compare(_) => Builder::Compare,
             Input::Heard(_) => Builder::Heard,
+            Input::SameThing(_) => Builder::SameThing,
+            Input::TwoThings(_) => Builder::TwoThings,
         }
     }
 
@@ -423,6 +433,8 @@ impl Input {
             Builder::PeopleSeen => Input::PeopleSeen(serde_json::from_str(json)?),
             Builder::Compare => Input::Compare(serde_json::from_str(json)?),
             Builder::Heard => Input::Heard(serde_json::from_str(json)?),
+            Builder::SameThing => Input::SameThing(serde_json::from_str(json)?),
+            Builder::TwoThings => Input::TwoThings(serde_json::from_str(json)?),
         })
     }
 }
@@ -461,6 +473,8 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::PeopleSeen(i) => people::people_seen(i, cap, scrub),
         Input::Compare(i) => compare::compare(i, cap, scrub),
         Input::Heard(i) => heard::heard(i, cap, scrub),
+        Input::SameThing(i) => sweep::same_thing(i, cap, scrub),
+        Input::TwoThings(i) => sweep::two_things(i, cap, scrub),
     })
 }
 
@@ -664,6 +678,7 @@ mod memory;
 mod people;
 mod rerank;
 mod security2;
+mod sweep;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
@@ -671,6 +686,10 @@ pub use heard::{HeardInput, HeardOverlap, SAID};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use people::{HeldPerson, PeopleInput, PeopleSeenInput, PersonCandidate, PEOPLE, SEEN};
 pub use rerank::{RerankInput, RerankNote, RERANK_NOTES};
+pub use sweep::{
+    SameThingInput, SweepCategory, TwoThingsInput, FIRST_ASKED, SAMPLE as SWEEP_SAMPLE,
+    TITLES as SWEEP_TITLES,
+};
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
 /// (argv, paths, and a URL as host, path, and query, each clipped), the
@@ -1189,6 +1208,8 @@ pub(crate) mod tests {
             "people_seen.v1",
             "compare.v1",
             "heard.v1",
+            "same_thing.v1",
+            "two_things.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(
