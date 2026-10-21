@@ -4,8 +4,10 @@
 use serde_json::json;
 use theseus_google::fake::gmail::MsgSpec;
 
+use super::quiet::QUIET_ROW_MS;
 use super::tests_mail::{mail_rig, mail_watch, GMAIL_PASS};
 use super::tests_watch::{dm_session, look, posts, rows};
+use crate::google::tests::ledgered;
 
 const DANA: &str = "Dana Colleague <dana@example.test>";
 
@@ -106,4 +108,99 @@ async fn the_owners_own_draft_and_sent_mail_are_no_match() {
         .unwrap();
     let q = &listed.query.iter().find(|(k, _)| k == "q").unwrap().1;
     assert_eq!(q, "(from:example.test) -in:drafts -in:sent");
+}
+
+/// N quiet looks inside the hour write no `google.called` row; the first look
+/// past the hour writes one, counting them all; a match writes the tally and
+/// its own rows in one frame.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_quiet_watch_writes_one_row_an_hour() {
+    let r = mail_rig(vec![], trust).await;
+    dm_session(&r.core);
+    let made = mail_watch(&r.core, json!({})).await;
+    let id = made["watch"]["wake_id"].as_str().unwrap().to_string();
+    let history = |r: &crate::google::tests::Rig| -> Vec<serde_json::Value> {
+        ledgered(&r.core, "google.called")
+            .into_iter()
+            .filter(|c| c["method"] == "gmail.users.history.list")
+            .collect()
+    };
+    look(&r.core, &id).await; // the baseline writes its own row
+    for _ in 0..3 {
+        look(&r.core, &id).await;
+    }
+    assert!(history(&r).is_empty(), "three quiet looks wrote no row");
+    // An hour on, the next quiet look writes the tally, itself counted.
+    r.core
+        .watches
+        .with(&id, |e| e.quiet.since_ms -= QUIET_ROW_MS);
+    look(&r.core, &id).await;
+    let h = history(&r);
+    assert_eq!(h.len(), 1, "{h:?}");
+    assert_eq!(
+        (h[0]["quiet_looks"].clone(), h[0]["calls"].clone()),
+        (4.into(), 4.into())
+    );
+    assert!(
+        h[0]["resource"].is_null() && !h[0].to_string().contains("example.test"),
+        "{}",
+        h[0]
+    );
+    assert_eq!(history(&r).len(), 1);
+    // Two more, then a match: the tally and the look's rows, in one frame.
+    look(&r.core, &id).await;
+    look(&r.core, &id).await;
+    r.fake.mail().deliver(
+        "t9",
+        MsgSpec::new("m9", DANA, "Contract", "Signed.")
+            .header("Authentication-Results", GMAIL_PASS),
+    );
+    let e = r.core.watches.get(&id).unwrap();
+    let mut seen_rows = Vec::new();
+    let result = crate::watch::check::observe(&r.core.watch_tools(), &e, &mut seen_rows).await;
+    let frames = theseus_store::frames_written_here();
+    let result = r.core.watch_seen(&id, &seen_rows, result);
+    assert_eq!(
+        theseus_store::frames_written_here(),
+        frames + 1,
+        "one frame"
+    );
+    let h = history(&r);
+    assert_eq!(
+        h.len(),
+        3,
+        "the tally, then the match's own history call: {h:?}"
+    );
+    assert_eq!(h[1]["quiet_looks"], 2);
+    assert!(h[2]["quiet_looks"].is_null());
+    drop(result);
+}
+
+/// A watch that leaves the board (here at its deadline) writes what its quiet
+/// looks made, so every call stays counted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_watch_that_ends_writes_its_tally() {
+    let r = mail_rig(vec![], trust).await;
+    dm_session(&r.core);
+    let made = mail_watch(&r.core, json!({})).await;
+    let id = made["watch"]["wake_id"].as_str().unwrap().to_string();
+    look(&r.core, &id).await;
+    look(&r.core, &id).await;
+    look(&r.core, &id).await;
+    let tally = |r: &crate::google::tests::Rig| {
+        ledgered(&r.core, "google.called")
+            .into_iter()
+            .filter(|c| c["quiet_looks"].is_number())
+            .collect::<Vec<_>>()
+    };
+    assert!(tally(&r).is_empty());
+    r.core.watches.with(&id, |e| e.spec.expires_ms = 1);
+    look(&r.core, &id).await;
+    let t = tally(&r);
+    assert_eq!(t.len(), 1, "{t:?}");
+    assert_eq!(
+        t[0]["calls"], 3,
+        "the two before and the one at the deadline: {t:?}"
+    );
+    assert!(r.core.watches.get(&id).is_none(), "it left the board");
 }

@@ -19,6 +19,7 @@ use theseus_kernel::{ProbeNews, ProbeVerdict, WatchState};
 use theseus_protocol::term::words::cut_marked;
 
 use super::cond::Observed;
+use super::quiet::Quiet;
 use super::spec::{Check, Spec, Then};
 
 /// The most a failing watch waits between checks, when its interval is
@@ -51,6 +52,9 @@ pub struct Entry {
     pub cursor: Option<String>,
     /// When the cursor was last written to the store (memory only).
     pub kept_ms: u64,
+    /// The mail looks that found nothing since the last row was written
+    /// (memory only; `quiet.rs`).
+    pub quiet: Quiet,
     /// The task a mail match or a follow-up started (its short id), so a
     /// news frame that failed and is tried again starts none a second time.
     pub started: Option<String>,
@@ -95,6 +99,7 @@ impl Entry {
             running: false,
             cursor: None,
             kept_ms: 0,
+            quiet: Quiet::default(),
             started: None,
         }
     }

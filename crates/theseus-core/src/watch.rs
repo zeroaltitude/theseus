@@ -39,6 +39,7 @@ pub mod cond;
 pub mod mail;
 pub mod mail_auth;
 pub mod mail_then;
+pub mod quiet;
 pub mod reply;
 pub mod run;
 pub mod spec;
