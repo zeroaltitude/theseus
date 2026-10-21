@@ -2,6 +2,7 @@
 //! written on both threads in one frame; a linked thread's notes reach the asking thread's recall
 //! with no distance and no question to Jev; a seal still holds them out, even one set after the
 //! link; a link follows a merge. The key test is `a_linked_threads_note_passes_the_lens_unpaid`.
+//! Jev's offer of a link, once, after two recalls that drew on another thread, is the last three.
 
 use std::collections::BTreeSet;
 
@@ -17,6 +18,8 @@ use super::tests_thread_recall::{ambient, cli, new_thread, say, scored, thread_s
 use super::Core;
 use crate::approval::{Answerer, Surface};
 use crate::config::MemoryMode;
+use crate::outbox::OPERATOR_TARGET;
+use crate::places::BoundPlace;
 use crate::tests_recall::{rig_with, Rig};
 use crate::tests_rerank::{recalls, sent, turn};
 
@@ -439,4 +442,163 @@ fn a_link_to_self_unknown_or_merged_is_refused_and_eight_is_the_most() {
     assert!(stored(c, "b").links.is_empty());
     let e = link(c, "b", "a").unwrap_err();
     assert!(e.contains("the thread a holds 8 links"), "{e}");
+}
+
+/// The owner's DM, bound: where a proposal goes.
+fn bind_dm(c: &Core) {
+    c.runner.place_rule.bind_one(BoundPlace {
+        target: "discord:dm:42".into(),
+        name: "DM".into(),
+        private: false,
+        ..Default::default()
+    });
+}
+
+/// Jev says yes to the cutoff note (stats) and no to the port (ops): one pair, pipeline and stats.
+fn yes_to_stats(jev: &FakeJev) {
+    jev.script("same_subject.1", Jev::Noul(0.95));
+    jev.script("same_subject.2", Jev::Noul(0.05));
+}
+
+fn seen(c: &Core, a: &str, b: &str) -> Option<serde_json::Value> {
+    c.store
+        .get_meta(&format!("thread.link_seen.{a}.{b}"))
+        .unwrap()
+}
+
+/// The count lands in a task after the recall: wait for it.
+async fn until_seen(c: &Core, recalls: u64) -> serde_json::Value {
+    for _ in 0..400 {
+        if let Some(v) = seen(c, "pipeline", "stats").filter(|v| v["recalls"] == recalls) {
+            return v;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    panic!(
+        "the pair was never counted {recalls} times: {:?}",
+        seen(c, "pipeline", "stats")
+    );
+}
+
+fn proposals(c: &Core) -> Vec<serde_json::Value> {
+    c.outbox
+        .open_for(OPERATOR_TARGET)
+        .iter()
+        .map(|a| crate::outbox::body_of(a).clone())
+        .filter(|b| b["kind"] == "onto_card")
+        .collect()
+}
+
+/// Jev admits stats' notes into pipeline's recall twice: one sentence to the DM, the pair marked
+/// asked and one `thread.link_proposed` row; a third recall posts nothing and counts nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pair_admitted_twice_is_proposed_once() {
+    let jev = FakeJev::start().unwrap();
+    yes_to_stats(&jev);
+    let r = rigged(&jev, |_| {});
+    let c = &r.core;
+    bind_dm(c);
+    let pipe = world(c, 0);
+    turn(c, &pipe, ASK).await;
+    let v = until_seen(c, 1).await;
+    assert_eq!(v["asked"], false);
+    assert!(proposals(c).is_empty(), "one recall proposes nothing");
+    turn(c, &pipe, ASK).await;
+    let v = until_seen(c, 2).await;
+    assert_eq!(v["asked"], true);
+    let posts = proposals(c);
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    let text = posts[0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("Notes of \u{ab}datatidy stats\u{bb} answered questions in \u{ab}datatidy pipeline\u{bb} twice")
+            && text.ends_with("theseus thread link pipeline stats"),
+        "{text}"
+    );
+    assert_eq!(rows(c, "thread.link_proposed").len(), 1);
+    assert!(
+        seen(c, "pipeline", "ops").is_none(),
+        "Jev said no to the port"
+    );
+    turn(c, &pipe, ASK).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(proposals(c).len(), 1, "never asked again");
+    assert_eq!(rows(c, "thread.link_proposed").len(), 1);
+    assert_eq!(seen(c, "pipeline", "stats").unwrap()["recalls"], 2);
+}
+
+/// A linked pair is never counted (its notes pass the lens and are not asked about), and a pair
+/// whose end is sealed after its first count is never counted again nor proposed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_linked_or_held_pair_is_never_proposed() {
+    let jev = FakeJev::start().unwrap();
+    yes_to_stats(&jev);
+    let r = rigged(&jev, |_| {});
+    let c = &r.core;
+    bind_dm(c);
+    let pipe = world(c, 0);
+    link(c, "pipeline", "stats").unwrap();
+    for _ in 0..3 {
+        turn(c, &pipe, ASK).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        seen(c, "pipeline", "stats").is_none(),
+        "a linked pair is not counted"
+    );
+    unlink(c, "pipeline", "stats").unwrap();
+    turn(c, &pipe, ASK).await;
+    until_seen(c, 1).await;
+    c.thread_seal(
+        &ThreadSealParams {
+            slug: "stats".into(),
+            reason: Some("before disclosure".into()),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    turn(c, &pipe, ASK).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        seen(c, "pipeline", "stats").unwrap()["recalls"],
+        1,
+        "a held thread is not counted"
+    );
+    // The port note's thread (ops) moved up Jev's list and was asked in its place: its own pair.
+    assert!(proposals(c)
+        .iter()
+        .all(|p| !p["text"].as_str().unwrap().ends_with("link pipeline stats")));
+    assert!(seen(c, "embargo", "pipeline").is_none() && seen(c, "pipeline", "embargo").is_none());
+}
+
+/// `link_proposals = false`: nothing is counted, written or posted, and a turn's frames are the
+/// same as with it on (the count is a task of its own).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_the_switch_off_nothing_is_counted_or_posted() {
+    let frames_of = |res: &theseus_protocol::TurnSubmitResult| {
+        res.trace.as_ref().unwrap().attrs["frames"]
+            .as_u64()
+            .unwrap()
+    };
+    let mut frames = Vec::new();
+    for on in [true, false] {
+        let jev = FakeJev::start().unwrap();
+        yes_to_stats(&jev);
+        let r = rigged(&jev, |c| c.threads.link_proposals = on);
+        let c = &r.core;
+        bind_dm(c);
+        let pipe = world(c, 0);
+        let first = turn(c, &pipe, ASK).await;
+        let second = turn(c, &pipe, ASK).await;
+        frames.push((frames_of(&first), frames_of(&second)));
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        if on {
+            assert_eq!(seen(c, "pipeline", "stats").unwrap()["asked"], true);
+        } else {
+            assert!(seen(c, "pipeline", "stats").is_none(), "no META key");
+            assert!(proposals(c).is_empty());
+            assert!(rows(c, "thread.link_proposed").is_empty());
+        }
+    }
+    assert_eq!(frames[0], frames[1], "the count adds no frame to a turn");
 }

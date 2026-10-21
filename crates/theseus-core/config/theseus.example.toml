@@ -1143,6 +1143,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).
 # persona_engage = "shadow"               # shadow | act
 # seal_recommend = false                  # true: Jev's route.v5 `seal` question, answered yes at 0.60 or above in a thread, proposes sealing it (a card to your DM; Jev recommends, you seal)
+# link_proposals = true                   # Jev admits another live, unsealed thread's notes into a thread's recall twice: one sentence to your DM offers `theseus thread link` (once a pair; it links nothing itself; false: nothing is counted or posted)
 
 # ---------------------------------------------------------------- initiative
 # What Theseus says first, in its persona's voice (theseus-slvl.9). How readily

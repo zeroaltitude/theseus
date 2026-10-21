@@ -135,6 +135,7 @@ pub mod term;
 pub mod thread_context;
 pub mod thread_flow;
 pub mod thread_join;
+pub mod thread_link_seen;
 pub mod thread_read;
 pub mod thread_recall;
 pub mod thread_route;

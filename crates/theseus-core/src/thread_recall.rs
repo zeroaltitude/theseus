@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use theseus_memory::{SessionThread, ThreadLens};
-use theseus_protocol::threads::{slug_of_place, ThreadInfo};
+use theseus_protocol::threads::{slug_of_place, ThreadInfo, ThreadState};
 
 use crate::session::SessionRecord;
 use crate::store::Store;
@@ -165,6 +165,31 @@ impl ThreadScene {
     /// them with the penalty (theseus-98bz.10).
     pub fn admit(&mut self, nodes: BTreeSet<String>) {
         self.admitted.extend(nodes);
+    }
+
+    /// The pairs a link could join (theseus-98bz.11): the asking thread with each of `others` that
+    /// is live, unsealed, not merged and not linked with it already. None for an unthreaded asker.
+    pub fn link_pairs(&self, others: &BTreeSet<String>) -> Vec<crate::thread_link_seen::Pair> {
+        let held = |t: &ThreadInfo| {
+            t.sealed.is_some() || t.seal_pending.is_some() || t.merged_into.is_some()
+        };
+        let Some(here) = self.here.as_deref().and_then(|h| self.board.get(h)) else {
+            return Vec::new();
+        };
+        if held(here) {
+            return Vec::new();
+        }
+        let linked = self.board.linked_with(&here.slug);
+        others
+            .iter()
+            .filter(|s| **s != here.slug && !linked.contains(*s))
+            .filter_map(|s| self.board.get(s))
+            .filter(|t| !held(t) && t.state != ThreadState::Done)
+            .map(|t| crate::thread_link_seen::Pair {
+                here: (here.slug.clone(), here.title.clone()),
+                other: (t.slug.clone(), t.title.clone()),
+            })
+            .collect()
     }
 
     /// The thread of `session`, with whether it is held.

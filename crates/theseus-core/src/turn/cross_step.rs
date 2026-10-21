@@ -162,8 +162,19 @@ impl TurnRunner {
         if yes.is_empty() {
             return;
         }
+        // The threads Jev's yes drew on, once each, for a link to be offered (theseus-98bz.11).
+        let drawn: BTreeSet<String> = yes
+            .iter()
+            .filter_map(|n| {
+                let c = candidates.iter().find(|c| c.node_id == *n)?;
+                lens.thread_of_node(&c.session_id, n)
+            })
+            .filter(|t| !t.held)
+            .map(|t| t.slug.clone())
+            .collect();
         if let Some(th) = parts.threads.as_mut() {
             th.admit(yes);
+            self.link_seen(th.link_pairs(&drawn));
         }
         let order: Vec<String> = m
             .admitted

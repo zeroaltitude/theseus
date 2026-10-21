@@ -334,6 +334,7 @@ ledger_kinds! {
     ThreadUnsealed = "thread.unsealed",
     ThreadLinked = "thread.linked",
     ThreadUnlinked = "thread.unlinked",
+    ThreadLinkProposed = "thread.link_proposed",
     ThreadRouted = "thread.routed",
     ThreadAsked = "thread.asked",
     ThreadAnswered = "thread.answered",

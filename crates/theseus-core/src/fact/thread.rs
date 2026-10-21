@@ -360,3 +360,19 @@ impl Fact for ThreadUnlinked<'_> {
         );
     }
 }
+
+/// Jev offered to link two threads (`thread.link_proposed`, theseus-98bz.11): their notes answered
+/// questions across them in two recalls. The row is the record of the offer, which is made once.
+pub struct ThreadLinkProposed<'a> {
+    pub thread: &'a str,
+    pub other: &'a str,
+    pub recalls: u32,
+}
+
+impl Fact for ThreadLinkProposed<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadLinkProposed);
+
+    fn row(&self) -> Value {
+        json!({"slug": self.thread, "other": self.other, "recalls": self.recalls})
+    }
+}
