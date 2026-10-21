@@ -18,12 +18,15 @@ min_herdr_version = "0.9.0"
 command = ["sh", "-c", "theseus herdr up --boot 2>/dev/null || theseus herdr sync 2>/dev/null || true"]
 
 # --- actions: the keys in `theseus herdr setup` run these ---------------------------------------
+# An action that works on the focused pane takes it from `HERDR_PANE_ID`, which herdr (0.9.1) sets to the
+# focused pane for every action; `HERDR_ACTIVE_PANE_ID` is the fallback for a herdr that sets that one. With
+# neither, no `--pane` is passed and the helper refuses (it never picks another task's question).
 
 [[actions]]
 id = "answer"
 title = "Theseus: answer"
 description = "The answer card for the focused task's question, else the one that has waited longest"
-command = ["sh", "-c", 'exec theseus herdr popup answer ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+command = ["sh", "-c", 'P=${HERDR_PANE_ID:-$HERDR_ACTIVE_PANE_ID}; exec theseus herdr popup answer ${P:+--pane "$P"}']
 
 [[actions]]
 id = "next"
@@ -41,7 +44,7 @@ command = ["sh", "-c", "exec theseus herdr popup tui"]
 id = "stop"
 title = "Theseus: stop"
 description = "Stop the focused task (cancel) or session (halt), after a y/N"
-command = ["sh", "-c", 'exec theseus herdr popup stop ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+command = ["sh", "-c", 'P=${HERDR_PANE_ID:-$HERDR_ACTIVE_PANE_ID}; exec theseus herdr popup stop ${P:+--pane "$P"}']
 
 [[actions]]
 id = "new"
@@ -59,19 +62,19 @@ command = ["sh", "-c", "exec theseus herdr main"]
 id = "inspect"
 title = "Theseus: inspect"
 description = "Read the focused task's transcript and live stream, without joining it"
-command = ["sh", "-c", 'exec theseus herdr popup inspect ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+command = ["sh", "-c", 'P=${HERDR_PANE_ID:-$HERDR_ACTIVE_PANE_ID}; exec theseus herdr popup inspect ${P:+--pane "$P"}']
 
 [[actions]]
 id = "pause"
 title = "Theseus: pause"
 description = "Pause the focused task at its next step, or resume it when it is held"
-command = ["sh", "-c", 'exec theseus herdr pause ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+command = ["sh", "-c", 'P=${HERDR_PANE_ID:-$HERDR_ACTIVE_PANE_ID}; exec theseus herdr pause ${P:+--pane "$P"}']
 
 [[actions]]
 id = "open-link"
 title = "Theseus: open a link"
 description = "What a click on a theseus:// link under a question opens (the card; never an answer)"
-command = ["sh", "-c", 'exec theseus herdr link "$HERDR_PLUGIN_CLICKED_URL" ${HERDR_ACTIVE_PANE_ID:+--pane "$HERDR_ACTIVE_PANE_ID"}']
+command = ["sh", "-c", 'P=${HERDR_PANE_ID:-$HERDR_ACTIVE_PANE_ID}; exec theseus herdr link "$HERDR_PLUGIN_CLICKED_URL" ${P:+--pane "$P"}']
 
 # --- the popups the actions open (`theseus herdr popup NAME`) --------------------------------------
 

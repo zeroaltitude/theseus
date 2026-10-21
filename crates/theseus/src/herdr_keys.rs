@@ -385,6 +385,24 @@ pub async fn popup(name: &str, env: PopupEnv, herdr_socket: Option<PathBuf>) -> 
     if !POPUPS.contains(&name) {
         bail!("no popup named `{name}`: one of {}", POPUPS.join(", "));
     }
+    // A key's popup that works on the focused pane has none to work on: say so, open nothing. For
+    // `answer` the card would otherwise show the question that has waited longest, and a `y` there
+    // answers a request the owner never looked at (theseus-us8e8). A link click names its question.
+    let needs_pane = match name {
+        "answer" => env.cid.is_none(),
+        "stop" | "inspect" => true,
+        _ => false,
+    };
+    if needs_pane && env.pane.is_none() {
+        bail!(
+            "{name} needs the focused pane (--pane): herdr did not say which one is focused{}",
+            if name == "answer" {
+                "; `theseus herdr next` goes to the question that has waited longest"
+            } else {
+                ""
+            }
+        );
+    }
     let socket = herdr_socket_or_default(herdr_socket)?;
     let mut env = env;
     if name == "inspect" {
