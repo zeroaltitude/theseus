@@ -618,6 +618,7 @@ impl Watch {
         if self.json {
             println!("{}", serde_json::to_string(&n)?);
         } else if again {
+            // A re-told question is on the screen already: it prints nothing.
         } else if n.method == notify::EVENTS_LOST {
             let lost: theseus_protocol::EventsLost = serde_json::from_value(n.params.clone())?;
             self.printer.settle();
