@@ -1015,6 +1015,39 @@ pub fn parks_on_wake(kernel: &theseus_kernel::Kernel, execution_id: &str) -> boo
         .is_some_and(|e| !e.wakes.is_empty())
 }
 
+/// What a task that finished with nothing to report says (theseus-mgs4m).
+pub const NO_REPORT: &str = "closed with no report";
+
+/// What a task's own `task.close` said, as the report of a task that wrote no
+/// message of its own: each piece of evidence it gave, by its note, else its
+/// identity. None when it closed nothing (a report's own evidence is not it).
+pub fn close_summary(rec: &crate::task_graph::TaskRecord) -> Option<String> {
+    let said: Vec<String> = rec
+        .evidence
+        .iter()
+        .filter(|e| e.by != "report")
+        .filter_map(|e| {
+            let note = e.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+            let identity = e.identity.trim();
+            match (note, identity.is_empty()) {
+                (Some(n), false) => Some(format!("{n} ({identity})")),
+                (Some(n), true) => Some(n.to_string()),
+                (None, false) => Some(identity.to_string()),
+                (None, true) => None,
+            }
+        })
+        .collect();
+    (!said.is_empty()).then(|| said.join("\n"))
+}
+
+/// A task's own record, as the report reads its close from.
+pub fn close_of(store: &crate::store::Store, session_id: &str) -> Option<String> {
+    let rec = crate::task_graph::get(store, &crate::task_graph::of_session(session_id))
+        .ok()
+        .flatten()?;
+    close_summary(&rec)
+}
+
 /// The line a turn that a report started shows above its reply (W1), as a
 /// wake's turn shows its wake's line.
 pub fn woke_line(short: &str) -> String {
@@ -1055,6 +1088,16 @@ impl Report {
         }
     }
 
+    /// A task that finished with no message of its own says what its close
+    /// said, else that it closed with no report (theseus-mgs4m): never the
+    /// word its end is filed under.
+    pub fn with_close(mut self, close: Option<String>) -> Self {
+        if self.outcome == "complete" && self.text.is_none() {
+            self.text = Some(close.unwrap_or_else(|| NO_REPORT.to_string()));
+        }
+        self
+    }
+
     /// The outbox post: the text by its node, as a reply names its loops'
     /// (§3.16 references, not payloads), and the facts beside it.
     pub fn post_body(&self) -> Value {
@@ -1074,6 +1117,10 @@ impl Report {
         });
         if let Some(c) = &self.check {
             body["check"] = json!(c);
+        }
+        // Words with no node of their own (`with_close`) ride in the post.
+        if let (None, Some(t)) = (&self.node, &self.text) {
+            body["text"] = json!(t);
         }
         body
     }
@@ -1158,6 +1205,7 @@ pub fn load_report(
         check,
         joined,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
+            .with_close(close_of(store, &e.session_id))
     }))
 }
 
