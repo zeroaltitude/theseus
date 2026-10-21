@@ -33,7 +33,7 @@ pub struct ToolDiff {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfirmPreview {
-    /// `diff`, `command` or `text`.
+    /// `diff`, `command`, `text` or `mail`.
     pub kind: String,
     pub body: String,
 }
@@ -42,6 +42,7 @@ impl ConfirmPreview {
     pub const DIFF: &'static str = "diff";
     pub const COMMAND: &'static str = "command";
     pub const TEXT: &'static str = "text";
+    pub const MAIL: &'static str = "mail";
 }
 
 /// `unified` cut at a line edge to `DIFF_CAP` bytes, and whether it was cut.

@@ -13,6 +13,8 @@ use crate::config::PersonaView;
 pub enum Line {
     /// The day's note: `n` things happened since the last one.
     Morning,
+    /// The same, on a day a draft waits for the owner's send.
+    MorningWaiting,
     /// A consolidation pass wrote `n` notes.
     Consolidation,
 }
@@ -24,6 +26,11 @@ const TABLE: &[(Line, &str, &str)] = &[
         Line::Morning,
         "{who}: one thing happened since yesterday. Nothing needs you.",
         "{who}: {n} things happened since yesterday. Nothing needs you.",
+    ),
+    (
+        Line::MorningWaiting,
+        "{who}: one thing today, and a draft waits for your send.",
+        "{who}: {n} things today, and drafts wait for your send.",
     ),
     (
         Line::Consolidation,
@@ -66,7 +73,7 @@ mod tests {
 
     #[test]
     fn every_line_is_in_the_table_and_names_the_persona() {
-        for line in [Line::Morning, Line::Consolidation] {
+        for line in [Line::Morning, Line::MorningWaiting, Line::Consolidation] {
             for n in [1, 4] {
                 let said = say(line, n, &persona("Ondine", Some("🌊")));
                 assert!(said.starts_with("🌊 Ondine: "), "{said}");

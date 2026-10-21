@@ -455,3 +455,21 @@ fn the_digest_tells_the_futures_rows() {
     );
     assert!(line("turn.ended", json!({})).is_none());
 }
+
+/// A mail watch's board line is worded once: how long it has waited, and the
+/// follow-up's day when it has one.
+#[test]
+fn a_mail_watchs_wait_is_worded_once() {
+    assert_eq!(
+        reply_wait("Dana replies?", 2 * DAY + 3 * HOUR, Some("Fri")),
+        "waiting: reply on 'Dana replies?' (2 d, follow-up Fri)"
+    );
+    assert_eq!(
+        reply_wait(" Dana replies? ", 3 * HOUR, None),
+        "waiting: reply on 'Dana replies?' (3 h)"
+    );
+    assert_eq!(
+        reply_wait("Dana replies?", 90_000, None),
+        "waiting: reply on 'Dana replies?' (1 min)"
+    );
+}

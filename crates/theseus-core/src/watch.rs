@@ -36,11 +36,17 @@
 pub mod board;
 pub mod check;
 pub mod cond;
+pub mod mail;
+pub mod mail_then;
 pub mod reply;
 pub mod run;
 pub mod spec;
 pub mod step;
 
+#[cfg(test)]
+mod tests_mail;
+#[cfg(test)]
+mod tests_mail_surfaces;
 #[cfg(test)]
 mod tests_reply;
 #[cfg(test)]

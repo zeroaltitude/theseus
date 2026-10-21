@@ -143,9 +143,10 @@ fn the_templates_google_section_uncommented_parses() {
         .take_while(|l| !l.is_empty())
         .map(|l| l.strip_prefix("# ").unwrap_or(l))
         .collect();
-    assert_eq!(section.len(), 5, "{section:?}");
+    assert_eq!(section.len(), 6, "{section:?}");
     let cfg = load(&section.join("\n")).unwrap();
     assert_eq!(cfg.google.account, "owner@example.test");
+    assert_eq!(cfg.google.trusted_senders, ["dana@example.test"]);
     assert_eq!(cfg.google.services.len(), 6);
     assert_eq!(
         cfg.google.endpoint.as_deref(),
@@ -163,5 +164,25 @@ fn the_templates_google_section_uncommented_parses() {
     assert_eq!(
         cfg.policy.tools["google.call"],
         crate::policy::Posture::Notify
+    );
+}
+
+/// The template's `drive.share` line says what the tool does: it asks
+/// (theseus-batvg.3; out of `example_template_uncommented_still_parses`,
+/// which is at clippy's line budget).
+#[test]
+fn the_templates_drive_share_line_asks() {
+    let line = Config::EXAMPLE_TOML
+        .lines()
+        .find(|l| l.contains("\"drive.share\" ="))
+        .unwrap();
+    let cfg = Config::from_toml(&format!(
+        "[policy.tools]\n{}\n",
+        line.trim_start_matches("# ")
+    ))
+    .unwrap();
+    assert_eq!(
+        cfg.policy.tools["drive.share"],
+        crate::policy::Posture::Approve
     );
 }

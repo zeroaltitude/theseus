@@ -90,6 +90,9 @@ pub struct ProbeNews {
     /// More fields for the verdict's ledger row (a reply's message id and
     /// author); null for none.
     pub detail: serde_json::Value,
+    /// A META key and its value, kept in the same frame (a mail watch's
+    /// history cursor); an empty value is the key cleared.
+    pub keep: Option<(String, String)>,
 }
 
 /// What `probe_result` wrote.
@@ -210,6 +213,9 @@ impl Kernel {
             Some(&format!("{STATE_PREFIX}{wake_id}")),
             &news.state,
         )?);
+        if let Some((key, value)) = &news.keep {
+            frame.push(NewRecord::json(kinds::META, Some(key), value)?);
+        }
         if let Some(p) = make(&e, &wake)? {
             let (a, recs) = self.outbox_stage(p)?;
             frame.extend(recs);

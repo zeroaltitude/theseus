@@ -135,6 +135,12 @@ pub struct WorkDigestResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub more: Option<DigestMore>,
+    /// What the owner's Google account did in the window: mail sent, drafts
+    /// waiting, replies waited on, documents written. None without `[google]`
+    /// or when every count is 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub google: Option<crate::digest_google::DigestGoogle>,
 }
 
 /// Where a digest read from the ledger stopped (`WorkDigestResult.more`).
@@ -429,6 +435,7 @@ pub fn digest_text(
         from = k;
     }
     let mut out = vec![header];
+    out.extend(res.google.and_then(|g| g.line()));
     if from > 0 {
         out.push(format!("… and {from} earlier"));
     }

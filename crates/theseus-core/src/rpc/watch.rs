@@ -70,11 +70,12 @@ impl Core {
             }
         };
         let now = self.kernel.now_ms();
-        let built = spec::build(
+        let built = spec::build_with(
             &p,
             now,
             &self.cfg.watch_for,
             self.outbox.target(&session_id),
+            Some(&self.cfg.google),
         )
         .map_err(invalid)?;
         let set = self

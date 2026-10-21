@@ -26,6 +26,10 @@ use super::spec::{Check, Spec, Then};
 pub const BACKOFF_CAP_MS: u64 = 3_600_000;
 /// How many failures in a row are news.
 pub const FAILURES_NEWS: u32 = 3;
+/// How long a mail watch's cursor may move in memory before a look writes it:
+/// a restart then reads at most this much history again, and a long watch's
+/// cursor never grows older than Gmail keeps.
+pub const CURSOR_KEEP_MS: u64 = 6 * 3_600_000;
 
 /// A watch as the daemon holds it in memory.
 #[derive(Debug, Clone)]
@@ -43,6 +47,13 @@ pub struct Entry {
     pub failing: Option<String>,
     pub next_ms: u64,
     pub running: bool,
+    /// A mail watch's history cursor: where its next look starts.
+    pub cursor: Option<String>,
+    /// When the cursor was last written to the store (memory only).
+    pub kept_ms: u64,
+    /// The task a mail match or a follow-up started (its short id), so a
+    /// news frame that failed and is tried again starts none a second time.
+    pub started: Option<String>,
 }
 
 /// What `apply` made of a check.
@@ -82,6 +93,9 @@ impl Entry {
             failing: s.failing,
             next_ms,
             running: false,
+            cursor: None,
+            kept_ms: 0,
+            started: None,
         }
     }
 
@@ -166,26 +180,82 @@ impl Entry {
         if self.first.is_none() {
             self.first = Some(seen.value.clone());
         }
+        // A mail look moves the cursor; it is written with a frame the watch
+        // writes anyway, or once `CURSOR_KEEP_MS` has passed.
+        let mut write_cursor = None;
+        if let Some(m) = &seen.mail {
+            let moved = self.cursor.as_deref() != Some(m.cursor.as_str());
+            write_cursor = m.rebaselined.then(|| {
+                "mail history was older than Gmail keeps: started again from now, and mail \
+                 that arrived between may have been missed"
+                    .to_string()
+            });
+            if moved && first_before.is_some() && now.saturating_sub(self.kept_ms) >= CURSOR_KEEP_MS
+            {
+                write_cursor.get_or_insert_with(String::new);
+            }
+            self.cursor = Some(m.cursor.clone());
+        }
         if self.spec.cond.met(&seen, first_before.as_deref()) {
             self.last = Some(seen.value.clone());
+            if let Some(m) = &seen.mail {
+                let text = self.mail_text(now, &seen.value);
+                let detail = serde_json::json!({"external": true, "trusted": m.trusted});
+                return self.news_with(ProbeVerdict::Met { turn: false }, text, detail);
+            }
             let turn = !matches!(self.spec.then, Then::Notice);
             let text = self.met_text(now, &seen.value, turn);
             return self.news(ProbeVerdict::Met { turn }, text);
         }
-        if self.last.as_deref() != Some(seen.value.as_str()) {
+        if self.last.as_deref() != Some(seen.value.as_str()) || write_cursor.is_some() {
             self.last = Some(seen.value);
-            return self.news(ProbeVerdict::Changed, String::new());
+            return self.news(ProbeVerdict::Changed, write_cursor.unwrap_or_default());
         }
         Step::Quiet
     }
 
-    fn news(&self, verdict: ProbeVerdict, text: String) -> Step {
+    fn news(&mut self, verdict: ProbeVerdict, text: String) -> Step {
+        self.news_with(verdict, text, serde_json::Value::Null)
+    }
+
+    fn news_with(
+        &mut self,
+        verdict: ProbeVerdict,
+        text: String,
+        detail: serde_json::Value,
+    ) -> Step {
+        let keep = self.keep(&verdict);
+        if keep.as_ref().is_some_and(|(_, v)| !v.is_empty()) {
+            self.kept_ms = self.checked_ms;
+        }
         Step::News(ProbeNews {
             verdict,
             state: self.state(),
             text,
-            detail: serde_json::Value::Null,
+            detail,
+            keep,
         })
+    }
+
+    /// A mail watch's cursor, for the frame: written with each news, and
+    /// cleared when the watch ends.
+    fn keep(&self, verdict: &ProbeVerdict) -> Option<(String, String)> {
+        if !matches!(self.spec.check, Check::Mail { .. }) {
+            return None;
+        }
+        let key = format!("{}{}", super::mail::CURSOR_PREFIX, self.wake_id);
+        match verdict {
+            ProbeVerdict::Met { .. } | ProbeVerdict::Expired => Some((key, String::new())),
+            _ => self.cursor.clone().map(|c| (key, c)),
+        }
+    }
+
+    /// What a mail match says: the watch's question and each message's
+    /// sender, subject and snippet. It is outside text.
+    fn mail_text(&self, now: u64, value: &str) -> String {
+        let (waited, checks) = self.after(now);
+        let title = self.spec.title.trim();
+        format!("👁 new mail for \"{title}\" (after {waited}, {checks} checks, $0):\n{value}")
     }
 
     /// How long it waited, in words: `after 2 d 4 h and 611 checks`.
@@ -260,6 +330,7 @@ mod tests {
             cond: cond::parse(until).unwrap(),
             every_ms: 5 * MIN,
             expires_ms: 10_000 * MIN,
+            follow_up: None,
         };
         Entry::seed("exe_1".into(), "wak_1".into(), spec, 0, None, 0)
     }
@@ -269,6 +340,7 @@ mod tests {
             value: v.into(),
             code: None,
             exists: true,
+            mail: None,
         })
     }
 

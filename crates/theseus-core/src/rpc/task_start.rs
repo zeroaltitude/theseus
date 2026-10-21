@@ -81,6 +81,18 @@ impl Core {
         p: &TaskStartParams,
         who: impl Into<Answerer>,
     ) -> Result<TaskStartResult, RpcFailure> {
+        self.task_start_as(p, who, false)
+    }
+
+    /// `task_start`, with the task's session marked private from its first
+    /// turn when `private` (its quotes are the owner's Google content: its
+    /// model calls never go to a model of restricted origin).
+    pub(crate) fn task_start_as(
+        &self,
+        p: &TaskStartParams,
+        who: impl Into<Answerer>,
+        private: bool,
+    ) -> Result<TaskStartResult, RpcFailure> {
         let who: Answerer = who.into();
         let what = format!("starting a task ({})", title_from(&p.brief));
         self.judge_act(&who, Act::Task { what: &what })
@@ -156,6 +168,7 @@ impl Core {
             common: &common,
             available: parent.budget.available(),
             expect: p.expect,
+            private,
         };
         let opened =
             self.kernel
@@ -300,6 +313,7 @@ struct Draft<'a> {
     common: &'a Common<'a>,
     available: theseus_kernel::Micros,
     expect: Option<theseus_protocol::task_start::Expect>,
+    private: bool,
 }
 
 impl Core {
@@ -340,6 +354,10 @@ impl Core {
             )?],
         };
         records.push(d.brief_node.record()?);
+        if d.private {
+            let key = crate::google::private::meta_key(&task.session_id);
+            records.push(NewRecord::json(kinds::META, Some(&key), &d.brief_node.id)?);
+        }
         if d.by_brief {
             records.push(crate::turn::brief_step::mark(&task.session_id)?);
         }

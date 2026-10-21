@@ -17,4 +17,8 @@ Key modules: `token.rs`, `client.rs`, `oauth.rs`, `classify.rs`, `fake.rs`. Read
 - `fake.rs` (feature `fake`, and this crate's tests): a loopback Google: the token endpoint, a route table, a
   request log, and switches for 429, 5xx, `invalid_grant` and `SERVICE_DISABLED`.
 
+- `fake/gmail.rs`: the fake's mailbox (`Fake::mail()`): threads, drafts, a sent log and labels, answering the Gmail REST calls
+  the mail tools make (the fake reads a draft's MIME, so threading headers and encoded words come back as a client sees
+  them). `Mailbox::after_send` makes a send record and then fail on the way back, for `outcome_unknown`.
+
 A token, a client secret or a code is never on a command line, in a log, or in an error. A test plants one and greps.
