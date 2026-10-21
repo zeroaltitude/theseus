@@ -6,10 +6,18 @@
 //! where they could come out), at the act band (in a shared place, from the
 //! confirm band: `PersonalAnswer::warns`), posts one warning to the
 //! owner's DM alone (`privacy_warning`, never the place, which may be shared)
-//! and writes a `privacy.warned` row. The turn goes on: nothing is held, and
-//! the place rule already keeps private recall out of shared places. In a
-//! place only the owner writes in a warning should almost never come; one that
-//! does is a sign Jev misread the owner's own question.
+//! and writes a `privacy.warned` row. In a place only the owner writes in the
+//! turn goes on: nothing is held, and the place rule already keeps private
+//! recall out of shared places. A warning there should almost never come; one
+//! that does is a sign Jev misread the owner's own question.
+//!
+//! In a shared place the reply is held (theseus-i1z13, the owner's 2026-10-18
+//! 20:46 spec): the turn makes no model call, the requester is answered `I
+//! don't share that here.` as the turn's assistant node, and the owner's DM
+//! gets the case: who asked, where, the message, why. The hold is not
+//! rate-limited as the post is: a second reach in the window is held too, and
+//! only its DM is folded. A late verdict never holds (the turn did not wait
+//! for it), and a task's turn is warned about, never held.
 
 use super::*;
 use crate::fact::privacy::PrivacyWarned;
@@ -18,6 +26,9 @@ use crate::routing::Verdict;
 
 /// The post's kind: the Discord binding sends it to the owner's DM alone.
 pub const KIND: &str = "privacy_warning";
+
+/// What the requester is told in a shared place instead of an answer.
+pub const HELD_REPLY: &str = "I don't share that here.";
 
 /// The message's first characters the warning quotes.
 const QUOTE_CHARS: usize = 200;
@@ -88,6 +99,36 @@ fn warning_text(choice: &str, confidence: f64, class: PlaceClass, quote: &str) -
     )
 }
 
+/// Whether a reach is held: in a shared place, for a conversation's turn. A
+/// task's turn is the owner's work and is warned about only.
+fn holds(shared: bool, task: bool) -> bool {
+    shared && !task
+}
+
+/// `text` on one line and without backticks: a name that cannot open a code
+/// span or start a line of the warning.
+fn plain(text: &str) -> String {
+    text.chars()
+        .map(|c| if c == '`' || c.is_control() { ' ' } else { c })
+        .collect()
+}
+
+/// The warning of a held reply: who asked, where, what they asked, why, and
+/// what the requester was told.
+fn held_text(choice: &str, confidence: f64, (asker, place): (&str, &str), quote: &str) -> String {
+    let what = match choice {
+        "expose" => {
+            "asking to open a conversation with others where your personal details could come out"
+        }
+        _ => "trying to draw out your personal details",
+    };
+    let (asker, place) = (plain(asker), plain(place));
+    let quote = quoted(quote);
+    format!(
+        "⚠️ Privacy: Jev read a message from `{asker}` in a shared place, `{place}`, as {what} ({confidence:.2}):\n{quote}\nThe reply was held: no model was called, and the requester was told \"{HELD_REPLY}\""
+    )
+}
+
 impl TurnRunner {
     /// The verdict's answers that decide nothing for the route: the persona
     /// (`engage_verdict`) and the privacy warning.
@@ -108,7 +149,22 @@ impl TurnRunner {
         };
         let quote: String = t.route.ask.chars().take(QUOTE_CHARS).collect();
         let (quote, _) = self.tools.scrubber.scrub(&quote);
-        let text = warning_text(&a.choice, a.confidence, t.tc.class, quote.trim());
+        // A shared place's reply is held, a task's turn excepted.
+        let held = holds(shared, t.tc.task.is_some());
+        let text = match held {
+            true => {
+                let place = self.outbox.target(t.tc.session_id);
+                let place = t.tc.places.name_of(place.as_deref());
+                held_text(
+                    &a.choice,
+                    a.confidence,
+                    (&t.route.asker, &place),
+                    quote.trim(),
+                )
+            }
+            false => warning_text(&a.choice, a.confidence, t.tc.class, quote.trim()),
+        };
+        t.route.held = held;
         let bound = self.place_rule.owner_dm_bound();
         let folded = bound && !may_post(t.tc.session_id, self.kernel.now_ms());
         let posted = bound
@@ -129,7 +185,37 @@ impl TurnRunner {
             judgment: &v.judgment,
             posted,
             folded,
+            held,
         });
+    }
+
+    /// The held reply: the fixed line as the turn's assistant node and output,
+    /// with no model call. The next turn reads it in the history.
+    pub(super) fn hold_reply(t: &mut Turn<'_>, i: u32) -> Result<()> {
+        let node = Node::assistant(
+            t.tc.session_id,
+            t.tc.turn_id,
+            i,
+            Body::AssistantMessage {
+                blocks: vec![json!({"type": "text", "text": HELD_REPLY})],
+                model: t.target.model.clone(),
+                provider: t.target.provider.clone(),
+                stop_reason: None,
+                usage: Default::default(),
+                cost_usd: None,
+                catalog_version: None,
+                request_id: None,
+                correlation_id: None,
+                compilation_id: None,
+                request_digest: None,
+                effort: None,
+            },
+        );
+        t.tc.store.append(&[node.record()?])?;
+        t.tc.node_written(&node);
+        t.output.push_str(HELD_REPLY);
+        t.said.push((i, node.id));
+        Ok(())
     }
 
     /// The warning, staged for the turn's next frame, to the owner's DM.
@@ -155,6 +241,16 @@ mod tests {
         assert!(!may_post("ses_window_a", 1_000 + WINDOW_MS - 1));
         assert!(may_post("ses_window_b", 1_000));
         assert!(may_post("ses_window_a", 1_000 + WINDOW_MS));
+    }
+
+    /// A shared place's conversation is held; a place only the owner writes
+    /// in, and a task's turn anywhere, are not.
+    #[test]
+    fn a_reach_is_held_in_a_shared_place_for_a_conversation_only() {
+        assert!(holds(true, false));
+        assert!(!holds(false, false));
+        assert!(!holds(true, true));
+        assert!(!holds(false, true));
     }
 
     #[test]

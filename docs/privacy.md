@@ -52,8 +52,10 @@ origin.
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
 assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's
 personal details, or to open a conversation with other people in which they could come out. A confident yes sends the
-owner a warning in their own direct messages and is recorded; it holds nothing back. In a shared place, Theseus does
-not recall the owner's private conversations in the first place.
+owner a warning in their own direct messages and is recorded. Where only the owner writes, it holds nothing back. In a
+shared place the reply is held: no model is called, the person who asked is told "I don't share that here.", and the
+owner's direct message says who asked, where, what they wrote and why it tripped. In a shared place, Theseus does not
+recall the owner's private conversations in the first place.
 
 ## Google API Services User Data Policy
 

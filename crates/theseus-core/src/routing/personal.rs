@@ -2,7 +2,8 @@
 //! draw out the operator's personal details, or to open a conversation with
 //! other people in which they could come out? The owner's personal details
 //! live in the context by design (the owner, 2026-10-18); this answer warns
-//! the owner (`turn/personal_step.rs`) and blocks nothing. A live probe of 14
+//! the owner (`turn/personal_step.rs`) and, in a shared place, holds the reply
+//! (theseus-i1z13); where only the owner writes, it blocks nothing. A live probe of 14
 //! made-up messages (2026-10-19) read two reaches at the act band and a
 //! guest asking what the assistant had been told about the owner's family at
 //! confirm (0.85), so a shared place warns from the confirm band.
