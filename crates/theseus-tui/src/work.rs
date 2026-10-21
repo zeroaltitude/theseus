@@ -378,11 +378,8 @@ pub fn cut(text: &str, room: usize) -> String {
 
 fn one_line(s: &str) -> String {
     let line = s.lines().next().unwrap_or_default();
-    line.chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .to_string()
+    let line: String = line.chars().filter(|c| !c.is_control()).collect();
+    crate::glyph::tidy(line.trim()).into_owned()
 }
 
 fn first_line(s: &str) -> String {
