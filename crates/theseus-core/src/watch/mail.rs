@@ -183,7 +183,13 @@ pub async fn look(
         .json();
         let head = |n: &str| mime::header(&msg["payload"], n).unwrap_or_default();
         let (from, subject) = (head("From"), head("Subject"));
-        senders.extend(mime::address_of(&from).map(|a| a.to_ascii_lowercase()));
+        // A From with no address is no one trusted: an empty sender, never a
+        // skipped one, so the look cannot pass as all trusted.
+        senders.push(
+            mime::address_of(&from)
+                .map(|a| a.to_ascii_lowercase())
+                .unwrap_or_default(),
+        );
         let said = |t: &str| quote_of(&scrubber.scrub(t).0);
         lines.push(format!(
             "From: {} · Subject: {} · {}",

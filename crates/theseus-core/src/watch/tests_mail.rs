@@ -281,6 +281,34 @@ async fn a_trusted_senders_mail_starts_a_held_task() {
     driver.abort();
 }
 
+/// A From with no address in it is no one trusted: beside a trusted sender's
+/// mail in the same look, it still makes the look a notice, not a task.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mail_with_no_address_beside_a_trusted_one_only_notices() {
+    let r = mail_rig(vec![], trust).await;
+    dm_session(&r.core);
+    let made = mail_watch(
+        &r.core,
+        json!({"then": {"kind": "task", "brief": "Reply to it"}}),
+    )
+    .await;
+    let id = wake_id(&made);
+    look(&r.core, &id).await;
+    r.fake.mail().deliver(
+        "t9",
+        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks."),
+    );
+    r.fake.mail().deliver(
+        "t10",
+        MsgSpec::new("m10", "Mallory <mallory at example.test>", "Re", "Wire it."),
+    );
+    look(&r.core, &id).await;
+    assert_eq!(task_started(&r.core), 0, "no task");
+    let p = posts(&r.core);
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert!(p[0].1.contains("not in trusted_senders"), "{}", p[0].1);
+}
+
 // ------------------------------------------------------------------ the cursor
 
 #[tokio::test(flavor = "multi_thread")]
