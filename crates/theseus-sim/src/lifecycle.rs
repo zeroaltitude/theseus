@@ -53,7 +53,10 @@ use serde_json::{json, Value};
 
 use crate::fake_model::FakeModel;
 
+mod copies;
 mod surfaces;
+
+pub(crate) use copies::copy_dir;
 
 pub const PHASES: [&str; 12] = [
     "cold", "vault", "shutdown", "inflight", "kill", "swap", "restore", "seed", "health", "cancel",
@@ -1055,20 +1058,6 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
 /// The bench's AWS account: AWS's documentation's example id.
 pub const BENCH_AWS_ACCOUNT: &str = "111122223333";
 
-pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
-    std::fs::create_dir_all(to)?;
-    for e in std::fs::read_dir(from)? {
-        let e = e?;
-        let dest = to.join(e.file_name());
-        if e.file_type()?.is_dir() {
-            copy_dir(&e.path(), &dest)?;
-        } else {
-            std::fs::copy(e.path(), dest)?;
-        }
-    }
-    Ok(())
-}
-
 // ------------------------------------------------------------------ the bench
 
 #[derive(Debug, Serialize)]
@@ -1400,20 +1389,7 @@ pub fn run(o: &Opts) -> Result<Report> {
     // The swap's other build: a copy of this one unless given.
     let swap_to = match (&o.swap_to, want("swap")) {
         (Some(p), _) => p.clone(),
-        (None, true) => {
-            let copy = work.join("swap").join("theseusd");
-            std::fs::create_dir_all(work.join("swap"))?;
-            std::fs::copy(&o.theseusd, &copy)
-                .with_context(|| format!("copying {} for the swap", o.theseusd.display()))?;
-            // A daemon runs the index tender beside its own binary (row 51):
-            // the copy gets one too, as an install does.
-            let tender = o.theseusd.with_file_name("theseus-index");
-            if tender.is_file() {
-                std::fs::copy(&tender, copy.with_file_name("theseus-index"))
-                    .with_context(|| format!("copying {} for the swap", tender.display()))?;
-            }
-            copy
-        }
+        (None, true) => copies::swap_build(&work, &o.theseusd)?,
         (None, false) => o.theseusd.clone(),
     };
     let mut swap_job = None;
