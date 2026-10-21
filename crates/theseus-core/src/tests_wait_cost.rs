@@ -112,6 +112,8 @@ fn config(dir: &std::path::Path, hour: bool, edit: impl FnOnce(&mut Config)) -> 
     cfg.tools.roots = vec![];
     // The benchmark's config: a foreground command waits a minute.
     cfg.tools.proc_sync_secs = 60;
+    // This file measures a wait of the length asked; the beat has its own.
+    cfg.tools.job_wait_beat_secs = 0;
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.remove("proc.run");
     cfg.memory.mode = crate::config::MemoryMode::Off;
@@ -470,6 +472,9 @@ async fn an_hour_long_cache_and_a_small_prefix_are_not_read() {
         "a small prefix is a cheap rewrite"
     );
 }
+
+#[path = "tests_wait_beat.rs"]
+mod beat;
 
 // ---- the measure
 

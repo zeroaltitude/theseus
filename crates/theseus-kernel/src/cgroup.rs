@@ -79,6 +79,31 @@ pub fn ready(jobs: Jobs) -> io::Result<()> {
     Ok(())
 }
 
+/// The number after `key` on a line of `dir`'s `file`.
+fn field(dir: &Path, file: &str, key: &str) -> Option<u64> {
+    fs::read_to_string(dir.join(file))
+        .ok()?
+        .lines()
+        .find_map(|l| l.strip_prefix(key)?.trim().parse().ok())
+}
+
+/// The CPU time, in µs, of the job with correlation id `id`, read from its
+/// cgroup under `jobs`; none where the job has no cgroup.
+fn job_cpu_usec_in(jobs: &Jobs, id: &str) -> Option<u64> {
+    field(
+        &jobs.dir.join(format!("job-{id}")),
+        "cpu.stat",
+        "usage_usec ",
+    )
+}
+
+/// A running job's CPU time so far, in µs (`cpu.stat`), read by its
+/// correlation id from the daemon's job cgroups. None where the daemon has
+/// none (`ready` never ran) or the job has no cgroup of its own (L1).
+pub fn job_cpu_usec(id: &str) -> Option<u64> {
+    job_cpu_usec_in(ready_jobs()?, id)
+}
+
 /// One job's cgroup, made by its wrapper before the command.
 pub(crate) struct Job {
     dir: PathBuf,
@@ -114,15 +139,9 @@ impl Job {
     /// Its CPU time so far, in µs (`cpu.stat`), and how many new processes
     /// its cap has refused (`pids.events`).
     pub(crate) fn usage(&self) -> (Option<u64>, u64) {
-        let field = |file: &str, key: &str| -> Option<u64> {
-            fs::read_to_string(self.dir.join(file))
-                .ok()?
-                .lines()
-                .find_map(|l| l.strip_prefix(key)?.trim().parse().ok())
-        };
         (
-            field("cpu.stat", "usage_usec "),
-            field("pids.events", "max ").unwrap_or(0),
+            field(&self.dir, "cpu.stat", "usage_usec "),
+            field(&self.dir, "pids.events", "max ").unwrap_or(0),
         )
     }
 
@@ -229,4 +248,30 @@ fn tgid(task: u32) -> Option<u32> {
         .ok()?
         .lines()
         .find_map(|l| l.strip_prefix("Tgid:")?.trim().parse().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory shaped like the daemon's cgroup, with one job's `cpu.stat`.
+    #[test]
+    fn a_jobs_cpu_time_is_read_from_its_cgroup_by_correlation_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let job = dir.path().join("job-act_1");
+        fs::create_dir(&job).unwrap();
+        fs::write(
+            job.join("cpu.stat"),
+            "usage_usec 1630000000\nuser_usec 1600000000\nsystem_usec 30000000\n",
+        )
+        .unwrap();
+        let jobs = Jobs {
+            dir: dir.path().to_path_buf(),
+            pids_max: 0,
+        };
+        assert_eq!(job_cpu_usec_in(&jobs, "act_1"), Some(1_630_000_000));
+        assert_eq!(job_cpu_usec_in(&jobs, "act_2"), None);
+        // No daemon cgroup is ready in a test: nothing to read.
+        assert_eq!(job_cpu_usec("act_1"), None);
+    }
 }

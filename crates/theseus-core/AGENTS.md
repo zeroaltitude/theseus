@@ -699,6 +699,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
   stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
   `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
+  **A silent job's wait returns at a beat** (theseus-53ujg.6; `[tools] job_wait_beat_secs`, 600, 0 off, else at
+  most 3600 and tied to neither `proc_sync_secs` nor the cap, since the bench profile's 900 s foreground wait keeps it; `toolrun/jobs_tools/wait_facts.rs`): a job whose spool output file has not
+  grown for that long in this wait (each look stats it; growth restarts the window) returns the wait early, with
+  meta `beat` and `silent_secs`, and every still-running result carries the same facts: the job's run time and this
+  wait's, its CPU time and share of one CPU where its cgroup gives one (`theseus_kernel::cgroup::job_cpu_usec`; none
+  for an L1 job or a daemon with no delegated cgroup, and then no CPU words), and its output through `peek` (no output
+  since it started, or no new output for N s and the last 10 lines). Facts only, no advice. The beat is off for a job
+  past its file's head. With the beat 0 the result is byte for byte the old one. Tests: `tests_wait_beat.rs` (a child
+  of `tests_wait_cost.rs`, whose config turns the beat off), `wait_facts::tests`, the kernel's cgroup test.
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
