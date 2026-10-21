@@ -1042,6 +1042,8 @@ impl Core {
             ),
         ));
         let voice = p.surface.as_deref() == Some("voice");
+        // The thread it runs in grows from what it did (theseus-98bz.5).
+        let grow = self.grow_for(routing.as_ref(), &session, &p.input);
         let result = self
             .runner
             .run(TurnRequest {
@@ -1064,6 +1066,9 @@ impl Core {
             .await;
         if let Some(routing) = &routing {
             self.thread_routed_turn(routing, result.as_ref().ok());
+        }
+        if let (Some(g), Ok(r)) = (&grow, &result) {
+            self.thread_grow(g, &r.turn_id);
         }
         match result {
             Ok(mut r) => {

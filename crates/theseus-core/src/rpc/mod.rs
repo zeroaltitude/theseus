@@ -88,6 +88,7 @@ mod task_history;
 mod task_pause;
 pub(crate) mod task_start;
 mod thread_flow;
+mod thread_grow;
 mod thread_home;
 mod thread_import;
 mod thread_join;
@@ -170,6 +171,8 @@ mod tests_surface;
 mod tests_thread_board;
 #[cfg(test)]
 mod tests_thread_context;
+#[cfg(test)]
+mod tests_thread_grow;
 #[cfg(test)]
 mod tests_thread_home;
 #[cfg(test)]
