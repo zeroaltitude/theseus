@@ -312,9 +312,10 @@ async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
     }
 }
 
-/// The code's `trivial` list still names `glm` (the routing-composition row
-/// changes it): with its first profile unusable, a trivial verdict skips
-/// GLM to `cheapest`, which is Haiku's profile, never GLM.
+/// The code's `trivial` list no longer names `glm` (theseus-a1wvq.4); GLM
+/// comes in only by `cn_profiles`, and only for a cleared ask: with its first
+/// profile unusable, an uncleared trivial verdict skips GLM to `cheapest`,
+/// which is Haiku's profile, never GLM.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_trivial_default_skips_glm() {
     let jev = FakeJev::start().unwrap();
@@ -322,13 +323,16 @@ async fn the_trivial_default_skips_glm() {
     let r = rig_parts(
         Some(&jev),
         1,
-        |c| c.routing.classes.trivial = crate::config::RoutingConfig::default().classes.trivial,
+        |c| {
+            c.routing.classes.trivial = crate::config::RoutingConfig::default().classes.trivial;
+            c.routing.classes.trivial.cn_profiles = vec!["glm".into()];
+        },
         // After the load's check, which refuses an unknown model for the
         // owner-material keys that name `haiku`.
         |p| p.cfg.unprice_profile("haiku"),
     );
     let list = &r.core.runner.cfg.routing.classes.trivial.profiles;
-    assert_eq!(list, &["haiku", "glm", "cheapest"], "the code's default");
+    assert_eq!(list, &["haiku", "cheapest"], "the code's default");
     let res = turn(&r.core, None, "Hi there!", None).await;
     assert_eq!(
         (res.profile.as_str(), res.model.as_str()),

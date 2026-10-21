@@ -55,15 +55,16 @@ fn routing_only(c: &mut Config) {
 /// GLM is only that second provider there, so its profiles run an
 /// unrestricted model (`Config::serve_glm_unrestricted`, theseus-a1wvq.3).
 pub(crate) fn glm_placements(c: &mut Config) {
-    restricted_placements(c);
+    c.routing.classes.trivial.profiles = vec!["glm".into()];
+    c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
     c.serve_glm_unrestricted();
 }
 
-/// The same placements on GLM itself, of restricted origin (the data floor's
-/// tests).
+/// GLM itself, of restricted origin, where routing may still name it: trivial's
+/// `cn_profiles` (the data floor's tests). A mode's `profiles` may not name a
+/// restricted profile (theseus-a1wvq.4), so routine programming keeps its own.
 pub(crate) fn restricted_placements(c: &mut Config) {
-    c.routing.classes.trivial.profiles = vec!["glm".into()];
-    c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
+    c.routing.classes.trivial.cn_profiles = vec!["glm".into()];
 }
 
 pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
