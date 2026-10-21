@@ -10,7 +10,8 @@ import { Fragment, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ChevronDown, ChevronRight, Compass, ListTree, Pencil, Plus, Shapes } from 'lucide-react'
 import type { OntologyCategory, OntologyCategoryAddParams, OntologyGuidance, OntologyGuidanceSetParams } from '@protocol'
-import { ancestorsOf, FOLD_AT, groupKeyOf, groupsOf, parents, shown, treeOrder, withinCounts, type KindGroup } from '@/lib/ontology'
+import { ancestorsOf, confidenceWords, FOLD_AT, groupKeyOf, groupsOf, ORIGIN_CHOICES, originCounts, originFilter, originOf, originParam, originsOf, parents, parseOriginParam, shown, treeOrder, withinCounts, type FilteredRow, type KindGroup } from '@/lib/ontology'
+import { useHistoryRows } from '@/lib/history'
 import { cn, clock } from '@/lib/format'
 import { useAsOf } from '@/lib/timemachine'
 import { Empty, Panel, Pill } from '@/components/ui'
@@ -26,6 +27,7 @@ export default function Ontology() {
   const asOf = useAsOf((s) => s.t)
   const [params, setParams] = useSearchParams()
   const selected = params.get('category')
+  const wanted = useMemo(() => parseOriginParam(params.get('origin')), [params])
   const rows = useMemo(() => treeOrder(data?.categories ?? []), [data])
   const groups = useMemo(() => groupsOf(data?.categories ?? [], data?.kinds ?? []), [data])
   // The tree's branches and counts are each group's own: a group is a closed tree of one kind.
@@ -40,9 +42,27 @@ export default function Ontology() {
   }, [opened, rows, branches, selected])
   // The groups start closed (theseus-7mow); a selected category's is open so it shows.
   const [groupsOpen, setGroupsOpen] = useState<Set<string>>(new Set())
-  const gopen = useMemo(() => { const s = new Set(groupsOpen); const k = groupKeyOf(groups, selected); if (k) s.add(k); return s }, [groupsOpen, groups, selected])
+  const gopen = useMemo(() => { const s = new Set(groupsOpen); const k = groupKeyOf(groups, selected); if (k) s.add(k); if (wanted.size) for (const g of groups) s.add(g.key); return s }, [groupsOpen, groups, selected, wanted])
   const toggleGroup = (key: string) => setGroupsOpen(() => { const s = new Set(gopen); if (s.has(key)) s.delete(key); else s.add(key); return s })
-  const visibleOf = (g: KindGroup) => shown(g.rows, open)
+  // The origin filter (theseus-tq7s8): each category's origin and confidence from the ledger's first row of it, the picked
+  // origins in the address (`?origin=`). A category that matches keeps its ancestors as context; nothing else is hidden,
+  // and a category the ledger has no row for is `unknown`, an option of its own.
+  const { rows: ledger } = useHistoryRows()
+  const origins = useMemo(() => originsOf(ledger), [ledger])
+  const counts = useMemo(() => originCounts(rows, origins), [rows, origins])
+  const filtering = wanted.size > 0
+  const pickOrigin = (o: string) => setParams((p) => {
+    const next = new Set(wanted)
+    if (next.has(o)) next.delete(o); else next.add(o)
+    const v = originParam(next)
+    if (v) p.set('origin', v); else p.delete('origin')
+    return p
+  }, { replace: true })
+  const clearOrigins = () => setParams((p) => { p.delete('origin'); return p }, { replace: true })
+  // A filtered group shows its matches whole (folds are for the unfiltered tree), and only the groups that hold one.
+  const kept = useMemo(() => new Map(groups.map((g) => [g.key, originFilter(g.rows, origins, wanted)])), [groups, origins, wanted])
+  const filteredGroups = groups.filter((g) => !filtering || (kept.get(g.key)?.length ?? 0) > 0)
+  const visibleOf = (g: KindGroup): FilteredRow[] => (filtering ? kept.get(g.key) ?? [] : shown(g.rows, open).map((r) => ({ ...r, context: false })))
   const toggle = (id: string) => setOpened(() => { const s = new Set(open); if (s.has(id)) s.delete(id); else s.add(id); return s })
   const picked = rows.find((r) => r.category.id === selected)?.category ?? null
   const select = (id: string | null) => setParams((p) => { if (id) p.set('category', id); else p.delete('category'); return p }, { replace: true })
@@ -84,30 +104,44 @@ export default function Ontology() {
             <button type="button" className="text-ink-faint hover:text-live" onClick={() => { setOpened(new Set()); setGroupsOpen(new Set()) }}>fold all</button>
           </span>
         )}</>} icon={<ListTree size={13} />}>
+          {rows.length > 0 && (
+            <div className="num flex flex-wrap items-center gap-1.5 border-b border-line/50 px-3 py-1.5 text-[11px] text-ink-faint" role="group" aria-label="filter by origin">
+              <span>origin</span>
+              {ORIGIN_CHOICES.map((o) => (
+                <button key={o} type="button" aria-pressed={wanted.has(o)} onClick={() => pickOrigin(o)}
+                  className={cn('rounded px-1.5 py-0.5 ring-1 ring-inset', wanted.has(o) ? 'bg-live/10 text-live ring-live/40' : 'ring-line hover:text-ink', !counts.get(o) && !wanted.has(o) && 'opacity-50')}>
+                  {o} · {counts.get(o) ?? 0}
+                </button>
+              ))}
+              {filtering && <button type="button" onClick={clearOrigins} className="hover:text-live">clear</button>}
+              {filtering && <span>dimmed rows are shown only for where a match hangs</span>}
+            </div>
+          )}
           {rows.length === 0 ? <Empty>no categories yet: a place’s are made when it binds, and a topic is added here</Empty> : (
             <div className="overflow-x-auto p-2"><table className="w-full text-[11.5px]">
               <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
-                <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">kind</th><th className="px-1 text-right" title="sessions whose memberships hold it; folded, with those below it">sessions</th><th className="px-1 text-left">added by</th><th className="px-1 text-left">description</th><th className="pl-1 text-left">guidance</th></tr>
+                <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">kind</th><th className="px-1 text-right" title="sessions whose memberships hold it; folded, with those below it">sessions</th><th className="px-1 text-left" title="the origin of the category's first row in the ledger">origin</th><th className="px-1 text-right" title="the origin's confidence in the membership its write set, when the ledger holds it">conf.</th><th className="px-1 text-left">added by</th><th className="px-1 text-left">description</th><th className="pl-1 text-left">guidance</th></tr>
               </thead>
               <tbody>
-                {groups.map((g) => (
+                {filteredGroups.map((g) => (
                   <Fragment key={g.key}>
                     <tr className="border-t border-line/50 bg-white/[0.02]">
-                      <td colSpan={6} className="py-1">
+                      <td colSpan={8} className="py-1">
                         <button type="button" aria-label={`${gopen.has(g.key) ? 'fold' : 'open'} ${g.label}`} aria-expanded={gopen.has(g.key)} onClick={() => toggleGroup(g.key)}
                           className="inline-flex items-center gap-1 rounded text-ink hover:text-live">
                           {gopen.has(g.key) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                           <span>{g.label}</span>
-                          <span className="num text-[10px] text-ink-faint">· {g.count.toLocaleString()}</span>
+                          <span className="num text-[10px] text-ink-faint">· {filtering ? `${(kept.get(g.key) ?? []).filter((r) => !r.context).length.toLocaleString()} of ${g.count.toLocaleString()}` : g.count.toLocaleString()}</span>
                         </button>
                       </td>
                     </tr>
-                    {gopen.has(g.key) && visibleOf(g).map(({ category: c, depth }) => {
-                  const branch = branches.has(c.id)
+                    {gopen.has(g.key) && visibleOf(g).map(({ category: c, depth, context }) => {
+                  const branch = !filtering && branches.has(c.id)
                   const folded = branch && !open.has(c.id)
+                  const made = originOf(origins, c.id)
                   return (
                   <tr key={c.id} onClick={() => select(c.id)} aria-selected={c.id === selected}
-                    className={cn('cursor-pointer border-t border-line/50 hover:bg-white/[0.03]', c.id === selected && 'bg-live/10')}>
+                    className={cn('cursor-pointer border-t border-line/50 hover:bg-white/[0.03]', c.id === selected && 'bg-live/10', context && 'opacity-60')}>
                     <td className="py-1" style={{ paddingLeft: depth * 16 }}>
                       <span className="inline-flex items-center gap-1">
                         {branch
@@ -125,6 +159,8 @@ export default function Ontology() {
                       {folded ? <span title={`${c.members ?? 0} in it, ${within.get(c.id) ?? 0} with those below it`}>{(within.get(c.id) ?? 0).toLocaleString()}<span className="text-ink-faint"> in all</span></span>
                         : (c.members ?? 0) > 0 ? (c.members ?? 0).toLocaleString() : <span className="text-ink-faint">—</span>}
                     </td>
+                    <td className="px-1"><Pill tone={made.origin === 'jev' ? 'think' : 'idle'}>{made.origin}</Pill></td>
+                    <td className="num px-1 text-right text-ink-dim" title="the origin's confidence in the membership its write set">{confidenceWords(made.confidence)}</td>
                     <td className="whitespace-nowrap px-1 text-ink-faint">{c.added_by}</td>
                     <td className="px-1 text-ink-faint">{c.description}</td>
                     <td className="num pl-1 text-ink-dim">{c.guidance && c.guidance.text !== '' ? <span title={`digest ${c.guidance.digest}`}>v{c.guidance.version} · {c.guidance.digest}</span> : <span className="text-ink-faint">—</span>}</td>

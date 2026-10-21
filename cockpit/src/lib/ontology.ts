@@ -376,12 +376,8 @@ export interface Minted {
   siblings: number
 }
 
-/** What a machine origin minted, newest first: the `ontology.category` rows that carry an `undo` whose `before` is null
- *  (the category was new), each with its session and confidence from the write's membership row, and whether the write
- *  was taken back. Rows of an operator or the transport carry no `undo` and are not in it. */
-export function mintedOf(rows: readonly LedgerEntry[], origins: readonly string[] = MACHINE_ORIGINS): Minted[] {
-  const undone = undoneWrites(rows)
-  // The membership rows of each write: its session, and the confidence it gave each category.
+/** The membership rows of each machine write: the session whose list it set, and the confidence it gave each category. */
+function writeLists(rows: readonly LedgerEntry[]): Map<string, { session: string | null; confidence: Map<string, number> }> {
   const lists = new Map<string, { session: string | null; confidence: Map<string, number> }>()
   for (const r of rows) {
     if (r.kind !== 'ontology.membership') continue
@@ -397,6 +393,15 @@ export function mintedOf(rows: readonly LedgerEntry[], origins: readonly string[
     }
     lists.set(u.write, slot)
   }
+  return lists
+}
+
+/** What a machine origin minted, newest first: the `ontology.category` rows that carry an `undo` whose `before` is null
+ *  (the category was new), each with its session and confidence from the write's membership row, and whether the write
+ *  was taken back. Rows of an operator or the transport carry no `undo` and are not in it. */
+export function mintedOf(rows: readonly LedgerEntry[], origins: readonly string[] = MACHINE_ORIGINS): Minted[] {
+  const undone = undoneWrites(rows)
+  const lists = writeLists(rows)
   const out: Minted[] = []
   const seen = new Set<string>()
   for (const r of rows) {
@@ -431,3 +436,82 @@ export function undoAsk(m: Minted): string {
 
 /** A confidence as the list shows it: `0.82`, or a dash when the ledger holds none. */
 export const confidenceWords = (c: number | null): string => (c === null ? '—' : c.toFixed(2))
+
+// ---------------------------------------------------------------- origin filter (theseus-tq7s8, R7b)
+
+/** What a category with no `ontology.category` row in the ledger is filed under (a seed's, or a row older than the history
+ *  the page holds): the filter has it as an option, so no category falls out of every filter. */
+export const UNKNOWN_ORIGIN = 'unknown'
+
+export interface CategoryOrigin {
+  /** The origin on the category's first ledger row: later rows of the same id are changes, not a new maker. */
+  origin: string
+  /** The origin's confidence in the membership set by the write that minted it, when the ledger holds it. */
+  confidence: number | null
+}
+
+/** Each category's origin and confidence from the ledger: the origin of its first `ontology.category` row (`added_by` is free
+ *  text; the row's `origin` is the word), and the confidence the membership row of its minting write gave it (a machine's
+ *  write only: an operator's category has none). A category with no row is not in the map. */
+export function originsOf(rows: readonly LedgerEntry[]): Map<string, CategoryOrigin> {
+  const lists = writeLists(rows)
+  const out = new Map<string, CategoryOrigin>()
+  for (const r of rows) {
+    if (r.kind !== 'ontology.category') continue
+    const d = obj(r.data)
+    const id = str(d.id)
+    if (id === null || out.has(id)) continue
+    const write = undoOf(d)?.write
+    out.set(id, { origin: str(d.origin) ?? UNKNOWN_ORIGIN, confidence: (write !== undefined ? lists.get(write)?.confidence.get(id) : undefined) ?? null })
+  }
+  return out
+}
+
+/** A category's origin, `unknown` when the ledger has no row for it. */
+export const originOf = (m: ReadonlyMap<string, CategoryOrigin>, id: string): CategoryOrigin =>
+  m.get(id) ?? { origin: UNKNOWN_ORIGIN, confidence: null }
+
+/** A tree row as the filtered tree draws it: `context` is a row kept only because something below it matches. */
+export interface FilteredRow extends TreeRow { context: boolean }
+
+/** The rows a filter by origin keeps: every row whose origin is wanted, and every ancestor of one (marked `context`, so a
+ *  match below it still shows where it hangs). Nothing wanted keeps every row, none of them context. The rows stay depth
+ *  first, as `treeOrder` made them. */
+export function originFilter(rows: readonly TreeRow[], m: ReadonlyMap<string, CategoryOrigin>, wanted: ReadonlySet<string>): FilteredRow[] {
+  if (wanted.size === 0) return rows.map((r) => ({ ...r, context: false }))
+  const match = rows.map((r) => wanted.has(originOf(m, r.category.id).origin))
+  const keep = [...match]
+  // Depth first: walking back from a match, each row of lesser depth than the last one taken is its next ancestor up.
+  rows.forEach((r, i) => {
+    if (!match[i]) return
+    let depth = r.depth
+    for (let j = i - 1; j >= 0 && depth > 1; j--) {
+      if (rows[j].depth < depth) { keep[j] = true; depth = rows[j].depth }
+    }
+  })
+  return rows.flatMap((r, i) => (keep[i] ? [{ ...r, context: !match[i] }] : []))
+}
+
+/** How many of the rows each origin made, for the filter's chips; every row is in one. */
+export function originCounts(rows: readonly TreeRow[], m: ReadonlyMap<string, CategoryOrigin>): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of rows) {
+    const o = originOf(m, r.category.id).origin
+    out.set(o, (out.get(o) ?? 0) + 1)
+  }
+  return out
+}
+
+/** The origins the filter offers, in the chart's order, then `unknown`. */
+export const ORIGIN_CHOICES: readonly string[] = [...ORIGIN_ORDER, UNKNOWN_ORIGIN]
+
+/** `?origin=jev,sweep` as a set: the words that name an origin the filter offers, whatever else the address holds. */
+export function parseOriginParam(v: string | null): Set<string> {
+  return new Set((v ?? '').split(',').map((w) => w.trim()).filter((w) => ORIGIN_CHOICES.includes(w)))
+}
+
+/** A set of origins as the address holds it, in the chart's order; `null` (no parameter) when none is picked. */
+export function originParam(s: ReadonlySet<string>): string | null {
+  const words = ORIGIN_CHOICES.filter((o) => s.has(o))
+  return words.length ? words.join(',') : null
+}

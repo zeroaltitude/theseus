@@ -444,7 +444,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Kinds are the dimensions the ontology sorts sessions by. A kind’s rule and precedence decide which category wins when more than one fits.'),
   'ontology.categories': e(
     'Show the category tree, and how many sessions are in each category.',
-    'A tree: each category with its count of sessions; at a large import’s size it starts folded at the roots. Click one to read or edit its guidance beside it. The selected category is kept in the address.',
+    'A tree: each category with its count of sessions, the origin that made it and, for a machine’s mint, its confidence; at a large import’s size it starts folded at the roots. The origin buttons keep what one origin made, with the rows above it dimmed so a match shows where it hangs; unknown is the categories the ledger has no row for. Click one to read or edit its guidance beside it. The selected category and the origins picked are kept in the address.',
     'A session’s next compile takes guidance from the categories it is in. An overgrown tree, or a session in the wrong category, changes what it is told.'),
   'ontology.guidance': e(
     'Read, and change, the guidance a category gives to the sessions in it.',
