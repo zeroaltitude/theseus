@@ -1118,6 +1118,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # cross_recall_beats_own = true           # ...and, once it has paid its penalty, only when it still outranks the asking thread's own best hit of the query (false: the bar alone decides)
 # cross_recall_needs_entity = true        # ...and a recalled note from another thread whose chunk holds entities (a path, a ticket, a host) the message names none of is dropped: a question's shape alone pulls no other stream's note
 # base_distance = true                    # a note from no thread (the place's own conversation) is another stream's to a threaded session: it pays the same distance, and a name never waives it (false: it recalls as before)
+# own_top_admissible = true              # ...and the asking thread's own best hit it must outrank is one not already in context (false: in context or not)
 # place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
 # place_digest_line_chars = 200           # the longest a digest's line is, in characters
 # sticky_half_life_secs = 600             # a place's last thread stays the likely one for its next message, halving every this many seconds

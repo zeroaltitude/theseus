@@ -36,6 +36,11 @@
 //!   thread exists) is another stream's to a threaded asker: it pays the same
 //!   distance and a name never waives it. Off, it recalls as before. A node a
 //!   split moved belongs to the thread it moved to, whichever session it is in.
+//! - `own_top_admissible` (true; theseus-98bz.8): the asking thread's own
+//!   best hit that another stream's must outrank (`cross_recall_beats_own`)
+//!   is its best not already in the turn's context. A note in context is
+//!   dropped `in_context` and adds nothing, so it no longer keeps out the one
+//!   fact the thread lacks. Off, every own hit counts, in context or not.
 //! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
 //!   (classify.v4) says a message in a thread asks across everything going on,
 //!   that turn's request gains a digest of the place's other live threads, one
@@ -100,6 +105,8 @@ pub struct ThreadsConfig {
     pub cross_recall_needs_entity: bool,
     #[serde(default = "default_true")]
     pub base_distance: bool,
+    #[serde(default = "default_true")]
+    pub own_top_admissible: bool,
     #[serde(default = "default_true")]
     pub place_digest: bool,
     #[serde(default = "default_digest_line_chars")]
@@ -173,6 +180,7 @@ impl Default for ThreadsConfig {
             cross_recall_beats_own: true,
             cross_recall_needs_entity: true,
             base_distance: true,
+            own_top_admissible: true,
             place_digest: true,
             place_digest_line_chars: default_digest_line_chars(),
             sticky_half_life_secs: default_half_life(),
@@ -289,8 +297,9 @@ mod tests {
     fn the_streams_do_not_mix_keys_are_on_by_default_and_each_turns_off() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert!(cfg.threads.cross_recall_beats_own && cfg.threads.base_distance);
-        assert!(cfg.threads.cross_recall_needs_entity);
+        assert!(cfg.threads.cross_recall_needs_entity && cfg.threads.own_top_admissible);
         assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_needs_entity = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# own_top_admissible = true"));
         assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_beats_own = true"));
         assert!(crate::Config::EXAMPLE_TOML.contains("# base_distance = true"));
         let loose = crate::Config::from_toml(

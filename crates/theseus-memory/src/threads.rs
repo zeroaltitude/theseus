@@ -83,8 +83,11 @@ pub struct ThreadLens {
     /// The index's best fused score of the query: what a candidate's is
     /// weighed against.
     pub top_fused: f64,
-    /// The best fused score among the candidates the asking thread owns:
-    /// what another stream's hit must outrank once it has paid.
+    /// The best fused score among the candidates the asking thread owns
+    /// that are not already in the turn's context (with `[threads]
+    /// own_top_admissible`, theseus-98bz.8; off, among all it owns): what
+    /// another stream's hit must outrank once it has paid. A note already in
+    /// context is dropped `in_context`, so it holds no other note back.
     pub own_top: f64,
     /// `[threads] cross_recall_beats_own`: whether another stream's hit
     /// must outrank `own_top` after its penalty.
