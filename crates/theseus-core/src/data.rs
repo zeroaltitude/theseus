@@ -296,6 +296,21 @@ pub fn opened_row(session: &str, how: OpenHow) -> anyhow::Result<theseus_store::
     )
 }
 
+/// Open `rec` as an open task at `at_ms` (theseus-a1wvq.6): its data state
+/// says so and nothing more, and the returned row rides the same frame as
+/// the record. Both paths that start a task call this one.
+pub fn open_task(
+    rec: &mut crate::session::SessionRecord,
+    at_ms: u64,
+) -> anyhow::Result<theseus_store::NewRecord> {
+    let opened = Opened {
+        how: OpenHow::Task,
+        at_ms,
+    };
+    rec.data = Some(Box::new(DataState::new(Some(opened), None, None)));
+    opened_row(&rec.session_id, OpenHow::Task)
+}
+
 /// A `session.data` row: an open session's first node that was not open.
 pub fn tainted_row(session: &str, taint: &Taint) -> anyhow::Result<theseus_store::NewRecord> {
     let fact = crate::fact::data::SessionDataTainted {
