@@ -113,6 +113,10 @@ pub struct Board {
     state: Mutex<State>,
     /// Where `theseus.tools.events` goes, once telemetry is built.
     telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
+    /// A test's way to end the ledger read at the one moment a listing is
+    /// open to it: after the listing took its counts (theseus-nyczg).
+    #[cfg(test)]
+    after_counts: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 /// Conversations whose notes are kept; the oldest go past it.
@@ -457,6 +461,30 @@ impl Board {
         }
         let day = st.kinds.entry(kind).or_default().day_mut(at_ms);
         *day.missed.entry(f.to_string()).or_insert(0) += 1;
+    }
+
+    /// Forget everything: a test starts the read of the ledger again on the
+    /// same board (theseus-nyczg).
+    #[cfg(test)]
+    pub(crate) fn reset(&self) {
+        *self.st() = State::default();
+    }
+
+    /// Run `f` once, when the next listing (or health's line) has taken its
+    /// counts: a read that ends there is the one the listing must not call done
+    /// with none of its rows (theseus-nyczg).
+    #[cfg(test)]
+    pub(crate) fn after_counts(&self, f: impl FnOnce() + Send + 'static) {
+        *self.after_counts.lock().unwrap() = Some(Box::new(f));
+    }
+
+    /// A listing has taken its counts: the test's hook runs, if it set one.
+    #[cfg(test)]
+    pub(crate) fn counted(&self) {
+        let hook = self.after_counts.lock().unwrap().take();
+        if let Some(f) = hook {
+            f();
+        }
     }
 
     pub fn set_warmed(&self) {
