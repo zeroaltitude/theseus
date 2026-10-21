@@ -35,6 +35,7 @@ use crate::config::GoogleConfig;
 use crate::secrets::{Secret, SecretBoard, Waited};
 
 pub mod auth;
+pub mod calendar;
 pub mod call;
 pub mod external;
 pub mod mail;
@@ -48,6 +49,8 @@ pub(crate) mod tests;
 #[cfg(test)]
 mod tests_auth;
 #[cfg(test)]
+mod tests_calendar;
+#[cfg(test)]
 mod tests_config;
 #[cfg(test)]
 mod tests_gate;
@@ -59,13 +62,15 @@ mod tests_private;
 pub use external::{finish, Finished, Source};
 
 /// The Google tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 6] = [
+pub const NAMES: [&str; 8] = [
     call::NAME,
     mail::SEARCH,
     mail::READ,
     mail::DRAFT,
     mail::SEND,
     mail::LABEL,
+    calendar::EVENTS,
+    calendar::PUT,
 ];
 
 /// How long a call waits for the account's check, as a turn waits for a secret.
@@ -222,7 +227,7 @@ impl Google {
         //
         // gw-sheets-slides: all.extend(sheets::tools(self)); all.extend(slides::tools(self));
         //
-        // gw-calendar: all.extend(calendar::tools(self));
+        all.extend(calendar::tools(self));
         //
         all.extend([call::tool(self)]);
         all

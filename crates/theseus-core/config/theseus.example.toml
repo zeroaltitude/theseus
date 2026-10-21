@@ -760,6 +760,11 @@ window_days = 7                         # the window the approvals are counted i
 # gw-sheets-slides: the sheets.* and slides.* lines
 #
 # gw-calendar: the calendar.* lines
+# calendar.events reads, and takes enforcement's posture. calendar.put asks at every
+# posture, whatever this says, when it invites attendees, cancels, or notifies the
+# attendees of a change
+# "calendar.events" = "notify"
+# "calendar.put" = "notify"
 # The language servers' tools, when [lsp] is on: the reads inherit enforcement
 # (the first call for a project starts its server, judged as proc.run is);
 # a rename's plan writes nothing, and its apply is a write of every file it names
