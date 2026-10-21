@@ -111,6 +111,29 @@ async fn a_reach_in_a_shared_place_is_held_and_answered_with_the_fixed_line() {
     assert_eq!(kind_of(&place[0]), "reply");
 }
 
+/// A held turn says so in its result and its node, so no surface credits a
+/// model with the refusal (theseus-2rvwv).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_reply_names_no_model() {
+    let (r, _jev, sid) = shared("elicit", 0.95, true);
+    let res = turn(&r.core, Some(&sid), ASK, None).await;
+    assert!(r.claude.requests().is_empty(), "{}", res.output);
+    assert_eq!(res.output, HELD);
+    assert_eq!(res.stop_reason, "held", "{res:?}");
+    let stops: Vec<Option<String>> = r
+        .core
+        .store
+        .transcript(&sid)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(_, n)| match &n.node().body {
+            Body::AssistantMessage { stop_reason, .. } => Some(stop_reason.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stops, vec![Some("held".to_string())]);
+}
+
 /// The owner's DM gets the case: who asked, where, the message quoted, and
 /// that the requester was told the fixed line. The place gets nothing of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
