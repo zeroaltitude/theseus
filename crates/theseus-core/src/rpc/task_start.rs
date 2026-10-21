@@ -156,6 +156,7 @@ impl Core {
             common: &common,
             available: parent.budget.available(),
             expect: p.expect,
+            open: p.open,
         };
         let opened =
             self.kernel
@@ -300,6 +301,8 @@ struct Draft<'a> {
     common: &'a Common<'a>,
     available: theseus_kernel::Micros,
     expect: Option<theseus_protocol::task_start::Expect>,
+    /// An open task (theseus-a1wvq.6): its session says it was opened open.
+    open: bool,
 }
 
 impl Core {
@@ -331,6 +334,10 @@ impl Core {
             check: None,
             notify_done: false,
         });
+        let opened = d
+            .open
+            .then(|| crate::data::open_task(&mut rec, d.now))
+            .transpose()?;
         let mut records = match d.hold {
             Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),
             None => vec![NewRecord::json(
@@ -339,6 +346,7 @@ impl Core {
                 &rec,
             )?],
         };
+        records.extend(opened);
         records.push(d.brief_node.record()?);
         if d.by_brief {
             records.push(crate::turn::brief_step::mark(&task.session_id)?);
@@ -467,6 +475,11 @@ fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
         if !(b.is_finite() && b > 0.0) {
             return Err(invalid(format!("budget_usd must be more than $0, not {b}")));
         }
+    }
+    if p.open && !p.quotes.is_empty() {
+        return Err(invalid(
+            "an open task carries only its brief: leave out `quotes`",
+        ));
     }
     Ok(brief)
 }

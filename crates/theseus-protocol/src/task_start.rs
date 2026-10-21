@@ -72,6 +72,12 @@ pub struct TaskStartParams {
     /// outside text: the task's session holds it as it holds web text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<String>,
+    /// An open task: its session starts from the brief alone and is compiled
+    /// in the open view; its data may go to a model of any origin once its
+    /// content is judged open.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub open: bool,
     /// Where its report goes; `home` when not given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

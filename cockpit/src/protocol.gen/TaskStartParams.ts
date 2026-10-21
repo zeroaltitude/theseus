@@ -44,6 +44,12 @@ start_when?: string,
  */
 quotes?: Array<string>, 
 /**
+ * An open task: its session starts from the brief alone and is compiled
+ * in the open view; its data may go to a model of any origin once its
+ * content is judged open.
+ */
+open?: boolean, 
+/**
  * Where its report goes; `home` when not given.
  */
 report_to?: ReportTo, 
