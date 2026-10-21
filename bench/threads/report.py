@@ -49,6 +49,7 @@ charts = draft.charts
 import th_format as tf  # noqa: E402
 import th_drive as td  # noqa: E402
 import th_generate as gen  # noqa: E402
+import th_decisions  # noqa: E402
 
 pct, usd = draft.pct, draft.usd
 
@@ -87,13 +88,28 @@ def legend(runs: list[dict]) -> dict[str, str]:
 # The threads arms are configurations inside Theseus: the chart palette's slots 6 to 8 (the memory family's, which
 # never meet a threads arm in one figure), so no shared file changes. The records keep their own keys.
 # The +onto arm is a ninth series beside A1 to A7's eight, which the palette has no slot for: it takes slot 5 (`bm25`'s),
-# shared with Pi, so a figure that holds both A1o and A7 tells them apart by their labels alone.
+# shared with Pi. Two series in one colour are not told apart, so `figures` refuses a figure that holds both A1o and A7
+# (`check_slots`): the +onto report draws A1o with A1 to A6, and a figure that needs Pi leaves A1o out.
 CHART_KEY = {"theseus-threads": "vector", "theseus-threads-noprefix": "fused", "theseus-threads-addressed": "entity",
              "theseus-threads-onto": "bm25"}
 
 
+def check_slots(runs: list[dict]) -> None:
+    """Refuses a figure in which two arms are drawn in one palette slot: their series would share a colour."""
+    seen: dict[int, dict] = {}
+    for r in runs:
+        if r["key"] not in charts.ARMS:
+            continue  # a neutral (an arm the palette has no slot for) is drawn in gray
+        slot = charts.ARMS[r["key"]][0]
+        other = seen.setdefault(slot, r)
+        if other["arm"] != r["arm"]:
+            raise ValueError(f'{other["arm"]} and {r["arm"]} share palette slot {slot} '
+                             f'(`{other["key"]}` and `{r["key"]}`): one figure cannot draw both; leave one out')
+
+
 def figures(runs: list[dict], prog: tf.Progression) -> list[dict]:
     runs = [{**r, "key": CHART_KEY.get(r["key"], r["key"])} for r in runs]
+    check_slots(runs)
     lab = legend(runs)
     figs = []
     # per-stream correctness: a matrix, P the oracle at 1
@@ -297,27 +313,164 @@ def results(runs: list[dict], prog: tf.Progression, figs: dict[str, str]) -> dic
 
 
 def decisions_section(runs: list[dict]) -> str:
-    """The thesis column (theseus-mqqc2; the design's section 9): routing, filing and privacy decisions per message
-    that Jev made instead of the main model, with the dollars each way. Reported whatever it says."""
-    rows = []
+    """The thesis column (theseus-mqqc2; the design's section 9, sharpened by theseus-2e6c1): the routing, filing and
+    privacy decisions per message that Jev made instead of the main model, with the dollars each way. A decision is a
+    decision question answered at the act band (`th_decisions.py`), so one `onto.v1` judgment that filed a topic and a
+    resource and answered `personal` is three, not one. Reported whatever it says."""
+    rows, per_q = [], []
     for r in runs:
         d = r.get("decisions")
         if not d:
-            rows.append([r["arm"], "none: the arm asks Jev no decision", "–", "–", "–", "–"])
+            rows.append([r["arm"], "none: the arm asks Jev no decision", "–", "–", "–", "–", "–", "–"])
             continue
         by = d["by_class"]
         per = " / ".join(f'{by.get(c, {}).get("per_turn", 0):.2f}' for c in ("routing", "filing", "privacy"))
+        share = (d.get("turns") or {}).get("share_with_decision")
         rows.append([r["arm"], f'{d["per_turn"]:.2f} ({per})', usd(d["jev_usd"]), usd(d["main_model_usd"]),
-                     usd(d["saved_usd"]), str(d["unanswered"])])
+                     usd(d["saved_usd"]), str(d["unanswered"]), str(d.get("judgments", d["n"])),
+                     pct(share) if share is not None else th_decisions.NOT_RECORDED])
+        qs = d.get("questions")
+        if not isinstance(qs, dict):
+            per_q.append([r["arm"], f"per-question numbers {th_decisions.NOT_RECORDED} (counted by judgment)", "–", "–", "–", "–"])
+            continue
+        for q, v in sorted(qs.items()):
+            per_q.append([r["arm"], f"`{q}`", v["class"], str(v["answered"]), str(v["act"]), str(v["chose"])])
     return (table(["arm", "decisions per message by Jev, all (routing / filing / privacy)", "Jev's dollars",
-                   "the main model's, modelled", "saved", "unanswered"], rows) +
-            "\nA decision is one answered judgment of a routing pack (`route.*`, `classify.*`), a filing pack (`onto.*`, "
-            "`categorize.*`) or a privacy pack (`security.*`), read from the run's `judge.call` rows "
-            "(`judgments.json`). The main model's dollars are modelled, not measured: the same tokens Jev read, at the "
-            "model's uncached input price, and the tokens Jev wrote at its output price; a free-form answer is longer "
-            "than Jev's choice, so it is a floor. The oracle arm makes these decisions by asking the main model, one "
-            "extra call each, so its count is the Jev arm's and its dollars are that column. Judgments Jev did not "
-            "answer are counted apart: a decision not taken off the main model.\n")
+                   "the main model's, modelled", "saved", "unanswered", "judgments", "messages with a decision"], rows) +
+            ("\nPer question (answered; at the act band, which are the decisions; of those, the ones that chose "
+             "something):\n\n" + table(["arm", "question", "class", "answered", "act band", "chose"], per_q) if per_q else "") +
+            "\nA decision is one decision question answered at the act band: a filing (`onto.*`'s topic, project, event, "
+            "resource, capability and expertise questions, and `categorize.*`), a routing (`route.*`, and `classify.*`'s "
+            "`thread`) or a privacy decision (`security.*`, and `onto.*`'s `personal`, `elicits` and `shows_*`); one "
+            "judgment holds as many as it has such answers. A judgment belongs to the turn its `context.turn` names, else "
+            "to the turn of its session whose window holds its time, else to no turn; the mean is over all messages and "
+            "the share counts the messages with a decision attributed to them. The dollars are per judgment, read from the "
+            "run's `judge.call` rows (`judgments.json`). The main model's dollars are modelled, not measured: the same "
+            "tokens Jev read, at the model's uncached input price, and the tokens Jev wrote at its output price; a "
+            "free-form answer is longer than Jev's choice, so it is a floor. The oracle arm makes these decisions by "
+            "asking the main model, one extra call each, so its count is the Jev arm's and its dollars are that column. "
+            "Judgments Jev did not answer are counted apart: a decision not taken off the main model. A run from before "
+            "the questions were recorded counts judgments and says so.\n")
+
+
+ONTO, CONTROL = "A1o", "A1"
+
+
+def _mean(xs: list[float]) -> float | None:
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
+def _pooled(rs: list[dict], get) -> tuple[int, int]:
+    """k and n of a scorer rate, summed over an arm's runs."""
+    k = n = 0
+    for r in rs:
+        x = get(r) or {}
+        k, n = k + (x.get("k") or 0), n + (x.get("n") or 0)
+    return k, n
+
+
+def onto_section(runs: list[dict]) -> str | None:
+    """The ontology arm against its control (theseus-ri5up): A1o and A1 differ by the ontology alone, so each metric
+    is A1o minus A1, over the arm's runs (a rate pooled over them: summed k over summed n; the rest their mean).
+    None unless both arms are in the scores. Nothing here is tuned, and the draft states no verdict."""
+    by = {a: [r for r in runs if r["arm"] == a] for a in (ONTO, CONTROL)}
+    if not all(by.values()):
+        return None
+    on, off = by[ONTO], by[CONTROL]
+
+    def cell(v, f):
+        return f(v) if v is not None else "–"
+
+    def diff(a, b, f, sign=True):
+        if a is None or b is None:
+            return "–"
+        return f"{'+' if sign and a - b > 0 else ''}{f(a - b)}"
+
+    def row(label, get, f=lambda v: f"{v:,.2f}"):
+        a, b = _mean([get(r) for r in on]), _mean([get(r) for r in off])
+        return [label, cell(a, f), cell(b, f), diff(a, b, f)]
+
+    def rate_row(label, get):
+        (ka, na), (kb, nb) = _pooled(on, get), _pooled(off, get)
+        a, b = (ka / na if na else None), (kb / nb if nb else None)
+        return [label, f"{ka}/{na} ({pct(a)})" if na else "–", f"{kb}/{nb} ({pct(b)})" if nb else "–",
+                diff(a, b, lambda v: f"{v * 100:.1f} points")]
+
+    rows = [row(f"oracle on `{sid}`", lambda r, s=sid: r["streams"][s]["oracle"], lambda v: f"{v:.0%}" if v == v else "–")
+            for sid in on[0]["streams"]]
+    rows.append(row("**oracle mean**", lambda r: r["oracle_mean"], lambda v: f"{v:.1%}"))
+    rows.append(rate_row("contamination (in-stream answers with a colliding value)", lambda r: r["contamination"]))
+    rows.append(rate_row("routing top-1 (true stream)", lambda r: r["routing"].get("top1")))
+    rows.append(row("context tokens per model call, mean", lambda r: r["tokens"]["request_mean"], lambda v: f"{v:,.0f}"))
+    rows.append(row("dollars per message, measured", lambda r: r["usd"]["per_turn"], lambda v: f"${v:.4f}"))
+    rows.append(row("wall per message, mean (ms)", lambda r: r["latency"]["wall_ms_mean"], lambda v: f"{v:,.0f}"))
+
+    def jev(r):
+        d = r.get("decisions")
+        return d["per_turn"] if d else 0.0
+    rows.append(row("decisions per message taken by Jev", jev, lambda v: f"{v:.2f}"))
+    return (f"{len(on)} run(s) of {ONTO} against {len(off)} of {CONTROL}, the same messages and the same binaries; the "
+            "pair differs by `[ontology] judge` and `recall_boost` alone (`run.json` keeps each arm's table). Each "
+            f"difference is {ONTO} minus {CONTROL}; a rate is pooled over an arm's runs. Reported whatever it says: "
+            "nothing was tuned between the arms.\n\n" +
+            table(["metric", ONTO, CONTROL, f"{ONTO} − {CONTROL}"], rows) +
+            "\nThe decisions column is below. A positive difference in the oracle or in routing is for the ontology; a "
+            "positive difference in tokens, dollars, latency or contamination is against it.\n")
+
+
+def onto_replay_section(md: str | None) -> str:
+    """The replay's Markdown (`theseus judge replay --onto`, theseus-nngor): Jev's filing against the import's labels,
+    on the owner's store, which no bench run can reproduce."""
+    if not md or not md.strip():
+        return ("Not run in this report: `theseus judge replay --onto --limit 50 > replay.md` on the owner's daemon "
+                "(it sends the history to Jev, under `[judge] backfill_consent`), then `report.py --onto-replay "
+                "replay.md`.\n")
+    return md.strip() + "\n"
+
+
+def onto_sections(runs: list[dict], onto_replay: str | None) -> list[str]:
+    """The +onto report's sections, as lines: the arm against its control when both are in the scores, and the replay's
+    accuracy (or "not run") whenever the arm is, or a replay was given."""
+    lines: list[str] = []
+    vs = onto_section(runs)
+    if vs:
+        lines += ["", "## The ontology arm against its control", "", vs.rstrip()]
+    if onto_replay is not None or any(r["arm"] == ONTO for r in runs):
+        lines += ["", "## Accuracy against the import's labels", "", onto_replay_section(onto_replay).rstrip()]
+    return lines
+
+
+def onto_run_text(seed: int, size: str) -> str:
+    """What the first +onto run (T13) needs: the plan, the overlay, and the commands, generate to report."""
+    return f"""### What T13 (the first +onto run) needs
+
+- The same frozen release binaries as T12's A3 (copy them once, run every arm from the copy), Sonnet 5.5 at effort
+  `medium`, the attempt plan `bench/plans/threadbench-t13-onto.json` committed before the run (`k` 3: A1o and A1, three
+  runs of each on the development progression; A3 and A5 are read from the T12 runs on the same binaries, and rerun only
+  if the binaries differ), and Jev reachable: copy `bench/threads/jev-overlay.example.toml`, fill its secret reference,
+  and pass the copy as `--config-overlay` to every arm (its sha256 is kept in `run.json`).
+- About $33 to $40 for the plan's two arms at k 3 (the plan's own figure; T12's per-arm cost reads higher, so watch the
+  first pair's bill before the rest), the pause line $80, and `--spend-limit` $25 a run. One run after another, in a
+  throwaway container or VM.
+- The held-out progression (seed {gen.HELD_OUT_SEED}) is run once, after the development run is read.
+
+```bash
+cp bench/threads/jev-overlay.example.toml /tmp/jev.toml        # edit the secret reference; never a value
+python3 bench/threads/th_generate.py --seed {seed} --size {size} --out /tmp/tb-prog      # the plan's dev digest
+for k in 1 2 3; do for arm in A1o A1; do
+  python3 bench/threads/th_drive.py --plan bench/plans/threadbench-t13-onto.json --arm $arm \
+    --bin-dir <frozen bin dir> --config-overlay /tmp/jev.toml --progression /tmp/tb-prog --out /tmp/tb-$arm-t13-$k
+done; done
+python3 bench/threads/th_score.py /tmp/tb-A1o-t13-{{1,2,3}} /tmp/tb-A1-t13-{{1,2,3}} /tmp/tb-a3-t12 /tmp/tb-a5-t12 --out /tmp/tb-t13-scores
+theseus judge replay --onto --limit 50 > /tmp/onto-replay.md     # the owner's daemon; see the README for its cost
+python3 bench/threads/report.py --scores /tmp/tb-t13-scores/scores.json --onto-replay /tmp/onto-replay.md \
+    --date <the day of the run> --slug onto --out docs/benchmarks
+# then, once the development report is read, the same with --seed {gen.HELD_OUT_SEED} and --slug onto-held-out
+```
+
+The report draws A1o with A1 to A6 and refuses a figure that holds A1o and Pi (A7): they share a palette slot.
+"""
 
 
 LOSE = """## Where threads would lose
@@ -423,7 +576,8 @@ python3 bench/threads/report.py --scores /tmp/tb-scores/scores.json --persona /t
     --prefix-scores /tmp/tb-prefix-scores/scores.json --date <the day of the run> --slug before --out docs/benchmarks
 ```
 
-The threads arms (A1, A1n, A2) are in "What T12 needs" below; A1p is not measurable (`th_drive.py --arm A1p` says why).
+The threads arms (A1, A1n, A2) are in "What T12 needs" below, and the ontology arm (A1o) in "What T13 needs" after it;
+A1p is not measurable (`th_drive.py --arm A1p` says why).
 
 ### What T12 (the after run) needs
 
@@ -453,10 +607,13 @@ python3 bench/threads/report.py --scores /tmp/tb-t12-scores/scores.json --date <
     --out docs/benchmarks
 ```
 
+A1o is not in this plan (`bench/plans/threadbench-t12.json` names A1, A1n, A2 and A3): it runs under the T13 plan below.
+
 Each threads arm's run directory also holds `routing.jsonl` (per message: the thread it ran in, whether the router
 asked, the persona engaged and the prefix library's pick) and `run.json`'s `owner` (over-split offers, threads the
 owner started by hand, every answer given) and `reopen_not_driven`.
 
+{onto_run_text(seed, size)}
 ### Improvement assessment
 
 The before run sets the number a threads build must beat on the same messages: the per-request context of one long
@@ -473,7 +630,7 @@ numbers above are the before.
 def reproduction(slug: str, seed: int, size: str) -> str:
     return f"""```bash
 python3 bench/threads/th_generate.py --seed {seed} --size {size} --out <prog>
-python3 bench/threads/th_drive.py --arm <A1|A1n|A2|A3|A4|A5|A6|A7> ... --progression <prog> --out <run>
+python3 bench/threads/th_drive.py --arm <A1|A1n|A1o|A2|A3|A4|A5|A6|A7> ... --progression <prog> --out <run>
 python3 bench/threads/th_score.py <runs...> --out <scores>
 python3 bench/threads/report.py --scores <scores>/scores.json --date <day> --slug {slug}
 python3 -m unittest discover -s bench/threads    # every oracle at 1 on the stand-in, first
@@ -490,7 +647,7 @@ def not_measured(opencode: dict | None) -> str:
 
 def write_report(runs: list[dict], prog: tf.Progression, out: Path, slug: str, date: str, scratch: bool = False,
                  persona: dict | None = None, prefix_runs: list[dict] | None = None,
-                 opencode: dict | None = None) -> str:
+                 opencode: dict | None = None, onto_replay: str | None = None) -> str:
     name = draft.report_name(date, "threadbench", slug)
     figs = figures(runs, prog)
     figmd = {f["name"]: charts.picture(f"img/{name}", f) + f"\n\n*{f['question']}*\n" for f in figs}
@@ -508,6 +665,7 @@ def write_report(runs: list[dict], prog: tf.Progression, out: Path, slug: str, d
                  "Dollars measured and modelled", "Routing", "Latency",
                  "Decisions taken off the main model"):
         lines += ["", f"## {head}", "", sections[head].rstrip()]
+    lines += onto_sections(runs, onto_replay)
     lines += ["", "## The persona track", "", persona_section(persona).rstrip(),
               "", "## The prefix-library track", "", prefix_section(prefix_runs or []).rstrip(),
               "", "## Threats to validity", "", threats(runs).rstrip(),
@@ -535,6 +693,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--opencode", default="opencode", help="the opencode binary, probed for A8")
     ap.add_argument("--prefix-scores", type=Path, default=None, help="th_score.py's output over the prefix track's runs")
     ap.add_argument("--persona", type=Path, default=None)
+    ap.add_argument("--onto-replay", type=Path, default=None,
+                    help="`theseus judge replay --onto`'s Markdown: the accuracy against the import's labels")
     ap.add_argument("--date", required=True)
     ap.add_argument("--slug", default="before")
     ap.add_argument("--out", type=Path, default=BENCH.parent / "docs" / "benchmarks")
@@ -548,8 +708,12 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("report: the scores are of another progression than the one given (digests differ)")
     prefix_runs = json.loads(a.prefix_scores.read_text())["runs"] if a.prefix_scores else None
     persona = json.loads(a.persona.read_text()) if a.persona else None
-    write_report(runs, prog, a.out, a.slug, a.date, persona=persona, prefix_runs=prefix_runs,
-                 opencode=td.probe_opencode(a.opencode))
+    try:
+        write_report(runs, prog, a.out, a.slug, a.date, persona=persona, prefix_runs=prefix_runs,
+                     opencode=td.probe_opencode(a.opencode),
+                     onto_replay=a.onto_replay.read_text() if a.onto_replay else None)
+    except ValueError as e:
+        raise SystemExit(f"report: {e}")
     print(f"report: wrote {a.out}/{draft.report_name(a.date, 'threadbench', a.slug)}.md")
     return 0
 

@@ -46,20 +46,31 @@ pub enum Step {
         sessions: Vec<String>,
         records: Vec<Record>,
     },
+    /// Two categories made below `parent`, with the sessions moved into them
+    /// (`judged.rs`).
+    Split {
+        parent: CategoryId,
+        children: [CategoryId; 2],
+        sessions: Vec<String>,
+        records: Vec<Record>,
+    },
 }
 
 impl Step {
     pub fn records(&self) -> &[Record] {
         match self {
-            Step::Decay { records, .. } | Step::Merge { records, .. } => records,
+            Step::Decay { records, .. }
+            | Step::Merge { records, .. }
+            | Step::Split { records, .. } => records,
         }
     }
 
-    /// A short word for the write's id: `decay`, or `merge`.
+    /// A short word for the write's id: `decay`, `merge` or `split`.
     pub fn word(&self) -> &'static str {
         match self {
             Step::Decay { .. } => "decay",
             Step::Merge { .. } => "merge",
+            Step::Split { .. } => "split",
         }
     }
 }
@@ -132,39 +143,57 @@ impl Ontology {
         let counts = self.member_counts();
         let mut steps = Vec::new();
         for (_, mut ids) in groups.into_iter().filter(|(_, ids)| ids.len() > 1) {
-            let rank = |id: &CategoryId| {
-                let machine = self
-                    .category(id)
-                    .is_some_and(|c| machine_written(&c.added_by));
-                (
-                    machine,
-                    std::cmp::Reverse(counts.get(id).copied().unwrap_or(0)),
-                    id.clone(),
-                )
-            };
-            ids.sort_by_key(rank);
+            self.survivor_first(&mut ids, &counts);
             let survivor = ids.remove(0);
             for absorbed in ids {
-                let Ok(merge) = self.merge_category(&absorbed, &survivor, Origin::Sweep) else {
-                    continue;
-                };
-                let mut trial = self.clone();
-                if merge
-                    .records
-                    .iter()
-                    .any(|r| trial.put(r.clone(), Origin::Sweep).is_err())
-                {
-                    continue;
-                }
-                *self = trial;
-                steps.push(Step::Merge {
-                    absorbed,
-                    survivor: survivor.clone(),
-                    sessions: merge.sessions,
-                    records: merge.records,
-                });
+                steps.extend(self.merge_into(absorbed, &survivor));
             }
         }
         steps
+    }
+
+    /// `ids` ordered survivor first: the category the operator wrote, else
+    /// the one more sessions hold, else the smaller id.
+    fn survivor_first(&self, ids: &mut [CategoryId], counts: &BTreeMap<CategoryId, u64>) {
+        let rank = |id: &CategoryId| {
+            let machine = self
+                .category(id)
+                .is_some_and(|c| machine_written(&c.added_by));
+            (
+                machine,
+                std::cmp::Reverse(counts.get(id).copied().unwrap_or(0)),
+                id.clone(),
+            )
+        };
+        ids.sort_by_key(rank);
+    }
+
+    /// `absorbed` merged into `survivor` as the sweep's write, applied to
+    /// `self`; none when a record of it does not check (the sweep may not
+    /// write it: an operator's category or membership is in the way).
+    fn merge_into(&mut self, absorbed: CategoryId, survivor: &CategoryId) -> Option<Step> {
+        let merge = self
+            .merge_category(&absorbed, survivor, Origin::Sweep)
+            .ok()?;
+        let mut trial = self.clone();
+        for r in &merge.records {
+            trial.put(r.clone(), Origin::Sweep).ok()?;
+        }
+        *self = trial;
+        Some(Step::Merge {
+            absorbed,
+            survivor: survivor.clone(),
+            sessions: merge.sessions,
+            records: merge.records,
+        })
+    }
+
+    /// Two categories merged by the sweep's one survivor rule, as the model
+    /// judged them one thing (`judged.rs`), applied to `self`.
+    pub fn plan_pair_merge(&mut self, a: &CategoryId, b: &CategoryId) -> Option<Step> {
+        let mut ids = [a.clone(), b.clone()];
+        self.survivor_first(&mut ids, &self.member_counts());
+        let [survivor, absorbed] = ids;
+        self.merge_into(absorbed, &survivor)
     }
 }

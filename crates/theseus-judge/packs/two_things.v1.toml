@@ -1,0 +1,73 @@
+# two_things.v1 (theseus-nzzz4): whether a large category holds two distinct
+# things. The ontology's nightly sweep asks it of a category of a kind whose
+# categories nest, when twelve sessions or more hold it, off every turn's
+# path. The state is the category and a sample of at most twelve of its
+# sessions' titles, numbered; the first thing is the one session 1 is about.
+# One Noul says whether the sessions fall into two things, two Choices name
+# them over the names code mined from the titles (at most ten), and a
+# per-item Noul says of each sampled session whether it is about the first.
+# At the act band on all of them the sweep writes two child categories and
+# moves the sampled sessions as its own write (`theseus ontology undo` takes
+# it back); below it nothing is written.
+id = "two_things"
+version = 1
+jev_model = "jev-1.13.0"
+point = "consolidation"
+state = "two_things"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Whether a category of the ontology holds two distinct things, what to call each, and which of its sampled sessions are about the first."
+
+[questions.two_things]
+type = "noul"
+instructions = "Do the sessions in the state fall into two distinct things that would each be worth a category of its own?"
+act = 0.85
+confirm = 0.60
+when_true = "The sessions are about two subjects with little in common: a person looking for one would not look for the other."
+when_false = "The sessions are about one subject, or about many small ones, or the titles do not show two subjects."
+
+[questions.first_name]
+type = "choice"
+instructions = "Which of the listed names best names the thing that session 1 is about?"
+act = 0.85
+confirm = 0.60
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the thing that session 1 is about." },
+]
+
+[questions.second_name]
+type = "choice"
+instructions = "Which of the listed names best names the other thing, the one that session 1 is not about?"
+act = 0.85
+confirm = 0.60
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the other thing." },
+]
+
+[questions.in_first]
+type = "noul"
+per = "sessions"
+max = 10
+instructions = "Is the session {item} about the same thing as session 1?"
+act = 0.85
+confirm = 0.60
+when_true = "The session is about the thing session 1 is about: its subject, its work, or the things it names."
+when_false = "The session is about something else, even if it shares a word or two with session 1."
+
+[questions.in_first_more]
+type = "noul"
+per = "more_sessions"
+max = 10
+instructions = "Is the session {item} about the same thing as session 1?"
+act = 0.85
+confirm = 0.60
+when_true = "The session is about the thing session 1 is about: its subject, its work, or the things it names."
+when_false = "The session is about something else, even if it shares a word or two with session 1."

@@ -7,8 +7,11 @@
 //! never an SOP (the operator's alone) nor a recipe (promoted after
 //! repeated success). No book is built here.
 
+pub mod guidance;
 pub mod run;
 pub mod tender;
+#[cfg(test)]
+mod tests_guidance;
 
 use serde::{Deserialize, Serialize};
 

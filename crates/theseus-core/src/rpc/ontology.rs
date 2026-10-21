@@ -62,6 +62,12 @@ impl Core {
                 let place = self.runner.target_of(s);
                 let mut ms = crate::ontology::given(place.as_deref(), &o, now_unix_ms());
                 ms.extend(o.memberships(s));
+                let (thread, project) = self.runner.thread_and_project(s);
+                ms.extend(crate::ontology::recorded(&crate::ontology::harness_given(
+                    thread.as_ref().map(|t| t.slug.as_str()),
+                    project.as_deref(),
+                    now_unix_ms(),
+                )));
                 ms.iter().map(|m| membership_info(s, m)).collect()
             }
             None => o

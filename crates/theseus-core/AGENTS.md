@@ -263,14 +263,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   characters, only where none exists (`GuidanceSet`), each row with its `undo` (a guidance written where none was
   is undone to an empty one, one version on; a kind or guidance put back is one version on). **The ontology's
   nightly sweep** (theseus-63tfk, R5 slice one; `judge/onto/sweep.rs`, `[ontology] sweep`, default on, run by
-  `Core::onto_sweep_after_serving` at `[judge] learning_hour` and once after a start): no model, no spend;
+  `Core::onto_sweep_after_serving` at `[judge] learning_hour` and once after a start): the deterministic plan uses no model, no spend;
   `Ontology::sweep_plan(now_ms)` (theseus-ontology's `sweep.rs`) gives the steps, each written as its own machine
   write of the sweep's (id `sweep-<ms>-<n>-decay|merge`, undone by `Core::ontology_undo`): decay of machine
   memberships older than 30 days (one write), and a merge of each duplicate category (same kind and parent, names
   folded to lowercase letters and digits; only a category a machine wrote, with no guidance, no children, and no
   operator or import membership) into the operator's, else the better held, else the earlier-id twin. The
   sweep's row is its writes' own rows (`ontology.category` with `merged_into`, `ontology.membership`); no
-  `ontology.swept` row yet. Tests: `tests_ontology.rs`, `tests_ontology_bind.rs`, `tests_onto_sweep.rs`.
+  `ontology.swept` row: the morning note builds its lines from those rows (below). **Beyond the deterministic plan**
+  (theseus-81zx7, theseus-nzzz4, theseus-olt3h, theseus-0umqz; no store format change: META keys and ledger rows
+  that exist): (1) `kind_of_thing = other` at the act band is `Step::Other` in `decide.rs` and a step of the
+  `onto.filed` row (names, confidence; no record, no card); (2) `judge/onto/mint.rs`: three distinct sessions' `other`
+  rows in the last 7 days that share a folded mined name mint a kind, one category and the memberships as one write
+  (`sweep-<ms>-<n>-kind`), a name no kind can take or the table holds counted as `refused`, a name a kind lists in
+  `examples` (an undone one too) not clustered again; (3) `judge/onto/judged.rs` (`[ontology] sweep_usd_per_day`, 1.0,
+  0 turns this part off and the deterministic sweep still runs): `same_thing.v1` asks of machine pairs that look alike
+  (theseus-ontology's `judged.rs`: a shared word of 4 letters or more, at most 20 a run) and merges at the act band by
+  the one survivor rule (`Ontology::plan_pair_merge`); `two_things.v1` asks of a machine category 12 sessions or more
+  hold (at most 3 a run) and splits it into two named children, moving the sampled sessions it placed at the act band
+  (`plan_split`); the day's spend and what was asked (not again for 30 days) are META `onto.sweep.judged`, and every
+  call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
+  its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
+  held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
+  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`), an answer over 400
+  characters refused, never cut; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream write of
+  the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim after
+  the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours, so a
+  night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
+  `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`,
+  `tests_onto_judged.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).

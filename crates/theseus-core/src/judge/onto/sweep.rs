@@ -1,7 +1,10 @@
 //! The ontology's nightly sweep (theseus-63tfk, R5 slice one; the design's
 //! section 3.2): the writes `Ontology::sweep_plan` makes, written as the
 //! sweep's, each in its own frame with the rows that undo it
-//! (`Core::ontology_undo`). No model is called and nothing is spent.
+//! (`Core::ontology_undo`). The deterministic plan calls no model and spends
+//! nothing; the kinds `other` answers mint (`mint.rs`) need none either. What
+//! the model judges (`judged.rs`: a pair that looks alike, a category too large
+//! to say anything) runs after them, under `[ontology] sweep_usd_per_day`.
 //!
 //! - **When.** At quiet time once a day, `[judge] learning_hour` local, and
 //!   once after a start (the learning tender's `due` and `tend`: it never
@@ -13,6 +16,9 @@
 //!   the owner undoes one without the rest. Only what a machine wrote is
 //!   touched (`machine.rs`'s writer checks hold the line): the operator's and
 //!   the import's categories and memberships are never dropped or moved.
+//! - **A kind** minted when three sessions say `other` about one name
+//!   (`mint.rs`), a pair Jev calls one thing (merged), a large category Jev
+//!   splits (`judged.rs`): each a write of its own, undone the same way.
 //! - **A step that does not write** (the ontology changed under it, or a
 //!   record no longer checks) is warned of and left for the next night.
 
@@ -33,6 +39,15 @@ use crate::rpc::Core;
 pub struct Swept {
     pub decayed: u64,
     pub merged: u64,
+    /// The kinds minted from `other` answers, and the clusters that did not
+    /// (a name no kind can take, or one the table holds).
+    pub kinds: u64,
+    pub refused: u64,
+    /// The pairs Jev called one thing and the categories it split, each a
+    /// write of the sweep's (`judged.rs`), and what its questions cost.
+    pub judged_merges: u64,
+    pub splits: u64,
+    pub spent: theseus_judge::price::Micros,
     pub failed: u64,
     pub writes: Vec<String>,
 }
@@ -70,12 +85,22 @@ impl Core {
                     let Some(c) = core.upgrade() else { return };
                     let now = theseus_protocol::now_unix_ms();
                     match theseus_store::blocking(|| c.onto_sweep(now)) {
-                        Ok(s) => tracing::info!(
-                            decayed = s.decayed,
-                            merged = s.merged,
-                            failed = s.failed,
-                            "ontology: the sweep ran"
-                        ),
+                        Ok(mut s) => {
+                            if let Err(e) = c.onto_sweep_judged(now, &mut s).await {
+                                tracing::warn!(error = %format!("{e:#}"), "ontology: the sweep's questions did not run");
+                            }
+                            tracing::info!(
+                                decayed = s.decayed,
+                                merged = s.merged,
+                                kinds = s.kinds,
+                                refused = s.refused,
+                                judged_merges = s.judged_merges,
+                                splits = s.splits,
+                                spent = s.spent,
+                                failed = s.failed,
+                                "ontology: the sweep ran"
+                            );
+                        }
                         Err(e) => {
                             tracing::warn!(error = %format!("{e:#}"), "ontology: the sweep did not run");
                         }
@@ -91,13 +116,16 @@ impl Core {
     pub fn onto_sweep(&self, now_ms: u64) -> anyhow::Result<Swept> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let mut out = Swept::default();
-        for (n, step) in o.sweep_plan(now_ms).into_iter().enumerate() {
+        let steps = o.sweep_plan(now_ms);
+        let first = steps.len();
+        for (n, step) in steps.into_iter().enumerate() {
             let write = format!("sweep-{now_ms}-{n}-{}", step.word());
             match self.ontology_machine_write(Origin::Sweep, &write, step.records().to_vec()) {
                 Ok(()) => {
                     match &step {
                         Step::Decay { dropped, .. } => out.decayed += dropped.len() as u64,
                         Step::Merge { .. } => out.merged += 1,
+                        Step::Split { .. } => {}
                     }
                     out.writes.push(write);
                 }
@@ -107,6 +135,7 @@ impl Core {
                 }
             }
         }
+        self.onto_mint(now_ms, first, &mut out)?;
         Ok(out)
     }
 }

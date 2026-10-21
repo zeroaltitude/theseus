@@ -316,7 +316,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Judgment
   'judgment.main': e(
     'Show how Jev, the judge inside the loop, is doing, pack by pack.',
-    'One row per pack: its rung (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work.',
+    'One row per pack: its rung (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work. Under the ontology pack’s row, one line counts its judgments, the ones that acted (filed a category or attached a project), the ones that only asked, and the writes you took back, with the undo rate over the acts.',
     'A pack in shadow is being tested before it can act. Slow or costly judgments are paid for on every turn they run in.'),
   'judgment.log': e(
     'List the judgments Jev made, so you can find and read one.',
@@ -340,7 +340,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'The loop proposes changes to its own judgment; none acts until you promote it.'),
   'judgment.learning': e(
     'Show what the learning loop found.',
-    'A report by date: what it labelled, learned and proposed. Pick a date for the report.',
+    'A report by date: what it labelled, learned and proposed. Pick a date for the report. The ontology pack’s block has a line of its own for that day: its judgments, acts, confirms and undos, and the undo rate per kind.',
     'It is where to review the loop’s work before it changes how a pack judges.'),
   'judgment.notices': e(
     'Show the notices Jev sent after a call it was sure was risky.',
@@ -444,7 +444,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Kinds are the dimensions the ontology sorts sessions by. A kind’s rule and precedence decide which category wins when more than one fits.'),
   'ontology.categories': e(
     'Show the category tree, and how many sessions are in each category.',
-    'A tree: each category with its count of sessions; at a large import’s size it starts folded at the roots. Click one to read or edit its guidance beside it. The selected category is kept in the address.',
+    'A tree: each category with its count of sessions, the origin that made it and, for a machine’s mint, its confidence; at a large import’s size it starts folded at the roots. The origin buttons keep what one origin made, with the rows above it dimmed so a match shows where it hangs; unknown is the categories the ledger has no row for. Click one to read or edit its guidance beside it. The selected category and the origins picked are kept in the address.',
     'A session’s next compile takes guidance from the categories it is in. An overgrown tree, or a session in the wrong category, changes what it is told.'),
   'ontology.guidance': e(
     'Read, and change, the guidance a category gives to the sessions in it.',
@@ -454,6 +454,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Add a new topic to the ontology.',
     'Give a name and where in the tree it goes. It shows what it will send and asks first.',
     'A topic is a place for sessions and notes to be filed. Add one when the existing topics keep fitting badly.'),
+  'ontology.kindadd': e(
+    'Add a new kind of classification to the ontology, such as expertise or culture.',
+    'Give a name (a lowercase letter, then letters, digits, _ or -), and say who may assign it, how many a session holds, where it nests, its precedence and rule, and up to five examples. A fault shows under its field, in the words the daemon would refuse it in. The confirm shows the exact params it will send.',
+    'A kind is a dimension the ontology sorts sessions by, and Jev can only file under the kinds the table lists. A new one is interpreted, so it needs no code; it cannot be deleted, only retired once nothing holds it.'),
   'ontology.growth': e(
     'Show how fast the ontology grows, and who is growing it.',
     'A column a day for 90 days, stacked by the origin that made the categories (you, the import, Jev, the sweep, the dream), a line for kinds added, and a ring on a day when a write made then was later taken back. The tip gives each day’s counts.',

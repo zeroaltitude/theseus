@@ -103,5 +103,112 @@ class Decisions(unittest.TestCase):
         self.assertIsNone(ts.decision_class(None))
 
 
+def run_of(arm: str, key: str, **kw) -> dict:
+    """The fields the report's figures and its +onto section read, from a few numbers."""
+    sids = [x.id for x in gen.build(11, "smoke").streams]
+    return {"arm": arm, "key": key, "name": f"arm {arm}", "layout": "thread", "oracle_mean": kw.get("oracle", 1.0),
+            "streams": {s: {"oracle": kw.get("oracle", 1.0), "ideal_passed": 1, "ideal_checks": 1,
+                            "recall": {"k": 1, "n": 1, "rate": 1.0}} for s in sids},
+            "contamination": kw.get("cont", {"k": 0, "n": 0, "rate": None, "lo": 0, "hi": 0}),
+            "routing": {"top1": kw["top1"]} if "top1" in kw else {"owner_routed": True},
+            "tokens": {"request_mean": kw.get("tokens", 1000.0), "request_curve": [1, 2]},
+            "usd": {"per_turn": kw.get("per_turn", 0.01), "measured": 1.0,
+                    "modeled": {"5m": {"usd": 1.0, "misses": 0}, "1h": {"usd": 1.0, "misses": 0}}},
+            "latency": {"wall_ms_mean": kw.get("wall", 1000.0), "wall_ms_p50": 1.0, "wall_ms_p90": 2.0},
+            "decisions": kw.get("decisions")}
+
+
+def rate(k: int, n: int) -> dict:
+    return {"k": k, "n": n, "rate": k / n, "lo": 0.0, "hi": 1.0}
+
+
+class Palette(unittest.TestCase):
+    def test_a_figure_that_holds_a_1o_and_pi_is_refused_naming_both(self):
+        prog = gen.build(11, "smoke")
+        with self.assertRaises(ValueError) as cm:
+            rep.figures([run_of("A1o", "theseus-threads-onto"), run_of("A7", "pi")], prog)
+        self.assertIn("A1o", str(cm.exception))
+        self.assertIn("A7", str(cm.exception))
+        self.assertIn("slot 5", str(cm.exception))
+
+    def test_a_1o_with_a_1_to_a_6_draws(self):
+        prog = gen.build(11, "smoke")
+        keys = {"A1": "theseus-threads", "A1n": "theseus-threads-noprefix", "A2": "theseus-threads-addressed",
+                "A3": "theseus", "A4": "claude-code", "A5": "theseus-batching", "A6": "openclaw",
+                "A1o": "theseus-threads-onto"}
+        figs = rep.figures([run_of(a, k) for a, k in keys.items()], prog)
+        self.assertEqual(figs[0]["name"], "stream-correctness")
+        self.assertEqual(len(figs[0]["columns"]), len(keys))
+        # many runs of one arm are not a collision
+        rep.figures([run_of("A1o", "theseus-threads-onto"), run_of("A1o", "theseus-threads-onto")], prog)
+
+
+class Against(unittest.TestCase):
+    def runs(self):
+        return [run_of("A1o", "theseus-threads-onto", oracle=0.8, cont=rate(1, 10), top1=rate(9, 10), tokens=1000.0,
+                       per_turn=0.03, wall=2000.0, decisions={"per_turn": 2.0}),
+                run_of("A1o", "theseus-threads-onto", oracle=1.0, cont=rate(2, 10), top1=rate(7, 10), tokens=1200.0,
+                       per_turn=0.05, wall=2400.0, decisions={"per_turn": 3.0}),
+                run_of("A1", "theseus-threads", oracle=0.5, cont=rate(4, 10), top1=rate(8, 10), tokens=1500.0,
+                       per_turn=0.02, wall=1500.0),
+                run_of("A1", "theseus-threads", oracle=0.7, cont=rate(6, 10), top1=rate(6, 10), tokens=1700.0,
+                       per_turn=0.02, wall=1700.0)]
+
+    def test_each_difference_is_a_1o_minus_a_1_over_the_arms_runs(self):
+        text = rep.onto_section(self.runs())
+        row = lambda label: next(x for x in text.splitlines() if x.startswith(f"| {label}"))
+        # oracle mean: (0.8 + 1.0) / 2 = 90.0%, (0.5 + 0.7) / 2 = 60.0%, +30.0%
+        self.assertEqual(row("**oracle mean**"), "| **oracle mean** | 90.0% | 60.0% | +30.0% |")
+        # contamination pooled: 3 of 20 against 10 of 20: 15.0% - 50.0% = -35.0 points
+        self.assertEqual(row("contamination"), "| contamination (in-stream answers with a colliding value) | 3/20 (15.0%) | 10/20 (50.0%) | -35.0 points |")
+        # routing: 16 of 20 (80.0%) against 14 of 20 (70.0%): +10.0 points
+        self.assertEqual(row("routing top-1"), "| routing top-1 (true stream) | 16/20 (80.0%) | 14/20 (70.0%) | +10.0 points |")
+        # tokens: 1100 against 1600
+        self.assertEqual(row("context tokens"), "| context tokens per model call, mean | 1,100 | 1,600 | -500 |")
+        # dollars: 0.04 against 0.02
+        self.assertEqual(row("dollars per message"), "| dollars per message, measured | $0.0400 | $0.0200 | +$0.0200 |")
+        self.assertEqual(row("wall per message"), "| wall per message, mean (ms) | 2,200 | 1,600 | +600 |")
+        # decisions: 2.5 for A1o, none for A1
+        self.assertEqual(row("decisions per message"), "| decisions per message taken by Jev | 2.50 | 0.00 | +2.50 |")
+        self.assertIn("2 run(s) of A1o against 2 of A1", text)
+
+    def test_it_needs_both_arms(self):
+        self.assertIsNone(rep.onto_section([run_of("A1o", "theseus-threads-onto")]))
+        self.assertIsNone(rep.onto_section([run_of("A1", "theseus-threads")]))
+
+    def test_the_report_has_the_section_only_with_both_arms_and_the_accuracy_under_its_heading(self):
+        md = "# onto.v1 against the import's labels\n\n3 sessions replayed.\n"
+        both = "\n".join(rep.onto_sections(self.runs(), md))
+        self.assertIn("## The ontology arm against its control", both)
+        self.assertIn("## Accuracy against the import's labels\n\n# onto.v1 against the import's labels", both)
+        plain = "\n".join(rep.onto_sections(self.runs(), None))
+        self.assertIn("## Accuracy against the import's labels\n\nNot run in this report", plain)
+        one = "\n".join(rep.onto_sections(self.runs()[:2], None))
+        self.assertNotIn("The ontology arm against its control", one)
+        self.assertIn("Accuracy against the import's labels", one)
+        self.assertEqual(rep.onto_sections(self.runs()[2:], None), [])
+
+    def test_the_run_text_names_the_plan_the_overlay_and_each_command(self):
+        text = rep.onto_run_text(11, "standard")
+        for needle in ("bench/plans/threadbench-t13-onto.json", "jev-overlay.example.toml", "--config-overlay /tmp/jev.toml",
+                       "th_generate.py --seed 11", "--arm $arm", "th_score.py", "judge replay --onto --limit 50",
+                       "report.py", "--onto-replay", f"--seed {gen.HELD_OUT_SEED}"):
+            self.assertIn(needle, text)
+        doc = rep.improvement([], gen.build(11, "smoke"), 11, "standard")
+        self.assertIn("What T13 (the first +onto run) needs", doc)
+        self.assertIn("<A1|A1n|A1o|A2|A3|A4|A5|A6|A7>", rep.reproduction("onto", 11, "standard"))
+
+
+class Overlay(unittest.TestCase):
+    def test_the_overlay_parses_names_the_judge_keys_and_holds_no_value(self):
+        import tomllib
+        path = HERE / "jev-overlay.example.toml"
+        t = tomllib.loads(path.read_text())
+        self.assertEqual(set(t), {"judge", "secrets"})
+        self.assertEqual((t["judge"]["enabled"], t["judge"]["key_secret"]), (True, "jev_api_key"))
+        self.assertTrue(t["secrets"]["jev_api_key"].startswith(("op://", "env:", "file:")))
+        self.assertIn("<your vault>", t["secrets"]["jev_api_key"])
+
+
 if __name__ == "__main__":
     unittest.main()

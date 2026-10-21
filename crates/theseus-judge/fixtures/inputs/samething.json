@@ -1,0 +1,15 @@
+{
+  "kind": "topic",
+  "first": {
+    "name": "release checklist",
+    "path": "release checklist",
+    "description": "Steps to cut a release of the lantern ledger.",
+    "titles": ["Cut the 0.4 release", "Release checklist for the ledger", "Tag and publish 0.5"]
+  },
+  "second": {
+    "name": "release process",
+    "path": "release process",
+    "description": "",
+    "titles": ["How we release the ledger", "Release process notes"]
+  }
+}

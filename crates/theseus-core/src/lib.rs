@@ -350,6 +350,8 @@ mod tests_lsp_edits;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
+mod tests_manifest_harness;
+#[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]
 mod tests_memory_arm;
@@ -366,7 +368,15 @@ mod tests_one_turn;
 #[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
+mod tests_onto_digest;
+#[cfg(test)]
+mod tests_onto_judged;
+#[cfg(test)]
 mod tests_onto_mark;
+#[cfg(test)]
+mod tests_onto_mint;
+#[cfg(test)]
+mod tests_onto_other;
 #[cfg(test)]
 mod tests_onto_sweep;
 #[cfg(test)]

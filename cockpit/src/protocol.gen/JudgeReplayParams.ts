@@ -29,4 +29,14 @@ errors: boolean,
 /**
  * The set by id (`jdg_…`), instead of a report's.
  */
-judgments?: Array<string>, };
+judgments?: Array<string>, 
+/**
+ * `--onto`: replay `onto.v1` (or `candidate`) over the sessions the
+ * import labelled, scored against the import's labels. Sends the
+ * owner's history to Jev, so it needs `[judge] backfill_consent`.
+ */
+onto: boolean, 
+/**
+ * With `onto`: at most this many sessions, newest first (50).
+ */
+limit?: number | null, };

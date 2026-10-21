@@ -1,0 +1,23 @@
+{
+  "kind": "topic",
+  "category": {
+    "name": "lantern",
+    "path": "lantern",
+    "description": "Everything about the lantern project.",
+    "titles": []
+  },
+  "sessions": [
+    ["ses_a1", "Plan the Lantern Ledger migration"],
+    ["ses_a2", "Fix the Ledger import on staging.example.org"],
+    ["ses_a3", "Ledger schema review"],
+    ["ses_b1", "Design the Beacon dashboard"],
+    ["ses_b2", "Beacon alert thresholds"],
+    ["ses_b3", "Dashboard colors for Beacon"],
+    ["ses_a4", "Ledger backfill dry run"],
+    ["ses_b4", "Beacon on-call page"],
+    ["ses_a5", "Reconcile the Ledger totals"],
+    ["ses_b5", "Beacon export to CSV"],
+    ["ses_a6", "Ledger audit trail"],
+    ["ses_b6", "Beacon mobile layout"]
+  ]
+}
