@@ -78,13 +78,15 @@ fn rig_on(
                 "google_refresh_token".into(),
                 "file:/tmp/unused-google-refresh-token".into(),
             );
-            c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
             if eu {
                 c.serve_glm_unrestricted();
                 c.vouch_zai(crate::catalog::ModelOrigin::Eu);
             }
         },
         move |p| {
+            // After the load's check, which refuses a restricted profile in a
+            // mode's list (theseus-a1wvq.4): the floor holds on one anyway.
+            p.cfg.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
             p.secrets = board();
             p.providers.insert("anthropic".into(), c2);
         },

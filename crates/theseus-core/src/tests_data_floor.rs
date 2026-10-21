@@ -237,18 +237,27 @@ async fn a_restricted_base_moves_to_the_fallback_with_data_gate() {
         Case::RoutingOff,
     ] {
         let (r, res) = bound_for_glm(case).await;
+        // A hold or a trivial detour toward GLM now meets routing's own gate
+        // first: a mode's pick never yields a restricted profile for an
+        // uncleared ask (theseus-a1wvq.4), so the verdict takes the mode's
+        // next usable profile, and the floor has nothing to move.
+        let (profile, model, reason) = match case {
+            Case::Hold => ("haikuhi", "claude-haiku-5-5", "verdict"),
+            Case::TrivialDetour => ("haiku", "claude-haiku-5-5", "detour"),
+            _ => ("default", "claude-sonnet-5-5", "data_gate"),
+        };
         assert_eq!(
-            res.profile, "default",
+            res.profile, profile,
             "{case:?}: {} {:?}",
             res.output, res.route
         );
-        assert_eq!(res.model, "claude-sonnet-5-5", "{case:?}");
+        assert_eq!(res.model, model, "{case:?}");
         let rows = decided(&r.core.store);
         let last = rows.last().unwrap_or_else(|| panic!("{case:?}: no row"));
-        assert_eq!(last["reason"], "data_gate", "{case:?}: {rows:?}");
+        assert_eq!(last["reason"], reason, "{case:?}: {rows:?}");
         assert_eq!(
             res.route.as_ref().map(|r| r.reason.as_str()),
-            Some("data_gate"),
+            Some(reason),
             "{case:?}"
         );
         assert!(

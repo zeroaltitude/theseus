@@ -12,7 +12,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 use crate::bus::EventSink;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
-use crate::tests_route::{decided, mode, rig, turn};
+use crate::tests_route::{decided, mode, rig, turn, Rig};
 use crate::turn::TurnRequest;
 use crate::Config;
 
@@ -48,8 +48,29 @@ async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitRes
 /// A GLM profile first in routine coding's list, a Claude one after it, and a
 /// name to keep off restricted models.
 fn listed(c: &mut Config) {
+    named(c);
+    list(c);
+}
+
+/// The name to keep off restricted models.
+fn named(c: &mut Config) {
     c.privacy.sensitive_names = vec!["Examplecorp".into()];
+}
+
+/// GLM first in routine coding's list, Claude after it.
+fn list(c: &mut Config) {
     c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+}
+
+/// [`listed`] with `glm53` GLM itself, of restricted origin. The load refuses
+/// a restricted profile in a mode's list (theseus-a1wvq.4), so the list goes
+/// in after its check: the floor still holds on a list that names one.
+fn rig_listed(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
+    let tweak = |c: &mut Config| {
+        named(c);
+        tweak(c);
+    };
+    crate::tests_route::rig_parts(jev, n, tweak, |p| list(&mut p.cfg))
 }
 
 /// [`listed`], with `glm53` a Claude served from a host vouched EU: of no
@@ -94,7 +115,7 @@ async fn a_sensitive_name_skips_restricted_profiles() {
 async fn a_name_said_earlier_keeps_the_next_turn_off_restricted_profiles() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 2, listed);
+    let r = rig_listed(Some(&jev), 2, |_| {});
     let first = turn(&r.core, None, NAMED, None).await;
     assert_eq!(first.profile, "sonnet");
     let next = turn(&r.core, Some(&first.session_id), PLAIN, None).await;
@@ -112,7 +133,7 @@ async fn a_name_said_earlier_keeps_the_next_turn_off_restricted_profiles() {
 async fn a_pin_of_a_restricted_profile_gives_way_to_the_default() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 1, listed);
+    let r = rig_listed(Some(&jev), 1, |_| {});
     let res = turn(&r.core, None, NAMED, Some("glm53")).await;
     assert_eq!(res.profile, "default");
     assert!(r.zai.requests().is_empty());
@@ -130,8 +151,11 @@ async fn a_sensitive_name_with_only_restricted_profiles_sends_nothing() {
     mode(&jev, "routine_coding", 0.95);
     // The default restricted after the load's check, which would refuse the
     // owner-material keys' profiles on its provider.
-    let all_cn = |p: &mut crate::rpc::Parts| p.cfg.serve_default_from_cn();
-    let r = crate::tests_route::rig_parts(Some(&jev), 1, listed, all_cn);
+    let all_cn = |p: &mut crate::rpc::Parts| {
+        list(&mut p.cfg);
+        p.cfg.serve_default_from_cn();
+    };
+    let r = crate::tests_route::rig_parts(Some(&jev), 1, named, all_cn);
     let origin = r
         .core
         .runner
@@ -153,13 +177,10 @@ async fn a_sensitive_name_with_only_restricted_profiles_sends_nothing() {
 /// message that names nothing runs there as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sensitive_name_never_runs_on_a_model_of_eu_origin() {
-    let eu = |c: &mut Config| {
-        listed(c);
-        c.serve_default_from_eu();
-    };
+    let eu = |c: &mut Config| c.serve_default_from_eu();
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, eu);
+    let r = rig_listed(Some(&jev), 1, eu);
     let cfg = &r.core.runner.cfg;
     let origin = cfg.profile_origin("sonnet", &r.core.runner.catalog);
     assert_eq!(origin, crate::catalog::ModelOrigin::Eu);
@@ -170,7 +191,7 @@ async fn a_sensitive_name_never_runs_on_a_model_of_eu_origin() {
 
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 1, eu);
+    let r = rig_listed(Some(&jev), 1, eu);
     let res = turn(&r.core, None, "Say hello.", None).await;
     assert_eq!(r.claude.requests().len(), 1, "{}", res.output);
 }
@@ -217,7 +238,7 @@ async fn a_pack_naming_a_sensitive_name_is_reported_at_start() {
 /// provider's model with nothing recorded, and is sent to the unrestricted one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_provider_of_the_core_is_behind_the_floor() {
-    let r = rig(None, 2, listed);
+    let r = rig_listed(None, 2, |_| {});
     let req = |model: &str| crate::provider::ProviderRequest {
         model: model.into(),
         max_tokens: 16,
