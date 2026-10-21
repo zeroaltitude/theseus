@@ -1,16 +1,20 @@
-//! The router's question in the chat (theseus-wapgp). A message the router
-//! cannot place waits in the daemon for the owner's word, `[threads]
-//! ask_wait_secs` (900 s) at most, and the chat once said nothing of the
-//! question: the message was echoed and then held for 15 minutes, with every
-//! later message behind it. The chat now shows the question and answers it by
-//! its key.
+//! The router's question and its placing, in the chat (theseus-wapgp,
+//! theseus-0rfjx). A message the router cannot place waits in the daemon for
+//! the owner's word, `[threads] ask_wait_secs` (900 s) at most, and the chat
+//! once said nothing of the question: the message was echoed and then held
+//! for 15 minutes, with every later message behind it. The chat now shows the
+//! question and answers it by its key; a turn the router placed in a thread
+//! says so.
+
+use std::sync::Arc;
 
 use crossterm::event::KeyCode;
 use serde_json::json;
-use theseus_protocol::thread_route::{AskOption, ThreadAsk};
-use theseus_protocol::Event;
+use theseus_protocol::thread_route::{AskOption, RouteHow, ThreadAsk, ThreadTag};
+use theseus_protocol::{Event, TurnSubmitResult};
 
 use super::tests::{Rig, SID, T0};
+use crate::tests::Answer;
 
 /// A message of the length that hung (159 characters and up).
 fn long() -> String {
@@ -104,4 +108,44 @@ async fn an_expired_question_takes_no_keys_and_another_sessions_is_not_shown() {
     )));
     other.advance(100).await;
     assert!(!other.text().contains("security fix"), "{}", other.text());
+}
+
+/// The daemon's script, `turn.submit` answered as a turn the router placed in
+/// the thread `security-fix` (its own session).
+fn placed_script() -> crate::tests::Script {
+    let base = super::tests::script();
+    Arc::new(move |m, p| -> Answer {
+        if m != "turn.submit" {
+            return base(m, p);
+        }
+        let placed = TurnSubmitResult {
+            session_id: "ses_thread_security".into(),
+            turn_id: "turn_t1".into(),
+            output: "Looked at the vault.".into(),
+            model: "claude-sonnet-5-5".into(),
+            elapsed_ms: 900,
+            stop_reason: "done".into(),
+            thread: Some(ThreadTag {
+                slug: Some("security-fix".into()),
+                title: "security fix".into(),
+                how: RouteHow::Quiet,
+                confidence: 0.95,
+                movable: false,
+            }),
+            ..Default::default()
+        };
+        Ok(serde_json::to_value(placed).unwrap())
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_the_router_placed_in_a_thread_says_so() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.type_text("why is the vault build red").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("Looked at the vault.").await;
+    let text = r.text();
+    assert!(text.contains("→ thread security fix"), "{text}");
+    assert!(text.contains("ses_thread_security"), "{text}");
 }

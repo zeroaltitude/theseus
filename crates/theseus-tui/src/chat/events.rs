@@ -669,6 +669,7 @@ impl Chat {
         if self.live.turn.as_ref().is_some_and(|t| t.id == r.turn_id) {
             self.live.turn = None;
         }
+        self.placed_line(r);
         // The loops' answers were told as they ended; a turn told nothing
         // shows its output now.
         if !self.answered_text.remove(&r.turn_id) && !r.output.trim().is_empty() {

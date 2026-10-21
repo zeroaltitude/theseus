@@ -1200,6 +1200,40 @@ async fn a_strangers_answer_does_not_count() {
     );
 }
 
+/// A session the client names with `theseus ask -s` is the owner's choice
+/// (theseus-0rfjx): the router never moves it into a thread, however plainly
+/// the message names one. The same words through a surface that names no
+/// session choice (the chat's own home session) are placed as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_named_with_ask_s_is_never_placed_in_a_thread() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    let pinned = home(c, None);
+    let mut p = params(&pinned, "what is failing in PR 412?", None);
+    p.via = Some("ask".into());
+    let mut w = Wire::open(c);
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(res.session_id, pinned, "it ran in the session it named");
+    assert!(res.thread.is_none(), "no thread took it: {:?}", res.thread);
+    assert!(
+        c.threads().get("pr-round").unwrap().session_id.is_none(),
+        "the thread opened no session for it"
+    );
+    assert!(rows(c, "thread.routed").is_empty());
+    // The chat's own session, on the same words, is placed.
+    let chat = home(c, None);
+    let mut p = params(&chat, "what is failing in PR 412?", None);
+    p.via = Some("tui".into());
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(tag(&res).slug.as_deref(), Some("pr-round"));
+}
+
 /// What `theseus chat` does (theseus-wapgp): one connection sends
 /// `session.typing`, then a long message the router cannot place. The turn
 /// waits in the daemon for the owner's word, and the chat's own answer, sent

@@ -1,4 +1,5 @@
-//! The router's question (theseus-wapgp).
+//! The router's question, and where it placed a message (theseus-wapgp,
+//! theseus-0rfjx).
 //!
 //! A message that names no thread, sent from a place that has threads, finds
 //! its own; when the router cannot tell it asks "which thread?" (`thread.asked`)
@@ -11,10 +12,14 @@
 //! this connection: it is not an ordered request, so the held turn does not
 //! hold it). Anything else is a message, and the question stays until it is
 //! answered, expires, or its turn begins.
+//!
+//! A turn the router placed in a thread says so: `→ thread <title>`, and how
+//! to go there.
 
 use serde_json::json;
 use theseus_protocol::method;
-use theseus_protocol::thread_route::ThreadAsk;
+use theseus_protocol::thread_route::{ThreadAsk, ThreadTag};
+use theseus_protocol::TurnSubmitResult;
 
 use super::state::{call, Chat, Effect, Purpose, AUTHOR};
 use super::style::Sty;
@@ -119,5 +124,29 @@ impl Chat {
     /// The turn began, or its submit failed: the question it waited on is over.
     pub(super) fn thread_ask_over(&mut self) {
         self.thread_ask = None;
+    }
+
+    /// The turn ran in a thread the router chose: say so, and how to go there.
+    pub(super) fn placed_line(&mut self, r: &TurnSubmitResult) {
+        let Some(ThreadTag {
+            slug: Some(_),
+            title,
+            movable,
+            ..
+        }) = r.thread.as_ref()
+        else {
+            return;
+        };
+        self.say_plain(Sty::Cyan, &format!("→ thread {title}"));
+        self.say_words(
+            Sty::Dim,
+            &format!("  go there: theseus chat {}", r.session_id),
+        );
+        if *movable {
+            self.say_words(
+                Sty::Dim,
+                "  a guess: say \"that was for <thread>\" to move it",
+            );
+        }
     }
 }
