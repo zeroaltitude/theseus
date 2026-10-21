@@ -193,7 +193,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
             }
         }
         To::Mode(m) => {
-            let profile = match pick(cfg.classes.of(m), profiles, false, None) {
+            let profile = match pick(cfg.classes.of(m), profiles, false, None, false) {
                 Picked::Profile(p) | Picked::Capped(Some(p)) => p,
                 _ => last.from.clone(),
             };
@@ -461,6 +461,7 @@ mod tests {
                     short_cost: Some(cost),
                     input_per_mtok: Some(cost),
                     vision: true,
+                    restricted: false,
                 },
             );
         }

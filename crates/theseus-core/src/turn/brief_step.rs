@@ -101,6 +101,7 @@ impl TurnRunner {
                 from: None,
                 images: t.route.images,
                 cap,
+                cleared: false,
             },
         )
     }

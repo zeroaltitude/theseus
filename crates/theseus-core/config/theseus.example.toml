@@ -1606,7 +1606,10 @@ max_switches = 2                        # moves per task, up or down
 # session Jev moved up from its own profile goes back to it after two verdicts in a row
 # whose class is its own profile or cheaper (chat, routine_coding); you moving it is yours.
 # [routing.classes.trivial]
-# profiles = ["haiku", "glm", "cheapest"]
+# profiles = ["haiku", "cheapest"]
+# China-origin profiles, only for a request that carries open content; trivial only
+# cn_profiles = ["glm"]
+# cn_after = "haiku"
 # switch_confidence = 0.4
 # [routing.classes.quick]                 # a quick question a short, direct answer settles
 # profiles = ["haiku"]

@@ -61,6 +61,8 @@ pub mod checkpoint;
 pub mod data;
 pub mod effort;
 pub mod personal;
+#[cfg(test)]
+mod tests_cn;
 pub use data::DataAnswer;
 pub use personal::PersonalAnswer;
 
@@ -207,6 +209,9 @@ pub struct Profile {
     /// The catalog's input price per million tokens (none: unpriced).
     pub input_per_mtok: Option<f64>,
     pub vision: bool,
+    /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask,
+    /// and only when a class names it in `cn_profiles` (theseus-a1wvq.4).
+    pub restricted: bool,
 }
 
 /// What a `turn.submit` names that is the owner's choice: a provider or a
@@ -238,8 +243,11 @@ pub fn short_cost(e: &CatalogEntry) -> f64 {
 pub type Profiles = BTreeMap<String, Profile>;
 
 impl Profile {
-    fn runs(&self, images: bool) -> bool {
-        self.unusable.is_none() && self.short_cost.is_some() && (self.vision || !images)
+    fn runs(&self, images: bool, cleared: bool) -> bool {
+        self.unusable.is_none()
+            && self.short_cost.is_some()
+            && (self.vision || !images)
+            && (!self.restricted || cleared)
     }
 }
 
@@ -257,11 +265,13 @@ pub enum Picked {
     Fallback,
 }
 
-/// The cheapest usable profile for a short turn, within `cap` (dollars).
+/// The cheapest usable profile for a short turn, within `cap` (dollars). A
+/// restricted profile is never the cheapest, cleared or not (`runs` with no
+/// clearance): it enters a class only by name (theseus-a1wvq.4).
 pub fn cheapest(profiles: &Profiles, images: bool, cap: Option<f64>) -> Option<String> {
     profiles
         .iter()
-        .filter(|(_, p)| p.runs(images))
+        .filter(|(_, p)| p.runs(images, false))
         .filter(|(_, p)| within(p, cap))
         .min_by(|a, b| {
             a.1.short_cost
@@ -279,8 +289,15 @@ fn within(p: &Profile, cap: Option<f64>) -> bool {
     }
 }
 
-/// A mode's list, walked: its first usable profile within the cap.
-pub fn pick(list: &[String], profiles: &Profiles, images: bool, cap: Option<f64>) -> Picked {
+/// A mode's list, walked: its first usable profile within the cap. A
+/// restricted profile is usable only when `cleared`.
+pub fn pick(
+    list: &[String],
+    profiles: &Profiles,
+    images: bool,
+    cap: Option<f64>,
+    cleared: bool,
+) -> Picked {
     if list.is_empty() {
         return Picked::Own;
     }
@@ -292,7 +309,7 @@ pub fn pick(list: &[String], profiles: &Profiles, images: bool, cap: Option<f64>
         } else {
             profiles
                 .get(name)
-                .filter(|p| p.runs(images))
+                .filter(|p| p.runs(images, cleared))
                 .map(|_| name.clone())
         };
         let Some(found) = found else { continue };
@@ -321,7 +338,12 @@ pub const GUARDED: [&str; 2] = ["sophisticated", "review"];
 /// A mode's list without the profiles the guard skips: each usable one
 /// whose input price is above the next usable one's. None when it skips
 /// none. The last usable profile is never skipped.
-fn dear_guard(list: &[String], profiles: &Profiles, images: bool) -> Option<Vec<String>> {
+fn dear_guard(
+    list: &[String],
+    profiles: &Profiles,
+    images: bool,
+    cleared: bool,
+) -> Option<Vec<String>> {
     let usable: Vec<(usize, &Profile)> = list
         .iter()
         .enumerate()
@@ -332,7 +354,7 @@ fn dear_guard(list: &[String], profiles: &Profiles, images: bool) -> Option<Vec<
             }?;
             profiles
                 .get(&found)
-                .filter(|p| p.runs(images))
+                .filter(|p| p.runs(images, cleared))
                 .map(|p| (i, p))
         })
         .collect();
@@ -369,6 +391,9 @@ pub struct Ask<'a> {
     pub images: bool,
     /// The place's profile's short-turn cost, when a place caps it.
     pub cap: Option<f64>,
+    /// An open request can be built for this ask, so a restricted profile may
+    /// run (false until the open-request row, theseus-a1wvq.8).
+    pub cleared: bool,
 }
 
 /// The `mode` of the [`Hold`] a step back down sets (theseus-p8dy).
@@ -402,7 +427,7 @@ pub struct Decision {
 /// turn holds toward the base; the second, which finds that hold, switches.
 fn step_down(profiles: &Profiles, a: &Ask<'_>, picked: &Picked) -> Option<Decision> {
     let from = a.from.filter(|f| *f != a.base)?;
-    let base = profiles.get(from).filter(|p| p.runs(a.images))?;
+    let base = profiles.get(from).filter(|p| p.runs(a.images, a.cleared))?;
     let (cur, base_cost) = (profiles.get(a.base)?.short_cost?, base.short_cost?);
     if cur <= base_cost + 1e-12 {
         return None;
@@ -461,14 +486,14 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
         return stay(Reason::Unsure, keep_or_clear);
     }
-    let list = cfg.classes.of(&a.verdict.mode);
+    let list = cfg.classes.effective(&a.verdict.mode, a.cleared);
     let kept = (GUARDED.contains(&a.verdict.mode.as_str())
         && a.est_tokens > cfg.dear_tier_max_tokens)
-        .then(|| dear_guard(list, profiles, a.images))
+        .then(|| dear_guard(&list, profiles, a.images, a.cleared))
         .flatten();
-    let picked = pick(list, profiles, a.images, a.cap);
+    let picked = pick(&list, profiles, a.images, a.cap, a.cleared);
     let guarded = kept
-        .map(|k| pick(&k, profiles, a.images, a.cap))
+        .map(|k| pick(&k, profiles, a.images, a.cap, a.cleared))
         .filter(|g| *g != picked);
     let (picked, guard) = match guarded {
         Some(g) => (g, true),
@@ -544,7 +569,7 @@ pub fn steer_to(
         hold: HoldNext::Clear,
     };
     match profiles.get(profile) {
-        Some(p) if !p.runs(a.images) => return stay(Reason::Fallback),
+        Some(p) if !p.runs(a.images, a.cleared) => return stay(Reason::Fallback),
         Some(p) if !within(p, a.cap) => return stay(Reason::Capped),
         Some(_) => {}
         None => return stay(Reason::Fallback),
@@ -594,10 +619,13 @@ mod tests {
             short_cost: Some(cost),
             input_per_mtok: None,
             vision,
+            restricted: false,
         }
     }
 
-    /// The template's five, at their catalog costs for a short turn.
+    /// The template's five, at their catalog costs for a short turn. They stay
+    /// `restricted: false`: these fixtures weigh cost order, not origin
+    /// (`tests_cn` marks the `zai` ones restricted).
     pub(super) fn five() -> Profiles {
         let c = crate::catalog::Catalog::builtin();
         let mut out = Profiles::new();
@@ -641,6 +669,7 @@ mod tests {
             from: None,
             images: false,
             cap: None,
+            cleared: false,
         }
     }
 
@@ -650,39 +679,39 @@ mod tests {
         let mut ps = five();
         let list = |m: &str| cfg.classes.of(m).to_vec();
         assert_eq!(
-            pick(&list("sophisticated"), &ps, false, None),
+            pick(&list("sophisticated"), &ps, false, None, false),
             Picked::Profile("opus".into())
         );
         assert_eq!(
-            pick(&list("deep_coding"), &ps, false, None),
+            pick(&list("deep_coding"), &ps, false, None, false),
             Picked::Profile("opus".into())
         );
         // routine_coding's `haikuhi` is not one of the five: `sonnet`.
         assert_eq!(
-            pick(&list("routine_coding"), &ps, false, None),
+            pick(&list("routine_coding"), &ps, false, None, false),
             Picked::Profile("sonnet".into())
         );
-        assert_eq!(pick(&list("chat"), &ps, false, None), Picked::Own);
-        assert_eq!(pick(&list("other"), &ps, false, None), Picked::Own);
+        assert_eq!(pick(&list("chat"), &ps, false, None, false), Picked::Own);
+        assert_eq!(pick(&list("other"), &ps, false, None, false), Picked::Own);
         // The first unusable: the next.
         ps.get_mut("opus").unwrap().unusable = Some("key");
         assert_eq!(
-            pick(&list("sophisticated"), &ps, false, None),
+            pick(&list("sophisticated"), &ps, false, None, false),
             Picked::Profile("fable".into())
         );
         assert_eq!(
-            pick(&list("deep_coding"), &ps, false, None),
+            pick(&list("deep_coding"), &ps, false, None, false),
             Picked::Profile("sonnet".into())
         );
         // An image: glm-5.3 reads none, so glm (5.3 Flash) takes it.
         assert_eq!(
-            pick(&["glm53".into(), "glm".into()], &ps, true, None),
+            pick(&["glm53".into(), "glm".into()], &ps, true, None, false),
             Picked::Profile("glm".into())
         );
         // None usable: the session's own.
         ps.get_mut("fable").unwrap().short_cost = None;
         assert_eq!(
-            pick(&list("sophisticated"), &ps, false, None),
+            pick(&list("sophisticated"), &ps, false, None, false),
             Picked::Fallback
         );
         let d = decide(
@@ -696,7 +725,7 @@ mod tests {
         );
         // Unconfigured names are passed over.
         assert_eq!(
-            pick(&["nope".into(), "glm".into()], &ps, false, None),
+            pick(&["nope".into(), "glm".into()], &ps, false, None, false),
             Picked::Profile("glm".into())
         );
     }
@@ -711,7 +740,7 @@ mod tests {
         assert_eq!(cheapest(&ps, true, None).as_deref(), Some("sonnet"));
         let cfg = RoutingConfig::default();
         assert_eq!(
-            pick(cfg.classes.of("trivial"), &ps, false, None),
+            pick(cfg.classes.of("trivial"), &ps, false, None, false),
             Picked::Profile("glm53".into())
         );
     }
@@ -778,7 +807,7 @@ mod tests {
     }
 
     /// The five with the template's Haiku 5.5 profiles (theseus-3okf).
-    fn seven() -> Profiles {
+    pub(super) fn seven() -> Profiles {
         let c = crate::catalog::Catalog::builtin();
         let e = c.get("claude-haiku-5-5").unwrap();
         let mut out = five();

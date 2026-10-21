@@ -166,7 +166,9 @@ cache_ttl = "1h"
 max_wait_ms = 300
 
 [routing.modes.trivial]
-profiles = ["haiku", "glm"]
+profiles = ["haiku"]
+cn_profiles = ["glm"]
+cn_after = "haiku"
 
 [routing.modes.sophisticated]
 profiles = ["opus", "fable"]

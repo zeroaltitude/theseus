@@ -1498,6 +1498,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
+    **China-origin profiles** (theseus-a1wvq.4; `config/routing_cn.rs`, `routing/tests_cn.rs`): a restricted profile (origin `cn`
+    or `unknown`) enters a class only through `trivial`'s `cn_profiles` (`cn_after` places them; `RoutingClasses::effective`)
+    and runs only for a cleared ask (`Ask.cleared`, false until the open-request row), `cheapest` never picks one, and a
+    class's `profiles` naming one fails the load, as does `cn_profiles` on any other class.
     **Only Jev elevates, and it steps down** (theseus-p8dy): a session Jev moved above its base (`Routed.from`)
     goes back to it after two verdicts in a row whose mode's first profile is the base or cheaper (`chat`,
     `routine_coding`, `other`): the first sets a `Hold` of mode `step_down` toward the base, the second makes the
