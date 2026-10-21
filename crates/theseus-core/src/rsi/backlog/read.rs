@@ -150,6 +150,27 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// A producer's name for a key, whole: `provider:anthropic`, `inproc:fs.read`.
+/// A producer is `<kind>[:<name>]`; [`word`] stops at the first `:`, which
+/// folded every provider's failed calls into one `provider` cause, a key that
+/// names no provider and so no place to look. Each part is a word; at most
+/// three parts; `unknown` when it has none.
+fn producer_word(v: &Value) -> String {
+    let parts: Vec<String> = v
+        .as_str()
+        .unwrap_or("")
+        .split(':')
+        .filter(|p| !p.trim().is_empty())
+        .take(3)
+        .map(|p| word(&Value::from(p)))
+        .collect();
+    if parts.is_empty() {
+        "unknown".into()
+    } else {
+        parts.join(":")
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,7 +195,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
-            let p = word(&d["producer"]);
+            let p = producer_word(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
             o.note = format!(
@@ -467,5 +488,47 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: Value) -> LedgerRow {
+        LedgerRow {
+            at_unix_ms: 1,
+            kind: "action.failed".into(),
+            session_id: None,
+            turn_id: None,
+            data: json!({"producer": producer, "correlation_id": "act_1", "duration_ms": 200}),
+        }
+    }
+
+    #[test]
+    fn failed_calls_are_keyed_by_the_provider_not_by_provider() {
+        let a = of_row(1, &failed(json!("provider:anthropic"))).unwrap();
+        let z = of_row(2, &failed(json!("provider:zai"))).unwrap();
+        assert_eq!(a.key, "action.failed:provider:anthropic");
+        assert_eq!(a.title, "Calls from provider:anthropic fail");
+        assert_eq!(z.key, "action.failed:provider:zai");
+        assert_ne!(a.key, z.key, "two providers are two causes");
+    }
+
+    #[test]
+    fn a_producer_without_a_name_keeps_its_key() {
+        assert_eq!(
+            of_row(1, &failed(json!("proc"))).unwrap().key,
+            "action.failed:proc"
+        );
+        assert_eq!(
+            of_row(1, &failed(json!("inproc:fs.read"))).unwrap().key,
+            "action.failed:inproc:fs.read"
+        );
+        assert_eq!(
+            of_row(1, &failed(json!(null))).unwrap().key,
+            "action.failed:unknown"
+        );
     }
 }
