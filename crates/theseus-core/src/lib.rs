@@ -274,8 +274,6 @@ mod tests_defer;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
-mod tests_home_size;
-#[cfg(test)]
 mod tests_effort_sticky;
 #[cfg(test)]
 mod tests_egress;
@@ -307,6 +305,8 @@ mod tests_glide;
 mod tests_grants;
 #[cfg(test)]
 mod tests_harness;
+#[cfg(test)]
+mod tests_home_size;
 #[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
