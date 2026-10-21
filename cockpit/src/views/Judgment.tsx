@@ -18,7 +18,7 @@
 // - Jev's live notices (step 24's notices: `security.v3` sure an open call was risky) are the Notices panel: the
 //   newest `tool.notified` rows `by: judge`, read while it is open, each with its label buttons, and health's word on
 //   them (on, paused until a day and why, or off).
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { BellRing, GitCompare, Undo2, GraduationCap, Gavel, ListFilter, Scale, TrendingUp } from 'lucide-react'
 import type { Health, JudgeGetResult, JudgeListResult, LedgerEntry } from '@protocol'
@@ -36,6 +36,8 @@ import { PackVersions } from '@/components/PackVersions'
 import { Corrections } from '@/components/Corrections'
 import { packLine } from '@/lib/packs'
 import { localDay } from '@/lib/learning'
+import { ONTO_PACK, ontoLine, ontoStatsOf } from '@/lib/ontostats'
+import { useHistoryRows } from '@/lib/history'
 import { noticeWords } from '@/lib/scores'
 
 type D = Record<string, any>
@@ -68,6 +70,10 @@ export default function Judgment() {
   const all = useMemo(() => (list?.judgments ?? []).map(judged), [list])
   const shown = useMemo(() => (world ? all.filter((j) => j.at <= world.t) : all), [all, world])
   const stats = useMemo(() => packStats(shown), [shown])
+  // The ontology pack's line (theseus-wzvxp): its judgments, acts, confirms and undos, counted over the ledger's own rows (the
+  // judgments read above are a window of 500), as of the moment under the time machine.
+  const { rows: ledger } = useHistoryRows()
+  const onto = useMemo(() => ontoStatsOf(world ? ledger.filter((r) => r.at_unix_ms <= world.t) : ledger), [ledger, world])
   const modes = useMemo(() => {
     const m = new Map<string, string>()
     for (const p of health?.judge?.packs ?? []) { const { pack, mode } = packLine(p); m.set(pack, mode) }
@@ -101,7 +107,8 @@ export default function Judgment() {
                 {packs.map((p) => {
                   const s = stats.find((x) => x.pack === p)
                   return (
-                    <tr key={p} className={cn('cursor-pointer border-t border-line hover:bg-gold/5', pack === p && 'bg-live/5')} onClick={() => set('pack', pack === p ? null : p)}>
+                    <Fragment key={p}>
+                    <tr className={cn('cursor-pointer border-t border-line hover:bg-gold/5', pack === p && 'bg-live/5')} onClick={() => set('pack', pack === p ? null : p)}>
                       <td className="num px-3 py-1.5 text-ink">{p}</td>
                       <td className="px-2"><Pill tone={modes.get(p) === 'off' ? 'idle' : modes.get(p) === 'shadow' ? 'think' : modes.get(p) === 'rolled back' ? 'fault' : 'live'}>{modes.get(p) ?? 'not wired'}</Pill></td>
                       <td className="num px-2">{s ? `v${s.version}` : '—'}</td>
@@ -111,6 +118,8 @@ export default function Judgment() {
                         {s?.classes.length ? s.classes.map((c) => `${c.cls} ${ms(c.p50)} / ${ms(c.p95)} (${c.calls})`).join(' · ') : '—'}
                       </td>
                     </tr>
+                    {p === ONTO_PACK && <tr><td colSpan={6} className="num px-3 pb-1.5 text-[11px] text-ink-faint">{ontoLine(onto)}</td></tr>}
+                    </Fragment>
                   )
                 })}
               </tbody>

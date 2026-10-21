@@ -316,7 +316,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Judgment
   'judgment.main': e(
     'Show how Jev, the judge inside the loop, is doing, pack by pack.',
-    'One row per pack: its rung (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work.',
+    'One row per pack: its rung (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work. Under the ontology pack’s row, one line counts its judgments, the ones that acted (filed a category or attached a project), the ones that only asked, and the writes you took back, with the undo rate over the acts.',
     'A pack in shadow is being tested before it can act. Slow or costly judgments are paid for on every turn they run in.'),
   'judgment.log': e(
     'List the judgments Jev made, so you can find and read one.',
