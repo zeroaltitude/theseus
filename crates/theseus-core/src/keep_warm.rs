@@ -599,6 +599,9 @@ impl TurnRunner {
                 b.target.provider
             ));
         };
+        // The read sends the session's own prefix: the floor holds it as it
+        // holds the session's turns.
+        let provider = crate::google::private::for_session(provider, &self.store, &self.cfg, sid);
         let est = crate::compiler::estimate(
             &b.request,
             crate::catalog::TokenRates::of(&b.target.model),

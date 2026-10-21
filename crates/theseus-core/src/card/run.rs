@@ -251,7 +251,20 @@ impl Core {
             }
         };
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let answered = job.provider.stream_message(&request, &mut quiet).await;
+        // The request holds every shown cluster's episodes: it is private
+        // when any episode's session is.
+        let sessions = shown.iter().flat_map(|s| {
+            s.episodes
+                .iter()
+                .map(|(_, i)| job.scan.episodes[*i].session_id.as_str())
+        });
+        let provider = crate::google::private::over_sessions(
+            job.provider.clone(),
+            &self.store,
+            &self.cfg,
+            sessions,
+        );
+        let answered = provider.stream_message(&request, &mut quiet).await;
         let cost = answered
             .as_ref()
             .map_or(need, |r| self.runner.priced(r, &job.target.model, need));

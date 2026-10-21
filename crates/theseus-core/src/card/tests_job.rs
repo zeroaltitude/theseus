@@ -709,3 +709,31 @@ fn a_proposal_round_trips() {
     let v = serde_json::to_value(&p).unwrap();
     assert_eq!(serde_json::from_value::<CardProposal>(v).unwrap(), p);
 }
+
+/// A card request holds the shown clusters' episodes together: when the
+/// session of any one read a Google result, the floor holds the whole
+/// request and nothing is proposed (theseus-a1wvq.10).
+#[tokio::test]
+async fn a_run_over_a_private_session_sends_nothing_to_a_non_us_model() {
+    for private in [1, 5] {
+        let r = rig(vec![two()], crate::tests_private_background::private_on);
+        archive(&r).await;
+        let scan = super::evidence::scan(&r.core.store).unwrap();
+        let of = scan
+            .episodes
+            .iter()
+            .find(|e| e.id == fixture::id_of(private))
+            .unwrap();
+        crate::tests_private_background::mark(&r.core, &of.session_id);
+        let got = propose(&r).await;
+        assert!(got.proposed.is_empty(), "episode {private}: {got:?}");
+        assert!(r.fake.requests().is_empty(), "nothing was sent");
+    }
+}
+
+#[tokio::test]
+async fn a_run_over_plain_sessions_still_proposes_on_a_non_us_model() {
+    let r = rig(vec![two()], crate::tests_private_background::private_on);
+    archive(&r).await;
+    assert_eq!(propose(&r).await.proposed.len(), 2);
+}

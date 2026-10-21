@@ -253,6 +253,10 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .with_context(|| format!("the provider {:?} is not configured", target.provider))?;
+        // The replay sends the turn's own request again: its session's mark
+        // holds it.
+        let provider =
+            crate::google::private::for_session(provider, &self.store, &self.cfg, &p.session);
         let request = self.replay_request(p, &original, &target, effort);
         let (replay, cost, whole_done, original_said) = if whole {
             let done = self
