@@ -24,7 +24,7 @@ use crate::provider::{
     DeltaSink, FakeProvider, Provider, ProviderError, ProviderFuture, ProviderRequest, Scripted,
 };
 use crate::push::WorkScope;
-use crate::test_support::until_within as until;
+use crate::test_support::{board_caught_up, until_within as until};
 use crate::{Config, Core};
 
 const TARGET: &str = "discord:dm:42";
@@ -510,6 +510,8 @@ async fn the_agenda_expands_a_series_by_the_kernels_arithmetic_and_skips_what_is
     rpc(&r.core, "routine.pause", json!({"id": id}))
         .await
         .unwrap();
+    // The board applies a committed frame after the call returns (theseus-t0y6v).
+    board_caught_up(&r.core, &id).await;
     let paused = agenda(&r.core, now, now + 14 * 24 * HOUR).await;
     assert!(
         !paused.lines.iter().any(|l| l.kind == WorkKind::Routine),
@@ -523,7 +525,8 @@ async fn the_agenda_expands_a_series_by_the_kernels_arithmetic_and_skips_what_is
     rpc(&r.core, "routine.delete", json!({"id": id}))
         .await
         .unwrap();
-    made_routine(&r.core, "every 1m").await;
+    let minute = made_routine(&r.core, "every 1m").await;
+    board_caught_up(&r.core, minute["id"].as_str().unwrap()).await;
     let busy = agenda(&r.core, now, now + 2 * 24 * HOUR).await;
     assert_eq!(busy.lines.len(), AGENDA_MAX);
     assert!(busy.more);
