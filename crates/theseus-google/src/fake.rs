@@ -17,6 +17,9 @@ use tokio::net::TcpListener;
 use crate::http1::{read_request, write_response, Req};
 use crate::scopes::Service;
 
+mod sheets;
+mod slides;
+
 /// A canned answer.
 #[derive(Debug, Clone)]
 pub struct Reply {
@@ -83,6 +86,8 @@ struct Inner {
     failures: VecDeque<Reply>,
     disabled: Option<(Service, String)>,
     forms: Vec<std::collections::BTreeMap<String, String>>,
+    sheets: sheets::State,
+    slides: slides::State,
 }
 
 pub struct Fake {
@@ -124,6 +129,8 @@ impl Fake {
             failures: VecDeque::new(),
             disabled: None,
             forms: Vec::new(),
+            sheets: Default::default(),
+            slides: Default::default(),
         }));
         let me = inner.clone();
         let task = tokio::spawn(async move {
@@ -334,6 +341,14 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
         .rev()
         .find(|(v, p, _)| *v == req.method && p == req.path())
         .map(|(_, _, h)| h.clone());
+    if handler.is_none() {
+        // The services' own stubs, behind a test's routes.
+        if let Some(r) =
+            sheets::answer(&mut i.sheets, req).or_else(|| slides::answer(&mut i.slides, req))
+        {
+            return r;
+        }
+    }
     let account = i.account.clone();
     drop(i);
     if let Some(h) = handler {

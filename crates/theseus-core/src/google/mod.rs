@@ -39,6 +39,8 @@ pub mod call;
 pub mod external;
 pub mod private;
 pub mod send_cap;
+pub mod sheets;
+pub mod slides;
 pub mod tend;
 
 #[cfg(test)]
@@ -51,11 +53,13 @@ mod tests_config;
 mod tests_gate;
 #[cfg(test)]
 mod tests_private;
+#[cfg(test)]
+mod tests_sheets_slides;
 
 pub use external::{finish, Finished, Source};
 
 /// The Google tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 1] = [call::NAME];
+pub const NAMES: [&str; 4] = [call::NAME, sheets::READ, sheets::WRITE, slides::WRITE];
 
 /// How long a call waits for the account's check, as a turn waits for a secret.
 pub const BIND_WAIT: Duration = Duration::from_secs(30);
@@ -208,7 +212,9 @@ impl Google {
         //
         // gw-drive: all.extend(drive::tools(self));
         //
-        // gw-sheets-slides: all.extend(sheets::tools(self)); all.extend(slides::tools(self));
+        // gw-sheets-slides:
+        all.extend(sheets::tools(self));
+        all.extend(slides::tools(self));
         //
         // gw-calendar: all.extend(calendar::tools(self));
         //

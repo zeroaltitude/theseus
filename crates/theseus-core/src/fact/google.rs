@@ -72,7 +72,9 @@ impl Fact for GoogleRevoked<'_> {
 /// (`google::Google::call` made it): recorded with the result, so a call that
 /// failed is a row too. Nothing for any other tool's result.
 pub fn of_result(rec: &super::Rec<'_>, meta: &Value) {
-    if let Some(row) = meta.get("google_called") {
+    // A tool that made two calls carries the earlier rows beside the last.
+    let also = meta["google_called_also"].as_array().into_iter().flatten();
+    for row in also.chain(meta.get("google_called")) {
         rec.record(&GoogleCalled { row });
     }
 }
