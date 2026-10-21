@@ -26,8 +26,6 @@ use theseus_ontology::{
 };
 
 use theseus_protocol::LedgerKind;
-use theseus_store::pages::ledger_kind;
-use theseus_store::{kinds, Page, Store as _};
 
 use super::sweep::Swept;
 use crate::ledger::LedgerRow;
@@ -244,28 +242,13 @@ fn mint(
 }
 
 impl Core {
-    /// The `other` steps of the window's `onto.filed` rows, by kind through
-    /// the store's pages. `None` while the index's shape is built after a
-    /// start: the next run reads them.
+    /// The `other` steps of the window's `onto.filed` rows; none while the
+    /// index's shape is built after a start: the next run reads them.
     fn onto_said(&self, now_ms: u64) -> anyhow::Result<Option<Vec<Said>>> {
         let since = now_ms.saturating_sub(WINDOW_MS);
-        let page = Page {
-            kind: kinds::LEDGER,
-            tags: vec![ledger_kind(LedgerKind::OntoFiled.as_str())],
-            since_ms: Some(since),
-            limit: usize::MAX / 2,
-            ..Page::default()
-        };
-        let Some(out) = self.store.inner().page(&page)? else {
-            return Ok(None);
-        };
-        let rows: Vec<LedgerRow> = out
-            .records
-            .iter()
-            .filter_map(|r| r.decode::<LedgerRow>().ok())
-            .filter(|r| r.at_unix_ms >= since)
-            .collect();
-        Ok(Some(said_of(&rows)))
+        Ok(self
+            .onto_rows(LedgerKind::OntoFiled, since)?
+            .map(|rows| said_of(&rows)))
     }
 
     /// The kinds the window's `other` answers mint, each one machine write of

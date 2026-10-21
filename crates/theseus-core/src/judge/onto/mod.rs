@@ -41,6 +41,7 @@ use crate::node::AttachmentContent;
 use crate::rpc::Core;
 
 pub mod decide;
+pub mod digest;
 pub mod judged;
 pub mod mark;
 pub mod mint;

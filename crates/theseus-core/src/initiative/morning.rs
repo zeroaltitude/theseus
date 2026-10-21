@@ -104,7 +104,8 @@ impl Core {
     }
 
     /// What happened in the last day, as the note's facts: none, nothing to say.
-    pub(crate) fn morning_facts(&self, now: u64) -> Option<(String, u64)> {
+    /// `ontology` is how many writes the night's sweep and dream made.
+    pub(crate) fn morning_facts(&self, now: u64, ontology: u64) -> Option<(String, u64)> {
         let since = now.saturating_sub(DAY_MS);
         let count = |k| {
             self.synthesis_rows(k, Some(since))
@@ -122,6 +123,7 @@ impl Core {
                 count(LedgerKind::SynthesisProposed),
                 "memory notes proposed",
             ),
+            (ontology, "ontology changes by the night's sweep and dream"),
         ];
         let total: u64 = items.iter().map(|(n, _)| n).sum();
         if total == 0 {
@@ -140,8 +142,11 @@ impl Core {
     }
 
     async fn morning_note(self: &Arc<Self>, day: &str, now: u64) {
-        if let Some((brief, n)) = self.morning_facts(now) {
-            let spoken = self
+        // The ontology's writes go in verbatim after the voiced words: the
+        // model never rewords an undo id (theseus-0umqz).
+        let ontology = self.onto_night_lines(now);
+        if let Some((brief, n)) = self.morning_facts(now, ontology.len() as u64) {
+            let mut spoken = self
                 .initiative_speak(&Facts {
                     kind: "morning",
                     brief: &brief,
@@ -149,6 +154,9 @@ impl Core {
                     n,
                 })
                 .await;
+            if !ontology.is_empty() {
+                spoken.text = format!("{}\n\n{}", spoken.text, ontology.join("\n"));
+            }
             if let Err(e) = self.initiative_post("morning", &spoken) {
                 tracing::warn!(error = %format!("{e:#}"), "the morning note was not written");
             }
