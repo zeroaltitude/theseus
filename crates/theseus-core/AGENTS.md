@@ -563,6 +563,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   early judgment's rows carry the home session. Tests: `rpc/tests_thread_route.rs`, `thread_route::tests`,
   theseus-judge's `tests_threads.rs`; the 40-message fixture `fixtures/thread_route_40.json` is also
   `scripts/thread-route-check.py`'s input.
+  **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`.
+  **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` is routed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
+  **A lone thread offers a new one** (theseus-98bz.7; `thread_route::lone_offer`, `[threads] single_offers_new`): with one live thread below the confirm bar and two or more entities no working set holds, the message is asked about (the thread, new, home); a spoken turn runs at home. Tests: `rpc/tests_thread_lone.rs`.
 - **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): a thread's session is a private conversation, so the
   keep-warm reads it as it reads any; what differs is who is kept. An active thread whose owner wrote within `[threads]
   keep_warm_hours` (4; 0 keeps none), the shorter of that and the profile's window, never a paused or done one:

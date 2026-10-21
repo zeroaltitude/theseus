@@ -186,6 +186,8 @@ mod tests_thread_keep_warm;
 #[cfg(test)]
 mod tests_thread_link;
 #[cfg(test)]
+mod tests_thread_lone;
+#[cfg(test)]
 mod tests_thread_mix;
 #[cfg(test)]
 mod tests_thread_recall;

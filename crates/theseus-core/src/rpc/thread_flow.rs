@@ -40,8 +40,9 @@ use crate::judge::inbound::{
 use crate::session::SessionRecord;
 use crate::thread_flow::{Answered, Handoff, Pending, Routed};
 use crate::thread_route::{
-    address, decide, decide_single, decisive, new_entities, pre_route, propose, question,
-    top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre, Rules, Voice,
+    address, decide, decide_single, decisive, lone_offer, new_entities, pre_route, propose,
+    question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre,
+    Rules, Voice,
 };
 
 /// How many characters of the waiting message a question shows.
@@ -344,7 +345,15 @@ impl Core {
             .map(|x| (x.slug.clone(), x.score, x.hits.clone()))
             .collect();
         let tag = if live.len() < 2 {
-            decide_single(live, &pre)
+            match self.offer_beside_one(p, live, &pre) {
+                None => decide_single(live, &pre),
+                // As below: a spoken turn is never held for a question.
+                Some(_) if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
+                Some(ask) => {
+                    self.ask_thread(ask, p, conn, (home, place), live, row)
+                        .await
+                }
+            }
         } else if decisive(&pre) {
             let top = pre
                 .iter()
@@ -376,6 +385,26 @@ impl Core {
             }
         };
         (tag, pre)
+    }
+
+    /// A place's one live thread, which the message is not clearly about,
+    /// beside a new stream (theseus-98bz.7): the ask that offers the thread,
+    /// a new one and home, under `[threads] single_offers_new`.
+    fn offer_beside_one(
+        &self,
+        p: &TurnSubmitParams,
+        live: &[&ThreadInfo],
+        pre: &[Pre],
+    ) -> Option<Decision> {
+        if !self.cfg.threads.single_offers_new || pre.first()?.score >= crate::thread_route::CONFIRM
+        {
+            return None;
+        }
+        let board = self.threads();
+        let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
+        let (title, _) = propose(&p.input, &taken);
+        let every = self.cfg.threads.ask_every_thread;
+        lone_offer(live, pre, new_entities(&p.input, live), &title, every)
     }
 
     /// The misroute guard for a placement below the act bar: the turn's first

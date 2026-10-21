@@ -81,6 +81,11 @@
 //!   carrying `route_at_ms` is routed at that clock (stickiness and the reply
 //!   chain read the bench's gaps) and is placed even when `ask -s` named its
 //!   session; off, such a submit is refused. Off in every real config.
+//! - `single_offers_new` (true; theseus-98bz.7): in a place with one live
+//!   thread, a message the thread scores below the confirm bar that names two
+//!   or more entities no working set holds is asked about (the thread, a new
+//!   one, or home), as a place with two would; a spoken turn still runs at
+//!   home. Off, it runs at home unasked, as before.
 //! - `resume_keep_turns`: the newest turns a thread keeps whole when its next
 //!   message finds its cache gone (6; `thread-context`).
 //! - `working_tokens`: what a thread's request stays within after such a cold
@@ -159,6 +164,8 @@ pub struct ThreadsConfig {
     pub working_set_grows: bool,
     #[serde(default)]
     pub bench_clock: bool,
+    #[serde(default = "default_true")]
+    pub single_offers_new: bool,
     #[serde(default = "default_resume_keep_turns")]
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
@@ -239,6 +246,7 @@ impl Default for ThreadsConfig {
             ask_every_thread: true,
             working_set_grows: true,
             bench_clock: false,
+            single_offers_new: true,
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
             persona_engage: PersonaEngage::default(),
@@ -486,5 +494,16 @@ mod tests {
         assert!(crate::Config::EXAMPLE_TOML.contains("# bench_clock = false"));
         let on = crate::Config::from_toml("[threads]\nbench_clock = true\n").unwrap();
         assert!(on.threads.bench_clock);
+    }
+
+    /// A lone thread offers a new one (theseus-98bz.7) by default, named in the
+    /// template, and the switch turns it off.
+    #[test]
+    fn a_lone_thread_offers_a_new_one_by_default_and_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.single_offers_new && ThreadsConfig::default().single_offers_new);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# single_offers_new = true"));
+        let off = crate::Config::from_toml("[threads]\nsingle_offers_new = false\n").unwrap();
+        assert!(!off.threads.single_offers_new);
     }
 }

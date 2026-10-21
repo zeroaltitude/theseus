@@ -924,6 +924,24 @@ pub fn decide_single(threads: &[&ThreadInfo], pre: &[Pre]) -> ThreadTag {
     }
 }
 
+/// A place with one live thread offers a new one (theseus-98bz.7): when the
+/// thread's score is below the confirm bar and the message names two or more
+/// entities no working set holds (`new_entities`), the owner is asked: the
+/// thread, a new one titled `new_title`, or home. Otherwise none, and
+/// [`decide_single`] decides as before.
+pub fn lone_offer(
+    threads: &[&ThreadInfo],
+    pre: &[Pre],
+    new_entities: usize,
+    new_title: &str,
+    every: bool,
+) -> Option<Decision> {
+    let p = pre.first()?;
+    (p.score < CONFIRM && new_entities >= 2).then(|| Decision::Ask {
+        options: ask_options(threads, &fuse(pre, None), Some(new_title), every),
+    })
+}
+
 /// A title and a slug for a new thread, from the message: its first few
 /// content words.
 pub fn propose(text: &str, taken: &[&str]) -> (String, String) {
@@ -1650,6 +1668,46 @@ mod tests {
         assert_eq!((v.how, v.movable), (RouteHow::Visible, true));
         let h = decide_single(&t, &pre_with(&[("pr-round", 0.2)]));
         assert_eq!((h.how, h.slug), (RouteHow::Home, None));
+    }
+
+    /// A lone thread offers a new one (theseus-98bz.7): below the confirm bar,
+    /// with two entities no working set holds, the ask lists the thread, a new
+    /// one and home; a message the thread holds, or one naming fewer new
+    /// entities, is left to `decide_single` as before.
+    #[test]
+    fn a_lone_thread_offers_a_new_one_beside_it() {
+        let tarn = ws(&[], &[], &[], &[], &[], &["tarnlib"]);
+        let all = [th("tarnlib-work", "tarnlib work", tarn)];
+        let t = refs(&all);
+        let msg = "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214";
+        let pre = pre_route(msg, &t, None, 0, 600_000);
+        assert!(pre[0].score < CONFIRM);
+        let n = new_entities(msg, &t);
+        assert_eq!(n, 2);
+        let Some(Decision::Ask { options }) = lone_offer(&t, &pre, n, "homesvc maintenance", true)
+        else {
+            panic!("an ask")
+        };
+        let keys: Vec<&str> = options.iter().map(|o| o.option.key.as_str()).collect();
+        assert_eq!(keys, ["1", "new", "home"]);
+        assert_eq!(options[0].choice, Choice::Thread("tarnlib-work".into()));
+        assert_eq!(
+            options[1].option.label,
+            "New thread \u{ab}homesvc maintenance\u{bb}"
+        );
+        let held = "retry the flaky test in tarnlib";
+        let pre = pre_route(held, &t, None, 0, 600_000);
+        assert_eq!(
+            lone_offer(&t, &pre, new_entities(held, &t), "retry", true),
+            None
+        );
+        let v = decide_single(&t, &pre);
+        assert_eq!(
+            (v.slug.as_deref(), v.how),
+            (Some("tarnlib-work"), RouteHow::Visible)
+        );
+        let low = pre_with(&[("tarnlib-work", 0.2)]);
+        assert_eq!(lone_offer(&t, &low, 1, "x", true), None);
     }
 
     #[test]

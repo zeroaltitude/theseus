@@ -128,11 +128,16 @@ async fn submit(
 
 /// One `turn.submit` from the CLI: its whole response.
 pub(super) async fn send(c: &Arc<Core>, p: TurnSubmitParams) -> Value {
+    send_as(c, Surface::Cli, p).await
+}
+
+/// One `turn.submit` from a connection of `surface`: its whole response.
+pub(super) async fn send_as(c: &Arc<Core>, surface: Surface, p: TurnSubmitParams) -> Value {
     let (client, server) = duplex(1 << 20);
     let (sr, sw) = tokio::io::split(server);
     tokio::spawn(
         c.clone()
-            .serve_connection(sr, sw, Client::new("test", Surface::Cli)),
+            .serve_connection(sr, sw, Client::new("test", surface)),
     );
     let (cr, mut cw) = tokio::io::split(client);
     let mut line =
