@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 
 use theseus_protocol::forecast::WorkForecast;
-use theseus_protocol::work::progress_line::{forecast_cost, step_words, time_left};
+use theseus_protocol::work::progress_line::{aged_said, forecast_cost, step_words, time_left};
 use theseus_protocol::work::{DoingKind, WorkKind, WorkState, WorkView};
 use unicode_width::UnicodeWidthStr;
 
@@ -41,12 +41,15 @@ pub enum Form {
     Model { since_ms: u64 },
     /// A tool runs since this time.
     Tool { label: String, since_ms: u64 },
-    /// A job runs since this time, and usually takes `usual_ms`; `said` is its
-    /// last word (the job's last line, else the model's).
+    /// A job runs since this time, and usually takes `usual_ms`; `said` is the
+    /// model's last word, said at `said_at_ms`, and the task has done this since
+    /// `doing_ms` (the words show their age when they are older than that).
     Job {
         since_ms: u64,
         usual_ms: Option<u64>,
         said: Option<String>,
+        said_at_ms: u64,
+        doing_ms: u64,
     },
     /// It failed at this time, and why.
     Failed { at_ms: u64, reason: String },
@@ -267,6 +270,8 @@ fn form_of(v: &WorkView, job: Option<&WorkView>) -> Form {
                         .and_then(|p| p.said.as_deref())
                         .map(one_line)
                         .filter(|s| !s.is_empty()),
+                    said_at_ms: v.progress.as_ref().map_or(0, |p| p.at_ms),
+                    doing_ms: d.since_ms,
                 },
                 _ => Form::Text(v.attention.label.clone()),
             },
@@ -298,12 +303,15 @@ pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
             since_ms,
             usual_ms,
             said,
+            said_at_ms,
+            doing_ms,
         } => {
             let mut s = format!("job {}", since(*since_ms));
             if let Some(u) = usual_ms {
                 s.push_str(&format!(" of usual {}", clock(*u)));
             }
             if let Some(w) = said {
+                let w = aged_said(w, *said_at_ms, Some(*doing_ms), now_ms);
                 s.push_str(&format!(" · {w}"));
             }
             s
@@ -412,6 +420,39 @@ mod tests {
         assert!(w
             .facts("ses_task", theseus_protocol::Level::NeedsYou, &jobs)
             .is_none());
+    }
+
+    /// A job row's last words carry their age when they are over a minute
+    /// older than what the task does now, and none when they are fresh
+    /// (theseus-ztkhg.1).
+    #[test]
+    fn a_job_rows_old_words_carry_their_age() {
+        let row = |said_at_ms: u64| {
+            let v: WorkView = serde_json::from_value(serde_json::json!({
+                "id": "exe_1", "kind": "task", "position": 3, "at_ms": 1, "root": "exe_1",
+                "session_id": "ses_task", "title": "t", "state": "running",
+                "attention": {"level": "working", "label": "job", "since_ms": 1},
+                "doing": {"what": "job", "label": "job", "since_ms": 200_000, "turn": 1, "loop_index": 0},
+                "started_at_ms": 1, "state_since_ms": 1, "flagged": false,
+                "progress": {"steps_done": 0, "steps_total": 0, "said": "Round 1 done. Continuing.", "at_ms": said_at_ms}
+            }))
+            .unwrap();
+            let mut w = Work::default();
+            assert!(w.apply(v));
+            let f = w
+                .facts(
+                    "ses_task",
+                    theseus_protocol::Level::Working,
+                    &HashMap::new(),
+                )
+                .unwrap();
+            doing(&f, 230_000, &|t| t.to_string())
+        };
+        assert_eq!(
+            row(100_000),
+            "job 0:30 · Round 1 done. Continuing. (2 min ago)"
+        );
+        assert_eq!(row(190_000), "job 0:30 · Round 1 done. Continuing.");
     }
 
     #[test]

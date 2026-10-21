@@ -5,6 +5,7 @@
 
 use serde_json::Value;
 use theseus_protocol::usd;
+use theseus_protocol::work::progress_line::aged_said;
 use theseus_protocol::work::{AnswerOption, Question, WorkState, WorkView};
 
 use super::board_v2::{ago, short};
@@ -83,8 +84,9 @@ pub fn detail(
     calls: &[String],
     question: Option<(&Question, &[AnswerOption])>,
     comments: &Comments,
+    now_ms: u64,
 ) -> Vec<Value> {
-    let mut inner = body(v, calls);
+    let mut inner = body(v, calls, now_ms);
     if let Some((q, options)) = question {
         inner.push(separator());
         inner.push(text(format!(
@@ -130,8 +132,8 @@ fn comments_words(c: &Comments) -> String {
 /// The task's card for its forum post (theseus-i3do6): the view's words
 /// without a button that acts (a post is no place that answers), the open
 /// question as text, and a link to where the task can be answered.
-pub fn post_card(v: &WorkView, calls: &[String], link: Option<&str>) -> Vec<Value> {
-    let mut inner = body(v, calls);
+pub fn post_card(v: &WorkView, calls: &[String], link: Option<&str>, now_ms: u64) -> Vec<Value> {
+    let mut inner = body(v, calls, now_ms);
     if let Some(q) = v.question.as_ref().filter(|_| !v.state.ended()) {
         inner.push(separator());
         inner.push(text(format!(
@@ -147,7 +149,7 @@ pub fn post_card(v: &WorkView, calls: &[String], link: Option<&str>) -> Vec<Valu
 }
 
 /// A task's head, doing, plan, last calls and report.
-fn body(v: &WorkView, calls: &[String]) -> Vec<Value> {
+fn body(v: &WorkView, calls: &[String], now_ms: u64) -> Vec<Value> {
     let mut head = format!(
         "**{}** `…{}`\n{}",
         clip(v.title.trim(), 120),
@@ -190,6 +192,8 @@ fn body(v: &WorkView, calls: &[String]) -> Vec<Value> {
             ));
         }
         if let Some(said) = p.said.as_deref().filter(|s| !s.trim().is_empty()) {
+            let doing = v.doing.as_ref().map(|d| d.since_ms);
+            let said = aged_said(said, p.at_ms, doing, now_ms);
             lines.push(format!(
                 "**Last words**\n> {}",
                 clip(&said.replace('\n', "\n> "), 500)
@@ -320,7 +324,7 @@ mod tests {
     #[test]
     fn a_running_task_shows_its_doing_plan_words_and_calls_and_a_stop_button() {
         let calls = vec!["cargo build".to_string(), "git diff".to_string()];
-        let c = detail(&task(), &calls, None, &Comments::default());
+        let c = detail(&task(), &calls, None, &Comments::default(), 0);
         assert_eq!(validate(&c), Ok(()));
         let t = texts(&c).join("\n");
         assert!(t.contains("**Rename the modules** `…task01`"), "{t}");
@@ -340,11 +344,32 @@ mod tests {
         );
     }
 
+    /// The last words carry their age when they are over a minute older than
+    /// what the task does now, and none when they are fresh (theseus-ztkhg.1).
+    #[test]
+    fn old_last_words_carry_their_age() {
+        let mut v = task();
+        v.doing.as_mut().unwrap().since_ms = 200_000;
+        v.progress.as_mut().unwrap().at_ms = 80_000;
+        let t = texts(&detail(&v, &[], None, &Comments::default(), 200_000)).join("\n");
+        assert!(
+            t.contains("> Two of five modules renamed. (2 min ago)"),
+            "{t}"
+        );
+        v.progress.as_mut().unwrap().at_ms = 170_000;
+        let t = texts(&detail(&v, &[], None, &Comments::default(), 200_000)).join("\n");
+        assert!(
+            t.contains("> Two of five modules renamed.\n") || t.ends_with("renamed."),
+            "{t}"
+        );
+        assert!(!t.contains("ago)"), "{t}");
+    }
+
     #[test]
     fn a_done_task_has_no_stop_and_the_second_question_has_two_answers() {
         let mut v = task();
         v.state = WorkState::Done;
-        assert!(custom_ids(&detail(&v, &[], None, &Comments::default())).is_empty());
+        assert!(custom_ids(&detail(&v, &[], None, &Comments::default(), 0)).is_empty());
         let ids = custom_ids(&confirm_stop(&task()));
         assert_eq!(
             ids,

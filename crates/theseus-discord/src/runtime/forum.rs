@@ -761,7 +761,7 @@ impl Worker {
             .into_iter()
             .map(|j| j.title)
             .collect();
-        task_view::post_card(view, &calls, link)
+        task_view::post_card(view, &calls, link, self.shared.core.kernel.now_ms())
     }
 
     /// The post that is a task's place, in the default forum: the one the list
