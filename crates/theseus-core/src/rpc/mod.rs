@@ -20,6 +20,7 @@ mod cites;
 mod confirms;
 mod context;
 mod google;
+mod home_claim;
 mod inspect;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
@@ -114,6 +115,8 @@ mod tests_health_counts;
 mod tests_health_imported;
 #[cfg(test)]
 mod tests_history;
+#[cfg(test)]
+mod tests_home_claim;
 #[cfg(test)]
 mod tests_imported;
 #[cfg(test)]

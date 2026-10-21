@@ -63,7 +63,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// `path` with `~` expanded and `.`/`..` folded, no filesystem read.
-fn normal(path: &str, home: Option<&Path>) -> PathBuf {
+pub(crate) fn normal(path: &str, home: Option<&Path>) -> PathBuf {
     let expanded = match (path.strip_prefix("~/"), path == "~", home) {
         (Some(rest), _, Some(h)) => h.join(rest),
         (_, true, Some(h)) => h.to_path_buf(),
@@ -72,7 +72,7 @@ fn normal(path: &str, home: Option<&Path>) -> PathBuf {
     fold(&expanded)
 }
 
-fn fold(p: &Path) -> PathBuf {
+pub(crate) fn fold(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {

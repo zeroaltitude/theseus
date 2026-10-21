@@ -41,6 +41,15 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
         if let Some(t) = n.detail.get("moved_to").and_then(|t| t.as_str()) {
             first.text = format!("{} [moved to thread «{t}»]", first.text);
         }
+        // A home turn's node claimed by the thread it served (theseus-98bz.6): still in this compile.
+        if let Some(t) = n.detail.get("claimed_by").and_then(|t| t.as_str()) {
+            let id = n
+                .detail
+                .get("claim")
+                .and_then(|c| c.as_str())
+                .unwrap_or_default();
+            first.text = format!("{} [claimed by «{t}», {id}]", first.text);
+        }
     }
     out
 }
@@ -108,5 +117,22 @@ mod tests {
             "      ← res·a1b2c3 fs.list ok · 9 B: a.md"
         );
         assert_eq!(with_id("odd", "x"), "odd x");
+    }
+
+    /// A claimed node says the thread and the claim's id, never "moved" (theseus-98bz.6).
+    #[test]
+    fn a_claimed_node_says_claimed_by_its_thread() {
+        let n: NodeInfo = serde_json::from_value(serde_json::json!({
+            "node_id": "msg_0198a0b1c2d3e4f5a6b7c8d9e0f1a2b3", "kind": "user_message",
+            "session_id": "ses_a", "position": 7, "at_unix_ms": 0, "text": "fix the retry",
+            "detail": {"claimed_by": "pr-round", "claim": "claim_0198ab"},
+        }))
+        .unwrap();
+        let first = &node_lines(&n, false)[0].text;
+        assert!(
+            first.ends_with("[claimed by «pr-round», claim_0198ab]"),
+            "{first}"
+        );
+        assert!(!first.contains("moved"), "{first}");
     }
 }

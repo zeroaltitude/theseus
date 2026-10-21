@@ -712,6 +712,8 @@ export type * from './ThreadSplitPlan';
 export type * from './ThreadSplitResult';
 export type * from './ThreadState';
 export type * from './ThreadTag';
+export type * from './ThreadUnclaimParams';
+export type * from './ThreadUnclaimResult';
 export type * from './ThreadUnsplitParams';
 export type * from './ThreadUnsplitResult';
 export type * from './ThreadsCache';

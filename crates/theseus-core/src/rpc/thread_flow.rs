@@ -738,6 +738,7 @@ impl Core {
         state.clear_handoff(&r.session);
         self.tools.misroute.disarm(&r.session);
         let Some(res) = res else { return };
+        self.claim_home_turn(r, res);
         if let Some(slug) = &r.slug {
             state.turn_ran(&res.turn_id, slug);
         }

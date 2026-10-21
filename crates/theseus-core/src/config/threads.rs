@@ -87,6 +87,11 @@
 //!   into a thread's recall in two recalls, one sentence to the owner's DM offers `theseus thread link`
 //!   (once a pair, whatever the owner does). It links nothing itself. Off, nothing is counted, written
 //!   or posted.
+//! - `claim_home_turns` (true; theseus-98bz.6): a turn that ran at a place's home (asked and answered
+//!   `home`, an ask nobody answered, the router's home pick) whose written files all fall in one live,
+//!   unsealed thread's working set becomes that thread's memory: its nodes are keyed to the thread
+//!   (`moved.of.<node>`, a `claim_` value), so the thread's recall reads them as its own.
+//!   `theseus thread unclaim ID` undoes one. Off, nothing is claimed, written or counted.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -155,6 +160,8 @@ pub struct ThreadsConfig {
     pub seal_recommend: bool,
     #[serde(default = "default_true")]
     pub link_proposals: bool,
+    #[serde(default = "default_true")]
+    pub claim_home_turns: bool,
 }
 
 fn default_enabled() -> bool {
@@ -228,6 +235,7 @@ impl Default for ThreadsConfig {
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
             link_proposals: true,
+            claim_home_turns: true,
         }
     }
 }
