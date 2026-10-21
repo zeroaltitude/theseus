@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-21 00:10 MST. Version 1.0.0 (v1); the design document is at v0.90._
+_Updated 2026-10-21 00:10 MST. Version 1.0.0 (v1); the design document is at v0.91._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -506,6 +506,12 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-21: voice layer 3 and 4's switches are proven** (theseus-sa4m5; the echo canceller joined 2026-10-19, the
+  judge of unclear transcripts after it): Theseus cancels its own voice from a listener's stream (`[voice] echo_cancel`,
+  default on), so a reply read back by the speakers no longer cuts itself off; `[voice] judge_unclear` (default on) lets Jev
+  read a short or unclear transcript. Each switch, and a config with no `[voice]` section, now has a test that reads it
+  where the call is built, since a line that stopped copying one would have left the feature dead with every test
+  green (Item 255).
 - **2026-10-21: a reach for the owner's personal details is held in a shared place** (theseus-i1z13, finishing
   theseus-gasov's spec): when Jev reads a message in a shared place as trying to draw out the owner's personal details
   (or to open a conversation where they could come out), the turn makes no model call. The person who asked is told "I

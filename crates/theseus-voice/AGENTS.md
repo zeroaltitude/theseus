@@ -56,5 +56,6 @@ is asked and the rules decide alone, today's events and times) and holds that on
 what the judge said (`Utterance::judged`: the judgment's id, answer, probability, whether it acted, how long it took) and the
 journal line names the judgment id. The case holds the transcript, Theseus's last 3 sentences (the strings `heard.rs` matches),
 when it began against them (`Began`, `Timing`), its length, confidence and echo-proneness. The session supplies the judge
-(theseus-discord's `runtime/voice/judged.rs`, over the core's `heard.v1`); `StandInJudge` is the test one. `tests/judged.rs` holds
+(theseus-discord's `runtime/voice/judged.rs`, over the core's `heard.v1`); `StandInJudge` is the test one. `Engine::has_judge()` says whether one is attached (theseus-sa4m5): the binding's `[voice] judge_unclear` decides it, and
+`runtime/voice/tests_judged.rs` reads it. `tests/judged.rs` holds
 it all through the seam, in virtual time.

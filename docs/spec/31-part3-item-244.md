@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 254 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 255 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -451,3 +451,30 @@ act band; the reply left out of the turn's output; a task's turn held too.
 
 **Left open.** A late verdict never holds: the turn did not wait for it, so a reach in a shared place can still be answered
 by the model when Jev is slow. The place rule keeps private recall out of shared places either way.
+
+### Item 255. Voice layers 3 and 4: the switches are proven where the call is built, and the layers are written down (theseus-sa4m5; lane/shared-place, 2026-10-21)
+
+**Why.** The echo canceller (theseus-yaxcp, voice layer 3, joined 2026-10-19) and Jev's judge of unclear transcripts
+(theseus-s3dwj, layer 4) each came with a `[voice]` switch the binding copies into the engine's config. The reviews planted
+a revert on each copy, and no test noticed: `Voice::default()` with `echo_cancel` false (a config with no `[voice]` section
+gets it, and the parse test reads the serde default instead), the binding's three lines (`join_guard`, `echo_cancel`,
+`judge_ms`), and `judged::attach` ignoring `judge_unclear = false`. A call with a dead switch plays as one without it, so the
+feature could have been off in production with every test green.
+
+**What landed.**
+
+- `engine_config` (the lane `voice-config-wire`, joined 2026-10-20 as `33142ba7`): the three lines moved into one
+  function the tests call, with tests that each switch reaches the engine alone and that a config with no `[voice]` section
+  starts a call with the join guard and the echo cancel on and the judge at 250 ms. Plants: five, all caught.
+- `Engine::has_judge()` in theseus-voice (the seam: the engine had no way to say whether a judge was attached), and
+  `runtime/voice/tests_judged.rs`: by default and with `judge_unclear = true` the call's engine has the core's judge, and
+  with `false` it has none.
+- The docs the two layers left: the voice design (`docs/design/m7-surface.md` §2.8) names layer 3 (the echo
+  canceller, `[voice] echo_cancel`, default on) and layer 4 (the judge, `[voice] judge_unclear`, `judge_ms`), and
+  `docs/status.md` says what each does and that its switch is tested.
+
+**How it was proven.** The seam's tests passed on the code that was already right, so the proof is two planted reverts on
+`attach`, each caught on ARM: the switch ignored (the judge always attached), and the judge never attached.
+
+**Left open.** The layers' live checks stay the owner's (laptop speakers and a long reply for layer 3; a short "yeah" over
+Theseus's speech for layer 4).

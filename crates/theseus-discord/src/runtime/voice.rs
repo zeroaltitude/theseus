@@ -70,6 +70,8 @@ mod tests_deaf;
 #[cfg(test)]
 mod tests_heard;
 #[cfg(test)]
+mod tests_judged;
+#[cfg(test)]
 mod tests_persona;
 #[cfg(test)]
 mod tests_reply;
