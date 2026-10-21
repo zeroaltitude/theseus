@@ -18,6 +18,7 @@ import { Empty, Panel, Pill } from '@/components/ui'
 import { Act, Refused, useInPast, useOntology, useOntologyWrite } from '@/components/OntologyParts'
 import { AddPerson, PeoplePanel, PersonPage, ProposalsPanel } from '@/components/People'
 import { GrowthPanel, MintedPanel } from '@/components/OntologyGrowth'
+import { AddKind } from '@/components/OntologyKindAdd'
 
 const field = 'rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40 disabled:opacity-50'
 
@@ -180,6 +181,7 @@ export default function Ontology() {
           <ProposalsPanel disabled={past} />
           <AddTopic rows={rows.map((r) => r.category)} disabled={past} parentDefault={picked?.kind === 'topic' ? picked.id : ''} />
           <AddPerson disabled={past} />
+          <AddKind kinds={data.kinds} disabled={past} />
         </div>
       </div>
     </div>

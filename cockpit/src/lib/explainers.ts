@@ -454,6 +454,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Add a new topic to the ontology.',
     'Give a name and where in the tree it goes. It shows what it will send and asks first.',
     'A topic is a place for sessions and notes to be filed. Add one when the existing topics keep fitting badly.'),
+  'ontology.kindadd': e(
+    'Add a new kind of classification to the ontology, such as expertise or culture.',
+    'Give a name (a lowercase letter, then letters, digits, _ or -), and say who may assign it, how many a session holds, where it nests, its precedence and rule, and up to five examples. A fault shows under its field, in the words the daemon would refuse it in. The confirm shows the exact params it will send.',
+    'A kind is a dimension the ontology sorts sessions by, and Jev can only file under the kinds the table lists. A new one is interpreted, so it needs no code; it cannot be deleted, only retired once nothing holds it.'),
   'ontology.growth': e(
     'Show how fast the ontology grows, and who is growing it.',
     'A column a day for 90 days, stacked by the origin that made the categories (you, the import, Jev, the sweep, the dream), a line for kinds added, and a ring on a day when a write made then was later taken back. The tip gives each day’s counts.',
