@@ -277,7 +277,7 @@ class Plan(unittest.TestCase):
                              (t12["progressions"][name]["seed"], t12["progressions"][name]["digest"]), name)
         self.assertEqual((plan["model"], plan["effort"], plan["size"]), (t12["model"], t12["effort"], t12["size"]))
         self.assertEqual((plan["budget_usd"]["expected_low"], plan["budget_usd"]["expected_high"],
-                          plan["spend_limit_usd_per_arm"]), (33, 40, 25))
+                          plan["spend_limit_usd_per_arm"]), (54, 90, 25))
         self.assertIn("pause", plan["budget_usd"])
         dev = gen.build(plan["progressions"]["dev"]["seed"], "standard")
         self.assertEqual(dev.digest(), plan["progressions"]["dev"]["digest"])

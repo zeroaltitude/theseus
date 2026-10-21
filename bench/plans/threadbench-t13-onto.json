@@ -33,9 +33,9 @@
   }
  },
  "budget_usd": {
-  "expected_low": 33,
-  "expected_high": 40,
-  "pause": 80
+  "expected_low": 54,
+  "expected_high": 90,
+  "pause": 90
  },
  "spend_limit_usd_per_arm": 25
 }
