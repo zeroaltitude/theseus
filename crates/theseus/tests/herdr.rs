@@ -1651,10 +1651,21 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
 #[test]
 fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
     let dir = tempfile::tempdir().unwrap();
-    let herdr = FakeHerdr::start(dir.path());
+    // The task's refusal of the line is held until herdr has heard "sending your message": the
+    // label going back follows that answer, so the two reports can never share a batch for the
+    // adapter to coalesce into one (theseus-fumkt).
+    let (sending_tx, sending_rx) = std::sync::mpsc::channel::<()>();
+    let sending_tx = Mutex::new(sending_tx);
+    let herdr = FakeHerdr::answering(dir.path(), move |r| {
+        if r["method"] == "pane.report_agent" && r["params"]["message"] == "sending your message" {
+            let _ = sending_tx.lock().unwrap().send(());
+        }
+        Ok(json!({"type": "ok"}))
+    });
     let main = "ses_main0a1b2c";
     let mut ended = view(30, "complete", "ready", "done", None, 0.4);
     ended["kind"] = json!("task");
+    let sending_rx = Mutex::new(sending_rx);
     let d = FakeDaemon::start(dir.path(), move |req| {
         let p = &req["params"];
         let task = json!({"session_id": S, "kind": "task", "label": "task",
@@ -1674,8 +1685,13 @@ fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
                 Ok(json!({"sessions": [parent]}))
             }
             "session.list" => Ok(json!({"sessions": [task]})),
-            "turn.submit" if p["session_id"] == S => Err(json!({"code": -32000,
-                "message": "the task is complete", "data": {"class": "execution_complete"}})),
+            "turn.submit" if p["session_id"] == S => {
+                // Unbounded: a report that never comes fails the waits below, and nextest
+                // kills a test that hangs.
+                let _ = sending_rx.lock().unwrap().recv();
+                Err(json!({"code": -32000,
+                    "message": "the task is complete", "data": {"class": "execution_complete"}}))
+            }
             "turn.submit" => Ok(json!({"session_id": main, "turn_id": "trn_1", "loops": 1,
                 "output": "Noted.", "stop_reason": "end_turn", "provider_stop_reason": null,
                 "model": "invented-model", "usage": {"input_tokens": 1, "output_tokens": 1},
