@@ -525,6 +525,8 @@ mod tests_task_join;
 #[cfg(test)]
 mod tests_task_layers;
 #[cfg(test)]
+mod tests_task_search;
+#[cfg(test)]
 mod tests_task_start;
 #[cfg(test)]
 mod tests_task_wakes;
