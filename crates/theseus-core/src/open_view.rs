@@ -167,8 +167,7 @@ impl TurnRunner {
     /// or the turn: the next compile is the session's own view again. The
     /// calls its answer makes are gated in `view`. Its caller is
     /// theseus-a1wvq.8's; until then its test is.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn open_request(
+    pub fn open_request(
         &self,
         session: &SessionRecord,
         target: &Target,
