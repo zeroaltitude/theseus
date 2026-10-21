@@ -496,6 +496,7 @@ impl Core {
                 true => new_entities(&p.input, live),
                 false => 0,
             },
+            ask_every_thread: self.cfg.threads.ask_every_thread,
         };
         decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
     }
@@ -530,12 +531,14 @@ impl Core {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let wait = Duration::from_secs(self.cfg.threads.ask_wait_secs);
         let state = &self.runner.threads.route;
+        let (slugs, others) = self.ask_over(live, &options);
         state.ask(
             &ask_id,
             Pending {
                 home: home.to_string(),
                 text: p.input.clone(),
                 options: options.clone(),
+                slugs,
                 tx,
             },
         );
@@ -547,6 +550,7 @@ impl Core {
             options: options.iter().map(|o| o.option.clone()).collect(),
             message: preview(&p.input),
             expires_ms: theseus_protocol::now_unix_ms() + wait.as_millis() as u64,
+            others,
         };
         let sink = EventSink::new(
             self.bus.clone(),
@@ -567,11 +571,16 @@ impl Core {
         let waited_ms = t0.elapsed().as_millis() as u64;
         let (answer, key) = match answered {
             Ok(Ok(a)) => {
+                // A slug answers for a thread the options did not list.
                 let key = options
                     .iter()
                     .find(|o| o.choice == a.choice)
-                    .map_or("", |o| o.option.key.as_str())
-                    .to_string();
+                    .map(|o| o.option.key.clone())
+                    .or_else(|| match &a.choice {
+                        Choice::Thread(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
                 (Some(a), key)
             }
             _ => {
@@ -594,6 +603,31 @@ impl Core {
             waited_ms,
         });
         tag
+    }
+
+    /// What an ask is asked over (theseus-98bz.4): the slugs of the live,
+    /// unsealed threads, any of which answers it, and, when it offers
+    /// `other`, those threads as the options `other` stands for.
+    fn ask_over(
+        &self,
+        live: &[&ThreadInfo],
+        options: &[AskChoice],
+    ) -> (Vec<String>, Vec<theseus_protocol::thread_route::AskOption>) {
+        if !self.cfg.threads.ask_every_thread {
+            return (Vec::new(), Vec::new());
+        }
+        let askable = crate::thread_route::askable(live);
+        let others = match options.iter().any(|o| o.choice == Choice::Other) {
+            true => askable
+                .iter()
+                .map(|t| theseus_protocol::thread_route::AskOption {
+                    key: t.slug.clone(),
+                    label: t.title.clone(),
+                })
+                .collect(),
+            false => Vec::new(),
+        };
+        (askable.iter().map(|t| t.slug.clone()).collect(), others)
     }
 
     /// The tag an answer gives: the thread picked, a new one made on a tap, or

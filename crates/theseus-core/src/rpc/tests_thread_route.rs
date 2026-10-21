@@ -1231,6 +1231,7 @@ async fn a_strangers_answer_does_not_count() {
             home: "ses_x".into(),
             text: "x".into(),
             options: crate::thread_route::offer_new("x"),
+            slugs: vec![],
             tx,
         },
     );
@@ -1257,6 +1258,7 @@ async fn a_strangers_answer_does_not_count() {
             home: "ses_x".into(),
             text: "x".into(),
             options: crate::thread_route::offer_new("x"),
+            slugs: vec![],
             tx,
         },
     );

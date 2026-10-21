@@ -5,7 +5,7 @@
  */
 export type AskOption = { 
 /**
- * What an answer names: `1`, `2`, `new` or `home`.
+ * What an answer names: `1`, `2`, …, `other`, `new` or `home`.
  */
 key: string, 
 /**

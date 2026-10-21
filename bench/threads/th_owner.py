@@ -8,8 +8,8 @@ message's label other than its stream.
 - A new-thread offer is accepted on the first message of a stream (the owner knows when a new line of work
   starts) and declined on any later one. An offer made on a `home` message is declined and counted: it is the
   router over-splitting.
-- A routing question is answered with the message's true stream: the option that is its thread, else `new` when
-  the stream has just begun, else `home`.
+- A routing question is answered with the message's true stream: the option that is its thread, else its thread's
+  slug when the question offers another thread (`[o]ther`), else `new` when the stream has just begun, else `home`.
 - When a stream's first message ran at home and the product made no offer (no thread was live to ask about), the
   owner starts the stream's thread by hand, so its later messages have somewhere to go. Counted apart.
 
@@ -23,7 +23,7 @@ import re
 HOME = "home"
 OFFER = "Start a new thread"  # a `thread.asked` question that offers one (crates/theseus-core thread_route::offer_new)
 ANSWER_LINE = re.compile(r"answer: theseus thread answer (\S+) (\S+)")  # the CLI's own line (thread/ask.rs `command`)
-OPTION = re.compile(r"\[(\w+)\](?:ew|ome)? ?(.*?)(?= {3}\[|$)")  # `[1] pr round`, `[n]ew New thread «x»`, `[h]ome`
+OPTION = re.compile(r"\[(\w+)\](?:ew|ome|ther)? ?(.*?)(?= {3}\[|$)")  # `[1] pr round`, `[n]ew New thread «x»`, `[o]ther …`, `[h]ome`
 
 
 def parse_ask(question: str, options: str, answer: str) -> dict:
@@ -34,7 +34,7 @@ def parse_ask(question: str, options: str, answer: str) -> dict:
         raise ValueError(f"no answer command in {answer!r}")
     labels = {}
     for key, label in OPTION.findall(options):
-        key = {"n": "new", "h": "home"}.get(key, key)
+        key = {"n": "new", "h": "home", "o": "other"}.get(key, key)
         labels[key] = label.strip()
     return {"id": m.group(1), "keys": m.group(2).split("|"), "labels": labels,
             "offer": question.lstrip("❓ ").startswith(OFFER)}
@@ -47,6 +47,7 @@ class Owner:
     def __init__(self) -> None:
         self.begun: set[str] = set()
         self.title: dict[str, str] = {}  # a stream's thread's title, as the product shows it in a question
+        self.slug: dict[str, str] = {}  # a stream's thread's slug, which answers a question that lists it as `other`
         self.over_split = 0  # offers made on a `home` message
         self.started_by_hand = 0  # threads the owner made because the product offered none
         self.answers: list[dict] = []
@@ -68,6 +69,8 @@ class Owner:
                 choice = "home"
             elif by_title:
                 choice = by_title[0]
+            elif "other" in ask["labels"] and stream in self.slug:
+                choice = self.slug[stream]
             else:
                 choice = "new" if self.first_of_stream(stream) and "new" in keys else "home"
         self.answers.append({"ask": ask["id"], "stream": stream, "offer": ask["offer"], "choice": choice})

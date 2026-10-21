@@ -63,6 +63,7 @@ async fn the_owners_press_wakes_the_message_and_the_card_becomes_the_answer() {
             home: session.clone(),
             text: "why is the build red".into(),
             options: options.clone(),
+            slugs: vec![],
             tx,
         },
     );
@@ -74,6 +75,7 @@ async fn the_owners_press_wakes_the_message_and_the_card_becomes_the_answer() {
         options: options.iter().map(|o| o.option.clone()).collect(),
         message: "why is the build red".into(),
         expires_ms: 0,
+        others: vec![],
     };
     r.core
         .bus

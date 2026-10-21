@@ -49,6 +49,10 @@
 //!   correction) cannot overrule Jev's other pick: the message is asked about,
 //!   and the ask offers a new thread when the message names two or more
 //!   entities no live thread holds. Off, the decision table is as before.
+//! - `ask_every_thread` (true; theseus-98bz.4): "which thread?" lists every
+//!   live, unsealed thread (four at most; past four, the best three and
+//!   `other`), and any live thread's slug answers it. Off, it lists the best
+//!   two, as before.
 //! - `resume_keep_turns`: the newest turns a thread keeps whole when its next
 //!   message finds its cache gone (6; `thread-context`).
 //! - `working_tokens`: what a thread's request stays within after such a cold
@@ -107,6 +111,8 @@ pub struct ThreadsConfig {
     pub ask_wait_secs: u64,
     #[serde(default = "default_true")]
     pub sticky_alone_asks: bool,
+    #[serde(default = "default_true")]
+    pub ask_every_thread: bool,
     #[serde(default = "default_resume_keep_turns")]
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
@@ -171,6 +177,7 @@ impl Default for ThreadsConfig {
             route_wait_ms: default_route_wait(),
             ask_wait_secs: default_ask_wait(),
             sticky_alone_asks: true,
+            ask_every_thread: true,
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
             persona_engage: PersonaEngage::default(),
@@ -297,10 +304,14 @@ mod tests {
     #[test]
     fn the_routers_rules_are_on_by_default_and_each_turns_off() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.sticky_alone_asks);
+        assert!(cfg.threads.sticky_alone_asks && cfg.threads.ask_every_thread);
         assert!(crate::Config::EXAMPLE_TOML.contains("# sticky_alone_asks = true"));
-        let off = crate::Config::from_toml("[threads]\nsticky_alone_asks = false\n").unwrap();
-        assert!(!off.threads.sticky_alone_asks);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# ask_every_thread = true"));
+        let off = crate::Config::from_toml(
+            "[threads]\nsticky_alone_asks = false\nask_every_thread = false\n",
+        )
+        .unwrap();
+        assert!(!off.threads.sticky_alone_asks && !off.threads.ask_every_thread);
     }
 
     /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a

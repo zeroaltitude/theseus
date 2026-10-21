@@ -563,6 +563,8 @@ pub enum Choice {
     Thread(String),
     New,
     Home,
+    /// A thread the ask does not list: answered by its slug (theseus-98bz.4).
+    Other,
 }
 
 /// What the decision reads beside the scores (theseus-eqp1v).
@@ -575,7 +577,14 @@ pub struct Rules {
     /// The message's concrete entities that no live thread's working set
     /// holds ([`new_entities`]): with two or more, an ask offers a new thread.
     pub new_entities: usize,
+    /// `[threads] ask_every_thread` (theseus-98bz.4): an ask lists every live,
+    /// unsealed thread (four at most, else three and `other`), not the best two.
+    pub ask_every_thread: bool,
 }
+
+/// The most threads an ask lists by name; past it, [`LISTED_PAST`] and `other`.
+const LISTED: usize = 4;
+const LISTED_PAST: usize = 3;
 
 /// Just below the confirm bar: where a sticky-only thread Jev disagrees with
 /// is held, so the decision falls to the ask.
@@ -697,22 +706,51 @@ fn tag(
     }
 }
 
-/// The ask: the two best threads (or one), `new` when Jev offered it, and
-/// home. Keys are `1`, `2`, `new`, `home`.
+/// The threads an ask may name: the live ones not sealed.
+pub fn askable<'a>(threads: &[&'a ThreadInfo]) -> Vec<&'a ThreadInfo> {
+    threads
+        .iter()
+        .copied()
+        .filter(|t| t.sealed.is_none())
+        .collect()
+}
+
+/// The ask: its threads by fused score (every live, unsealed one when there
+/// are four or fewer, else the best three and `other`, with `every`; else the
+/// best two), `new` when raised, and home. Keys are `1`, `2`, …, `other`,
+/// `new`, `home`.
 pub fn ask_options(
     threads: &[&ThreadInfo],
     ranked: &[(Choice, f64)],
     new_title: Option<&str>,
+    every: bool,
 ) -> Vec<AskChoice> {
     let mut out = Vec::new();
+    let named: Vec<&ThreadInfo> = match every {
+        true => askable(threads),
+        false => threads.to_vec(),
+    };
+    let listed = |s: &str| named.iter().any(|t| t.slug == s);
+    let total = ranked
+        .iter()
+        .filter(|(c, _)| matches!(c, Choice::Thread(s) if listed(s)))
+        .count();
+    let most = match (every, total > LISTED) {
+        (false, _) => 2,
+        (true, false) => LISTED,
+        (true, true) => LISTED_PAST,
+    };
     let mut n = 0;
     for (c, _) in ranked {
         if let Choice::Thread(s) = c {
-            if n >= 2 {
+            if n >= most {
                 break;
             }
+            if !listed(s) {
+                continue;
+            }
             n += 1;
-            let title = threads
+            let title = named
                 .iter()
                 .find(|t| &t.slug == s)
                 .map_or(s.as_str(), |t| t.title.as_str());
@@ -724,6 +762,15 @@ pub fn ask_options(
                 },
             });
         }
+    }
+    if every && total > n {
+        out.push(AskChoice {
+            choice: Choice::Other,
+            option: AskOption {
+                key: "other".into(),
+                label: "another thread".into(),
+            },
+        });
     }
     if let Some(t) = new_title {
         out.push(AskChoice {
@@ -764,17 +811,23 @@ pub fn offer_new(title: &str) -> Vec<AskChoice> {
     ]
 }
 
-/// The question in one line, from an ask's thread options.
+/// The question in one line, from an ask's thread options: every thread it
+/// lists, and "or another thread" when it does not list them all.
 pub fn question(options: &[AskChoice]) -> String {
-    let titles: Vec<&str> = options
+    let titles: Vec<String> = options
         .iter()
         .filter(|o| matches!(o.choice, Choice::Thread(_)))
-        .map(|o| o.option.label.as_str())
+        .map(|o| format!("the {}", o.option.label))
         .collect();
-    match titles.as_slice() {
-        [] => "Which thread is this about?".to_string(),
-        [one] => format!("Is this about the {one} thread?"),
-        [a, b, ..] => format!("Is this about the {a} or the {b}?"),
+    let other = options.iter().any(|o| o.choice == Choice::Other);
+    match (titles.as_slice(), other) {
+        ([], _) => "Which thread is this about?".to_string(),
+        ([one], false) => format!("Is this about {one} thread?"),
+        (all, false) => {
+            let (last, rest) = all.split_last().expect("two or more");
+            format!("Is this about {} or {last}?", rest.join(", "))
+        }
+        (all, true) => format!("Is this about {} or another thread?", all.join(", ")),
     }
 }
 
@@ -815,7 +868,7 @@ pub fn decide(
                 Decision::Route(tag(threads, &top.0, RouteHow::Guess, *s, true))
             }
             (Choice::Thread(_), s) if *s >= GUESS => Decision::Ask {
-                options: ask_options(threads, &ranked, None),
+                options: ask_options(threads, &ranked, None, rules.ask_every_thread),
             },
             _ => Decision::Route(tag(threads, &Choice::Home, RouteHow::Guess, top.1, true)),
         };
@@ -837,7 +890,12 @@ pub fn decide(
             let raised = ranked.iter().any(|(c, _)| *c == Choice::New)
                 || (rules.sticky_alone_asks && rules.new_entities >= 2);
             Decision::Ask {
-                options: ask_options(threads, &ranked, new_title.filter(|_| raised)),
+                options: ask_options(
+                    threads,
+                    &ranked,
+                    new_title.filter(|_| raised),
+                    rules.ask_every_thread,
+                ),
             }
         }
     }
@@ -1274,10 +1332,12 @@ mod tests {
     const OFF: Rules = Rules {
         sticky_alone_asks: false,
         new_entities: 0,
+        ask_every_thread: false,
     };
     const ON: Rules = Rules {
         sticky_alone_asks: true,
         new_entities: 0,
+        ask_every_thread: true,
     };
 
     /// `decide` under today's rules, before theseus-eqp1v.
@@ -1600,7 +1660,7 @@ mod tests {
             (Choice::Thread("security-fix".into()), 0.45),
             (Choice::Home, 0.0),
         ];
-        let opts = ask_options(&t, &ranked, Some("tide gauge"));
+        let opts = ask_options(&t, &ranked, Some("tide gauge"), false);
         assert_eq!(
             question(&opts),
             "Is this about the pr round or the security fix?"
@@ -1609,6 +1669,55 @@ mod tests {
         assert_eq!(keys, ["1", "2", "new", "home"]);
         assert_eq!(opts[2].option.label, "New thread \u{ab}tide gauge\u{bb}");
         assert_eq!(question(&opts[..1]), "Is this about the pr round thread?");
+    }
+
+    /// An ask names every live, unsealed thread (theseus-98bz.4): all four of
+    /// four, ranked by fused score; of five, the best three and `other`; never a
+    /// sealed one. Off, the best two as before.
+    #[test]
+    fn an_ask_lists_every_thread_up_to_four_then_three_and_other() {
+        let th_n = |n: usize| th(&format!("t-{n}"), &format!("t {n}"), WorkingSet::default());
+        let ranked = |n: usize| -> Vec<(Choice, f64)> {
+            (1..=n)
+                .rev()
+                .map(|i| (Choice::Thread(format!("t-{i}")), i as f64 / 10.0))
+                .chain([(Choice::Home, 0.0)])
+                .collect()
+        };
+        let keys = |o: &[AskChoice]| o.iter().map(|o| o.option.key.clone()).collect::<Vec<_>>();
+        let four: Vec<ThreadInfo> = (1..=4).map(th_n).collect();
+        let o = ask_options(&refs(&four), &ranked(4), None, true);
+        assert_eq!(keys(&o), ["1", "2", "3", "4", "home"]);
+        assert_eq!(o[0].option.label, "t 4", "the best first");
+        assert_eq!(
+            question(&o),
+            "Is this about the t 4, the t 3, the t 2 or the t 1?"
+        );
+        let five: Vec<ThreadInfo> = (1..=5).map(th_n).collect();
+        let o = ask_options(&refs(&five), &ranked(5), Some("x"), true);
+        assert_eq!(keys(&o), ["1", "2", "3", "other", "new", "home"]);
+        assert_eq!(
+            question(&o),
+            "Is this about the t 5, the t 4, the t 3 or another thread?"
+        );
+        let o = ask_options(&refs(&five), &ranked(5), None, false);
+        assert_eq!(keys(&o), ["1", "2", "home"], "off: the best two");
+        assert_eq!(question(&o), "Is this about the t 5 or the t 4?");
+        // A sealed thread is never named; four askable ones are all listed.
+        let mut sealed = five;
+        sealed[4].sealed = Some(theseus_protocol::threads::Seal {
+            reason: "embargo".into(),
+            at_ms: 1,
+            by: "the owner".into(),
+        });
+        let o = ask_options(&refs(&sealed), &ranked(5), None, true);
+        assert_eq!(keys(&o), ["1", "2", "3", "4", "home"]);
+        assert!(o.iter().all(|c| c.choice != Choice::Thread("t-5".into())));
+        assert_eq!(
+            askable(&refs(&sealed)).len(),
+            4,
+            "a sealed thread answers no ask"
+        );
     }
 
     #[test]
