@@ -296,7 +296,7 @@ pub fn job_session() -> Option<String> {
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 94] = [
+pub const OPERATORS: [(&str, &str); 96] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -399,6 +399,8 @@ pub const OPERATORS: [(&str, &str); 94] = [
     (method::THREAD_SPLIT, "theseus thread split"),
     (method::THREAD_SPLIT_PLAN, "theseus thread split --dry-run"),
     (method::THREAD_UNSPLIT, "theseus thread unsplit"),
+    (method::THREAD_LINK, "theseus thread link"),
+    (method::THREAD_UNLINK, "theseus thread unlink"),
     (method::TASK_START, "theseus task start"),
     (method::TASK_PAUSE, "theseus task pause"),
     (method::TASK_RESUME, "theseus task resume"),
@@ -562,6 +564,8 @@ mod tests {
             method::THREAD_SPLIT,
             method::THREAD_SPLIT_PLAN,
             method::THREAD_UNSPLIT,
+            method::THREAD_LINK,
+            method::THREAD_UNLINK,
         ] {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
             assert!(e.to_string().contains("theseus thread"), "{e}");

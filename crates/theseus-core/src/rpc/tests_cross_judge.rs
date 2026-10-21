@@ -17,14 +17,14 @@ use crate::config::{Config, MemoryMode, PackMode};
 use crate::judge::cross::CROSS_PACK;
 use crate::tests_rerank::{pack_mode, recalls, rig, sent, turn, Rig};
 
-const CUTOFF: &str = "the flagging cutoff for the datatidy report is 0.55 from now on";
+pub(super) const CUTOFF: &str = "the flagging cutoff for the datatidy report is 0.55 from now on";
 const PORT: &str = "the homesvc staging copy listens on port 8453";
 const ZIRCON: &str = "the zircon embargo lifts after the ledgerweb disclosure";
 
 /// Recall live, rerank off and this pack live; the lens alone would drop
 /// every other stream's note here (`own_top_admissible` off, so the
 /// thread's own note in context outranks it).
-fn rigged(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(super) fn rigged(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
     rig(Some(jev), |c| {
         c.memory.mode = MemoryMode::Live;
         c.memory.recall_max_items = 5;
@@ -37,7 +37,7 @@ fn rigged(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
 
 /// The pipeline thread asks; `stats` holds the cutoff, `ops` the port, and
 /// `embargo`, sealed, its own fact. Returns the asking session.
-fn world(c: &Arc<Core>, extra: usize) -> String {
+pub(super) fn world(c: &Arc<Core>, extra: usize) -> String {
     for (slug, title) in [
         ("pipeline", "datatidy pipeline"),
         ("stats", "datatidy stats"),
@@ -83,7 +83,7 @@ fn world(c: &Arc<Core>, extra: usize) -> String {
     pipe
 }
 
-fn cross_requests(jev: &FakeJev) -> Vec<String> {
+pub(super) fn cross_requests(jev: &FakeJev) -> Vec<String> {
     jev.seen()
         .iter()
         .map(|s| serde_json::to_string(&s.body).unwrap())
@@ -91,7 +91,7 @@ fn cross_requests(jev: &FakeJev) -> Vec<String> {
         .collect()
 }
 
-fn admitted_texts(r: &Rig) -> String {
+pub(super) fn admitted_texts(r: &Rig) -> String {
     sent(&r.model).last().cloned().unwrap_or_default()
 }
 
@@ -143,7 +143,7 @@ async fn a_yes_is_admitted_with_its_thread_and_a_no_stays_out() {
 }
 
 /// A node's text, read back.
-fn sent_text(c: &Core, node: &str) -> String {
+pub(super) fn sent_text(c: &Core, node: &str) -> String {
     c.store
         .get_node(node)
         .ok()

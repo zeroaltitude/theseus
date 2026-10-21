@@ -694,6 +694,7 @@ export type * from './ThreadGroup';
 export type * from './ThreadImportParams';
 export type * from './ThreadImportResult';
 export type * from './ThreadInfo';
+export type * from './ThreadLinkParams';
 export type * from './ThreadListParams';
 export type * from './ThreadListResult';
 export type * from './ThreadMergeParams';

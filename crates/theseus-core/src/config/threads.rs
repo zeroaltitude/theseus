@@ -83,6 +83,10 @@
 //! - `seal_recommend` (false): whether a `yes` of route.v5's `seal` question
 //!   at the confirm bar or above, in a thread, proposes sealing it (a card to
 //!   the owner's DM; Jev recommends, the owner seals). Off until its holdout.
+//! - `link_proposals` (true; theseus-98bz.11): when Jev admits notes of another live, unsealed thread
+//!   into a thread's recall in two recalls, one sentence to the owner's DM offers `theseus thread link`
+//!   (once a pair, whatever the owner does). It links nothing itself. Off, nothing is counted, written
+//!   or posted.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -149,6 +153,8 @@ pub struct ThreadsConfig {
     pub persona_engage: PersonaEngage,
     #[serde(default)]
     pub seal_recommend: bool,
+    #[serde(default = "default_true")]
+    pub link_proposals: bool,
 }
 
 fn default_enabled() -> bool {
@@ -221,6 +227,7 @@ impl Default for ThreadsConfig {
             working_tokens: default_working_tokens(),
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
+            link_proposals: true,
         }
     }
 }
@@ -431,5 +438,15 @@ mod tests {
             let t = format!("{secrets}\n[threads]\ndiscord_channel = \"{bad}\"\n");
             assert!(crate::Config::parse(&t).is_err(), "{bad}");
         }
+    }
+
+    /// Link proposals (theseus-98bz.11) are on by default, named in the template, and turn off.
+    #[test]
+    fn link_proposals_are_on_by_default_and_turn_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.link_proposals && ThreadsConfig::default().link_proposals);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# link_proposals = true"));
+        let off = crate::Config::from_toml("[threads]\nlink_proposals = false\n").unwrap();
+        assert!(!off.threads.link_proposals);
     }
 }

@@ -152,6 +152,7 @@ pub(crate) mod tests {
                 parent: None,
                 merged_into: None,
                 split_from: None,
+                links: vec![],
                 session_id: Some("ses_a".into()),
                 last_active_ms: 1_000_000,
                 created_at_ms: 0,

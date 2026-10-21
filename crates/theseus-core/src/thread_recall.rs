@@ -19,13 +19,15 @@
 //!   (`own_top_admissible`, theseus-98bz.8).
 //! - **Naming** (`waived`): the message names a thread by its slug, its
 //!   title, or one of its working set's entities (a repo, branch, ref, file,
-//!   root or host), as whole words, in any case.
+//!   root or host), as whole words, in any case. The threads the owner linked
+//!   with the asking one are waived too (`Board::linked_with`, theseus-98bz.11);
+//!   a seal still holds them out, since the lens checks it first.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use theseus_memory::{SessionThread, ThreadLens};
-use theseus_protocol::threads::{slug_of_place, ThreadInfo};
+use theseus_protocol::threads::{slug_of_place, ThreadInfo, ThreadState};
 
 use crate::session::SessionRecord;
 use crate::store::Store;
@@ -165,6 +167,31 @@ impl ThreadScene {
         self.admitted.extend(nodes);
     }
 
+    /// The pairs a link could join (theseus-98bz.11): the asking thread with each of `others` that
+    /// is live, unsealed, not merged and not linked with it already. None for an unthreaded asker.
+    pub fn link_pairs(&self, others: &BTreeSet<String>) -> Vec<crate::thread_link_seen::Pair> {
+        let held = |t: &ThreadInfo| {
+            t.sealed.is_some() || t.seal_pending.is_some() || t.merged_into.is_some()
+        };
+        let Some(here) = self.here.as_deref().and_then(|h| self.board.get(h)) else {
+            return Vec::new();
+        };
+        if held(here) {
+            return Vec::new();
+        }
+        let linked = self.board.linked_with(&here.slug);
+        others
+            .iter()
+            .filter(|s| **s != here.slug && !linked.contains(*s))
+            .filter_map(|s| self.board.get(s))
+            .filter(|t| !held(t) && t.state != ThreadState::Done)
+            .map(|t| crate::thread_link_seen::Pair {
+                here: (here.slug.clone(), here.title.clone()),
+                other: (t.slug.clone(), t.title.clone()),
+            })
+            .collect()
+    }
+
     /// The thread of `session`, with whether it is held.
     pub fn of(&self, session: &str) -> Option<SessionThread> {
         let slug = self.memo.slug_of(&self.store, &self.board, session)?;
@@ -300,10 +327,13 @@ impl TurnRunner {
         let memo = self.memory.thread_memo();
         let here = session.and_then(|s| memo.slug_of(&self.store, &board, s));
         let distance = ambient && here.is_some();
-        let waived = if distance {
-            named(&board, message)
-        } else {
-            BTreeSet::new()
+        let waived = match here.as_deref().filter(|_| distance) {
+            // A linked thread's notes pass unpaid; the lens still checks the seal first.
+            Some(h) => named(&board, message)
+                .union(&board.linked_with(h))
+                .cloned()
+                .collect(),
+            None => BTreeSet::new(),
         };
         Some(ThreadScene {
             here,

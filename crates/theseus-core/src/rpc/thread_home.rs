@@ -368,6 +368,7 @@ impl Core {
             parent: None,
             merged_into: None,
             split_from: a.map(|a| a.slug.clone()),
+            links: vec![],
             session_id: None,
             last_active_ms: now,
             created_at_ms: now,
