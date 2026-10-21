@@ -132,6 +132,9 @@ struct ExecIn {
     ended_reason: Option<String>,
     title: String,
     turn_started_ms: u64,
+    /// When the newest of the execution's calls settled: the model has been thinking since its result
+    /// came back, not since the turn began (theseus-ztkhg). In memory only.
+    last_settled_ms: u64,
     loop_index: u32,
     /// The newest `say` of a `loop.ended` row: the model's own line before
     /// its tool calls (theseus-xlias). Kept until the next one.
@@ -792,6 +795,13 @@ impl WorkBoard {
             _ => {}
         }
         d.execs.insert(a.execution_id.clone());
+        if let (true, Some(at), Some(e)) = (
+            a.state.is_settled() && a.tool != PROVIDER_TOOL,
+            a.settled_at_ms,
+            self.execs.get_mut(&a.execution_id),
+        ) {
+            e.last_settled_ms = e.last_settled_ms.max(at);
+        }
         let known = self.acts.contains_key(&corr);
         let relevant = a.tool != PROVIDER_TOOL
             && (a.awaits_confirm() || is_job(a) || known || !a.state.is_settled());
@@ -1062,6 +1072,7 @@ impl WorkBoard {
                 ended_reason: e.ended_reason.clone(),
                 title,
                 turn_started_ms: 0,
+                last_settled_ms: 0,
                 loop_index: 0,
                 said: None,
                 on: None,

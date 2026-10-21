@@ -472,10 +472,7 @@ mod tests {
         assert!(text.contains("› test result: 41 passed"), "{text}");
         assert!(text.contains("○ Check the tide  wakes 18:00"), "{text}");
         assert!(text.contains("○ Morning brief  daily 08:00"), "{text}");
-        assert!(
-            text.contains("⚙ Theseus  (1 working, 0 done, 0 failed)"),
-            "{text}"
-        );
+        assert!(text.contains("⚙ Theseus  (1 working)"), "{text}");
         assert!(
             text.contains("◐ Importing Claude Code history · batch 41 of 120"),
             "{text}"

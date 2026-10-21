@@ -34,32 +34,54 @@ fn left(minutes: f64) -> String {
     }
 }
 
-/// The time part: `~6 min left` from the median while there is some, else
-/// from the 90th percentile; `past its usual time` once the forecast says so
-/// or the task has run longer than its p90. Nothing for an ended task, one
-/// with no known start, or a forecast made from no finished task.
+/// The time part: `~6 min left` counting down to the median; `past its usual
+/// time` once the task has run past the median, its spend has, or the forecast
+/// says so. Nothing for an ended task, one with no known start, or a forecast
+/// made from no finished task.
 fn time_words(v: &WorkView, now_ms: u64) -> Option<String> {
     let f = v.forecast.as_ref()?;
     if v.state.ended() {
         return None;
     }
-    time_left(f, v.started_at_ms, now_ms)
+    time_left(
+        f,
+        v.started_at_ms,
+        v.cost.as_ref().map_or(0.0, |c| c.spent_usd),
+        now_ms,
+    )
 }
 
 /// The same from the forecast and the start alone, for a row that keeps no
 /// whole view.
-pub fn time_left(f: &WorkForecast, started_at_ms: u64, now_ms: u64) -> Option<String> {
+pub fn time_left(
+    f: &WorkForecast,
+    started_at_ms: u64,
+    spent_usd: f64,
+    now_ms: u64,
+) -> Option<String> {
     if f.n == 0 || started_at_ms == 0 {
         return None;
     }
     let elapsed = now_ms.saturating_sub(started_at_ms) as f64 / MIN_MS;
-    let to_p90 = f.min_p90 - elapsed;
-    if f.past || to_p90 <= 0.0 {
+    let to_p50 = f.min_p50 - elapsed;
+    if f.past || to_p50 <= 0.0 || f.spend_past(spent_usd) {
         return Some("past its usual time".to_string());
     }
-    let to_p50 = f.min_p50 - elapsed;
-    let t = if to_p50 > 0.0 { to_p50 } else { to_p90 };
-    Some(format!("~{} left", left(t)))
+    Some(format!("~{} left", left(to_p50)))
+}
+
+/// The model's last words as a surface shows them: bare while they are as new as what the task does
+/// (`doing_since_ms`, none when it does nothing) or under a minute old, else with their age,
+/// `Round 1 done. Continuing. (2 min ago)`.
+pub fn aged_said(said: &str, at_ms: u64, doing_since_ms: Option<u64>, now_ms: u64) -> String {
+    let age = now_ms.saturating_sub(at_ms);
+    if age < 60_000 || doing_since_ms.is_none_or(|d| at_ms >= d) {
+        return said.to_string();
+    }
+    match age / 60_000 {
+        m @ 1..=59 => format!("{said} ({m} min ago)"),
+        m => format!("{said} ({} h ago)", m / 60),
+    }
 }
 
 /// The line without `paused`: step, dollars and time left. A row that puts
@@ -140,7 +162,7 @@ mod tests {
     fn the_golden_cases_hold() {
         let cases: Vec<Value> =
             serde_json::from_str(include_str!("golden/progress_line.json")).unwrap();
-        assert_eq!(cases.len(), 10);
+        assert_eq!(cases.len(), 12);
         for c in cases {
             let mut v = view(WorkKind::Task, WorkState::Running, None);
             v.cost = c.get("cost").map(|k| Cost {
@@ -169,7 +191,7 @@ mod tests {
     }
 
     /// A task a checkpoint moved off its base says where it runs, last; a task on its base
-    /// reads as the ten golden cases do (theseus-ypnxt.9).
+    /// reads as the golden cases do (theseus-ypnxt.9).
     #[test]
     fn a_moved_tasks_line_says_where_it_runs() {
         let cases: Vec<Value> =
@@ -206,6 +228,32 @@ mod tests {
         }
     }
 
+    /// The key test: a spend above the median never reads as `of ~` that median, and its time part
+    /// says the usual is past (theseus-ztkhg).
+    #[test]
+    fn a_spend_past_its_usual_never_reads_as_under_it() {
+        let mut v = view(WorkKind::Task, WorkState::Running, None);
+        v.forecast = Some(WorkForecast {
+            usd_p50: 0.02,
+            ..forecast(4, false)
+        });
+        for (spent, want) in [
+            (
+                0.04,
+                "$0.04, past its usual ~$0.02 (limit $1) · past its usual time",
+            ),
+            (0.01, "$0.01 of ~$0.02 (limit $1) · ~6 min left"),
+        ] {
+            v.cost = Some(Cost {
+                spent_usd: spent,
+                limit_usd: 1.0,
+                turn_usd: None,
+            });
+            let now = v.started_at_ms + 4 * MIN_MS as u64;
+            assert_eq!(progress_line(&v, now).as_deref(), Some(want));
+        }
+    }
+
     #[test]
     fn a_forecast_that_says_past_is_past_whatever_the_clock() {
         let mut v = view(WorkKind::Task, WorkState::Running, None);
@@ -223,6 +271,19 @@ mod tests {
         v.cost = None;
         v.forecast = Some(forecast(3, false));
         assert_eq!(progress_line(&v, v.started_at_ms + 60_000), None);
+    }
+
+    #[test]
+    fn old_words_carry_their_age() {
+        let (said, ten, now) = ("Round 1 done. Continuing.", 36_000_000, 36_120_000);
+        assert_eq!(
+            aged_said(said, ten, Some(ten + 60_000), now),
+            "Round 1 done. Continuing. (2 min ago)"
+        );
+        assert_eq!(aged_said(said, ten + 90_000, Some(ten + 60_000), now), said);
+        assert_eq!(aged_said(said, ten, Some(ten + 60_000), ten + 30_000), said);
+        assert_eq!(aged_said(said, ten, None, now), said);
+        assert!(aged_said(said, ten, Some(ten + 1), ten + 7_300_000).ends_with("(2 h ago)"));
     }
 
     #[test]

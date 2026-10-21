@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use theseus_protocol::notices::Notice;
+use theseus_protocol::work::progress_line::aged_said;
 use theseus_protocol::work::{WorkKind, WorkView};
 use theseus_protocol::{Level, ThreadGroup};
 
@@ -44,15 +45,34 @@ fn kind_word(k: WorkKind) -> &'static str {
     }
 }
 
+/// What is below a view, as `  (2 done, 1 failed)`: the non-zero parts only, nothing when all are zero.
+fn rollup(parts: &[(u32, &str)]) -> String {
+    let said: Vec<String> = parts
+        .iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, w)| format!("{n} {w}"))
+        .collect();
+    if said.is_empty() {
+        String::new()
+    } else {
+        format!("  ({})", said.join(", "))
+    }
+}
+
 /// The daemon's own work (theseus-jn17m): the root as `⚙ Theseus  (1
-/// working, 2 done, 0 failed)`, a job as `◐ Importing Claude Code history ·
+/// working, 2 done)`, a job as `◐ Importing Claude Code history ·
 /// batch 41 of 120 · 3:12`; a failed one is marked `✗`.
 fn system_line(v: &WorkView, now: u64) -> String {
     if theseus_protocol::work_system::is_root(&v.id) {
         let b = v.below.unwrap_or_default();
         return format!(
-            "⚙ {}  ({} working, {} done, {} failed)",
-            v.title, b.working, b.done, b.failed
+            "⚙ {}{}",
+            v.title,
+            rollup(&[
+                (b.working, "working"),
+                (b.done, "done"),
+                (b.failed, "failed"),
+            ])
         );
     }
     let glyph = match v.state {
@@ -86,13 +106,11 @@ pub(crate) fn view_line(v: &WorkView, now: u64) -> String {
     if let Some(line) = theseus_protocol::work::progress_line::progress_line(v, now) {
         s.push_str(&format!("  [{line}]"));
     }
-    if let Some(said) = v
-        .progress
-        .as_ref()
-        .and_then(|p| p.said.as_deref())
-        .filter(|w| !w.is_empty())
-    {
-        s.push_str(&format!("  {said}"));
+    if let Some(p) = v.progress.as_ref() {
+        if let Some(said) = p.said.as_deref().filter(|w| !w.is_empty()) {
+            let doing = v.doing.as_ref().map(|d| d.since_ms);
+            s.push_str(&format!("  {}", aged_said(said, p.at_ms, doing, now)));
+        }
     }
     // A running job's time, against its usual (theseus-e1hu4).
     if v.kind == WorkKind::Job && v.state == theseus_protocol::work::WorkState::Running {
@@ -105,12 +123,12 @@ pub(crate) fn view_line(v: &WorkView, now: u64) -> String {
         ));
     }
     if let Some(b) = &v.below {
-        if b.total > 0 {
-            s.push_str(&format!(
-                "  ({} need you, {} working, {} done, {} failed)",
-                b.needs_you, b.working, b.done, b.failed
-            ));
-        }
+        s.push_str(&rollup(&[
+            (b.needs_you, "need you"),
+            (b.working, "working"),
+            (b.done, "done"),
+            (b.failed, "failed"),
+        ]));
     }
     if let Some(l) = v.doing.as_ref().and_then(|d| d.last_line.as_deref()) {
         s.push_str(&format!("  › {l}"));
@@ -278,7 +296,7 @@ mod tests {
         assert_eq!(
             tree_lines(&views, 7 + 5_400),
             vec![
-                "◐ Beta summary  turn 3  [step 2 of 3]  (1 need you, 1 working, 0 done, 0 failed)",
+                "◐ Beta summary  turn 3  [step 2 of 3]  (1 need you, 1 working)",
                 "  ◐ Read the buoys  turn 1",
                 "    ◐ cargo test -p core  running  [job 0:05 of usual 1:34]  › test result: 41 passed",
                 "  ● fs.write notes.txt  confirm fs.write: notes.txt",
@@ -356,6 +374,16 @@ mod tests {
                 "  ✗ Syncing OpenClaw history · failed: the exporter's cursor is ahead of the file · 0:01",
             ]
         );
+    }
+
+    #[test]
+    fn a_rollup_shows_its_non_zero_parts() {
+        assert_eq!(rollup(&[(0, "need you"), (1, "working")]), "  (1 working)");
+        assert_eq!(
+            rollup(&[(0, "working"), (2, "done"), (1, "failed")]),
+            "  (2 done, 1 failed)"
+        );
+        assert_eq!(rollup(&[(0, "working"), (0, "done")]), "");
     }
 
     /// A change says its position, kind, short id and the state it moved from;

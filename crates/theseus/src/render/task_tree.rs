@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use theseus_protocol::notices::name_of;
 use theseus_protocol::term::words::clip;
-use theseus_protocol::work::progress_line::{cost_part, progress_rest, step_words};
+use theseus_protocol::work::progress_line::{aged_said, cost_part, progress_rest, step_words};
 use theseus_protocol::work::{DoingKind, Question, QuestionKind, WorkKind, WorkState, WorkView};
 use theseus_protocol::Level;
 
@@ -247,13 +247,12 @@ pub fn activity(v: &WorkView, kids: &[&WorkView], now_ms: u64, clock: fn(u64) ->
     // line every surface shares (step, dollars, time left), then the model's
     // own words, or the plan's current step when it has none yet.
     let said = v.progress.as_ref().and_then(|p| {
-        p.said
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .or(p.current.as_deref())
-            .map(first_line)
-            .filter(|c| !c.is_empty())
-            .map(str::to_string)
+        let doing = v.doing.as_ref().map(|d| d.since_ms);
+        match p.said.as_deref().filter(|s| !s.is_empty()) {
+            Some(w) => Some(aged_said(first_line(w), p.at_ms, doing, now_ms)),
+            None => p.current.as_deref().map(first_line).map(str::to_string),
+        }
+        .filter(|c| !c.is_empty())
     });
     let mut parts = Vec::new();
     if v.paused {
