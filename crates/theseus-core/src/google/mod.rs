@@ -43,6 +43,8 @@ pub mod mail;
 pub mod mime;
 pub mod private;
 pub mod send_cap;
+pub mod sheets;
+pub mod slides;
 pub mod tend;
 
 #[cfg(test)]
@@ -61,11 +63,13 @@ mod tests_gate;
 mod tests_mail;
 #[cfg(test)]
 mod tests_private;
+#[cfg(test)]
+mod tests_sheets_slides;
 
 pub use external::{finish, Finished, Source};
 
 /// The Google tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 12] = [
+pub const NAMES: [&str; 15] = [
     call::NAME,
     mail::SEARCH,
     mail::READ,
@@ -76,6 +80,9 @@ pub const NAMES: [&str; 12] = [
     drive::READ,
     drive::WRITE,
     drive::SHARE,
+    sheets::READ,
+    sheets::WRITE,
+    slides::WRITE,
     calendar::EVENTS,
     calendar::PUT,
 ];
@@ -232,7 +239,9 @@ impl Google {
         //
         all.extend(drive::tools(self));
         //
-        // gw-sheets-slides: all.extend(sheets::tools(self)); all.extend(slides::tools(self));
+        // gw-sheets-slides:
+        all.extend(sheets::tools(self));
+        all.extend(slides::tools(self));
         //
         all.extend(calendar::tools(self));
         //

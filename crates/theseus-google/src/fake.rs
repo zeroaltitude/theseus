@@ -21,6 +21,8 @@ use crate::scopes::Service;
 
 mod calendar;
 pub mod drive;
+mod sheets;
+mod slides;
 
 /// A canned answer.
 #[derive(Debug, Clone)]
@@ -99,6 +101,8 @@ struct Inner {
     disabled: Option<(Service, String)>,
     forms: Vec<std::collections::BTreeMap<String, String>>,
     mail: gmail::Mailbox,
+    sheets: sheets::State,
+    slides: slides::State,
 }
 
 pub struct Fake {
@@ -141,6 +145,8 @@ impl Fake {
             disabled: None,
             forms: Vec::new(),
             mail: gmail::Mailbox::default(),
+            sheets: Default::default(),
+            slides: Default::default(),
         }));
         let me = inner.clone();
         let task = tokio::spawn(async move {
@@ -374,6 +380,14 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
         .rev()
         .find(|(v, p, _)| *v == req.method && path_matches(p, req.path()))
         .map(|(_, _, h)| h.clone());
+    if handler.is_none() {
+        // The services' own stubs, behind a test's routes.
+        if let Some(r) =
+            sheets::answer(&mut i.sheets, req).or_else(|| slides::answer(&mut i.slides, req))
+        {
+            return r;
+        }
+    }
     let account = i.account.clone();
     let mail = i.mail.clone();
     drop(i);

@@ -195,9 +195,10 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
     // wake.move and wake.cancel (theseus-lherl), one (pw1q.8), routine.create (theseus-pvm5c),
-    // `watch` (f2r2b), project.attach (theseus-n5ui2), google.call (batvg.1), and gmail.* (five,
-    // batvg.2), drive.* (four, batvg.3) and calendar.* (two, batvg.5).
-    assert_eq!(cfg.policy.tools.len(), 71);
+    // `watch` (f2r2b), project.attach (theseus-n5ui2), google.call (batvg.1), gmail.* (five,
+    // batvg.2), drive.* (four, batvg.3), sheets.* and slides.* (three, batvg.4) and calendar.*
+    // (two, batvg.5).
+    assert_eq!(cfg.policy.tools.len(), 74);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());

@@ -765,6 +765,9 @@ window_days = 7                         # the window the approvals are counted i
 # "drive.share" = "approve"
 #
 # gw-sheets-slides: the sheets.* and slides.* lines
+# "sheets.read" = "notify"     # a read inherits enforcement unless a line says otherwise
+# "sheets.write" = "notify"    # Drive keeps the revisions, so a write can be undone
+# "slides.write" = "notify"
 #
 # gw-calendar: the calendar.* lines
 # calendar.events reads, and takes enforcement's posture. calendar.put asks at every
