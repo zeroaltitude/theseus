@@ -40,8 +40,8 @@ use crate::judge::inbound::{
 use crate::session::SessionRecord;
 use crate::thread_flow::{Answered, Handoff, Pending, Routed};
 use crate::thread_route::{
-    address, decide, decide_single, decisive, pre_route, propose, question, top_entities, Address,
-    Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre, Voice,
+    address, decide, decide_single, decisive, new_entities, pre_route, propose, question,
+    top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre, Rules, Voice,
 };
 
 /// How many characters of the waiting message a question shows.
@@ -400,6 +400,7 @@ impl Core {
         };
         if let Some(p) = pre.iter_mut().find(|p| p.slug == slug) {
             p.score = p.score.max(crate::thread_route::LEARNED);
+            p.learned = true;
         }
     }
 
@@ -488,7 +489,15 @@ impl Core {
         let board = self.threads();
         let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
         let (title, _) = propose(&p.input, &taken);
-        decide(live, pre, jev.as_ref(), voice, Some(&title))
+        let sticky_alone_asks = self.cfg.threads.sticky_alone_asks;
+        let rules = Rules {
+            sticky_alone_asks,
+            new_entities: match sticky_alone_asks {
+                true => new_entities(&p.input, live),
+                false => 0,
+            },
+        };
+        decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
     }
 
     /// The router could not tell: one line, the options, and a wait for the

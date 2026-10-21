@@ -98,8 +98,9 @@ def main():
                 found = ASKED.search(line)
                 if found:
                     asked.append(found.group(1))
-                    want = titles[m["thread"]]
-                    key = next((k for k, v in options.items() if v == want), "home")
+                    want = titles.get(m["thread"])  # none: a new stream's message, answered `new`
+                    key = next((k for k, v in options.items() if (v == want if want else k == "n")), "home")
+                    key = {"n": "new", "h": "home"}.get(key, key)
                     th("thread", "answer", found.group(1), key)
 
         w = threading.Thread(target=watch, daemon=True)
@@ -115,7 +116,7 @@ def main():
         if not unclear:
             clear += 1
             clear_asks += len(asked)
-        ok = landed == m["thread"]
+        ok = landed == m["thread"] or (m["thread"] == "new" and landed not in titles and landed != "home")
         right += ok
         mark = "ok " if ok else "BAD"
         how = tag.get("how", "-")

@@ -433,6 +433,33 @@
     "p": 0.7
    },
    "cold": false
+  },
+  {
+   "text": "check src/vault.rs again for the leak",
+   "thread": "security-fix",
+   "kind": "entity",
+   "jev": null,
+   "cold": false
+  },
+  {
+   "text": "Make the calibration report rerunnable from a script.",
+   "thread": "tide-gauge",
+   "kind": "unclear",
+   "jev": {
+    "pick": "tide-gauge",
+    "p": 0.55
+   },
+   "cold": false
+  },
+  {
+   "text": "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214, bump the base image",
+   "thread": "new",
+   "kind": "unclear",
+   "jev": {
+    "pick": "new_thread",
+    "p": 0.52
+   },
+   "cold": false
   }
  ]
 }

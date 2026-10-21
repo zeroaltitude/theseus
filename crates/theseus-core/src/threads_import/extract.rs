@@ -9,10 +9,12 @@
 //! - **repos**: `owner/name` from a github.com URL, an ssh remote
 //!   (`git@github.com:owner/name.git`), or the word after `-R`, `--repo`,
 //!   `repo` or `clone`. A plain `a/b` is a path, not a repo.
-//! - **refs**: `#123`, a github issue or pull URL (`owner/name#123`), and a
+//! - **refs**: `#123`, a github issue or pull URL (`owner/name#123`), a
 //!   Beads id: a lower-case prefix of 3 to 10 letters, a hyphen and 3 to 6
 //!   letters or digits, with at least one digit, or any suffix after the
-//!   prefix `theseus`.
+//!   prefix `theseus`; and a ticket: 2 to 10 upper-case letters, a hyphen and
+//!   2 to 7 digits (`OPS-4214`; theseus-eqp1v), but for the names of
+//!   standards (`SHA-256`, `UTF-16`, `ISO-8601`).
 //! - **branches**: `feat/…`, `fix/…`, `feature/…`, `lane/…`, `cloud/…`,
 //!   `release/…`, `hotfix/…`, `chore/…`, `self/…`, the word after `branch` when it has a
 //!   branch's shape (a separator or a digit, or `main`), or `checkout -b`/`switch -c`.
@@ -101,7 +103,7 @@ fn scan(text: &str, c: &mut Counts) {
             repo(r.trim_end_matches(".git"), c);
         } else if let Some(n) = tok.strip_prefix('#').filter(|n| number(n)) {
             bump(&mut c.refs, format!("#{n}"));
-        } else if bead(tok) {
+        } else if bead(tok) || ticket(tok) {
             bump(&mut c.refs, tok.to_string());
         } else if branch_like(tok) {
             bump(&mut c.branches, tok.to_string());
@@ -186,6 +188,20 @@ fn bead(t: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
         && (PREFIXES.contains(&prefix) || suffix.bytes().any(|b| b.is_ascii_digit()))
+}
+
+/// Standards' names, which a ticket's shape takes too.
+const STANDARDS: &[&str] = &["AES", "CRC", "ISO", "MD", "RFC", "SHA", "TLS", "UTF"];
+
+/// A tracker's ticket: `OPS-4214`, `PRR-4142`.
+fn ticket(t: &str) -> bool {
+    t.split_once('-').is_some_and(|(p, n)| {
+        (2..=10).contains(&p.len())
+            && p.bytes().all(|b| b.is_ascii_uppercase())
+            && n.len() >= 2
+            && number(n)
+            && !STANDARDS.contains(&p)
+    })
 }
 
 /// The word after "branch" in prose names a branch only when it has a branch's shape (a separator or
