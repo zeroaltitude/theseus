@@ -321,21 +321,8 @@ impl Shared {
                 }
             }
             Some((sub @ ("link" | "unlink"), args)) => {
-                let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
-                let (a, b) = (get("a").unwrap_or_default(), get("b").unwrap_or_default());
-                let p = ThreadLinkParams {
-                    slug: a.clone(),
-                    other: b.clone(),
-                    author: Some(who.to_string()),
-                    discord,
-                };
-                let linking = sub == "link";
-                let m = if linking { method::THREAD_LINK } else { method::THREAD_UNLINK };
-                match self.rpc.call::<_, ThreadRow>(m, p).await {
-                    Ok(_) if linking => format!("🔗 `{a}` and `{b}` are linked."),
-                    Ok(_) => format!("`{a}` and `{b}` are no longer linked."),
-                    Err(e) => format!("⚠️ Nothing was {}: {}", if linking { "linked" } else { "unlinked" }, e.message),
-                }
+                self.thread_link_said(sub == "link", &args, who, discord)
+                    .await
             }
             _ => "⚠️ `/thread new`, `list`, `bind slug:`, `unbind`, `merge from: into:`, `link a: b:` or `unlink a: b:`."
                 .to_string(),
@@ -358,6 +345,35 @@ impl Shared {
             self.board.error("thread response", None, e);
         }
         true
+    }
+}
+
+impl Shared {
+    /// `/thread link` or `unlink`: `thread.link` or `thread.unlink` as the presser, and what it said.
+    async fn thread_link_said(
+        &self,
+        linking: bool,
+        args: &[(&str, String)],
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> String {
+        let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        let (a, b) = (get("a").unwrap_or_default(), get("b").unwrap_or_default());
+        let p = ThreadLinkParams {
+            slug: a.clone(),
+            other: b.clone(),
+            author: Some(who.to_string()),
+            discord,
+        };
+        let (m, did) = match linking {
+            true => (method::THREAD_LINK, "linked"),
+            false => (method::THREAD_UNLINK, "unlinked"),
+        };
+        match self.rpc.call::<_, ThreadRow>(m, p).await {
+            Ok(_) if linking => format!("🔗 `{a}` and `{b}` are linked."),
+            Ok(_) => format!("`{a}` and `{b}` are no longer linked."),
+            Err(e) => format!("⚠️ Nothing was {did}: {}", e.message),
+        }
     }
 }
 
