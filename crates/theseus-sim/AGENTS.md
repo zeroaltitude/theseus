@@ -35,6 +35,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     A restart after a clean stop must not repair the store's index (`Start.index_repaired`, from the store phase): the
     shutdown phase fails on a repair after each `shutdown`, and after one SIGTERM, sent once the MCP server listens,
     which is the stop a service manager sends (theseus-7okz9: a repair of a big index is seconds before serving).
+    Every copy the bench makes (the swap's other build and its tender, a copied store) is written out before it goes
+    on (`src/lifecycle/copies.rs`, theseus-vncz5): a debug `theseusd` is over 400 MB, and left dirty its writeback
+    stalled the store's fsyncs in the phases timed after it, 100 to 530 ms a time (ext4's data=ordered).
   - `bench lifecycle --sessions N --phases surfaces` (`src/lifecycle/surfaces.rs`, theseus-7bee): what a prompt waits
     for on a store with a great many sessions: `theseus watch --interactive` from its spawn to its prompt line, against 50 ms
     at any size. The TUI's startup reads (`executions.watch`, `confirm.list`) print beside it with no budget: at 200,000
