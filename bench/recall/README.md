@@ -256,6 +256,12 @@ daemon's log.
   found no …", "nothing there pins (says, shows) …", "I'm not able to find", "unable to tell" (`ADMIT` in
   `progression.py`). The scorer derives an abstention's check from its kind each time it scores, so a run kept from
   before a change to the rule is scored by today's; a direct or indirect probe keeps its stored check.
+- **An abstention's shape**, beside its correctness, for every arm alike: *clean* (it admits and gives no value of
+  the kind), *neighbours* (it admits, and each value of the kind it gives sits in a clause that names another fact's
+  subject and nothing of the asked one's: "No record of the cedar relay; the alder relay is on 44320"), or
+  *misleading* (any other failure: no admission, a value with no subject, or a value beside the asked subject). A
+  word both subjects share names neither. The strict abstention accuracy is unchanged and counts only *clean*, so
+  the series stays comparable; `abstention_not_misleading` is clean and neighbours together.
 - **The curve**: recall accuracy (direct and indirect) per arm by bucket and salience, with the mean turns and
   tokens since the fact. Each turn's new tokens are its input, cache writes and output. Abstention accuracy has a
   table of its own.

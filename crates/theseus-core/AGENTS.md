@@ -675,6 +675,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **A job's handle** (theseus-n8gk): a job that goes on in the background, past `proc_sync_secs` or at once with
   `proc.run {background: true}`, gets a short id in its session (`j1`, `j2`, …; `toolrun/handles.rs`), which its
   placeholder's meta names (`job`), so a restart reads the map again from the transcript; the long id still works.
+  A job a restart found alive gets its short id too (`toolrun/resume.rs`, `check_dispatched`: the same meta, and words naming
+  its command and the job tools).
   `job.read`, `job.wait` and `job.stop` (schemas in theseus-tools' `jobs.rs`) run in `toolrun/jobs_tools.rs`, through
   the core (`Board`, attached as `memory.lookup`'s is): a read is the one tail reader, `toolrun/peek.rs`
   (`crate::toolrun::peek`, bounded: 64 KiB by seek, lines counted only up to 8 MiB), which the work board's
