@@ -338,6 +338,9 @@ impl Core {
         if !self.cfg.judge.enabled {
             bail!("the judge is off ([judge] enabled = false): nothing is replayed");
         }
+        if p.onto {
+            return self.onto_replay_run(p, who).await;
+        }
         let (candidate, text) = candidate_of(&p)?;
         let what = format!("replay of {}", candidate.name());
         self.judge_act(
@@ -942,6 +945,7 @@ fn replay_result(
         broken,
         fell,
         eval,
+        onto: None,
     }
 }
 
