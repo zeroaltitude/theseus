@@ -803,3 +803,56 @@ async fn the_plan_tools_are_deferred_in_every_place_and_load_in_plan_mode() {
         offered(&req)
     );
 }
+
+/// A listing that says the ledger is read has the counts the read applied
+/// (theseus-nyczg): `warmed` was read after the places' counts, so a read that
+/// ended between the two gave a listing that said `warmed` with none of its
+/// counts. The read ends (its rows applied, then `warmed` set, as `warm::read`
+/// does) at the one moment the listing is open to it, right after the listing
+/// took its counts: it must then not say `warmed` with the counts it took, and
+/// the next one holds every row. Both of the ledger's readers, `tool.defer`
+/// and health's line.
+#[tokio::test]
+async fn a_listing_that_says_warmed_has_the_counts_the_read_applied() {
+    use crate::tools_defer::PlaceKind;
+    const ROWS: u32 = 20;
+    let r = rig();
+    let board = &r.core.runner.tools.defer;
+    let end_read = || {
+        let core = r.core.clone();
+        move || {
+            let board = &core.runner.tools.defer;
+            let row = json!({"place": "cli", "loaded": ["files"], "used": [], "searched": [], "unused": []});
+            for _ in 0..ROWS {
+                board.apply_used(theseus_protocol::now_unix_ms(), &row);
+            }
+            board.set_warmed();
+        }
+    };
+    let cli_turns = |l: &theseus_protocol::defer::DeferListResult| {
+        let cli = l.places.iter().find(|p| p.place == PlaceKind::Cli.as_str());
+        cli.unwrap().turns
+    };
+    board.reset();
+    board.after_counts(end_read());
+    let during = r.core.tool_defer();
+    assert!(
+        !during.warmed || cli_turns(&during) == ROWS,
+        "tool.defer said warmed with {} of the read's {ROWS} rows",
+        cli_turns(&during)
+    );
+    let after = r.core.tool_defer();
+    assert!(after.warmed);
+    assert_eq!(cli_turns(&after), ROWS);
+    board.reset();
+    board.after_counts(end_read());
+    let during = r.core.defer_health();
+    assert!(
+        !during.warmed || during.turns == ROWS,
+        "health said warmed with {} of the read's {ROWS} rows",
+        during.turns
+    );
+    let after = r.core.defer_health();
+    assert!(after.warmed);
+    assert_eq!(after.turns, ROWS);
+}

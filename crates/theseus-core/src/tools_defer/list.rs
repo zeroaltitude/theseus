@@ -85,6 +85,11 @@ impl crate::rpc::Core {
         let cfg = &self.cfg.tools.defer;
         let enabled = cfg.enabled;
         let board = &self.runner.tools.defer;
+        // Read before the counts: the read applies its rows, then says it is
+        // done, so a listing that says it is done holds every row. After them,
+        // a read that ended between the two gave `warmed` and none of its
+        // counts (theseus-nyczg).
+        let warmed = board.warmed();
         let now = self.kernel.now_ms();
         let by = self.tools_by_family();
         let known: BTreeSet<String> = by.keys().cloned().collect();
@@ -150,13 +155,15 @@ impl crate::rpc::Core {
                 }
             })
             .collect();
+        #[cfg(test)]
+        board.counted();
         DeferListResult {
             enabled: cfg.enabled,
             mechanism: self.defer_mechanism().as_str().into(),
             window_days: cfg.window_days,
             hide_after_days: cfg.hide_after_days,
             load_share: cfg.load_share,
-            warmed: board.warmed(),
+            warmed,
             places,
         }
     }
@@ -165,6 +172,8 @@ impl crate::rpc::Core {
     pub fn defer_health(&self) -> DeferHealth {
         let cfg = &self.cfg.tools.defer;
         let board = &self.runner.tools.defer;
+        // Before the counts, as `tool_defer` reads it (theseus-nyczg).
+        let warmed = board.warmed();
         let since = self
             .kernel
             .now_ms()
@@ -179,10 +188,12 @@ impl crate::rpc::Core {
                 *by_family.entry(f).or_insert(0) += n;
             }
         }
+        #[cfg(test)]
+        board.counted();
         DeferHealth {
             enabled: cfg.enabled,
             mechanism: self.defer_mechanism().as_str().into(),
-            warmed: board.warmed(),
+            warmed,
             turns,
             searched,
             missed,
