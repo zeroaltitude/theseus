@@ -758,13 +758,13 @@ fn an_l1_jobs_own_pkill_f_does_not_kill_it_and_a_line_keeps_its_semantics() {
         ],
     );
     assert!(
-        out[0].starts_with("[exit code 0") && out[0].contains("survived"),
+        out[0].contains("[exit code 0 ·") && out[0].contains("survived"),
         "{}",
         out[0]
     );
-    assert!(out[1].starts_with("[exit code 3"), "{}", out[1]);
+    assert!(out[1].contains("[exit code 3 ·"), "{}", out[1]);
     assert!(
-        out[2].starts_with("[exit code 1") && !out[2].contains("not-reached"),
+        out[2].contains("[exit code 1 ·") && !out[2].contains("not-reached"),
         "{}",
         out[2]
     );
