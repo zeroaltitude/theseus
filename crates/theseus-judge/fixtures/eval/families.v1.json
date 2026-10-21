@@ -1,0 +1,583 @@
+[
+ {
+  "name": "which_account_needs_aws",
+  "why": "The install #29 shape without a tool name: the account is AWS's whoami; no family word, no tool name, so only Jev can admit it.",
+  "input": {
+   "message": "Which cloud account am I on right now?",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "high",
+   "relevant.2": "low",
+   "relevant.3": "low",
+   "relevant.4": "low"
+  }
+ },
+ {
+  "name": "a_repl_needs_a_terminal",
+  "why": "A program that wants a screen: the terminals, not a plain command.",
+  "input": {
+   "message": "Start a python REPL and keep it open so we can poke at the parser together.",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "low",
+   "relevant.2": "high",
+   "relevant.3": "low",
+   "relevant.4": "low"
+  }
+ },
+ {
+  "name": "later_work_needs_tasks",
+  "why": "Work in several steps to run on its own: a task.",
+  "input": {
+   "message": "Spin off a background task to rebuild the index overnight and report back when it is done.",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "low",
+   "relevant.2": "low",
+   "relevant.3": "high",
+   "relevant.4": "low"
+  }
+ },
+ {
+  "name": "tide_readings_need_the_server",
+  "why": "The MCP server holds the readings asked about.",
+  "input": {
+   "message": "What was the highest tide reading at the harbour station last week?",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "low",
+   "relevant.2": "low",
+   "relevant.3": "low",
+   "relevant.4": "high"
+  }
+ },
+ {
+  "name": "mentioning_aws_is_no_ask",
+  "why": "The subject is AWS but the message asks for an opinion: no tool is needed.",
+  "input": {
+   "message": "Is AWS or a small VPS the better fit for a hobby project like this?",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "low",
+   "relevant.2": "low",
+   "relevant.3": "low",
+   "relevant.4": "low"
+  }
+ },
+ {
+  "name": "a_thank_you_needs_nothing",
+  "why": "An everyday reply needs no tool at all.",
+  "input": {
+   "message": "Thanks, that fixed it!",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "low",
+   "relevant.2": "low",
+   "relevant.3": "low",
+   "relevant.4": "low"
+  }
+ },
+ {
+  "name": "a_code_question_needs_none_of_these",
+  "why": "A question answered from the files and commands that are always loaded: none of the hidden families.",
+  "input": {
+   "message": "Why does the parser drop the last token when the input has no trailing newline?",
+   "families": [
+    {
+     "key": "aws",
+     "holds": "AWS: any API call, the API catalog, and who the account is",
+     "tools": [
+      {
+       "name": "aws_call",
+       "does": "Call any AWS API operation in a bound account."
+      },
+      {
+       "name": "aws_describe",
+       "does": "Look an AWS operation up in the local catalog."
+      },
+      {
+       "name": "aws_whoami",
+       "does": "Ask AWS who Theseus is in a bound account."
+      }
+     ]
+    },
+    {
+     "key": "terminals",
+     "holds": "interactive programs on a terminal: open, send keys, read the screen, close",
+     "tools": [
+      {
+       "name": "term_open",
+       "does": "Open a program on a terminal."
+      },
+      {
+       "name": "term_send",
+       "does": "Send keys to a terminal."
+      },
+      {
+       "name": "term_read",
+       "does": "Read a terminal's screen."
+      }
+     ]
+    },
+    {
+     "key": "tasks",
+     "holds": "tasks and sub-sessions, and the task graph",
+     "tools": [
+      {
+       "name": "task_create",
+       "does": "Start a task in a session of its own, or record a plan item."
+      },
+      {
+       "name": "task_update",
+       "does": "Change a task's record."
+      },
+      {
+       "name": "task_close",
+       "does": "Close a task with its evidence."
+      }
+     ]
+    },
+    {
+     "key": "mcp:tidebase",
+     "holds": "the tools of the tidebase MCP server",
+     "tools": [
+      {
+       "name": "mcp__tidebase__query",
+       "does": "Run a read-only query over the tide gauge readings."
+      },
+      {
+       "name": "mcp__tidebase__stations",
+       "does": "List the tide gauge stations."
+      }
+     ]
+    }
+   ]
+  },
+  "expect": {
+   "relevant.1": "low",
+   "relevant.2": "low",
+   "relevant.3": "low",
+   "relevant.4": "low"
+  }
+ }
+]

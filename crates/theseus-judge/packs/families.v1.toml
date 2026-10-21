@@ -1,0 +1,40 @@
+# families.v1 (theseus-xlri5): whether answering the message in focus needs a
+# tool of each tool family its request hides. At `inbound`, once a prompt, for a
+# model without the provider's tool search: the core sends the families the
+# place hides (not the always-loaded ones), at most twenty, each with what it
+# holds and up to three of its tools, and waits at most `[tools.defer]
+# judge_wait_ms` from the message's arrival. A yes at the confirm bar, in a
+# judgment that acts, admits the family: it loads past the place's budget by
+# its own size, under `[tools.defer] admit_ceiling`. A wrong yes costs tokens,
+# never correctness, so the confirm bar is the admission bar; a no, a timeout
+# or a failure leaves the named rule alone.
+id = "families"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "families"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Tool families: whether answering the message needs a tool of each family its request hides."
+
+[questions.relevant]
+type = "noul"
+per = "families"
+max = 10
+instructions = "Does answering the message need a tool of the family numbered {item}?"
+act = 0.90
+confirm = 0.60
+when_true = "Doing what the message asks calls for one of the family's tools: the work is done with such a tool, whether or not the message names the tool or the family."
+when_false = "The message can be answered without the family's tools: it only mentions the family's subject, needs other tools, or needs none."
+
+[questions.relevant_more]
+type = "noul"
+per = "more_families"
+max = 10
+instructions = "Does answering the message need a tool of the family numbered {item}?"
+act = 0.90
+confirm = 0.60
+when_true = "Doing what the message asks calls for one of the family's tools: the work is done with such a tool, whether or not the message names the tool or the family."
+when_false = "The message can be answered without the family's tools: it only mentions the family's subject, needs other tools, or needs none."
