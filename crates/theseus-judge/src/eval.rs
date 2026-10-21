@@ -71,7 +71,16 @@ pub struct Check {
 /// A case's expectations against the answers of its judgment. A question
 /// that was not answered is a miss.
 pub fn check(case: &Case, pack: &Pack, answers: &[AnswerRecord]) -> Vec<Check> {
-    case.expect
+    check_expect(&case.expect, pack, answers)
+}
+
+/// `check`, over any set's expectations (`eval_labelled`'s too).
+pub fn check_expect(
+    expect: &BTreeMap<String, String>,
+    pack: &Pack,
+    answers: &[AnswerRecord],
+) -> Vec<Check> {
+    expect
         .iter()
         .map(|(q, wanted)| {
             let confirm = pack.question(q).map_or(0.6, |d| d.thresholds.confirm);

@@ -444,6 +444,7 @@ impl Core {
                 author: author_of(class).into(),
                 kernel: self.kernel.clone(),
                 threads: inputs(live),
+                in_thread: false,
                 route,
                 chosen: None,
                 task: false,

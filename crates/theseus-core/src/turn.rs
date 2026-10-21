@@ -74,6 +74,7 @@ mod cut_step;
 mod data_step;
 mod defer_step;
 mod deferred_step;
+mod digest_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
@@ -421,6 +422,8 @@ struct Turn<'a> {
     /// What recall put in front of the model this turn (M6 30b), until its
     /// node rides the provider call's plan frame.
     recall: recall_step::Recalled,
+    /// The place digest this turn's requests carry (theseus-98bz.9).
+    digest: digest_step::Digest,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
     /// A running task's checkpoints (theseus-ypnxt.9).
@@ -558,6 +561,7 @@ impl<'a> Turn<'a> {
             deferred: false,
             ended: false,
             recall: recall_step::Recalled::default(),
+            digest: digest_step::Digest::default(),
             route: route_step::RouteState::default(),
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
@@ -1819,7 +1823,10 @@ impl TurnRunner {
             // model (canary, live) it is read before the compile, under its
             // deadline; in shadow, once the call has answered.
             let recall = match i {
-                0 => self.recall_first(t, session).await,
+                0 => {
+                    self.digest_first(t).await;
+                    self.recall_first(t, session).await
+                }
                 _ => None,
             };
             let compiled = match self

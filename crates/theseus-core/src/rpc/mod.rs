@@ -132,6 +132,8 @@ mod tests_persona_import;
 #[cfg(test)]
 mod tests_persona_threads;
 #[cfg(test)]
+mod tests_place_digest;
+#[cfg(test)]
 mod tests_prefix;
 #[cfg(test)]
 mod tests_rewind;

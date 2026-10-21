@@ -1,0 +1,19 @@
+{
+  "message": "Last touch on PR_DESCRIPTION.md: add an 'also this week' section covering anything else we are shipping.",
+  "author": "operator",
+  "place_kind": "cli (private)",
+  "previous_human_message": "Answer the four review comments on the tarnlib PR.",
+  "last_reply": "All four review comments are answered and pushed.",
+  "minutes_since_last_message": 3,
+  "live_tasks": [],
+  "live_threads": [
+    {"id": "pr-round", "title": "tarnlib PR round", "goal": "Land the tarnlib PR once review passes.", "entities": ["tarnlib", "PR_DESCRIPTION.md"]},
+    {"id": "pipeline", "title": "datatidy pipeline", "goal": "Keep the nightly datatidy report right.", "entities": ["datatidy", "report.py"]},
+    {"id": "homesvc", "title": "home server chores", "goal": "Keep homesvc patched.", "entities": ["homesvc"]}
+  ],
+  "current_role": "engineer",
+  "roles": [
+    {"id": "engineer", "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."},
+    {"id": "reviewer", "stance": "Critical: diffs, prior decisions, and conventions first; never edits; findings with evidence."}
+  ]
+}

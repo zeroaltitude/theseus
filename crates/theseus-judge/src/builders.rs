@@ -250,6 +250,11 @@ pub struct InboundInput {
     /// threads is byte for byte the one before threads).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub live_threads: Vec<ThreadInput>,
+    /// The message arrives in a thread's own session (classify.v4's `scope`,
+    /// theseus-98bz.9); left out of the state when false, so a state outside a
+    /// thread is byte for byte the one before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_thread: bool,
     /// The personas the message may be answered as, and the one that answered
     /// last (`route.v5`'s `persona` question, theseus-c1uz); left out of the
     /// state, and the question not asked, with fewer than two.
@@ -862,6 +867,9 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     .cut_if("live_tasks", c.cut());
     let threads = &i.live_threads[..i.live_threads.len().min(LIVE_THREADS)];
     threads_state(&mut b, &c, cap, i, threads);
+    if i.in_thread {
+        b.scalar("in_thread", true);
+    }
     data_names_state(&mut b, &c, i);
     let in_thread = persona::state(&mut b, &c, cap, i);
     let role = i
@@ -887,18 +895,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
             })
             .collect(),
     );
-    if !threads.is_empty() {
-        dynamic.sources.insert(
-            Source::Threads,
-            threads
-                .iter()
-                .map(|t| Item {
-                    key: t.id.clone(),
-                    text: thread_text(t, &clip),
-                })
-                .collect(),
-        );
-    }
+    threads_dynamic(&mut dynamic, i, threads, &clip);
     persona::dynamic(&mut dynamic, i, &clip, in_thread);
     onto::dynamic(&mut dynamic, i, &clip);
     dynamic.sources.insert(
@@ -915,6 +912,38 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     Prepared {
         state: Arc::new(b.build()),
         dynamic,
+    }
+}
+
+/// The live threads as the `thread` question's options, and the `scope`
+/// question's one item when the place has live threads: listed, or the
+/// message arrives in one (theseus-98bz.9).
+fn threads_dynamic(
+    dynamic: &mut Dynamic,
+    i: &InboundInput,
+    threads: &[ThreadInput],
+    clip: &dyn Fn(&str, usize) -> String,
+) {
+    if !threads.is_empty() {
+        dynamic.sources.insert(
+            Source::Threads,
+            threads
+                .iter()
+                .map(|t| Item {
+                    key: t.id.clone(),
+                    text: thread_text(t, clip),
+                })
+                .collect(),
+        );
+    }
+    if !threads.is_empty() || i.in_thread {
+        dynamic.sources.insert(
+            Source::Scope,
+            vec![Item {
+                key: "scope".into(),
+                text: "The place has live threads.".into(),
+            }],
+        );
     }
 }
 
@@ -1159,6 +1188,16 @@ pub(crate) mod tests {
         .unwrap()
     }
 
+    /// The `inbound` fixture with three live threads, which backs
+    /// classify.v4's golden request (theseus-98bz.9).
+    fn threads_fixture() -> String {
+        std::fs::read_to_string(format!(
+            "{}/fixtures/inputs/inbound.threads.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
     /// The `inbound` fixture with the ontology fields (theseus-xzxqv), which
     /// backs onto.v1's golden request.
     pub(crate) fn onto_fixture() -> String {
@@ -1178,6 +1217,7 @@ pub(crate) mod tests {
             "security.v3",
             "classify.v2",
             "classify.v3",
+            "classify.v4",
             "route.v5",
             "continue.v1",
             "categorize.v1",
@@ -1211,6 +1251,8 @@ pub(crate) mod tests {
             let (_, prepared) = match p.name().as_str() {
                 "route.v6" | "route.v7" => prepared_from(p, &names_fixture()),
                 "onto.v1" => prepared_from(p, &onto_fixture()),
+                // classify.v4's `scope` is asked only with live threads.
+                "classify.v4" => prepared_from(p, &threads_fixture()),
                 name => prepared(name),
             };
             let questions = p
@@ -1499,6 +1541,7 @@ pub(crate) mod tests {
                         })
                         .collect(),
                     live_threads: Vec::new(),
+                    in_thread: false,
                     personas: Vec::new(),
                     speaker: None,
                     thread_now: None,

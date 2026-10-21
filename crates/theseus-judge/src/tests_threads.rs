@@ -149,3 +149,79 @@ fn classify_v3_is_classify_v2_and_an_offer_question() {
         );
     }
 }
+
+/// `classify.v4` is `classify.v3` and one question, `scope`, asked only with
+/// live threads, which decides nothing; `thread` gains one sentence, about a
+/// cue that names a voice; every other question is v3's word for word
+/// (theseus-98bz.9).
+#[test]
+fn classify_v4_is_classify_v3_with_a_scope_question() {
+    let (v3, v4) = (
+        by_name("classify.v3").unwrap(),
+        by_name("classify.v4").unwrap(),
+    );
+    assert_eq!((v4.id.as_str(), v4.version), ("classify", 4));
+    assert_eq!(
+        (&v3.rollback, v3.point, v3.builder),
+        (&v4.rollback, v4.point, v4.builder)
+    );
+    // No threads; the router's list; a message in a thread's own session.
+    for (threads, in_thread) in [
+        (vec![], false),
+        (vec![thread("t1", "Moon"), thread("t2", "Tides")], false),
+        (vec![], true),
+    ] {
+        let listed = !threads.is_empty();
+        let mut i = input();
+        i.live_threads = threads;
+        i.in_thread = in_thread;
+        let a = prepare(&v3, &Input::Inbound(i.clone()), &NoScrub).unwrap();
+        let b = prepare(&v4, &Input::Inbound(i), &NoScrub).unwrap();
+        assert_eq!(a.state.json, b.state.json);
+        assert_eq!(b.state.value().get("in_thread").is_some(), in_thread);
+        let (qa, qb) = (v3.ask(&a.dynamic), v4.ask(&b.dynamic));
+        let extra: Vec<&str> = qb
+            .iter()
+            .filter(|q| !qa.iter().any(|x| x.id == q.id))
+            .map(|q| q.id.as_str())
+            .collect();
+        let asked = listed || in_thread;
+        assert_eq!(extra, if asked { vec!["scope"] } else { vec![] });
+        assert_eq!(
+            qb.iter().any(|q| q.id == "thread"),
+            listed,
+            "no thread question in a thread"
+        );
+        for x in qa.iter().filter(|x| x.id != "thread") {
+            let y = qb.iter().find(|y| y.id == x.id).unwrap();
+            assert_eq!((&x.question, x.thresholds), (&y.question, y.thresholds));
+        }
+        if !listed {
+            continue;
+        }
+        let scope = qb.iter().find(|q| q.id == "scope").unwrap();
+        assert_eq!(ids(&scope.question), ["thread", "place"]);
+        let def = v4.questions.iter().find(|q| q.id == "scope").unwrap();
+        assert!(!def.decides);
+        let thread_of = |qs: &[crate::pack::Asked]| {
+            let Question::Choice {
+                instructions,
+                options,
+                ..
+            } = &qs.iter().find(|q| q.id == "thread").unwrap().question
+            else {
+                panic!("a choice")
+            };
+            (instructions.clone(), options.clone())
+        };
+        let ((i3, o3), (i4, o4)) = (thread_of(&qa), thread_of(&qb));
+        assert_eq!(o3, o4, "the thread options are v3's");
+        let added = i4.strip_suffix(i3.as_str()).expect("v3's words last");
+        assert!(added.contains("voice"), "{added}");
+        assert_eq!(
+            added.trim_end().matches(". ").count(),
+            0,
+            "one sentence: {added}"
+        );
+    }
+}

@@ -249,7 +249,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         [
             "loop.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v3: off",
+            "classify.v4: off",
             "role.v1: off",
             "route.v7: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-19))",
         "directive.v1: off",
@@ -443,7 +443,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
         [
             "loop.v1: off",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v3: off",
+            "classify.v4: off",
             "role.v1: off",
             "route.v7: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-19))",
         "directive.v1: off",

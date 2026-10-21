@@ -36,6 +36,12 @@
 //!   thread exists) is another stream's to a threaded asker: it pays the same
 //!   distance and a name never waives it. Off, it recalls as before. A node a
 //!   split moved belongs to the thread it moved to, whichever session it is in.
+//! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
+//!   (classify.v4) says a message in a thread asks across everything going on,
+//!   that turn's request gains a digest of the place's other live threads, one
+//!   labelled line each, a sealed or seal-pending one only counted. Off, no
+//!   turn waits for the answer and no request carries a digest.
+//! - `place_digest_line_chars` (200): the longest a digest's line is.
 //! - `sticky_half_life_secs`: how fast a place's last thread stops being the
 //!   likely one for its next message (600): the router's stickiness halves
 //!   every this many seconds of gap (theseus-rha2).
@@ -94,6 +100,10 @@ pub struct ThreadsConfig {
     pub cross_recall_needs_entity: bool,
     #[serde(default = "default_true")]
     pub base_distance: bool,
+    #[serde(default = "default_true")]
+    pub place_digest: bool,
+    #[serde(default = "default_digest_line_chars")]
+    pub place_digest_line_chars: usize,
     #[serde(default = "default_half_life")]
     pub sticky_half_life_secs: u64,
     #[serde(default = "default_route_wait")]
@@ -131,6 +141,9 @@ fn default_penalty() -> f64 {
 fn default_bar() -> f64 {
     0.75
 }
+fn default_digest_line_chars() -> usize {
+    200
+}
 fn default_half_life() -> u64 {
     600
 }
@@ -160,6 +173,8 @@ impl Default for ThreadsConfig {
             cross_recall_beats_own: true,
             cross_recall_needs_entity: true,
             base_distance: true,
+            place_digest: true,
+            place_digest_line_chars: default_digest_line_chars(),
             sticky_half_life_secs: default_half_life(),
             route_wait_ms: default_route_wait(),
             ask_wait_secs: default_ask_wait(),
@@ -200,6 +215,9 @@ impl ThreadsConfig {
             if !(0.0..=1.0).contains(&v) {
                 bail!("threads.{key} = {v} is outside 0 to 1");
             }
+        }
+        if self.place_digest_line_chars < 40 {
+            bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
         }
         if self.sticky_half_life_secs == 0 {
             bail!("threads.sticky_half_life_secs is 0: a half-life is at least a second");
@@ -282,6 +300,23 @@ mod tests {
         .unwrap();
         assert!(!loose.threads.cross_recall_beats_own && !loose.threads.base_distance);
         assert!(!loose.threads.cross_recall_needs_entity);
+    }
+
+    /// The place digest (theseus-98bz.9) is on by default, named in the
+    /// template with its line cap, turns off, and refuses a cap too short to
+    /// name a thread.
+    #[test]
+    fn the_place_digest_is_on_by_default_and_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.place_digest);
+        assert_eq!(cfg.threads.place_digest_line_chars, 200);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest_line_chars = 200"));
+        let off = crate::Config::from_toml("[threads]\nplace_digest = false\n").unwrap();
+        assert!(!off.threads.place_digest);
+        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        let bad = format!("{secrets}\n[threads]\nplace_digest_line_chars = 10\n");
+        assert!(crate::Config::parse(&bad).is_err());
     }
 
     /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
