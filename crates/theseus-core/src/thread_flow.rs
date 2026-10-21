@@ -61,6 +61,9 @@ pub struct Pending {
     pub home: String,
     pub text: String,
     pub options: Vec<AskChoice>,
+    /// The live threads it was asked over, by slug: any of them answers it
+    /// (theseus-98bz.4; none with `[threads] ask_every_thread` off).
+    pub slugs: Vec<String>,
     pub tx: tokio::sync::oneshot::Sender<Answered>,
 }
 
@@ -215,11 +218,32 @@ impl State {
             "h" => "home",
             k => k,
         };
-        let Some(c) = p.options.iter().find(|o| o.option.key == key) else {
-            let keys: Vec<&str> = p.options.iter().map(|o| o.option.key.as_str()).collect();
-            return Err(format!("{key:?} is not an option: {}", keys.join(", ")));
+        let keyed = p
+            .options
+            .iter()
+            .find(|o| o.option.key == key && o.choice != Choice::Other);
+        let choice = match keyed {
+            Some(c) => c.choice.clone(),
+            None => match p.slugs.iter().find(|s| s.to_lowercase() == key) {
+                Some(slug) => Choice::Thread(slug.clone()),
+                None => {
+                    let keys: Vec<&str> = p
+                        .options
+                        .iter()
+                        .filter(|o| o.choice != Choice::Other)
+                        .map(|o| o.option.key.as_str())
+                        .collect();
+                    let slug = match p.slugs.is_empty() {
+                        true => "",
+                        false => ", or a thread's slug",
+                    };
+                    return Err(format!(
+                        "{key:?} is not an option: {}{slug}",
+                        keys.join(", ")
+                    ));
+                }
+            },
         };
-        let choice = c.choice.clone();
         let p = g.remove(id).expect("held");
         let home = p.home.clone();
         let _ = p.tx.send(Answered {
@@ -298,6 +322,55 @@ mod tests {
         assert!(s.find_routed("ses_other", None).is_none());
         s.moved("turn_3");
         assert_eq!(s.find_routed("ses_h", None).unwrap().turn, "turn_1");
+    }
+
+    /// An ask is answered by an option's key or by any live thread's slug it
+    /// was asked over; `other` alone, or an unknown word, names the choices.
+    #[test]
+    fn an_ask_takes_a_key_or_a_threads_slug() {
+        use crate::thread_route::AskChoice;
+        use theseus_protocol::thread_route::AskOption;
+        let s = State::default();
+        let opt = |choice: Choice, key: &str| AskChoice {
+            choice,
+            option: AskOption {
+                key: key.into(),
+                label: key.into(),
+            },
+        };
+        let ask = |id: &str| {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            s.ask(
+                id,
+                Pending {
+                    home: "ses_h".into(),
+                    text: "x".into(),
+                    options: vec![
+                        opt(Choice::Thread("a".into()), "1"),
+                        opt(Choice::Other, "other"),
+                        opt(Choice::Home, "home"),
+                    ],
+                    slugs: vec!["a".into(), "e-five".into()],
+                    tx,
+                },
+            );
+            rx
+        };
+        let who = || Answerer::from("the CLI");
+        let _rx = ask("ask_1");
+        let err = s.answer("ask_1", "other", who()).unwrap_err();
+        assert_eq!(
+            err,
+            "\"other\" is not an option: 1, home, or a thread's slug"
+        );
+        assert!(s.answer("ask_1", "nope", who()).is_err());
+        let (_, c) = s.answer("ask_1", "E-Five", who()).unwrap();
+        assert_eq!(c, Choice::Thread("e-five".into()));
+        let _rx = ask("ask_2");
+        assert_eq!(
+            s.answer("ask_2", "1", who()).unwrap().1,
+            Choice::Thread("a".into())
+        );
     }
 
     /// A handoff is the session's and for its message only; taken once.

@@ -2,8 +2,9 @@
 //!
 //! - **The question.** When the core cannot tell which thread a message is
 //!   about, it sends `thread.asked`; the place's actor posts it in one line
-//!   with a button for each choice (`1`, `2`, `New thread «…»`, `home`). A
-//!   press is `thread.answer` as the presser, with the place it came from, so
+//!   with a button for each choice (`1`, `2`, …, `New thread «…»`, `home`),
+//!   five to a row, and for `other` a select of every live, unsealed thread
+//!   (theseus-98bz.4). A press or a pick is `thread.answer` as the presser, with the place it came from, so
 //!   the core judges it as it judges an approval's: the owner, from a private
 //!   place. The message waits in the core; the card is best effort (what must
 //!   be seen is the turn's reply, an outbox post), so a card that never lands
@@ -21,7 +22,9 @@ use theseus_protocol::{method, DiscordOrigin, LedgerKind};
 use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::CommandOptionValue;
 use twilight_model::application::interaction::{Interaction, InteractionData};
-use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
+use twilight_model::channel::message::component::{
+    ActionRow, Button, ButtonStyle, Component, SelectMenu, SelectMenuOption, SelectMenuType,
+};
 use twilight_model::channel::message::AllowedMentions;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
@@ -33,6 +36,11 @@ use super::Shared;
 
 /// A card button's custom id: `thr:<ask id>:<option key>`.
 const PREFIX: &str = "thr";
+/// The `other` select's key: its pick is the thread's slug.
+const PICK: &str = "pick";
+/// Discord's caps: five buttons to a row, 25 options to a select.
+const ROW: usize = 5;
+const SELECT_MAX: usize = 25;
 
 /// A button's label: Discord's cap is 80 characters.
 fn label(words: &str) -> String {
@@ -59,12 +67,13 @@ pub(crate) fn text(ask: &ThreadAsk) -> String {
     format!("\u{2753} **{}**\n> {}", ask.question, ask.message)
 }
 
-/// The question's buttons: one row, a button for each choice (five at most).
+/// The question's buttons: a button for each choice, five to a row, and for
+/// `other` a select of the threads it stands for, in a row of its own.
 pub(crate) fn buttons(ask: &ThreadAsk) -> Vec<Component> {
-    let row = ask
+    let pressed: Vec<Component> = ask
         .options
         .iter()
-        .take(5)
+        .filter(|o| o.key != "other")
         .map(|o| {
             let style = match o.key.as_str() {
                 "home" => ButtonStyle::Secondary,
@@ -83,10 +92,56 @@ pub(crate) fn buttons(ask: &ThreadAsk) -> Vec<Component> {
             })
         })
         .collect();
-    vec![Component::ActionRow(ActionRow {
-        id: None,
-        components: row,
-    })]
+    let mut rows: Vec<Component> = pressed
+        .chunks(ROW)
+        .map(|r| {
+            Component::ActionRow(ActionRow {
+                id: None,
+                components: r.to_vec(),
+            })
+        })
+        .collect();
+    if ask.options.iter().any(|o| o.key == "other") && !ask.others.is_empty() {
+        let options = ask
+            .others
+            .iter()
+            .take(SELECT_MAX)
+            .map(|t| SelectMenuOption {
+                default: false,
+                description: None,
+                emoji: None,
+                label: label(&t.label),
+                value: t.key.clone(),
+            })
+            .collect();
+        rows.push(Component::ActionRow(ActionRow {
+            id: None,
+            components: vec![Component::SelectMenu(SelectMenu {
+                id: None,
+                channel_types: None,
+                custom_id: format!("{PREFIX}:{}:{PICK}", ask.ask_id),
+                default_values: None,
+                disabled: false,
+                kind: SelectMenuType::Text,
+                max_values: Some(1),
+                min_values: Some(1),
+                options: Some(options),
+                placeholder: Some("another thread".into()),
+                required: None,
+            })],
+        }));
+    }
+    rows
+}
+
+/// The thread a pick on the `other` select names, else the press's key.
+fn chosen(i: &Interaction, key: String) -> String {
+    match (key.as_str(), &i.data) {
+        (PICK, Some(InteractionData::MessageComponent(c))) => {
+            c.values.first().cloned().unwrap_or(key)
+        }
+        _ => key,
+    }
 }
 
 /// A press: the question's id and the option's key.
@@ -178,6 +233,7 @@ impl Shared {
         who: &str,
         discord: Option<DiscordOrigin>,
     ) {
+        let key = chosen(i, key);
         let r = self
             .rpc
             .call::<_, ThreadAnswerResult>(
@@ -347,7 +403,53 @@ mod tests {
             ],
             message: "why is the build red".into(),
             expires_ms: 1,
+            others: vec![],
         }
+    }
+
+    /// Six choices take two rows of buttons, and `other` a select of every
+    /// thread it stands for, whose pick parses as the ask's (theseus-98bz.4).
+    #[test]
+    fn six_choices_take_two_rows_and_other_is_a_select() {
+        let opt = |key: &str, label: &str| AskOption {
+            key: key.into(),
+            label: label.into(),
+        };
+        let mut a = ask();
+        a.options = ["1", "2", "3"]
+            .iter()
+            .map(|k| opt(k, &format!("thread {k}")))
+            .chain([
+                opt("other", "another thread"),
+                opt("new", "New thread \u{ab}x\u{bb}"),
+                opt("home", "home"),
+                opt("4", "four"),
+            ])
+            .collect();
+        a.others = (1..=5)
+            .map(|n| opt(&format!("t-{n}"), &format!("t {n}")))
+            .collect();
+        let rows = buttons(&a);
+        let count = |r: &Component| match r {
+            Component::ActionRow(r) => r.components.len(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(rows.iter().map(count).collect::<Vec<_>>(), [5, 1, 1]);
+        let Component::ActionRow(r) = &rows[2] else {
+            panic!("{rows:?}")
+        };
+        let Component::SelectMenu(m) = &r.components[0] else {
+            panic!("{r:?}")
+        };
+        assert_eq!(m.custom_id, "thr:ask_0001:pick");
+        assert_eq!(m.options.as_ref().unwrap().len(), 5);
+        assert_eq!(m.options.as_ref().unwrap()[4].value, "t-5");
+        assert_eq!(
+            parse(&m.custom_id),
+            Some(("ask_0001".into(), "pick".into()))
+        );
+        // Two rows of five and no select when nothing stands behind `other`.
+        assert_eq!(buttons(&ask()).len(), 1);
     }
 
     /// The question has one button a choice, ids that `parse` reads back, and

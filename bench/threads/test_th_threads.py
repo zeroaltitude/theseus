@@ -93,6 +93,22 @@ class Owner(unittest.TestCase):
         self.assertEqual(o.answer("sec-fix", self.ask()), "home")
         self.assertEqual([x["choice"] for x in o.answers], ["new", "home", "home", "1", "2", "home", "home"])
 
+    def test_a_question_that_lists_another_thread_is_answered_with_the_streams_slug(self):
+        # theseus-98bz.4: over five live threads the CLI lists three and `[o]ther`, and a slug answers it.
+        q = "❓ Is this about the pr round, the security fix, the ci checks or another thread?"
+        opts = "   [1] pr round   [2] security fix   [3] ci checks   [o]ther (a thread's slug)   [h]ome"
+        ask = owner.parse_ask(q, opts, "   answer: theseus thread answer ask_9 1|2|3|<slug>|home")
+        self.assertEqual(ask["keys"], ["1", "2", "3", "<slug>", "home"])
+        self.assertEqual(ask["labels"]["other"], "(a thread's slug)")
+        o = owner.Owner()
+        o.title["sec-fix"], o.slug["data-pipe"] = "security fix", "data-pipe"
+        o.title["data-pipe"] = "data pipe"
+        o.sent("sec-fix")
+        o.sent("data-pipe")
+        self.assertEqual(o.answer("sec-fix", ask), "2", "a listed thread by its key")
+        self.assertEqual(o.answer("data-pipe", ask), "data-pipe", "an unlisted one by its slug")
+        self.assertEqual(o.answer("home", ask), "home")
+
     def test_the_owner_starts_a_thread_by_hand_only_when_the_first_message_ran_home_and_no_offer_came(self):
         o = owner.Owner()
         self.assertTrue(o.needs_thread("sec-fix", True, None))

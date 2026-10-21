@@ -52,4 +52,6 @@ pub use recall::{
 };
 pub use retention::RetentionRank;
 pub use science::{Baseline, MemoryScience, ScienceId, SynthesisAdmit, WithSyntheses};
-pub use threads::{SessionThread, ThreadLens, Verdict as ThreadVerdict};
+pub use threads::{
+    Cause as ThreadCause, Distant, SessionThread, ThreadLens, Verdict as ThreadVerdict,
+};

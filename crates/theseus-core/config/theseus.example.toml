@@ -1126,6 +1126,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # sticky_half_life_secs = 600             # a place's last thread stays the likely one for its next message, halving every this many seconds
 # route_wait_ms = 400                     # at most this long an unaddressed message waits for Jev's choice of thread; on timeout the router's own pick stands, tagged a guess
 # ask_wait_secs = 900                     # how long a message waits for your answer to "which thread?" before it runs in the place's own conversation
+# sticky_alone_asks = true               # a thread that stands only on being the place's last one (no entity of its named) cannot overrule Jev's other pick: the message is asked about, offering a new thread when it names two or more entities no thread holds (false: as before)
+# ask_every_thread = true                # "which thread?" lists every live, unsealed thread (past four, the best three and "another thread"), and any thread's slug answers it (false: the best two)
 # A thread's next message after its cache window (the profile's cache_ttl since
 # its last call) finds the provider's cache gone, so the request is rewritten
 # whole anyway: the rewrite is made small. The thread's fresh card, the

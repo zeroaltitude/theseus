@@ -107,6 +107,33 @@ pub struct ThreadLens {
     pub admitted: BTreeSet<String>,
 }
 
+/// Which of the distance's rules dropped a candidate (theseus-98bz.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Cause {
+    /// Its share of the index's best is at or under `bar`.
+    Bar,
+    /// Once it has paid, it does not outrank the asking thread's own best
+    /// hit (`beats_own`).
+    Own,
+    /// Its chunk holds entities the message names none of (`needs_entity`).
+    Entity,
+    /// No thread claims it: the place's own conversation (`base`). It wins
+    /// over the other three.
+    Base,
+}
+
+/// A drop by the distance: its rule and the numbers it weighed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Distant {
+    pub cause: Cause,
+    /// The asking thread's own best hit (`ThreadLens::own_top`).
+    pub own_top: f64,
+    /// Its fused score's share of the index's best.
+    pub share: f64,
+    /// Its fused score once it has paid the penalty.
+    pub paid: f64,
+}
+
 /// What the lens makes of one candidate.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Verdict {
@@ -114,8 +141,8 @@ pub enum Verdict {
     Pass,
     /// A thread's own seal keeps it out.
     Sealed,
-    /// Another thread's, at or under the bar.
-    Distant,
+    /// Another stream's, and one of the distance's rules keeps it out.
+    Distant(Distant),
     /// Another thread's, above the bar: its score is multiplied by this.
     Costs(f64),
 }
@@ -167,14 +194,25 @@ impl ThreadLens {
         } else {
             1.0
         };
-        if self.needs_entity && tie == Tie::Apart {
-            return Verdict::Distant;
-        }
-        let paid = fused * (1.0 - self.penalty).clamp(0.0, 1.0);
-        if share > self.bar && !(self.beats_own && paid <= self.own_top) {
-            Verdict::Costs((1.0 - self.penalty).clamp(0.0, 1.0))
+        let keep = (1.0 - self.penalty).clamp(0.0, 1.0);
+        let paid = fused * keep;
+        let cause = if self.needs_entity && tie == Tie::Apart {
+            Some(Cause::Entity)
+        } else if share <= self.bar {
+            Some(Cause::Bar)
+        } else if self.beats_own && paid <= self.own_top {
+            Some(Cause::Own)
         } else {
-            Verdict::Distant
+            None
+        };
+        match cause {
+            None => Verdict::Costs(keep),
+            Some(c) => Verdict::Distant(Distant {
+                cause: if slug.is_none() { Cause::Base } else { c },
+                own_top: self.own_top,
+                share,
+                paid,
+            }),
         }
     }
 }
@@ -211,6 +249,13 @@ mod tests {
         }
     }
 
+    fn cause(v: Verdict) -> Option<Cause> {
+        match v {
+            Verdict::Distant(d) => Some(d.cause),
+            _ => None,
+        }
+    }
+
     #[test]
     fn another_threads_candidate_pays_and_needs_the_bar() {
         let l = lens(Some("here"));
@@ -223,11 +268,14 @@ mod tests {
             Verdict::Costs(0.65)
         );
         assert_eq!(
-            l.judge("ses_pr", "n", 0.03, Tie::Unknown),
-            Verdict::Distant,
+            cause(l.judge("ses_pr", "n", 0.03, Tie::Unknown)),
+            Some(Cause::Bar),
             "at the bar is not above it"
         );
-        assert_eq!(l.judge("ses_pr", "n", 0.01, Tie::Unknown), Verdict::Distant);
+        assert_eq!(
+            cause(l.judge("ses_pr", "n", 0.01, Tie::Unknown)),
+            Some(Cause::Bar)
+        );
         assert_eq!(
             l.judge("ses_unthreaded", "n", 0.001, Tie::Unknown),
             Verdict::Pass
@@ -264,6 +312,57 @@ mod tests {
             l.judge("ses_fix", "n", 0.04, Tie::Unknown),
             Verdict::Sealed,
             "naming never opens a seal"
+        );
+    }
+    /// Each rule names itself, with the numbers it weighed (theseus-98bz.2):
+    /// `bar`, `own`, `entity`, and `base`, which wins over the other three.
+    #[test]
+    fn each_rule_of_the_distance_says_it_dropped_the_candidate() {
+        let mut l = lens(Some("here"));
+        l.beats_own = true;
+        l.needs_entity = true;
+        l.own_top = 0.024;
+        let at = |l: &ThreadLens, s: &str, f: f64, t: Tie| match l.judge(s, "n", f, t) {
+            Verdict::Distant(d) => Some(d),
+            _ => None,
+        };
+        let bar = at(&l, "ses_pr", 0.02, Tie::Unknown).unwrap();
+        assert_eq!(bar.cause, Cause::Bar);
+        assert!((bar.share - 0.5).abs() < 1e-9 && (bar.paid - 0.013).abs() < 1e-9);
+        assert_eq!(bar.own_top, 0.024);
+        // Above the bar (0.9 of the best), but 0.036 x 0.65 = 0.0234 is no better
+        // than the thread's own 0.024.
+        let own = at(&l, "ses_pr", 0.036, Tie::Unknown).unwrap();
+        assert_eq!(own.cause, Cause::Own);
+        assert!((own.paid - 0.0234).abs() < 1e-9, "{own:?}");
+        assert_eq!(
+            l.judge("ses_pr", "n", 0.04, Tie::Unknown),
+            Verdict::Costs(0.65)
+        );
+        assert_eq!(
+            at(&l, "ses_pr", 0.04, Tie::Apart).map(|d| d.cause),
+            Some(Cause::Entity)
+        );
+        assert_eq!(
+            l.judge("ses_pr", "n", 0.04, Tie::Shared),
+            Verdict::Costs(0.65)
+        );
+        // The place's own conversation: base, whichever rule took it.
+        l.base = true;
+        for (f, t) in [
+            (0.02, Tie::Unknown),
+            (0.036, Tie::Unknown),
+            (0.04, Tie::Apart),
+        ] {
+            assert_eq!(
+                at(&l, "ses_home", f, t).map(|d| d.cause),
+                Some(Cause::Base),
+                "{f} {t:?}"
+            );
+        }
+        assert_eq!(
+            l.judge("ses_home", "n", 0.04, Tie::Shared),
+            Verdict::Costs(0.65)
         );
     }
 }

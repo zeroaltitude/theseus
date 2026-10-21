@@ -64,6 +64,16 @@ fn the_working_set_is_what_the_text_names_by_rule() {
     assert!(ws(&["nothing to see here", "plain words only."]).is_empty());
 }
 
+/// theseus-eqp1v: a tracker's ticket is a ref, upper case and numbered; a standard's name, one digit
+/// and a version are not.
+#[test]
+fn a_trackers_ticket_is_a_ref() {
+    let w = ws(&[
+        "homesvc: ticket OPS-4214, see PRR-4142 (not AB-x1, UTF-16, SHA-256, OPS-7 or v-12).",
+    ]);
+    assert_eq!(w.refs, ["OPS-4214", "PRR-4142"], "{:?}", w.refs);
+}
+
 /// theseus-mg1ox: the word after "branch" is a branch only when it looks like one; English that follows
 /// the word names none.
 #[test]

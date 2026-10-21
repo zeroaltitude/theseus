@@ -3,8 +3,8 @@
 //! admit with each source's rank, and why each other candidate was dropped.
 
 use theseus_protocol::memory::{
-    MemoryConsolidateResult, MemoryHealth, MemoryRecallsResult, RecallActivation, RecallManifest,
-    RecallOutcomes, RecallRetention,
+    MemoryConsolidateResult, MemoryHealth, MemoryRecallsResult, RecallActivation, RecallDrop,
+    RecallManifest, RecallOutcomes, RecallRetention,
 };
 
 use super::{plural, push, Line, Tag};
@@ -354,12 +354,18 @@ fn drop_lines(o: &mut Vec<Line>, m: &RecallManifest) {
             push(o, Tag::Dim, &format!("  🔒 {n} sealed {hits} withheld"));
             continue;
         }
+        // The tally counts a thread distance's rules as `thread`; each drop
+        // names its rule (theseus-98bz.2).
+        let of = |d: &&RecallDrop| family(&d.reason) == reason;
         let nodes: Vec<String> = m
             .dropped
             .iter()
-            .filter(|d| &d.reason == reason)
+            .filter(of)
             .take(6)
-            .map(|d| format!("{}#{}", d.node_id, d.chunk))
+            .map(|d| match d.reason == *reason {
+                true => format!("{}#{}", d.node_id, d.chunk),
+                false => format!("{}#{} ({})", d.node_id, d.chunk, d.reason),
+            })
             .collect();
         let more = if *n as usize > nodes.len() {
             ", …"
@@ -373,7 +379,7 @@ fn drop_lines(o: &mut Vec<Line>, m: &RecallManifest) {
         );
         // Under `+retention`, what each shown drop's node holds (a label's
         // effect included).
-        for d in m.dropped.iter().filter(|d| &d.reason == reason).take(6) {
+        for d in m.dropped.iter().filter(of).take(6) {
             if let Some(r) = &d.retention {
                 push(
                     o,
@@ -382,6 +388,15 @@ fn drop_lines(o: &mut Vec<Line>, m: &RecallManifest) {
                 );
             }
         }
+    }
+}
+
+/// A drop reason's family, as the tally counts it: `thread` for each of the
+/// thread distance's rules.
+fn family(reason: &str) -> &str {
+    match reason.starts_with("thread_") {
+        true => "thread",
+        false => reason,
     }
 }
 
@@ -472,7 +487,36 @@ pub fn consolidated_lines(r: &MemoryConsolidateResult) -> Vec<Line> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    use theseus_protocol::memory::{RecallDrop, RecallItem};
+    use theseus_protocol::memory::RecallItem;
+
+    /// A thread distance's drops are tallied together, each naming its rule
+    /// (theseus-98bz.2).
+    #[test]
+    fn a_thread_drop_names_its_rule() {
+        let thread = |node: &str, reason: &str| RecallDrop {
+            node_id: node.into(),
+            reason: reason.into(),
+            ..RecallDrop::default()
+        };
+        let threaded = RecallManifest {
+            dropped: vec![
+                thread("msg_3", "thread_own"),
+                thread("msg_4", "thread_base"),
+            ],
+            drops: BTreeMap::from([("thread".into(), 2)]),
+            ..RecallManifest::default()
+        };
+        let lines: Vec<String> = recall_lines(&threaded)
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        assert!(
+            lines
+                .join("\n")
+                .contains("dropped 2 for thread: msg_3#0 (thread_own), msg_4#0 (thread_base)"),
+            "{lines:?}"
+        );
+    }
 
     #[test]
     fn a_recall_says_what_it_would_admit_and_why_it_dropped_the_rest() {

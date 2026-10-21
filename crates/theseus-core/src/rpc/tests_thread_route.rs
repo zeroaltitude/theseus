@@ -665,6 +665,73 @@ async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_messa
     );
 }
 
+/// Stickiness alone cannot overrule Jev (theseus-eqp1v; the threadbench's
+/// msg-5 shape): right after a thread's reply, a new stream's first message
+/// scores that thread 0.88 from stickiness and the chain alone. Jev dissents,
+/// so the message is asked about (offering a new thread: it names a branch
+/// and a ticket no thread holds), never routed `visible`. With
+/// `sticky_alone_asks` off, the sticky thread takes it as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dissenting_jev_and_a_sticky_place_ask_instead_of_routing() {
+    let fresh = "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214, bump the base image";
+    for on in [true, false] {
+        let jev = FakeJev::start().unwrap();
+        jev.script_when(
+            fresh,
+            None,
+            "thread",
+            Jev::Choice {
+                option: "security-fix".into(),
+                confidence: 0.3,
+            },
+        );
+        let r = rig_on(texts(4), Some(&jev), |c| {
+            inbound_only(c);
+            c.judge.total_secs = 5;
+            c.threads.route_wait_ms = 3000;
+            c.threads.ask_wait_secs = 2;
+            c.threads.sticky_alone_asks = on;
+        });
+        let c = &r.core;
+        two_threads(c);
+        let dm = home(c, None);
+        let first = submit(c, &dm, "what is failing in PR 412").await;
+        assert_eq!(first.session_id, session_of(c, "pr-round"));
+        let mut w = Wire::open(c);
+        let id = w.send(method::TURN_SUBMIT, params(&dm, fresh, None)).await;
+        let res: TurnSubmitResult =
+            serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+        let routed = rows(c, "thread.routed");
+        let last = &routed.last().unwrap().data;
+        let pre = last["pre"].as_array().unwrap();
+        assert!(
+            pre.iter()
+                .any(|x| (x["score"].as_f64().unwrap() - 0.88).abs() < 0.01),
+            "{last}"
+        );
+        if on {
+            let asked = rows(c, "thread.asked");
+            assert_eq!(asked.len(), 1, "{routed:?}");
+            let keys: Vec<&str> = w
+                .heard
+                .iter()
+                .find(|n| n["method"] == "thread.asked")
+                .map(|n| n["params"]["options"].as_array().unwrap().iter())
+                .into_iter()
+                .flatten()
+                .map(|o| o["key"].as_str().unwrap())
+                .collect();
+            assert!(keys.contains(&"new"), "{keys:?}");
+            assert_ne!(last["how"], "visible", "{last}");
+            assert_eq!(res.session_id, dm, "nobody answered: it ran at home");
+        } else {
+            assert!(rows(c, "thread.asked").is_empty());
+            assert_eq!(last["how"], "visible", "{last}");
+            assert_eq!(res.session_id, session_of(c, "pr-round"));
+        }
+    }
+}
+
 /// A spoken turn the router cannot place is never held for the typed
 /// question (theseus-sro04: the v1 voice check's call waited 215 s on one,
 /// and every word said after it queued behind it): it runs at home at once.
@@ -1022,8 +1089,29 @@ fn script_fixture_jev(jev: &FakeJev, msgs: &[Value]) {
     }
 }
 
+/// The option that answers an ask for a message of `truth`: its thread's,
+/// and `new` for a new stream's message (theseus-eqp1v); else home.
+fn fixture_key(c: &Core, truth: &str, options: &Value) -> String {
+    let want = match truth {
+        "new" => None,
+        t => Some(c.threads().get(t).unwrap().title.clone()),
+    };
+    options
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| match &want {
+            Some(title) => o["label"] == title.as_str(),
+            None => o["key"] == "new",
+        })
+        .map(|o| o["key"].as_str().unwrap().to_string())
+        .unwrap_or_else(|| "home".into())
+}
+
 /// The scripted check (theseus-rha2): forty unaddressed messages across four
-/// threads in one place, on the stand-in model and a scripted Jev (sure, or
+/// threads in one place (and since theseus-eqp1v three more: a probe, then a
+/// switch and a new stream's first message that stickiness alone must not
+/// keep), on the stand-in model and a scripted Jev (sure, or
 /// unsure, or wrong, as the fixture says), every one through `turn.submit`.
 /// The same messages are `scripts/thread-route-check.py`'s, which the owner
 /// runs on a real Jev. Top-1 is the thread the message ran in against the one
@@ -1066,13 +1154,7 @@ async fn forty_unaddressed_messages_find_their_thread_and_ask_rarely() {
                     if !unclear {
                         clear_asks += 1;
                     }
-                    let key = n.params["options"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .find(|o| o["label"] == c.threads().get(truth).unwrap().title.as_str())
-                        .map(|o| o["key"].as_str().unwrap().to_string())
-                        .unwrap_or_else(|| "home".into());
+                    let key = fixture_key(c, truth, &n.params["options"]);
                     let aid = w
                         .send(
                             method::THREAD_ANSWER,
@@ -1102,7 +1184,15 @@ async fn forty_unaddressed_messages_find_their_thread_and_ask_rarely() {
             .threads()
             .of_session(&res.session_id)
             .map_or("home".to_string(), |t| t.slug.clone());
-        match landed == truth {
+        let fixture = |s: &str| {
+            fx["threads"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["slug"] == s)
+        };
+        let new = truth == "new" && landed != "home" && !fixture(&landed);
+        match landed == truth || new {
             true => right += 1,
             false => wrong.push(format!("{text:?} went to {landed}, was for {truth}")),
         }
@@ -1141,6 +1231,7 @@ async fn a_strangers_answer_does_not_count() {
             home: "ses_x".into(),
             text: "x".into(),
             options: crate::thread_route::offer_new("x"),
+            slugs: vec![],
             tx,
         },
     );
@@ -1167,6 +1258,7 @@ async fn a_strangers_answer_does_not_count() {
             home: "ses_x".into(),
             text: "x".into(),
             options: crate::thread_route::offer_new("x"),
+            slugs: vec![],
             tx,
         },
     );
