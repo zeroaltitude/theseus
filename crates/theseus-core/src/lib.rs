@@ -270,6 +270,8 @@ mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_day_notify;
 #[cfg(test)]
+mod tests_day_total;
+#[cfg(test)]
 mod tests_defer;
 #[cfg(test)]
 mod tests_disk_watch;

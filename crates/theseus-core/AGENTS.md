@@ -2528,7 +2528,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The day ceiling** (theseus-kp20, softened by theseus-9e02; the kernel's `day_ceiling.rs` is the counter):
   `day_ceiling.rs` reads today's model spend back before serving (`read_today`: the ledger's pages by kind from local
   midnight, provider settles, booked reservations, speech, synthesis, the learning runs, the judge's day record, and
-  today's `spend.ceiling` and `spend.day_warning` rows), and says a refusal (`TurnRunner::day_refused`: the day's first
+  today's `spend.ceiling` and `spend.day_warning` rows; theseus-vqcgq: the start's read is `read_today_total`, which reads
+  only the rows past a stored total, the META record `day_ceiling.total`, that `Core::keep_day_total` moves forward every
+  minute, so a start costs the rows written since, not the day's; no usable total is one full read, once, and `read_today`
+  is that full read, which the total must equal: `tests_day_total.rs` counts records read, never time), and says a refusal (`TurnRunner::day_refused`: the day's first
   writes one `spend.ceiling` row and, with a DM bound, one `spend_ceiling` post to the owner's DM, which the courier
   sends nowhere else; the start reads the row back). `[kernel] daily_spend_ceiling_mode` says what reaching the ceiling
   does: **`notify`** (the default; the owner, 2026-10-11: tokens less cautious, AWS more) refuses nothing: the check
@@ -2553,7 +2556,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   bench/recall's `--day-ceiling`), so a run never spends past its own budget. AWS keeps its stops: only model tokens went
   soft, and `[aws.accounts.<id>] monthly_warn_usd` (default half the month's budget) adds one warning once a month
   (`aws/month_warn.rs`, from the budget's six-hourly read). Tests: `tests_day_ceiling.rs` (the stop mode, which names
-  it), `tests_day_notify.rs`, and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+  it), `tests_day_total.rs`, `tests_day_notify.rs`, and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
 - **`turn.inspect`** (theseus-x9swu, `rpc/inspect.rs`, wire `theseus_protocol::inspect`): one turn whole, for the cockpit's
   inspector at `/session/<id>/turn/<turn>`. A read, on the blocking pool: no frame, no record of its own (store format
   unchanged), nothing sent to the model. It finds the turn's `turn.started` row by paging the session's `ks:turn.started`
