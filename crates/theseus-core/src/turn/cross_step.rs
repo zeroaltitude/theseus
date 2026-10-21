@@ -34,7 +34,7 @@ use crate::thread_recall::ThreadScene;
 /// Whether a drop is the thread distance's: the one line the drop causes'
 /// split changes.
 fn is_thread_drop(r: Reason) -> bool {
-    matches!(r, Reason::Thread)
+    matches!(r, Reason::Thread(_))
 }
 
 /// A recall's scene, owned: what a pack again needs once the turn is

@@ -128,7 +128,7 @@ async fn a_yes_is_admitted_with_its_thread_and_a_no_stays_out() {
         "{:?}",
         m.dropped
     );
-    assert_eq!(reason("8453").as_deref(), Some("thread"));
+    assert!(reason("8453").is_some_and(|r| r.starts_with("thread_")), "{:?}", reason("8453"));
     let req = admitted_texts(&r);
     assert!(
         req.contains("from thread \u{ab}datatidy stats\u{bb}"),
@@ -224,7 +224,7 @@ async fn no_call_when_the_digest_fired() {
     assert!(cross_requests(&jev).is_empty());
     let m = recalls(c, &pipe).pop().unwrap();
     assert!(
-        m.dropped.iter().any(|d| d.reason == "thread"),
+        m.dropped.iter().any(|d| d.reason.starts_with("thread_")),
         "near misses Jev would have read: {:?}",
         m.dropped
     );
