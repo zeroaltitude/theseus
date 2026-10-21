@@ -94,6 +94,12 @@ pub(super) struct RouteState {
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
+    /// Who sent the message (the client's or the binding's person), for the
+    /// owner's warning of a reach for their personal details (theseus-i1z13).
+    pub(super) asker: String,
+    /// The turn's verdict held it: a reach for the owner's personal details
+    /// in a shared place, answered without a model call (`personal_step`).
+    pub(super) held: bool,
     /// The turn is the owner's correction itself: a later correction finds
     /// the turn it corrected, not this one.
     pub(super) correcting: bool,

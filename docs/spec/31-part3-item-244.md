@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 253 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 254 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -422,3 +422,32 @@ the item through a stand-in launcher (the core's guide says so).
 **How it was proven.** The lane's commits carry no separate review; each names the test it added (the chat step's
 assertions in `tests/acceptance_journey.rs`, the Keel ack for the one config field line). The journey's two ignored
 steps run again.
+
+### Item 254. A reach for the owner's personal details is held in a shared place (theseus-i1z13, finishing theseus-gasov; lane/shared-place, 2026-10-21)
+
+**Why.** Item 252's neighbour, theseus-gasov, built the owner's warning (route.v7's `personal` question, the DM, the
+`privacy.warned` row) and left the rest of the owner's spec of 2026-10-18 20:46: "outside [the owner-only places], it DMs me
+about the case at hand, and returns [a refusal] to the requester". The owner chose the line: "I don't share that here."
+
+**What landed.**
+
+- In a shared place, a turn whose own verdict reads `elicit` or `expose` at the act band, or at the confirm band (the
+  bands `PersonalAnswer::warns` already used there), makes **no model call**: the loop's first compile returns, the turn
+  ends with `hold_reply`, and `I don't share that here.` is its assistant node and its output, so the reply post and the
+  next turn's history both carry it. The stop reason stays `end_turn`: a footer says nothing of why.
+- The owner's DM carries the case: who asked (the message's author), where (the place's bound name), the message's first
+  200 characters quoted and scrubbed, which of the two reaches it read as, and that the requester was told the line.
+- The hold is not rate-limited as the DM is: a second reach in the same place within ten minutes is held and answered, and
+  only its DM is folded. With no DM with the owner bound, the requester is answered all the same and the row says
+  `posted: false`.
+- `privacy.warned` gains `held`. A place only the owner writes in, a task's turn and a verdict that came too late to wait
+  for warn or do nothing as before and hold nothing.
+
+**How it was proven.** `tests_personal_hold.rs` (six tests, red first on ARM: a model was called in a shared place and the
+DM named no one): the fixed line and no model call, the DM's who, where and what, the confirm band, no DM bound, a second
+reach in the window, and an ordinary message and the turn after a hold running; and `holds()`'s own test. Planted
+reverts, six, each caught on ARM: the hold off; the loop ignoring the hold; the DM without the asker; the hold only at the
+act band; the reply left out of the turn's output; a task's turn held too.
+
+**Left open.** A late verdict never holds: the turn did not wait for it, so a reach in a shared place can still be answered
+by the model when Jev is slow. The place rule keeps private recall out of shared places either way.

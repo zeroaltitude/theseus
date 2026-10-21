@@ -1839,6 +1839,15 @@ impl TurnRunner {
                 Ok(c) => c,
                 Err(f) => return Ok(Next::Fail(f)),
             };
+            // A reach for the owner's personal details in a shared place: the
+            // reply is held, and the model is never called (theseus-i1z13).
+            if t.route.held {
+                if let Some(r) = recall {
+                    self.recall_end(t, r).await;
+                }
+                Self::hold_reply(t, i)?;
+                break;
+            }
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.

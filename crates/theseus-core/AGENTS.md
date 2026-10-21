@@ -1605,9 +1605,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the confirm band (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
     courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, each line quoted and each link fenced, at most one post per
     place in 10 minutes (`may_post`; the rest `folded`), and writes `privacy.warned` (choice, confidence, place class,
-    judgment, posted, folded). A late verdict, kept for the next message, warns nothing (a known gap). Nothing is held: the turn and its reply go on, and
-    the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
-    that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
+    judgment, posted, folded, held). A late verdict, kept for the next message, warns nothing and holds nothing (a known gap).
+    In a place only the owner writes in, nothing is held: the turn and its reply go on. **In a shared place the reply is held**
+    (theseus-i1z13, the owner's 2026-10-18 20:46 spec): `warn` sets `RouteState::held`, and the turn loop, once the first compile
+    returns, ends the turn with `hold_reply` and no model call: `I don't share that here.` (`HELD_REPLY`) is the turn's assistant
+    node and output (so the next turn's history reads it), the stop reason stays `end_turn` (a footer says nothing of why),
+    and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
+    the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
+    posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message
+    that steered a running turn is not read. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web
