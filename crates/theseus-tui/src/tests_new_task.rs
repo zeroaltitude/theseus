@@ -27,7 +27,7 @@ async fn n_then_a_brief_starts_a_task_under_the_selected_conversation() {
     open_dm(&mut rig).await;
     rig.press(&[KeyCode::Char('N')]).await;
     rig.type_text("Count the boats").await;
-    rig.shows("new task: the brief").await;
+    rig.shows("new task under DM: the brief").await;
     rig.press(&[KeyCode::Enter]).await;
     rig.asked("task.start", 1).await;
     assert_eq!(
@@ -62,7 +62,7 @@ async fn esc_and_an_empty_brief_start_nothing() {
     let mut rig = Rig::new(100, 24, script(harbour_world()));
     open_dm(&mut rig).await;
     rig.press(&[KeyCode::Char('N'), KeyCode::Enter]).await;
-    rig.shows("new task: the brief").await;
+    rig.shows("new task under DM: the brief").await;
     rig.type_text("abandon this").await;
     rig.press(&[KeyCode::Esc]).await;
     rig.shows("no task started").await;

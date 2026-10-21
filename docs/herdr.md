@@ -25,10 +25,10 @@ The plugin needs herdr 0.9.0 or later and `theseus` on the PATH of the herdr ser
 | key | does |
 |---|---|
 | `prefix+a` | the answer card for the focused task's question, else the one that has waited longest |
-| `prefix+shift+a` | jump to the task that has waited longest (`theseus herdr next`) |
+| `prefix+shift+a` | jump to the pane of the question that has waited longest (`theseus herdr next`); on a running install that is often a self-improvement question (a self `fs.edit`), not one of your own tasks |
 | `prefix+t` | the terminal UI, as a 92% by 90% popup |
 | `prefix+shift+s` | stop the focused task or session: asks y/N, then cancels a task or halts a conversation |
-| `prefix+n` | start a task from one line of words (`theseus task start`) |
+| `prefix+n` | start a task from one line of words (`theseus task start`), under Home (your DM): the key passes no `--in`, so the task is not under the conversation you are looking at |
 | `prefix+m` | back to the main conversation (`theseus herdr main`) |
 | `prefix+i` | read the focused task's transcript and live stream, without joining it |
 | `prefix+p` | pause the focused task at its next step, or resume it when it is held (`task.pause` / `task.resume`) |
@@ -77,7 +77,7 @@ starts later gets its tab by itself. A tab that is already there is left alone: 
 
 ## Troubleshooting
 
-- A key does nothing: `herdr plugin list` shows whether the plugin is linked and enabled; `herdr plugin log theseus`
-  shows what its actions printed.
+- A key does nothing: `herdr plugin list` shows whether the plugin is linked and enabled; `herdr plugin log` (no id: herdr 0.9.1
+  answers `herdr plugin log theseus` with `unknown option: theseus`) shows each action's command, exit code, stdout and stderr.
 - "is the plugin linked?": `theseus herdr popup` opens the plugin's own panes, so it needs the link above.
 - `theseus: ... cannot connect`: the card and `next` need the daemon (`theseus health`).
