@@ -891,8 +891,7 @@ fn replay_result(
             judgment: s.judgment.id.clone(),
             replayed: (*how != "rebanded").then(|| j.id.clone()),
             state: (*how).to_string(),
-            fixed: vec![],
-            broken: vec![],
+            ..ReplayJudgment::default()
         };
         let mut same = true;
         for a in s.judgment.answers.iter().filter(|a| a.about.is_none()) {
