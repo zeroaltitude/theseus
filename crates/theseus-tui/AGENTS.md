@@ -33,13 +33,6 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
 - `src/new_task.rs` (theseus-7oq0w): `N` opens a one-line prompt for a brief; enter sends one `task.start` under the
   conversation the cursor is on (Home when it is on a task or on nothing), with no model turn, and esc starts nothing.
   `Mode::NewTask`, `App::brief`, `Purpose::NewTask`. Tests: `src/tests_new_task.rs`.
-- `src/one_turn.rs`, `src/glyph.rs` (theseus-ikw4p): top-level conversations that are idle (ready or idle), have one turn or none, no tasks and no
-  question, and were last active over an hour ago fold into one row at the foot of the sidebar, `▸ 4 one-turn conversations`; enter on it
-  opens it (`▾`) and again closes it (`App::one_turn_open`; the whole tree only, a filter or a level key shows what matches). `N`'s prompt says
-  where the task goes (`new task under Home: …`, `… under <title>: …`), and a `/` filter puts the cursor on its first matching row. A failed
-  task the owner dismissed reads `✗ … · dismissed` (`Row.dismissed`), never done. `glyph::tidy` is the one function outside text
-  (titles, names, labels, a pane's lines) passes through before it is drawn: it drops U+FE0E, U+FE0F and U+200D, because the TUI counts `⚙️`
-  two cells and tmux one, and every cell after it on the row lands one off. Tests: `src/tests_board_edges.rs`.
 - `src/board.rs`: the board. Views applied by the position rule, titles, the questions, the rows and trees, and the
   queue.
 - `src/work.rs` (theseus-k2vca): what `work.watch` says of each session (the position rule, the jobs under them) and

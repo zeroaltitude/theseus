@@ -577,5 +577,3 @@ mod tests_wakes;
 mod tests_web_offer;
 #[cfg(test)]
 mod tests_work;
-#[cfg(test)]
-mod tests_work_doing;

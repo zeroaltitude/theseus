@@ -37,12 +37,6 @@ impl App {
         self.mode = Mode::NewTask(home);
     }
 
-    /// The prompt's words: where the task goes, `Home` (the owner's DM) when no conversation holds the cursor.
-    pub(crate) fn new_task_words(&self, home: Option<&str>) -> String {
-        let under = home.map_or_else(|| "Home".to_string(), |sid| self.board.name(sid));
-        format!("new task under {under}: the brief (enter starts it)> ")
-    }
-
     /// The prompt's keys: type; enter starts the task; esc starts nothing.
     pub(crate) fn new_task_key(&mut self, k: KeyEvent, home: Option<String>) -> Vec<Effect> {
         match k.code {

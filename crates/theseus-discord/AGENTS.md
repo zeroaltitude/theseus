@@ -331,7 +331,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     post staged before the thread exists (an approval card the task asks in its first moments) goes where the task's records
     send it, the channel, as it did before threads. The task's **report** (`📋 Task … finished`) stays in the channel: it is the
     conversation's news, posted to the place the task reports to. The board's rows link the thread (`Parts.links`,
-    `TaskThreads::url_of`, kept in memory after the place goes). A task born and over since this binding began that no sync saw running is owed its one thread or post, made in its final state (`TaskThreads::owed`, `next`'s `(None, true)`, the forum worker's index card; theseus-hzdlf); a task from before the binding began is never given one, and a task that had one this run is not given a second (`Inner.born`). Tests: `tests_task_threads.rs`, `runtime/threads.rs`'s, `runtime/threads/tests_owed.rs`, `tests_task_owed.rs`.
+    `TaskThreads::url_of`, kept in memory after the place goes). Tests: `tests_task_threads.rs`, `runtime/threads.rs`'s.
   - **A message in the thread** is an operator message to the task (`Place::task_message`, then `Place::join_task`, which a
     reply to a Follow mirror shares; theseus-esxyb): `turn.submit` on its session. **The owner's goes to the task whatever it is
     doing** (the core steers it into a running task at its next step); a guest's goes there only while the kernel's rule takes it

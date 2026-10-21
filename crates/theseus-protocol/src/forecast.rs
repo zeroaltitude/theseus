@@ -62,20 +62,9 @@ impl WorkForecast {
         )
     }
 
-    /// The spend is past the median of the tasks like it.
-    pub fn spend_past(&self, spent_usd: f64) -> bool {
-        spent_usd > self.usd_p50
-    }
-
-    /// `$0.42 of ~$0.60`: what a running task has spent against its median;
-    /// past it, `$0.72, past its usual ~$0.60`, so an `of ~` figure is never
-    /// below the spend it follows.
+    /// `$0.42 of ~$0.60`: what a running task has spent against its median.
     pub fn spent_of(&self, spent_usd: f64) -> String {
-        let (spent, p50) = (usd(spent_usd), usd(self.usd_p50));
-        match self.spend_past(spent_usd) {
-            true => format!("{spent}, past its usual ~{p50}"),
-            false => format!("{spent} of ~{p50}"),
-        }
+        format!("{} of ~{}", usd(spent_usd), usd(self.usd_p50))
     }
 
     /// What the judge last read, as the notice says it: `still progressing
@@ -213,7 +202,6 @@ mod tests {
             "forecast 8 min (p90 14) · $0.60 (p90 $1.50) · from 23 like it"
         );
         assert_eq!(fc().spent_of(0.42), "$0.42 of ~$0.60");
-        assert_eq!(fc().spent_of(0.72), "$0.72, past its usual ~$0.60");
         assert_eq!(none_words(2), "no forecast yet: 2 like it");
     }
 

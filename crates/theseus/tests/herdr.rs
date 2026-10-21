@@ -1701,39 +1701,3 @@ fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
         "back to the last view's label: {got:?}"
     );
 }
-
-/// One question is one block in a pane: its links line and its prompt print once per question, whether
-/// the daemon tells the question again or other events come while it waits (theseus-dowi0).
-#[test]
-fn one_question_one_prompt_in_a_pane() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = FakeHerdr::start(dir.path());
-    let waiting = |position| {
-        view(
-            position,
-            "waiting",
-            "needs_you",
-            "confirm proc.run: run the tide tables",
-            Some("act_m3"),
-            0.0,
-        )
-    };
-    let d = daemon(dir.path(), waiting(20), vec![question("act_m3")]);
-    let mut w = Watch::start(&d, Some(&herdr), &["--interactive"]);
-    w.wait_prompt(1);
-    // The same question again, and views of the same wait: nothing is asked twice.
-    d.push("confirm.requested", question("act_m3"));
-    d.push("execution.changed", waiting(21));
-    d.push("execution.changed", waiting(22));
-    // The pane has read them all when it answers a line typed after them.
-    std::thread::sleep(Duration::from_millis(1000));
-    w.type_line("y");
-    d.wait_for("action.confirm", 1);
-    drop(w.child.stdin.take());
-    let (code, err) = w.finish();
-    assert_eq!(code, 0, "{err}");
-    let count = |f: &dyn Fn(&str) -> bool| err.lines().filter(|l| f(l)).count();
-    assert_eq!(count(&|l| l == "  approve? [y/N/t/note]"), 1, "{err}");
-    assert_eq!(count(&|l| l.contains("[answer]")), 1, "{err}");
-    assert_eq!(count(&|l| l.contains("proc.run")), 1, "one card: {err}");
-}

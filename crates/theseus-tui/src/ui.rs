@@ -313,7 +313,6 @@ fn draw_row(app: &App, row: &Row, area: Rect, buf: &mut Buffer, selected: bool) 
         prefix.push(' ');
     }
     let mark = match row.facts.as_ref().map(|f| &f.form) {
-        _ if row.dismissed => '✗',
         Some(Form::Failed { .. }) => '✗',
         Some(Form::Done { .. }) => '✓',
         _ if row.done => DONE,
@@ -343,11 +342,7 @@ fn draw_row(app: &App, row: &Row, area: Rect, buf: &mut Buffer, selected: bool) 
     put(&prefix, dim(), &mut x, &mut used);
     put(
         &format!("{mark} "),
-        if row.dismissed {
-            dim()
-        } else {
-            level_style(row.level, row.done)
-        },
+        level_style(row.level, row.done),
         &mut x,
         &mut used,
     );
@@ -355,10 +350,7 @@ fn draw_row(app: &App, row: &Row, area: Rect, buf: &mut Buffer, selected: bool) 
         // What the work board says: the title, then what it is doing and
         // for how long. The title is cut first, then the doing, and the cost
         // goes before either (theseus-k2vca).
-        let mut doing = crate::work::doing(facts, app.now_ms, &app.hm);
-        if row.dismissed {
-            doing.push_str(" · dismissed");
-        }
+        let doing = crate::work::doing(facts, app.now_ms, &app.hm);
         let suffix = if row.folded > 0 {
             format!(" +{}", row.folded)
         } else {
@@ -661,7 +653,6 @@ fn carry_marks(rows: &mut [String]) {
 /// `MARK_ON` and `MARK_OFF`) are reversed in the line's colour, bold.
 pub(crate) fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, width: usize, tag: Tag) {
     let base = tag_style(tag);
-    let text = &*crate::glyph::tidy(text);
     if !text.contains(MARK_ON) {
         buf.set_stringn(x, y, text.replace(MARK_OFF, ""), width, base);
         return;
@@ -709,15 +700,14 @@ fn footer(app: &App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
         _ => "[l] self  [?] help  [q] quit ",
     };
     let prompt = app.input_prompt();
-    let new_task = match &app.mode {
-        Mode::NewTask(home) => app.new_task_words(home.as_deref()),
-        _ => String::new(),
-    };
     let typed = match &app.mode {
         Mode::Filter => Some(("/", app.filter.as_str())),
         Mode::Input => Some((prompt.as_str(), app.input.as_str())),
         Mode::Note(_) => Some(("decline, with a note (enter: none)> ", app.note.as_str())),
-        Mode::NewTask(_) => Some((new_task.as_str(), app.brief.as_str())),
+        Mode::NewTask(_) => Some((
+            "new task: the brief (enter starts it)> ",
+            app.brief.as_str(),
+        )),
         _ => None,
     };
     if let Some((prompt, text)) = typed {

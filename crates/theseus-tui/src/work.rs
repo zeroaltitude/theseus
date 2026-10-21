@@ -324,7 +324,7 @@ pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
             .and_then(|(fc, _, spent)| forecast_cost(fc, *spent)),
         f.timing
             .as_ref()
-            .and_then(|(fc, started, spent)| time_left(fc, *started, *spent, now_ms)),
+            .and_then(|(fc, started, _)| time_left(fc, *started, now_ms)),
     ];
     parts.into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
@@ -378,8 +378,11 @@ pub fn cut(text: &str, room: usize) -> String {
 
 fn one_line(s: &str) -> String {
     let line = s.lines().next().unwrap_or_default();
-    let line: String = line.chars().filter(|c| !c.is_control()).collect();
-    crate::glyph::tidy(line.trim()).into_owned()
+    line.chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 fn first_line(s: &str) -> String {

@@ -20,7 +20,7 @@ test('the ten cases', () => {
   assert.equal(progressLine({ ...base, cost }, at(0)), '$0.40 of $2')
   assert.equal(progressLine(three, at(0)), 'step 3 of 5 · $0.40 of $2')
   assert.equal(progressLine(four, at(4)), 'step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left')
-  assert.equal(progressLine(four, at(15)), 'step 3 of 5 · $0.40 of ~$0.60 (limit $2) · past its usual time')
+  assert.equal(progressLine(four, at(15)), 'step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~5 min left')
   assert.equal(progressLine(four, at(25)), 'step 3 of 5 · $0.40 of ~$0.60 (limit $2) · past its usual time')
   assert.equal(progressLine({ ...four, paused: true }, at(4)), 'paused · step 3 of 5 · $0.40 of ~$0.60 (limit $2) · ~6 min left')
   assert.equal(progressLine({ ...base, progress: { ...progress, steps_done: 5, steps_total: 5 }, forecast: { ...forecast, n: 0 } }, at(4)), 'step 5 of 5')
@@ -35,7 +35,7 @@ type Golden = { case: string; elapsed_min: number; expect: string | null; paused
 test('the Rust golden file, case by case', () => {
   const url = new URL('../../crates/theseus-protocol/src/work/golden/progress_line.json', import.meta.url)
   const cases: Golden[] = JSON.parse(readFileSync(url, 'utf8'))
-  assert.equal(cases.length, 12)
+  assert.equal(cases.length, 10)
   for (const c of cases) {
     const v = {
       ...base,

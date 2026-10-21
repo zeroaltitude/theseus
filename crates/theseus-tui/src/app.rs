@@ -220,8 +220,6 @@ pub struct App {
     pub board_threads: ThreadBoard,
     /// The session under the cursor.
     pub selected: Option<String>,
-    /// The one-turn conversations' fold is open (`one_turn.rs`).
-    pub one_turn_open: bool,
     /// The session in focus: its history and its events, in the detail pane.
     pub detail: Option<Detail>,
     pub pane: Pane,
@@ -311,7 +309,6 @@ impl App {
             board: Board::default(),
             board_threads: ThreadBoard::default(),
             selected: None,
-            one_turn_open: false,
             detail: None,
             pane: Pane::List,
             mode: Mode::Normal,
@@ -359,15 +356,13 @@ impl App {
 
     /// Done until seen (design §2.2): the client's rule, from the seen state.
     pub fn is_done(&self, v: &ExecutionView) -> bool {
-        !v.dismissed && self.seen.done(v)
+        self.seen.done(v)
     }
 
     /// The sidebar's rows, as the filters choose them.
     pub fn rows(&self) -> Vec<Row> {
-        self.fold_one_turn(
-            self.board
-                .rows(self.only, &self.filter, &|v| self.is_done(v)),
-        )
+        self.board
+            .rows(self.only, &self.filter, &|v| self.is_done(v))
     }
 
     /// The session the operator sees now: in focus, on screen, on a terminal
@@ -1226,7 +1221,21 @@ impl App {
             KeyCode::Char(c @ ('I' | 'P')) => return self.row_key(c),
             KeyCode::Down | KeyCode::Char('j') => self.step(1),
             KeyCode::Up | KeyCode::Char('k') => self.step(-1),
-            KeyCode::Enter => return self.enter_row(),
+            KeyCode::Enter => {
+                // The row the cursor is on; when a filter hides it, the first
+                // row shown (theseus-0n1v).
+                if self.selected.is_some() {
+                    let rows = self.rows();
+                    let shown = match self.cursor(&rows) {
+                        Some(i) => rows.get(i),
+                        None => rows.first(),
+                    };
+                    if let Some(sid) = shown.map(|r| r.session_id.clone()) {
+                        return self.focus(&sid);
+                    }
+                }
+                return self.open_first();
+            }
             KeyCode::Char('/') => self.mode = Mode::Filter,
             KeyCode::Char('N') => self.new_task_prompt(),
             // On a failure (theseus-7zgsm) `r` retries, `d` dismisses and `o`
@@ -1665,35 +1674,11 @@ impl App {
         vec![call(method::SESSION_TYPING, params, Purpose::Typing)]
     }
 
-    /// Enter on the board: the row the cursor is on opens (the fold row folds or opens); when a filter
-    /// hides it, the first row shown (theseus-0n1v).
-    fn enter_row(&mut self) -> Vec<Effect> {
-        if self.selected.is_some() {
-            let rows = self.rows();
-            let shown = match self.cursor(&rows) {
-                Some(i) => rows.get(i),
-                None => rows.first(),
-            };
-            if let Some(sid) = shown.map(|r| r.session_id.clone()) {
-                if sid == crate::one_turn::FOLD_ID {
-                    self.toggle_one_turn();
-                    return Vec::new();
-                }
-                return self.focus(&sid);
-            }
-        }
-        self.open_first()
-    }
-
     /// Enter with no row under the cursor, as on a fresh start: the first
     /// row shown opens (theseus-8hcg).
     fn open_first(&mut self) -> Vec<Effect> {
-        let rows = self.rows();
-        match rows
-            .iter()
-            .find(|r| r.session_id != crate::one_turn::FOLD_ID)
-        {
-            Some(r) => self.focus(&r.session_id.clone()),
+        match self.rows().first().map(|r| r.session_id.clone()) {
+            Some(sid) => self.focus(&sid),
             None => Vec::new(),
         }
     }
@@ -1709,10 +1694,7 @@ impl App {
         let text = pasted(text);
         match self.mode {
             Mode::Input => self.input.push_str(&text),
-            Mode::Filter => {
-                self.filter.push_str(&text.replace(['\n', '\t'], " "));
-                self.cursor_to_first_match();
-            }
+            Mode::Filter => self.filter.push_str(&text.replace(['\n', '\t'], " ")),
             Mode::Note(_) => self.note.push_str(&text),
             Mode::Threads => {
                 if let Some(p) = self.picker.as_mut() {
@@ -1760,21 +1742,9 @@ impl App {
             }
             KeyCode::Backspace => {
                 self.filter.pop();
-                self.cursor_to_first_match();
             }
-            KeyCode::Char(c) => {
-                self.filter.push(c);
-                self.cursor_to_first_match();
-            }
+            KeyCode::Char(c) => self.filter.push(c),
             _ => {}
-        }
-    }
-
-    /// A filter puts the cursor on the first row that matches it, so `N` after a filter goes under
-    /// the conversation shown first.
-    fn cursor_to_first_match(&mut self) {
-        if let Some(r) = self.rows().first() {
-            self.selected = Some(r.session_id.clone());
         }
     }
 

@@ -14,11 +14,9 @@ mod card;
 mod chat;
 mod detail;
 mod follow;
-mod glyph;
 mod horizon;
 mod new_task;
 mod notice;
-mod one_turn;
 mod run;
 mod selfview;
 mod standing;
@@ -33,8 +31,6 @@ mod work;
 mod tests;
 #[cfg(test)]
 mod tests_answer;
-#[cfg(test)]
-mod tests_board_edges;
 #[cfg(test)]
 mod tests_board_threads;
 #[cfg(test)]

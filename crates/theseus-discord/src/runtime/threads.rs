@@ -43,7 +43,7 @@
 //!   `RETRY` and the task goes on in the channel as before.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -219,9 +219,6 @@ struct Inner {
     places: HashMap<String, mpsc::UnboundedSender<PlaceMsg>>,
     /// The threads' channel ids.
     threads: HashSet<u64>,
-    /// Tasks given a thread or a post by this binding, kept after it goes: an ended task is made one
-    /// only when it never had one (theseus-hzdlf).
-    born: HashSet<String>,
     /// Where each task's thread is, by task, for the board's link: kept
     /// after the thread's place goes (in memory; a restart keeps the open
     /// ones' through the list).
@@ -232,8 +229,6 @@ struct Inner {
 #[derive(Default)]
 pub(crate) struct TaskThreads {
     inner: Mutex<Inner>,
-    /// When this binding began, as the first sync read it.
-    started_ms: OnceLock<u64>,
     /// What task channels need beside the rows (theseus-bh3t.1).
     pub(super) chan: Chan,
 }
@@ -246,7 +241,6 @@ impl TaskThreads {
             return;
         }
         i.loaded = true;
-        self.since();
         let now = theseus_protocol::now_unix_ms();
         let list: Vec<Made> = store.get_meta(OPEN_KEY).ok().flatten().unwrap_or_default();
         i.made = list
@@ -329,18 +323,6 @@ impl TaskThreads {
         self.inner.lock().unwrap().made.clone()
     }
 
-    /// When this binding began.
-    pub(super) fn since(&self) -> u64 {
-        *self.started_ms.get_or_init(theseus_protocol::now_unix_ms)
-    }
-
-    /// A task born and over since this binding began is owed its post, made in its final state, when
-    /// no sync saw it running (the owner's rule: threads === tasks). A task from before the binding
-    /// started is never given one: an upgrade back-fills nothing.
-    pub(super) fn owed(&self, v: &WorkView) -> bool {
-        v.state.ended() && v.started_at_ms > 0 && v.started_at_ms >= self.since()
-    }
-
     /// What to do about the task `v` seen in the place of a channel `parent`
     /// (or a DM, where `threads` is false): `why` says it qualifies for a
     /// channel of its own now.
@@ -366,19 +348,7 @@ impl TaskThreads {
                 i.busy.insert(v.id.clone());
                 next
             }
-            (None, true) => {
-                let backing_off = i.failed.get(&v.id).is_some_and(|t| Instant::now() < *t);
-                if !threads
-                    || v.session_id.is_none()
-                    || backing_off
-                    || i.born.contains(&v.id)
-                    || !self.owed(v)
-                {
-                    return Next::Nothing;
-                }
-                i.busy.insert(v.id.clone());
-                Next::Create
-            }
+            (None, true) => Next::Nothing,
             (Some(m), false) => {
                 if !i.places.contains_key(&m.session) {
                     i.busy.insert(v.id.clone());
@@ -441,7 +411,6 @@ impl TaskThreads {
 
     pub(crate) fn add(&self, m: Made) {
         let mut i = self.inner.lock().unwrap();
-        i.born.insert(m.task.clone());
         if let Some(g) = m.guild {
             if i.urls.len() >= 512 {
                 i.urls.clear();
@@ -1158,6 +1127,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(test)]
-mod tests_owed;

@@ -662,9 +662,8 @@ impl Worker {
             if let Some(held) = self.adopt(&key) {
                 return held;
             }
-            // A task's own post is made on request, not by this sync; one that ended before any sync saw
-            // it running is owed an index card in its final state (theseus-hzdlf).
-            if homed || (ended && !self.shared.task_threads.owed(&view)) {
+            // A task's own post is made on request, not by this sync.
+            if ended || homed {
                 return None;
             }
             if let Some(t) = self.failed.get(&key).filter(|t| **t > now) {

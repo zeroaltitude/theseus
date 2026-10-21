@@ -46,7 +46,7 @@ impl Chat {
             .map_or(0, |p| seen::looked(p).at_ms);
         let hm = theseus_client::render::time::fmt_hm;
         if let Some(line) = theseus_protocol::digest_summary(&r.lines, since, &hm) {
-            self.welcome = Some(format!("{line} · theseus digest"));
+            self.welcome = Some(format!("◆ {line} · theseus digest"));
             if self.banner.printed {
                 self.print_welcome();
             }

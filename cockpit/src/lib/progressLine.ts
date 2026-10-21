@@ -22,16 +22,16 @@ function left(minutes: number): string {
 
 const ENDED: readonly string[] = ['done', 'failed', 'cancelled', 'expired']
 
-/** The time part: what is left of the usual time (the countdown runs to the median), or that it is past, by the clock,
- *  the spend or the forecast's own flag; nothing for an ended task, one with no known start, or a forecast made from no
- *  finished task. */
+/** The time part: what is left of the usual time (the median while it lasts, then the 90th percentile), or that it is
+ *  past; nothing for an ended task, one with no known start, or a forecast made from no finished task. */
 function timeLeft(v: WorkView, nowMs: number): string | undefined {
   const f = v.forecast
   if (!f || f.n === 0 || ENDED.includes(v.state) || !v.started_at_ms) return undefined
   const elapsed = Math.max(0, nowMs - v.started_at_ms) / 60_000
+  const toP90 = f.min_p90 - elapsed
+  if (f.past || toP90 <= 0) return 'past its usual time'
   const toP50 = f.min_p50 - elapsed
-  if (f.past || toP50 <= 0 || (v.cost?.spent_usd ?? 0) > f.usd_p50) return 'past its usual time'
-  return `~${left(toP50)} left`
+  return `~${left(toP50 > 0 ? toP50 : toP90)} left`
 }
 
 /** The dollars part (`cost_part` in progress_line.rs): the spend against the median of the tasks like it and the limit
@@ -40,9 +40,9 @@ function costPart(v: WorkView): string | undefined {
   const c = v.cost
   if (!c) return undefined
   const f = v.forecast
-  if (!f || f.n === 0) return `${lineUsd(c.spent_usd)} of ${lineUsd(c.limit_usd)}`
-  const spent = c.spent_usd > f.usd_p50 ? `${lineUsd(c.spent_usd)}, past its usual` : `${lineUsd(c.spent_usd)} of`
-  return `${spent} ~${lineUsd(f.usd_p50)} (limit ${lineUsd(c.limit_usd)})`
+  return f && f.n > 0
+    ? `${lineUsd(c.spent_usd)} of ~${lineUsd(f.usd_p50)} (limit ${lineUsd(c.limit_usd)})`
+    : `${lineUsd(c.spent_usd)} of ${lineUsd(c.limit_usd)}`
 }
 
 export function progressLine(v: WorkView, nowMs: number): string | undefined {
