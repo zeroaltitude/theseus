@@ -191,7 +191,7 @@ fn the_pause_key_runs_the_pause_helper() {
         .unwrap();
     assert_eq!(
         action["command"][2].as_str(),
-        Some("exec theseus herdr pause ${HERDR_ACTIVE_PANE_ID:+--pane \"$HERDR_ACTIVE_PANE_ID\"}")
+        Some("P=${HERDR_PANE_ID:-$HERDR_ACTIVE_PANE_ID}; exec theseus herdr pause ${P:+--pane \"$P\"}")
     );
     let keys: Vec<_> = KEYS.iter().map(|k| (k.key, k.action)).collect();
     assert!(keys.contains(&("prefix+p", "theseus.pause")));
