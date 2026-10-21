@@ -821,6 +821,10 @@ struct AskArgs {
     /// comes, for at most this long (30m, 90s, 2h). 0 follows nothing.
     #[arg(long, value_name = "DURATION", default_value = follow::FOLLOW_FOR, value_parser = follow::parse_follow_for)]
     follow_for: std::time::Duration,
+    /// The threadbench's clock for the router, in milliseconds: a daemon with `[threads]
+    /// bench_clock` routes the message as typed at that time.
+    #[arg(long, value_name = "MS", hide = true)]
+    route_at_ms: Option<u64>,
 }
 
 #[derive(Subcommand, Debug)]

@@ -21,13 +21,16 @@ use crate::rpc::Parts;
 use crate::store::Store;
 use crate::Config;
 
-struct Rig {
-    core: Arc<Core>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
     root: PathBuf,
     _dir: tempfile::TempDir,
 }
 
-fn rig(script: impl FnOnce(&Path) -> Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(super) fn rig(
+    script: impl FnOnce(&Path) -> Vec<Scripted>,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("tarnlib/reviews")).unwrap();
@@ -51,7 +54,7 @@ fn rig(script: impl FnOnce(&Path) -> Vec<Scripted>, tweak: impl FnOnce(&mut Conf
     }
 }
 
-fn cli() -> Answerer {
+pub(super) fn cli() -> Answerer {
     Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
@@ -60,7 +63,7 @@ fn cli() -> Answerer {
     }
 }
 
-fn thread(c: &Core, slug: &str) {
+pub(super) fn thread(c: &Core, slug: &str) {
     c.thread_new(
         &ThreadNewParams {
             slug: slug.into(),
@@ -96,6 +99,16 @@ fn writes(root: &Path, rel: &str) -> Vec<Scripted> {
     ]
 }
 
+impl Rig {
+    /// A place's own session (the CLI's, no place).
+    pub(super) fn home(&self) -> String {
+        self.core
+            .open_session(theseus_protocol::SessionOpenParams::default())
+            .unwrap()
+            .session_id
+    }
+}
+
 /// One `turn.submit` from the CLI, in a thread or a session.
 async fn submit(
     c: &Arc<Core>,
@@ -103,6 +116,18 @@ async fn submit(
     session: Option<&str>,
     input: &str,
 ) -> TurnSubmitResult {
+    let p = TurnSubmitParams {
+        thread: thread.map(str::to_string),
+        session_id: session.map(str::to_string),
+        input: input.into(),
+        ..TurnSubmitParams::default()
+    };
+    let v = send(c, p).await;
+    serde_json::from_value(v["result"].clone()).unwrap_or_else(|_| panic!("a turn result in {v}"))
+}
+
+/// One `turn.submit` from the CLI: its whole response.
+pub(super) async fn send(c: &Arc<Core>, p: TurnSubmitParams) -> Value {
     let (client, server) = duplex(1 << 20);
     let (sr, sw) = tokio::io::split(server);
     tokio::spawn(
@@ -110,12 +135,6 @@ async fn submit(
             .serve_connection(sr, sw, Client::new("test", Surface::Cli)),
     );
     let (cr, mut cw) = tokio::io::split(client);
-    let p = TurnSubmitParams {
-        thread: thread.map(str::to_string),
-        session_id: session.map(str::to_string),
-        input: input.into(),
-        ..TurnSubmitParams::default()
-    };
     let mut line =
         serde_json::to_string(&Request::new(Id::Num(1), method::TURN_SUBMIT, p)).unwrap();
     line.push('\n');
@@ -123,9 +142,7 @@ async fn submit(
     let mut lines = BufReader::new(cr).lines();
     while let Some(l) = lines.next_line().await.unwrap() {
         if let Message::Response(r) = serde_json::from_str(&l).unwrap() {
-            let v: Value = serde_json::to_value(r).unwrap();
-            return serde_json::from_value(v["result"].clone())
-                .unwrap_or_else(|_| panic!("a turn result in {v}"));
+            return serde_json::to_value(r).unwrap();
         }
     }
     panic!("no response");

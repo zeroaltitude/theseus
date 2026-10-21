@@ -57,6 +57,7 @@ async fn asked_from_the_cli(r: &Rig) -> (String, u64) {
                 thread: None,
                 speaking: None,
                 in_reply_to: None,
+                route_at_ms: None,
                 surface: None,
                 via: None,
             },

@@ -168,6 +168,8 @@ mod tests_stop_all;
 #[cfg(test)]
 mod tests_surface;
 #[cfg(test)]
+mod tests_thread_bench;
+#[cfg(test)]
 mod tests_thread_board;
 #[cfg(test)]
 mod tests_thread_context;

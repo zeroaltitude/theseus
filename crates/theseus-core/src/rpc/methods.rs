@@ -941,6 +941,7 @@ impl Core {
         // the session it opens or the one it names (theseus-b5cl).
         let dir = super::session_dir::check(p.dir.as_deref())?;
         let answer_at = Self::thread_answer_at(&p)?;
+        self.refuse_bench_clock(&p)?;
         let mut session = match (&p.session_id, &p.thread) {
             (Some(_), Some(_)) => {
                 return Err(RpcFailure::new(

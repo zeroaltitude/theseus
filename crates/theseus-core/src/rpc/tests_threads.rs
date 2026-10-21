@@ -212,6 +212,7 @@ pub(super) async fn ask(
             thread: slug.map(str::to_string),
             speaking: None,
             in_reply_to: None,
+            route_at_ms: None,
             via: None,
         },
     );

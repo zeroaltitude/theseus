@@ -142,8 +142,17 @@ class Config(unittest.TestCase):
             c = self.cfg(arm)
             self.assertEqual(sorted(c["personas"]), sorted(gen.build(11, "smoke").personas))
             self.assertTrue(all(p["card"] and len(p["files"]) == 1 for p in c["personas"].values()))
-            self.assertNotIn("threads", c)  # route_wait_ms, persona_engage: the shipped defaults
+            # route_wait_ms, persona_engage: the shipped defaults; the bench's clock alone (theseus-98bz.3)
+            self.assertEqual(c["threads"], {"bench_clock": True})
+        self.assertEqual(self.cfg("A1o")["threads"], {"bench_clock": True})
         self.assertEqual(self.BASE, {"model": {"model": "m"}, "kernel": {"spend_limit_usd": 5.0}})
+
+    def test_each_ask_carries_its_messages_plan_time(self):
+        m = gen.build(11, "smoke").messages[3]
+        self.assertGreater(m.t, 0)
+        at = str(th.CLOCK_BASE_MS + round(m.t * 60_000))
+        self.assertEqual(th.ask_target(m, False, "ses_home"), ["-s", "ses_home", "--route-at-ms", at])
+        self.assertEqual(th.ask_target(m, True, "ses_home"), ["--thread", m.stream, "--route-at-ms", at])
 
     def test_the_overlay_is_laid_over_table_by_table(self):
         self.assertEqual(th.merge({"a": {"x": 1, "y": 2}, "b": 3}, {"a": {"y": 5}, "c": {"z": 1}}),

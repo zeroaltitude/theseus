@@ -77,6 +77,10 @@
 //!   the thread's working set, but for what another live thread holds; the
 //!   router's entity hits and Jev's thread inputs read it. Off, a set changes
 //!   only by the owner's edit, a split or a merge.
+//! - `bench_clock` (false; theseus-98bz.3): a test hook. On, a `turn.submit`
+//!   carrying `route_at_ms` is routed at that clock (stickiness and the reply
+//!   chain read the bench's gaps) and is placed even when `ask -s` named its
+//!   session; off, such a submit is refused. Off in every real config.
 //! - `resume_keep_turns`: the newest turns a thread keeps whole when its next
 //!   message finds its cache gone (6; `thread-context`).
 //! - `working_tokens`: what a thread's request stays within after such a cold
@@ -153,6 +157,8 @@ pub struct ThreadsConfig {
     pub ask_every_thread: bool,
     #[serde(default = "default_true")]
     pub working_set_grows: bool,
+    #[serde(default)]
+    pub bench_clock: bool,
     #[serde(default = "default_resume_keep_turns")]
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
@@ -232,6 +238,7 @@ impl Default for ThreadsConfig {
             sticky_alone_asks: true,
             ask_every_thread: true,
             working_set_grows: true,
+            bench_clock: false,
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
             persona_engage: PersonaEngage::default(),
@@ -468,5 +475,16 @@ mod tests {
         assert!(crate::Config::EXAMPLE_TOML.contains("# working_set_grows = true"));
         let off = crate::Config::from_toml("[threads]\nworking_set_grows = false\n").unwrap();
         assert!(!off.threads.working_set_grows);
+    }
+
+    /// The bench's clock (theseus-98bz.3) is off by default, named in the
+    /// template, and a test turns it on.
+    #[test]
+    fn the_bench_clock_is_off_by_default() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(!cfg.threads.bench_clock && !ThreadsConfig::default().bench_clock);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# bench_clock = false"));
+        let on = crate::Config::from_toml("[threads]\nbench_clock = true\n").unwrap();
+        assert!(on.threads.bench_clock);
     }
 }
