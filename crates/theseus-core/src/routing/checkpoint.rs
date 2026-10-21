@@ -284,6 +284,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
             from: None,
             images: a.images,
             cap: a.cap,
+            cleared: false,
         },
     );
     let target = match (d.switch || d.detour, d.reason) {

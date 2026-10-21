@@ -336,6 +336,7 @@ impl TurnRunner {
                         short_cost: entry.map(routing::short_cost),
                         input_per_mtok: entry.map(|e| e.input_per_mtok),
                         vision: entry.is_some_and(|e| e.vision),
+                        restricted: false, // set from the origin at the cn-floor join (theseus-a1wvq.4)
                     },
                 )
             })
@@ -695,6 +696,7 @@ impl TurnRunner {
                     from,
                     images: t.route.images,
                     cap,
+                    cleared: false,
                 },
             )
         };

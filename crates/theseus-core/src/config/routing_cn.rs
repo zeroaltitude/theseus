@@ -1,0 +1,215 @@
+//! The load checks for China-origin profiles in `[routing.classes]`
+//! (theseus-a1wvq.4, the owner's D2): a restricted profile (origin `cn` or
+//! `unknown`) enters a class only through `trivial`'s `cn_profiles`, where it
+//! runs for a cleared ask alone, and never through a class's `profiles`.
+
+use anyhow::{bail, Result};
+
+use super::routing::{CHEAPEST, MODES};
+use crate::catalog::Catalog;
+use crate::Config;
+
+/// The refusals, in words that name the key and what to do. A profile a class
+/// names that is not configured is skipped: the defaults name profiles a
+/// sparse note may lack, and routing passes over them.
+pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
+    let restricted = |p: &str| {
+        let origin = cfg.profile_origin(p, catalog);
+        (cfg.all_profiles().contains_key(p) && origin.restricted()).then_some(origin)
+    };
+    for m in MODES {
+        let t = cfg.routing.classes.table(m);
+        for p in t.profiles.iter().filter(|p| *p != CHEAPEST) {
+            let Some(origin) = restricted(p) else {
+                continue;
+            };
+            let way_out = match origin {
+                crate::catalog::ModelOrigin::Unknown => format!(
+                    "; or if its endpoint is trusted, vouch it with [providers.{}] origin",
+                    cfg.all_profiles()[p].provider
+                ),
+                _ => String::new(),
+            };
+            bail!(
+                "routing.classes.{m}.profiles: {p} is of restricted origin ({}): list it in \
+                 routing.classes.trivial.cn_profiles, where it runs only for an open request{way_out}",
+                format!("{origin:?}").to_lowercase()
+            );
+        }
+        if t.cn_profiles.is_empty() {
+            if t.cn_after.is_some() {
+                bail!("routing.classes.{m}.cn_after: it has no cn_profiles to place");
+            }
+            continue;
+        }
+        if m != "trivial" {
+            bail!(
+                "routing.classes.{m}.cn_profiles: a China-origin model never answers {m} (the \
+                 owner's rule: it drafts code that a Claude model reviews; the draft is \
+                 `cn_draft`, a later key)"
+            );
+        }
+        for p in &t.cn_profiles {
+            if restricted(p).is_none() {
+                bail!(
+                    "routing.classes.{m}.cn_profiles: {p:?} is not a configured profile of \
+                     restricted origin (an unrestricted one belongs in profiles; `{CHEAPEST}` \
+                     never names one)"
+                );
+            }
+        }
+        if let Some(a) = t.cn_after.as_ref().filter(|a| !t.profiles.contains(a)) {
+            bail!("routing.classes.{m}.cn_after: {a:?} is not an entry of routing.classes.{m}.profiles");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The template with `routing` appended to it, loaded as the daemon
+    /// loads a config, plus any `extra` (providers and profiles).
+    fn load(extra: &str, routing: &str) -> Result<Config, String> {
+        let text = format!("{}\n{extra}\n{routing}\n", Config::EXAMPLE_TOML);
+        let cfg = Config::from_toml(&text).map_err(|e| e.to_string())?;
+        cfg.validate().map(|()| cfg).map_err(|e| format!("{e:#}"))
+    }
+
+    /// Providers borrow the template's `zai_api_key` entry: the checks read
+    /// endpoints and origins, not keys.
+    const DEEPSEEK: &str =
+        "[providers.deepseek]\napi_base = \"https://api.deepseek.com/anthropic\"\n\
+        api_key_secret = \"zai_api_key\"\n[profiles.dsflash]\nprovider = \"deepseek\"\n\
+        model = \"deepseek-flash\"\n";
+    const ODD: &str = "[providers.odd]\napi_base = \"https://llm.widgetco.test/v1\"\n\
+        api_key_secret = \"zai_api_key\"\n[profiles.oddball]\nprovider = \"odd\"\n\
+        model = \"widget-1\"\n";
+
+    #[test]
+    fn a_mode_list_never_names_a_restricted_profile() {
+        // The defaults, with the template's profiles, load.
+        load("", "").unwrap();
+        for (class, p) in [("chat", "glm"), ("review", "glm53"), ("trivial", "glm")] {
+            let e = load(
+                "",
+                &format!("[routing.classes.{class}]\nprofiles = [\"{p}\"]"),
+            )
+            .unwrap_err();
+            assert!(
+                e.contains(&format!(
+                    "routing.classes.{class}.profiles: {p} is of restricted origin (cn)"
+                )) && e.contains("routing.classes.trivial.cn_profiles"),
+                "{e}"
+            );
+        }
+        let e = load(
+            DEEPSEEK,
+            "[routing.classes.sophisticated]\nprofiles = [\"dsflash\", \"opus\"]",
+        )
+        .unwrap_err();
+        assert!(
+            e.contains("sophisticated.profiles: dsflash is of restricted origin (cn)"),
+            "{e}"
+        );
+        // An unknown endpoint is refused, with the way out named.
+        let e = load(ODD, "[routing.classes.chat]\nprofiles = [\"oddball\"]").unwrap_err();
+        assert!(
+            e.contains("oddball is of restricted origin (unknown)")
+                && e.contains("[providers.odd] origin"),
+            "{e}"
+        );
+        // Vouched `us`, it loads; an unconfigured name and `cheapest` load.
+        let vouched = ODD.replace("[providers.odd]\n", "[providers.odd]\norigin = \"us\"\n");
+        load(&vouched, "[routing.classes.chat]\nprofiles = [\"oddball\"]").unwrap();
+        load(
+            "",
+            "[routing.classes.chat]\nprofiles = [\"nope\", \"cheapest\"]",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn cn_profiles_are_refused_where_china_models_never_answer() {
+        let ok = "[routing.classes.trivial]\nprofiles = [\"haiku\", \"cheapest\"]\ncn_profiles = [\"glm\"]\ncn_after = \"haiku\"";
+        let cfg = load("", ok).unwrap();
+        assert_eq!(cfg.routing.classes.trivial.cn_profiles, ["glm"]);
+        for m in [
+            "quick",
+            "chat",
+            "sophisticated",
+            "review",
+            "routine_coding",
+            "deep_coding",
+        ] {
+            let e = load(
+                "",
+                &format!("[routing.classes.{m}]\ncn_profiles = [\"glm\"]"),
+            )
+            .unwrap_err();
+            assert!(
+                e.contains(&format!(
+                    "routing.classes.{m}.cn_profiles: a China-origin model never answers {m}"
+                )),
+                "{e}"
+            );
+        }
+        for (bad, says) in [
+            (
+                "cn_profiles = [\"nope\"]",
+                "\"nope\" is not a configured profile of restricted origin",
+            ),
+            (
+                "cn_profiles = [\"opus\"]",
+                "\"opus\" is not a configured profile of restricted origin",
+            ),
+            (
+                "cn_profiles = [\"cheapest\"]",
+                "\"cheapest\" is not a configured profile of restricted origin",
+            ),
+            (
+                "cn_profiles = [\"glm\"]\ncn_after = \"fable\"",
+                "cn_after: \"fable\" is not an entry",
+            ),
+            (
+                "cn_after = \"haiku\"",
+                "trivial.cn_after: it has no cn_profiles",
+            ),
+        ] {
+            let e = load(
+                "",
+                &format!("[routing.classes.trivial]\nprofiles = [\"haiku\"]\n{bad}"),
+            )
+            .unwrap_err();
+            assert!(e.contains(says), "{bad}: {e}");
+        }
+        let e = load("", "[routing.classes.chat]\ncn_after = \"haiku\"").unwrap_err();
+        assert!(e.contains("chat.cn_after: it has no cn_profiles"), "{e}");
+    }
+
+    #[test]
+    fn cn_profiles_parse_per_mode() {
+        use crate::config::RoutingConfig;
+        for m in crate::config::routing::MODES {
+            let text = format!(
+                "[classes.{m}]\nprofiles = [\"haiku\"]\ncn_profiles = [\"glm\"]\ncn_after = \"haiku\""
+            );
+            let c: RoutingConfig = toml::from_str(&text).unwrap();
+            let t = c.classes.table(m);
+            assert_eq!(
+                (t.cn_profiles.as_slice(), t.cn_after.as_deref()),
+                (["glm".to_string()].as_slice(), Some("haiku")),
+                "{m}"
+            );
+        }
+        // A config without them, and the sparse writer's output, are as before.
+        let d = toml::to_string(&RoutingConfig::default()).unwrap();
+        assert!(!d.contains("cn_"), "{d}");
+        let back: RoutingConfig = toml::from_str("").unwrap();
+        assert_eq!(back, RoutingConfig::default());
+        assert!(
+            toml::from_str::<RoutingConfig>("[classes.trivial]\ncn_profile = [\"glm\"]").is_err()
+        );
+    }
+}

@@ -45,6 +45,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
+mod routing_cn;
 mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
@@ -1702,6 +1703,7 @@ impl Config {
                 );
             }
         }
+        routing_cn::validate(self, &catalog)?;
         // The web UI has no auth yet (§3.14): whoever reaches it is the
         // operator, so it listens on loopback only (theseus-2fo).
         let bind = &self.web.bind;
