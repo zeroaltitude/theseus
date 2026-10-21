@@ -10,7 +10,7 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `theseus-bench.toml` | The bench profile: the config a task's container runs. No vault (the model's key is `env:ANTHROPIC_API_KEY`), every tool open, workspace roots at `/`, L0, and Discord, the web UI, and the index off. A test loads it (`crates/theseusd/tests/bench_profile.rs`). |
 | `theseus-bench-routed.toml` | The routed arm's profile (theseus-eo3h), "Theseus as shipped": the plain profile with the judge on, so Jev picks the model per message from the owner's routing table (`route.v2`), the seven profiles it names, and the Jev key as a second secret (`env:TYPESAFE_API_KEY`). A test loads it (`crates/theseusd/tests/bench_profile_routed.rs`). |
 | `build.sh` | Builds the two static (musl) binaries the container runs, `theseus` and `theseusd`, into `bench/bin`, with `build-commit`, the commit they were built from. |
-| `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`; `-a theseus_agent:TheseusRouted` (or `--ak routed=1`) is the routed arm; `--ak effort_bounds=low,high` writes `[routing] effort_bounds` (a plan's key). |
+| `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`; `-a theseus_agent:TheseusRouted` (or `--ak routed=1`) is the routed arm; `--ak effort_bounds=low,high` writes `[routing] effort_bounds` (a plan's key); `--ak end_note=off` writes `[model] end_note = false`. |
 | `harbor/theseus_bench.py` | Its parts that need no Harbor: the profile a trial writes, the container's script, and the exit codes. |
 | `harbor/theseus_atif.py` | A session's history as an ATIF trajectory, the format Harbor's viewer and usage totals read. |
 | `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
@@ -109,6 +109,16 @@ rows) beside its history, and its efficiency record has `arm` `theseus-routed`, 
 `model_cost_usd` is the model's alone), `jev` (calls, cost, by pack), and `routing` (each turn's mode, profile and
 effort, the model calls by model, and how many turns moved). A `routing.rows_read` of false means the ledger could
 not be read, not that nothing was routed.
+
+## The turn-end note's arm
+
+The daemon gives a turn that would end beside new build outputs, or with edits no command ran since, one factual
+note and one more loop (`[model] end_note`, on). `--ak end_note=off` runs an arm with `[model] end_note = false` in the
+trial's config (nothing is written when it is on, so the default stays the daemon's). Every Theseus trial's efficiency
+record has an `end_note` block from the turn result's `files`: `noted` (the turn was given the note), `acted` (the
+model called a tool after it; null when none was given), `left` (new files its commands left), `unrun` (files edited
+after its last command) and `changed` (files its file tools wrote). Count `noted` over a run for how often it fires,
+and `acted` over the noted trials for whether the model does anything with it; the off arm's `noted` is all false.
 
 ## A fair run (Terminal-Bench R0)
 
