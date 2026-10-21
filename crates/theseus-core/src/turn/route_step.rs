@@ -91,6 +91,10 @@ pub(super) struct RouteState {
     /// The message names one of `[privacy] sensitive_names`: a profile not of
     /// US origin is unusable for the turn (`data_step.rs`).
     pub(super) sensitive: bool,
+    /// Whether the turn's requests may go to a model of restricted origin
+    /// (theseus-a1wvq.3). Closed, unchecked, at the turn's start (the
+    /// default); nothing clears one yet.
+    pub(super) clearance: crate::data::Clearance,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -137,6 +141,7 @@ pub struct Waited {
 }
 
 /// The row's times (theseus-ddbi).
+#[derive(Default)]
 struct Timed {
     waited: Duration,
     late: bool,
@@ -294,7 +299,7 @@ impl TurnRunner {
     ///
     /// With `sensitive`, a profile not of US origin is unusable (`data_gate`):
     /// routing then picks the next usable one (theseus-oejh3, theseus-xs5ah).
-    pub(super) fn route_profiles(&self, sensitive: bool) -> routing::Profiles {
+    pub(super) fn route_profiles(&self, floor: super::data_step::Floor) -> routing::Profiles {
         let states = self.secrets.states();
         self.cfg
             .all_profiles()
@@ -317,7 +322,7 @@ impl TurnRunner {
                     Some("key")
                 } else if entry.is_none() {
                     Some("unpriced")
-                } else if sensitive && self.uncleared_profile(name) {
+                } else if self.floor_refuses(floor, name).is_some() {
                     Some("data_gate")
                 } else {
                     None
@@ -361,7 +366,20 @@ impl TurnRunner {
         // The compile step's future is boxed (situations' join fix, 35a):
         // inline, the turn's future overflowed a 2 MiB stack in debug builds.
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
-            return Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
+            // A turn that asked no route meets the data floor here.
+            let floored = match i {
+                0 => match self.floor_unrouted(t, session, spec, provider, slot)? {
+                    Ok(d) => d,
+                    Err(f) => return Ok(Err(f)),
+                },
+                _ => None,
+            };
+            let compiled =
+                Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
+            if let (Some(d), Ok(Ok(c))) = (&floored, &compiled) {
+                Self::record_route(t, None, Some(d), None, c, Timed::default(), None);
+            }
+            return compiled;
         };
         let mut compiled = self
             .compile_first(
@@ -656,7 +674,7 @@ impl TurnRunner {
         if t.route.brief {
             return self.decide_brief(t, v);
         }
-        let profiles = self.route_profiles(t.route.sensitive);
+        let profiles = self.route_profiles(t.route.floor());
         let cap = Self::place_cap(t, &profiles);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         // Jev's own move up from the base is what a step back down undoes.

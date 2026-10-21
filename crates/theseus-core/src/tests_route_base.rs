@@ -99,12 +99,12 @@ async fn a_routed_panes_p_profile_comes_back_once_routing_stops() {
     let check = |r: &Rig, sid: &str, got: &TurnSubmitResult, what: &str| {
         assert_eq!(
             (got.profile.as_str(), got.model.as_str()),
-            ("glm", "glm-5.3-flash"),
+            ("glm", crate::config::UNRESTRICTED_SECOND),
             "{what}"
         );
         assert_eq!(
             r.zai.requests().last().unwrap().model,
-            "glm-5.3-flash",
+            crate::config::UNRESTRICTED_SECOND,
             "{what}"
         );
         assert!(r.claude.requests().is_empty() || what == "the ladder's rollback");
@@ -116,6 +116,10 @@ async fn a_routed_panes_p_profile_comes_back_once_routing_stops() {
         let dir = r.dir.clone();
         drop(r);
         let secrets = if key { board() } else { keyless() };
+        let tweak = move |c: &mut Config| {
+            tweak(c);
+            c.serve_glm_unrestricted();
+        };
         let r = rig_on(dir, Some(&jev), 1, tweak, secrets);
         let next = submit(&r, pane(&sid, "And its recovery path?", "opus")).await;
         check(&r, &sid, &next, what);
@@ -238,9 +242,12 @@ async fn a_changed_place_profile_clears_the_move() {
     let two = submit(&r, ask("What is a frame?")).await;
     assert_eq!(
         (two.profile.as_str(), two.model.as_str()),
-        ("glm53", "glm-5.3")
+        ("glm53", crate::config::UNRESTRICTED_SECOND)
     );
-    assert_eq!(r.zai.requests()[0].model, "glm-5.3");
+    assert_eq!(
+        r.zai.requests()[0].model,
+        crate::config::UNRESTRICTED_SECOND
+    );
     assert_eq!(routed(&r, &sid), None);
 }
 
@@ -384,11 +391,15 @@ async fn a_switch_back_to_the_base_ends_the_move() {
     until_route_rows(&r.core.store, 4).await;
     let dir = r.dir.clone();
     drop(r);
-    let r = rig_on(dir, Some(&jev), 1, |c| c.routing.enabled = false, board());
+    let off = |c: &mut Config| {
+        c.routing.enabled = false;
+        c.serve_glm_unrestricted();
+    };
+    let r = rig_on(dir, Some(&jev), 1, off, board());
     let next = submit(&r, pane(&sid, "And the tests next to them?", "glm53")).await;
     assert_eq!(
         (next.profile.as_str(), next.model.as_str()),
-        ("glm53", "glm-5.3")
+        ("glm53", crate::config::UNRESTRICTED_SECOND)
     );
     assert_eq!(routed(&r, &sid), None);
 }

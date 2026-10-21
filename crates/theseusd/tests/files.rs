@@ -131,8 +131,18 @@ impl Fixture for Rig {
 }
 
 impl Rig {
+    /// The `glm` profile's model is an unrestricted one whose catalog row
+    /// reads no PDFs, as GLM's does (theseus-a1wvq.3: no request reaches GLM
+    /// itself without a pass).
     fn start() -> Self {
-        Self::start_with(|_| vec![], |_| {})
+        Self::start_with(
+            |_| vec![],
+            |t| {
+                common::unrestricted_glm(t);
+                table(table(t, "catalog"), common::UNRESTRICTED_SECOND)
+                    .insert("pdf".into(), false.into());
+            },
+        )
     }
 
     /// A daemon whose model calls `calls` gives for a turn's prompt, its
@@ -440,7 +450,7 @@ fn an_attached_pdf_reaches_each_model_as_it_reads_pdfs() {
         .as_str()
         .unwrap()
         .starts_with("[PDF orders.pdf from test, "));
-    // GLM reads none: the text, page by page.
+    // A model that reads none: the text, page by page.
     r.turn_with("glm", "orders.pdf", &file);
     let blocks = last_user_blocks(&r.model);
     assert!(blocks.iter().all(|b| b["type"] != "document"), "{blocks:?}");

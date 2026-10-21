@@ -1021,3 +1021,57 @@ async fn a_fork_past_its_window_rings_over_the_prefix_and_its_own_turns() {
     );
     assert!(said.iter().any(|t| t.starts_with("theta ")));
 }
+
+/// A fork's data state (theseus-a1wvq.5): `opened` and `taint` copied, and
+/// the open run cut at the fork point: `from..=` the point when `from` is at
+/// or before it, else none.
+#[tokio::test]
+async fn fork_copies_data_state_through_the_fork_point() {
+    use crate::data::{DataState, DataWhy, OpenHow, OpenRun, Opened, Taint};
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let opened = Opened {
+        how: OpenHow::Task,
+        at_ms: 7,
+    };
+    let taint = Taint {
+        why: DataWhy::NotInRun,
+        node: Some(nodes[1].0.clone()),
+        at_ms: 9,
+    };
+    let set = |from: usize| {
+        let mut rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
+        let run = OpenRun {
+            from: nodes[from].0.clone(),
+            through: nodes[5].0.clone(),
+        };
+        let state = DataState::new(Some(opened.clone()), Some(run), Some(taint.clone()));
+        rec.data = Some(Box::new(state));
+        r.core.store.put_session(&s, &rec).unwrap();
+    };
+    let data_of = |sid: &str| {
+        let rec: SessionRecord = r.core.store.get_session(sid).unwrap().unwrap();
+        rec.data.map(|d| *d)
+    };
+    set(0);
+    let before = fork(&r.core, &s, &nodes[3].0);
+    let run = OpenRun {
+        from: nodes[0].0.clone(),
+        through: nodes[3].0.clone(),
+    };
+    let want = DataState::new(Some(opened.clone()), Some(run), Some(taint.clone()));
+    assert_eq!(data_of(&before.session_id), Some(want));
+    set(4);
+    let after = fork(&r.core, &s, &nodes[3].0);
+    let want = DataState::new(Some(opened.clone()), None, Some(taint.clone()));
+    assert_eq!(
+        data_of(&after.session_id),
+        Some(want),
+        "a run begun after the point"
+    );
+    assert_eq!(
+        data_of(&s).unwrap().run.unwrap().from,
+        nodes[4].0,
+        "the source is read only"
+    );
+}

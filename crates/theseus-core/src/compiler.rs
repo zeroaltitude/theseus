@@ -971,12 +971,6 @@ fn render_kept(
         ),
     };
     card::attach(spec, &mut rendered);
-    let (messages, repairs, image_tokens, tail_from) = (
-        rendered.messages,
-        rendered.repairs,
-        rendered.image_tokens,
-        rendered.tail_from,
-    );
 
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();
@@ -1023,21 +1017,22 @@ fn render_kept(
         model: fallback.map_or(spec.model.as_str(), |f| f.0).to_string(),
         max_tokens: spec.max_tokens,
         system,
-        messages,
+        messages: rendered.messages,
         tools: spec.tools.to_vec(),
         thinking,
         output_config,
         cache_control: layout.caches.then(|| conversation_ttl.marker()),
         betas,
         extra,
-        image_tokens,
+        image_tokens: rendered.image_tokens,
+        data_pass: None,
     };
-    let tail_from = effort::place(&mut req, &rendered.efforts, spec, entry, tail_from);
+    let tail_from = effort::place(&mut req, &rendered.efforts, spec, entry, rendered.tail_from);
     Rendered {
         request: req,
         prefix_nodes: prefix.len(),
         tail_nodes: tail.len(),
-        repairs,
+        repairs: rendered.repairs,
         tail_from,
     }
 }

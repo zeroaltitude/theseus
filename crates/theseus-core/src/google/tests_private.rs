@@ -48,6 +48,18 @@ fn board() -> Arc<SecretBoard> {
 /// China-origin endpoint), with `[google]` pointed at `fake`, and the
 /// Anthropic fake scripted by `script`.
 fn rig(jev: Option<&FakeJev>, fake: &Fake, script: Vec<Scripted>) -> (RouteRig, Arc<FakeProvider>) {
+    rig_on(jev, fake, script, false)
+}
+
+/// [`rig`], with `zai`'s `glm53` a Claude served from a host vouched EU when
+/// `eu`: of no restricted origin, so only the floor for private content
+/// keeps a turn off it (theseus-a1wvq.3 keeps every request off GLM itself).
+fn rig_on(
+    jev: Option<&FakeJev>,
+    fake: &Fake,
+    script: Vec<Scripted>,
+    eu: bool,
+) -> (RouteRig, Arc<FakeProvider>) {
     let claude = Arc::new(FakeProvider::scripted(script));
     let dir = tempfile::tempdir().unwrap();
     let google = config(dir.path(), fake, "file:/tmp/unused-google-refresh-token").google;
@@ -67,6 +79,10 @@ fn rig(jev: Option<&FakeJev>, fake: &Fake, script: Vec<Scripted>) -> (RouteRig, 
                 "file:/tmp/unused-google-refresh-token".into(),
             );
             c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+            if eu {
+                c.serve_glm_unrestricted();
+                c.vouch_zai(crate::catalog::ModelOrigin::Eu);
+            }
         },
         move |p| {
             p.secrets = board();
@@ -161,14 +177,15 @@ async fn a_google_result_makes_the_session_private_and_the_floor_refuses_a_restr
     let _ = ACCOUNT;
 }
 
-/// The route's data answer is `private`: with a restricted profile first in
-/// the mode's list, a private session's message goes to the second.
+/// The route's data answer is `private`: with a profile not of US origin
+/// (an EU one) first in the mode's list, a private session's message goes to
+/// the second, though a plain session's takes the first.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_session_is_routed_off_restricted_profiles() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     let fake = Fake::start().await;
-    let (r, _) = rig(Some(&jev), &fake, vec![]);
+    let (r, _) = rig_on(Some(&jev), &fake, vec![], true);
     let plain = new_session(&r.core);
     let private = new_session(&r.core);
     r.core

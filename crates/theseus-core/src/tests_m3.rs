@@ -4882,6 +4882,7 @@ async fn a_one_megabyte_image_is_estimated_by_its_pixels() {
     assert_eq!(req.image_tokens, image);
     let text_only = crate::provider::ProviderRequest {
         image_tokens: 0,
+        data_pass: None,
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": "Look."}]})],
         ..req.clone()
     }

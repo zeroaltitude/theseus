@@ -124,6 +124,12 @@ pub(crate) const TASK_BEFORE_PROJECTS: &str = r#"{"id":"tsk_00000000000000000000
 /// for byte. By hand, in the layout the build before theseus-n5ui2 writes.
 pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_00000000000000000000000000000311","kind":"conversation","label":null,"created_at_unix_ms":1790000000311,"turns":2,"last_turn_id":"turn_00000000000000000000000000000313","usage":{"input_tokens":700,"output_tokens":90,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"execution_id":"exe_00000000000000000000000000000311","compilation_id":"cmp_00000000000000000000000000000312","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000319,"cost_usd":0.0066,"tool_calls":0,"title":"Plan the harbour survey","dir":"/work/harbour"}"#;
 
+/// A session as format 47 wrote it (unchanged since 45: its project),
+/// before its data state (`data`, format 48, theseus-a1wvq.5). It reads with
+/// none, the private view with no open run, and writes back byte for byte. By
+/// hand, in the layout the build before theseus-a1wvq.5 writes.
+pub(crate) const SESSION_BEFORE_DATA: &str = r#"{"session_id":"ses_00000000000000000000000000000481","kind":"conversation","label":null,"created_at_unix_ms":1790000000481,"turns":3,"last_turn_id":"turn_00000000000000000000000000000483","usage":{"input_tokens":900,"output_tokens":140,"cache_read_input_tokens":300,"cache_creation_input_tokens":60},"execution_id":"exe_00000000000000000000000000000481","compilation_id":"cmp_00000000000000000000000000000482","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000489,"cost_usd":0.0091,"tool_calls":1,"title":"Chart the breakwater","dir":"/work/harbour","project":"tsk_00000000000000000000000000000480"}"#;
+
 /// A kind row as format 45 wrote it, an `onto:kind:` META record: the topic
 /// seed, before a kind's retirement, examples and mined sources
 /// (`retired_ms`, `examples`, `mined_from`, format 46, theseus-e3mjc). It
@@ -133,6 +139,12 @@ pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_0000000000
 pub(crate) const KIND_BEFORE_ONTO_CORE: &str = r#"{"name":"topic","basis":"interpreted","assigned_by":["operator","import"],"per_session":3,"parent":"topic","precedence":40,"rule":"chain","description":"What a session is about, declared by the operator, or by the import from an imported session's labels. Topics nest.","version":1,"added_by":"seed"}"#;
 
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 47 (theseus-q9b85's; unchanged since 45): before its data state (48, theseus-a1wvq.5)",
+        bytes: SESSION_BEFORE_DATA,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::META,
         layout: "an ontology kind row at format 45 (theseus-n5ui2's): before its retirement, examples and mined sources (46, theseus-e3mjc)",
@@ -612,7 +624,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -664,7 +676,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -719,7 +731,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -771,7 +783,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -857,7 +869,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -897,7 +909,7 @@ fn a_format_34_compilation_reads_and_writes_back_byte_for_byte() {
     assert_eq!(serde_json::to_string(&c).unwrap(), old);
 }
 
-/// A store of format 33 opens, and its first write moves the manifest to 47,
+/// A store of format 33 opens, and its first write moves the manifest to 48,
 /// which an older build then refuses.
 #[test]
 fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
@@ -922,7 +934,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -969,7 +981,7 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     );
     store.append(&[note.record().unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let nodes = again.transcript(&sid).unwrap();
@@ -1047,7 +1059,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -1113,7 +1125,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1190,7 +1202,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let lib = crate::prefix::Library::default();
@@ -1264,7 +1276,7 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
         .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 47);
+    assert_eq!(moved["format"], 48);
 }
 
 /// A task from before projects reads as a plain item, with no date and no
@@ -1286,4 +1298,39 @@ fn a_format_44_task_reads_as_an_item_and_a_project_round_trips() {
     let s: SessionRecord = serde_json::from_str(SESSION_BEFORE_PROJECT).unwrap();
     assert_eq!(s.project, None);
     assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_PROJECT);
+}
+
+/// A format-47 session reads with no data state (the private view, no open
+/// run: no migration) and writes back byte for byte; one with a state round
+/// trips, and a write-back's merge of a record with none keeps none.
+#[test]
+fn a_format_47_session_reads_with_no_data_state_and_takes_one() {
+    use crate::data::{DataState, DataWhy, OpenHow, OpenRun, Opened, Taint};
+    let mut s: SessionRecord = serde_json::from_str(SESSION_BEFORE_DATA).unwrap();
+    assert!(s.data.is_none());
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_DATA);
+    let turn = s.clone();
+    s.take_turns_fields(&turn);
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_DATA);
+    s.data = Some(Box::new(DataState::new(
+        Some(Opened {
+            how: OpenHow::Task,
+            at_ms: 1_790_000_000_490,
+        }),
+        Some(OpenRun {
+            from: "msg_00000000000000000000000000000484".into(),
+            through: "msg_00000000000000000000000000000486".into(),
+        }),
+        Some(Taint {
+            why: DataWhy::Sealed,
+            node: None,
+            at_ms: 1_790_000_000_491,
+        }),
+    )));
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(text.ends_with(r#","data":{"opened":{"how":"task","at_ms":1790000000490},"run":{"from":"msg_00000000000000000000000000000484","through":"msg_00000000000000000000000000000486"},"taint":{"why":"sealed","at_ms":1790000000491}}}"#), "{text}");
+    assert_eq!(
+        serde_json::from_str::<SessionRecord>(&text).unwrap().data,
+        s.data
+    );
 }

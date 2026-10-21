@@ -113,6 +113,7 @@ fn request(model: &str, kind: &str, said: &str, scrub: &dyn Fn(&str) -> String) 
         betas: Vec::new(),
         extra,
         image_tokens: 0,
+        data_pass: None,
     }
 }
 

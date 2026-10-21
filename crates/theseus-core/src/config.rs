@@ -25,6 +25,7 @@ mod index;
 pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
+mod data_floor;
 pub mod earned;
 pub(crate) mod import;
 mod judge;
@@ -1509,6 +1510,7 @@ impl Config {
         self.people.validate()?;
         self.card.validate()?;
         self.ontology.validate()?;
+        self.validate_data_floor()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1794,6 +1796,48 @@ impl Config {
         p.origin = Some(crate::catalog::ModelOrigin::Eu);
     }
 
+    /// A test whose GLM profiles were only a second, cheaper model
+    /// (theseus-a1wvq.3): the `zai` provider served from a host vouched `us`,
+    /// and `glm` and `glm53` on Claude Haiku 5.5, so the data floor lets them
+    /// run. The profiles' names, their provider and its fake stay.
+    #[cfg(test)]
+    pub(crate) fn serve_glm_unrestricted(&mut self) {
+        let z = self
+            .resolved
+            .providers
+            .get_mut("zai")
+            .expect("the zai provider");
+        z.api_base = "https://llm-proxy.example.com/anthropic".into();
+        z.origin = Some(crate::catalog::ModelOrigin::Us);
+        for name in ["glm", "glm53"] {
+            let p = self.resolved.profiles.get_mut(name).expect("the profile");
+            p.model = UNRESTRICTED_SECOND.into();
+        }
+    }
+
+    /// A test's `zai` provider vouched of `origin`.
+    #[cfg(test)]
+    pub(crate) fn vouch_zai(&mut self, origin: crate::catalog::ModelOrigin) {
+        let z = self
+            .resolved
+            .providers
+            .get_mut("zai")
+            .expect("the zai provider");
+        z.origin = Some(origin);
+    }
+
+    /// A test's profile on a model the catalog does not price, so routing
+    /// finds it unusable (theseus-a1wvq.3).
+    #[cfg(test)]
+    pub(crate) fn unprice_profile(&mut self, profile: &str) {
+        let p = self
+            .resolved
+            .profiles
+            .get_mut(profile)
+            .expect("the profile");
+        p.model = "claude-unlisted-9".into();
+    }
+
     /// Every profile by name, with the implicit `default` synthesized from
     /// `[model]` unless `[profiles.default]` overrides it.
     pub fn all_profiles(&self) -> &BTreeMap<String, ProfileConfig> {
@@ -1950,6 +1994,11 @@ impl Config {
         Self::from_toml(Self::EXAMPLE_TOML).expect("the bundled example config parses")
     }
 }
+
+/// The model a test's GLM profiles run once `serve_glm_unrestricted` moves
+/// them.
+#[cfg(test)]
+pub(crate) const UNRESTRICTED_SECOND: &str = "claude-haiku-5-5";
 
 /// A configured path with `~` and environment variables read as a shell
 /// reads them (review 2's consideration 5, in place of `shellexpand`, whose

@@ -69,6 +69,9 @@ fn config(root: &Path, state: &Path, summary: &str) -> Config {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.memory.summary_profile = summary.into();
+    // The summarizer is only a second provider here; it reads the session,
+    // so it runs an unrestricted model (theseus-a1wvq.3).
+    cfg.serve_glm_unrestricted();
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {
@@ -335,13 +338,11 @@ async fn compaction_replaces_the_ring_on_overflow() {
         (dropped[0], *dropped.last().unwrap(), dropped.len())
     );
     assert_eq!(range.range.as_ref().unwrap().nodes, dropped.len() as u64);
-    assert_eq!((profile.as_str(), model.as_str()), ("glm", "glm-5.3-flash"));
+    assert_eq!((profile.as_str(), model.as_str()), ("glm", GLM));
     assert!(header.starts_with(&format!("[Summary of {count} earlier messages, ")));
     // Its testimony (35a): the range's positions, the profile, and its model.
     assert!(
-        header.ends_with(&format!(
-            " (@{first} to @{end}), written by glm on glm-5.3-flash]"
-        )),
+        header.ends_with(&format!(" (@{first} to @{end}), written by glm on {GLM}]")),
         "{header}"
     );
 
@@ -374,8 +375,8 @@ async fn compaction_replaces_the_ring_on_overflow() {
 fn settled_as_reserved(r: &Rig, sid: &str, row: &Value, node: &str, cost_usd: Option<f64>) {
     let settled = row["settled_micros"].as_u64().unwrap();
     let reserved = row["reserved_micros"].as_u64().unwrap();
-    // glm-5.3-flash: $0.15 in and $0.50 out a million.
-    assert_eq!(settled, 9_000 * 15 / 100 + 120 * 50 / 100);
+    // Haiku 5.5, the glm profile's model here: $0.10 in and $0.50 out a million.
+    assert_eq!(settled, 9_000 * 10 / 100 + 120 * 50 / 100);
     assert!(reserved > settled, "{reserved} > {settled}");
     assert_eq!(cost_usd, Some(settled as f64 / 1e6));
     let actions = r.core.kernel.actions().unwrap();
@@ -801,8 +802,8 @@ async fn a_compaction_is_assembled_with_recall_before_the_summary() {
     );
 }
 
-/// glm's model, on `zai`.
-const GLM: &str = "glm-5.3-flash";
+/// glm's model, on `zai`: an unrestricted one (theseus-a1wvq.3).
+const GLM: &str = crate::config::UNRESTRICTED_SECOND;
 
 /// A session whose summary profile is `session`, glm given the session
 /// model's window and output cap, so a turn on either rings at the same
@@ -819,6 +820,9 @@ fn session_rig(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
         crate::catalog::CatalogRow {
             context_window: Some(SESSION_WINDOW),
             max_output_tokens: Some(OUTPUT),
+            // GLM's denser tokenizer, which this rig's band was set on: the
+            // stand-in model reads a request as GLM did (theseus-a1wvq.3).
+            bytes_per_token: Some(crate::catalog::TokenRates::GLM),
             ..Default::default()
         },
     );

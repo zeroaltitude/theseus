@@ -444,6 +444,8 @@ fn compacting(dir: &Path, model: Arc<FakeProvider>, glm: Arc<FakeProvider>) -> A
     cfg.tools.roots = vec![];
     cfg.memory.mode = MemoryMode::Live;
     cfg.memory.summary_profile = "glm".into();
+    // glm only summarizes here: an unrestricted model (theseus-a1wvq.3).
+    cfg.serve_glm_unrestricted();
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {

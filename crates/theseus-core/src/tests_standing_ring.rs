@@ -54,6 +54,8 @@ async fn the_block_survives_three_compactions() {
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.memory.summary_profile = "glm".into();
+    // glm only summarizes here: an unrestricted model (theseus-a1wvq.3).
+    cfg.serve_glm_unrestricted();
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {

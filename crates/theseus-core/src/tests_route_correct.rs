@@ -57,7 +57,7 @@ async fn call_on(core: &Arc<Core>, surface: Surface, method: &str, params: Value
 }
 
 /// A message from the CLI, as `theseus ask` sends it.
-async fn ask(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
+pub(crate) async fn ask(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
     ask_with(core, json!({"session_id": session, "input": input})).await
 }
 

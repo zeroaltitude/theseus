@@ -1,8 +1,8 @@
 //! A continuation runs on the profile its session's last turn ran on, never
 //! on the live one (theseus-kol), with the real `theseusd` and a stand-in for
 //! the Messages API. The template's live profile is `sonnet`
-//! (claude-sonnet-5-5); every turn here is asked on `glm` (glm-5.3-flash,
-//! provider `zai`), whose endpoint is the same stand-in, which keeps every
+//! (claude-sonnet-5-5); every turn here is asked on `glm` (an unrestricted
+//! model here, theseus-a1wvq.3, on provider `zai`), whose endpoint is the same stand-in, which keeps every
 //! request, so each continuation's model is read from what it was asked.
 //! - a job that outlives `proc_sync_secs`: its late result's turn;
 //! - a SIGKILL while a job runs inside its turn: the restart's continuation,
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use common::model::FakeModel;
 use serde_json::{json, Value};
 
-const GLM: &str = "glm-5.3-flash";
+const GLM: &str = common::UNRESTRICTED_SECOND;
 
 struct Rig {
     dir: tempfile::TempDir,
@@ -65,6 +65,8 @@ impl Rig {
                 .unwrap()
                 .insert("api_base".into(), model.base.clone().into());
         }
+        // `zai` is only the second provider here (theseus-a1wvq.3).
+        common::unrestricted_glm(&mut t);
         table(&mut t, "policy").insert("enforcement".into(), "notify".into());
         table(&mut t, "tools").insert("proc_sync_secs".into(), (proc_sync_secs as i64).into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();

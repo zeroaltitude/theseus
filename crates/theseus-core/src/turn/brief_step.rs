@@ -88,7 +88,7 @@ impl TurnRunner {
     /// The brief's verdict as the task's base: the class's first usable
     /// profile under the place's cap, at once (`routing::brief::brief_base`).
     pub(super) fn decide_brief(&self, t: &Turn<'_>, v: &Verdict) -> Decision {
-        let profiles = self.route_profiles(t.route.sensitive);
+        let profiles = self.route_profiles(t.route.floor());
         let cap = Self::place_cap(t, &profiles);
         routing::brief::brief_base(
             &self.cfg.routing,
