@@ -2450,6 +2450,19 @@ impl Kernel {
             (false, Outcome::Failed) => LedgerKind::ActionFailed,
         };
         let mut data = json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)});
+        // A failed call says why in a line (a job's `exit status: 1`, `spawn:
+        // ...`), so a reader can tell the program's own answer from a fault
+        // of the machinery that ran it.
+        if kind == LedgerKind::ActionFailed {
+            if let Some(why) = c
+                .detail
+                .as_ref()
+                .and_then(|d| d["note"].as_str())
+                .filter(|n| !n.is_empty())
+            {
+                data["note"] = json!(why.chars().take(200).collect::<String>());
+            }
+        }
         if book {
             crate::earlier::booked_row(&mut data, &a);
         }

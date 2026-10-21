@@ -167,6 +167,16 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     }
 }
 
+/// Whether a failed job's note (the kernel's `note` on its `action.failed`
+/// row) says its program ran and answered: a nonzero exit (`exit status: 1`,
+/// or `exit exit status: 1` from an L0 job), a signal, or a stop the owner
+/// asked for. A spawn error, a start that failed, a missed deadline or no
+/// note at all stay observations: the machinery may be at fault.
+fn program_answered(note: &str) -> bool {
+    let n = note.trim_start();
+    n.starts_with("exit ") || n.starts_with("signal: ") || n.starts_with("stopped: ")
+}
+
 /// What one ledger row shows, if it shows a problem.
 pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let d = &row.data;
@@ -175,6 +185,12 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     match kind {
         "action.failed" => {
             let p = word(&d["producer"]);
+            // A job that ran and ended with a bad exit, a signal or a stop
+            // answered as its program did: that is not a fault of Theseus,
+            // and `grep` finding nothing is not a defect to fix.
+            if p == "wrapper" && program_answered(d["note"].as_str().unwrap_or("")) {
+                return None;
+            }
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
             o.note = format!(
@@ -467,5 +483,52 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str, note: Option<&str>) -> Option<Obs> {
+        let mut d = json!({"producer": producer, "correlation_id": "act_x", "duration_ms": 6});
+        if let Some(n) = note {
+            d["note"] = json!(n);
+        }
+        of_row(7, &LedgerRow::named("action.failed", None, None, d))
+    }
+
+    /// A job whose program ended with a bad exit, a signal or a stop
+    /// answered as it does: that is no defect (`action.failed:wrapper`).
+    #[test]
+    fn a_job_programs_own_failure_is_no_cause() {
+        for note in [
+            "exit status: 1",
+            "exit exit status: 2",
+            "signal: 9",
+            "stopped: the tree ended",
+        ] {
+            assert!(failed("wrapper:4242", Some(note)).is_none(), "{note}");
+        }
+    }
+
+    /// What is the machinery's own stays a cause: a start that failed, a
+    /// missed deadline, a row that says nothing; and so does every other
+    /// producer's failure, whatever its note.
+    #[test]
+    fn a_machinery_failure_is_still_a_cause() {
+        for note in [
+            Some("spawn: No such file or directory"),
+            Some("the job could not start in L1: x. It did not run, in L1 or at L0"),
+            Some("deadline 60000 ms exceeded; killed"),
+            Some("it ended with no status"),
+            None,
+        ] {
+            let o = failed("wrapper:4242", note).unwrap_or_else(|| panic!("{note:?}"));
+            assert_eq!(o.key, "action.failed:wrapper");
+        }
+        let o = failed("provider:anthropic", Some("exit status: 1")).unwrap();
+        assert_eq!(o.key, "action.failed:provider");
     }
 }
