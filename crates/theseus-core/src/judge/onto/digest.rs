@@ -40,7 +40,8 @@ const KINDS: [LedgerKind; 5] = [
 /// The rows of one machine write.
 struct Write<'a> {
     id: &'a str,
-    first_ms: u64,
+    /// Where its first row is in the ledger's order.
+    first: usize,
     rows: Vec<&'a LedgerRow>,
 }
 
@@ -144,7 +145,9 @@ fn describe(w: &Write, name_of: &dyn Fn(&str) -> Option<String>) -> String {
     }
 }
 
-/// One line for each machine write in `rows`, oldest first: `- merged topic
+/// One line for each machine write in `rows` (in the ledger's order), oldest
+/// first, by where its first row is: two writes in one millisecond keep the
+/// order they were made in. `- merged topic
 /// "release process" into "release checklist" (3 sessions) · undo: theseus
 /// ontology undo sweep-…-merge`, or `· undone` for one that was.
 pub fn lines(rows: &[LedgerRow], name_of: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
@@ -154,20 +157,19 @@ pub fn lines(rows: &[LedgerRow], name_of: &dyn Fn(&str) -> Option<String>) -> Ve
         .filter_map(|r| r.data["write"].as_str())
         .collect();
     let mut writes: BTreeMap<&str, Write> = BTreeMap::new();
-    for row in rows {
+    for (at, row) in rows.iter().enumerate() {
         let Some(id) = write_of(row) else {
             continue;
         };
         let w = writes.entry(id).or_insert_with(|| Write {
             id,
-            first_ms: row.at_unix_ms,
+            first: at,
             rows: Vec::new(),
         });
-        w.first_ms = w.first_ms.min(row.at_unix_ms);
         w.rows.push(row);
     }
     let mut ordered: Vec<&Write> = writes.values().collect();
-    ordered.sort_by_key(|w| (w.first_ms, w.id));
+    ordered.sort_by_key(|w| w.first);
     ordered
         .into_iter()
         .map(|w| {
@@ -188,6 +190,17 @@ impl Core {
         kind: LedgerKind,
         since_ms: u64,
     ) -> anyhow::Result<Option<Vec<LedgerRow>>> {
+        Ok(self
+            .onto_rows_at(kind, since_ms)?
+            .map(|rows| rows.into_iter().map(|(_, r)| r).collect()))
+    }
+
+    /// `onto_rows`, each row with its position in the store.
+    fn onto_rows_at(
+        &self,
+        kind: LedgerKind,
+        since_ms: u64,
+    ) -> anyhow::Result<Option<Vec<(u64, LedgerRow)>>> {
         let page = Page {
             kind: kinds::LEDGER,
             tags: vec![ledger_kind(kind.as_str())],
@@ -201,22 +214,26 @@ impl Core {
         Ok(Some(
             out.records
                 .iter()
-                .filter_map(|r| r.decode::<LedgerRow>().ok())
-                .filter(|r| r.at_unix_ms >= since_ms)
+                .filter_map(|r| Some((r.position, r.decode::<LedgerRow>().ok()?)))
+                .filter(|(_, r)| r.at_unix_ms >= since_ms)
                 .collect(),
         ))
     }
 
     /// The last day's machine writes, one line each (`lines`): nothing when
-    /// there is none, or while the index is built.
+    /// there is none, or while the index is built. The kinds' rows are put
+    /// back in the ledger's order, so the lines keep the order the writes
+    /// were made in.
     pub(crate) fn onto_night_lines(&self, now_ms: u64) -> Vec<String> {
         let since = now_ms.saturating_sub(DAY_MS);
-        let mut rows = Vec::new();
+        let mut found = Vec::new();
         for kind in KINDS {
-            if let Ok(Some(found)) = self.onto_rows(kind, since) {
-                rows.extend(found);
+            if let Ok(Some(rows)) = self.onto_rows_at(kind, since) {
+                found.extend(rows);
             }
         }
+        found.sort_by_key(|(at, _)| *at);
+        let rows: Vec<LedgerRow> = found.into_iter().map(|(_, r)| r).collect();
         let Ok(o) = self.runner.ontology.snapshot(&self.store) else {
             return Vec::new();
         };

@@ -217,3 +217,25 @@ async fn the_note_carries_the_lines_after_its_words_voiced_or_not() {
         assert!(!words.is_empty(), "the words come first: {text}");
     }
 }
+
+/// Two writes in one millisecond keep the order they were made in: the
+/// sweep's, then the dream's, though `dream-` sorts before `sweep-` (a fast
+/// host's sweep and dream share a millisecond).
+#[test]
+fn writes_in_one_millisecond_are_listed_in_the_ledgers_order() {
+    let row = |kind: &str, write: &str| crate::ledger::LedgerRow {
+        at_unix_ms: 5,
+        kind: kind.into(),
+        session_id: None,
+        turn_id: None,
+        data: serde_json::json!({"undo": {"write": write}, "category": "topic:x"}),
+    };
+    let rows = [
+        row("ontology.kind", "sweep-5-1-kind"),
+        row("ontology.guidance", "dream-5-0"),
+    ];
+    let lines = crate::judge::onto::digest::lines(&rows, &|_| None);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[0].ends_with("undo sweep-5-1-kind"), "{lines:?}");
+    assert!(lines[1].ends_with("undo dream-5-0"), "{lines:?}");
+}
