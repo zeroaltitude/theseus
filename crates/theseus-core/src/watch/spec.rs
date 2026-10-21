@@ -3,7 +3,7 @@
 //! No stored field was added: a watch is a pending wake with the purpose
 //! `Watch` and the run `Probe(WakeProbe { kind, subject, until })`.
 //!
-//! - `kind`: `run`, `fetch` or `file`.
+//! - `kind`: `run`, `fetch`, `file`, `reply` or `mail`.
 //! - `subject`: a JSON object, the check's own fields (`argv`, `url`, `path`,
 //!   `json`) and `then` (`notice`, `turn`, `task` with its `brief`).
 //! - `until`: the condition as typed (`equals MERGED`).
@@ -16,7 +16,7 @@ use theseus_kernel::{Every, NewWake, PendingWake, Purpose, Repeat, WakeProbe, Wa
 use theseus_protocol::{WatchCheck, WatchCreateParams};
 
 use super::cond::{self, Condition};
-use crate::config::WatchesConfig;
+use crate::config::{GoogleConfig, WatchesConfig};
 
 /// The longest title, in characters.
 pub const MAX_TITLE: usize = 200;
@@ -40,10 +40,16 @@ struct Subject {
     from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     words: Option<String>,
+    /// A mail check's Gmail query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    q: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     then: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     brief: Option<String>,
+    /// A mail watch's follow-up brief: what starts when it gives up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    follow_up: Option<String>,
 }
 
 /// What a watch looks at.
@@ -68,6 +74,11 @@ pub enum Check {
         from: Option<String>,
         words: Option<String>,
     },
+    /// New mail matching a Gmail query, polled from the account's history
+    /// with no model (`watch/mail.rs`).
+    Mail {
+        q: String,
+    },
 }
 
 impl Check {
@@ -77,6 +88,7 @@ impl Check {
             Check::Fetch { .. } => "fetch",
             Check::File { .. } => "file",
             Check::Reply { .. } => "reply",
+            Check::Mail { .. } => "mail",
         }
     }
 
@@ -96,6 +108,7 @@ impl Check {
                 .join(" "),
             Check::Fetch { url, .. } => url.clone(),
             Check::File { path } => path.clone(),
+            Check::Mail { q } => q.clone(),
             Check::Reply {
                 place, from, words, ..
             } => {
@@ -114,7 +127,7 @@ impl Check {
     pub fn json(&self) -> Option<&str> {
         match self {
             Check::Run { json, .. } | Check::Fetch { json, .. } => json.as_deref(),
-            Check::File { .. } | Check::Reply { .. } => None,
+            Check::File { .. } | Check::Reply { .. } | Check::Mail { .. } => None,
         }
     }
 }
@@ -147,6 +160,8 @@ pub struct Spec {
     pub cond: Condition,
     pub every_ms: u64,
     pub expires_ms: u64,
+    /// A mail watch's brief for the task that starts when it gives up.
+    pub follow_up: Option<String>,
 }
 
 impl Spec {
@@ -160,7 +175,7 @@ impl Spec {
         let r = w.repeat.as_ref().ok_or("a watch has no interval")?;
         Ok(Spec {
             title: w.note.clone(),
-            cond: if p.kind == "reply" {
+            cond: if matches!(p.kind.as_str(), "reply" | "mail") {
                 Condition::Exists
             } else {
                 cond::parse(&p.until)?
@@ -170,6 +185,7 @@ impl Spec {
             then,
             every_ms: r.every.nominal_ms(),
             expires_ms: r.until_ms.unwrap_or(w.due_at_ms),
+            follow_up: s.follow_up,
         })
     }
 }
@@ -199,6 +215,9 @@ fn check_of(kind: &str, s: &Subject) -> Result<Check, String> {
                 .ok_or("no place")?,
             from: s.from.clone(),
             words: s.words.clone(),
+        }),
+        "mail" => Ok(Check::Mail {
+            q: s.q.clone().filter(|q| !q.is_empty()).ok_or("no query")?,
         }),
         k => Err(format!("`{k}` is not a kind of check")),
     }
@@ -273,6 +292,18 @@ fn subject_of(check: &WatchCheck) -> Result<(&'static str, Subject), String> {
                 },
             )
         }
+        WatchCheck::Mail { q } => {
+            if q.trim().is_empty() {
+                return Err("a `mail` check needs a query `q`, in Gmail's syntax (`from:dana@example.test`)".into());
+            }
+            (
+                "mail",
+                Subject {
+                    q: Some(q.trim().to_string()),
+                    ..Default::default()
+                },
+            )
+        }
         WatchCheck::File { path } => {
             if !path.starts_with('/') {
                 return Err(format!(
@@ -320,6 +351,48 @@ fn for_span(
     Ok(for_ms)
 }
 
+/// What a mail watch may be, and a follow-up's: the service on, no `until`,
+/// no turn (mail is outside text), a task only for senders the config trusts,
+/// and a follow-up only with a deadline. The follow-up's brief when it has one.
+fn mail_rules(
+    p: &WatchCreateParams,
+    then: &Then,
+    google: Option<&GoogleConfig>,
+) -> Result<Option<String>, String> {
+    let follow_up = p
+        .follow_up
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(str::to_string);
+    if !matches!(p.check, WatchCheck::Mail { .. }) {
+        return match follow_up {
+            Some(_) => Err("`follow_up` belongs to a `mail` watch".into()),
+            None => Ok(None),
+        };
+    }
+    if !p.until.trim().is_empty() {
+        return Err(
+            "a `mail` watch has no `until`: a new message that matches is its condition".into(),
+        );
+    }
+    if let Some(g) = google {
+        if g.is_empty() || !g.service_list().contains(&theseus_google::Service::Gmail) {
+            return Err("mail watches need [google] with gmail".into());
+        }
+        if matches!(then, Then::Task(_)) && g.trusted_senders.is_empty() {
+            return Err("a `mail` watch can start a `task` only for senders in [google] trusted_senders, and it is empty".into());
+        }
+    }
+    if *then == Then::Turn {
+        return Err("a `mail` watch cannot start a turn: mail is outside text, and a turn would act on it. `notice` it, or start a `task` for a trusted sender".into());
+    }
+    if follow_up.is_some() && p.for_at_most.is_none() {
+        return Err("`follow_up` needs `for_at_most`: the deadline it follows up at".into());
+    }
+    Ok(follow_up)
+}
+
 /// A watch made: the wake to add, and its spec.
 #[derive(Debug, Clone)]
 pub struct Built {
@@ -327,13 +400,29 @@ pub struct Built {
     pub spec: Spec,
 }
 
-/// `p` as a watch to add at `now_ms`, or why it cannot be. `target` is where
-/// the conversation posts, for the wake's record.
+/// How often a mail watch looks when it does not say.
+const MAIL_EVERY: &str = "3m";
+
+/// `build` where the config is not in reach (a tool's plan): a mail watch's
+/// `[google]` is checked when the watch is set.
 pub fn build(
     p: &WatchCreateParams,
     now_ms: u64,
     cfg: &WatchesConfig,
     target: Option<String>,
+) -> Result<Built, String> {
+    build_with(p, now_ms, cfg, target, None)
+}
+
+/// `p` as a watch to add at `now_ms`, or why it cannot be. `target` is where
+/// the conversation posts, for the wake's record; `google` is checked for a
+/// mail watch (its service on, and trusted senders for `then: task`).
+pub fn build_with(
+    p: &WatchCreateParams,
+    now_ms: u64,
+    cfg: &WatchesConfig,
+    target: Option<String>,
+    google: Option<&GoogleConfig>,
 ) -> Result<Built, String> {
     let title = p.title.trim();
     if title.is_empty() {
@@ -356,9 +445,11 @@ pub fn build(
             "a `reply` watch has no `every`: it is told of each message as it arrives".into(),
         );
     }
+    let is_mail = matches!(p.check, WatchCheck::Mail { .. });
     let every = match p.every.as_deref() {
         _ if is_reply => Every::parse("1d")?,
         Some(e) => Every::parse(e)?,
+        None if is_mail => Every::parse(MAIL_EVERY)?,
         None => Every::parse(&cfg.default_every)?,
     };
     if !is_reply && every.nominal_ms() < min_ms {
@@ -368,8 +459,12 @@ pub fn build(
         ));
     }
     let for_ms = for_span(p, cfg, every, is_reply)?;
-    let until_text = if is_reply { "reply" } else { p.until.trim() };
-    let cond = if is_reply {
+    let until_text = match &p.check {
+        WatchCheck::Reply { .. } => "reply",
+        WatchCheck::Mail { .. } => "a new message matches",
+        _ => p.until.trim(),
+    };
+    let cond = if is_reply || is_mail {
         Condition::Exists
     } else {
         cond::parse(&p.until)?
@@ -393,6 +488,8 @@ pub fn build(
     if is_reply && then != Then::Notice {
         return Err("a `reply` watch can only `notice`: what a stranger wrote is outside text, and a turn or a task would act on it".into());
     }
+    let follow_up = mail_rules(p, &then, google)?;
+    subject.follow_up = follow_up.clone();
     subject.then = then.word().to_string();
     if let Then::Task(b) = &then {
         subject.brief = Some(b.clone());
@@ -424,6 +521,7 @@ pub fn build(
         cond,
         every_ms: every.nominal_ms(),
         expires_ms: expires,
+        follow_up,
     };
     Ok(Built { new, spec })
 }
@@ -441,6 +539,7 @@ mod tests {
             every: None,
             for_at_most: None,
             then: None,
+            follow_up: None,
             session_id: None,
             author: None,
             discord: None,

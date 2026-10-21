@@ -27,6 +27,7 @@ async fn a_reply_from_the_named_person_in_a_shared_channel_reaches_the_owners_dm
         every: None,
         for_at_most: Some("5d".into()),
         then: None,
+        follow_up: None,
         session_id: None,
         author: None,
         discord: None,

@@ -20,7 +20,7 @@ use theseus_kernel::KernelError;
 use theseus_protocol::{Access, Resource, WatchCheck, WatchCreateParams};
 use theseus_tools::{Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
-use crate::config::WatchesConfig;
+use crate::config::{GoogleConfig, WatchesConfig};
 use crate::toolrun::TurnCtx;
 use crate::wake::{local, span};
 use crate::watch::spec::{self, Spec};
@@ -47,7 +47,9 @@ impl Tool for WatchTool {
          url, json?} or {kind:file, path}. `until`: `exit 0`, `equals X`, `contains X`, `matches \
          RE`, `changes`, `above N`, `below N`, `exists`. `then`: notice, turn, or task with a \
          `brief`. To wait for someone to answer, {kind:reply, place, from?, words?} (no `until`, no \
-         `every`: it is told of each message, and only notices). End one with `wake_cancel`."
+         `every`: it is told of each message, and only notices), or {kind:mail, q} (a mail search \
+         query; notices new mail, and `for_at_most` with `follow_up` (a brief) starts a task at \
+         the deadline). End one with `wake_cancel`."
     }
 
     fn input_schema(&self) -> Value {
@@ -58,13 +60,14 @@ impl Tool for WatchTool {
                 "check": {
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "enum": ["run", "fetch", "file", "reply"]},
+                        "kind": {"type": "string", "enum": ["run", "fetch", "file", "reply", "mail"]},
                         "argv": {"type": "array", "items": {"type": "string"}},
                         "url": {"type": "string"},
                         "path": {"type": "string"},
                         "place": {"type": "string"},
                         "from": {"type": "string"},
                         "words": {"type": "string"},
+                        "q": {"type": "string"},
                         "json": {"type": "string"}
                     },
                     "required": ["kind"]
@@ -72,6 +75,7 @@ impl Tool for WatchTool {
                 "until": {"type": "string"},
                 "every": {"type": "string", "description": "5m by default, 1m least."},
                 "for_at_most": {"type": "string", "description": "30d at most, and by default."},
+                "follow_up": {"type": "string"},
                 "then": {
                     "type": "object",
                     "properties": {
@@ -130,6 +134,11 @@ impl Tool for WatchTool {
                     "a watch reads every new message in a place, with no model, and tells you of the one that matches: {how}"
                 ));
             }
+            WatchCheck::Mail { .. } => {
+                plan.authority = Some(format!(
+                    "a watch reads the owner's mailbox on a timer, with no model, and tells you of new mail that matches: {how}"
+                ));
+            }
             WatchCheck::Fetch { url, .. } => plan.url = Some(url.clone()),
             WatchCheck::File { path } => {
                 plan.resources = vec![Resource {
@@ -159,6 +168,7 @@ pub fn set(
     tc: &TurnCtx<'_>,
     board: &Board,
     cfg: &WatchesConfig,
+    google: Option<&GoogleConfig>,
     input: &Value,
     correlation_id: &str,
 ) -> Result<(String, Value), String> {
@@ -168,7 +178,13 @@ pub fn set(
     let p = params_of(input)?;
     let p = crate::watch::reply::resolved(&p, tc.places.rule)?;
     let now = tc.kernel.now_ms();
-    let built = spec::build(&p, now, cfg, tc.outbox.target(tc.session_id))?;
+    let built = spec::build_with(
+        &p,
+        now,
+        cfg,
+        tc.outbox.target(tc.session_id),
+        Some(google.unwrap_or(&GoogleConfig::default())),
+    )?;
     let set = match tc.kernel.set_wake_as(tc.guard, correlation_id, built.new) {
         Ok(s) => s,
         Err(e) => {

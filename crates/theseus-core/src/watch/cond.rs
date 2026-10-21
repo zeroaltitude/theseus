@@ -32,6 +32,8 @@ pub struct Observed {
     pub code: Option<i32>,
     /// A file is there.
     pub exists: bool,
+    /// A mail look's cursor and senders.
+    pub mail: Option<super::mail::Seen>,
 }
 
 /// `until` as a condition, or why it is not one.
@@ -168,6 +170,7 @@ mod tests {
             value: v.into(),
             code: None,
             exists: true,
+            mail: None,
         }
     }
 

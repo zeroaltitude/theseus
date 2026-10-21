@@ -1526,6 +1526,7 @@ impl ToolRuntime {
                 tc,
                 &self.watches,
                 &self.watches_cfg,
+                self.google.as_ref().map(|g| &g.cfg),
                 &call.input,
                 correlation_id,
             ),

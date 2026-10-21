@@ -481,6 +481,7 @@ async fn met_watch(r: &Rig) -> Vec<Msg> {
                 every: Some("1m".into()),
                 for_at_most: None,
                 then: None,
+                follow_up: None,
                 session_id: None,
                 author: None,
                 discord: None,
