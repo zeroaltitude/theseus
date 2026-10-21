@@ -22,6 +22,7 @@ mod held;
 pub mod job;
 pub mod job_egress;
 mod job_l1;
+mod job_line;
 mod job_wait;
 pub mod kernel;
 mod locks;

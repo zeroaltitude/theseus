@@ -27,6 +27,34 @@ fn tree(secs: u32) -> Vec<String> {
     ]
 }
 
+/// Six digits for a run, so no other process on the machine matches what a
+/// test's jobs name.
+fn nonce() -> &'static str {
+    static N: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    N.get_or_init(|| {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        format!("{:06}", (t.subsec_nanos() ^ std::process::id()) % 1_000_000)
+    })
+}
+
+/// A job whose own `pkill -f` pattern matches its sleeper and, before
+/// theseus-53ujg.2, its shell and its wrapper.
+fn own_pkill() -> Vec<String> {
+    let n = nonce();
+    vec![
+        "bash".into(),
+        "-c".into(),
+        format!("sleep 30.{n} & pkill -f 'sleep 30.{n}'; wait; echo survived"),
+    ]
+}
+
+/// Two commands, so a shell stays; the token is on no command line.
+fn token_line() -> String {
+    format!("echo $$ > tree.pid; sleep 5; true # token-{}", nonce())
+}
+
 struct Rig {
     dir: tempfile::TempDir,
     model: FakeModel,
@@ -49,6 +77,15 @@ impl Rig {
             "Wait for j1" => vec![("job_wait", json!({"job": "j1"}))],
             "Run the long one" => vec![("proc_run", json!({"argv": tree(90)}))],
             "Stop j1" => vec![("job_stop", json!({"job": "j1"}))],
+            "Kill the sleeper" => vec![("proc_run", json!({"argv": own_pkill()}))],
+            "Show no text" => vec![(
+                "proc_run",
+                json!({"argv": ["bash", "-c", token_line()], "background": true}),
+            )],
+            "Signal the wrapper" => vec![(
+                "proc_run",
+                json!({"argv": ["bash", "-c", "kill -TERM \"$PPID\"; sleep 30; echo unreachable"]}),
+            )],
             _ => vec![],
         });
         let dir = tempfile::tempdir().unwrap();
@@ -162,17 +199,39 @@ fn alive(pid: u32) -> bool {
         .is_some_and(|c| c != 'Z' && c != 'X')
 }
 
-/// Every process whose command line holds `marker`.
-fn holding(marker: &str) -> Vec<(u32, String)> {
+/// Every process of a job whose text holds `marker`. The text is on no
+/// command line (theseus-53ujg.2): a running wrapper is found by its job's
+/// argv file in `spool`, and a job's shell by the runner's variable in its
+/// environment.
+fn holding(spool: &std::path::Path, marker: &str) -> Vec<(u32, String)> {
     let mut out = Vec::new();
     for e in std::fs::read_dir("/proc").unwrap().flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
             continue;
         };
+        if !alive(pid) {
+            continue;
+        }
         let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-        let cmd = String::from_utf8_lossy(&cmd).replace('\0', " ");
-        if cmd.contains(marker) && alive(pid) {
-            out.push((pid, cmd));
+        let words: Vec<String> = cmd
+            .split(|&b| b == 0)
+            .map(|w| String::from_utf8_lossy(w).into_owned())
+            .collect();
+        let argv = words
+            .iter()
+            .position(|w| w == "--correlation-id")
+            .and_then(|i| words.get(i + 1))
+            .and_then(|id| std::fs::read_to_string(spool.join("argv").join(id)).ok())
+            .unwrap_or_default();
+        let env = std::fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+        let shell = env
+            .split(|&b| b == 0)
+            .map(String::from_utf8_lossy)
+            .find(|v| v.starts_with("THESEUS_JOB_LINE="))
+            .unwrap_or_default()
+            .into_owned();
+        if argv.contains(marker) || shell.contains(marker) {
+            out.push((pid, words.join(" ")));
         }
     }
     out
@@ -222,10 +281,18 @@ fn a_run_past_its_window_is_stopped_by_its_handle_and_nothing_is_left() {
         Some((r.pid("tree.pid")?, r.pid("child.pid")?))
     });
     assert!(alive(shell) && alive(child));
+    // The helper still finds the job while it runs: its shell by the runner's
+    // variable, its wrapper by the argv file in the spool.
+    let marker = "echo $$ > tree.pid; sleep 90";
+    let running = holding(&r.path("state/spool"), marker);
+    assert!(
+        running.iter().any(|(p, _)| *p == shell)
+            && running.iter().any(|(_, c)| c.contains("job-wrapper")),
+        "the job is found while it runs: {running:?}"
+    );
     r.turn(Some(&sid), "Stop j1");
     let stopped = r.last_result();
-    let marker = "echo $$ > tree.pid; sleep 90";
-    let left = holding(marker);
+    let left = holding(&r.path("state/spool"), marker);
     assert!(
         stopped.starts_with("Stopped job j1 (bash -c echo $$ > tree.pid; sleep 90")
             && stopped.contains("): nothing of it is left.\n"),
@@ -241,4 +308,74 @@ fn a_run_past_its_window_is_stopped_by_its_handle_and_nothing_is_left() {
         alive(shell),
         alive(child)
     );
+}
+
+/// theseus-53ujg.2: a command that `pkill -f`s its own sleeper does not kill
+/// itself: its text is on no command line of its wrapper or its shell. Planted
+/// back on the wrapper's line, or run as `bash -c <line>`, the pattern matches
+/// the job's own process, the wrapper stops its tree, and the result is an
+/// unknown outcome.
+#[test]
+fn a_jobs_own_pkill_f_does_not_kill_it() {
+    let r = Rig::new(60);
+    let _daemon = r.spawn();
+    r.turn(None, "Kill the sleeper");
+    let result = r.last_result();
+    assert!(result.starts_with("[exit code 0"), "{result}");
+    assert!(result.contains("survived"), "{result}");
+}
+
+/// While a job runs two commands, neither its wrapper's nor its shell's
+/// command line shows its text, and the job is found through its spool.
+#[test]
+fn no_theseus_process_shows_a_jobs_text() {
+    let r = Rig::new(60);
+    let _daemon = r.spawn();
+    r.turn(None, "Show no text");
+    let shell = r.wait("the shell's pid", || r.pid("tree.pid"));
+    let token = format!("token-{}", nonce());
+    assert!(alive(shell));
+    let shown: Vec<_> = std::fs::read_dir("/proc")
+        .unwrap()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|p| {
+            std::fs::read(format!("/proc/{p}/cmdline"))
+                .is_ok_and(|c| String::from_utf8_lossy(&c).contains(&token))
+        })
+        .collect();
+    assert!(
+        shown.is_empty(),
+        "command lines that show the text: {shown:?}"
+    );
+    // The shell runs the fixed runner, and the job is found by its spool.
+    let cmd = std::fs::read(format!("/proc/{shell}/cmdline")).unwrap();
+    assert!(
+        String::from_utf8_lossy(&cmd).contains("unset THESEUS_JOB_LINE"),
+        "{}",
+        String::from_utf8_lossy(&cmd)
+    );
+    let found = holding(&r.path("state/spool"), &token);
+    assert!(
+        found.iter().any(|(p, _)| *p == shell)
+            && found.iter().any(|(_, c)| c.contains("job-wrapper")),
+        "{found:?}"
+    );
+}
+
+/// A wrapper sent SIGTERM from outside before it reports leaves a result that
+/// names the signal. A job's own `kill -TERM $PPID` is such a signal.
+#[test]
+fn an_unknown_outcome_names_the_signal() {
+    let r = Rig::new(60);
+    let _daemon = r.spawn();
+    r.turn(None, "Signal the wrapper");
+    let result = r.last_result();
+    assert!(
+        result.starts_with(
+            "[outcome unknown: the job's wrapper was ended by SIGTERM before it reported]"
+        ),
+        "{result}"
+    );
+    assert!(!result.contains("unreachable"), "{result}");
 }

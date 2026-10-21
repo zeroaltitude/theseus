@@ -231,18 +231,28 @@ fn kill_group(pid: u32) {
     }
 }
 
-/// The argv after a wrapper's `--`: its job's command.
+/// A wrapper's job command: its argv from the spool's file, which the
+/// wrapper's own `--spool` and `--correlation-id` name (the command is on no
+/// command line, theseus-53ujg.2). Empty while the wrapper is not yet running.
 fn job_of(pid: u32) -> String {
     let c = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
     let words: Vec<String> = c
         .split(|&b| b == 0)
         .map(|w| String::from_utf8_lossy(w).into_owned())
         .collect();
-    let at = words
-        .iter()
-        .position(|w| w == "--")
-        .map_or(words.len(), |i| i + 1);
-    words[at..].join(" ")
+    let after = |flag: &str| {
+        words
+            .iter()
+            .position(|w| w == flag)
+            .and_then(|i| words.get(i + 1))
+    };
+    let (Some(spool), Some(id)) = (after("--spool"), after("--correlation-id")) else {
+        return String::new();
+    };
+    std::fs::read(std::path::Path::new(spool).join("argv").join(id))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .map_or_else(String::new, |argv| argv.join(" "))
 }
 
 fn gone(pid: u32) -> bool {

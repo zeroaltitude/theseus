@@ -169,7 +169,10 @@ pub fn spawn_detached(
             .arg("--pids-max")
             .arg(cg.pids_max.to_string());
     }
-    cmd.arg("--").args(&args.argv);
+    // The job's argv goes by the spool, not by this command line: its text
+    // would sit on the wrapper's command line, where `pkill -f` finds it.
+    spool.write_argv(&args.correlation_id, &args.argv)?;
+    cmd.arg("--");
     cmd.env_clear();
     cmd.envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     cmd.stdin(Stdio::null())
@@ -196,7 +199,9 @@ pub fn spawn_detached(
 }
 
 /// The mode word that puts a binary into wrapper mode. A wrapper's command
-/// line is `<binary> job-wrapper --spool … --correlation-id <id> … -- <argv>`.
+/// line is `<binary> job-wrapper --spool … --correlation-id <id> … --`, the
+/// job's argv in the spool (`Spool::argv_path`); a non-empty argv after `--` is
+/// used as given.
 pub const WRAPPER_MODE: &str = "job-wrapper";
 
 pub use crate::job_l1::self_test;
@@ -688,7 +693,8 @@ fn spawn_l0(
             None => None,
         };
         let null = std::fs::File::open("/dev/null")?;
-        let exec = crate::spawn::Exec::new(&args.argv, args.cwd.as_deref())?;
+        let (argv, line) = crate::job_line::runner(&args.argv);
+        let exec = crate::spawn::Exec::new(&argv, args.cwd.as_deref())?.with_env(line)?;
         let stdio = [null.as_raw_fd(), write.as_raw_fd(), err.as_raw_fd()];
         let pid =
             crate::spawn::spawn(&exec, stdio, args.umask, cgroup.map(crate::cgroup::Job::fd))?;
@@ -698,14 +704,16 @@ fn spawn_l0(
         }
         return Ok((pid, None));
     }
-    let mut command = Command::new(&args.argv[0]);
+    let (argv, line) = crate::job_line::runner(&args.argv);
+    let mut command = Command::new(&argv[0]);
     command
-        .args(&args.argv[1..])
+        .args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::from(write))
         .stderr(Stdio::from(err))
         .env_clear()
-        .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .envs(line);
     if let Some(c) = &args.cwd {
         command.current_dir(c);
     }
@@ -1485,12 +1493,19 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
             other => anyhow::bail!("unknown wrapper argument {other:?}"),
         }
     }
+    let spool_dir = spool_dir.context("--spool required")?;
+    let correlation_id = correlation_id.context("--correlation-id required")?;
+    if argv.is_empty() {
+        argv = Spool::read_argv_in(&spool_dir, &correlation_id).with_context(|| {
+            format!("wrapper: no command after --, and none in the spool for {correlation_id}")
+        })?;
+    }
     if argv.is_empty() {
         anyhow::bail!("wrapper: no command after --");
     }
     Ok(WrapperArgs {
-        spool_dir: spool_dir.context("--spool required")?,
-        correlation_id: correlation_id.context("--correlation-id required")?,
+        spool_dir,
+        correlation_id,
         deadline_ms,
         notify_socket,
         argv,
