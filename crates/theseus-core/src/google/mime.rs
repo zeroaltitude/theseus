@@ -276,6 +276,8 @@ pub struct Body {
     pub text: String,
     /// The text whole.
     pub raw: String,
+    /// The HTML part as written, even when a plain part gave the text.
+    pub html: String,
     pub files: Vec<Attachment>,
 }
 
@@ -284,14 +286,15 @@ pub struct Body {
 pub fn read(payload: &Value) -> Body {
     let (mut plain, mut html, mut files) = (None, None, Vec::new());
     walk(payload, &mut plain, &mut html, &mut files);
-    let text = match (plain, html) {
-        (Some(p), _) => p,
-        (None, Some(h)) => html_text(&h),
+    let text = match (&plain, &html) {
+        (Some(p), _) => p.clone(),
+        (None, Some(h)) => html_text(h),
         (None, None) => String::new(),
     };
     Body {
         text: fold_quoted(text.trim()),
         raw: text,
+        html: html.unwrap_or_default(),
         files,
     }
 }

@@ -79,6 +79,12 @@ struct State {
     sent: Vec<Msg>,
     labels: Vec<(String, String)>,
     next: u64,
+    /// Messages that arrived after the mailbox was set up, by the history id
+    /// they moved the mailbox to; and what the history calls were asked.
+    arrived: Vec<(u64, String, String)>,
+    history_starts: Vec<String>,
+    /// A `startHistoryId` below this is older than Gmail keeps: a 404.
+    stale_before: u64,
     /// After a send is recorded, answer this instead (a connection that
     /// dropped: the client cannot know it went).
     after_send: Option<Reply>,
@@ -87,6 +93,9 @@ struct State {
 /// The mailbox, shared between the fake's handler and the test.
 #[derive(Clone, Default)]
 pub struct Mailbox(Arc<Mutex<State>>);
+
+/// The history id a mailbox starts at (the profile says it).
+const HISTORY_START: u64 = 100;
 
 fn b64(s: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(s)
@@ -109,6 +118,34 @@ impl Mailbox {
                 .collect();
             s.threads.insert(id.into(), v);
         });
+    }
+
+    /// The mailbox's current `historyId`.
+    pub fn history_id(&self) -> u64 {
+        self.with(|s| HISTORY_START + s.arrived.len() as u64)
+    }
+
+    /// A message that arrives: it joins thread `thread` (made when new), and
+    /// the mailbox's history moves one.
+    pub fn deliver(&self, thread: &str, spec: MsgSpec) {
+        self.with(|s| {
+            let at = HISTORY_START + s.arrived.len() as u64 + 1;
+            s.arrived.push((at, spec.id.clone(), thread.to_string()));
+            s.threads.entry(thread.to_string()).or_default().push(Msg {
+                spec,
+                thread: thread.into(),
+            });
+        });
+    }
+
+    /// The `startHistoryId` of each history call, in order.
+    pub fn history_starts(&self) -> Vec<String> {
+        self.with(|s| s.history_starts.clone())
+    }
+
+    /// History from before `id` is gone: asking for it is a 404.
+    pub fn forget_history_before(&self, id: u64) {
+        self.with(|s| s.stale_before = id);
     }
 
     /// A user label.
@@ -137,6 +174,26 @@ impl Mailbox {
         self.with(|s| {
             if let Some((m, _)) = s.drafts.get_mut(id) {
                 m.spec.text = Some(text.into());
+            }
+        });
+    }
+
+    /// Change a draft's HTML part behind the tool's back.
+    pub fn edit_draft_html(&self, id: &str, html: &str) {
+        self.with(|s| {
+            if let Some((m, _)) = s.drafts.get_mut(id) {
+                m.spec.html = Some(html.into());
+            }
+        });
+    }
+
+    /// Attach a file to a draft behind the tool's back.
+    pub fn attach_to_draft(&self, id: &str, name: &str, mime: &str, bytes: &[u8]) {
+        self.with(|s| {
+            if let Some((m, _)) = s.drafts.get_mut(id) {
+                m.spec
+                    .files
+                    .push((name.into(), mime.into(), bytes.to_vec()));
             }
         });
     }
@@ -315,7 +372,9 @@ pub fn answer(mb: &Mailbox, req: &Req) -> Option<Reply> {
                 }
                 None => not_found(),
             },
-            ("GET", ["messages"]) => list_sent(s, req),
+            ("GET", ["messages"]) => list_messages(s, req),
+            ("GET", ["history"]) => history(s, req),
+            ("GET", ["drafts"]) => list_drafts(s),
             ("GET", ["messages", id]) => match find(s, id) {
                 Some(m) => Reply::json(200, message(&m, wanted(req).as_deref())),
                 None => not_found(),
@@ -454,14 +513,92 @@ fn list_threads(s: &State, req: &Req) -> Reply {
     Reply::json(200, body)
 }
 
-/// `in:sent (to:"a" OR …)`: a message sent that names the address.
-fn list_sent(s: &State, req: &Req) -> Reply {
+/// `GET history`: the messages that arrived after `startHistoryId`.
+fn history(s: &mut State, req: &Req) -> Reply {
+    let start = req
+        .query()
+        .into_iter()
+        .find(|(k, _)| k == "startHistoryId")
+        .map(|(_, v)| v)
+        .unwrap_or_default();
+    s.history_starts.push(start.clone());
+    let from: u64 = start.parse().unwrap_or(0);
+    if from < s.stale_before {
+        return not_found();
+    }
+    let now = HISTORY_START + s.arrived.len() as u64;
+    let records: Vec<Value> = s
+        .arrived
+        .iter()
+        .filter(|(at, _, _)| *at > from)
+        .map(|(at, id, thread)| {
+            json!({"id": at.to_string(), "messagesAdded": [{"message": {"id": id, "threadId": thread}}]})
+        })
+        .collect();
+    let mut body = json!({"historyId": now.to_string()});
+    if !records.is_empty() {
+        body["history"] = records.into();
+    }
+    Reply::json(200, body)
+}
+
+/// `GET drafts`: the drafts there are.
+fn list_drafts(s: &State) -> Reply {
+    let drafts: Vec<Value> = s
+        .drafts
+        .iter()
+        .map(|(id, (m, _))| json!({"id": id, "message": {"id": m.spec.id, "threadId": m.thread}}))
+        .collect();
+    let mut body = json!({"resultSizeEstimate": drafts.len()});
+    if !drafts.is_empty() {
+        body["drafts"] = drafts.into();
+    }
+    Reply::json(200, body)
+}
+
+/// `GET messages`: `in:sent` is the sent-to check; any other query's `from:`
+/// terms (and bare words, of the sender's name) select messages by their
+/// `From` header, newest arrivals last.
+fn list_messages(s: &State, req: &Req) -> Reply {
     let q = req
         .query()
         .into_iter()
         .find(|(k, _)| k == "q")
         .map(|(_, v)| v)
         .unwrap_or_default();
+    if q.contains("in:sent") {
+        return list_sent(s, &q);
+    }
+    let froms: Vec<String> = q
+        .split_whitespace()
+        .filter_map(|t| t.strip_prefix("from:"))
+        .map(str::to_lowercase)
+        .collect();
+    let hits: Vec<Value> = s
+        .threads
+        .values()
+        .flatten()
+        .filter(|m| {
+            let from = m
+                .spec
+                .headers
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case("from"))
+                .map(|(_, v)| v.to_lowercase())
+                .unwrap_or_default();
+            froms.iter().all(|f| from.contains(f))
+        })
+        .map(|m| json!({"id": m.spec.id, "threadId": m.thread}))
+        .collect();
+    let mut body = json!({"resultSizeEstimate": hits.len()});
+    if !hits.is_empty() {
+        body["messages"] = hits.into();
+    }
+    Reply::json(200, body)
+}
+
+/// `in:sent (to:"a" OR …)`: a message sent that names the address.
+fn list_sent(s: &State, q: &str) -> Reply {
     let addr = q.split('"').nth(1).unwrap_or("").to_lowercase();
     let hit = s.sent.iter().find(|m| {
         m.spec.headers.iter().any(|(n, v)| {

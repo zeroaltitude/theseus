@@ -5,18 +5,20 @@
 //! the send.
 //!
 //! **A send sends a draft the owner saw, and nothing else** (the owner: every
-//! send asks, deterministically). `gmail.send {draft_id}` plans with
+//! send asks, deterministically). `gmail.send {draft_id, digest}` plans with
 //! `Plan.authority`, so the gate asks at every posture and no line, grant,
 //! trust or judgment loosens it. A plan reads no network, so the card's facts
 //! are made when the draft is made or read (`gmail.draft`, `gmail.read
-//! draft:<id>`): the draft as Gmail holds it, its content digest, and the card
-//! (from, to, cc, bcc with each stranger flagged new, the subject, the body's
-//! first lines, the attachments' names). The send's plan pins that digest,
-//! and its run reads the draft again and refuses, sending nothing, unless it
-//! still has the digest the card showed. A draft written again (by
-//! `gmail.draft`, or read again) unpins, so a card is never for a draft other
-//! than the one that goes. The send is non-repeatable (`outcome_unknown`,
-//! never retried) and counts on the daily cap.
+//! draft:<id>`): the draft as Gmail holds it, its content digest (which the
+//! result tells the model), and the card (from, to, cc, bcc with each stranger
+//! flagged new, the subject, the body's first lines, the attachments' names).
+//! The approval binds `{tool, input}`, so the digest the input names is the
+//! one the owner approved: the plan refuses a digest this daemon did not last
+//! show for the draft, and the run reads the draft again and refuses, sending
+//! nothing, unless its live digest is the input's. Nothing is shared between
+//! plan and run, so another session's draft or card can never change what an
+//! approved call sends. The send is non-repeatable (`outcome_unknown`, never
+//! retried) and counts on the daily cap.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -52,13 +54,11 @@ const MAX_SEARCH: u32 = 50;
 const MAX_ATTACHMENT: u64 = 25 * 1024 * 1024;
 const MAX_IDS: usize = 25;
 
-/// A draft the card showed: its digest and its facts, and the digest a send's
-/// plan pinned.
+/// A draft the card showed: its digest and its facts.
 #[derive(Clone, Debug)]
 struct Shown {
     digest: String,
     card: Value,
-    pinned: Option<String>,
 }
 
 /// The mail tools' shared state: the account, and the drafts shown in this
@@ -88,10 +88,11 @@ pub fn tools(g: &Arc<Google>) -> Vec<Arc<dyn Tool>> {
 /// result carries: attempts and quota units add, the leading call's service,
 /// tool and method stay, a failure makes the outcome the failure's.
 fn merged(rows: &[Value]) -> Value {
-    // A send or a trash is the call that matters: its row leads.
-    let lead = rows
+    // A send or a trash is the call that matters, then a write (a draft's
+    // create): its row leads.
+    let lead = ["authority", "write"]
         .iter()
-        .find(|r| r["class"] == "authority")
+        .find_map(|c| rows.iter().find(|r| r["class"] == *c))
         .or(rows.first());
     let mut row = lead.cloned().unwrap_or(Value::Null);
     if rows.len() > 1 {
@@ -158,7 +159,7 @@ impl Mail {
     }
 }
 
-fn get(path: String, query: &[(&str, &str)]) -> Request {
+pub(crate) fn get(path: String, query: &[(&str, &str)]) -> Request {
     let mut r = Request::get(Service::Gmail, path);
     r.query = query
         .iter()
@@ -219,7 +220,8 @@ struct Parsed {
     bcc: Vec<String>,
     subject: String,
     body: String,
-    files: Vec<String>,
+    html: String,
+    files: Vec<mime::Attachment>,
 }
 
 fn parse_draft(draft: &Value) -> Parsed {
@@ -241,14 +243,22 @@ fn parse_draft(draft: &Value) -> Parsed {
         bcc: list("Bcc"),
         subject: mime::header(p, "Subject").unwrap_or_default(),
         body: read.raw.replace("\r\n", "\n").trim_end().to_string(),
-        files: read.files.into_iter().map(|f| f.name).collect(),
+        html: read.html,
+        files: read.files,
     }
 }
 
 impl Parsed {
-    /// The digest a send is bound to: every field the card shows and the
-    /// thread the message joins.
+    /// The digest a send is bound to: every field the card shows, the thread
+    /// the message joins, the HTML part even beside a plain one, and each
+    /// attachment's name, type, size and Gmail id (reading the bytes would
+    /// cost a call apiece; a draft's attachment id names its content).
     fn digest(&self) -> String {
+        let files: Vec<_> = self
+            .files
+            .iter()
+            .map(|f| json!([f.name, f.mime, f.size, f.id]))
+            .collect();
         let canon = json!([
             self.thread,
             self.from,
@@ -257,7 +267,8 @@ impl Parsed {
             self.bcc,
             self.subject,
             self.body,
-            self.files
+            self.html,
+            files
         ]);
         Sha256::digest(canon.to_string().as_bytes())
             .iter()
@@ -283,10 +294,11 @@ impl Parsed {
             .take(CARD_LINES)
             .map(|l| l.chars().take(200).collect())
             .collect();
+        let names: Vec<&str> = self.files.iter().map(|f| f.name.as_str()).collect();
         json!({
-            "draft_id": id, "from": self.from, "to": who(&self.to), "cc": who(&self.cc),
+            "kind": "mail", "draft_id": id, "from": self.from, "to": who(&self.to), "cc": who(&self.cc),
             "bcc": who(&self.bcc), "subject": self.subject, "body": head,
-            "body_lines": lines.len(), "attachments": self.files, "digest": self.digest(),
+            "body_lines": lines.len(), "attachments": names, "digest": self.digest(),
         })
     }
 }
@@ -410,7 +422,7 @@ impl Mail {
     }
 
     /// Read a draft, work out its card, and keep both: the draft is now the
-    /// one a send may be planned for, with nothing pinned.
+    /// one a send may be planned for, at this digest.
     async fn show(
         &self,
         rows: &mut Vec<Value>,
@@ -425,7 +437,6 @@ impl Mail {
             Shown {
                 digest: p.digest(),
                 card: card.clone(),
-                pinned: None,
             },
         );
         Ok((raw, p, card))
@@ -726,9 +737,14 @@ impl Tool for ReadTool {
                 text.push_str(&format!("saved {}\n", path.display()));
             }
             if let Some(card) = &card {
-                text.push_str(&format!("\nGmail holds it as:\n{}\n", card_text(card)));
+                text.push_str(&format!(
+                    "\nGmail holds it as (digest {}):\n{}\n",
+                    card["digest"].as_str().unwrap_or(""),
+                    card_text(card)
+                ));
             }
-            let meta = json!({"id": id, "messages": messages.len(), "saved": saved.len()});
+            let digest = card.as_ref().map(|c| c["digest"].clone());
+            let meta = json!({"id": id, "messages": messages.len(), "saved": saved.len(), "digest": digest});
             Ok(finish(
                 m.g.account(),
                 text,
@@ -949,64 +965,19 @@ impl Tool for DraftTool {
                 body: a.body.clone(),
                 ..Default::default()
             };
-            let mut thread = None;
-            if let Some(mid) = &a.reply_to {
-                let path = format!("/gmail/v1/users/me/messages/{mid}");
-                let q = metadata(&["Message-ID", "References", "Subject", "From", "Reply-To"]);
-                let orig = m
-                    .rest(
-                        &mut rows,
-                        (DRAFT, "gmail.users.messages.get", "read"),
-                        Some(mid.clone()),
-                        with_query(path, q),
-                    )
+            let thread = match &a.reply_to {
+                Some(mid) => m
+                    .reply_to(&mut rows, mid, &mut d)
                     .await
-                    .map_err(|f| failure(f, &rows))?
-                    .json();
-                let p = &orig["payload"];
-                thread = orig["threadId"].as_str().map(str::to_string);
-                d.in_reply_to =
-                    mime::header(p, "Message-ID").or_else(|| mime::header(p, "Message-Id"));
-                d.references = mime::header(p, "References")
-                    .map(|r| r.split_whitespace().map(str::to_string).collect())
-                    .unwrap_or_default();
-                let original = mime::header(p, "Subject").unwrap_or_default();
-                d.subject = mime::reply_subject(if d.subject.is_empty() {
-                    &original
-                } else {
-                    &d.subject
-                });
-                if d.to.is_empty() {
-                    let back = mime::header(p, "Reply-To").or_else(|| mime::header(p, "From"));
-                    d.to = back.into_iter().collect();
-                }
-            }
+                    .map_err(|f| failure(f, &rows))?,
+                None => None,
+            };
             let message = mime::build(&d).map_err(|e| refusal(e, &rows))?;
             let mut body = json!({"message": {"raw": mime::raw(&message)}});
             if let Some(t) = &thread {
                 body["message"]["threadId"] = t.clone().into();
             }
-            let (verb, path, repeat) = match &a.draft_id {
-                Some(id) => (
-                    "PUT",
-                    format!("/gmail/v1/users/me/drafts/{id}"),
-                    Repeat::Safe,
-                ),
-                None => (
-                    "POST",
-                    "/gmail/v1/users/me/drafts".to_string(),
-                    Repeat::NonRepeatable,
-                ),
-            };
-            let method = if verb == "PUT" {
-                "gmail.users.drafts.update"
-            } else {
-                "gmail.users.drafts.create"
-            };
-            let req = Request {
-                verb: verb.into(),
-                ..post(path, body, repeat)
-            };
+            let (req, method) = put_request(a.draft_id.as_deref(), body);
             let made = m
                 .rest(&mut rows, (DRAFT, method, "write"), a.draft_id.clone(), req)
                 .await
@@ -1016,13 +987,18 @@ impl Tool for DraftTool {
             if id_ok(&id).is_err() {
                 return Err(refusal("Gmail did not name the draft it made", &rows));
             }
+            // The write's row names the draft it made, for the digest's count.
+            if let Some(w) = rows.iter_mut().rev().find(|r| r["class"] == "write") {
+                w["resource"] = id.clone().into();
+            }
             let (_, _, card) = m
                 .show(&mut rows, DRAFT, &id)
                 .await
                 .map_err(|f| failure(f, &rows))?;
             let text = format!(
-                "Draft {id} saved; nothing is sent. gmail_send {{draft_id: \"{id}\"}} asks the owner \
-                 to send exactly this:\n{}\n",
+                "Draft {id} saved; nothing is sent. gmail_send {{draft_id: \"{id}\", digest: \"{}\"}} \
+                 asks the owner to send exactly this:\n{}\n",
+                card["digest"].as_str().unwrap_or(""),
                 card_text(&card)
             );
             let meta = json!({"draft_id": id, "digest": card["digest"]});
@@ -1037,6 +1013,65 @@ impl Tool for DraftTool {
     }
 }
 
+/// The REST call that creates a draft, or replaces `draft_id`, and its method.
+fn put_request(draft_id: Option<&str>, body: Value) -> (Request, &'static str) {
+    let (verb, path, repeat, method) = match draft_id {
+        Some(id) => (
+            "PUT",
+            format!("/gmail/v1/users/me/drafts/{id}"),
+            Repeat::Safe,
+            "gmail.users.drafts.update",
+        ),
+        None => (
+            "POST",
+            "/gmail/v1/users/me/drafts".to_string(),
+            Repeat::NonRepeatable,
+            "gmail.users.drafts.create",
+        ),
+    };
+    let req = Request {
+        verb: verb.into(),
+        ..post(path, body, repeat)
+    };
+    (req, method)
+}
+
+impl Mail {
+    /// A reply's headers, from the message it answers: the thread, the
+    /// `In-Reply-To` and `References`, a `Re:` subject, and its sender as the
+    /// default `to`. The thread's id.
+    async fn reply_to(
+        &self,
+        rows: &mut Vec<Value>,
+        mid: &str,
+        d: &mut Draft,
+    ) -> Result<Option<String>, CallFailed> {
+        let path = format!("/gmail/v1/users/me/messages/{mid}");
+        let q = metadata(&["Message-ID", "References", "Subject", "From", "Reply-To"]);
+        let m = (DRAFT, "gmail.users.messages.get", "read");
+        let orig = self
+            .rest(rows, m, Some(mid.to_string()), with_query(path, q))
+            .await?
+            .json();
+        let p = &orig["payload"];
+        d.in_reply_to = mime::header(p, "Message-ID").or_else(|| mime::header(p, "Message-Id"));
+        d.references = mime::header(p, "References")
+            .map(|r| r.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        let original = mime::header(p, "Subject").unwrap_or_default();
+        d.subject = mime::reply_subject(if d.subject.is_empty() {
+            &original
+        } else {
+            &d.subject
+        });
+        if d.to.is_empty() {
+            let back = mime::header(p, "Reply-To").or_else(|| mime::header(p, "From"));
+            d.to = back.into_iter().collect();
+        }
+        Ok(orig["threadId"].as_str().map(str::to_string))
+    }
+}
+
 // ------------------------------------------------------------------ send
 
 pub struct SendTool(Arc<Mail>);
@@ -1045,23 +1080,31 @@ pub struct SendTool(Arc<Mail>);
 #[serde(deny_unknown_fields)]
 struct SendArgs {
     draft_id: String,
+    digest: String,
 }
 
 impl SendTool {
-    /// The draft's card, and the digest this plan pins for the run.
+    /// The card for the digest the input names: made only for the digest this
+    /// daemon last showed for the draft.
     fn planned(&self, input: &Value) -> Result<(SendArgs, Value), String> {
         let a: SendArgs = parse(input)?;
         id_ok(&a.draft_id)?;
         self.0.g.sends.allows()?;
-        let mut shown = self.0.lock();
-        let s = shown.get_mut(&a.draft_id).ok_or_else(|| {
+        let shown = self.0.lock();
+        let s = shown.get(&a.draft_id).ok_or_else(|| {
             format!(
                 "this draft has not been shown yet, so there is no card to ask the owner with: save \
                  it with gmail_draft, or read it with gmail_read id \"draft:{}\", and send again",
                 a.draft_id
             )
         })?;
-        s.pinned = Some(s.digest.clone());
+        if s.digest != a.digest {
+            return Err(format!(
+                "digest {} is not the draft's as last shown (digest {}): read it again (gmail_read id \
+                 \"draft:{}\") and send with the digest that result gives, so the card shows what goes out",
+                a.digest, s.digest, a.draft_id
+            ));
+        }
         Ok((a, s.card.clone()))
     }
 }
@@ -1079,15 +1122,16 @@ impl Tool for SendTool {
     }
     fn description(&self) -> &str {
         "Send an existing Gmail draft, only the one the owner is shown: it asks the owner every \
-         time, whatever any setting says, and refuses (sending nothing) if the draft changed \
-         after it was shown. The draft must have been made or read in this session \
-         (gmail_draft, or gmail_read id draft:<id>). Cannot be undone, never retried, and counts \
-         against the daily send cap."
+         time, whatever any setting says, and refuses (sending nothing) unless the draft still has \
+         the digest you name. Take draft_id and digest from gmail_draft's or gmail_read \
+         id draft:<id>'s result. Cannot be undone, never retried, and counts against the daily \
+         send cap."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "properties": {
-            "draft_id": {"type": "string", "description": "The draft's id, from gmail_draft."}},
-            "required": ["draft_id"], "additionalProperties": false})
+            "draft_id": {"type": "string", "description": "The draft's id, from gmail_draft."},
+            "digest": {"type": "string", "description": "The draft's digest, from the same result."}},
+            "required": ["draft_id", "digest"], "additionalProperties": false})
     }
     fn class(&self) -> ToolClass {
         ToolClass::Write
@@ -1117,32 +1161,25 @@ impl Tool for SendTool {
         let m = self.0.clone();
         Box::pin(async move {
             let a = args.map_err(ToolFailure::new)?;
-            let id = a.draft_id;
+            let (id, digest) = (a.draft_id, a.digest);
             id_ok(&id).map_err(ToolFailure::new)?;
             let mut rows = Vec::new();
-            // What the card showed: the digest the approved plan pinned.
-            let shown = m.lock().get(&id).cloned();
-            let Some((shown, pinned)) = shown.and_then(|s| s.pinned.clone().map(|p| (s, p))) else {
-                return Err(refusal(
-                    "nothing was sent: the draft was written or read again since the owner's card, or \
-                     this daemon restarted. Send again, so the card shows what goes out",
-                    &rows,
-                ));
-            };
             m.g.sends.reserve().map_err(ToolFailure::new)?;
+            // What the owner approved is the input's digest: the draft as Gmail holds it now must be that.
             let live = match m.fetch_draft(&mut rows, SEND, &id).await {
-                Ok((_, p)) => p.digest(),
+                Ok((_, p)) => p,
                 Err(f) => {
                     m.g.sends.release();
                     return Err(failure(f, &rows));
                 }
             };
-            if live != pinned || live != shown.digest {
+            if live.digest() != digest {
                 m.g.sends.release();
                 m.lock().remove(&id);
                 return Err(refusal(
-                    "nothing was sent: the draft changed after the owner's card showed it. Read it \
-                     again (gmail_read id \"draft:<id>\") and send again, so the card shows what goes out",
+                    "nothing was sent: the draft is not the one the owner's card showed (it changed, \
+                     or this call names another digest). Read it again (gmail_read id \"draft:<id>\") \
+                     and send again, so the card shows what goes out",
                     &rows,
                 ));
             }
@@ -1151,7 +1188,7 @@ impl Tool for SendTool {
                 method: "gmail.users.drafts.send".into(),
                 resource: Some(id.clone()),
                 class: "authority",
-                recipients: Some(recipient_count(&shown.card)),
+                recipients: Some(live.recipients().count() as u32),
             };
             let req = Request {
                 repeat: Repeat::NonRepeatable,

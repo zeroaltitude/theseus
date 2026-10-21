@@ -60,6 +60,18 @@ fn plan_text(input: &Value) -> Option<ConfirmPreview> {
     })
 }
 
+/// A send's question: the card of the draft the call's digest names, as the
+/// tool's own plan makes it (no network: the plan reads what was shown).
+fn mail(rt: &ToolRuntime, tool: &str, input: &Value, ctx: &ToolCtx) -> Option<ConfirmPreview> {
+    let card = rt.registry.get(tool)?.plan(input, ctx).ok()?.card?;
+    let digest = card["digest"].as_str()?;
+    let body = crate::google::mail::card_text(&card);
+    Some(ConfirmPreview {
+        kind: ConfirmPreview::MAIL.into(),
+        body: format!("{body}\nDraft {}", digest.get(..12).unwrap_or(digest)),
+    })
+}
+
 impl ToolRuntime {
     /// A question's preview of the call it asks about, from the files as they
     /// are now, scrubbed as the model's copy is.
@@ -76,6 +88,7 @@ impl ToolRuntime {
             "proc.run" => command(input, ctx),
             // The plan is the question (theseus-lyxy): the steps, numbered.
             crate::policy::modes::PLAN_PRESENT => plan_text(input),
+            crate::google::mail::SEND => mail(self, tool, input, ctx),
             _ => theseus_tools::change::preview(tool, input, ctx),
         }?;
         p.body = self.scrubber.scrub(&p.body).0;

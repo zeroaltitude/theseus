@@ -24,10 +24,10 @@ use crate::store::Store;
 use crate::test_support::{turn, until};
 use crate::{Config, Core};
 
-pub(super) const ACCOUNT: &str = "owner@example.test";
-pub(super) const CLIENT: &str = "client_id: id-1.apps.example\nclient_secret: s3cret-client-0123";
+pub(crate) const ACCOUNT: &str = "owner@example.test";
+pub(crate) const CLIENT: &str = "client_id: id-1.apps.example\nclient_secret: s3cret-client-0123";
 
-pub(super) struct Rig {
+pub(crate) struct Rig {
     pub core: Arc<Core>,
     pub fake: Fake,
     pub dir: tempfile::TempDir,
@@ -36,7 +36,7 @@ pub(super) struct Rig {
 
 /// The board: the client always, the refresh token when `token` is given (else
 /// it failed to resolve, as an unminted one does).
-pub(super) fn board(token: Option<&str>) -> Arc<SecretBoard> {
+pub(crate) fn board(token: Option<&str>) -> Arc<SecretBoard> {
     let b = SecretBoard::new(
         [
             "google_client".to_string(),
@@ -58,7 +58,7 @@ pub(super) fn board(token: Option<&str>) -> Arc<SecretBoard> {
     b
 }
 
-pub(super) fn config(dir: &Path, fake: &Fake, refresh_ref: &str) -> Config {
+pub(crate) fn config(dir: &Path, fake: &Fake, refresh_ref: &str) -> Config {
     let mut cfg = Config::example();
     let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -83,7 +83,7 @@ pub(super) fn config(dir: &Path, fake: &Fake, refresh_ref: &str) -> Config {
 
 /// A rig with the refresh token minted (`Some`) or not, the model's script,
 /// and `tweak` on the config.
-pub(super) async fn rig_with(
+pub(crate) async fn rig_with(
     token: Option<&str>,
     refresh_ref: impl FnOnce(&Path) -> String,
     script: Vec<Scripted>,
@@ -109,7 +109,7 @@ pub(super) async fn rig_with(
     Rig { core, fake, dir, g }
 }
 
-pub(super) async fn rig(script: Vec<Scripted>) -> Rig {
+pub(crate) async fn rig(script: Vec<Scripted>) -> Rig {
     rig_with(
         Some(REFRESH_TOKEN),
         |_| "file:/tmp/unused-google-refresh-token".into(),
@@ -119,13 +119,13 @@ pub(super) async fn rig(script: Vec<Scripted>) -> Rig {
     .await
 }
 
-pub(super) fn session(core: &Core) -> String {
+pub(crate) fn session(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     rec.session_id
 }
 
-pub(super) fn ledgered(core: &Core, kind: &str) -> Vec<Value> {
+pub(crate) fn ledgered(core: &Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()
@@ -135,12 +135,12 @@ pub(super) fn ledgered(core: &Core, kind: &str) -> Vec<Value> {
         .collect()
 }
 
-pub(super) fn call(id: &str, input: Value) -> Scripted {
+pub(crate) fn call(id: &str, input: Value) -> Scripted {
     Scripted::tools("", &[(id, "google_call", input)])
 }
 
 /// Every ledger row and every node of `sessions`, as JSON text, for a grep.
-pub(super) fn everything(core: &Core, sessions: &[&str]) -> String {
+pub(crate) fn everything(core: &Core, sessions: &[&str]) -> String {
     let rows = core.store.ledger_tail::<Value>(100_000).unwrap();
     let mut text = serde_json::to_string(&rows).unwrap();
     for sid in sessions {

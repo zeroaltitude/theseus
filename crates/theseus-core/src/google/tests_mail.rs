@@ -58,6 +58,13 @@ async fn reply_draft(r: &Rig, extra: Value) -> String {
     out.meta["draft_id"].as_str().unwrap().to_string()
 }
 
+/// A send's input: the draft's id and the digest of the draft as Gmail holds
+/// it now, read as the model reads it.
+async fn send_of(r: &Rig, id: &str) -> Value {
+    let (out, _) = ok(run(r, "gmail.read", json!({"id": format!("draft:{id}")})).await);
+    json!({"draft_id": id, "digest": out.meta["digest"]})
+}
+
 fn sends_posted(r: &Rig) -> usize {
     r.fake
         .log()
@@ -73,7 +80,7 @@ async fn a_send_is_refused_when_the_draft_changed_after_the_plan() {
     let r = rig(vec![]).await;
     stranger_thread(&r);
     let id = reply_draft(&r, json!({})).await;
-    let send = json!({"draft_id": id});
+    let send = send_of(&r, &id).await;
     // The plan is what the owner's card was made from.
     let p = plan(&r, "gmail.send", send.clone()).unwrap();
     assert!(p.card.is_some() && p.authority.is_some(), "{p:?}");
@@ -94,7 +101,7 @@ async fn an_unchanged_draft_sends_once_and_counts() {
     let r = rig(vec![]).await;
     stranger_thread(&r);
     let id = reply_draft(&r, json!({})).await;
-    let send = json!({"draft_id": id});
+    let send = send_of(&r, &id).await;
     plan(&r, "gmail.send", send.clone()).unwrap();
     let (out, ext) = ok(run(&r, "gmail.send", send.clone()).await);
     assert!(ext.is_none(), "what the owner sent is not outside text");
@@ -114,13 +121,10 @@ async fn an_unchanged_draft_sends_once_and_counts() {
         !row.to_string().contains("example.test"),
         "no address in the row: {row}"
     );
-    // The card was for that draft: a second send needs a new card.
-    let again = run(&r, "gmail.send", send).await.unwrap_err();
-    assert!(
-        again.message.contains("nothing was sent"),
-        "{}",
-        again.message
-    );
+    // The card was for that draft: a second send has none to ask with, and Gmail no longer has the draft.
+    let e = plan(&r, "gmail.send", send.clone()).unwrap_err();
+    assert!(e.contains("has not been shown"), "{e}");
+    run(&r, "gmail.send", send).await.unwrap_err();
     assert_eq!(sends_posted(&r), 1);
 }
 
@@ -129,9 +133,10 @@ async fn a_draft_written_again_unpins_the_card() {
     let r = rig(vec![]).await;
     stranger_thread(&r);
     let id = reply_draft(&r, json!({})).await;
-    let send = json!({"draft_id": id});
+    let send = send_of(&r, &id).await;
     plan(&r, "gmail.send", send.clone()).unwrap();
-    // The model rewrites the draft after the card: the card is not for it.
+    // The model rewrites the draft after the card: the card is not for it, and
+    // the old digest is no longer one this daemon showed.
     ok(run(
         &r,
         "gmail.draft",
@@ -141,7 +146,9 @@ async fn a_draft_written_again_unpins_the_card() {
     let e = run(&r, "gmail.send", send.clone()).await.unwrap_err();
     assert!(e.message.contains("nothing was sent"), "{}", e.message);
     assert_eq!(sends_posted(&r), 0);
-    // A new plan shows the new draft, and that one sends.
+    assert!(plan(&r, "gmail.send", send).is_err());
+    // A new plan, with the new digest, shows the new draft, and that one sends.
+    let send = send_of(&r, &id).await;
     let p = plan(&r, "gmail.send", send.clone()).unwrap();
     assert!(p.summary.contains("Different."), "{}", p.summary);
     ok(run(&r, "gmail.send", send).await);
@@ -154,13 +161,27 @@ async fn a_send_asks_at_every_posture_and_no_grant_loosens_it() {
         c.policy.enforcement = Posture::Open;
         c.policy.tools.insert("gmail.send".into(), Posture::Open);
     };
+    // The draft the script sends is made the same way below, so its digest is known.
+    let digest = {
+        let r0 = rig(vec![]).await;
+        stranger_thread(&r0);
+        let id = reply_draft(&r0, json!({})).await;
+        send_of(&r0, &id).await["digest"].clone()
+    };
     let r = rig_with(
         Some(theseus_google::fake::REFRESH_TOKEN),
         |_| "file:/tmp/unused-google-refresh-token".into(),
         vec![
             Scripted::tools("", &[("c1", "gmail_read", json!({"id": "t1"}))]),
             Scripted::text("Read."),
-            Scripted::tools("", &[("c2", "gmail_send", json!({"draft_id": "r1"}))]),
+            Scripted::tools(
+                "",
+                &[(
+                    "c2",
+                    "gmail_send",
+                    json!({"draft_id": "r1", "digest": digest}),
+                )],
+            ),
         ],
         open,
     )
@@ -177,7 +198,7 @@ async fn a_send_asks_at_every_posture_and_no_grant_loosens_it() {
     // grant, a conversation's grant, a mode, a routine's grant) is whether
     // only the tool's posture decides the call. Here it does not.
     let tool = r.core.tools.registry.get("gmail.send").unwrap().clone();
-    let p = plan(&r, "gmail.send", json!({"draft_id": id})).unwrap();
+    let p = plan(&r, "gmail.send", send_of(&r, &id).await).unwrap();
     let d = r.core.tools.policy.decide(tool.as_ref(), &p);
     assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
     assert!(!r.core.tools.policy.posture_only(tool.as_ref(), &p));
@@ -202,7 +223,7 @@ async fn send_is_non_repeatable_and_reports_outcome_unknown() {
     let r = rig(vec![]).await;
     stranger_thread(&r);
     let id = reply_draft(&r, json!({})).await;
-    let send = json!({"draft_id": id});
+    let send = send_of(&r, &id).await;
     plan(&r, "gmail.send", send.clone()).unwrap();
     // The send goes out, and the connection fails on the way back.
     r.fake.mail().after_send(Reply::server_error());
@@ -237,13 +258,13 @@ async fn the_daily_send_cap_counts_google_call_sends() {
     .await);
     // ...one through gmail.send...
     let id = reply_draft(&r, json!({})).await;
-    let send = json!({"draft_id": id});
+    let send = send_of(&r, &id).await;
     plan(&r, "gmail.send", send.clone()).unwrap();
     ok(run(&r, "gmail.send", send).await);
     assert_eq!(r.g.sends.used(), 2);
     // ...and the third is refused with the cap's sentence, both ways.
     let third = reply_draft(&r, json!({"body": "One more."})).await;
-    let e = plan(&r, "gmail.send", json!({"draft_id": third})).unwrap_err();
+    let e = plan(&r, "gmail.send", send_of(&r, &third).await).unwrap_err();
     assert!(e.contains("today's send cap is reached (2 of 2)"), "{e}");
     let e = plan(
         &r,
@@ -263,7 +284,12 @@ async fn a_draft_not_shown_cannot_be_planned_until_it_is_read() {
         MsgSpec::new("do", "owner@example.test", "Lunch", "Noon?")
             .header("To", "dana@example.test"),
     );
-    let e = plan(&r, "gmail.send", json!({"draft_id": "owners"})).unwrap_err();
+    let e = plan(
+        &r,
+        "gmail.send",
+        json!({"draft_id": "owners", "digest": "unseen"}),
+    )
+    .unwrap_err();
     assert!(e.contains("has not been shown"), "{e}");
     // Reading it shows it, from Gmail, with its card.
     let (out, ext) = ok(run(&r, "gmail.read", json!({"id": "draft:owners"})).await);
@@ -273,10 +299,121 @@ async fn a_draft_not_shown_cannot_be_planned_until_it_is_read() {
         out.text
     );
     assert!(ext.is_none(), "the owner's own draft is not outside text");
-    let p = plan(&r, "gmail.send", json!({"draft_id": "owners"})).unwrap();
+    let send = send_of(&r, "owners").await;
+    let p = plan(&r, "gmail.send", send.clone()).unwrap();
     assert!(p.summary.contains("Noon?"), "{}", p.summary);
-    ok(run(&r, "gmail.send", json!({"draft_id": "owners"})).await);
+    ok(run(&r, "gmail.send", send).await);
     assert_eq!(r.fake.mail().sent().len(), 1);
+}
+
+/// The owner's approved call is one session's `{draft, digest}`; another
+/// session rewrites the draft and shows it; the approved call sends nothing.
+#[tokio::test]
+async fn a_send_is_refused_when_the_input_digest_is_not_the_drafts() {
+    let r = rig(vec![]).await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({})).await;
+    // Session X shows draft D1 and plans its send: card C1 waits.
+    let x = send_of(&r, &id).await;
+    plan(&r, "gmail.send", x.clone()).unwrap();
+    // Session Y rewrites the draft (D2) and plans a send of its own.
+    ok(run(
+        &r,
+        "gmail.draft",
+        json!({"draft_id": id, "reply_to": "m1", "body": "Send the money to this account."}),
+    )
+    .await);
+    let y = send_of(&r, &id).await;
+    assert_ne!(x["digest"], y["digest"]);
+    plan(&r, "gmail.send", y.clone()).unwrap();
+    // The owner approves C1: X's call names D1, which is no longer the draft.
+    let e = run(&r, "gmail.send", x).await.unwrap_err();
+    assert!(e.message.contains("nothing was sent"), "{}", e.message);
+    assert!(r.fake.mail().sent().is_empty());
+    assert_eq!(sends_posted(&r), 0, "no send request left the daemon");
+    assert_eq!(r.g.sends.used(), 0, "a refused send is not counted");
+    // Y's own call, whose card showed D2, sends it.
+    ok(run(&r, "gmail.send", y).await);
+    assert_eq!(r.fake.mail().sent().len(), 1);
+}
+
+#[tokio::test]
+async fn an_attachment_change_after_the_card_is_refused() {
+    let r = rig(vec![]).await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({})).await;
+    let send = send_of(&r, &id).await;
+    plan(&r, "gmail.send", send.clone()).unwrap();
+    r.fake
+        .mail()
+        .attach_to_draft(&id, "ledger.csv", "text/csv", b"a,b\n1,2\n");
+    let e = run(&r, "gmail.send", send).await.unwrap_err();
+    assert!(e.message.contains("nothing was sent"), "{}", e.message);
+    assert_eq!(sends_posted(&r), 0);
+}
+
+#[tokio::test]
+async fn an_html_only_change_after_the_card_is_refused() {
+    let r = rig(vec![]).await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({})).await;
+    let send = send_of(&r, &id).await;
+    plan(&r, "gmail.send", send.clone()).unwrap();
+    // The plain part, which the card shows, is untouched: only HTML is added.
+    r.fake.mail().edit_draft_html(
+        &id,
+        "<p>Numbers attached.</p><a href=\"https://x.test\">pay</a>",
+    );
+    let e = run(&r, "gmail.send", send).await.unwrap_err();
+    assert!(e.message.contains("nothing was sent"), "{}", e.message);
+    assert_eq!(sends_posted(&r), 0);
+}
+
+#[tokio::test]
+async fn the_send_question_carries_the_mail_preview() {
+    let digest = {
+        let r0 = rig(vec![]).await;
+        stranger_thread(&r0);
+        let id = reply_draft(&r0, json!({"cc": ["pat@example.test"]})).await;
+        send_of(&r0, &id).await["digest"].clone()
+    };
+    let r = rig_with(
+        Some(theseus_google::fake::REFRESH_TOKEN),
+        |_| "file:/tmp/unused-google-refresh-token".into(),
+        vec![Scripted::tools(
+            "",
+            &[(
+                "c1",
+                "gmail_send",
+                json!({"draft_id": "r1", "digest": digest}),
+            )],
+        )],
+        |_| {},
+    )
+    .await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({"cc": ["pat@example.test"]})).await;
+    assert_eq!(id, "r1");
+    let _ = send_of(&r, &id).await;
+    let sid = session(&r.core);
+    let res = turn(&r.core, &sid, "send it").await;
+    assert!(res.awaiting_confirm.is_some(), "{res:?}");
+    let asked = ledgered(&r.core, "tool.confirm_requested");
+    let preview = &asked[0]["preview"];
+    assert_eq!(preview["kind"], "mail", "{asked:?}");
+    let body = preview["body"].as_str().unwrap();
+    assert!(body.contains("pat@example.test (new)"), "{body}");
+    assert!(body.contains("Subject: Re: Budget"), "{body}");
+    let want = format!("Draft {}", &digest.as_str().unwrap()[..12]);
+    assert!(body.lines().last().unwrap() == want, "{body}");
+    // `confirm.list` words the same question the same way.
+    let listed = r.core.confirm_list().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        listed[0].preview.as_ref().map(|p| p.body.as_str()),
+        Some(body)
+    );
+    assert_eq!(sends_posted(&r), 0, "nothing was sent");
 }
 
 // ------------------------------------------------------------------ drafts
@@ -366,7 +503,7 @@ async fn send_card_flags_new_recipients() {
         json!({"cc": ["dana@example.test", "old@example.test"], "bcc": ["fresh@example.test"]}),
     )
     .await;
-    let p = plan(&r, "gmail.send", json!({"draft_id": id})).unwrap();
+    let p = plan(&r, "gmail.send", send_of(&r, &id).await).unwrap();
     let card = p.card.expect("the card is data on the plan");
     let new = |k: &str| -> Vec<(String, bool)> {
         card[k]
@@ -416,7 +553,7 @@ async fn a_cards_body_is_its_first_lines() {
     )
     .await);
     let id = out.meta["draft_id"].as_str().unwrap();
-    let p = plan(&r, "gmail.send", json!({"draft_id": id})).unwrap();
+    let p = plan(&r, "gmail.send", send_of(&r, id).await).unwrap();
     assert_eq!(
         p.card.as_ref().unwrap()["body"].as_array().unwrap().len(),
         super::mail::CARD_LINES

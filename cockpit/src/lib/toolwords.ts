@@ -47,14 +47,33 @@ export function diffLines(t: string): { line: string; kind: 'meta' | 'hunk' | 'a
   }))
 }
 
-export interface Preview { kind: 'diff' | 'text'; caption?: string; text: string }
+export interface Preview { kind: 'diff' | 'text' | 'mail'; caption?: string; text: string }
+
+/** One line of a send's card: a field (`To`, `Subject`, …) with its values, a recipient the account never mailed marked
+ *  `fresh`; a line of the body; or the digest line (`Draft 0123456789ab`) the approval is bound to. */
+export interface MailLine { kind: 'field' | 'body' | 'digest'; label?: string; parts: { text: string; fresh: boolean }[] }
+
+/** The daemon's `mail` preview (`google::mail::card_text` and a `Draft <12 hex>` line) read into its lines. */
+export function mailLines(text: string): MailLine[] {
+  const lines = text.split('\n')
+  return lines.map((line, n) => {
+    if (n === lines.length - 1 && line.startsWith('Draft ')) return { kind: 'digest', parts: [{ text: line, fresh: false }] }
+    if (line.startsWith('  ')) return { kind: 'body', parts: [{ text: line.slice(2), fresh: false }] }
+    const from = /^draft \S+ from (.*)$/.exec(line)
+    const field = from ? ['From', from[1]] : /^(To|Cc|Bcc|Subject|Body|Attachments)(?: \([^)]*\))?: ?(.*)$/.exec(line)?.slice(1)
+    if (!field) return { kind: 'body', parts: [{ text: line, fresh: false }] }
+    const recipients = ['To', 'Cc', 'Bcc'].includes(field[0])
+    const values = recipients ? field[1].split(', ') : [field[1]]
+    return { kind: 'field', label: field[0], parts: values.map((v) => ({ text: v.replace(/ \(new\)$/, ''), fresh: recipients && v.endsWith(' (new)') })) }
+  })
+}
 
 /** What an approval would do, as the operator should read it: an edit as a diff, a write as its content, a patch as
  *  it is, a command as it would be typed. Any other tool has no preview (the card shows its input). */
 /** The question's preview: the daemon's own, made when the call was planned (theseus-z6au), else the one built here from
  *  the call's input. A command's or a text preview is shown as text; a diff as a diff. */
 export function previewFor(daemon: { kind: string; body: string } | undefined, tool: string, input: unknown): Preview | null {
-  if (daemon) return { kind: daemon.kind === 'diff' ? 'diff' : 'text', text: daemon.body }
+  if (daemon) return { kind: daemon.kind === 'diff' ? 'diff' : daemon.kind === 'mail' ? 'mail' : 'text', text: daemon.body }
   return previewOf(tool, input)
 }
 
