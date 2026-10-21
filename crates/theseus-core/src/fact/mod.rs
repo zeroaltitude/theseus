@@ -47,6 +47,7 @@ pub mod capture;
 pub mod card;
 pub mod check;
 pub mod compaction;
+pub mod data;
 pub mod disk;
 pub mod driver;
 pub mod durability;
@@ -312,6 +313,7 @@ facts![
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,
+    data::DataGateBlocked<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,

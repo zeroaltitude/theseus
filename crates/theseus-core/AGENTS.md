@@ -1592,12 +1592,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`judge::inbound::verdict`), the route skips every profile not of US origin for that turn (`route_profiles(true)`; none
     left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint
     refuses a request to a model not of US origin that holds one in any string of its system, messages or tools, before a byte is
-    sent (`data_gate::guard`, applied to every provider in `Core::build`; with the list empty nothing is wrapped). At start the
+    sent (`data_gate::guard`, applied to every provider in `Core::build`, always). At start the
     embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
     naming pack and count, never a name). The origin rule is an allowlist (theseus-xs5ah, the owner: such data "must be routed
     to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
     `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
     model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+  - **The restricted-origin floor** (theseus-a1wvq.3; `data.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/data_floor.rs`,
+    `fact/data.rs`): no request reaches a model of restricted origin (`cn` or `unknown`, `catalog::origin_of`) without a
+    `data::DataPass` minted for that one request (it holds the request's digest; not `Clone`, a copied `ProviderRequest`
+    carries none, and `#[serde(skip)]`, so body and digest are unchanged). Nothing mints one yet: every turn's
+    `RouteState.clearance` is `Clearance::closed(DataWhy::Unchecked)`, and `TurnRunner::data_pass` (before `call_model`) is
+    the seam where a cleared turn's request takes one. The chokepoint refuses the rest, class `data_gate`, nothing sent, one
+    `data_gate.blocked` row (provider, model, origin, the session from `data_gate::for_session`); an unrestricted model's
+    request costs a memoised origin lookup, the digest is taken only for a restricted one, and a pass never lifts a name.
+    The route's floor (`Floor`: the names and the clearance) marks a restricted profile unusable (`data_gate`), and
+    `data_floor` moves any turn still bound for one (a pin, a base, a hold, a correction, a checkpoint, a turn that asked no
+    route, `floor_unrouted`) to the `[model]` default with `Reason::DataGate`, or fails it before any call ("No model
+    cleared for this request's data is usable: …"); the driver parks that class, never retries it. The config refuses a
+    restricted profile for the owner-material keys (`[people] extract_profile`, `[card] profile`, `[threads]
+    import_profile`, `[judge.learn] writer_profile`, `[self] reviewer_profile`, `[initiative] profile`, `[ontology]
+    name_profile`) and a China-origin `[judge] api_base`. Tests: `tests_data_floor.rs`, `config/data_floor.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

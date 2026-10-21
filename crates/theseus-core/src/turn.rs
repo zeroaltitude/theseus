@@ -1822,7 +1822,7 @@ impl TurnRunner {
                 0 => self.recall_first(t, session).await,
                 _ => None,
             };
-            let compiled = match self
+            let mut compiled = match self
                 .compile_routed(
                     t,
                     session,
@@ -1849,6 +1849,7 @@ impl TurnRunner {
             }
             let said_before = (t.output.len(), t.said.len());
             self.spend_checked(t, session)?;
+            Self::data_pass(t, &mut compiled);
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             self.self_settled(t, &called);
@@ -2450,8 +2451,11 @@ impl TurnRunner {
         let outcome = {
             // The provider floor reads the session's mark as the call is made.
             let private = self.private_session(t);
-            let mut stream = std::pin::pin!(crate::google::private::scoped(private, || {
-                provider.stream_message(&compiled.request, &mut on_delta)
+            let sid = t.tc.session_id;
+            let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
+                crate::google::private::scoped(private, || {
+                    provider.stream_message(&compiled.request, &mut on_delta)
+                })
             }));
             let mut sent = false;
             loop {

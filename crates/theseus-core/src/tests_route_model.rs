@@ -89,10 +89,17 @@ async fn a_routed_turns_metrics_name_the_model_it_ran_on() {
     mode(&jev, "trivial", 0.95);
     let thanks = submit("thank you!").await;
     assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
-    assert_eq!(r.zai.requests()[0].model, "glm-5.3-flash");
+    assert_eq!(
+        r.zai.requests()[0].model,
+        crate::config::UNRESTRICTED_SECOND
+    );
     assert_eq!(
         root(&thanks),
-        ("glm".into(), "zai".into(), "glm-5.3-flash".into())
+        (
+            "glm".into(),
+            "zai".into(),
+            crate::config::UNRESTRICTED_SECOND.into()
+        )
     );
     until_route_rows(&r.core.store, 2).await;
     assert!(r.core.telemetry().flush(Duration::from_secs(10)).await);
@@ -112,7 +119,10 @@ async fn a_routed_turns_metrics_name_the_model_it_ran_on() {
         named("opus"),
         ("anthropic".into(), "claude-opus-5-5".into())
     );
-    assert_eq!(named("glm"), ("zai".into(), "glm-5.3-flash".into()));
+    assert_eq!(
+        named("glm"),
+        ("zai".into(), crate::config::UNRESTRICTED_SECOND.into())
+    );
     assert_eq!(points.len(), 2, "{points:#?}");
 }
 

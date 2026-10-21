@@ -529,7 +529,7 @@ impl TurnRunner {
         a: &Active,
         v: &Verdict,
     ) -> Decision {
-        let profiles = self.route_profiles(t.route.sensitive);
+        let profiles = self.route_profiles(t.route.floor());
         let cap = Self::place_cap(t, &profiles);
         let ask = |est_tokens| {
             cp::decide(

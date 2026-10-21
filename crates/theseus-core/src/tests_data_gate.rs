@@ -52,13 +52,22 @@ fn listed(c: &mut Config) {
     c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
 }
 
-/// A plain message runs on the first profile of the list, the restricted one;
-/// a message that names a configured name runs on the second.
+/// [`listed`], with `glm53` a Claude served from a host vouched EU: of no
+/// restricted origin, so only the names' floor keeps a turn off it
+/// (theseus-a1wvq.3 keeps every request off GLM itself).
+fn listed_eu(c: &mut Config) {
+    listed(c);
+    c.serve_glm_unrestricted();
+    c.vouch_zai(crate::catalog::ModelOrigin::Eu);
+}
+
+/// A plain message runs on the first profile of the list, an EU one; a
+/// message that names a configured name runs on the second, of US origin.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sensitive_name_skips_restricted_profiles() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, listed);
+    let r = rig(Some(&jev), 1, listed_eu);
     let res = turn(&r.core, None, PLAIN, None).await;
     assert_eq!(res.profile, "glm53");
     assert_eq!(r.zai.requests().len(), 1);
@@ -66,7 +75,7 @@ async fn a_sensitive_name_skips_restricted_profiles() {
 
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, listed);
+    let r = rig(Some(&jev), 1, listed_eu);
     let res = turn(&r.core, None, NAMED, None).await;
     assert_eq!(res.profile, "sonnet");
     assert!(
@@ -112,17 +121,17 @@ async fn a_pin_of_a_restricted_profile_gives_way_to_the_default() {
 }
 
 /// With nothing of unrestricted origin to run on, a message that names a
-/// configured name ends the turn before any model call; one that does not
-/// runs as it always did.
+/// configured name ends the turn before any model call (and since
+/// theseus-a1wvq.3 so does one that names nothing:
+/// `tests_data_floor::no_usable_fallback_fails_the_turn_and_sends_nothing`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sensitive_name_with_only_restricted_profiles_sends_nothing() {
-    let all_cn = |c: &mut Config| {
-        listed(c);
-        c.serve_default_from_cn();
-    };
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, all_cn);
+    // The default restricted after the load's check, which would refuse the
+    // owner-material keys' profiles on its provider.
+    let all_cn = |p: &mut crate::rpc::Parts| p.cfg.serve_default_from_cn();
+    let r = crate::tests_route::rig_parts(Some(&jev), 1, listed, all_cn);
     let origin = r
         .core
         .runner
@@ -222,6 +231,7 @@ async fn every_provider_of_the_core_is_behind_the_floor() {
         betas: vec![],
         extra: Default::default(),
         image_tokens: 0,
+        data_pass: None,
     };
     let providers = &r.core.runner.providers;
     let mut sink = |_: crate::provider::Delta<'_>| {};

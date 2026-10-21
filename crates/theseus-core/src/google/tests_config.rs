@@ -48,16 +48,24 @@ async fn no_google_section_registers_nothing_and_reads_nothing() {
     for word in ["google", "gmail", "calendar_events", "drive_"] {
         assert!(!req.contains(word), "{word} is in a plain turn's request");
     }
-    // Every provider stays unwrapped: nothing watches for private text.
+    // Every provider is behind the data floor even so (theseus-a1wvq.3: a
+    // restricted model is refused whatever the config names), and the plain
+    // turn above went through it to its unrestricted model.
     let providers: std::collections::BTreeMap<
         String,
         std::sync::Arc<dyn crate::provider::Provider>,
     > = core.runner.providers.clone().into_iter().collect();
-    let guarded = crate::data_gate::guard(providers.clone(), &core.cfg, &core.runner.catalog);
+    let guarded = crate::data_gate::guard(
+        providers.clone(),
+        &core.cfg,
+        &core.runner.catalog,
+        &core.store,
+    );
     for (name, p) in &providers {
         assert!(
-            std::sync::Arc::ptr_eq(p, &guarded[name]),
-            "{name} was wrapped"
+            !std::sync::Arc::ptr_eq(p, &guarded[name]),
+            "{name} was not wrapped"
         );
     }
+    assert_eq!(model.requests().len(), 1, "the plain turn was sent");
 }

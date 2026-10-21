@@ -119,6 +119,7 @@ impl Core {
             betas: Vec::new(),
             extra: Default::default(),
             image_tokens: 0,
+            data_pass: None,
         }
     }
 

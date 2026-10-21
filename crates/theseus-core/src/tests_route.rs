@@ -52,7 +52,16 @@ fn routing_only(c: &mut Config) {
 /// The placements before Haiku 5.5 (theseus-3okf): a trivial detour to GLM
 /// 5.3 Flash and routine programming on GLM 5.3, both on the `zai` fake, for
 /// the tests whose detour or switch is meant to leave the session's provider.
+/// GLM is only that second provider there, so its profiles run an
+/// unrestricted model (`Config::serve_glm_unrestricted`, theseus-a1wvq.3).
 pub(crate) fn glm_placements(c: &mut Config) {
+    restricted_placements(c);
+    c.serve_glm_unrestricted();
+}
+
+/// The same placements on GLM itself, of restricted origin (the data floor's
+/// tests).
+pub(crate) fn restricted_placements(c: &mut Config) {
     c.routing.classes.trivial.profiles = vec!["glm".into()];
     c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
 }
@@ -426,7 +435,7 @@ async fn a_trivial_message_detours_and_the_next_prefix_is_byte_identical() {
     let thanks = turn(&r.core, Some(&sid), "thank you!", None).await;
     assert_eq!(
         (thanks.profile.as_str(), thanks.model.as_str()),
-        ("glm", "glm-5.3-flash")
+        ("glm", crate::config::UNRESTRICTED_SECOND)
     );
     assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
     // The detour's request: the last exchange and the message, no more.
@@ -1136,9 +1145,12 @@ async fn profile_use_moves_a_routed_session_and_pins_nothing() {
     let two = turn(&r.core, Some(&sid), "What is a frame?", None).await;
     assert_eq!(
         (two.profile.as_str(), two.model.as_str()),
-        ("glm", "glm-5.3-flash")
+        ("glm", crate::config::UNRESTRICTED_SECOND)
     );
-    assert_eq!(r.zai.requests()[0].model, "glm-5.3-flash");
+    assert_eq!(
+        r.zai.requests()[0].model,
+        crate::config::UNRESTRICTED_SECOND
+    );
     assert!(session(&r.core, &sid).routed.is_none());
     mode(&jev, "sophisticated", 0.95);
     let three = turn(&r.core, Some(&sid), "Weigh the two once more.", None).await;

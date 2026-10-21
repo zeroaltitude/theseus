@@ -398,8 +398,8 @@ impl TurnRunner {
         let mut quiet = |_: crate::provider::Delta<'_>| {};
         // A summary of a private session is that session's request too.
         let private = self.private_session(t);
-        let answered = crate::google::private::scoped(private, || {
-            provider.stream_message(request, &mut quiet)
+        let answered = crate::data_gate::for_session(t.tc.session_id, || {
+            crate::google::private::scoped(private, || provider.stream_message(request, &mut quiet))
         })
         .await;
         let resp = match answered {
@@ -809,6 +809,7 @@ fn request_for(
         betas: Vec::new(),
         extra: Default::default(),
         image_tokens: 0,
+        data_pass: None,
     }
 }
 

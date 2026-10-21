@@ -135,6 +135,7 @@ pub fn request_for(pack: &Pack, state: &str, model: &str, max_tokens: u32) -> Pr
         betas: Vec::new(),
         extra: Default::default(),
         image_tokens: 0,
+        data_pass: None,
     }
 }
 
