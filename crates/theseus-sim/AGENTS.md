@@ -28,7 +28,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `theseusd restore`'s own phases), and the push's seed. A cancel's round trip too (a real `proc.run` job cancelled
     through `execution.cancel`, its frames a cancel printed; theseus-nh1k, theseus-dwoj), and the restore phase runs
     before it, since a phase that writes into the rig runs after the rows that read it (theseus-ma8r). `--check` fails a
-    p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine), and a run
+    p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine; the seed's and
+    health's since theseus-m1r2w, from 44 runs), and a run
     whose fewest frames a cancel are over `lifecycle::CANCEL_FRAMES` (2; its most is printed, not judged, since under
     load it picks up other work's frames; theseus-kq4n). The cancel's budget is 100 ms since cancel-fast.
     A restart after a clean stop must not repair the store's index (`Start.index_repaired`, from the store phase): the
