@@ -274,7 +274,7 @@ class ScorerFixes(unittest.TestCase):
         (r / "datatidy" / "tools").mkdir()
         (r / "datatidy" / "tools" / "gen.py").write_text(self.gen(cwd=True))
         (r / "datatidy" / "Makefile").write_text((r / "datatidy" / "Makefile").read_text() + "report:\n\tpython3 tools/gen.py\n")
-        self.assertEqual(self.regen(r), "make report")
+        self.assertEqual(self.regen(r), "make -B report")
 
     def test_a_script_that_regenerates_the_old_cutoff_or_nothing_does_not_pass(self):
         r = self.ws()

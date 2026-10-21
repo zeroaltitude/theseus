@@ -135,8 +135,8 @@ def rerun_commands(d: Path) -> list[list[str]]:
     if "clean.py" in top:
         cmds.append([PY, "clean.py"])
     mk = read(d.parent, "datatidy/Makefile") or ""
-    if re.search(r"^report\s*:", mk, re.M):
-        cmds.append(["make", "report"])
+    if re.search(r"^report\s*:", mk, re.M):  # -B: the `report/` directory itself makes a non-phony target up to date
+        cmds.append(["make", "-B", "report"])
     return cmds
 
 
