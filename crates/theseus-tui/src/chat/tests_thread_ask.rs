@@ -40,6 +40,7 @@ fn ask(id: &str, session: &str, expires_ms: u64) -> ThreadAsk {
         ],
         message: "Start two tasks for me, one to count the words".into(),
         expires_ms,
+        others: Vec::new(),
     }
 }
 
