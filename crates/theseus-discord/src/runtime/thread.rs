@@ -303,23 +303,7 @@ impl Shared {
                 let channel = i.channel.as_ref().map(|c| c.id.get());
                 self.thread_unbind(discord, who, channel).await
             }
-            Some(("merge", args)) => {
-                let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
-                let p = ThreadMergeParams {
-                    from: get("from").unwrap_or_default(),
-                    into: get("into").unwrap_or_default(),
-                    author: Some(who.to_string()),
-                    discord,
-                };
-                match self
-                    .rpc
-                    .call::<_, ThreadMergeResult>(method::THREAD_MERGE, p)
-                    .await
-                {
-                    Ok(r) => merged(&r),
-                    Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
-                }
-            }
+            Some(("merge", args)) => self.thread_merge_said(&args, who, discord).await,
             Some((sub @ ("link" | "unlink"), args)) => {
                 self.thread_link_said(sub == "link", &args, who, discord)
                     .await
@@ -349,6 +333,30 @@ impl Shared {
 }
 
 impl Shared {
+    /// `/thread merge from: into:`: `thread.merge` as the presser, and what it said.
+    async fn thread_merge_said(
+        &self,
+        args: &[(&str, String)],
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> String {
+        let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        let p = ThreadMergeParams {
+            from: get("from").unwrap_or_default(),
+            into: get("into").unwrap_or_default(),
+            author: Some(who.to_string()),
+            discord,
+        };
+        match self
+            .rpc
+            .call::<_, ThreadMergeResult>(method::THREAD_MERGE, p)
+            .await
+        {
+            Ok(r) => merged(&r),
+            Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
+        }
+    }
+
     /// `/thread link` or `unlink`: `thread.link` or `thread.unlink` as the presser, and what it said.
     async fn thread_link_said(
         &self,
