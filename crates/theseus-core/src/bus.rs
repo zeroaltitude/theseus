@@ -123,6 +123,15 @@ impl SessionBus {
         self.work.lock().unwrap().len()
     }
 
+    /// Whether a `work.watch` sees `root`: one with no roots sees every root.
+    pub fn work_watched(&self, root: &str) -> bool {
+        self.work
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|w| w.scope.roots.as_ref().is_none_or(|r| r.contains(root)))
+    }
+
     /// The connections with a `work.watch` that are a screen a person is
     /// looking at. Counted here and nowhere else: a connection that
     /// closes, or watches again as a background reader, is no longer one.

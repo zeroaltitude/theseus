@@ -11,12 +11,12 @@ use theseus_core::Core;
 use crate::tests_gateway::{Rig, ANA, LAB};
 use crate::tests_task_threads::{bindings, guild, model, replied, start, tweak, until, ASK, REEF};
 
-/// A model that notes, at each call, how many connections watch the work board.
+/// A model that notes, at each call, whether the work board is watched for the lab place's session.
 struct Probe {
     inner: Arc<dyn Provider>,
     // Weak: the core holds this model, and a strong cycle would keep it (and the rig's drop) alive.
     core: Arc<OnceLock<Weak<Core>>>,
-    watching: Arc<Mutex<Vec<usize>>>,
+    watching: Arc<Mutex<Vec<bool>>>,
 }
 
 impl Provider for Probe {
@@ -28,12 +28,15 @@ impl Provider for Probe {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
-        let n = self
-            .core
-            .get()
-            .and_then(Weak::upgrade)
-            .map_or(usize::MAX, |c| c.bus.work_watchers());
-        self.watching.lock().unwrap().push(n);
+        // The place's own session, not any watcher: another connection's watch would pass for it.
+        let watched = self.core.get().and_then(Weak::upgrade).is_some_and(|c| {
+            c.outbox
+                .place_session(&format!("channel:{LAB}"))
+                .ok()
+                .flatten()
+                .is_some_and(|s| c.bus.work_watched(&s))
+        });
+        self.watching.lock().unwrap().push(watched);
         self.inner.stream_message(req, on_delta)
     }
 }
@@ -71,8 +74,8 @@ async fn a_places_new_session_is_watched_before_its_first_turn_runs() {
     .await;
     let first = watching.lock().unwrap()[0];
     assert!(
-        first >= 1,
-        "the first model call saw {first} work watchers: {:?}",
+        first,
+        "the first model call found its session unwatched: {:?}",
         watching.lock().unwrap()
     );
 }

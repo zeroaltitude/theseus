@@ -27,7 +27,7 @@
 //!   `task.list` for the tasks that reported to the place (theseus-ypnxt.5).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use theseus_protocol::work::{WorkKind, WorkState, WorkView};
@@ -74,10 +74,14 @@ struct Model {
     /// The Home conversation's session and the session of the place that
     /// adopts its tasks, when both exist (`Tasks::set_home`).
     home: Option<(String, String)>,
+    /// The ticket of the newest snapshot applied (`Tasks::snapshot`).
+    applied: u64,
 }
 
 pub(crate) struct Tasks {
     model: Mutex<Model>,
+    /// The tickets `ask` hands out, one a `work.watch` call, in the order the calls begin.
+    tickets: AtomicU64,
     again: Notify,
     counts: watch::Sender<Counts>,
     /// Discord refused a V2 message from this bot: the text board takes over.
@@ -98,6 +102,7 @@ impl Default for Tasks {
     fn default() -> Self {
         Self {
             model: Mutex::default(),
+            tickets: AtomicU64::new(0),
             again: Notify::new(),
             counts: watch::channel(Counts::default()).0,
             v2_refused: AtomicBool::new(false),
@@ -130,6 +135,11 @@ fn counts_of(m: &Model) -> Counts {
 }
 
 impl Tasks {
+    /// The next ask's ticket: later than every ticket taken before.
+    fn ticket(&self) -> u64 {
+        self.tickets.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
     /// Ask for the watch again, once for a burst of reasons.
     pub fn rewatch(&self) {
         self.again.notify_one();
@@ -166,15 +176,25 @@ impl Tasks {
     /// a root it no longer carries loses its views that still looked active,
     /// and the position rule holds for the rest: a view newer than the
     /// snapshot came by an event while the answer was on its way, and stays.
-    /// The sessions of the roots touched.
-    pub fn snapshot(&self, r: WorkWatchResult) -> HashSet<String> {
+    /// An ended view older than `DONE_SHOWN_MS` is dropped too: no board shows it, and a lost `gone`
+    /// frame would otherwise keep it for good (theseus-0mq02). A snapshot is applied only when its
+    /// `ticket` (from `ticket`, taken before its ask) is newer than the last applied: the RPC gives no
+    /// reply order, and an older answer would undo a newer one (theseus-x4s7g); an older one touches
+    /// nothing. The sessions of the roots touched.
+    pub fn snapshot(&self, ticket: u64, r: WorkWatchResult) -> HashSet<String> {
         let mut m = self.model.lock().unwrap();
+        if ticket <= m.applied {
+            return HashSet::new();
+        }
+        m.applied = ticket;
+        let stale_before = theseus_protocol::now_unix_ms().saturating_sub(DONE_SHOWN_MS);
         let roots: HashSet<&str> = r.views.iter().map(|v| v.root.as_str()).collect();
         let mut touched: HashSet<String> = HashSet::new();
         m.views.retain(|_, v| {
             let gone = v.position <= r.position
                 && !v.state.ended()
-                && (!roots.contains(v.root.as_str()) || !r.views.iter().any(|n| n.id == v.id));
+                && (!roots.contains(v.root.as_str()) || !r.views.iter().any(|n| n.id == v.id))
+                || v.state.ended() && v.ended_at_ms.unwrap_or(v.state_since_ms) < stale_before;
             if gone {
                 touched.insert(v.root.clone());
             }
@@ -655,13 +675,14 @@ pub(super) async fn ask(shared: &Arc<Shared>) {
         roots: Some(roots),
         interactive: Some(false),
     };
+    let ticket = shared.tasks.ticket();
     match shared
         .rpc
         .call::<_, WorkWatchResult>(theseus_protocol::method::WORK_WATCH, p)
         .await
     {
         Ok(r) => {
-            shared.tasks.snapshot(r);
+            shared.tasks.snapshot(ticket, r);
             // Every place draws again: a board pinned before a restart is
             // brought up to date, or says all clear.
             let r = shared.routes.lock().unwrap();
@@ -922,21 +943,24 @@ mod tests {
             &[],
         ));
         // While the binding was away: a ended, exe_old went cold and ended.
-        t.snapshot(WorkWatchResult {
-            position: 10,
-            views: vec![
-                view(
-                    "exe_chat",
-                    WorkKind::Conversation,
-                    "exe_chat",
-                    WorkState::Ready,
-                    8,
-                ),
-                view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9),
-            ],
-            total: 2,
-            threads: vec![],
-        });
+        t.snapshot(
+            1,
+            WorkWatchResult {
+                position: 10,
+                views: vec![
+                    view(
+                        "exe_chat",
+                        WorkKind::Conversation,
+                        "exe_chat",
+                        WorkState::Ready,
+                        8,
+                    ),
+                    view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9),
+                ],
+                total: 2,
+                threads: vec![],
+            },
+        );
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Done);
         assert!(
             t.view("exe_x").is_none(),
@@ -964,18 +988,21 @@ mod tests {
             ],
             &[],
         ));
-        t.snapshot(WorkWatchResult {
-            position: 10,
-            views: vec![view(
-                "exe_chat",
-                WorkKind::Conversation,
-                "exe_chat",
-                WorkState::Ready,
-                8,
-            )],
-            total: 1,
-            threads: vec![],
-        });
+        t.snapshot(
+            2,
+            WorkWatchResult {
+                position: 10,
+                views: vec![view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    8,
+                )],
+                total: 1,
+                threads: vec![],
+            },
+        );
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Running);
     }
 
@@ -984,6 +1011,9 @@ mod tests {
     #[test]
     fn a_snapshot_keeps_an_ended_task_it_does_not_carry() {
         let t = Tasks::default();
+        // Ended a minute ago: a view ended over a day ago is dropped (below).
+        let mut a = view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9);
+        a.ended_at_ms = Some(theseus_protocol::now_unix_ms() - 60_000);
         t.changed(changed_of(
             vec![
                 view(
@@ -993,23 +1023,108 @@ mod tests {
                     WorkState::Ready,
                     1,
                 ),
-                view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9),
+                a,
             ],
             &[],
         ));
-        t.snapshot(WorkWatchResult {
-            position: 10,
-            views: vec![view(
-                "exe_chat",
-                WorkKind::Conversation,
-                "exe_chat",
-                WorkState::Ready,
-                8,
-            )],
-            total: 1,
-            threads: vec![],
-        });
+        t.snapshot(
+            3,
+            WorkWatchResult {
+                position: 10,
+                views: vec![view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    8,
+                )],
+                total: 1,
+                threads: vec![],
+            },
+        );
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Done);
+    }
+
+    /// A lost `gone` frame must not keep an ended view for good: a snapshot drops one ended over
+    /// `DONE_SHOWN_MS` ago, whatever it carries, and keeps one ended a minute ago (theseus-0mq02).
+    #[test]
+    fn a_snapshot_drops_an_ended_view_older_than_done_shown() {
+        let t = Tasks::default();
+        let now = theseus_protocol::now_unix_ms();
+        let ended = |id: &str, ago: u64| {
+            let mut v = view(id, WorkKind::Task, "exe_chat", WorkState::Done, 9);
+            v.ended_at_ms = Some(now - ago);
+            v
+        };
+        t.changed(changed_of(
+            vec![
+                view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    1,
+                ),
+                ended("exe_old", 2 * DONE_SHOWN_MS),
+                ended("exe_new", 60_000),
+            ],
+            &[],
+        ));
+        let touched = t.snapshot(
+            1,
+            WorkWatchResult {
+                position: 10,
+                views: vec![view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    8,
+                )],
+                total: 1,
+                threads: vec![],
+            },
+        );
+        assert!(
+            t.view("exe_old").is_none(),
+            "a day-old ended view is dropped"
+        );
+        assert!(t.view("exe_new").is_some(), "a recent one stays");
+        assert!(!touched.is_empty(), "its root is touched");
+    }
+
+    /// The RPC gives no reply order: a snapshot from an older ask arriving after a newer one's is
+    /// ignored, so it cannot drop the view of a root the newer one carried (theseus-x4s7g).
+    #[test]
+    fn an_older_snapshot_never_undoes_a_newer_one() {
+        let t = Tasks::default();
+        let chat =
+            |root: &str, pos| view(root, WorkKind::Conversation, root, WorkState::Ready, pos);
+        let (older, newer) = (t.ticket(), t.ticket());
+        t.snapshot(
+            newer,
+            WorkWatchResult {
+                position: 10,
+                views: vec![
+                    chat("exe_a", 5),
+                    chat("exe_b", 5),
+                    view("exe_bt", WorkKind::Task, "exe_b", WorkState::Running, 6),
+                ],
+                total: 3,
+                threads: vec![],
+            },
+        );
+        let late = t.snapshot(
+            older,
+            WorkWatchResult {
+                position: 9,
+                views: vec![chat("exe_a", 5)],
+                total: 1,
+                threads: vec![],
+            },
+        );
+        assert!(late.is_empty());
+        assert_eq!(t.view("exe_bt").unwrap().state, WorkState::Running);
     }
 
     #[test]
