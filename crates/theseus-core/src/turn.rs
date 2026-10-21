@@ -70,6 +70,7 @@ pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
+mod cross_step;
 mod cut_step;
 mod data_step;
 mod defer_step;

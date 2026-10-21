@@ -151,12 +151,20 @@ pub struct ThreadScene {
     beats_own: bool,
     own_top_admissible: bool,
     needs_entity: bool,
+    /// The nodes Jev admitted across threads this recall (theseus-98bz.10).
+    admitted: BTreeSet<String>,
     board: Arc<Board>,
     store: Store,
     memo: Arc<Memo>,
 }
 
 impl ThreadScene {
+    /// Jev read these nodes as about the message's subject: the lens admits
+    /// them with the penalty (theseus-98bz.10).
+    pub fn admit(&mut self, nodes: BTreeSet<String>) {
+        self.admitted.extend(nodes);
+    }
+
     /// The thread of `session`, with whether it is held.
     pub fn of(&self, session: &str) -> Option<SessionThread> {
         let slug = self.memo.slug_of(&self.store, &self.board, session)?;
@@ -226,6 +234,18 @@ impl ThreadScene {
             }
             seen.push((session, node, fused));
         }
+        // Jev's yes, never a held thread's node.
+        let admitted = seen
+            .iter()
+            .filter(|(_, node, _)| self.admitted.contains(*node))
+            .filter(|(session, node, _)| {
+                !of_node
+                    .get(*node)
+                    .or_else(|| of_session.get(*session))
+                    .is_some_and(|t: &SessionThread| t.held)
+            })
+            .map(|(_, node, _)| (*node).to_string())
+            .collect();
         // What the asking thread already holds: its own best hit that can
         // still be admitted (`own_top_admissible`, theseus-98bz.8): a note
         // already in context drops `in_context`, so it holds nothing back.
@@ -253,6 +273,7 @@ impl ThreadScene {
             needs_entity: self.needs_entity,
             penalty: self.penalty,
             bar: self.bar,
+            admitted,
         }
     }
 }
@@ -294,6 +315,7 @@ impl TurnRunner {
             beats_own: cfg.cross_recall_beats_own,
             own_top_admissible: cfg.own_top_admissible,
             needs_entity: cfg.cross_recall_needs_entity,
+            admitted: BTreeSet::new(),
             board,
             store: self.store.clone(),
             memo,

@@ -71,6 +71,10 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         include_str!("../packs/people_seen.v1.toml"),
     ),
     ("onto.v1", include_str!("../packs/onto.v1.toml")),
+    (
+        "recall_cross.v1",
+        include_str!("../packs/recall_cross.v1.toml"),
+    ),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -127,6 +131,9 @@ pub enum Builder {
     Compare,
     /// `heard.v1`'s: a short or unclear transcript in a voice call (theseus-s3dwj).
     Heard,
+    /// `recall_cross.v1`'s: the message and the notes the thread lens dropped
+    /// near the bar (theseus-98bz.10).
+    RecallCross,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -1446,10 +1453,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            22,
+            23,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
-             citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1 \
-             and onto.v1"
+             citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
+             onto.v1 and recall_cross.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

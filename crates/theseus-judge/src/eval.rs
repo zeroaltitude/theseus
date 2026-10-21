@@ -84,9 +84,10 @@ pub fn check_expect(
         .iter()
         .map(|(q, wanted)| {
             let confirm = pack.question(q).map_or(0.6, |d| d.thresholds.confirm);
+            // A per-item Noul is expected by its asked id (`same_subject.1`).
             let answer = answers
                 .iter()
-                .find(|a| a.about.is_none() && a.def == *q)
+                .find(|a| (a.about.is_none() && a.def == *q) || a.question == *q)
                 .map(|a| &a.answer);
             let (got, met) = match (answer, wanted.as_str()) {
                 (Some(Answer::Noul { noul }), "high") => (format!("{noul:.2}"), *noul >= confirm),

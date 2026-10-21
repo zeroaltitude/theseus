@@ -49,6 +49,9 @@ pub const COMPARE_VERSION: u32 = 1;
 /// `heard.v1`'s builder (module `heard`, theseus-s3dwj).
 pub const HEARD_VERSION: u32 = 1;
 
+/// `recall_cross.v1`'s builder (module `cross`, theseus-98bz.10).
+pub const RECALL_CROSS_VERSION: u32 = 1;
+
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
 pub const SECURITY_CALLS: usize = 5;
@@ -387,6 +390,9 @@ pub enum Input {
     Compare(CompareInput),
     /// `heard.v1`'s (theseus-s3dwj): a short or unclear transcript in a call.
     Heard(HeardInput),
+    /// `recall_cross.v1`'s (theseus-98bz.10): the message and another
+    /// stream's notes near the bar.
+    RecallCross(CrossInput),
 }
 
 impl Input {
@@ -407,6 +413,7 @@ impl Input {
             Input::PeopleSeen(_) => Builder::PeopleSeen,
             Input::Compare(_) => Builder::Compare,
             Input::Heard(_) => Builder::Heard,
+            Input::RecallCross(_) => Builder::RecallCross,
         }
     }
 
@@ -428,6 +435,7 @@ impl Input {
             Builder::PeopleSeen => Input::PeopleSeen(serde_json::from_str(json)?),
             Builder::Compare => Input::Compare(serde_json::from_str(json)?),
             Builder::Heard => Input::Heard(serde_json::from_str(json)?),
+            Builder::RecallCross => Input::RecallCross(serde_json::from_str(json)?),
         })
     }
 }
@@ -466,6 +474,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::PeopleSeen(i) => people::people_seen(i, cap, scrub),
         Input::Compare(i) => compare::compare(i, cap, scrub),
         Input::Heard(i) => heard::heard(i, cap, scrub),
+        Input::RecallCross(i) => cross::cross(i, cap, scrub),
     })
 }
 
@@ -664,6 +673,7 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 
 mod citation;
 mod compare;
+mod cross;
 mod heard;
 mod memory;
 mod people;
@@ -672,6 +682,7 @@ mod security2;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
+pub use cross::{CrossInput, CrossNote, CROSS_NOTES};
 pub use heard::{HeardInput, HeardOverlap, SAID};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use people::{HeldPerson, PeopleInput, PeopleSeenInput, PersonCandidate, PEOPLE, SEEN};
@@ -1229,6 +1240,7 @@ pub(crate) mod tests {
             "people_seen.v1",
             "compare.v1",
             "heard.v1",
+            "recall_cross.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

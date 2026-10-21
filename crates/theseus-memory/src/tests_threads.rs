@@ -82,6 +82,27 @@ fn reason_of(p: &Pack, node: &str) -> Option<Reason> {
         .map(|d| d.reason)
 }
 
+/// A note Jev read as about the message's subject (`admitted`,
+/// theseus-98bz.10) is admitted under the bar, and pays the penalty: it ranks
+/// behind the asking thread's own note it would have outranked.
+#[test]
+fn a_note_jev_admitted_pays_and_passes_under_the_bar() {
+    let mut l = lens(Some("here"), &[], &[]);
+    let cands = || {
+        vec![
+            cand("own", "ses_unthreaded", 0.020),
+            cand("far_low", "ses_pr", 0.025),
+        ]
+    };
+    assert_eq!(
+        reason_of(&run(&l, cands()), "far_low"),
+        Some(Reason::Thread)
+    );
+    l.admitted.insert("far_low".into());
+    // 0.025 * 0.65 = 0.016 < 0.020: in, behind the own note.
+    assert_eq!(admitted(&run(&l, cands())), ["own", "far_low"]);
+}
+
 /// Above the bar another thread's note is admitted but ranks behind what its
 /// score alone would put it; under the bar it is withheld, as `thread`.
 #[test]

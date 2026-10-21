@@ -1,6 +1,6 @@
 //! Labelled sets for packs whose questions have one right answer per case
 //! (theseus-98bz.9, theseus-98bz.10): `classify.v4`'s `scope` and `thread`,
-//! and `recall.cross.v1`'s `same_subject`. Each case is the pack's own input
+//! and `recall_cross.v1`'s `same_subject`. Each case is the pack's own input
 //! and the answers it should draw, checked as `eval::check` checks them (an
 //! option id, or `high`/`low` for a Noul). `jev-probe --eval <pack>` runs a
 //! set live, one call per case. The fixtures' names and texts are made up.
@@ -11,9 +11,10 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 const CLASSIFY_V4: &str = include_str!("../fixtures/eval/classify.v4.json");
+const RECALL_CROSS_V1: &str = include_str!("../fixtures/eval/recall_cross.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 1] = ["classify.v4"];
+pub const PACKS: [&str; 2] = ["classify.v4", "recall_cross.v1"];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +32,7 @@ pub struct LabelledCase {
 pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
     let text = match pack {
         "classify.v4" => CLASSIFY_V4,
+        "recall_cross.v1" => RECALL_CROSS_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -57,7 +59,7 @@ mod tests {
                 for (q, want) in &case.expect {
                     let a = asked
                         .iter()
-                        .find(|a| &a.def == q)
+                        .find(|a| &a.def == q || &a.id == q)
                         .unwrap_or_else(|| panic!("{}: {q} not asked", case.name));
                     if let crate::client::Question::Choice { options, .. } = &a.question {
                         assert!(

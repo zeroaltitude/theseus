@@ -41,6 +41,13 @@
 //!   is its best not already in the turn's context. A note in context is
 //!   dropped `in_context` and adds nothing, so it no longer keeps out the one
 //!   fact the thread lacks. Off, every own hit counts, in context or not.
+//! - `cross_recall_judge` (true; theseus-98bz.10): the notes the distance
+//!   dropped whose score is above the bar go to Jev (`recall_cross.v1`), at
+//!   most `cross_recall_judge_k` (3, 1 to 10) of them, best first, in one
+//!   request the turn waits for at most `route_wait_ms`: a note Jev reads as
+//!   about the message's subject, not only the same kind of fact, is
+//!   admitted with the penalty and labelled with its thread. Off, none is
+//!   asked about and the drops stand.
 //! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
 //!   (classify.v4) says a message in a thread asks across everything going on,
 //!   that turn's request gains a digest of the place's other live threads, one
@@ -108,6 +115,10 @@ pub struct ThreadsConfig {
     #[serde(default = "default_true")]
     pub own_top_admissible: bool,
     #[serde(default = "default_true")]
+    pub cross_recall_judge: bool,
+    #[serde(default = "default_judge_k")]
+    pub cross_recall_judge_k: usize,
+    #[serde(default = "default_true")]
     pub place_digest: bool,
     #[serde(default = "default_digest_line_chars")]
     pub place_digest_line_chars: usize,
@@ -148,6 +159,9 @@ fn default_penalty() -> f64 {
 fn default_bar() -> f64 {
     0.75
 }
+fn default_judge_k() -> usize {
+    3
+}
 fn default_digest_line_chars() -> usize {
     200
 }
@@ -181,6 +195,8 @@ impl Default for ThreadsConfig {
             cross_recall_needs_entity: true,
             base_distance: true,
             own_top_admissible: true,
+            cross_recall_judge: true,
+            cross_recall_judge_k: default_judge_k(),
             place_digest: true,
             place_digest_line_chars: default_digest_line_chars(),
             sticky_half_life_secs: default_half_life(),
@@ -223,6 +239,12 @@ impl ThreadsConfig {
             if !(0.0..=1.0).contains(&v) {
                 bail!("threads.{key} = {v} is outside 0 to 1");
             }
+        }
+        if !(1..=10).contains(&self.cross_recall_judge_k) {
+            bail!(
+                "threads.cross_recall_judge_k is {}: Jev reads 1 to 10 notes a request",
+                self.cross_recall_judge_k
+            );
         }
         if self.place_digest_line_chars < 40 {
             bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
@@ -309,6 +331,25 @@ mod tests {
         .unwrap();
         assert!(!loose.threads.cross_recall_beats_own && !loose.threads.base_distance);
         assert!(!loose.threads.cross_recall_needs_entity);
+    }
+
+    /// Jev's read of the near misses (theseus-98bz.10) is on, three notes a
+    /// request, named in the template; it turns off, and a k outside 1 to 10
+    /// is refused.
+    #[test]
+    fn the_cross_judge_reads_three_and_turns_off() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(cfg.threads.cross_recall_judge);
+        assert_eq!(cfg.threads.cross_recall_judge_k, 3);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_judge = true"));
+        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_judge_k = 3"));
+        let off = crate::Config::from_toml("[threads]\ncross_recall_judge = false\n").unwrap();
+        assert!(!off.threads.cross_recall_judge);
+        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        for k in [0, 11] {
+            let bad = format!("{secrets}\n[threads]\ncross_recall_judge_k = {k}\n");
+            assert!(crate::Config::parse(&bad).is_err(), "{k}");
+        }
     }
 
     /// The place digest (theseus-98bz.9) is on by default, named in the

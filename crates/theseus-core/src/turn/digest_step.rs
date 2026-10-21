@@ -31,6 +31,14 @@ pub(crate) struct Digest {
     pub text: Option<String>,
 }
 
+impl Digest {
+    /// Whether this turn's requests carry a digest: Jev's read of the near
+    /// misses is then not asked (theseus-98bz.10).
+    pub fn fired(&self) -> bool {
+        self.text.is_some()
+    }
+}
+
 impl TurnRunner {
     /// Whether a message in `session` asks `scope` itself: the session is a
     /// thread's own and the digest is on.

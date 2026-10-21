@@ -26,6 +26,9 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   its own thread; in a threaded session (`distance`) another thread's candidate is `thread` unless its fused score is
   above `bar` of `top_fused` (the index's best), else it pays `penalty` in the pack's rank; naming the thread
   (`waived`) waives the distance and never a seal. Reasons `sealed` and `thread` join `Reason::ALL`.
+  `own_top` is the asking thread's best hit not already in context (theseus-98bz.8, the core's `[threads]
+  own_top_admissible`). `admitted` names the nodes Jev's `recall_cross.v1` read as about the message's subject
+  (theseus-98bz.10): `judge` gives them `Costs` before any rule, so the core never puts a held thread's node there.
   Tests: `tests_threads.rs` (a property over generated recalls: a sealed note is never admitted).
 - `recall.rs`'s `PersonaBoost` (theseus-a8n7), in `Params.persona`: while a persona is engaged, a candidate whose session
   the core read as an imported episode of the persona's own agent ranks `boost` (1.0 to 2.0) times its score; the

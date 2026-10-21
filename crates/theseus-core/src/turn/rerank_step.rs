@@ -18,11 +18,12 @@ use std::time::Duration;
 
 use theseus_protocol::memory::RecallManifest;
 
+use super::cross_step::Parts;
 use super::{Turn, TurnRunner};
 use crate::config::memory::MemoryArm;
 use crate::config::PackMode;
 use crate::judge::rerank::Recalled;
-use crate::recall::{Answer, Begun, Scene};
+use crate::recall::{Answer, Begun};
 
 impl TurnRunner {
     /// The manifest of a recall in front of the model under `arm`'s
@@ -40,7 +41,8 @@ impl TurnRunner {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
         let mut scene = self.scene(t, mode, arm, &begun.query);
         scene.activation = activation;
-        if rerank == PackMode::Off {
+        let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
+        if rerank == PackMode::Off && !crossed {
             return self.memory.manifest(
                 &scene,
                 begun,
@@ -60,30 +62,29 @@ impl TurnRunner {
         );
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
-        let retention = self.memory.retention_of(&*scene.science, &candidates);
-        let lens = scene.lens(&candidates);
-        let Scene {
-            place,
-            in_context,
-            labeled,
-            budget_tokens,
-            science,
-            threads,
-            ..
-        } = scene;
+        let mut parts = Parts::of(scene);
+        // Jev's read of the near misses another stream's notes are (theseus-98bz.10).
+        let pool = (candidates.as_slice(), links.as_slice(), &ranks);
+        self.cross_judged(t, mode, &mut parts, &mut m, pool, &begun.query)
+            .await;
+        if rerank == PackMode::Off {
+            return m;
+        }
+        let retention = self.memory.retention_of(&*parts.science, &candidates);
+        let lens = parts.lens(&candidates);
         let live = rerank == PackMode::Live;
         let recalled = |candidates| Recalled {
             recall_id: m.recall_id.clone(),
             session_id: t.tc.session_id.to_string(),
             turn_id: t.tc.turn_id.to_string(),
             message: begun.query.clone(),
-            place: place.clone(),
-            in_context: in_context.clone(),
-            labeled: labeled.clone(),
+            place: parts.place.clone(),
+            in_context: parts.in_context.clone(),
+            labeled: parts.labeled.clone(),
             candidates,
             links: links.clone(),
             params: self.memory.params_of(&m),
-            science: science.clone(),
+            science: parts.science.clone(),
             retention: retention.clone(),
             threads: lens.clone(),
             admitted: m
@@ -102,20 +103,7 @@ impl TurnRunner {
         let wait = Duration::from_millis(self.memory.cfg().rerank_wait_ms);
         let waited = self.judge.at_recall_live(&mut t.trace, r, wait).await;
         if let Some(order) = waited.order.clone() {
-            let scene = Scene {
-                mode,
-                session_id: Some(t.tc.session_id),
-                turn_id: Some(t.tc.turn_id),
-                place,
-                in_context,
-                labeled,
-                budget_tokens,
-                science,
-                activation: None,
-                threads,
-                persona: None,
-                category: None,
-            };
+            let scene = parts.scene(mode, t.tc.session_id, t.tc.turn_id);
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);
         }

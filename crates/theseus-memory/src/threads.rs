@@ -101,6 +101,10 @@ pub struct ThreadLens {
     /// `[threads] cross_recall_bar`: the share of the best score a candidate
     /// of another thread must be above.
     pub bar: f64,
+    /// The nodes Jev read as about the message's subject (theseus-98bz.10,
+    /// `recall_cross.v1`): admitted with the penalty. The core never names
+    /// a held thread's node here.
+    pub admitted: BTreeSet<String>,
 }
 
 /// What the lens makes of one candidate.
@@ -137,6 +141,9 @@ impl ThreadLens {
 
     /// What the lens does to the candidate `node` of `session` with `fused`.
     pub fn judge(&self, session: &str, node: &str, fused: f64, tie: Tie) -> Verdict {
+        if self.admitted.contains(node) {
+            return Verdict::Costs((1.0 - self.penalty).clamp(0.0, 1.0));
+        }
         let slug = match self.thread_of_node(session, node) {
             Some(t) => {
                 if self.here.as_deref() == Some(t.slug.as_str()) {
