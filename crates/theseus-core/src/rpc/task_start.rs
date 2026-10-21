@@ -600,11 +600,17 @@ fn brief_text(task_session: &str, home_session: &str, brief: &str) -> String {
         "[Task {}: a background task the owner started, under session {}. Work on the brief \
          below on your own. Nobody reads this session while you work, and nobody answers \
          questions asked in it: decide, and say what you decided. Your last message is your \
-         report, so end with what you did and what you found. You cannot start tasks of your \
-         own.]\n\n{brief}",
+         report, so end with what you did and what you found. The task graph is the system's \
+         business: your own task's record closes when you report, so do not report on it; \
+         open your report with the result. You cannot start tasks of your own.]\n\n{brief}",
         short(task_session),
         crate::narrative::short(home_session)
     )
+}
+
+#[cfg(test)]
+pub(crate) fn brief_text_for_tests(task: &str, home: &str, brief: &str) -> String {
+    brief_text(task, home, brief)
 }
 
 /// What every row and sentence of one start shares.

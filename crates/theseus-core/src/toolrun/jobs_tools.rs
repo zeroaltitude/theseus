@@ -211,6 +211,7 @@ impl ToolRuntime {
             return Ok(plan);
         }
         let Some(job) = input.get("job").and_then(Value::as_str) else {
+            self.own_job_outside_roots(&mut plan);
             return Ok(plan);
         };
         let f = self.find_job(tc.kernel, tc.store, tc.session_id, job)?;
@@ -227,7 +228,25 @@ impl ToolRuntime {
             }];
             plan.argv = (!f.argv.is_empty()).then_some(f.argv);
         }
+        self.own_job_outside_roots(&mut plan);
         Ok(plan)
+    }
+
+    /// A session's own job is its own wherever its directory is (theseus-zntlw):
+    /// the directory a job tool's plan names is no file the call reads and no
+    /// program it starts, so one outside the workspace roots is left off the
+    /// plan, and the call does not wait for the owner as a read or run of that
+    /// directory does. The job itself was gated when `proc.run` started it. The
+    /// conversation's directory is not made a root for it: that is the owner's
+    /// to decide.
+    fn own_job_outside_roots(&self, plan: &mut Plan) {
+        plan.resources.retain(|r| {
+            let at = theseus_tools::paths::canonical_best_effort(&r.path);
+            self.ctx
+                .roots
+                .iter()
+                .any(|root| theseus_tools::paths::within(&at, root))
+        });
     }
 
     /// A job tool's run, in its call's own task.

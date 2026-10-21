@@ -536,3 +536,43 @@ async fn a_stop_keeping_jobs_leaves_the_background_job_running() {
     );
     assert!(a.cancel.is_none(), "no cancel on the kept job");
 }
+
+/// theseus-zntlw: a session whose directory is outside the workspace roots is
+/// asked for every call (`proc.run` there waits, as a run outside the roots
+/// always does), but `job.read`, `job.wait` and `job.stop` of its own job read
+/// no file and start no program: they never ask.
+#[tokio::test]
+async fn a_sessions_own_job_tools_never_ask_outside_the_roots() {
+    let job = json!({"argv": ["sleep", "30"], "background": true});
+    let r = rig(
+        vec![
+            Scripted::tools("Starting it.", &[("t1", "proc_run", job)]),
+            Scripted::text("Started."),
+            Scripted::tools(
+                "Looking.",
+                &[
+                    ("t2", "job_read", json!({"job": "j1"})),
+                    ("t3", "job_wait", json!({"job": "j1", "timeout_secs": 1})),
+                    ("t4", "job_stop", json!({"job": "j1"})),
+                ],
+            ),
+            Scripted::text("Looked."),
+        ],
+        10,
+        |_| {},
+    );
+    let sid = r.turn(None, "start it").await.session_id;
+    // The conversation's directory is now outside the roots.
+    let outside = tempfile::tempdir().unwrap();
+    let mut rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    rec.dir = Some(outside.path().canonicalize().unwrap().display().to_string());
+    r.core.store.put_session(&sid, &rec).unwrap();
+    r.turn(Some(&sid), "look at it").await;
+    for id in ["t2", "t3", "t4"] {
+        let g = r.gate(&sid, id);
+        assert_eq!(g.result.gate, "allow", "{id}: {g:?}");
+    }
+    // And they ran: the wait answered, it was not declined.
+    let (status, text, _, _) = r.result(&sid, "t3");
+    assert_ne!(status, ResultStatus::Declined, "{text}");
+}
