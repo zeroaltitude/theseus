@@ -198,7 +198,6 @@ fn example_template_uncommented_still_parses() {
     // `watch` (f2r2b), project.attach (theseus-n5ui2), google.call (batvg.1), and gmail.* (five,
     // batvg.2), drive.* (four, batvg.3) and calendar.* (two, batvg.5).
     assert_eq!(cfg.policy.tools.len(), 71);
-    assert_eq!(cfg.policy.tools["drive.share"], Posture::Approve);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());

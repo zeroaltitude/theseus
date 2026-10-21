@@ -165,3 +165,23 @@ fn the_templates_google_section_uncommented_parses() {
         crate::policy::Posture::Notify
     );
 }
+
+/// The template's `drive.share` line says what the tool does: it asks
+/// (theseus-batvg.3; out of `example_template_uncommented_still_parses`,
+/// which is at clippy's line budget).
+#[test]
+fn the_templates_drive_share_line_asks() {
+    let line = Config::EXAMPLE_TOML
+        .lines()
+        .find(|l| l.contains("\"drive.share\" ="))
+        .unwrap();
+    let cfg = Config::from_toml(&format!(
+        "[policy.tools]\n{}\n",
+        line.trim_start_matches("# ")
+    ))
+    .unwrap();
+    assert_eq!(
+        cfg.policy.tools["drive.share"],
+        crate::policy::Posture::Approve
+    );
+}
