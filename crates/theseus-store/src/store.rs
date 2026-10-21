@@ -675,7 +675,9 @@ const BULK: usize = 4096;
 /// 47 = a range a split moved (theseus-q9b85): the node body `moved` (`Body::Moved`) that takes
 /// nodes out of its session's compile, the META records `thread.split.<id>` and `moved.of.<node>`,
 /// and the ledger kind `thread.unsplit`.
-const MANIFEST_FORMAT: u32 = 47;
+/// 48 = a session's data state (theseus-a1wvq.5): a SESSION record's `data`
+/// (opened, the open run, the taint), and the ledger kind `session.data`.
+const MANIFEST_FORMAT: u32 = 48;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

@@ -1613,6 +1613,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     restricted profile for the owner-material keys (`[people] extract_profile`, `[card] profile`, `[threads]
     import_profile`, `[judge.learn] writer_profile`, `[self] reviewer_profile`, `[initiative] profile`, `[ontology]
     name_profile`) and a China-origin `[judge] api_base`. Tests: `tests_data_floor.rs`, `config/data_floor.rs`.
+  - **A session's data state** (theseus-a1wvq.5; store format 48; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
+    `DataState { opened, run, taint }`, structure only: nothing opens a session or computes a run yet. Absent is the
+    private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.
+    The turn's write-back merges it (`DataState::merge`): a stored taint always wins, `opened` is never cleared, and the
+    turn's run is taken only while the stored one is still the run the turn read (a read copy remembers it, `Stored`):
+    compare and set. A task's record starts with none; a fork copies `opened` and `taint` and the run cut at the fork
+    point (`fork::data_through`). `session.data` rows (`opened_row`, `tainted_row`; their callers are later rows);
+    `turn.inspect`'s `data` line, for a private place. Tests: `tests_data_state.rs`, `tests_fork.rs`, `tests_layouts.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

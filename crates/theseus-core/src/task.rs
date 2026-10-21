@@ -618,6 +618,9 @@ pub fn create<'a>(
                 notify_done: i.notify_done,
             });
             let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
+            // A task never inherits its parent's open run: its brief is its
+            // only start (theseus-a1wvq.5).
+            rec.data = None;
             let mut records = match &parent_hold {
                 Some(h) => {
                     let taken = crate::external::taken(

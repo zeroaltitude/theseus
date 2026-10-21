@@ -266,6 +266,8 @@ mod tests_data_floor;
 #[cfg(test)]
 mod tests_data_gate;
 #[cfg(test)]
+mod tests_data_state;
+#[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_day_notify;

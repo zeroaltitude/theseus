@@ -314,6 +314,8 @@ facts![
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,
     data::DataGateBlocked<'static>,
+    data::SessionDataOpened,
+    data::SessionDataTainted<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,

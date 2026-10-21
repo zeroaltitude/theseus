@@ -124,6 +124,12 @@ pub struct SessionRecord {
     /// records written before it (store format 35).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// Its data state (theseus-a1wvq.5, `crate::data::DataState`): opened,
+    /// the open run, the taint. Absent reads as the private view with no
+    /// open run, as in every record written before it (store format 48).
+    /// A turn's write-back merges it (`DataState::merge`). Boxed, as `routed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Box<crate::data::DataState>>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -342,6 +348,7 @@ impl SessionRecord {
             dir: None,
             forked_from: None,
             project: None,
+            data: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -363,6 +370,7 @@ impl SessionRecord {
         self.execution_id.clone_from(&turn.execution_id);
         self.failing.clone_from(&turn.failing);
         self.routed.clone_from(&turn.routed);
+        self.data = crate::data::DataState::merge(self.data.take(), turn.data.as_deref());
         // A `turn.submit` that names another directory moves the session
         // there (theseus-aab7); no turn clears one.
         if turn.dir.is_some() {
