@@ -56,6 +56,8 @@ mod tests_task_owed;
 #[cfg(test)]
 mod tests_task_threads;
 #[cfg(test)]
+mod tests_task_watch;
+#[cfg(test)]
 mod tests_typing;
 #[cfg(test)]
 mod tests_war_room;

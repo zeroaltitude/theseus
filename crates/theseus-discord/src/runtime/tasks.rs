@@ -161,19 +161,20 @@ impl Tasks {
     }
 
     /// The watch's snapshot: the roots it carries are replaced whole (a view
-    /// of theirs that is not in it left the board), a root it no longer
-    /// carries loses its views that still looked active, and the position
-    /// rule holds for the rest. The sessions of the roots touched.
+    /// of theirs that is not in it left the board, unless it is over: the
+    /// snapshot carries no ended child, so its absence says nothing of one),
+    /// a root it no longer carries loses its views that still looked active,
+    /// and the position rule holds for the rest: a view newer than the
+    /// snapshot came by an event while the answer was on its way, and stays.
+    /// The sessions of the roots touched.
     pub fn snapshot(&self, r: WorkWatchResult) -> HashSet<String> {
         let mut m = self.model.lock().unwrap();
         let roots: HashSet<&str> = r.views.iter().map(|v| v.root.as_str()).collect();
         let mut touched: HashSet<String> = HashSet::new();
         m.views.retain(|_, v| {
-            let gone = if roots.contains(v.root.as_str()) {
-                !r.views.iter().any(|n| n.id == v.id)
-            } else {
-                !v.state.ended()
-            };
+            let gone = v.position <= r.position
+                && !v.state.ended()
+                && (!roots.contains(v.root.as_str()) || !r.views.iter().any(|n| n.id == v.id));
             if gone {
                 touched.insert(v.root.clone());
             }
@@ -642,7 +643,8 @@ fn home_of(shared: &Shared) -> Option<(String, String)> {
         .map(|s| (home, s))
 }
 
-async fn ask(shared: &Arc<Shared>) {
+/// Read the watch now: the roots the places have, as `work.watch` names them, and what the board holds.
+pub(super) async fn ask(shared: &Arc<Shared>) {
     shared.tasks.set_home(home_of(shared));
     let roots = Tasks::roots(shared);
     if roots.is_empty() {
@@ -940,6 +942,74 @@ mod tests {
             t.view("exe_x").is_none(),
             "an active view of a lost root is stale"
         );
+    }
+
+    /// The watch is subscribed before the board is read, so a frame can reach the model while the snapshot
+    /// is on its way: what the frame made is newer than the snapshot, which cannot have listed it
+    /// (theseus-hzdlf).
+    #[test]
+    fn a_snapshot_keeps_the_views_newer_than_itself() {
+        let t = Tasks::default();
+        t.changed(changed_of(
+            vec![
+                view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    1,
+                ),
+                // Born after the board was read for the snapshot below (position 10).
+                view("exe_a", WorkKind::Task, "exe_chat", WorkState::Running, 12),
+            ],
+            &[],
+        ));
+        t.snapshot(WorkWatchResult {
+            position: 10,
+            views: vec![view(
+                "exe_chat",
+                WorkKind::Conversation,
+                "exe_chat",
+                WorkState::Ready,
+                8,
+            )],
+            total: 1,
+            threads: vec![],
+        });
+        assert_eq!(t.view("exe_a").unwrap().state, WorkState::Running);
+    }
+
+    /// A snapshot carries no ended child, so it says nothing of an ended task the model holds: one that
+    /// began and ended while the snapshot was on its way is still told to its place (theseus-hzdlf).
+    #[test]
+    fn a_snapshot_keeps_an_ended_task_it_does_not_carry() {
+        let t = Tasks::default();
+        t.changed(changed_of(
+            vec![
+                view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    1,
+                ),
+                view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9),
+            ],
+            &[],
+        ));
+        t.snapshot(WorkWatchResult {
+            position: 10,
+            views: vec![view(
+                "exe_chat",
+                WorkKind::Conversation,
+                "exe_chat",
+                WorkState::Ready,
+                8,
+            )],
+            total: 1,
+            threads: vec![],
+        });
+        assert_eq!(t.view("exe_a").unwrap().state, WorkState::Done);
     }
 
     #[test]
