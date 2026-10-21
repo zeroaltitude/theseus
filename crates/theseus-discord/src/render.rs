@@ -78,6 +78,8 @@ pub enum Buttons {
     Again(String),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).
     Seal(String),
+    /// A proposed link's Link these threads and Not needed, for this pair (theseus-98bz.12).
+    Link(String, String),
     /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
     OntoUndo(String),
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.

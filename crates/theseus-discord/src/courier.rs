@@ -889,7 +889,7 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
             | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning"
-            | "onto_card" | "home_size" => self.jev_post(a, &body).await,
+            | "onto_card" | "home_size" | "link_card" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1434,6 +1434,15 @@ impl Lane {
                 format!("seal:{}", a.correlation_id),
                 Buttons::Seal(crate::runtime::seal_slug(body)),
             ),
+            // Jev's offer to link two threads (theseus-98bz.12): Link these threads, Not needed.
+            "link_card" => {
+                let (here, other) = crate::runtime::seal::link::pair_of(body);
+                (
+                    body["text"].as_str().unwrap_or("").to_string(),
+                    format!("link:{}", a.correlation_id),
+                    Buttons::Link(here, other),
+                )
+            }
             // What Theseus said first, in its persona's voice (theseus-slvl.9):
             // its key names the message, so a 👍 or 👎 on it finds it.
             "initiative" => (
@@ -1718,6 +1727,7 @@ impl Lane {
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
             Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
+            Buttons::Link(h, o) => crate::runtime::seal::link::buttons(h, o),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
@@ -1792,6 +1802,7 @@ impl Lane {
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
             Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
+            Buttons::Link(h, o) => Some(crate::runtime::seal::link::buttons(h, o)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
