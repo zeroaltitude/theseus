@@ -15,6 +15,13 @@
 //! `scoped`, the background steps' (keep-warm, the memory pass, learning, the
 //! people judge, cards, naming, replays, the census) by `bound`.
 //!
+//! The mark follows recalled nodes (theseus-39dj0): a request that recall
+//! fills with a node of a marked session holds private content, so the
+//! asking session is marked too ([`followed`]), at the one point recall's
+//! notes join a turn (`hold_node`, which every recall path of a turn and a
+//! compaction ends in), and on `memory.lookup`'s answer, a tool result that
+//! [`record`] marks.
+//!
 //! With no `[google]` nothing here reads the store.
 
 use std::sync::Arc;
@@ -121,6 +128,43 @@ pub fn any_node<S: AsRef<str>>(
                 Some((_, n)) => session(store, cfg, &n.session_id),
                 None => true,
             })
+}
+
+/// The first of `recalled` (node id, session id) whose session holds the
+/// mark, other than `asker`'s: the node that makes a request of `asker` hold
+/// private content (theseus-39dj0). Nothing is read with no `[google]`; an
+/// unreadable mark is a mark.
+pub fn recalled_from<'a>(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    asker: &str,
+    recalled: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<&'a str> {
+    if google.is_empty() {
+        return None;
+    }
+    recalled
+        .into_iter()
+        .find(|(_, s)| *s != asker && session_on(store, google, s))
+        .map(|(node, _)| node)
+}
+
+/// The META record that makes `asker` private because recall put into its
+/// request a node of a session that holds the mark (theseus-39dj0): the mark
+/// follows recalled nodes, so every later call of `asker` carries it. None
+/// with no `[google]` (nothing is read), when `asker` holds the mark already,
+/// or when no recalled node's session does.
+pub fn followed<'a>(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    asker: &str,
+    recalled: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<NewRecord> {
+    if google.is_empty() || session_on(store, google, asker) {
+        return None;
+    }
+    let node = recalled_from(store, google, asker, recalled)?;
+    NewRecord::json(kinds::META, Some(&meta_key(asker)), &node).ok()
 }
 
 /// The META record that makes `child` private because `parent` is: written in

@@ -66,8 +66,10 @@ impl TurnRunner {
     /// The session has read a Google result (the Google design, §4.1): all
     /// Workspace content is private, so the route skips every profile of
     /// any origin but the allowlist's from now on. Nothing is read without `[google]`.
+    /// A turn whose recall admitted a private session's note is private
+    /// from then on (theseus-39dj0), before its frame writes the mark.
     pub(super) fn private_session(&self, t: &Turn<'_>) -> bool {
-        crate::google::private::session(t.tc.store, &self.cfg, t.tc.session_id)
+        t.recall.private || crate::google::private::session(t.tc.store, &self.cfg, t.tc.session_id)
     }
 
     /// Whether `profile` may not be sent the sensitive names: its origin is
