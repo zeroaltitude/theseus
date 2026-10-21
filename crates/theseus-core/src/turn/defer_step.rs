@@ -36,7 +36,16 @@ impl TurnRunner {
     pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
         self.flows_in_scope(t, spec);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
-        spec.defer = self.deferral_in(t.tc.session_id, kind, spec, &t.route.ask);
+        // A detour sends the spec less its context, persona and files
+        // (`detour_spec`, which its compile takes too): a named family is
+        // counted on the request that goes out (theseus-3bs4e).
+        let sent = t
+            .route
+            .keeps
+            .is_some()
+            .then(|| super::detour_step::detour_spec(spec));
+        let counted = sent.as_ref().unwrap_or(&*spec);
+        spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), &t.route.ask);
     }
 
     /// A loaded flow's tool stays in the request only where the flow is
@@ -74,7 +83,7 @@ impl TurnRunner {
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
-        self.deferral_in(sid, self.place_kind(sid, task), spec, "")
+        self.deferral_in(sid, self.place_kind(sid, task), (spec, spec), "")
     }
 
     /// The same for a census: a fresh session's first request on a kind of place the daemon has no
@@ -87,19 +96,21 @@ impl TurnRunner {
         spec: &RequestSpec,
     ) -> Option<Deferral> {
         match fresh.and_then(PlaceKind::parse) {
-            Some(kind) => self.deferral_in(sid, kind, spec, ""),
+            Some(kind) => self.deferral_in(sid, kind, (spec, spec), ""),
             None => self.deferral(sid, task, spec),
         }
     }
 
     /// The fresh choice in a kind of place for a turn whose message said
     /// `ask`: where the model has no tool search, the families the message
-    /// names load too (`tools_defer::want`, theseus-jpjcd).
+    /// names load too (`tools_defer::want`, theseus-jpjcd). `(spec, counted)`
+    /// is the spec the families are chosen from and the request whose size
+    /// they are held to (a detour's is smaller).
     fn deferral_in(
         &self,
         sid: &str,
         kind: PlaceKind,
-        spec: &RequestSpec,
+        (spec, counted): (&RequestSpec, &RequestSpec),
         ask: &str,
     ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
@@ -125,7 +136,7 @@ impl TurnRunner {
             .catalog
             .get(&spec.model)
             .map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
-        let fit = Fit::of(kind, spec, rates, mechanism);
+        let fit = Fit::of(kind, counted, rates, mechanism);
         let offer = |extra: &BTreeSet<String>| {
             board
                 .select(
@@ -143,10 +154,8 @@ impl TurnRunner {
         };
         let mut loaded = offer(&extra);
         if mechanism == Mechanism::Find {
-            // A family the message names is counted on the tools alone, as before trim-tokens: counting the
-            // system too would leave a named family one `tools_find` away at the cli, a change waiting on the
-            // owner's word (theseus-rwpbg.3's join). The learned loads are held to the whole request (`fit`).
-            let wanted = tools_defer::want::extra(ask, kind, &spec.tools, &loaded, 0);
+            // A family the message names is held to the whole request, as the learned loads are (`fit`).
+            let wanted = tools_defer::want::extra(ask, &spec.tools, &loaded, &fit);
             if !wanted.is_empty() {
                 extra.extend(wanted);
                 loaded = offer(&extra);

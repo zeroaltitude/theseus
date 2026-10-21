@@ -6,8 +6,9 @@
 //! call it: asked for `aws_whoami` it answered that the tool was not loaded.
 //! A fallback the model ignores is no fallback, so for that mechanism the
 //! turn's own words decide: a hidden family whose tool the message names, or
-//! whose name it says, loads with the request, as far as the place's tool
-//! budget allows. The same matching `tools_find` does for the model, applied
+//! whose name it says, loads with the request, as far as the place's budget
+//! for the whole first request allows: the system, what deferring costs, the
+//! families already loaded and this one (`Fit`, theseus-3bs4e). The same matching `tools_find` does for the model, applied
 //! for it, once a turn (the loaded set still changes only where the
 //! conversation recompiles). A model with tool search never reaches this: its
 //! first request is as it was.
@@ -16,9 +17,10 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use super::family::{self, PlaceKind};
+use super::family;
 use super::find::tokens;
-use super::{resolve, tools_bytes, Deferral, HiddenTool, Mechanism};
+use super::fit::Fit;
+use super::HiddenTool;
 
 /// How much of a message is read for the names of tools.
 pub const ASK_CHARS: usize = 4000;
@@ -70,16 +72,18 @@ pub fn named(ask: &str, hidden: &[HiddenTool]) -> Vec<String> {
 }
 
 /// The families to add to `loaded` for a message: those it names that are
-/// hidden and hideable, best first, each kept only while the system (`system`
-/// tokens) and the request's tools stay within the place kind's budget (the
-/// tools estimated as the request does, bytes at 2.4 to the token). Nothing
-/// when `ask` names nothing, or the request already exceeds the budget.
+/// hidden and hideable, best first, each kept only while the whole first
+/// request stays within the place kind's budget: `fit`'s system, what
+/// deferring costs, the families already loaded and the ones kept so far,
+/// and this one. A family that does not fit is skipped and a smaller one
+/// after it is still tried, so the set kept is the best-ranked set that fits.
+/// Nothing when `ask` names nothing, or the request already exceeds the
+/// budget.
 pub fn extra(
     ask: &str,
-    kind: PlaceKind,
     catalog: &[Value],
     loaded: &BTreeSet<String>,
-    system: u64,
+    fit: &Fit,
 ) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     if ask.trim().is_empty() {
@@ -89,17 +93,10 @@ pub fn extra(
         .into_iter()
         .filter(|h| family::hideable(&h.family) && !loaded.contains(&h.family))
         .collect();
-    let budget = kind.tools_budget_tokens().saturating_sub(system);
     let mut now = loaded.clone();
     for fam in named(ask, &hidden) {
         now.insert(fam.clone());
-        let d = Deferral {
-            mechanism: Mechanism::Find,
-            loaded: now.clone(),
-            resolved: false,
-            added: Default::default(),
-        };
-        if tools_bytes(&resolve(catalog, &d)) * 10 / 24 <= budget {
+        if fit.total(&now) <= fit.budget {
             out.insert(fam);
         } else {
             now.remove(&fam);
@@ -111,6 +108,7 @@ pub fn extra(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools_defer::PlaceKind;
     use serde_json::json;
 
     fn h(wire: &str) -> HiddenTool {
@@ -191,6 +189,24 @@ mod tests {
         json!({"name": name, "description": "x".repeat(pad), "input_schema": {"type": "object"}})
     }
 
+    /// The fit of a request whose tools are `catalog`, at the request's own figures (2.4 bytes to the
+    /// token), beside a system of `system` tokens.
+    fn fit_of(kind: PlaceKind, catalog: &[Value], system: u64) -> Fit {
+        let mut cost = std::collections::BTreeMap::new();
+        for t in catalog {
+            let bytes = serde_json::to_string(t).unwrap().len() as u64;
+            *cost
+                .entry(family::of_wire(t["name"].as_str().unwrap()))
+                .or_default() += (bytes * 10).div_ceil(24);
+        }
+        Fit {
+            budget: kind.tools_budget_tokens(),
+            system,
+            held: 0,
+            cost,
+        }
+    }
+
     #[test]
     fn a_family_that_would_pass_the_places_budget_is_not_added() {
         // The aws tool is about 25 KB, over 8,000 tokens (19 KB) with the rest,
@@ -198,17 +214,16 @@ mod tests {
         let catalog = vec![def("fs_read", 100), def("aws_call", 25_000)];
         let loaded: BTreeSet<String> = ["files".to_string()].into();
         let ask = "who am I on aws";
-        assert!(extra(ask, PlaceKind::Cli, &catalog, &loaded, 0).is_empty());
-        assert!(extra(ask, PlaceKind::Task, &catalog, &loaded, 0).is_empty());
-        assert_eq!(
-            extra(ask, PlaceKind::Dm, &catalog, &loaded, 0),
-            ["aws".to_string()].into()
-        );
+        let at = |kind| extra(ask, &catalog, &loaded, &fit_of(kind, &catalog, 0));
+        assert!(at(PlaceKind::Cli).is_empty());
+        assert!(at(PlaceKind::Task).is_empty());
+        assert_eq!(at(PlaceKind::Dm), ["aws".to_string()].into());
         // A small one fits anywhere, and an already loaded family adds nothing.
         let small = vec![def("fs_read", 100), def("aws_call", 500)];
-        assert_eq!(extra(ask, PlaceKind::Cli, &small, &loaded, 0).len(), 1);
+        let fit = fit_of(PlaceKind::Cli, &small, 0);
+        assert_eq!(extra(ask, &small, &loaded, &fit).len(), 1);
         let both: BTreeSet<String> = ["files".to_string(), "aws".to_string()].into();
-        assert!(extra(ask, PlaceKind::Cli, &small, &both, 0).is_empty());
+        assert!(extra(ask, &small, &both, &fit).is_empty());
     }
 
     /// The budget is the whole request's: the system's tokens come off it before the tools are counted.
@@ -218,7 +233,44 @@ mod tests {
         let catalog = vec![def("fs_read", 100), def("aws_call", 17_300)];
         let loaded: BTreeSet<String> = ["files".to_string()].into();
         let ask = "who am I on aws";
-        assert_eq!(extra(ask, PlaceKind::Cli, &catalog, &loaded, 0).len(), 1);
-        assert!(extra(ask, PlaceKind::Cli, &catalog, &loaded, 1_300).is_empty());
+        let at = |system| {
+            extra(
+                ask,
+                &catalog,
+                &loaded,
+                &fit_of(PlaceKind::Cli, &catalog, system),
+            )
+        };
+        assert_eq!(at(0).len(), 1);
+        assert!(at(1_300).is_empty());
+    }
+
+    /// theseus-3bs4e: the budget is the whole first request's. A family whose tools fit the budget alone
+    /// is not added beside the system and the families already loaded; a smaller named one that still
+    /// fits is, whatever its rank.
+    #[test]
+    fn a_named_family_is_counted_on_the_whole_request() {
+        // The aws family is about 7,250 tokens and the terminals' about 410; `files` is loaded (100).
+        let catalog = vec![
+            def("fs_read", 100),
+            def("aws_call", 17_300),
+            def("term_open", 900),
+        ];
+        let loaded: BTreeSet<String> = ["files".to_string()].into();
+        let ask = "who am I on aws, and open a terminal";
+        // With no system, both fit the cli's 8,000.
+        let alone = fit_of(PlaceKind::Cli, &catalog, 0);
+        let both = ["aws".to_string(), "terminals".to_string()].into();
+        assert_eq!(extra(ask, &catalog, &loaded, &alone), both);
+        // The tools alone fit; beside a 1,300-token system the best-ranked family does not, so it is
+        // skipped and the smaller one is tried and kept.
+        let beside = fit_of(PlaceKind::Cli, &catalog, 1_300);
+        assert_eq!(
+            extra(ask, &catalog, &loaded, &beside),
+            ["terminals".to_string()].into()
+        );
+        // With a system that leaves room for neither, nothing is added.
+        let full = fit_of(PlaceKind::Cli, &catalog, 7_800);
+        assert!(extra(ask, &catalog, &loaded, &full).is_empty());
     }
 }

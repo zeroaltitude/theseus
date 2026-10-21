@@ -76,11 +76,16 @@ impl Fit {
         self.cost.get(family).copied().unwrap_or(0)
     }
 
+    /// The whole first request when `families` are loaded: its system, what
+    /// deferring costs, and their tools.
+    pub fn total<'a>(&self, families: impl IntoIterator<Item = &'a String>) -> u64 {
+        self.system + self.held + families.into_iter().map(|f| self.tokens(f)).sum::<u64>()
+    }
+
     /// Demote the learned families of `sel` until what it loads fits: the
     /// largest first, the least used of equals.
     pub fn demote(&self, sel: &mut Selection) {
-        let mut total =
-            self.system + self.held + sel.loaded().iter().map(|f| self.tokens(f)).sum::<u64>();
+        let mut total = self.total(&sel.loaded());
         while total > self.budget {
             let next = sel
                 .families

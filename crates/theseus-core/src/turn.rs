@@ -74,6 +74,7 @@ mod cut_step;
 mod data_step;
 mod defer_step;
 mod deferred_step;
+mod detour_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;

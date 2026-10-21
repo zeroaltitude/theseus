@@ -89,6 +89,7 @@ ledger_kinds! {
     ConfigInvalid = "config.invalid",
     ConfigUnreachable = "config.unreachable",
     ContextCompiled = "context.compiled",
+    ContextDetoured = "context.detoured",
     ContextCompacted = "context.compacted",
     ContextCleared = "context.cleared",
     ContextFileMissing = "context.file_missing",

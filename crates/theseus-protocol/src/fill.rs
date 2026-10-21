@@ -105,6 +105,9 @@ pub fn context_short(x: &ContextExplainResult) -> Vec<String> {
         Some(w) => format!("{} of {} tokens ({})", num(total), num(w), pct(total, w)),
         None => format!("{} tokens (the model's window is not known)", num(total)),
     }];
+    // A detour's request is its own (theseus-r5ydi): its parts are the ones its row names.
+    let detour = x.detour.as_ref();
+    out.extend(detour.map(crate::why::detour_words));
     let recalled = x.parts.iter().filter(|p| p.block == "recall").count();
     let tools = tool_count(&x.parts).map_or(String::new(), |n| format!(" ({n})"));
     let messages = x
@@ -115,7 +118,10 @@ pub fn context_short(x: &ContextExplainResult) -> Vec<String> {
         .map_or(String::new(), |m| format!(" ({m} messages)"));
     out.push(row(
         "system and persona",
-        tokens_of(&x.parts, &["header", "guidance"]),
+        tokens_of(
+            &x.parts,
+            &["header", "guidance", "session", "persona", "standing"],
+        ),
         window,
     ));
     out.push(row(
@@ -135,9 +141,16 @@ pub fn context_short(x: &ContextExplainResult) -> Vec<String> {
     ));
     out.push(row(
         &format!("conversation{messages}"),
-        tokens_of(&x.parts, &["conversation"]),
+        tokens_of(&x.parts, &["conversation", "exchanges", "message"]),
         window,
     ));
+    if detour.is_some() {
+        out.push(row(
+            "project slice",
+            tokens_of(&x.parts, &["project"]),
+            window,
+        ));
+    }
     if let Some(w) = window {
         out.push(row("free space", w.saturating_sub(total), Some(w)));
     }

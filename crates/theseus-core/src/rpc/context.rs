@@ -21,7 +21,8 @@ use std::time::Instant;
 use anyhow::{anyhow, bail, Result};
 use serde_json::Value;
 use theseus_protocol::context::{
-    ContextExplainParams, ContextExplainResult, ContextPart, ContextSource, ContextTurn,
+    ContextDetour, ContextDetoured, ContextExplainParams, ContextExplainResult, ContextPart,
+    ContextSource, ContextTurn,
 };
 use theseus_protocol::memory::RecallManifest;
 use theseus_protocol::{error_code, CompilationInfo, ContextCompiled, LedgerKind, PlaceClass};
@@ -101,18 +102,31 @@ impl Core {
         }
         out.class = self.runner.view_of(sid).class.as_str().to_string();
         out.place = self.runner.place_name(sid);
-        let compiles = self.compiles_of(sid)?;
-        out.turns = turns_of(&compiles);
+        let compiles = self.rows_of::<ContextCompiled>(sid, LedgerKind::ContextCompiled)?;
+        let detours = self.rows_of::<ContextDetoured>(sid, LedgerKind::ContextDetoured)?;
+        out.turns = turns_of(&compiles, &detours);
         let turn = p
             .turn_id
             .clone()
             .or_else(|| out.turns.first().map(|t| t.turn_id.clone()));
         let compiled = turn
             .as_deref()
-            .and_then(|t| compiles.iter().rev().find(|(_, c)| c.turn_id == t))
-            .map(|(_, c)| c.clone());
-        if let (Some(t), None) = (&p.turn_id, &compiled) {
+            .and_then(|t| compiles.iter().rev().find(|(_, _, c)| c.turn_id == t))
+            .map(|(_, _, c)| c.clone());
+        // A detoured turn compiled nothing that was stored: its request is
+        // the row its last loop wrote (theseus-r5ydi).
+        let detoured = turn
+            .as_deref()
+            .filter(|_| compiled.is_none())
+            .and_then(|t| detours.iter().rev().find(|(_, _, d)| d.turn_id == t))
+            .map(|(_, _, d)| d.clone());
+        if let (Some(t), None, None) = (&p.turn_id, &compiled, &detoured) {
             bail!("{sid} has no compile of turn {t} among its newest {COMPILES}");
+        }
+        if let Some(d) = detoured {
+            self.detour_of(&mut out, d, private)?;
+            out.ms = t0.elapsed().as_secs_f64() * 1e3;
+            return Ok(out);
         }
         let compilation = match compiled
             .as_ref()
@@ -204,15 +218,17 @@ impl Core {
         }
     }
 
-    /// The session's newest `context.compiled` rows, oldest first, through
-    /// the store's index (none while its shape is built).
-    fn compiles_of(&self, sid: &str) -> Result<Vec<(u64, ContextCompiled)>> {
+    /// The session's newest rows of `kind` (`context.compiled` or
+    /// `context.detoured`) as `T`, with their positions and times, oldest
+    /// first, through the store's index (none while its shape is built).
+    fn rows_of<T: serde::de::DeserializeOwned>(
+        &self,
+        sid: &str,
+        kind: LedgerKind,
+    ) -> Result<Vec<(u64, u64, T)>> {
         let page = Page {
             kind: kinds::LEDGER,
-            tags: vec![ledger_kind_session(
-                LedgerKind::ContextCompiled.as_str(),
-                sid,
-            )],
+            tags: vec![ledger_kind_session(kind.as_str(), sid)],
             limit: COMPILES,
             ..Page::default()
         };
@@ -222,11 +238,43 @@ impl Core {
         let mut out = Vec::with_capacity(got.records.len());
         for r in &got.records {
             let row: LedgerRow = r.decode()?;
-            if let Ok(c) = serde_json::from_value::<ContextCompiled>(row.data) {
-                out.push((row.at_unix_ms, c));
+            if let Ok(c) = serde_json::from_value::<T>(row.data) {
+                out.push((r.position, row.at_unix_ms, c));
             }
         }
         Ok(out)
+    }
+
+    /// A detoured turn's answer into `out`: the profile and model it ran on
+    /// (its own, not the session's), and the parts its request had.
+    fn detour_of(
+        &self,
+        out: &mut ContextExplainResult,
+        d: ContextDetoured,
+        private: bool,
+    ) -> Result<()> {
+        out.turn_id = Some(d.turn_id.clone());
+        out.window = self.catalog.get(&d.model).map(|e| e.context_window);
+        out.parts = d
+            .parts
+            .iter()
+            .map(|p| ContextPart {
+                block: p.block.clone(),
+                name: p.name.clone(),
+                tokens: p.tokens,
+                ..ContextPart::default()
+            })
+            .collect();
+        out.recalls = self.turn_recalls(&d.session_id, &d.turn_id, private)?;
+        out.noted = self.noted_times(&out.recalls);
+        out.sources = self.sources_of(out, private);
+        out.detour = Some(ContextDetour {
+            kind: d.kind,
+            profile: d.profile.clone(),
+            model: d.model.clone(),
+        });
+        (out.profile, out.model) = (d.profile, d.model);
+        Ok(())
     }
 
     /// The recall in front of the model for the turn: the Recall nodes it
@@ -423,6 +471,7 @@ fn blank(sid: &str, rec: &SessionRecord, private: bool) -> ContextExplainResult 
         turn_id: None,
         compiled: None,
         compilation: None,
+        detour: None,
         profile: String::new(),
         model: String::new(),
         window: None,
@@ -579,26 +628,51 @@ fn tools_part(
     }
 }
 
-/// The turns of `compiles` (oldest first), newest first: each turn's first
-/// compile's time, its loops, and its last loop's estimate.
-pub(crate) fn turns_of(compiles: &[(u64, ContextCompiled)]) -> Vec<ContextTurn> {
+/// The turns of `compiles` and `detours` (a detour's turn compiled nothing
+/// that was stored), by the position of each row, newest first: each turn's
+/// first row's time, its loops, and its last loop's estimate.
+pub(crate) fn turns_of(
+    compiles: &[(u64, u64, ContextCompiled)],
+    detours: &[(u64, u64, ContextDetoured)],
+) -> Vec<ContextTurn> {
+    // (position, time, turn, estimate, compilation, detoured)
+    let mut rows: Vec<(u64, u64, &str, u64, &str, bool)> = compiles
+        .iter()
+        .map(|(p, at, c)| {
+            (
+                *p,
+                *at,
+                c.turn_id.as_str(),
+                c.est_tokens,
+                c.compilation_id.as_str(),
+                false,
+            )
+        })
+        .chain(
+            detours
+                .iter()
+                .map(|(p, at, d)| (*p, *at, d.turn_id.as_str(), d.est_tokens, "", true)),
+        )
+        .collect();
+    rows.sort_by_key(|r| r.0);
     let mut order: Vec<String> = Vec::new();
     let mut by: BTreeMap<String, ContextTurn> = BTreeMap::new();
-    for (at, c) in compiles {
-        if c.turn_id.is_empty() {
+    for (_, at, turn, est, compilation, detoured) in rows {
+        if turn.is_empty() {
             continue;
         }
-        let t = by.entry(c.turn_id.clone()).or_insert_with(|| {
-            order.push(c.turn_id.clone());
+        let t = by.entry(turn.to_string()).or_insert_with(|| {
+            order.push(turn.to_string());
             ContextTurn {
-                turn_id: c.turn_id.clone(),
-                at_ms: *at,
+                turn_id: turn.to_string(),
+                at_ms: at,
+                detoured,
                 ..ContextTurn::default()
             }
         });
         t.loops += 1;
-        t.est_tokens = c.est_tokens;
-        t.compilation_id = c.compilation_id.clone();
+        t.est_tokens = est;
+        t.compilation_id = compilation.to_string();
     }
     order
         .iter()

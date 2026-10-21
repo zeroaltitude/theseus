@@ -206,3 +206,67 @@ fn a_parts_long_note_is_clipped_to_one_line_of_it() {
         .unwrap();
     assert!(line.ends_with("…") && line.chars().count() < 160, "{line}");
 }
+
+/// A detoured turn (theseus-r5ydi): no compile, so the parts are the ones its
+/// `context.detoured` row named, and the answer says what it left out.
+fn detour_explain() -> ContextExplainResult {
+    serde_json::from_value(json!({
+        "session_id": "ses_reef42", "title": "the harbour survey", "kind": "conversation",
+        "class": "private", "place": "CLI",
+        "turns": [{"turn_id": "trn_k3m9x2", "at_ms": 1, "loops": 1, "est_tokens": 7300,
+                   "compilation_id": "", "detoured": true}],
+        "turn_id": "trn_k3m9x2",
+        "detour": {"kind": "quick", "profile": "haiku", "model": "claude-haiku-5-5"},
+        "profile": "haiku", "model": "claude-haiku-5-5", "window": 200000,
+        "parts": [
+            {"block": "header", "name": "the profile's header and the standing records", "bytes": 0, "tokens": 720},
+            {"block": "session", "name": "the session's directory", "bytes": 0, "tokens": 15},
+            {"block": "tools", "name": "17 tools", "bytes": 0, "tokens": 6400},
+            {"block": "exchanges", "name": "2 earlier exchanges", "bytes": 0, "tokens": 90},
+            {"block": "message", "name": "the message", "bytes": 0, "tokens": 24},
+            {"block": "project", "name": "the project's slice", "bytes": 0, "tokens": 120}],
+        "digest_now": "", "recalls": [], "sources": {}, "ms": 1.0
+    }))
+    .unwrap()
+}
+
+fn detour_route() -> Value {
+    json!({"mode": "quick", "reason": "detour", "detour": true, "from": "sonnet", "profile": "haiku"})
+}
+
+#[test]
+fn a_detoured_turn_says_it_detoured_and_what_it_left_out() {
+    let (x, r) = (detour_explain(), detour_route());
+    let got = why_lines(&WhyInput {
+        explain: &x,
+        policy: None,
+        route: Some(&r),
+        tools: &[],
+        hide_sources: false,
+    })
+    .join("\n")
+        + "\n";
+    assert!(
+        !got.contains("no turn of this session has compiled"),
+        "{got}"
+    );
+    golden("detour", &got);
+    // The context's short form is the same parts against the window.
+    let short = theseus_protocol::fill::context_short(&x).join("\n") + "\n";
+    golden("detour_context", &short);
+    // A trivial detour also names its own recall among what it left out.
+    let mut trivial = detour_explain();
+    trivial.detour.as_mut().unwrap().kind = "trivial".into();
+    let lines = why_lines(&WhyInput {
+        explain: &trivial,
+        policy: None,
+        route: None,
+        tools: &[],
+        hide_sources: false,
+    })
+    .join("\n");
+    assert!(
+        lines.contains("this turn's own recall: a trivial detour carries none"),
+        "{lines}"
+    );
+}

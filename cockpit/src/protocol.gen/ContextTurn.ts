@@ -11,4 +11,8 @@ at_ms: number, loops: number,
 /**
  * Its last loop's estimate.
  */
-est_tokens: number, compilation_id: string, };
+est_tokens: number, compilation_id: string, 
+/**
+ * The turn detoured (`context.detoured`): it compiled no context.
+ */
+detoured?: boolean, };
