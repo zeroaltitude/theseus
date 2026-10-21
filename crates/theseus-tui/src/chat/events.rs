@@ -117,7 +117,7 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Welcome => self.welcome_said(v),
-            Purpose::Watch | Purpose::Answer | Purpose::Typing => Vec::new(),
+            Purpose::Watch | Purpose::Answer | Purpose::Route | Purpose::Typing => Vec::new(),
             p @ (Purpose::ListTask { .. }
             | Purpose::TaskAnswer { .. }
             | Purpose::Cancel(_)
@@ -137,6 +137,10 @@ impl Chat {
         match purpose {
             // An older daemon has no digest, and the chat says nothing of it.
             Purpose::Typing | Purpose::Welcome => Vec::new(),
+            Purpose::Route => {
+                self.thread_answer_refused(&e.message);
+                Vec::new()
+            }
             Purpose::Health => {
                 self.banner_ready();
                 Vec::new()
@@ -172,6 +176,7 @@ impl Chat {
             Purpose::Submit => {
                 self.live.turn = None;
                 self.released = false;
+                self.thread_ask_over();
                 self.say_words(Sty::Red, &format!("✗ not sent: {}", e.message));
                 Vec::new()
             }
@@ -386,7 +391,7 @@ impl Chat {
 
     // ---------------------------------------------------------- events
 
-    fn ours(&self, session_id: &str) -> bool {
+    pub(super) fn ours(&self, session_id: &str) -> bool {
         self.session.as_deref() == Some(session_id)
     }
 
@@ -415,6 +420,7 @@ impl Chat {
                 }
                 self.mine.insert(t.turn_id.clone());
                 self.released = false;
+                self.thread_ask_over();
                 if t.execution_id.is_some() {
                     self.execution = t.execution_id.clone();
                 }
@@ -444,6 +450,7 @@ impl Chat {
             Event::ToolStarted(t) if self.ours(&t.session_id) => self.tool_started(&t),
             Event::ToolEnded(t) if self.ours(&t.session_id) => self.tool_ended(&t),
             Event::ConfirmRequested(c) if self.ours(&c.session_id) => self.ask(c),
+            Event::ThreadAsked(a) => self.thread_asked(a),
             // The mode or the plan moved (theseus-lyxy): the status line
             // follows, and the checklist goes into the transcript.
             Event::SessionMode(m) if self.ours(&m.session_id) => self.moded(&m),

@@ -42,6 +42,7 @@ mod task_new;
 mod task_picker;
 mod task_view;
 mod tasks;
+mod thread_ask;
 mod usage;
 mod welcome;
 
@@ -61,6 +62,8 @@ mod tests_task_new;
 mod tests_task_view;
 #[cfg(test)]
 mod tests_tasks;
+#[cfg(test)]
+mod tests_thread_ask;
 #[cfg(test)]
 mod tests_usage;
 #[cfg(test)]
