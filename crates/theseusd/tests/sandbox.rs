@@ -736,27 +736,33 @@ fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
 fn an_l1_jobs_own_pkill_f_does_not_kill_it_and_a_line_keeps_its_semantics() {
     let r = Rig::start(|_| {});
     let n = format!("{:06}", std::process::id() % 1_000_000);
-    let line = |s: &str, rest: &[&str]| {
+    // One call a turn: a response's calls run at once, and the history lists
+    // their results in the order they finished, not the order they were asked.
+    let mut k = 0;
+    let mut line = |s: &str, rest: &[&str]| {
         let mut argv = vec!["bash", "-c", s];
         argv.extend(rest);
-        ("proc_run", json!({"argv": argv, "sandbox": true}))
+        k += 1;
+        let mut out = r.turn(
+            &format!("line {k} in L1"),
+            vec![("proc_run", json!({"argv": argv, "sandbox": true}))],
+        );
+        assert_eq!(out.len(), 1, "{out:?}");
+        out.remove(0)
     };
-    let out = r.turn(
-        "lines in L1",
-        vec![
-            line(
-                &format!("sleep 30.{n} & pkill -f 'sleep 30.{n}'; wait; echo survived"),
-                &[],
-            ),
-            line("exit 3", &[]),
-            line("set -e; false; echo not-reached", &[]),
-            line("cat <<EOF\nhello $0 $1\nEOF", &["name", "x"]),
-            line(
-                "env | grep -c THESEUS_JOB_LINE; echo \"${THESEUS_JOB_LINE-unset}\"",
-                &[],
-            ),
-        ],
-    );
+    let out = [
+        line(
+            &format!("sleep 30.{n} & pkill -f 'sleep 30.{n}'; wait; echo survived"),
+            &[],
+        ),
+        line("exit 3", &[]),
+        line("set -e; false; echo not-reached", &[]),
+        line("cat <<EOF\nhello $0 $1\nEOF", &["name", "x"]),
+        line(
+            "env | grep -c THESEUS_JOB_LINE; echo \"${THESEUS_JOB_LINE-unset}\"",
+            &[],
+        ),
+    ];
     assert!(
         out[0].contains("[exit code 0 ·") && out[0].contains("survived"),
         "{}",
