@@ -336,7 +336,7 @@ impl TurnRunner {
                         short_cost: entry.map(routing::short_cost),
                         input_per_mtok: entry.map(|e| e.input_per_mtok),
                         vision: entry.is_some_and(|e| e.vision),
-                        restricted: false, // set from the origin at the cn-floor join (theseus-a1wvq.4)
+                        restricted: self.restricted_profile(name),
                     },
                 )
             })
@@ -1011,6 +1011,25 @@ pub fn detour_start(nodes: &[(u64, crate::stub::Stub)], turns: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each routing profile carries its model's origin, so routing's own gate
+    /// keeps a restricted one off an uncleared ask even where the floor lets
+    /// it be usable (theseus-a1wvq.4 at the floor's join).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn route_profiles_carry_each_profiles_origin() {
+        let r = crate::tests_route::rig(None, 1, crate::tests_route::restricted_placements);
+        let cleared = super::super::data_step::Floor {
+            sensitive: false,
+            cleared: true,
+        };
+        let ps = r.core.runner.route_profiles(cleared);
+        assert_eq!(
+            ps["glm"].unusable, None,
+            "the floor lets a cleared turn use it"
+        );
+        assert!(ps["glm"].restricted, "GLM is of restricted origin");
+        assert!(!ps["sonnet"].restricted, "Claude is not");
+    }
 
     fn v(mode: &str) -> Verdict {
         Verdict {

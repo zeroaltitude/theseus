@@ -80,7 +80,7 @@ impl TurnRunner {
 
     /// Whether `profile`'s model is of restricted origin (a profile that does
     /// not resolve is).
-    fn restricted_profile(&self, profile: &str) -> bool {
+    pub(super) fn restricted_profile(&self, profile: &str) -> bool {
         self.cfg.profile_origin(profile, &self.catalog).restricted()
     }
 
