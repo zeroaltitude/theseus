@@ -33,6 +33,10 @@ use crate::rpc::Core;
 pub struct Swept {
     pub decayed: u64,
     pub merged: u64,
+    /// The kinds minted from `other` answers, and the clusters that did not
+    /// (a name no kind can take, or one the table holds).
+    pub kinds: u64,
+    pub refused: u64,
     pub failed: u64,
     pub writes: Vec<String>,
 }
@@ -73,6 +77,8 @@ impl Core {
                         Ok(s) => tracing::info!(
                             decayed = s.decayed,
                             merged = s.merged,
+                            kinds = s.kinds,
+                            refused = s.refused,
                             failed = s.failed,
                             "ontology: the sweep ran"
                         ),
@@ -91,7 +97,9 @@ impl Core {
     pub fn onto_sweep(&self, now_ms: u64) -> anyhow::Result<Swept> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let mut out = Swept::default();
-        for (n, step) in o.sweep_plan(now_ms).into_iter().enumerate() {
+        let steps = o.sweep_plan(now_ms);
+        let first = steps.len();
+        for (n, step) in steps.into_iter().enumerate() {
             let write = format!("sweep-{now_ms}-{n}-{}", step.word());
             match self.ontology_machine_write(Origin::Sweep, &write, step.records().to_vec()) {
                 Ok(()) => {
@@ -107,6 +115,7 @@ impl Core {
                 }
             }
         }
+        self.onto_mint(now_ms, first, &mut out)?;
         Ok(out)
     }
 }

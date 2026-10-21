@@ -39,6 +39,7 @@ use crate::rpc::Core;
 
 pub mod decide;
 pub mod mark;
+pub mod mint;
 mod name;
 pub(crate) mod stage;
 pub mod sweep;

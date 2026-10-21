@@ -359,6 +359,8 @@ mod tests_onto;
 #[cfg(test)]
 mod tests_onto_mark;
 #[cfg(test)]
+mod tests_onto_mint;
+#[cfg(test)]
 mod tests_onto_other;
 #[cfg(test)]
 mod tests_onto_sweep;
