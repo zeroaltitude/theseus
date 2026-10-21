@@ -111,6 +111,36 @@ pub(super) struct RouteState {
     pub(super) brief: bool,
 }
 
+/// Where an effort is decided: the session (its base profile), whether the
+/// verdict acts, and whether it is a checkpoint's, whose raise the sticky rule
+/// does not hold (theseus-53ujg.3).
+#[derive(Clone, Copy)]
+pub(super) struct EffortAt<'s> {
+    session: &'s SessionRecord,
+    acts: bool,
+    checkpoint: bool,
+}
+
+impl<'s> EffortAt<'s> {
+    /// The inbound point's: `acts` when the turn reads a live verdict.
+    pub(super) fn inbound(session: &'s SessionRecord, acts: bool) -> Self {
+        Self {
+            session,
+            acts,
+            checkpoint: false,
+        }
+    }
+
+    /// A checkpoint's, which acts.
+    pub(super) fn checkpoint(session: &'s SessionRecord) -> Self {
+        Self {
+            session,
+            acts: true,
+            checkpoint: true,
+        }
+    }
+}
+
 impl RouteState {
     /// Routing has the turn's route to decide: the inbound point asked
     /// `route.v1`, and the first compile has not read its verdict yet.
@@ -402,14 +432,15 @@ impl TurnRunner {
 
     /// The effort rule for the profile the turn moves to (or its own), from
     /// route.v3's answer: none when the verdict has none (route.v1 and v2
-    /// ask no effort). `acts` when the turn reads a live verdict.
+    /// ask no effort). A profile other than the session's base runs at no
+    /// less than its own effort (theseus-53ujg.3).
     pub(super) fn route_effort(
         &self,
         t: &Turn<'_>,
         v: &Verdict,
         d: Option<&Decision>,
         (spec, tokens): (&RequestSpec, u64),
-        acts: bool,
+        at: EffortAt<'_>,
     ) -> Option<EffortDecision> {
         let answer = v.effort.as_ref()?;
         let profiles = self.cfg.all_profiles();
@@ -422,6 +453,7 @@ impl TurnRunner {
             own,
             fixed: profiles.get(name).is_some_and(|p| p.effort_fixed),
             takes: self.catalog.get(model).is_some_and(|e| e.effort),
+            floor: own.filter(|_| name != Self::effort_base(at.session, t)),
         };
         let carried = v.turn != t.tc.turn_id;
         let r = &self.cfg.routing;
@@ -431,10 +463,20 @@ impl TurnRunner {
             r.high_effort_confidence,
             answer,
             runs,
-            acts,
+            at.acts,
             carried,
         );
-        Some(self.stick(t, spec, decided, model, tokens))
+        Some(self.stick(t, spec, decided, model, tokens, at.checkpoint))
+    }
+
+    /// The profile the session runs on when routing has not moved it: where
+    /// a move started (`Routed.from`), else the turn's own.
+    fn effort_base<'s>(session: &'s SessionRecord, t: &'s Turn<'_>) -> &'s str {
+        session
+            .routed
+            .as_ref()
+            .and_then(|r| r.from.as_deref())
+            .unwrap_or(&t.target.profile)
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
@@ -496,9 +538,9 @@ impl TurnRunner {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
+        let at = EffortAt::inbound(session, reason.is_none());
         t.route.effort = verdict.as_ref().and_then(|v| {
-            let spent = (&*spec, compiled.est_tokens);
-            self.route_effort(t, v, decision.as_ref(), spent, reason.is_none())
+            self.route_effort(t, v, decision.as_ref(), (&*spec, compiled.est_tokens), at)
         });
         self.verdict_asides(t, verdict.as_ref());
         Self::record_route(

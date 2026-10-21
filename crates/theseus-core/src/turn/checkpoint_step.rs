@@ -24,11 +24,22 @@
 //! - **Never waited on**: one checkpoint in flight at a time, the answer read
 //!   with `try_recv`; a flight a window old is dropped, so a late answer is
 //!   never applied after the next ask.
+//! - **Effort without a move** (theseus-53ujg.3): a verdict that keeps the
+//!   profile and asks more effort than the turn runs at raises it, by the
+//!   rule a move's effort takes (`route_effort`: the bounds, the confirm bar,
+//!   the 0.70 gate for `xhigh` and `max`), on the spec for the loop about to
+//!   run, with no slot. The sticky rule never holds a checkpoint's raise: the
+//!   work's evidence is what it waits for, so the top-level effort changes
+//!   and the messages' cache is written once. A model that takes per-message
+//!   effort cannot be given a level mid-turn: there the row says not applied
+//!   and nothing changes. A checkpoint never lowers a turn's effort.
 //! - **Its cost** is the task's (`Kernel::charge_execution`, from the judge
 //!   when the call settles); a task whose budget cannot cover it skips the
 //!   ask, recorded as reason `budget`.
 
+use super::route_step::EffortAt;
 use super::*;
+use crate::config::Effort;
 use crate::config::PackMode;
 use crate::judge::inbound::{author_of, place_kind, Inbound, RouteWait};
 use crate::routing::checkpoint::{self as cp, CheckpointAsk, LoopLine, Seen, Tally, Trigger};
@@ -182,6 +193,11 @@ impl TurnRunner {
     /// place (pinned, a detour, unrouted), a pinned task, routing or the judge
     /// off, or checkpoints off.
     fn checkpoints_for(&self, t: &Turn<'_>, session: &SessionRecord) -> Option<Box<Active>> {
+        #[cfg(test)]
+        {
+            let mut reads = crate::tests_turn_checkpoint::READS.lock().unwrap();
+            *reads.entry(t.tc.session_id.to_string()).or_default() += 1;
+        }
         let cfg = &self.cfg.routing;
         let sid = t.tc.session_id;
         let task = t.tc.task.is_some();
@@ -406,8 +422,13 @@ impl TurnRunner {
         provider: &mut Option<Arc<dyn Provider>>,
         slots: &'a Slots,
     ) -> Result<Option<Failure>> {
-        let State::On(mut a) = std::mem::take(&mut t.checkpoint.state) else {
-            return Ok(None);
+        let mut a = match std::mem::take(&mut t.checkpoint.state) {
+            State::On(a) => a,
+            other => {
+                // `Off` stays read: a turn of many loops pays one `match`.
+                t.checkpoint.state = other;
+                return Ok(None);
+            }
         };
         let came = a.flight.as_mut().map(|f| f.rx.try_recv());
         let out = match came {
@@ -457,7 +478,8 @@ impl TurnRunner {
             HoldNext::Set(h) => a.hold = Some(h.clone()),
         }
         let from = t.target.profile.clone();
-        let target = (d.profile != from && a.used < SLOTS)
+        let keeps = d.profile == from;
+        let target = (!keeps && a.used < SLOTS)
             .then(|| {
                 let to = self
                     .resolve_target(&from, Some(&d.profile), None, None)
@@ -467,13 +489,19 @@ impl TurnRunner {
                 Some((to, p))
             })
             .flatten();
-        let effort = target
-            .as_ref()
-            .and_then(|_| self.route_effort(t, v, Some(&d), (&*spec, a.est), true));
+        let at = EffortAt::checkpoint(session);
+        let effort = (keeps || target.is_some())
+            .then(|| self.route_effort(t, v, Some(&d), (&*spec, a.est), at))
+            .flatten();
+        let applied = match keeps {
+            true => effort.and_then(|e| self.raised(spec, e)),
+            false => effort
+                .filter(EffortDecision::applied)
+                .and_then(|e| e.sent.or(e.ran)),
+        };
         let cold = target
             .as_ref()
             .map(|(to, _)| self.cold_of(t, session, a.est, to));
-        let at = f.asked + 1;
         Self::record_checkpoint(
             t,
             a,
@@ -482,13 +510,18 @@ impl TurnRunner {
                 d: &d,
                 trigger: &f.trigger,
                 effort: effort.as_ref(),
+                applied,
                 cold,
                 cost,
                 moved: target.is_some(),
             },
-            at,
+            f.asked + 1,
         );
         let Some((to, p)) = target else {
+            if let Some(e) = applied {
+                spec.effort = Some(e);
+                Self::checkpoint_routed(t, a, (v, f), &d, from, (effort.as_ref(), applied));
+            }
             return Ok(None);
         };
         let slot = &slots[a.used];
@@ -504,20 +537,41 @@ impl TurnRunner {
             }
         }
         a.moves += u32::from(d.switch);
+        Self::checkpoint_routed(t, a, (v, f), &d, from, (effort.as_ref(), applied));
+        Ok(None)
+    }
+
+    /// The level a checkpoint that keeps its profile raises the turn to:
+    /// the decided level, when it is above the one the turn runs at (none
+    /// set: the API's default, `high`) on a model whose level is the
+    /// request's top-level one. A model that takes per-message effort places
+    /// a turn's level only before its user message, so none mid-turn.
+    fn raised(&self, spec: &RequestSpec, e: EffortDecision) -> Option<Effort> {
+        let level = e.applied().then(|| e.sent.or(e.ran)).flatten()?;
+        let entry = self.catalog.get(&spec.model);
+        let now = spec.effort.unwrap_or(Effort::High);
+        (level > now && !crate::compiler::effort::takes(spec, entry, &spec.model)).then_some(level)
+    }
+
+    /// What the turn's result says of a checkpoint that changed it.
+    fn checkpoint_routed(
+        t: &mut Turn<'_>,
+        a: &Active,
+        (v, f): (&Verdict, &Flight),
+        d: &Decision,
+        from: String,
+        (effort, applied): (Option<&EffortDecision>, Option<Effort>),
+    ) {
         t.route.result = Some(TurnRoute {
             mode: Some(v.mode.clone()),
             reason: d.reason.as_str().into(),
             from,
             source: Some(format!("{}: {}", a.source(), f.trigger.key())),
             effort: v.effort.as_ref().map(|e| e.level.clone()),
-            effort_reason: effort.as_ref().map(|e| e.reason.as_str().into()),
-            effort_applied: effort
-                .filter(EffortDecision::applied)
-                .and_then(|e| e.sent.or(e.ran))
-                .map(|e| effort::name(e).into()),
+            effort_reason: effort.map(|e| e.reason.as_str().into()),
+            effort_applied: applied.map(|e| effort::name(e).into()),
             persona: t.route.result.take().and_then(|r| r.persona),
         });
-        Ok(None)
     }
 
     /// The rule's answer, the warm prefix on the held target taken off the
@@ -583,12 +637,11 @@ impl TurnRunner {
 
     /// The checkpoint's one `route.decided` row.
     fn record_checkpoint(t: &mut Turn<'_>, a: &Active, what: impl Row, loop_index: u32) {
-        let (v, d, trigger, ef, cold, cost, moved) = what.parts();
+        let (v, d, trigger, (ef, applied), cold, cost, moved) = what.parts();
         let cur = t.target.profile.clone();
         let profile = d.map_or(cur.as_str(), |d| d.profile.as_str());
         let profile = if moved { profile } else { cur.as_str() };
         let answer = v.and_then(|v| v.effort.as_ref());
-        let applied = ef.filter(|e| e.applied()).and_then(|e| e.sent.or(e.ran));
         t.record(&fact::route::RouteDecided {
             mode: v.map(|v| v.mode.as_str()),
             confidence: v.map(|v| v.confidence),
@@ -629,6 +682,8 @@ struct Verdicted<'a> {
     d: &'a Decision,
     trigger: &'a Trigger,
     effort: Option<&'a EffortDecision>,
+    /// The level the checkpoint put on the turn, if any.
+    applied: Option<Effort>,
     cold: Option<(u64, f64)>,
     cost: u64,
     moved: bool,
@@ -638,7 +693,7 @@ type Parts<'a> = (
     Option<&'a Verdict>,
     Option<&'a Decision>,
     &'a Trigger,
-    Option<&'a EffortDecision>,
+    (Option<&'a EffortDecision>, Option<Effort>),
     Option<(u64, f64)>,
     u64,
     bool,
@@ -651,7 +706,7 @@ trait Row {
 
 impl Row for Skipped<'_> {
     fn parts(&self) -> Parts<'_> {
-        (None, None, self.0, None, None, 0, false)
+        (None, None, self.0, (None, None), None, 0, false)
     }
 }
 
@@ -661,7 +716,7 @@ impl Row for Verdicted<'_> {
             Some(self.v),
             Some(self.d),
             self.trigger,
-            self.effort,
+            (self.effort, self.applied),
             self.cold,
             self.cost,
             self.moved,

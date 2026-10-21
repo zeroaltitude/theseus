@@ -5,7 +5,8 @@
 //! routine and turns out deep; without this, every loop ran on the first
 //! guess. A turn the owner pinned asks nothing.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
@@ -22,13 +23,17 @@ fn failing(n: usize) -> Scripted {
 }
 
 /// `n` failing loops, then the answer.
-fn loops(n: usize) -> Vec<Scripted> {
+pub(crate) fn loops(n: usize) -> Vec<Scripted> {
     let mut s: Vec<Scripted> = (0..n).map(failing).collect();
     s.push(Scripted::text("Done."));
     s
 }
 
-const ASK: &str = "Set up the build for the parser crate.";
+pub(crate) const ASK: &str = "Set up the build for the parser crate.";
+
+/// Each session's reads of its turn's checkpoint state
+/// (`checkpoints_for`), counted.
+pub(crate) static READS: Mutex<BTreeMap<String, usize>> = Mutex::new(BTreeMap::new());
 
 /// A conversation's rig whose route reads every message as routine coding
 /// (Haiku) and whose checkpoint, on three failed loops, says deep coding
@@ -76,7 +81,7 @@ fn models(claude: &FakeProvider) -> Vec<&'static str> {
         .collect()
 }
 
-fn checkpoints(rig: &Rig) -> Vec<Value> {
+pub(crate) fn checkpoints(rig: &Rig) -> Vec<Value> {
     decided(&rig.core.store)
         .into_iter()
         .filter(|d| {
@@ -132,4 +137,15 @@ async fn a_pinned_turn_asks_no_checkpoint() {
     turn(&rig.core, None, ASK, Some("haikuhi")).await;
     assert_eq!(models(&claude), ["haiku"; 9]);
     assert!(checkpoints(&rig).is_empty());
+}
+
+/// A turn no checkpoint is for reads its state once: its later loops pay one
+/// `match`, never the read again (theseus-53ujg.3).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ineligible_turn_pays_one_match() {
+    let (rig, claude, _jev) = routed(|_| {});
+    let res = turn(&rig.core, None, ASK, Some("haikuhi")).await;
+    assert_eq!(models(&claude).len(), 9);
+    let reads = READS.lock().unwrap()[&res.session_id];
+    assert_eq!(reads, 1);
 }

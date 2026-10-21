@@ -81,7 +81,8 @@ impl TurnRunner {
     /// level restarts the messages' cache. `tokens` is the compile's own
     /// estimate of the whole request, the measure keep-warm applies to the same
     /// floor, so no token count is added. The decision says `sticky` and keeps
-    /// both levels.
+    /// both levels. A checkpoint's raise is never held: the work's own
+    /// evidence is what the rule waits for (theseus-53ujg.3).
     pub(super) fn stick(
         &self,
         t: &Turn<'_>,
@@ -89,6 +90,7 @@ impl TurnRunner {
         d: EffortDecision,
         model: &str,
         tokens: u64,
+        checkpoint: bool,
     ) -> EffortDecision {
         let entry = self.catalog.get(model);
         let held = d
@@ -100,6 +102,7 @@ impl TurnRunner {
             .and_then(|asked| {
                 let previous = self.keep_warm.last_effort(t.tc.session_id, model);
                 effort::sticky(asked, previous, tokens, self.cfg.cache.keep_warm_min_tokens)
+                    .filter(|held| !(checkpoint && asked > *held))
             });
         match held {
             Some(sent) => EffortDecision {

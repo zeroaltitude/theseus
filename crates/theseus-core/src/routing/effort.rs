@@ -18,6 +18,13 @@
 //!   `high` and the row says `held_high`, the answered level still recorded.
 //!   The gate applies first and the bounds clamp after; where both lower an
 //!   answer, the reason is the gate's.
+//! - **A routed profile's own effort is its floor** (theseus-53ujg.3): on a
+//!   profile a routing class chose (not the session's base), the turn runs at
+//!   no less than the profile's own `effort`, the level the profile is
+//!   defined by. It applies after the gate and before the bounds (the bounds
+//!   win), and is not gated: an `xhigh` floor is the profile's setting, not
+//!   Jev's guess. The row says `floored` only when it raised the level. On
+//!   the base profile Jev may still go below its own.
 //! - **Only a model that takes effort** (its catalog row's `effort`): for any
 //!   other the answer is recorded and the request carries none, as before.
 //! - **Sticky on a model without per-message effort** ([`sticky`], theseus-rwpbg.4):
@@ -70,6 +77,9 @@ pub enum EffortReason {
     Carried,
     /// Recorded only: routing in shadow, or a turn the owner pinned.
     Recorded,
+    /// Jev's level was under the routed profile's own effort, which the turn
+    /// runs at instead (theseus-53ujg.3).
+    Floored,
     /// Jev's level (`ran`) differs from the previous request's by one step on
     /// a long conversation, and the model has no per-message effort: the
     /// request keeps the previous level (`sent`), so its cache is read.
@@ -89,6 +99,7 @@ impl EffortReason {
             EffortReason::Carried => "carried",
             EffortReason::Recorded => "recorded",
             EffortReason::Sticky => "sticky",
+            EffortReason::Floored => "floored",
         }
     }
 }
@@ -102,6 +113,9 @@ pub struct Runs {
     pub fixed: bool,
     /// The model's catalog row takes effort.
     pub takes: bool,
+    /// The least the turn runs at: a routed profile's own effort, none on the
+    /// session's base profile.
+    pub floor: Option<Effort>,
 }
 
 /// The rule's answer.
@@ -125,6 +139,7 @@ impl EffortDecision {
                 | EffortReason::Clamped
                 | EffortReason::HeldHigh
                 | EffortReason::Sticky
+                | EffortReason::Floored
         )
     }
 }
@@ -192,13 +207,15 @@ pub fn decide(
     let [lo, hi] = bounds;
     // The gate first: an unsure xhigh or max is a high.
     let held = level >= Effort::Xhigh && answer.confidence <= high_confidence;
-    let ran = match held {
+    let gated = match held {
         true => Effort::High,
         false => level,
-    }
-    .clamp(lo, hi);
+    };
+    // Then the floor, ungated; the bounds last.
+    let ran = runs.floor.map_or(gated, |f| gated.max(f)).clamp(lo, hi);
     EffortDecision {
         reason: match (ran == level, held && ran < level) {
+            _ if ran > gated.clamp(lo, hi) => EffortReason::Floored,
             (true, _) => EffortReason::Applied,
             (false, true) => EffortReason::HeldHigh,
             (false, false) => EffortReason::Clamped,
@@ -239,7 +256,12 @@ mod tests {
     }
 
     fn runs(own: Option<Effort>, fixed: bool, takes: bool) -> Runs {
-        Runs { own, fixed, takes }
+        Runs {
+            own,
+            fixed,
+            takes,
+            floor: None,
+        }
     }
 
     /// Jev's sure answer sets the effort over the profile's own, for a model
@@ -423,5 +445,76 @@ mod tests {
             (d.reason, d.ran),
             (EffortReason::HeldHigh, Some(Effort::Xhigh))
         );
+    }
+    /// A routed profile's own effort is the least it runs at: a sure answer
+    /// under it runs at it (`floored`), one over it applies, the floor is not
+    /// gated, and the bounds win; with no floor (the base profile) Jev may go
+    /// below the profile's own (theseus-53ujg.3).
+    #[test]
+    fn a_routed_profiles_own_effort_is_its_floor() {
+        let floored = |own| Runs {
+            floor: Some(own),
+            ..runs(Some(own), false, true)
+        };
+        let high = floored(Effort::High);
+        for (bounds, level, c, r, ran, reason) in [
+            (
+                FULL,
+                "medium",
+                0.9,
+                high,
+                Effort::High,
+                EffortReason::Floored,
+            ),
+            (
+                FULL,
+                "xhigh",
+                0.9,
+                high,
+                Effort::Xhigh,
+                EffortReason::Applied,
+            ),
+            (FULL, "high", 0.9, high, Effort::High, EffortReason::Applied),
+            // The gate held a max at high; an xhigh floor is no guess.
+            (
+                FULL,
+                "max",
+                0.6,
+                floored(Effort::Xhigh),
+                Effort::Xhigh,
+                EffortReason::Floored,
+            ),
+            // The bounds win, and the level the bounds leave is Jev's.
+            (
+                [Effort::Low, Effort::Medium],
+                "medium",
+                0.9,
+                high,
+                Effort::Medium,
+                EffortReason::Applied,
+            ),
+            (
+                [Effort::Low, Effort::Medium],
+                "low",
+                0.9,
+                high,
+                Effort::Medium,
+                EffortReason::Floored,
+            ),
+            // No floor: the base profile goes below its own.
+            (
+                FULL,
+                "low",
+                0.9,
+                runs(Some(Effort::High), false, true),
+                Effort::Low,
+                EffortReason::Applied,
+            ),
+        ] {
+            let d = decide(bounds, BAR, &at(level, c, true), r, true, false);
+            assert_eq!((d.reason, d.ran), (reason, Some(ran)), "{level} {r:?}");
+            assert!(d.applied());
+        }
+        assert_eq!(EffortReason::Floored.as_str(), "floored");
     }
 }
