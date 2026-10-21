@@ -128,7 +128,11 @@ async fn a_yes_is_admitted_with_its_thread_and_a_no_stays_out() {
         "{:?}",
         m.dropped
     );
-    assert!(reason("8453").is_some_and(|r| r.starts_with("thread_")), "{:?}", reason("8453"));
+    assert!(
+        reason("8453").is_some_and(|r| r.starts_with("thread_")),
+        "{:?}",
+        reason("8453")
+    );
     let req = admitted_texts(&r);
     assert!(
         req.contains("from thread \u{ab}datatidy stats\u{bb}"),

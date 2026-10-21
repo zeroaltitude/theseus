@@ -148,7 +148,12 @@ async fn an_own_note_that_can_be_admitted_still_outranks_it() {
         (w.pipe.clone(), 1, 0.08),
     ];
     let m = recall(c, &w.pipe, &w.in_context, picks).await;
-    assert_eq!(reason_of(&m, &w.cutoff), Some("thread_own"), "{:?}", m.admitted);
+    assert_eq!(
+        reason_of(&m, &w.cutoff),
+        Some("thread_own"),
+        "{:?}",
+        m.admitted
+    );
 }
 
 /// `own_top_admissible = false`: the note in context counts again, and the
