@@ -150,6 +150,20 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// A producer's name for a key: `<kind>` or `<kind>:<name>`. A producer is
+/// `inproc:fs.read`, `provider:anthropic`, `harness:proc.run`; cut at its
+/// first `:` every inproc tool's failures became one cause nobody could act
+/// on. A wrapper's name is its pid, which is no cause, so it is dropped.
+fn producer_key(v: &Value) -> String {
+    let s = v.as_str().unwrap_or("").trim();
+    let (head, tail) = s.split_once(':').unwrap_or((s, ""));
+    let head = word(&Value::from(head));
+    if head == "wrapper" || tail.trim().is_empty() {
+        return head;
+    }
+    format!("{head}:{}", word(&Value::from(tail)))
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,7 +188,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
-            let p = word(&d["producer"]);
+            let p = producer_key(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
             o.note = format!(
@@ -467,5 +481,40 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str) -> Obs {
+        let row = LedgerRow::named(
+            "action.failed",
+            None,
+            None,
+            json!({"producer": producer, "duration_ms": 1, "correlation_id": "act_1"}),
+        );
+        of_row(1, &row).expect("a failed action is an observation")
+    }
+
+    #[test]
+    fn failed_calls_of_different_inproc_tools_are_different_causes() {
+        let (read, diff) = (failed("inproc:fs.read"), failed("inproc:text.diff"));
+        assert_eq!(read.key, "action.failed:inproc:fs.read");
+        assert_eq!(diff.key, "action.failed:inproc:text.diff");
+        assert_eq!(read.title, "Calls from inproc:fs.read fail");
+    }
+
+    #[test]
+    fn a_wrapper_pid_is_no_part_of_the_cause() {
+        assert_eq!(failed("wrapper:4242").key, "action.failed:wrapper");
+        assert_eq!(failed("wrapper:7").key, failed("wrapper:4242").key);
+        assert_eq!(failed("rig").key, "action.failed:rig");
+        assert_eq!(
+            failed("provider:anthropic").key,
+            "action.failed:provider:anthropic"
+        );
     }
 }
