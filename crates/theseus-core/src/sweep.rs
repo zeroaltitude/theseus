@@ -160,6 +160,7 @@ pub fn sweep(kernel: &Kernel, store: &Store, spool: &Spool, now: SystemTime) -> 
                 }
             };
         if gone {
+            crate::toolrun::job::beside::forget(id);
             out.removed += 1;
             out.removed_bytes += meta.len();
             *out.removed_by.entry(fate.as_str().into()).or_default() += 1;

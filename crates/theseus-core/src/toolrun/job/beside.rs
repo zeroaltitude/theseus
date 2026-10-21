@@ -102,6 +102,13 @@ pub(crate) fn forget(correlation_id: &str) {
     b.said.remove(correlation_id);
 }
 
+/// Does the book hold `correlation_id`'s listing or line? (A test's look.)
+#[cfg(test)]
+pub(crate) fn holds(correlation_id: &str) -> bool {
+    let b = BOOK.lock().unwrap();
+    b.before.contains_key(correlation_id) || b.said.contains_key(correlation_id)
+}
+
 /// What the turn of `execution_id` has had its commands leave.
 pub(crate) fn facts(execution_id: &str) -> Facts {
     BOOK.lock()
