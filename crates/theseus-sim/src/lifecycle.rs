@@ -218,12 +218,25 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
 /// cold 23.3–30.1 (6.8), shutdown 47.3–51.3 (4.0), kill 43.2–67.7 (24.5,
 /// one run whose redb repair after the SIGKILL took 50 ms instead of 26).
 /// The swap, 2026-09-30 (F4b): 68.6–70.6 (1.9).
+/// The seed and health, 2026-10-20 (theseus-m1r2w): 44 runs of the gate's own
+/// bench, on the debug binaries of three builds that differ in nothing the
+/// bench reads (eb43b3d4, 051fc186, 1d092ded) and of this change, each run in a
+/// hold of the gate lock at a 1-minute load of 2 to 11. The runs' p95s were
+/// seed 0.74–6.34 (median 1.30, 95th percentile 2.9) and health 3.07–9.56
+/// (median 4.28, 95th percentile 7.0): over the old limits (2 and 5 ms, no
+/// margin) in 6 and 8 runs of 44, and main alone missed health in 4 of 10. The
+/// margin is the smallest whole ms that leaves one run of the 44 over: seed 2
+/// (a limit of 4, missed by the 6.34), health 3 (a limit of 8, missed by the
+/// 9.56). A margin of 1 would have been missed by 3 runs of 44 on the seed and
+/// 3 on health. The p50s read 0.65 and 2.5 ms in every arm.
 pub fn margin_ms(phase: &str) -> f64 {
     match phase {
         "cold" | "vault" => 7.0,
         "shutdown" => 4.0,
         "kill" => 25.0,
         "swap" => 2.0,
+        "seed" => 2.0,
+        "health" => 3.0,
         _ => 0.0,
     }
 }
@@ -2301,6 +2314,35 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert!(!v[0].ok);
         assert_eq!((v[0].budget, v[0].margin), (200.0, 2.0));
+    }
+
+    #[test]
+    fn the_seed_and_health_carry_a_margin_over_their_budgets() {
+        // theseus-m1r2w: limits of 4 and 8 ms. A p95 inside them passes, and
+        // one past them misses.
+        let s = |p95: f64| Summary {
+            n: 10,
+            p50: p95 / 2.0,
+            p95,
+            min: 0.5,
+            max: p95,
+        };
+        let v = verdicts(
+            &[("seed".to_string(), s(3.9)), ("health".to_string(), s(7.9))],
+            0,
+            None,
+        );
+        assert_eq!(
+            v.iter().map(|v| (v.budget, v.margin)).collect::<Vec<_>>(),
+            [(2.0, 2.0), (5.0, 3.0)]
+        );
+        assert!(v[0].ok && v[1].ok);
+        let v = verdicts(
+            &[("seed".to_string(), s(4.5)), ("health".to_string(), s(8.5))],
+            0,
+            None,
+        );
+        assert!(!v[0].ok && !v[1].ok);
     }
 
     #[test]
