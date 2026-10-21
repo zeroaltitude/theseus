@@ -341,6 +341,8 @@ mod tests_lsp_edits;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
+mod tests_manifest_harness;
+#[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]
 mod tests_memory_arm;

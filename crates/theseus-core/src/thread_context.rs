@@ -111,12 +111,6 @@ impl TurnRunner {
         spec.card = Some(Card::new(now, recorded.flatten()));
     }
 
-    /// The topics of the thread a session serves.
-    pub(crate) fn thread_topics(&self, session_id: &str) -> Option<Vec<String>> {
-        let board = self.threads.all(&self.store).ok()?;
-        board.of_session(session_id).map(|t| t.topics.clone())
-    }
-
     /// The spec of a turn's first loop when its thread resumes cold: its next
     /// message came after the cache window (`cold`: the turn's first compile
     /// decided it), so the compile rewrites it small. None: the spec stands.
