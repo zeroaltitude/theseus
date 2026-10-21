@@ -1625,6 +1625,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     compare and set. A task's record starts with none; a fork copies `opened` and `taint` and the run cut at the fork
     point (`fork::data_through`). `session.data` rows (`opened_row`, `tainted_row`; their callers are later rows);
     `turn.inspect`'s `data` line, for a private place. Tests: `tests_data_state.rs`, `tests_fork.rs`, `tests_layouts.rs`.
+  - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
+    `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
+    session's directory is within them) makes `content_class()` the shared class: every content reader on the compile
+    path reads it (context files, standing orders only, the walk, the session block only within the roots, no task
+    view or project slice, the prefix key), while approvals, cards, asks and glides keep `class`. Its tools are
+    `Open::offers` (public tools, file tools under the roots, `proc.run`/`job.*`/`term.*` only for a directory within
+    them), and the gate refuses the rest (`Open::refusal`). Recall asks as `Place::Open` and reads each candidate by
+    `drawn_place`: only open sessions, before their taint. A turn is open when its record's `data.opened` is
+    (`open_of`); `open_request` compiles one request of any other session in it (theseus-a1wvq.8's seam). Guard:
+    `tests_open_view::a_private_sessions_request_is_byte_identical` (`tests/golden/private_requests.txt`).
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

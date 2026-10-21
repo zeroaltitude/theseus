@@ -175,8 +175,8 @@ impl TurnRunner {
             return 0;
         }
         let (mut spec, _) = self.request_spec(target, kind, place);
-        spec.walk = self.walk(session_id, place.class);
-        if let Some(b) = self.standing_block(session_id, place.class) {
+        spec.walk = self.walk(session_id, place.content_class());
+        if let Some(b) = self.standing_block(session_id, place.content_class()) {
             b.apply(&mut spec);
         }
         self.thread_spec(&mut spec, session_id, None);
@@ -191,7 +191,7 @@ impl TurnRunner {
             .collect();
         let warm = self.prefix.warm_fit(
             &sections,
-            (&lower_of(&spec), class_name(place.class)),
+            (&lower_of(&spec), class_name(place.content_class())),
             &spec.model,
             self.cfg.prefix.confirm,
             theseus_protocol::now_unix_ms(),

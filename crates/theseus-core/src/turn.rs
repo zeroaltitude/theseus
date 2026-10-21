@@ -812,7 +812,7 @@ impl TurnRunner {
     ) -> RequestSpec {
         // A shared place carries only the files marked public (the place
         // rule): the rest are their headers and why.
-        if place.class == crate::places::PlaceClass::Shared {
+        if place.content_class() == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
         let (system_text, persona_text, context_text) = self.system_blocks(target, &files, place);
@@ -1594,6 +1594,7 @@ impl TurnRunner {
             // Taken again once the turn has read its wakes and reports.
             class: place.class,
             ceiling: place.ceiling,
+            open: None,
             places: crate::places::Places {
                 rule: &self.place_rule,
                 cfg: &self.cfg,
@@ -1610,8 +1611,7 @@ impl TurnRunner {
             });
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
-        t.reply_to = reply_to;
-        t.answer_at = answer_at;
+        (t.reply_to, t.answer_at) = (reply_to, answer_at);
         t.standing.surface = surface;
         t.route.read = read;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
@@ -1676,7 +1676,7 @@ impl TurnRunner {
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
         let here = self.view_of(sid);
-        (t.tc.class, t.tc.ceiling) = (here.class, here.ceiling);
+        (t.tc.class, t.tc.ceiling, t.tc.open) = (here.class, here.ceiling, self.open_of(session));
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
@@ -1735,7 +1735,7 @@ impl TurnRunner {
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
         spec.session_text = self.session_block(t.tc.dir, t.tc.place());
-        spec.walk = self.walk(sid, t.tc.class);
+        spec.walk = self.walk(sid, t.tc.place().content_class());
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         self.defer_tools(t, &mut spec);

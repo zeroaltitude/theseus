@@ -147,6 +147,9 @@ pub struct TurnCtx<'a> {
     /// That place's ceiling (step 38a), taken with its class: a floor, and
     /// the tools it offers (`ceiling.rs`).
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
+    /// Open when its session is (theseus-a1wvq.7): its requests take the
+    /// open view's content and tools, and its calls are gated in it.
+    pub open: Option<&'static crate::open_view::Open>,
     /// The bound places, as a glide names them (38b).
     pub places: crate::places::Places<'a>,
     /// The session's directory, as its client sent it (theseus-aab7):
@@ -167,6 +170,7 @@ impl TurnCtx<'_> {
             class: self.class,
             ceiling: self.ceiling,
             voice: false,
+            open: self.open,
         }
     }
 }
@@ -727,6 +731,9 @@ impl ToolRuntime {
                 })
                 .collect::<Vec<_>>(),
         );
+        if let Some(open) = place.open {
+            return open.note(&postures, &ceiling_note);
+        }
         if class == crate::places::PlaceClass::Shared {
             let files = match self.public_roots.is_empty() {
                 true => "no files".to_string(),

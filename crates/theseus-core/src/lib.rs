@@ -81,6 +81,7 @@ pub mod node;
 pub mod node_cache;
 pub mod one_shot;
 pub mod ontology;
+pub mod open_view;
 pub mod outbound;
 pub mod outbox;
 pub mod outputs;
@@ -375,6 +376,8 @@ mod tests_ontology_bind;
 mod tests_ontology_undo;
 #[cfg(test)]
 mod tests_open_task;
+#[cfg(test)]
+mod tests_open_view;
 #[cfg(test)]
 mod tests_output;
 #[cfg(test)]
