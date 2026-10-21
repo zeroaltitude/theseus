@@ -324,7 +324,7 @@ pub fn doing(f: &Facts, now_ms: u64, hm: &dyn Fn(u64) -> String) -> String {
             .and_then(|(fc, _, spent)| forecast_cost(fc, *spent)),
         f.timing
             .as_ref()
-            .and_then(|(fc, started, _)| time_left(fc, *started, now_ms)),
+            .and_then(|(fc, started, spent)| time_left(fc, *started, *spent, now_ms)),
     ];
     parts.into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
