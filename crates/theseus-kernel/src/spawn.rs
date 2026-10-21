@@ -47,6 +47,8 @@ pub(crate) struct Exec {
     files: Vec<CString>,
     argv: Vec<CString>,
     cwd: Option<CString>,
+    /// One `NAME=value` more than this process's environment, for the child.
+    env: Option<CString>,
 }
 
 fn c(b: &[u8]) -> io::Result<CString> {
@@ -76,7 +78,35 @@ impl Exec {
                 .map(|a| c(a.as_bytes()))
                 .collect::<io::Result<_>>()?,
             cwd: cwd.map(|d| c(OsStr::as_bytes(d.as_os_str()))).transpose()?,
+            env: None,
         })
+    }
+
+    /// The child's environment as a pointer array when `with_env` added a
+    /// variable, read before the clone; empty when the process's own serves.
+    fn envp(&self) -> Vec<*const libc::c_char> {
+        let Some(extra) = &self.env else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        // SAFETY: the process's environment, the job's in a wrapper; nothing
+        // here changes it while this reads.
+        let mut p = unsafe { environ };
+        while !p.is_null() && !unsafe { *p }.is_null() {
+            out.push(unsafe { *p });
+            p = unsafe { p.add(1) };
+        }
+        out.push(extra.as_ptr());
+        out.push(std::ptr::null());
+        out
+    }
+
+    /// The child's environment is this process's and `var`'s `NAME=value`.
+    pub(crate) fn with_env(mut self, var: Option<(&str, String)>) -> io::Result<Exec> {
+        self.env = var
+            .map(|(k, v)| c(format!("{k}={v}").as_bytes()))
+            .transpose()?;
+        Ok(self)
     }
 }
 
@@ -91,6 +121,17 @@ struct Child<'a> {
     /// The cgroup to move into before the exec, when `clone` made the child
     /// and could not place it at its birth.
     cgroup: Option<RawFd>,
+}
+
+/// The environment a child gets: `own` when `Exec::envp` built one, else this
+/// process's, the job's in a wrapper.
+fn env_of(own: &[*const libc::c_char]) -> *const *const libc::c_char {
+    // SAFETY: the process's own environment.
+    if own.is_empty() {
+        unsafe { environ }
+    } else {
+        own.as_ptr()
+    }
 }
 
 /// Start `e` with `stdio` as its descriptors 0, 1, and 2, under `umask`, and
@@ -119,11 +160,11 @@ pub(crate) fn spawn(
         args.flags |= CLONE_INTO_CGROUP;
         args.cgroup = cg.as_raw_fd() as u64;
     }
+    let envp = e.envp();
     let mut c = Child {
         exec: e,
         argv: argv.as_ptr(),
-        // SAFETY: the process's environment, the job's in a wrapper.
-        envp: unsafe { environ },
+        envp: env_of(&envp),
         stdio,
         umask,
         err: err_w.as_raw_fd(),

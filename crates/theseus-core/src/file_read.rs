@@ -158,6 +158,15 @@ fn files_of(nodes: &[(u64, crate::node::Node)]) -> Vec<Attachment> {
     out
 }
 
+/// A miss on a path says where a path is read (theseus-53ujg.2).
+fn on_disk(name: &str) -> &'static str {
+    if name.contains('/') {
+        " (fs_read reads files on disk by path)"
+    } else {
+        ""
+    }
+}
+
 /// The file `name` names: its exact name, else its name in any case, else
 /// the start of its digest (six characters at least); the newest when
 /// several share it.
@@ -199,15 +208,17 @@ fn find(files: &[Attachment], name: &str) -> Result<Found, String> {
             },
         }),
         None if kept.is_empty() => Err(format!(
-            "this session has no file named {name}: no file has been given to it yet"
+            "this session has no file named {name}: no file has been given to it yet{}",
+            on_disk(name)
         )),
         None => {
             let mut names: Vec<&str> = kept.iter().map(|a| a.name.as_str()).collect();
             names.dedup();
             names.truncate(20);
             Err(format!(
-                "this session has no file named {name}; its files: {}",
-                names.join(", ")
+                "this session has no file named {name}; its files: {}{}",
+                names.join(", "),
+                on_disk(name)
             ))
         }
     }
@@ -806,5 +817,16 @@ mod tests {
             work_dir(Path::new("/w"), "ses_0123456789abcdef"),
             PathBuf::from("/w/.theseus-files/89abcdef")
         );
+    }
+
+    #[test]
+    fn file_read_miss_on_a_path_names_fs_read() {
+        let clause = "fs_read reads files on disk by path";
+        assert!(find(&[], "/tmp/t.png").unwrap_err().contains(clause));
+        let files = vec![file("tides.pdf", "cccccc33")];
+        assert!(find(&files, "/tmp/t.png").unwrap_err().contains(clause));
+        // A plain name's miss says what it did.
+        assert!(!find(&files, "fees.pdf").unwrap_err().contains(clause));
+        assert!(!find(&[], "t.png").unwrap_err().contains(clause));
     }
 }

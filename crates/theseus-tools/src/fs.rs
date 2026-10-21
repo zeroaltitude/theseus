@@ -25,6 +25,35 @@ fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8192).any(|b| *b == 0)
 }
 
+/// What `fs_read` says of a binary it does not show: its kind when the first
+/// bytes tell it (theseus-53ujg.2), else that it is binary.
+fn binary_said(path: &Path, bytes: &[u8]) -> ToolOutput {
+    let Some(k) = crate::magic::kind(bytes) else {
+        return ToolOutput {
+            text: format!(
+                "{} is a binary file ({} bytes); fs_read returns text only.",
+                path.display(),
+                bytes.len()
+            ),
+            meta: json!({"path": path, "bytes": bytes.len(), "binary": true}),
+        };
+    };
+    let shows = if k.image {
+        " (fs_read shows PNG, JPEG, GIF and WebP images)"
+    } else {
+        ""
+    };
+    ToolOutput {
+        text: format!(
+            "{} is {}, {} bytes{shows}",
+            path.display(),
+            k.with_article(),
+            crate::magic::grouped(bytes.len() as u64)
+        ),
+        meta: json!({"path": path, "bytes": bytes.len(), "binary": true, "kind": k.desc}),
+    }
+}
+
 /// Why a file was not read (review 2's R9).
 #[derive(Debug)]
 pub(crate) enum Unread {
@@ -368,17 +397,7 @@ impl Tool for Read {
             )));
         }
         if is_binary(&bytes) {
-            return Ok((
-                ToolOutput {
-                    text: format!(
-                        "{} is a binary file ({} bytes); fs_read returns text only.",
-                        path.display(),
-                        bytes.len()
-                    ),
-                    meta: json!({"path": path, "bytes": bytes.len(), "binary": true}),
-                },
-                None,
-            ));
+            return Ok((binary_said(&path, &bytes), None));
         }
         let text = String::from_utf8_lossy(&bytes);
         let lines: Vec<&str> = text.lines().collect();

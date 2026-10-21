@@ -159,6 +159,7 @@ pub mod watch;
 pub mod watch_tool;
 pub mod web;
 pub mod webui;
+mod wrapper_lost;
 
 pub use config::Config;
 pub use rpc::Core;
