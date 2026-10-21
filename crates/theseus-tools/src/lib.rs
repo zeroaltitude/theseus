@@ -24,11 +24,14 @@ mod fs_window;
 pub mod git;
 pub mod image;
 pub mod jobs;
+pub mod magic;
 pub mod net;
 pub mod paths;
 pub mod proc;
 mod recount;
 pub mod rx;
+#[cfg(test)]
+mod tests_binary;
 #[cfg(test)]
 mod tests_patch;
 #[cfg(test)]

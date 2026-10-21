@@ -868,8 +868,7 @@ impl ToolRuntime {
                 crate::cancel::words(a).map_or(String::new(), |w| format!("; {w}"))
             ),
             (ResultStatus::Unknown, _, _) => {
-                "[outcome unknown: the harness could not establish whether this finished]\n"
-                    .to_string()
+                crate::wrapper_lost::words(completion.map(|c| c.producer.as_str()))
             }
             (_, Some(c), _) => format!(
                 "[exit code {c}{}]\n",
