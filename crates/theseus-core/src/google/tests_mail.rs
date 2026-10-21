@@ -326,6 +326,9 @@ async fn a_send_is_refused_when_the_input_digest_is_not_the_drafts() {
     let y = send_of(&r, &id).await;
     assert_ne!(x["digest"], y["digest"]);
     plan(&r, "gmail.send", y.clone()).unwrap();
+    // No new card is made for a digest the daemon no longer shows.
+    let e = plan(&r, "gmail.send", x.clone()).unwrap_err();
+    assert!(e.contains("not the draft's as last shown"), "{e}");
     // The owner approves C1: X's call names D1, which is no longer the draft.
     let e = run(&r, "gmail.send", x).await.unwrap_err();
     assert!(e.message.contains("nothing was sent"), "{}", e.message);
