@@ -62,3 +62,48 @@ async fn a_forged_from_of_a_trusted_sender_only_notices() {
         }
     }
 }
+
+const OWNER: &str = "Owner <owner@example.test>";
+
+/// Gmail reports the owner's own drafts and sent mail as added, and a watch
+/// on a thread would read the owner's reply as news (and, with the owner's
+/// address trusted, start a task from the agent's own draft). Neither is a
+/// match: no news, no task, no post, and the cursor still moves.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_own_draft_and_sent_mail_are_no_match() {
+    let r = mail_rig(vec![], |c| {
+        c.google.trusted_senders = vec!["owner@example.test".into()];
+    })
+    .await;
+    dm_session(&r.core);
+    let made = mail_watch(
+        &r.core,
+        json!({"then": {"kind": "task", "brief": "Reply to it"}}),
+    )
+    .await;
+    let id = made["watch"]["wake_id"].as_str().unwrap().to_string();
+    look(&r.core, &id).await;
+    for (n, label) in ["SENT", "DRAFT"].into_iter().enumerate() {
+        r.fake.mail().deliver(
+            "t1",
+            MsgSpec::new(&format!("m{n}"), OWNER, "Re: Contract", "Signed.")
+                .header("Authentication-Results", GMAIL_PASS)
+                .label(label),
+        );
+    }
+    look(&r.core, &id).await;
+    assert!(rows(&r.core, "watch.met").is_empty(), "no news");
+    assert_eq!(task_started(&r.core), 0, "no task");
+    assert!(posts(&r.core).is_empty(), "no post: {:?}", posts(&r.core));
+    let e = r.core.watches.get(&id).expect("still watching");
+    assert_eq!(e.cursor.as_deref(), Some("102"), "the cursor moved on");
+    // The query asked for neither, whatever it said.
+    let listed = r
+        .fake
+        .log()
+        .into_iter()
+        .find(|l| l.path.ends_with("/users/me/messages"))
+        .unwrap();
+    let q = &listed.query.iter().find(|(k, _)| k == "q").unwrap().1;
+    assert_eq!(q, "(from:example.test) -in:drafts -in:sent");
+}

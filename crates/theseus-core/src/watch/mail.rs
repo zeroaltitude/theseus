@@ -5,7 +5,7 @@
 //!   matches yet. Every later look is `users.history.list` from the cursor
 //!   (`messageAdded` only): with no new message that is the whole look, one
 //!   call of about 2 quota units. With some, one `messages.list` for the
-//!   watch's query keeps the added
+//!   watch's query (never the owner's own drafts or sent mail) keeps the added
 //!   ids it returns, and each is read for its `From`, `Subject`, snippet and
 //!   Gmail's own verdict on the sender (metadata only: never a body).
 //! - **A 404** on the history (the cursor is older than Gmail keeps) reads the
@@ -145,6 +145,14 @@ async fn read_one(
     .await
     .map_err(|f| f.message)?
     .json();
+    let own = |l: &str| {
+        msg["labelIds"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|x| x == l))
+    };
+    if own("DRAFT") || own("SENT") {
+        return Ok(None);
+    }
     let head = |n: &str| mime::header(&msg["payload"], n).unwrap_or_default();
     let (from, subject) = (head("From"), head("Subject"));
     let said = |t: &str| quote_of(&scrubber.scrub(t).0);
@@ -205,9 +213,12 @@ pub async fn look(
     if added.is_empty() {
         return Ok(nothing(cursor, false));
     }
+    // The owner's own drafts and sent mail are added to the mailbox too, and
+    // are never news (the parentheses keep an `OR` in the query its meaning).
+    let q = format!("({q}) -in:drafts -in:sent");
     let req = mail::get(
         "/gmail/v1/users/me/messages".into(),
-        &[("q", q), ("maxResults", "50")],
+        &[("q", q.as_str()), ("maxResults", "50")],
     );
     let listed = call(g, rows, "gmail.users.messages.list", None, req)
         .await
