@@ -182,8 +182,9 @@ fn has_interp(b: &[u8], wide: bool, big: bool) -> bool {
         return false;
     };
     (0..u64::from(num)).any(|i| {
-        usize::try_from(off + i * u64::from(size))
-            .ok()
+        i.checked_mul(u64::from(size))
+            .and_then(|d| off.checked_add(d))
+            .and_then(|at| usize::try_from(at).ok())
             .and_then(|at| u32_at(b, at, big))
             == Some(3)
     })
@@ -355,6 +356,14 @@ mod tests {
             kind(&elf64(3, 62, &[1, 3])).unwrap().with_article(),
             "an ELF 64-bit PIE executable, x86-64"
         );
+    }
+
+    #[test]
+    fn a_program_header_offset_near_the_top_of_u64_is_no_loader() {
+        // e_phoff is the file's own data: a crafted one must not overflow.
+        let mut b = elf64(3, 62, &[1, 3]);
+        b[32..40].copy_from_slice(&(u64::MAX - 8).to_le_bytes());
+        assert_eq!(desc(&b), "ELF 64-bit shared object, x86-64");
     }
 
     #[test]
