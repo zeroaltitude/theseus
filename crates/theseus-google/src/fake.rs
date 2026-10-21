@@ -17,12 +17,16 @@ use tokio::net::TcpListener;
 use crate::http1::{read_request, write_response, Req};
 use crate::scopes::Service;
 
+pub mod drive;
+
 /// A canned answer.
 #[derive(Debug, Clone)]
 pub struct Reply {
     pub status: u16,
     pub body: Value,
     pub headers: Vec<(String, String)>,
+    /// A body that is not JSON (an export, a download): its content type and bytes.
+    pub raw: Option<(String, Vec<u8>)>,
 }
 
 impl Reply {
@@ -31,6 +35,14 @@ impl Reply {
             status,
             body,
             headers: Vec::new(),
+            raw: None,
+        }
+    }
+
+    pub fn raw(content_type: &str, bytes: Vec<u8>) -> Self {
+        Self {
+            raw: Some((content_type.into(), bytes)),
+            ..Self::json(200, Value::Null)
         }
     }
 
@@ -146,9 +158,14 @@ impl Fake {
                         .iter()
                         .map(|(k, v)| (k.as_str(), v.clone()))
                         .collect();
-                    let body = serde_json::to_vec(&reply.body).unwrap_or_default();
-                    write_response(&mut stream, reply.status, "application/json", &extra, &body)
-                        .await;
+                    let (kind, body) = match &reply.raw {
+                        Some((kind, bytes)) => (kind.as_str(), bytes.clone()),
+                        None => (
+                            "application/json",
+                            serde_json::to_vec(&reply.body).unwrap_or_default(),
+                        ),
+                    };
+                    write_response(&mut stream, reply.status, kind, &extra, &body).await;
                 });
             }
         });
@@ -199,7 +216,7 @@ impl Fake {
         self.with(|i| i.disabled = Some((service, project.to_string())));
     }
 
-    /// `verb path` answers with `handler`.
+    /// `verb path` answers with `handler`; a `*` segment matches any one.
     pub fn route(
         &self,
         verb: &str,
@@ -288,6 +305,19 @@ fn disabled_reply(service: Service, project: &str) -> Reply {
     )
 }
 
+/// A route's path against a request's: equal, or equal but for `*`, which
+/// stands for one segment.
+fn path_matches(pattern: &str, path: &str) -> bool {
+    let (mut a, mut b) = (pattern.split('/'), path.split('/'));
+    loop {
+        match (a.next(), b.next()) {
+            (None, None) => return true,
+            (Some(p), Some(s)) if p == s || (p == "*" && !s.is_empty()) => {}
+            _ => return false,
+        }
+    }
+}
+
 fn service_of(path: &str) -> Option<Service> {
     crate::methods::service_of_path(path)
 }
@@ -332,7 +362,7 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
         .routes
         .iter()
         .rev()
-        .find(|(v, p, _)| *v == req.method && p == req.path())
+        .find(|(v, p, _)| *v == req.method && path_matches(p, req.path()))
         .map(|(_, _, h)| h.clone());
     let account = i.account.clone();
     drop(i);

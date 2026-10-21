@@ -751,6 +751,13 @@ window_days = 7                         # the window the approvals are counted i
 # gw-mail: the gmail.* lines
 #
 # gw-drive: the drive.* lines
+# drive.find and drive.read inherit enforcement; drive.write keeps Drive's own
+# revisions, so it notifies; drive.share (a permission change, a trash) asks at
+# every posture, whatever a line here says
+# "drive.find" = "notify"
+# "drive.read" = "notify"
+# "drive.write" = "notify"
+# "drive.share" = "approve"
 #
 # gw-sheets-slides: the sheets.* and slides.* lines
 #
