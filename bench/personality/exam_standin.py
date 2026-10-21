@@ -25,6 +25,7 @@ import tokens as tk  # noqa: E402
 
 JUDGE_MARK = "THESEUS-PERSONALITY-JUDGE"
 DEFAULT_REPLY = "ok."
+SEARCH_TOOL = "tool_search_tool_bm25"
 
 
 def rules_for(steps, mode: str) -> list[dict]:
@@ -53,6 +54,35 @@ def person_texts(req: dict) -> list[str]:
             and not b.get("text", "").startswith(base.TASK_GRAPH_HEAD))
         if text.strip():
             out.append(text.split(base.RECALL_HEAD, 1)[0])
+    return out
+
+
+def searched(req: dict, calls: list[dict], counted: int, rates) -> list[dict]:
+    """The rule's calls as a model makes them: a tool the request defers (`defer_loading`) is not callable unless a
+    search found it first, so the turn opens with the provider's tool search, the references it found, and then the
+    calls (the daemon answers an unsearched call "not run", and no wake is set)."""
+    hidden = {t.get("name") for t in req.get("tools") or [] if t.get("defer_loading")}
+    wanted = [c["name"] for c in calls if c["name"] in hidden]
+    events = base.calls_turn(calls, counted, rates)
+    if not wanted:
+        return events
+    sid = f"srvtoolu_standin_{next(base._ids)}"
+    shift = 2
+    out = [events[0]]
+    out += [{"type": "content_block_start", "index": 0, "content_block": {
+                "type": "server_tool_use", "id": sid, "name": SEARCH_TOOL, "input": {}}},
+            {"type": "content_block_delta", "index": 0, "delta": {
+                "type": "input_json_delta", "partial_json": json.dumps({"query": " ".join(wanted)})}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "content_block_start", "index": 1, "content_block": {
+                "type": "tool_search_tool_result", "tool_use_id": sid, "content": {
+                    "type": "tool_search_tool_search_result",
+                    "tool_references": [{"type": "tool_reference", "tool_name": n} for n in wanted]}}},
+            {"type": "content_block_stop", "index": 1}]
+    for e in events[1:]:
+        if "index" in e:
+            e = {**e, "index": e["index"] + shift}
+        out.append(e)
     return out
 
 
@@ -92,7 +122,7 @@ class ExamStandIn(base.StandIn):
         if rule is None:
             return base.text_turn(self.reply, counted, rates)
         if not base.carries_tool_result(req) and rule.get("calls"):
-            return base.calls_turn(rule["calls"], counted, rates)
+            return searched(req, rule["calls"], counted, rates)
         return base.text_turn(rule["text"] or self.reply, counted, rates)
 
     def judge(self, req: dict, counted: int, rates) -> list[dict]:
