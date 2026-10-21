@@ -17,6 +17,8 @@ use tokio::net::TcpListener;
 use crate::http1::{read_request, write_response, Req};
 use crate::scopes::Service;
 
+mod calendar;
+
 /// A canned answer.
 #[derive(Debug, Clone)]
 pub struct Reply {
@@ -338,6 +340,9 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
     drop(i);
     if let Some(h) = handler {
         return h(req);
+    }
+    if let Some(r) = calendar::stub(req, &account) {
+        return r;
     }
     match (req.method.as_str(), req.path()) {
         ("GET", "/gmail/v1/users/me/profile") => Reply::json(
