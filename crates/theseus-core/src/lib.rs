@@ -392,6 +392,8 @@ mod tests_personal_warn;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]
+mod tests_private_background;
+#[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
 mod tests_projects;
@@ -537,8 +539,6 @@ mod tests_task_layers;
 mod tests_task_report;
 #[cfg(test)]
 mod tests_task_search;
-#[cfg(test)]
-mod tests_private_background;
 #[cfg(test)]
 mod tests_task_start;
 #[cfg(test)]
