@@ -34,6 +34,7 @@ use theseus_tools::{
 use tokio::time::Instant;
 
 mod wait_facts;
+mod wait_status;
 
 use super::handles::{Handles, KEY};
 use super::{ToolRuntime, TurnCtx};
@@ -481,7 +482,10 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
         let silent = silence.as_ref().filter(|s| !held && s.quiet() >= beat);
         if let (Some(s), false) = (silent, left.is_zero()) {
             match theseus_store::blocking(|| clock.beat(&core, &f, s, asked, reads)) {
-                Some(out) => return Ok((out, None, None)),
+                Some(out) => {
+                    wait_status::post(&core, &f, &clock, s);
+                    return Ok((out, None, None));
+                }
                 // A job past its file's head prints into its wrapper: not silent.
                 None => held = true,
             }

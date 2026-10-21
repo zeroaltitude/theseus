@@ -175,6 +175,11 @@ impl Clock {
         }
     }
 
+    /// How long the job has run, as of now.
+    pub(super) fn ran_ms(&self) -> u64 {
+        self.ran0_ms + self.began.elapsed().as_millis() as u64
+    }
+
     /// The still-running result's facts. Reads the disk.
     pub(super) fn said(&self, core: &Core, f: &Found, silence: &Silence) -> String {
         text(&self.read(core, f, silence, None))
@@ -201,14 +206,7 @@ impl Clock {
 
     fn read(&self, core: &Core, f: &Found, silence: &Silence, beat_of: Option<u64>) -> Facts {
         let waited = self.began.elapsed();
-        read(
-            core,
-            f,
-            silence,
-            self.ran0_ms + waited.as_millis() as u64,
-            waited,
-            beat_of,
-        )
+        read(core, f, silence, self.ran_ms(), waited, beat_of)
     }
 }
 

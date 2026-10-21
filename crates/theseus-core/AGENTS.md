@@ -710,6 +710,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   since it started, or no new output for N s and the last 10 lines). Facts only, no advice. The beat is off for a job
   past its file's head. With the beat 0 the result is byte for byte the old one. Tests: `tests_wait_beat.rs` (a child
   of `tests_wait_cost.rs`, whose config turns the beat off), `wait_facts::tests`, the kernel's cgroup test.
+  At each beat the session's place also gets one status line, a `notice` post written from the facts the beat holds
+  (the job, its run and quiet time, its CPU share where a cgroup reads, its last line, scrubbed; `[tools]
+  job_wait_status`, on; no model call, `jobs_tools/wait_status.rs`), and `waits::LOOK` stays at 60 s or less (a test
+  pins it).
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
