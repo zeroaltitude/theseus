@@ -137,7 +137,9 @@ pub(super) async fn look(core: &Arc<Core>, wake_id: &str) {
         .watches
         .get(wake_id)
         .expect("the watch is on the board");
-    let result = crate::watch::check::observe(&core.watch_tools(), &e.spec).await;
+    let mut rows = Vec::new();
+    let result = crate::watch::check::observe(&core.watch_tools(), &e, &mut rows).await;
+    let result = core.watch_seen(&rows, result);
     let (c, id) = (core.clone(), wake_id.to_string());
     tokio::task::spawn_blocking(move || c.watch_finish(&id, result))
         .await
@@ -265,7 +267,7 @@ async fn twenty_unchanged_checks_write_no_frame() {
         let c = l.core.clone();
         let id = id.clone();
         let e = c.watches.get(&id).unwrap();
-        let result = crate::watch::check::observe(&c.watch_tools(), &e.spec).await;
+        let result = crate::watch::check::observe(&c.watch_tools(), &e, &mut Vec::new()).await;
         // On this thread, with no await between the reads: the frames it wrote.
         let b = theseus_store::frames_written_here();
         c.watch_finish(&id, result);

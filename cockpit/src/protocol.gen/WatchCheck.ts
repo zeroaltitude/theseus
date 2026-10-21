@@ -7,4 +7,4 @@ export type WatchCheck = { "kind": "run", argv: Array<string>,
 /**
  * A JSON path into the output (`.state`, `.checks[0].status`).
  */
-json?: string, } | { "kind": "fetch", url: string, json?: string, } | { "kind": "file", path: string, } | { "kind": "reply", place: string, from?: string, words?: string, };
+json?: string, } | { "kind": "fetch", url: string, json?: string, } | { "kind": "file", path: string, } | { "kind": "reply", place: string, from?: string, words?: string, } | { "kind": "mail", q: string, };

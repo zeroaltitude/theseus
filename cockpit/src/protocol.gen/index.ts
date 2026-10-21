@@ -126,6 +126,7 @@ export type * from './DeferHealth';
 export type * from './DeferListResult';
 export type * from './DeferPlace';
 export type * from './Delivery';
+export type * from './DigestGoogle';
 export type * from './DigestKind';
 export type * from './DigestLine';
 export type * from './DigestMore';

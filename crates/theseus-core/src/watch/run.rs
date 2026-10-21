@@ -74,7 +74,18 @@ impl Core {
         } else {
             self.kernel.watch_state(&w.id).ok().flatten()
         };
-        let entry = Entry::seed(e.id.clone(), w.id.clone(), spec, w.set_at_ms, state, now);
+        let mut entry = Entry::seed(e.id.clone(), w.id.clone(), spec, w.set_at_ms, state, now);
+        if !fresh && matches!(entry.spec.check, super::spec::Check::Mail { .. }) {
+            // A restart resumes from the cursor its last frame kept (empty:
+            // cleared, or never written).
+            let key = format!("{}{}", super::mail::CURSOR_PREFIX, w.id);
+            entry.cursor = self
+                .store
+                .get_meta::<String>(&key)
+                .ok()
+                .flatten()
+                .filter(|c| !c.is_empty());
+        }
         if fresh {
             self.watches.insert(entry);
         } else {
@@ -104,6 +115,7 @@ impl Core {
                         )
                     })
                 }),
+                google: self.tools.google.clone(),
             }
         })
     }
@@ -114,11 +126,41 @@ impl Core {
         let tools = self.watch_tools();
         let weak = Arc::downgrade(self);
         drop(tokio::spawn(async move {
-            let result = check::observe(&tools, &e.spec).await;
+            let mut rows = Vec::new();
+            let result = check::observe(&tools, &e, &mut rows).await;
             let Some(core) = weak.upgrade() else { return };
             let id = e.wake_id.clone();
+            // A mail look's calls are rows like any tool's; who sent what is
+            // decided here, where the config is.
+            let result = core.watch_seen(&rows, result);
             let _ = tokio::task::spawn_blocking(move || core.watch_finish(&id, result)).await;
         }));
+    }
+
+    /// A look finished, before an entry takes it: a mail look's calls are rows
+    /// like any tool's, and who sent what is decided here, where the config is.
+    pub(crate) fn watch_seen(
+        &self,
+        rows: &[serde_json::Value],
+        result: Result<Observed, String>,
+    ) -> Result<Observed, String> {
+        // One frame for the look's rows, however many calls it made.
+        let rec = self.rec(None);
+        let records: Vec<_> = rows
+            .iter()
+            .filter_map(|row| rec.row(&fact::google::GoogleCalled { row }).ok())
+            .collect();
+        if !records.is_empty() {
+            if let Err(e) = self.store.append(&records) {
+                tracing::warn!(error = %format!("{e:#}"), "a mail look's rows were not written");
+            }
+        }
+        result.map(|mut seen| {
+            if let Some(m) = &mut seen.mail {
+                m.trusted = self.mail_trusted(m);
+            }
+            seen
+        })
     }
 
     /// What a check came to: the entry takes it, and news is written.
@@ -132,7 +174,11 @@ impl Core {
         }) else {
             return;
         };
-        let Step::News(news) = step else { return };
+        let Step::News(mut news) = step else { return };
+        // A mail watch's task is started first, so the notice names it.
+        let started = self
+            .mail_then(&before, &mut news)
+            .or(before.started.clone());
         // A watch that ends leaves the board before its row can be read
         // (theseus-1b2zm), as a reply watch does.
         let ends = matches!(
@@ -151,6 +197,7 @@ impl Core {
                 let again = Entry {
                     next_ms: now + 30_000,
                     running: false,
+                    started,
                     ..before
                 };
                 match ends {
@@ -175,8 +222,12 @@ impl Core {
             return Ok(false);
         };
         // Where it is said is read before the frame: Home may open a session.
-        let target = if want_post && matches!(e.spec.check, super::spec::Check::Reply { .. }) {
-            // A reply's notice is never posted into a shared place.
+        let said_privately = matches!(
+            e.spec.check,
+            super::spec::Check::Reply { .. } | super::spec::Check::Mail { .. }
+        );
+        let target = if want_post && said_privately {
+            // A reply's or a mail's notice is never posted into a shared place.
             self.reply_target(self.outbox.target(&ex.session_id), w.target)
         } else if want_post {
             self.outbox

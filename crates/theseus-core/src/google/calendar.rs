@@ -149,6 +149,59 @@ fn organized_by(e: &Value, account: &str) -> bool {
         || text(e, &["organizer", "email"]).is_some_and(|m| m.eq_ignore_ascii_case(account))
 }
 
+/// The event's video call: Meet's link, else a conference's video entry point.
+fn call_link(e: &Value) -> Option<String> {
+    text(e, &["hangoutLink"]).map(str::to_string).or_else(|| {
+        e["conferenceData"]["entryPoints"]
+            .as_array()?
+            .iter()
+            .find(|p| p["entryPointType"] == "video")
+            .and_then(|p| text(p, &["uri"]))
+            .map(str::to_string)
+    })
+}
+
+/// An event as the morning note reads it (`initiative/morning_google.rs`).
+pub(crate) struct Brief {
+    /// The start and end (unix ms), none for an all-day event.
+    pub start_ms: Option<u64>,
+    pub end_ms: Option<u64>,
+    /// The event's time as people read it (`when`).
+    pub when: String,
+    pub title: String,
+    pub attendees: usize,
+    pub call: Option<String>,
+}
+
+/// The request for today's events: from the local midnight to the next.
+pub(crate) fn today(now: u64) -> Result<Request, String> {
+    let from = day_start(now, &stamp::system);
+    // Noon of the next day is on that day, whatever daylight saving did.
+    let to = day_start(from + DAY_MS + DAY_MS / 2, &stamp::system);
+    let input = json!({"from": rfc3339(from), "to": rfc3339(to), "max": MAX_MOST});
+    listing(&input, now, &stamp::system).map(|l| l.request)
+}
+
+/// The events a listing's answer holds (a cancelled one left out), as briefs.
+pub(crate) fn briefs(reply: &Value) -> Vec<Brief> {
+    let at =
+        |e: &Value, k: &str| text(e, &[k, "dateTime"]).and_then(|t| crate::wake::parse_at(t).ok());
+    reply["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| e["status"] != "cancelled")
+        .map(|e| Brief {
+            start_ms: at(e, "start"),
+            end_ms: at(e, "end"),
+            when: when(e, &stamp::system),
+            title: text(e, &["summary"]).map_or("(no title)".into(), one_line),
+            attendees: e["attendees"].as_array().map_or(0, Vec::len),
+            call: call_link(e),
+        })
+        .collect()
+}
+
 /// An event in the lines the model reads.
 fn render(e: &Value, account: &str, zone: ZoneAt<'_>) -> String {
     let title = text(e, &["summary"]).map_or("(no title)".into(), one_line);
@@ -169,15 +222,7 @@ fn render(e: &Value, account: &str, zone: ZoneAt<'_>) -> String {
     if let Some(l) = text(e, &["location"]) {
         notes.push(format!("where: {}", one_line(l)));
     }
-    let call = text(e, &["hangoutLink"]).map(str::to_string).or_else(|| {
-        e["conferenceData"]["entryPoints"]
-            .as_array()?
-            .iter()
-            .find(|p| p["entryPointType"] == "video")
-            .and_then(|p| text(p, &["uri"]))
-            .map(str::to_string)
-    });
-    if let Some(c) = call {
+    if let Some(c) = call_link(e) {
         notes.push(format!("call: {c}"));
     }
     if !notes.is_empty() {

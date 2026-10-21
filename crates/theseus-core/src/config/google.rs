@@ -26,6 +26,11 @@ pub struct GoogleConfig {
     /// brake. 0: no sends.
     #[serde(default = "default_max_sends")]
     pub max_sends_per_day: u32,
+    /// Addresses whose mail may start a task through a mail watch (`then:
+    /// task`), compared in lower case. Empty: no mail starts anything; a mail
+    /// watch only notices.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted_senders: Vec<String>,
     /// The `[secrets]` entries: the client (id and secret, two labelled lines
     /// or the console's JSON) and the refresh token `theseus google auth` mints.
     #[serde(default)]
@@ -50,6 +55,7 @@ impl Default for GoogleConfig {
             account: String::new(),
             services: default_services(),
             max_sends_per_day: default_max_sends(),
+            trusted_senders: Vec::new(),
             credentials: GoogleCredentialNames::default(),
             endpoint: None,
         }
@@ -123,6 +129,9 @@ impl super::Config {
         }
         if !email_ok(&g.account) {
             anyhow::bail!("google.account = {:?} is not an email address", g.account);
+        }
+        if let Some(a) = g.trusted_senders.iter().find(|a| !email_ok(a)) {
+            anyhow::bail!("google.trusted_senders names {a:?}, which is not an email address");
         }
         let mut seen = BTreeSet::new();
         for s in &g.services {

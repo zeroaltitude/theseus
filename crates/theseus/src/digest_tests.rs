@@ -76,6 +76,7 @@ fn result() -> WorkDigestResult {
         },
         questions: vec![question()],
         more: None,
+        google: None,
     }
 }
 

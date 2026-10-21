@@ -48,6 +48,7 @@ mod agenda;
 mod capture;
 mod card;
 mod digest;
+mod digest_google;
 mod earned;
 mod forecast;
 mod grants;

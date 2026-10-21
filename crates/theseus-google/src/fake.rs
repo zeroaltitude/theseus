@@ -403,7 +403,8 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
     match (req.method.as_str(), req.path()) {
         ("GET", "/gmail/v1/users/me/profile") => Reply::json(
             200,
-            json!({"emailAddress": account, "messagesTotal": 3, "threadsTotal": 2, "historyId": "100"}),
+            json!({"emailAddress": account, "messagesTotal": 3, "threadsTotal": 2,
+                "historyId": mail.history_id().to_string()}),
         ),
         ("GET", "/drive/v3/about") => {
             Reply::json(200, json!({"user": {"emailAddress": account, "me": true}}))

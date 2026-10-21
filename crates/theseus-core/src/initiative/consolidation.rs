@@ -65,6 +65,7 @@ impl Core {
             };
             let spoken = core
                 .initiative_speak(&Facts {
+                    private: false,
                     kind: "consolidation",
                     brief: &brief,
                     line: Line::Consolidation,

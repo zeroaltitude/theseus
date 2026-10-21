@@ -143,9 +143,10 @@ fn the_templates_google_section_uncommented_parses() {
         .take_while(|l| !l.is_empty())
         .map(|l| l.strip_prefix("# ").unwrap_or(l))
         .collect();
-    assert_eq!(section.len(), 5, "{section:?}");
+    assert_eq!(section.len(), 6, "{section:?}");
     let cfg = load(&section.join("\n")).unwrap();
     assert_eq!(cfg.google.account, "owner@example.test");
+    assert_eq!(cfg.google.trusted_senders, ["dana@example.test"]);
     assert_eq!(cfg.google.services.len(), 6);
     assert_eq!(
         cfg.google.endpoint.as_deref(),
