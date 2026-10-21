@@ -16,10 +16,17 @@ use theseus_protocol::{
     OntologyCategoryAddParams, OntologyGuidanceSetParams, OntologyMembershipSetParams,
 };
 
+use serde_json::json;
+use theseus_protocol::PlaceClass;
+
 use crate::config::MemoryMode;
-use crate::provider::ProviderRequest;
+use crate::data::{DataWhy, OpenHow, Opened, Taint};
+use crate::provider::{ProviderRequest, Scripted};
 use crate::recall::{Ask, AskFuture};
-use crate::tests_places::{rig_with, session, turn, Rig, OWNER, SECRET};
+use crate::session::SessionRecord;
+use crate::tests_places::{
+    offered, result_of, rig_scripted, rig_with, session, turn, Rig, OWNER, SECRET,
+};
 use crate::Core;
 
 /// `tests/golden/private_requests.txt`: the first requests of a CLI session
@@ -278,4 +285,143 @@ async fn a_private_sessions_request_is_byte_identical() {
         "a private session's request moved from tests/golden/private_requests.txt \
          (THESEUS_GOLDEN=write writes it again):\n{got}"
     );
+}
+
+/// `sid`'s data state opened, as the open-task row's opening frame writes
+/// it (theseus-a1wvq.6), tainted at `taint` when given.
+pub(crate) fn open(c: &Core, sid: &str, taint: Option<u64>) {
+    c.store
+        .update_session(sid, |r| {
+            let d = r.data.get_or_insert_with(Default::default);
+            d.opened = Some(Opened {
+                how: OpenHow::Task,
+                at_ms: 1,
+            });
+            d.taint = taint.map(|at_ms| Taint {
+                why: DataWhy::VerdictPrivate,
+                node: None,
+                at_ms,
+            });
+            Ok(vec![])
+        })
+        .unwrap();
+}
+
+/// What an open request must never be offered.
+fn owners_tools(offered: &[String]) -> Vec<&String> {
+    offered
+        .iter()
+        .filter(|t| {
+            t.as_str() == "memory_lookup"
+                || t.starts_with("channel_")
+                || t.starts_with("aws_")
+                || t.starts_with("mcp__")
+                || t.as_str() == "proc_run"
+        })
+        .collect()
+}
+
+/// One compile through the seam (`TurnRunner::open_request`) of a private
+/// session carries none of the markers, and leaves the session as it was:
+/// its next ordinary compile is the golden's, byte for byte.
+#[tokio::test]
+async fn the_open_view_can_be_asked_for_one_compile() {
+    let (r, ids) = owners_rig(|_| {});
+    let c = &r.core;
+    let tmp = r.root.parent().unwrap().to_path_buf();
+    let sid = session_in(c, None, &r.root);
+    with_person(c, &sid);
+    said_earlier(c, &sid);
+    let rec = c.store.get_session::<SessionRecord>(&sid).unwrap().unwrap();
+    let (live, _) = c.live_profile();
+    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
+    let one = c.runner.open_request(&rec, &target).unwrap();
+    assert!(one.view.open.is_some() && one.view.class == PlaceClass::Private);
+    let text = serde_json::to_string(&one.compiled.request).unwrap();
+    assert!(text.contains(EARLIER), "the newest message: {text}");
+    for marker in [SECRET, PREF, FACT, PERSON, EPISODE] {
+        assert!(
+            !text.contains(marker),
+            "{marker:?} reached the open compile: {text}"
+        );
+    }
+    assert!(text.contains(ORDER), "{text}");
+    let tools = offered(&one.compiled.request);
+    assert_eq!(owners_tools(&tools), Vec::<&String>::new(), "{tools:?}");
+    let after = c.store.get_session::<SessionRecord>(&sid).unwrap().unwrap();
+    assert!(after.data.is_none() && after.compilation_id.is_none());
+
+    turn(c, &sid, ASKED).await;
+    let req = r.requests().pop().unwrap();
+    let got = body(&req, &tmp, &[&[sid], &ids[..]].concat());
+    let want = std::fs::read_to_string(GOLDEN).unwrap();
+    let cli = want.split("== dm\n").next().unwrap();
+    assert_eq!(
+        format!("== cli\n{got}"),
+        cli,
+        "the next compile is the private view's"
+    );
+}
+
+/// A model that runs a program in `cwd` on `RUN <cwd>`, then answers.
+fn runs(req: &ProviderRequest) -> Scripted {
+    if crate::tests_places::answers_a_call(req) {
+        return Scripted::text("Done.");
+    }
+    let last = crate::tests_places::last_user(req);
+    match last.strip_prefix("RUN ") {
+        Some(cwd) => Scripted::tools(
+            "Running.",
+            &[("r1", "proc_run", json!({"argv": ["ls"], "cwd": cwd.trim()}))],
+        ),
+        None => Scripted::text("Hello."),
+    }
+}
+
+/// In the open view a session outside the open roots is not offered
+/// `proc.run`, and a call is refused; inside them it is offered, and a call
+/// whose `cwd` is outside them is refused in words.
+#[tokio::test]
+async fn proc_run_needs_its_cwd_under_open_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("inside")).unwrap();
+    let inside = dir.path().join("inside").canonicalize().unwrap();
+    let r = rig_scripted(
+        |cfg| cfg.routing.data.open_paths = vec![path(&inside)],
+        runs,
+    );
+    let c = &r.core;
+    let outside = r.root.clone();
+
+    let away = session_in(c, None, &outside);
+    open(c, &away, None);
+    turn(c, &away, &format!("RUN {}", inside.display())).await;
+    let req = r.asked("RUN").pop().unwrap();
+    assert!(
+        !offered(&req).contains(&"proc_run".to_string()),
+        "{:?}",
+        offered(&req)
+    );
+    let res = result_of(c, &away, "r1");
+    assert!(
+        res.starts_with("Not run: proc.run is not offered in an open request"),
+        "{res}"
+    );
+
+    let home = session_in(c, None, &inside);
+    open(c, &home, None);
+    turn(c, &home, &format!("RUN {}", outside.display())).await;
+    let req = r.asked("RUN").pop().unwrap();
+    assert!(
+        offered(&req).contains(&"proc_run".to_string()),
+        "{:?}",
+        offered(&req)
+    );
+    let res = result_of(c, &home, "r1");
+    assert!(res.starts_with("Not run: "), "{res}");
+    assert!(res.contains("is outside the open paths"), "{res}");
+}
+
+fn path(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
 }

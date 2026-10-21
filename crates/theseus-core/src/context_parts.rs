@@ -79,20 +79,23 @@ impl TurnRunner {
         kind: SessionKind,
         recorded: Option<&[MembershipUsed]>,
     ) -> Built {
-        let place = self.view_of(session);
-        let paths = self
-            .cfg
-            .context_paths(target.persona.as_deref(), target.engages);
-        let mut files = self.context_files.peek(&paths);
-        if place.class == PlaceClass::Shared {
-            crate::context_files::withhold_shared(&mut files);
-        }
-        let mut spec = self.spec_of(target, kind, place, files.clone());
         let rec = self
             .store
             .get_session::<crate::session::SessionRecord>(session)
             .ok()
             .flatten();
+        let place = PlaceView {
+            open: rec.as_ref().and_then(|r| self.open_of(r)),
+            ..self.view_of(session)
+        };
+        let paths = self
+            .cfg
+            .context_paths(target.persona.as_deref(), target.engages);
+        let mut files = self.context_files.peek(&paths);
+        if place.content_class() == PlaceClass::Shared {
+            crate::context_files::withhold_shared(&mut files);
+        }
+        let mut spec = self.spec_of(target, kind, place, files.clone());
         spec.session_text = self.session_block(rec.as_ref().and_then(|r| r.dir.as_deref()), place);
         self.thread_spec(
             &mut spec,
@@ -102,7 +105,7 @@ impl TurnRunner {
         spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
         let owned = !target.engages && crate::persona::owned(&files);
         let header = self.header_parts(target, place, owned);
-        let Some(walk) = self.walk(session, place.class) else {
+        let Some(walk) = self.walk(session, place.content_class()) else {
             return Built {
                 header,
                 files,

@@ -846,7 +846,7 @@ impl TurnRunner {
         }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
         s.session_text = self.session_block(t.tc.dir, t.tc.place());
-        s.walk = self.walk(t.tc.session_id, t.tc.class);
+        s.walk = self.walk(t.tc.session_id, t.tc.place().content_class());
         self.stand(t, &mut s);
         self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
         self.defer_tools(t, &mut s);

@@ -81,6 +81,7 @@ pub mod node;
 pub mod node_cache;
 pub mod one_shot;
 pub mod ontology;
+pub mod open_view;
 pub mod outbound;
 pub mod outbox;
 pub mod outputs;
