@@ -5,20 +5,26 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::json;
 use theseus_judge::builders::{PeopleInput, PersonCandidate};
 use theseus_judge::price::Micros;
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Input, JevError, Judge, Judgment, Outcome, Urgency};
 use theseus_ontology::{handles_of, Ontology};
 use theseus_store::{kinds, NewRecord};
 
 use super::{extract, fold, nearest, Line, PACK, SCOPE};
 use crate::config::PackMode;
-use crate::judge::{spend, JudgeService, ScrubWith};
+use crate::judge::{spend, Built, JudgeService, ScrubWith};
 use crate::ledger::LedgerRow;
 use crate::provider::Provider;
 use crate::rpc::Core;
+
+/// The pause before a failed judgment is asked again, in seconds: at least
+/// this, or Jev's `retry-after` when longer, and never more than the cap.
+pub(crate) const RETRY_PAUSE_SECS: u64 = 2;
+pub(crate) const RETRY_CAP_SECS: u64 = 10;
 
 /// One session to pass over.
 pub struct Session<'a> {
@@ -284,32 +290,117 @@ impl JudgeService {
             ask.id = Some(format!("jdg_{}", uuid::Uuid::now_v7().simple()));
             asks.push(ask);
         }
+        self.judge_asks(&built, &today, asks).await
+    }
+
+    /// The asks, judged in one decision point; a judgment that failed for a
+    /// transient reason (a timeout, the network, a 429 or a 5xx) is asked
+    /// once more, after a pause. The backfill passes a session once and
+    /// the failed judgment still counts as asked (`people_known`), so with
+    /// no second ask the name was never judged. The retry is a judgment of
+    /// its own (a new id, `retry_of` naming the failed one) and the failed
+    /// row stays in the ledger; the ids returned are those that stand.
+    async fn judge_asks(
+        &self,
+        built: &Built,
+        today: &str,
+        asks: Vec<Ask>,
+    ) -> (Vec<String>, Micros) {
         let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
-        if asks.is_empty() || !self.reserve(&today, need) {
+        if asks.is_empty() || !self.reserve(today, need) {
             return (Vec::new(), 0);
         }
         let judgments = built
             .judge
             .judge(DecisionPoint {
-                asks,
+                asks: asks.clone(),
                 urgency: Urgency::Shadow,
             })
             .await;
+        let (mut ids, mut spent_all) = self.settle_round(today, need, &judgments);
+        // (index in `asks`, retry-after, the failure's class)
+        let failed: Vec<(usize, u64, String)> = judgments
+            .iter()
+            .enumerate()
+            .filter_map(|(i, j)| match &j.outcome {
+                Outcome::Failed {
+                    error,
+                    class,
+                    transient: true,
+                    ..
+                } => Some((i, retry_after(error), class.clone())),
+                _ => None,
+            })
+            .collect();
+        if failed.is_empty() {
+            return (ids, spent_all);
+        }
+        let pause = failed.iter().map(|f| f.1).max().unwrap_or(0);
+        let pause = Duration::from_secs(pause.clamp(RETRY_PAUSE_SECS, RETRY_CAP_SECS));
+        let again: Vec<Ask> = failed
+            .iter()
+            .map(|(i, _, class)| {
+                let mut ask = asks[*i].clone();
+                ask.context["retry_of"] = json!(judgments[*i].id);
+                ask.context["retry_after_failure"] = json!(class);
+                ask.id = Some(format!("jdg_{}", uuid::Uuid::now_v7().simple()));
+                ask
+            })
+            .collect();
+        let need = built.judge.inner().reserve_micros(&again).unwrap_or(0);
+        tokio::time::sleep(pause).await;
+        if !self.reserve(today, need) {
+            return (ids, spent_all);
+        }
+        let retried = built
+            .judge
+            .judge(DecisionPoint {
+                asks: again,
+                urgency: Urgency::Shadow,
+            })
+            .await;
+        let (_, spent) = self.settle_round(today, need, &retried);
+        spent_all += spent;
+        for ((i, _, _), j) in failed.iter().zip(&retried) {
+            ids[*i] = j.id.clone();
+        }
+        (ids, spent_all)
+    }
+
+    /// One round's judgments settled against its reservation: their ids and
+    /// what they cost.
+    fn settle_round(
+        &self,
+        today: &str,
+        need: Micros,
+        judgments: &[Judgment],
+    ) -> (Vec<String>, Micros) {
         let mut spent_all = 0;
         let mut ids = Vec::new();
         let share = need / judgments.len().max(1) as u64;
-        for j in &judgments {
+        for j in judgments {
             let (called, failed, unknown) = match &j.outcome {
                 Outcome::Answered => (true, false, false),
                 Outcome::Failed { usage_unknown, .. } => (true, true, *usage_unknown),
                 Outcome::Skipped { .. } => (false, false, false),
             };
             let spent = j.cost_micros.unwrap_or(if unknown { share } else { 0 });
-            self.budget.settle(&today, share, spent, called, failed);
+            self.budget.settle(today, share, spent, called, failed);
             spent_all += spent;
             ids.push(j.id.clone());
         }
         (ids, spent_all)
+    }
+}
+
+/// How long Jev asked to wait, in seconds, when it said (a 429's `retry-after`).
+fn retry_after(e: &JevError) -> u64 {
+    match e {
+        JevError::RateLimited {
+            retry_after_secs: Some(s),
+            ..
+        } => *s,
+        _ => 0,
     }
 }
 

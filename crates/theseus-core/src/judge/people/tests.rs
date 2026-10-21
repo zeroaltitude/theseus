@@ -29,7 +29,7 @@ use crate::store::Store;
 use crate::tests_categorize::{moorings, rig, session};
 use crate::Core;
 
-const TAG: &str = "tern-2026-05";
+pub(super) const TAG: &str = "tern-2026-05";
 /// The owner's name as the import writes it: a bare author.
 const OWNER_NAME: &str = "Sable Thorn";
 
@@ -176,11 +176,11 @@ fn episode_line(i: usize) -> String {
     serde_json::to_string(&v).unwrap()
 }
 
-fn sid(i: usize) -> String {
+pub(super) fn sid(i: usize) -> String {
     session_id_of(&format!("ep_{:064x}", 0x7e44_0000 + i))
 }
 
-fn import(core: &Core) {
+pub(super) fn import(core: &Core) {
     let lines: Vec<ImportLine> = (0..3)
         .map(|i| ImportLine {
             line: i as u64 + 1,
@@ -281,7 +281,7 @@ pub(super) async fn until_rows(store: &Store, kind: &str, n: usize) -> Vec<Ledge
     }
 }
 
-async fn propose(
+pub(super) async fn propose(
     core: &Arc<Core>,
     dry_run: bool,
     cap: f64,
@@ -299,7 +299,7 @@ async fn propose(
 }
 
 /// Orrin, held already, with his Slack id.
-fn hold_orrin(core: &Core) {
+pub(super) fn hold_orrin(core: &Core) {
     core.ontology_category_add(
         &OntologyCategoryAddParams {
             kind: Some("person".into()),
@@ -314,7 +314,7 @@ fn hold_orrin(core: &Core) {
 
 /// The extractor's two answers: the first session's, billed at $0.50; the
 /// second's.
-fn script_extractions(fake: &crate::provider::FakeProvider) {
+pub(super) fn script_extractions(fake: &crate::provider::FakeProvider) {
     {
         let mut s = fake.script.lock().unwrap();
         s.push_back(billed(answer(json!([

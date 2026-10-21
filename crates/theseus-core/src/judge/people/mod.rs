@@ -63,6 +63,8 @@ mod tests_groups;
 #[cfg(test)]
 mod tests_handles;
 #[cfg(test)]
+mod tests_retry;
+#[cfg(test)]
 mod tests_seen;
 #[cfg(test)]
 mod tests_sweep;
