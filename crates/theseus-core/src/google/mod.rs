@@ -37,6 +37,7 @@ use crate::secrets::{Secret, SecretBoard, Waited};
 pub mod auth;
 pub mod calendar;
 pub mod call;
+pub mod drive;
 pub mod external;
 pub mod mail;
 pub mod mime;
@@ -53,6 +54,8 @@ mod tests_calendar;
 #[cfg(test)]
 mod tests_config;
 #[cfg(test)]
+mod tests_drive;
+#[cfg(test)]
 mod tests_gate;
 #[cfg(test)]
 mod tests_mail;
@@ -62,13 +65,17 @@ mod tests_private;
 pub use external::{finish, Finished, Source};
 
 /// The Google tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 8] = [
+pub const NAMES: [&str; 12] = [
     call::NAME,
     mail::SEARCH,
     mail::READ,
     mail::DRAFT,
     mail::SEND,
     mail::LABEL,
+    drive::FIND,
+    drive::READ,
+    drive::WRITE,
+    drive::SHARE,
     calendar::EVENTS,
     calendar::PUT,
 ];
@@ -223,7 +230,7 @@ impl Google {
         // gw-mail:
         all.extend(mail::tools(self));
         //
-        // gw-drive: all.extend(drive::tools(self));
+        all.extend(drive::tools(self));
         //
         // gw-sheets-slides: all.extend(sheets::tools(self)); all.extend(slides::tools(self));
         //
