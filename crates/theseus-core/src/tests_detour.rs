@@ -22,7 +22,7 @@ use crate::Core;
 
 /// A rig whose every `anthropic` turn is a Haiku stand-in that answers `n`
 /// texts, with `tweak` applied to the config.
-fn rig_haiku(
+pub(crate) fn rig_haiku(
     jev: &FakeJev,
     n: usize,
     tweak: impl FnOnce(&mut crate::Config),
@@ -295,7 +295,7 @@ async fn a_detoured_plain_turn_keeps_its_frames() {
 
 /// The owner's config in shape: its AWS account and its five personas (whose
 /// files the full request carries and a detour does not).
-fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
+pub(crate) fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
     let owner = crate::Config::parse(&crate::tests_first_request::with_personas(
         crate::tests_first_request::OWNER_SHAPE,
         dir,
@@ -322,12 +322,19 @@ fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
 /// (its persona files are not in it, so a small family still fits beside the
 /// tools): the AWS family it names does not fit and is left out, and the small
 /// family it names after it loads, whatever the order of the message.
+///
+/// theseus-xlri5: this pins the rollback. With `[tools.defer] admit_ceiling = 1.0`
+/// the cap is the budget again, byte for byte the rule before admitted families
+/// could raise it (`tests_families` holds the raise).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_detour_naming_a_family_stays_within_its_place_budget() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     let dir = tempfile::tempdir().unwrap();
-    let (r, haiku) = rig_haiku(&jev, 1, |c| owner_shape(c, dir.path()));
+    let (r, haiku) = rig_haiku(&jev, 1, |c| {
+        owner_shape(c, dir.path());
+        c.tools.defer.admit_ceiling = 1.0;
+    });
     let res = turn(
         &r.core,
         None,

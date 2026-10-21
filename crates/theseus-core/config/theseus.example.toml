@@ -525,6 +525,9 @@ always_loaded = ["files", "commands"]   # families that load in every place
 load_share = 0.10                       # a family used in this share of a place kind's turns loads
 window_days = 14                        # ... over this many days
 hide_after_days = 14                    # a family loaded by default and unused this long hides
+admit_ceiling = 2.0                     # a family named or judged relevant loads past the place's budget, to this multiple of it (1.0: the cap)
+judge_families = true                   # Jev judges each hidden family against the prompt, once a prompt (false: named families only)
+judge_wait_ms = 200                     # the most a turn waits for that judgment, from the message's arrival
 
 # ---------------------------------------------------------------- aws
 # The AWS accounts Theseus owns, each by its id, with its key (the root of

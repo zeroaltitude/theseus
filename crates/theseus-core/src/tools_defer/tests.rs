@@ -23,6 +23,7 @@ fn deferral(mechanism: Mechanism, loaded: &[&str]) -> Deferral {
         loaded: loaded.iter().map(|s| s.to_string()).collect(),
         resolved: false,
         added: Default::default(),
+        raised: None,
     }
 }
 

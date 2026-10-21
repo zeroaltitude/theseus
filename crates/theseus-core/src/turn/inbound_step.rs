@@ -66,6 +66,10 @@ impl TurnRunner {
             false => t.route.read.take(),
         };
         let route = read.unwrap_or_else(|| self.route_mode(t.target, t.tc.session_id));
+        // Jev's judgment of the tool families, beside the rest (theseus-xlri5).
+        if !steered {
+            self.families_start(t, route);
+        }
         // A pin after a routed turn counts on route.v1's ladder (26a).
         if t.target.chosen.is_some() && !steered {
             self.judge.pinned(t.tc.session_id, &t.target.profile);

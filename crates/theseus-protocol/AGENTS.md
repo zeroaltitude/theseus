@@ -107,6 +107,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   wording every surface shows (`cockpit/src/lib/check.ts` mirrors it).
 - `route.rs`: how routing placed a turn (`TurnRoute`), and a refusal's fallback (`TurnFallback`, theseus-7gir.18) with
   `TurnFallback::line`, the one wording every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
+- `route.rs` also holds `ToolsRaised` and `RaisedFamily` (theseus-xlri5): the families a turn's first request admitted
+  past its place's budget, with `line`, the one wording `harness_lines` chains.
 - `nudge.rs` (theseus-fh0u): the stop nudge on the wire: the result's `TurnNudge` with `line`, the one wording every
   surface shows (`cockpit/src/lib/nudge.ts` mirrors it), `TurnSubmitResult::harness_lines` (a fallback's line, then a
   nudge's), and `session.nudge`'s params and result.

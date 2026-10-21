@@ -2404,6 +2404,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   rule: at the cli a detour's request is about 7,300 tokens before a named family, so no AWS family (900 to 1,300) fits beside it there and the
   model reaches one with `tools_find` (`tests_detour::a_detour_naming_a_family_stays_within_its_place_budget`).
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
+  **Admitted families raise the cap, under a ceiling** (theseus-xlri5; `[tools.defer] admit_ceiling` 2.0, `judge_families`,
+  `judge_wait_ms` 200): for a model without tool search, a family the message names, then one Jev judges relevant
+  (`families.v1`, `judge/families.rs`, started at the inbound point when the session's model lacks tool search or routing
+  is live, taken bounded from that start before each `defer_tools` by `turn/families_step.rs`, once a prompt, the
+  conversation's last set kept on the defer board by the prompt's digest), loads past the place's budget by exactly its
+  `Fit` cost while the whole stays under `floor(budget × admit_ceiling)` (`want::extra` returns `Admitted { family,
+  tokens, by }`); learned families stay held to `budget + Fit.raised`. What passed the budget rides `Deferral.raised`
+  (not stored), `tools.used`'s `raised` and `TurnSubmitResult.raised`, whose `line` closes `harness_lines`.
+  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. Tests: `tests_families.rs`.
 - **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
   `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]
   mode`, and nothing it finds moves routing): "which model you actually need, measured on your own past work".

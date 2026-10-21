@@ -292,6 +292,8 @@ mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
 #[cfg(test)]
+mod tests_families;
+#[cfg(test)]
 mod tests_first_request;
 #[cfg(test)]
 mod tests_fit;
