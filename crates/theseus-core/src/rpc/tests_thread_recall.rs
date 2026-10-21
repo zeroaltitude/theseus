@@ -236,7 +236,7 @@ async fn the_bar_withholds_a_far_thread_and_naming_it_waives_that() {
     let m = ambient(c, &pr, "tell me more", scored(c, picks.clone())).await;
     assert_eq!(m.admitted.len(), 2, "{m:?}");
     assert_eq!(m.drops.get("thread"), Some(&1));
-    assert_eq!(m.dropped[0].reason, "thread");
+    assert_eq!(m.dropped[0].reason, "thread_bar");
     let m = ambient(
         c,
         &pr,

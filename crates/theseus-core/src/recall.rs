@@ -985,7 +985,7 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
         overage: None,
     });
     for d in &pack.dropped {
-        *m.drops.entry(d.reason.as_str().into()).or_default() += 1;
+        *m.drops.entry(d.reason.family().into()).or_default() += 1;
     }
     m.admitted = pack
         .admitted
@@ -1018,6 +1018,9 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
             fused: d.candidate.fused,
             tokens: d.tokens,
             retention: None,
+            own_top: d.distance.map(|x| x.own_top),
+            share: d.distance.map(|x| x.share),
+            paid: d.distance.map(|x| x.paid),
         })
         .collect();
     // Activation's share of what was admitted (32b).

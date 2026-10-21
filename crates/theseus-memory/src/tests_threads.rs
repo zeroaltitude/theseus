@@ -9,7 +9,7 @@ use proptest::prelude::*;
 
 use crate::recall::{recall, Asker, Candidate, Pack, Params, Place, Reason};
 use crate::science::Baseline;
-use crate::threads::{SessionThread, ThreadLens};
+use crate::threads::{Cause, SessionThread, ThreadLens};
 
 fn cand(node: &str, session: &str, fused: f64) -> Candidate {
     Candidate {
@@ -98,7 +98,7 @@ fn another_threads_hit_pays_and_is_withheld_under_the_bar() {
     );
     // 0.040 * 0.65 = 0.026 < 0.036: the unthreaded note now leads.
     assert_eq!(admitted(&p), ["own", "far_top", "far_mid"]);
-    assert_eq!(reason_of(&p, "far_low"), Some(Reason::Thread));
+    assert_eq!(reason_of(&p, "far_low"), Some(Reason::Thread(Cause::Bar)));
 }
 
 /// Naming the thread waives the penalty and the bar both.
@@ -172,7 +172,7 @@ fn a_question_shape_alone_pulls_no_other_streams_note() {
         ],
     );
     assert_eq!(admitted(&p), ["shared", "plain"]);
-    assert_eq!(reason_of(&p, "apart"), Some(Reason::Thread));
+    assert_eq!(reason_of(&p, "apart"), Some(Reason::Thread(Cause::Entity)));
     // Off, the bar alone decides, as before.
     l.needs_entity = false;
     let p = run(
@@ -228,8 +228,8 @@ fn another_stream_must_outrank_what_the_thread_already_holds() {
     // 0.050 * 0.65 = 0.0325 > 0.030; 0.045 * 0.65 = 0.02925 does not.
     let p = run(&l, cands());
     assert_eq!(admitted(&p), ["far_hi", "own"]);
-    assert_eq!(reason_of(&p, "far_mid"), Some(Reason::Thread));
-    assert_eq!(reason_of(&p, "far_lo"), Some(Reason::Thread));
+    assert_eq!(reason_of(&p, "far_mid"), Some(Reason::Thread(Cause::Own)));
+    assert_eq!(reason_of(&p, "far_lo"), Some(Reason::Thread(Cause::Bar)));
     // Naming the other thread waives it; with nothing of its own the thread
     // admits what is above the bar.
     let mut named = l.clone();
@@ -258,12 +258,12 @@ fn the_places_own_conversation_is_another_stream_to_a_thread() {
         ],
     );
     assert_eq!(admitted(&p), ["base_hi"]);
-    assert_eq!(reason_of(&p, "base_lo"), Some(Reason::Thread));
+    assert_eq!(reason_of(&p, "base_lo"), Some(Reason::Thread(Cause::Base)));
     // 0.040 * 0.65 is below 0.030 of its own: withheld.
     l.beats_own = true;
     l.own_top = 0.030;
     let p = run(&l, vec![cand("base_hi", "ses_unthreaded", 0.040)]);
-    assert_eq!(reason_of(&p, "base_hi"), Some(Reason::Thread));
+    assert_eq!(reason_of(&p, "base_hi"), Some(Reason::Thread(Cause::Base)));
     l.base = false;
     let p = run(&l, vec![cand("base_lo", "ses_unthreaded", 0.020)]);
     assert_eq!(admitted(&p), ["base_lo"], "off, it recalls as before");
@@ -296,7 +296,7 @@ fn a_moved_node_belongs_to_its_thread_not_its_session() {
     l.of_node = moved(false);
     assert_eq!(
         reason_of(&run(&l, c()), "moved"),
-        Some(Reason::Thread),
+        Some(Reason::Thread(Cause::Bar)),
         "another thread's"
     );
     let mut own = lens(Some("security-fix"), &[], &[]);
@@ -365,4 +365,36 @@ proptest! {
             prop_assert!(a.candidate.session_id != "ses_fix", "{:?}", a.candidate);
         }
     }
+}
+
+/// The threadbench's msg-113 shape (theseus-98bz.2): the thread's own note,
+/// already in context, is the index's best at 0.104; another stream's note at
+/// share 0.93 pays down to 0.063 and does not outrank it. The drop says
+/// `thread_own` with the three numbers; the same note in the place's own
+/// conversation says `thread_base`, which wins over the other rules.
+#[test]
+fn a_drop_says_which_rule_and_the_numbers_it_weighed() {
+    let mut l = lens(Some("pr-round"), &[], &[]);
+    (l.top_fused, l.own_top, l.beats_own, l.base) = (0.104, 0.104, true, true);
+    let fused = 0.93 * 0.104;
+    let drop_of = |session: &str| {
+        let p = run(&l, vec![cand("near", session, fused)]);
+        let d = p
+            .dropped
+            .iter()
+            .find(|d| d.candidate.node_id == "near")
+            .cloned();
+        d.map(|d| (d.reason.as_str(), d.distance.unwrap()))
+    };
+    let (reason, d) = drop_of("ses_fix").unwrap();
+    assert_eq!(reason, "thread_own");
+    assert!((d.own_top - 0.104).abs() < 1e-9, "{d:?}");
+    assert!((d.share - 0.93).abs() < 1e-9, "{d:?}");
+    assert!((d.paid - 0.063).abs() < 5e-4, "{d:?}");
+    let (reason, base) = drop_of("ses_home").unwrap();
+    assert_eq!(
+        (reason, base.share, base.paid),
+        ("thread_base", d.share, d.paid)
+    );
+    assert_eq!(Reason::Thread(Cause::Own).family(), "thread");
 }

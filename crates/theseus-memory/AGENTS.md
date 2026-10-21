@@ -25,7 +25,10 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   `judge(session, fused)`: a candidate of a held thread (sealed, or a seal proposed) is `sealed` for every asker but
   its own thread; in a threaded session (`distance`) another thread's candidate is `thread` unless its fused score is
   above `bar` of `top_fused` (the index's best), else it pays `penalty` in the pack's rank; naming the thread
-  (`waived`) waives the distance and never a seal. Reasons `sealed` and `thread` join `Reason::ALL`.
+  (`waived`) waives the distance and never a seal. Reasons `sealed` and `thread` join `Reason::ALL`; a `thread`
+  drop names its rule (`Reason::Thread(Cause)`, theseus-98bz.2: `thread_bar`, `thread_own`, `thread_entity`, and
+  `thread_base`, which wins over the others for a node no thread claims), and `Dropped.distance` carries what it
+  weighed (`own_top`, `share`, `paid`); a recall's tally counts the four as `thread` (`Reason::family`).
   Tests: `tests_threads.rs` (a property over generated recalls: a sealed note is never admitted).
 - `recall.rs`'s `PersonaBoost` (theseus-a8n7), in `Params.persona`: while a persona is engaged, a candidate whose session
   the core read as an imported episode of the persona's own agent ranks `boost` (1.0 to 2.0) times its score; the
