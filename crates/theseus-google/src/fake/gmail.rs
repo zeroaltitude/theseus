@@ -586,7 +586,11 @@ fn list_messages(s: &State, req: &Req) -> Reply {
                 .find(|(n, _)| n.eq_ignore_ascii_case("from"))
                 .map(|(_, v)| v.to_lowercase())
                 .unwrap_or_default();
+            let has = |l: &str| m.spec.labels.iter().any(|x| x == l);
             froms.iter().all(|f| from.contains(f))
+                && (!q.contains("is:unread") || has("UNREAD"))
+                && (!q.contains("-category:promotions") || !has("CATEGORY_PROMOTIONS"))
+                && (!q.contains("-category:social") || !has("CATEGORY_SOCIAL"))
         })
         .map(|m| json!({"id": m.spec.id, "threadId": m.thread}))
         .collect();

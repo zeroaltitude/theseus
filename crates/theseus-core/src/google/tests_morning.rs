@@ -129,39 +129,82 @@ async fn morning_note_lists_todays_events() {
         brief.contains("09:00–09:30 · Design review · 3 attendees · call: https://meet.example.test/abc-defg · conflict"),
         "{brief}"
     );
-    assert!(brief.contains("09:15–09:45 · Budget call · conflict"), "{brief}");
     assert!(
-        brief.contains("11:00–11:30 · Focus time · 1 attendees") && !brief.contains("Focus time · 1 attendees · conflict"),
+        brief.contains("09:15–09:45 · Budget call · conflict"),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("11:00–11:30 · Focus time · 1 attendees")
+            && !brief.contains("Focus time · 1 attendees · conflict"),
         "{brief}"
     );
     // A day with meetings is a day something happened, and the calls are rows.
     let called = ledgered(&m.core, "google.called");
-    assert!(called.iter().any(|c| c["method"] == "calendar.events.list"), "{called:?}");
-    assert!(called.iter().all(|c| c["class"] == "read" && !c.to_string().contains("Design")));
+    assert!(
+        called.iter().any(|c| c["method"] == "calendar.events.list"),
+        "{called:?}"
+    );
+    assert!(called
+        .iter()
+        .all(|c| c["class"] == "read" && !c.to_string().contains("Design")));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn morning_note_counts_unread_and_drafts_waiting() {
     let m = rig(true, said(), |_| {}).await;
     let mb = m.fake.mail();
-    mb.thread("t1", vec![unread("m1", "Dana Colleague <dana@example.test>", "Contract")]);
-    mb.thread("t2", vec![unread("m2", "Pat Peer <pat@example.test>", "Lunch?")]);
-    mb.thread("t3", vec![unread("m3", "Sam Stranger <sam@example.test>", "Question")]);
+    mb.thread(
+        "t1",
+        vec![unread(
+            "m1",
+            "Dana Colleague <dana@example.test>",
+            "Contract",
+        )],
+    );
+    mb.thread(
+        "t2",
+        vec![unread("m2", "Pat Peer <pat@example.test>", "Lunch?")],
+    );
+    mb.thread(
+        "t3",
+        vec![unread("m3", "Sam Stranger <sam@example.test>", "Question")],
+    );
     mb.thread(
         "t4",
         vec![unread("m4", "Shop <deals@example.test>", "Sale").label("CATEGORY_PROMOTIONS")],
     );
-    mb.thread("t5", vec![MsgSpec::new("m5", "Old <old@example.test>", "Read already", "Hi.")]);
+    mb.thread(
+        "t5",
+        vec![MsgSpec::new(
+            "m5",
+            "Old <old@example.test>",
+            "Read already",
+            "Hi.",
+        )],
+    );
     for d in ["d1", "d2"] {
-        mb.put_draft(d, MsgSpec::new(&format!("x{d}"), "owner@example.test", "Draft", "Hi."));
+        mb.put_draft(
+            d,
+            MsgSpec::new(&format!("x{d}"), "owner@example.test", "Draft", "Hi."),
+        );
     }
     let brief = note(&m, &m.model).await;
-    assert!(brief.contains("Unread mail that matters (last 12 hours): 3"), "{brief}");
-    assert!(brief.contains("- Dana Colleague <dana@example.test> · Contract"), "{brief}");
-    assert!(!brief.contains("Sale") && !brief.contains("Read already"), "{brief}");
+    assert!(
+        brief.contains("Unread mail that matters (last 12 hours): 3"),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("- Dana Colleague <dana@example.test> · Contract"),
+        "{brief}"
+    );
+    assert!(
+        !brief.contains("Sale") && !brief.contains("Read already"),
+        "{brief}"
+    );
     assert!(brief.contains("Drafts waiting for a send: 2"), "{brief}");
     assert!(
-        !brief.contains("Nothing is waiting on the owner.") && brief.contains("2 drafts wait for the owner to send"),
+        !brief.contains("Nothing is waiting on the owner.")
+            && brief.contains("2 drafts wait for the owner to send"),
         "{brief}"
     );
     // The template, when no model speaks, no longer says nothing needs the owner.
@@ -174,7 +217,11 @@ async fn morning_note_counts_unread_and_drafts_waiting() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_google_read_is_said_and_never_blocks_the_note() {
     let m = rig(true, said(), |_| {}).await;
-    m.fake.json("GET", EVENTS_PATH, json!({"items": []}));
+    m.fake.json(
+        "GET",
+        EVENTS_PATH,
+        json!({"items": [event("e1", "2026-10-22T16:00:00Z", "2026-10-22T16:30:00Z", "Standup", 0, false)]}),
+    );
     m.fake.route("GET", "/gmail/v1/users/me/messages", |_| {
         Reply::json(
             403,
@@ -182,7 +229,10 @@ async fn a_failed_google_read_is_said_and_never_blocks_the_note() {
         )
     });
     let mb = m.fake.mail();
-    mb.thread("t1", vec![unread("m1", "Dana <dana@example.test>", "Contract")]);
+    mb.thread(
+        "t1",
+        vec![unread("m1", "Dana <dana@example.test>", "Contract")],
+    );
     let brief = note(&m, &m.model).await;
     assert!(brief.contains("mail unreachable"), "{brief}");
     assert!(!brief.contains("calendar unreachable"), "{brief}");
@@ -192,18 +242,36 @@ async fn a_failed_google_read_is_said_and_never_blocks_the_note() {
 /// restricted origin is never asked: the note goes out as its template.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_morning_note_never_uses_a_restricted_model() {
-    let m = rig(true, said(), |c| c.initiative.profile = Some("glm53".into())).await;
+    let m = rig(true, said(), |c| {
+        c.initiative.profile = Some("glm53".into())
+    })
+    .await;
     let mb = m.fake.mail();
-    mb.thread("t1", vec![unread("m1", "Dana <dana@example.test>", "Contract")]);
+    mb.thread(
+        "t1",
+        vec![unread("m1", "Dana <dana@example.test>", "Contract")],
+    );
     assert!(m.core.post_morning_if_due());
     until("the morning note", 20, || {
         !rows(&m.core, "initiative.spoke").is_empty()
     })
     .await;
-    assert!(m.zai.requests().is_empty(), "nothing went to the restricted provider");
-    assert!(m.model.requests().is_empty(), "and it did not retry on another profile");
+    assert!(
+        m.zai.requests().is_empty(),
+        "nothing went to the restricted provider"
+    );
+    assert!(
+        m.model.requests().is_empty(),
+        "and it did not retry on another profile"
+    );
     let spoke = rows(&m.core, "initiative.spoke");
-    assert!(spoke[0]["text"].as_str().unwrap().starts_with("🌊 Ondine: "), "{spoke:?}");
+    assert!(
+        spoke[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("🌊 Ondine: "),
+        "{spoke:?}"
+    );
     assert!(!spoke[0]["text"].as_str().unwrap().contains(SAID));
 }
 
@@ -215,12 +283,17 @@ async fn without_google_the_morning_note_is_what_it_was() {
     let promise = Scripted::text("Pushed. I'll let you know when it lands.");
     let m = rig(false, vec![promise, Scripted::text(SAID)], |_| {}).await;
     let sid = {
-        let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        let rec =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
         m.core.store.put_session(&rec.session_id, &rec).unwrap();
         rec.session_id
     };
     let (live, _) = m.core.live_profile();
-    let target = m.core.runner.resolve_target(&live, None, None, None).unwrap();
+    let target = m
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
     let sink = crate::bus::EventSink::new(m.core.bus.clone(), &sid, None);
     let rec = m.core.store.get_session(&sid).unwrap().unwrap();
     m.core
@@ -242,8 +315,14 @@ async fn without_google_the_morning_note_is_what_it_was() {
         .await
         .unwrap();
     let brief = note(&m, &m.model).await;
-    assert!(brief.contains("Nothing is waiting on the owner."), "{brief}");
-    assert!(!brief.contains("Today") && !brief.contains("unreachable"), "{brief}");
+    assert!(
+        brief.contains("Nothing is waiting on the owner."),
+        "{brief}"
+    );
+    assert!(
+        !brief.contains("Today") && !brief.contains("unreachable"),
+        "{brief}"
+    );
     assert!(ledgered(&m.core, "google.called").is_empty());
     assert!(m.fake.log().is_empty(), "no request left for Google");
 }

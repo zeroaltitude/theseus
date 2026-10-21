@@ -26,6 +26,11 @@ every?: string,
  */
 for_at_most?: string, then?: WatchThen, 
 /**
+ * A mail watch's follow-up (a brief): when it gives up at its deadline
+ * with no match, a task with this brief starts. Needs `for_at_most`.
+ */
+follow_up?: string, 
+/**
  * The conversation it lives in; none is the owner's Home.
  */
 session_id?: string, author?: string, 

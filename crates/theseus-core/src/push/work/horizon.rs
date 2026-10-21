@@ -298,6 +298,20 @@ impl WorkBoard {
             what: DoingKind::Sleeping,
             label: match (&failing, &spec) {
                 (Some(f), _) => format!("failing: {}", line(f)),
+                (None, Some(s)) if matches!(s.check, crate::watch::spec::Check::Mail { .. }) => {
+                    let day = s.follow_up.as_ref().map(|_| {
+                        let d = crate::recall::stamp::day_in(
+                            s.expires_ms,
+                            &crate::recall::stamp::system,
+                        );
+                        d.chars().take(3).collect::<String>()
+                    });
+                    theseus_protocol::work::horizon::reply_wait(
+                        &s.title,
+                        theseus_protocol::now_unix_ms().saturating_sub(w.set_at_ms),
+                        day.as_deref(),
+                    )
+                }
                 (None, Some(s)) => format!(
                     "checking every {}",
                     crate::watch::spec::every_word(s.every_ms)

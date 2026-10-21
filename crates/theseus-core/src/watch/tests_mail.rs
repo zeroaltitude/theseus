@@ -40,7 +40,7 @@ fn trust(c: &mut crate::Config) {
     c.google.trusted_senders = vec!["Dana@Example.test".into()];
 }
 
-async fn mail_rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
+pub(super) async fn mail_rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
     let r = rig_with(
         Some(REFRESH_TOKEN),
         |_| "file:/tmp/unused-google-refresh-token".into(),
@@ -71,7 +71,7 @@ fn restart(r: Rig, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
     Rig { core, fake, dir, g }
 }
 
-async fn mail_watch(core: &Arc<Core>, extra: Value) -> Value {
+pub(super) async fn mail_watch(core: &Arc<Core>, extra: Value) -> Value {
     let mut p = json!({"title": "dana replies?", "check": {"kind": "mail", "q": QUERY},
                        "for_at_most": "5d"});
     for (k, v) in extra.as_object().cloned().unwrap_or_default() {

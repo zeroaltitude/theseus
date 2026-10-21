@@ -234,7 +234,10 @@ fn parse_draft(draft: &Value) -> Parsed {
     };
     let read = mime::read(p);
     Parsed {
-        thread: msg["threadId"].as_str().map(str::to_string),
+        thread: msg["threadId"]
+            .as_str()
+            .filter(|t| !t.is_empty())
+            .map(str::to_string),
         from: mime::header(p, "From")
             .and_then(|f| mime::address_of(&f))
             .unwrap_or_default(),
