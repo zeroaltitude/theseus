@@ -82,11 +82,14 @@ pub fn warning_text(place: &str, tokens: u64, threshold: u64) -> String {
 impl TurnRunner {
     /// The first loop's request of a turn, `tokens` as the compile counted it: when it is a
     /// home's and passes the bound, one post to the owner's DM and the marker, in the turn's next
-    /// frame. A failure is logged; the turn is no worse for it.
+    /// frame. A failure is logged; the turn is no worse for it. Once a turn: a turn routing moves
+    /// compiles its first loop twice, and the marker waits for the frame, so a second weigh would
+    /// read "not told" and post again.
     pub(super) fn home_size_checked(&self, t: &mut Turn<'_>, tokens: u64, loop_index: u32) {
-        if loop_index > 0 {
+        if loop_index > 0 || t.home_weighed {
             return;
         }
+        t.home_weighed = true;
         if let Err(e) = self.home_size(t, tokens) {
             tracing::warn!(error = %format!("{e:#}"), "a home's size was not weighed");
         }

@@ -187,3 +187,26 @@ async fn a_session_that_is_no_places_home_is_not_warned() {
     assert!(marker(&r.core, &thread.session_id).is_none());
     assert_ne!(home, thread.session_id);
 }
+
+/// A turn routing moves compiles twice at its first loop (the first compile is dropped and the
+/// moved one made): the home is weighed once, so the owner's DM hears it once, not twice (the
+/// join fix of integ/harness: the marker waits for the frame, so the second weigh still read
+/// "not told").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_routed_turn_past_the_bound_warns_the_owner_once() {
+    use crate::tests_route::{mode, rig as routed, turn as routed_turn};
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    let r = routed(Some(&jev), 2, |c| {
+        c.threads.enabled = true;
+        low(c);
+    });
+    bind_dm(&r.core);
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core.outbox.bind_place(PLACE, &rec.session_id).unwrap();
+    let res = routed_turn(&r.core, Some(&rec.session_id), &long(), None).await;
+    assert_eq!(res.profile, "opus", "routing moved the turn");
+    assert_eq!(posts(&r.core, KIND).len(), 1, "{:?}", posts(&r.core, KIND));
+    assert_eq!(marker(&r.core, &rec.session_id).unwrap()["warned"], true);
+}
