@@ -295,9 +295,16 @@ fn payload(m: &Msg, headers: Option<&[String]>) -> Value {
     }
     for (i, (name, mime, bytes)) in m.spec.files.iter().enumerate() {
         parts.push(json!({"mimeType": mime, "filename": name,
-            "body": {"size": bytes.len(), "attachmentId": format!("att-{}-{i}", m.spec.id)}}));
+            "body": {"size": bytes.len(), "attachmentId": format!("att-{}-{i}-{}", m.spec.id, fetch_no())}}));
     }
     json!({"headers": hs, "mimeType": "multipart/mixed", "parts": parts})
+}
+
+/// A new number per fetch: as Gmail does, an attachment's id differs each
+/// time its message is read, so nothing may treat it as the content's name.
+fn fetch_no() -> u64 {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 fn message(m: &Msg, headers: Option<&[String]>) -> Value {
@@ -382,7 +389,7 @@ pub fn answer(mb: &Mailbox, req: &Req) -> Option<Reply> {
             ("GET", ["messages", id, "attachments", aid]) => {
                 let hit = find(s, id).and_then(|m| {
                     m.spec.files.iter().enumerate().find_map(|(i, (_, _, bytes))| {
-                        (*aid == format!("att-{id}-{i}")).then(|| bytes.clone())
+                        aid.starts_with(&format!("att-{id}-{i}-")).then(|| bytes.clone())
                     })
                 });
                 match hit {

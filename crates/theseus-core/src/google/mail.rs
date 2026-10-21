@@ -254,13 +254,14 @@ fn parse_draft(draft: &Value) -> Parsed {
 impl Parsed {
     /// The digest a send is bound to: every field the card shows, the thread
     /// the message joins, the HTML part even beside a plain one, and each
-    /// attachment's name, type, size and Gmail id (reading the bytes would
-    /// cost a call apiece; a draft's attachment id names its content).
+    /// attachment's name, type and size (reading the bytes would cost a call
+    /// apiece, and Gmail gives an attachment a new id on every read, so the id
+    /// names nothing).
     fn digest(&self) -> String {
         let files: Vec<_> = self
             .files
             .iter()
-            .map(|f| json!([f.name, f.mime, f.size, f.id]))
+            .map(|f| json!([f.name, f.mime, f.size]))
             .collect();
         let canon = json!([
             self.thread,

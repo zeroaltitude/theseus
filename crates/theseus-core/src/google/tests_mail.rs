@@ -352,6 +352,23 @@ async fn an_attachment_change_after_the_card_is_refused() {
     assert_eq!(sends_posted(&r), 0);
 }
 
+/// Gmail gives an attachment a new id each time its draft is read, so the
+/// digest names it by what the card shows (name, type, size): an unchanged
+/// draft with an attachment still sends.
+#[tokio::test]
+async fn an_unchanged_draft_with_an_attachment_sends() {
+    let r = rig(vec![]).await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({})).await;
+    r.fake
+        .mail()
+        .attach_to_draft(&id, "ledger.csv", "text/csv", b"a,b\n1,2\n");
+    let send = send_of(&r, &id).await;
+    plan(&r, "gmail.send", send.clone()).unwrap();
+    ok(run(&r, "gmail.send", send).await);
+    assert_eq!(sends_posted(&r), 1);
+}
+
 #[tokio::test]
 async fn an_html_only_change_after_the_card_is_refused() {
     let r = rig(vec![]).await;
