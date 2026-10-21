@@ -221,7 +221,8 @@ struct Inner {
     threads: HashSet<u64>,
     /// Tasks given a thread or a post by this binding, kept after it goes: an ended task is made one
     /// only when it never had one (theseus-hzdlf).
-    born: HashSet<String>,
+    /// Each is when it was born (unix ms), so `add` can let go of one no ended view can still ask about.
+    born: HashMap<String, u64>,
     /// Where each task's thread is, by task, for the board's link: kept
     /// after the thread's place goes (in memory; a restart keeps the open
     /// ones' through the list).
@@ -371,7 +372,7 @@ impl TaskThreads {
                 if !threads
                     || v.session_id.is_none()
                     || backing_off
-                    || i.born.contains(&v.id)
+                    || i.born.contains_key(&v.id)
                     || !self.owed(v)
                 {
                     return Next::Nothing;
@@ -440,8 +441,18 @@ impl TaskThreads {
     }
 
     pub(crate) fn add(&self, m: Made) {
+        self.add_at(m, theseus_protocol::now_unix_ms());
+    }
+
+    /// `add` at `now`. A born task is asked about only while its ended view is on the model, `DONE_SHOWN_MS`
+    /// after it ended (`Tasks::snapshot`), and its row may stay `GRACE` past that: later, with no row, it goes
+    /// (theseus-stpqg).
+    fn add_at(&self, m: Made, now: u64) {
         let mut i = self.inner.lock().unwrap();
-        i.born.insert(m.task.clone());
+        let keep_from = now.saturating_sub(super::tasks::DONE_SHOWN_MS + GRACE.as_millis() as u64);
+        let Inner { born, made, .. } = &mut *i;
+        born.retain(|t, at| *at >= keep_from || made.iter().any(|x| x.task == *t));
+        i.born.insert(m.task.clone(), now);
         if let Some(g) = m.guild {
             if i.urls.len() >= 512 {
                 i.urls.clear();
@@ -1064,6 +1075,31 @@ mod tests {
         let mut v = view(id, "task", state, "Chart the reef", None);
         v.session_id = Some(format!("ses_{id}"));
         v
+    }
+
+    /// A task given a thread is not given a second post while its ended view can still come, even after
+    /// its row left; once a day and a grace have passed, the next `add` lets its entry go, but a task
+    /// that still has a row keeps its entry (theseus-stpqg).
+    #[test]
+    fn born_is_trimmed_but_never_reposts_a_task() {
+        let t = TaskThreads::default();
+        let gap = crate::runtime::tasks::DONE_SHOWN_MS + GRACE.as_millis() as u64;
+        t.add_at(made("exe_gone", 1), 1_000);
+        t.add_at(made("exe_kept", 2), 1_000);
+        t.drop_made("exe_gone");
+        t.add_at(made("exe_next", 3), 2_000);
+        assert!(
+            t.inner.lock().unwrap().born.contains_key("exe_gone"),
+            "a recent one is still born, so `next` gives it no second post"
+        );
+        t.add_at(made("exe_late", 4), 1_000 + gap + 1);
+        let mut born: Vec<String> = t.inner.lock().unwrap().born.keys().cloned().collect();
+        born.sort();
+        assert_eq!(
+            born,
+            ["exe_kept", "exe_late", "exe_next"],
+            "the old one with no row went; the one with a row, and the later two, stay"
+        );
     }
 
     /// A task's thread place is told when it has shown the task's call, so only
