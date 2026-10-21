@@ -29,6 +29,7 @@
 //!   goes on, and each fetch's notice names its URL (the owner, 2026-09-30). A
 //!   wake's turn and a turn that a task's report started are the session's
 //!   own turns, so the hold covers them.
+//! - **`gmail.draft` keeps its posture too**: a draft reaches no one until `gmail.send`, which always asks.
 //! - **`wake.at` keeps its posture** (the owner, 2026-09-30, T1b): the reminder's
 //!   turn runs in this same session, so any call it makes that acts still
 //!   waits. `task.create` still waits: a task spends its own budget and runs
@@ -363,9 +364,14 @@ pub fn held(store: &crate::store::Store, session_id: &str) -> Result<Option<Exte
 /// `Read`, and a one-shot `wake.at`, whose turn runs in this same session,
 /// where the hold still covers what it does. A repeating one, whose `input`
 /// has `every`, is held (37a): set once under a page's influence, it would
-/// run every day.
+/// run every day. So is `gmail.draft`: a draft is seen by no one until
+/// `gmail.send`, which always asks and shows it (the Google design §4.2);
+/// labels are not exempt, since an injected mail must not archive its own
+/// evidence.
 pub fn exempt(class: ToolClass, tool: &str, input: &Value) -> bool {
-    class == ToolClass::Read || (tool == crate::wake::AT && !crate::wake::repeats(input))
+    class == ToolClass::Read
+        || (tool == crate::wake::AT && !crate::wake::repeats(input))
+        || tool == crate::google::mail::DRAFT
 }
 
 /// The gate's decision for a call of `class` in a session whose hold is
