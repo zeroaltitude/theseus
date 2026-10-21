@@ -136,6 +136,19 @@ class AbstentionShapes(unittest.TestCase):
         ]:
             self.assertEqual(score.abstained_as(reply, self.PROBE, self.FACTS), shape, reply)
 
+    def test_a_subject_of_shared_words_alone_is_named_by_them(self):
+        """The asked subject has no word the other facts' subjects lack, so the
+        shared word names it: a value in a clause that says it is misleading."""
+        probe = pg.Probe(id="p2", fact=None, kind="abstention", bucket="near", salience="incidental",
+                         value_kind="port", turn=9, text="", check="", anchor="f1", subject="the relay's port",
+                         distractors=["f1"])
+        for reply, shape in [
+            ("No record of that.", "clean"),
+            ("No record of that. The alder relay is on 44320.", "misleading"),
+            ("No record of that. The relay is on 44320.", "misleading"),
+        ]:
+            self.assertEqual(score.abstained_as(reply, probe, self.FACTS), shape, reply)
+
     def test_summary_counts_the_shapes(self):
         rows = [row("near", ok, 2, 100, kind="abstention") for ok in (True, False, False, False)]
         for r, shape in zip(rows, ("clean", "neighbours", "misleading", "misleading")):
