@@ -399,6 +399,8 @@ mod tests_places;
 #[cfg(test)]
 mod tests_private_background;
 #[cfg(test)]
+mod tests_private_recall;
+#[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
 mod tests_projects;
