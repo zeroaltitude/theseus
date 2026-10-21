@@ -145,17 +145,35 @@ pub(crate) async fn replied(r: &Rig, place: u64, reply: &str) {
     .await;
 }
 
+/// The loop a gated task runs: it writes its pid to `gate.pid`, then waits
+/// until the test lets it go (the file `go`), or its directory is gone (the
+/// rig was dropped), or `secs` have passed (a test killed outright leaves its
+/// directory behind), so a gated job never outlives its test (theseus-ynfq9).
+/// The cap counts the loop's own 0.05 s sleeps, so it is never short.
+fn gate_script(dir: &Path, secs: u32) -> String {
+    let d = dir.display();
+    format!(
+        "echo $$ > {d}/gate.pid; n=0; while [ ! -f {d}/go ] && [ -d {d} ] && [ $n -lt {} ]; \
+         do sleep 0.05; n=$((n+1)); done",
+        secs * 20
+    )
+}
+
 /// The task's first step: a program that runs until the test lets it go (it
 /// makes the file `go`), so the task is working, with its thread made, for
-/// as long as the test needs, however loaded the machine.
+/// as long as the test needs, however loaded the machine. It ends with the
+/// test, however the test ends, and in 300 s at the latest.
 pub(crate) fn gate(dir: &Path) -> Scripted {
-    let go = dir.join("go");
+    gate_capped(dir, 300)
+}
+
+fn gate_capped(dir: &Path, secs: u32) -> Scripted {
     Scripted::tools(
         "",
         &[(
             "g1",
             "proc_run",
-            json!({"argv": ["sh", "-c", format!("while [ ! -f {} ]; do sleep 0.05; done", go.display())]}),
+            json!({"argv": ["sh", "-c", gate_script(dir, secs)]}),
         )],
     )
 }
@@ -913,6 +931,67 @@ async fn a_task_waiting_on_a_card_has_the_card_in_its_thread_and_takes_a_message
             .any(|(_, n)| format!("{:?}", n.body).contains("use the north jetty instead")),
         "the conversation did not hear what the task took"
     );
+}
+
+/// Whether process `pid` has ended: gone, or a zombie nobody has reaped yet.
+fn ended(pid: &str) -> bool {
+    match std::fs::read_to_string(format!("/proc/{pid}/status")) {
+        Ok(s) => s
+            .lines()
+            .any(|l| l.starts_with("State:") && l.contains('Z')),
+        Err(_) => true,
+    }
+}
+
+#[tokio::test]
+async fn a_gate_left_shut_ends_with_its_rig() {
+    let r = rig(
+        vec![start(&[REEF]), Scripted::text("Started.")],
+        |dir| vec![(REEF, [vec![gate(dir)], answers("Reef charted.")].concat())],
+        true,
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    let pid_file = r.dir.path().join("gate.pid");
+    until(&r, "the gated task is working", || pid_file.exists()).await;
+    let pid = loop {
+        let pid = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .to_string();
+        if !pid.is_empty() {
+            break pid;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert!(!ended(&pid), "the gate runs while its rig lives");
+    drop(r);
+    let t0 = Instant::now();
+    while !ended(&pid) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the gate (pid {pid}) outlived its rig"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_gate_ends_at_its_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", &gate_script(dir.path(), 1)])
+        .spawn()
+        .unwrap();
+    let t0 = Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the gate ran past its cap with its directory in place"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(dir.path().exists() && !dir.path().join("go").exists());
 }
 
 #[path = "tests_task_react.rs"]
