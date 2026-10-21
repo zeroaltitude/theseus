@@ -11,7 +11,7 @@ use theseus_protocol::task_start::{TaskStartParams, TaskStartResult};
 use crate::approval::{Answerer, Surface};
 use crate::places::BoundPlace;
 use crate::session::{SessionRecord, TargetRef};
-use crate::tests_route::{decided, mode, rig, session, Rig};
+use crate::tests_route::{decided, mode, session, Rig};
 use crate::tests_tasks::{exec, until};
 use theseus_protocol::PlaceCeiling;
 
