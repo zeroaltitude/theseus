@@ -718,6 +718,7 @@ impl Place {
                         thread: None,
                         speaking: None,
                         in_reply_to: None,
+                        route_at_ms: None,
                         via: Some(theseus_core::surface::VOICE.into()),
                         surface: Some("voice".into()),
                     },

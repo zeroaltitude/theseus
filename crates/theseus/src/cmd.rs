@@ -99,6 +99,7 @@ pub async fn ask(
         thread,
         speaking: None,
         in_reply_to: None,
+        route_at_ms: a.route_at_ms,
         via: Some("ask".into()),
     })?;
     let follow_for = spawned.then_some(a.follow_for);

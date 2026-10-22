@@ -92,4 +92,11 @@ via?: string,
  * connection alone; any other value, or any other connection, is the
  * connection's own surface.
  */
-surface?: string, };
+surface?: string, 
+/**
+ * The bench's clock, in milliseconds (theseus-98bz.3): the router reads
+ * it as the message's arrival, and a session `ask -s` named is placed as
+ * a message typed in its place. Honoured only under `[threads]
+ * bench_clock`, a test hook; any other daemon refuses it.
+ */
+route_at_ms?: number, };

@@ -40,8 +40,9 @@ use crate::judge::inbound::{
 use crate::session::SessionRecord;
 use crate::thread_flow::{Answered, Handoff, Pending, Routed};
 use crate::thread_route::{
-    address, decide, decide_single, decisive, new_entities, pre_route, propose, question,
-    top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre, Rules, Voice,
+    address, decide, decide_single, decisive, lone_offer, new_entities, pre_route, propose,
+    question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre,
+    Rules, Voice,
 };
 
 /// How many characters of the waiting message a question shows.
@@ -56,6 +57,10 @@ pub(super) struct Routing {
     pub session: String,
     /// The thread it runs in; none: at home.
     pub slug: Option<String>,
+    /// The bench's clock the message arrived at, and when it was read
+    /// (theseus-98bz.3): its reply is recorded at that clock plus the turn's
+    /// real duration.
+    pub bench: Option<(u64, Instant)>,
 }
 
 /// The threads as Jev reads them: slug, title, goal and top entities.
@@ -166,7 +171,8 @@ impl Core {
             return Ok(None);
         }
         let state = &self.runner.threads.route;
-        let now = theseus_protocol::now_unix_ms();
+        let bench = self.bench_clock(p);
+        let now = bench.unwrap_or_else(theseus_protocol::now_unix_ms);
         let place = self.outbox.target(&home);
         let turn_id = crate::new_id("turn");
         let mut row = fresh_row(&home);
@@ -247,6 +253,7 @@ impl Core {
             tag,
             home,
             session: run_session.session_id.clone(),
+            bench: bench.map(|at| (at, Instant::now())),
         };
         *session = run_session;
         Ok(Some(routing))
@@ -280,7 +287,7 @@ impl Core {
     /// is the place's home, which the router may leave, and says so.
     fn may_route(&self, p: &TurnSubmitParams, conn: Conn<'_>, session: &SessionRecord) -> bool {
         self.cfg.threads.enabled
-            && p.via.as_deref() != Some("ask")
+            && (p.via.as_deref() != Some("ask") || self.bench_clock(p).is_some())
             && p.thread.is_none()
             && p.prompt.is_none()
             && p.opened_from.is_none()
@@ -289,6 +296,25 @@ impl Core {
             && !p.input.trim().is_empty()
             && !matches!(conn.surface, Surface::Mcp | Surface::Unnamed)
             && !(slash_command(&p.input) && !p.input.trim_start().starts_with("/t "))
+    }
+
+    /// The bench's clock a submit carries, under `[threads] bench_clock`
+    /// alone (theseus-98bz.3): the message stands for one typed in its
+    /// session's place at that time.
+    fn bench_clock(&self, p: &TurnSubmitParams) -> Option<u64> {
+        p.route_at_ms.filter(|_| self.cfg.threads.bench_clock)
+    }
+
+    /// A submit carrying the bench's clock to a daemon that does not take it.
+    pub(super) fn refuse_bench_clock(&self, p: &TurnSubmitParams) -> Result<(), RpcFailure> {
+        match p.route_at_ms.is_some() && !self.cfg.threads.bench_clock {
+            true => Err(RpcFailure::new(
+                error_code::INVALID_PARAMS,
+                "route_at_ms is the threadbench's clock: this daemon takes it only with \
+                 [threads] bench_clock = true",
+            )),
+            false => Ok(()),
+        }
     }
 
     /// A message that names no thread: the pre-router's scores, then the
@@ -319,7 +345,15 @@ impl Core {
             .map(|x| (x.slug.clone(), x.score, x.hits.clone()))
             .collect();
         let tag = if live.len() < 2 {
-            decide_single(live, &pre)
+            match self.offer_beside_one(p, live, &pre) {
+                None => decide_single(live, &pre),
+                // As below: a spoken turn is never held for a question.
+                Some(_) if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
+                Some(ask) => {
+                    self.ask_thread(ask, p, conn, (home, place), live, row)
+                        .await
+                }
+            }
         } else if decisive(&pre) {
             let top = pre
                 .iter()
@@ -351,6 +385,26 @@ impl Core {
             }
         };
         (tag, pre)
+    }
+
+    /// A place's one live thread, which the message is not clearly about,
+    /// beside a new stream (theseus-98bz.7): the ask that offers the thread,
+    /// a new one and home, under `[threads] single_offers_new`.
+    fn offer_beside_one(
+        &self,
+        p: &TurnSubmitParams,
+        live: &[&ThreadInfo],
+        pre: &[Pre],
+    ) -> Option<Decision> {
+        if !self.cfg.threads.single_offers_new || pre.first()?.score >= crate::thread_route::CONFIRM
+        {
+            return None;
+        }
+        let board = self.threads();
+        let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
+        let (title, _) = propose(&p.input, &taken);
+        let every = self.cfg.threads.ask_every_thread;
+        lone_offer(live, pre, new_entities(&p.input, live), &title, every)
     }
 
     /// The misroute guard for a placement below the act bar: the turn's first
@@ -742,7 +796,12 @@ impl Core {
         if let Some(slug) = &r.slug {
             state.turn_ran(&res.turn_id, slug);
         }
-        state.replied(&r.home, theseus_protocol::now_unix_ms());
+        let replied = r
+            .bench
+            .map_or_else(theseus_protocol::now_unix_ms, |(at, t0)| {
+                at + t0.elapsed().as_millis() as u64
+            });
+        state.replied(&r.home, replied);
     }
 
     /// `thread.answer`: the owner's word on a waiting question.

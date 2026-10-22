@@ -49,7 +49,13 @@ ROUTING = "routing.jsonl"
 # `[ontology]` is on by default in the product, so a control arm turns it off explicitly: the pair differs by it alone.
 ONTO_OFF = {"ontology": {"judge": False, "recall_boost": 0.0}}
 ONTO_ON = {"ontology": {"judge": True, "recall_boost": 0.25}}  # the shipped defaults, named so the arm stays what it was
-OVERRIDES = {"A1": ONTO_OFF, "A2": ONTO_OFF, "A1n": {"prefix": {"enabled": False}, **ONTO_OFF}, "A1o": ONTO_ON}
+# Every threads arm routes at the plan's gaps (theseus-98bz.3): each `ask` carries its message's plan time, which the
+# daemon takes only under this test hook.
+CLOCK = {"threads": {"bench_clock": True}}
+OVERRIDES = {"A1": {**ONTO_OFF, **CLOCK}, "A2": {**ONTO_OFF, **CLOCK},
+             "A1n": {"prefix": {"enabled": False}, **ONTO_OFF, **CLOCK}, "A1o": {**ONTO_ON, **CLOCK}}
+# The bench's clock at the plan's first message (an arbitrary fixed instant): a message's is this plus its plan time.
+CLOCK_BASE_MS = 1_700_000_000_000
 JUDGMENTS = "judgments.json"
 UNMEASURABLE = {"A1p": "the daemon builds one persona-set layer whenever two or more [personas] are configured "
                        "(config.rs `context_paths`, `persona_engaging`) and has no switch for a layer per persona; "
@@ -69,6 +75,13 @@ def arm_config(cfg: dict, arm: str, personas: dict[str, str], persona_dir: Path)
     for table, keys in OVERRIDES[arm].items():
         t.setdefault(table, {}).update(keys)
     return t
+
+
+def ask_target(m, addressed: bool, home: str) -> list[str]:
+    """Where `ask` sends message `m` (its stream's thread under A2, else the home session) and the plan time it was
+    typed at, so the router reads the plan's gaps (the drivers do not sleep them)."""
+    target = ["--thread", m.stream] if addressed else ["-s", home]
+    return [*target, "--route-at-ms", str(CLOCK_BASE_MS + round(m.t * 60_000))]
 
 
 def merge(base: dict, over: dict) -> dict:
@@ -222,7 +235,7 @@ class ThreadsTheseus(rd.Theseus):
                 addressed = self.arm == "A2" and m.stream != HOME
                 if addressed and m.stream not in self.slug_stream:
                     self.make_thread(streams[m.stream])
-                target = ["--thread", m.stream] if addressed else ["-s", home]
+                target = ask_target(m, addressed, home)
                 answered: list[dict] = []
 
                 def on_ask(ask: dict, stream=m.stream) -> None:

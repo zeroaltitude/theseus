@@ -119,6 +119,13 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub surface: Option<String>,
+    /// The bench's clock, in milliseconds (theseus-98bz.3): the router reads
+    /// it as the message's arrival, and a session `ask -s` named is placed as
+    /// a message typed in its place. Honoured only under `[threads]
+    /// bench_clock`, a test hook; any other daemon refuses it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub route_at_ms: Option<u64>,
 }
 
 #[cfg(test)]

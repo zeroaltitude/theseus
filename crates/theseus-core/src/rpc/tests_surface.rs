@@ -148,6 +148,7 @@ impl Rig {
             surface: None,
             speaking: None,
             in_reply_to: None,
+            route_at_ms: None,
         };
         let (_, line) = call(
             1,

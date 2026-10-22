@@ -941,6 +941,7 @@ impl Core {
         // the session it opens or the one it names (theseus-b5cl).
         let dir = super::session_dir::check(p.dir.as_deref())?;
         let answer_at = Self::thread_answer_at(&p)?;
+        self.refuse_bench_clock(&p)?;
         let mut session = match (&p.session_id, &p.thread) {
             (Some(_), Some(_)) => {
                 return Err(RpcFailure::new(
@@ -1042,6 +1043,8 @@ impl Core {
             ),
         ));
         let voice = p.surface.as_deref() == Some("voice");
+        // The thread it runs in grows from what it did (theseus-98bz.5).
+        let grow = self.grow_for(routing.as_ref(), &session, &p.input);
         let result = self
             .runner
             .run(TurnRequest {
@@ -1064,6 +1067,9 @@ impl Core {
             .await;
         if let Some(routing) = &routing {
             self.thread_routed_turn(routing, result.as_ref().ok());
+        }
+        if let (Some(g), Ok(r)) = (&grow, &result) {
+            self.thread_grow(g, &r.turn_id);
         }
         match result {
             Ok(mut r) => {

@@ -1128,6 +1128,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # ask_wait_secs = 900                     # how long a message waits for your answer to "which thread?" before it runs in the place's own conversation
 # sticky_alone_asks = true               # a thread that stands only on being the place's last one (no entity of its named) cannot overrule Jev's other pick: the message is asked about, offering a new thread when it names two or more entities no thread holds (false: as before)
 # ask_every_thread = true                # "which thread?" lists every live, unsealed thread (past four, the best three and "another thread"), and any thread's slug answers it (false: the best two)
+# working_set_grows = true               # after a turn in a thread, the files its calls touched (and their first directory) and the entities its message named join the thread's working set, but for what another live thread holds (false: only your edits, splits and merges change it)
+# bench_clock = false                    # a test hook for the threadbench: a turn.submit carrying route_at_ms is routed at that clock, even from `ask -s` (false: such a submit is refused); never on in a real config
+# single_offers_new = true               # with one live thread, a message it does not clearly hold that names two or more entities no thread holds is asked about: that thread, a new one, or home (false: it runs at home unasked)
 # A thread's next message after its cache window (the profile's cache_ttl since
 # its last call) finds the provider's cache gone, so the request is rewritten
 # whole anyway: the rewrite is made small. The thread's fresh card, the
