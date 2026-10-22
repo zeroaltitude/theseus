@@ -310,6 +310,12 @@ mod tests {
                 cold: None,
                 cost_usd: 0.0,
             }),
+            ran: Ran {
+                provider: None,
+                model: None,
+                origin: "unknown",
+            },
+            data: None,
         });
         let lines = narrator.tail();
         assert_eq!(lines.len(), 1);
