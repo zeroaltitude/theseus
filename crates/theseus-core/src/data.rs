@@ -23,6 +23,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod reply;
+
 /// Leave to send one compiled request to a model of restricted origin. It
 /// holds that request's digest and covers nothing else: minted, never copied
 /// into another request (no `Clone`, no `Default`).

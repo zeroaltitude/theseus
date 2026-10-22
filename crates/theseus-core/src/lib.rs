@@ -448,6 +448,8 @@ mod tests_reminders;
 #[cfg(test)]
 mod tests_replay;
 #[cfg(test)]
+mod tests_reply_data;
+#[cfg(test)]
 mod tests_rerank;
 #[cfg(test)]
 mod tests_rerank_labels;

@@ -77,6 +77,7 @@ pub mod place;
 pub mod prefix;
 pub mod privacy;
 pub mod recall;
+pub mod reply_data;
 pub mod retract;
 pub mod retry;
 pub mod route;
@@ -318,6 +319,7 @@ facts![
     data::SessionDataOpened,
     data::SessionDataTainted<'static>,
     data::SessionDataScreened<'static>,
+    reply_data::DataReply<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,

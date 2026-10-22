@@ -92,6 +92,7 @@ pub(crate) mod personal_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;
+mod reply_data_step;
 mod reply_step;
 mod request;
 mod rerank_step;
@@ -3261,6 +3262,7 @@ impl TurnRunner {
             Err(e) => return Err(Self::fault(t, session, e)),
         };
         t.deferred = true;
+        self.reply_data_ask(&t, session);
 
         let cites = self.cite_reply(&mut t);
         let last = t.last.as_ref();
