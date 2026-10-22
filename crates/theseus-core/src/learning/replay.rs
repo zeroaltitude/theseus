@@ -339,6 +339,9 @@ impl Core {
             bail!("the judge is off ([judge] enabled = false): nothing is replayed");
         }
         if p.onto {
+            if let Some(why) = super::replay_onto::ignored_with_onto(&p) {
+                bail!("{why}");
+            }
             return self.onto_replay_run(p, who).await;
         }
         let (candidate, text) = candidate_of(&p)?;
