@@ -799,3 +799,89 @@ async fn an_open_tasks_recall_never_spreads_into_its_parent() {
         "a private asker's spread does: {got:?}"
     );
 }
+
+/// theseus-ol8w0: an open request's `task.update` and `task.close` reach only
+/// its own task's record. The model of an open task, knowing another task's id
+/// and version, asks to retitle it and to close it: both are refused, and the
+/// other task is as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_request_closes_only_its_own_task() {
+    let jev = jev(&[OPEN_A]);
+    mode(&jev, "chat", 0.2);
+    let calls = vec![
+        Scripted::tools(
+            "Tidying.",
+            &[
+                (
+                    "u1",
+                    "task_update",
+                    json!({"id": "tsk_other", "version": 1, "patch": {"title": "Hijacked"}}),
+                ),
+                (
+                    "c1",
+                    "task_close",
+                    json!({"id": "tsk_other", "version": 1, "outcome": "abandoned"}),
+                ),
+            ],
+        ),
+        Scripted::text("Done."),
+    ];
+    let (r, zai, _dir) = rig_with(&jev, Some(calls), |_| {});
+    tokio::spawn(crate::harness::drive(r.core.clone()));
+    r.core.home().unwrap();
+    let other = theseus_protocol::tasks::TaskRecord {
+        id: "tsk_other".into(),
+        version: 1,
+        title: "Chart the harbour".into(),
+        ..Default::default()
+    };
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&other).unwrap()])
+        .unwrap();
+    let (started, _) = crate::tests_task_brief::run(&r, &open_task(OPEN_A, "dsflash")).await;
+    assert!(!zai.requests().is_empty(), "the open task ran on dsflash");
+    for tool in ["task.update", "task.close"] {
+        let rs = crate::tests_task_graph::results(&r.core, &started.session_id, tool);
+        assert_eq!(rs.len(), 1, "{tool}: {rs:?}");
+        assert!(rs[0].1.contains("only its own task"), "{tool}: {rs:?}");
+    }
+    let after = crate::task_graph::get(&r.core.store, "tsk_other")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (after.version, after.title.as_str(), after.state),
+        (1, "Chart the harbour", other.state),
+        "the other task is unchanged"
+    );
+}
+
+/// The same two calls on the open task's own record pass the check, whole or
+/// by the end of its id; a shared place or a private session's pass whatever
+/// they name.
+#[test]
+fn an_open_requests_own_record_passes_the_check() {
+    use crate::toolrun::batch::own_record_only;
+    let session = "ses_abc123def456";
+    let own = crate::task_graph::of_session(session);
+    for tool in ["task.update", "task.close"] {
+        let by = |id: &str| own_record_only(true, Some(session), tool, &json!({"id": id}));
+        assert_eq!(by(&own), None);
+        assert_eq!(by(&own[own.len() - 8..]), None);
+        assert!(by("tsk_other").is_some_and(|w| w.contains("only its own task")));
+        assert!(own_record_only(true, None, tool, &json!({"id": own})).is_some());
+        assert_eq!(
+            own_record_only(false, Some(session), tool, &json!({"id": "tsk_other"})),
+            None
+        );
+    }
+    assert_eq!(
+        own_record_only(
+            true,
+            Some(session),
+            "tools.find",
+            &json!({"id": "tsk_other"})
+        ),
+        None
+    );
+}
