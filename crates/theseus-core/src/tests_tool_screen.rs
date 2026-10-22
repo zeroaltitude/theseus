@@ -343,7 +343,7 @@ fn screen_matrix() {
     );
     let linked = root.path().join("link").join("b.txt");
     let screen = |tool: &str, plan: Option<&Plan>, redactions: u64| {
-        data::screen(tool, plan, redactions, open)
+        data::screen(tool, plan, redactions, None, open)
     };
     assert_eq!(screen("fs.read", Some(&plan(&[&inside])), 0), Ok(()));
     assert_eq!(
@@ -395,4 +395,51 @@ fn screen_matrix() {
     ] {
         assert_eq!(w.as_str(), s);
     }
+}
+
+/// theseus-lm38z: a fetch of a public URL that redirects into the owner's
+/// network fails the screen on the URL the result ended at
+/// (`meta.final_url`), not the one it began at.
+#[test]
+fn a_fetch_that_redirects_into_the_owners_network_fails_the_screen() {
+    let root = tempfile::tempdir().unwrap();
+    let open = Open::of(
+        vec![theseus_tools::paths::canonical_best_effort(root.path())],
+        root.path(),
+    );
+    let plan = fetch("https://example.com/page");
+    let screen = |end: Option<&str>| data::screen("http.fetch", Some(&plan), 0, end, open);
+    assert_eq!(screen(None), Ok(()));
+    assert_eq!(screen(Some("https://example.com/other")), Ok(()));
+    for private in [
+        "http://127.0.0.1:8080/admin",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.10/",
+    ] {
+        assert_eq!(screen(Some(private)), Err(Unscreened::Outside), "{private}");
+    }
+}
+
+/// theseus-lm38z: the word a failed screen gives is a stored row, not only a
+/// log line: `session.data` `screened`, naming the result's node and the
+/// word, readable after the turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_screen_leaves_its_word_in_the_store() {
+    let jev = task_jev();
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(dir.path(), "private.txt", &format!("token {}\n", secret()));
+    let calls = vec![read_of(&file), Scripted::text("Done.")];
+    let s = rig(&jev, dir, calls, None);
+    let (sid, _) = run_task(&s, OPEN_A, "dsflash").await;
+    let (id, _, _) = results(&s.r.core, &sid).remove(0);
+    let rows: Vec<Value> = crate::tests_judge::kinds(&s.r.core.store, "session.data")
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(sid.as_str()) && r.data["row"] == "screened")
+        .map(|r| r.data)
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0]["word"].as_str(), rows[0]["node"].as_str()),
+        (Some("secret"), Some(id.as_str()))
+    );
 }

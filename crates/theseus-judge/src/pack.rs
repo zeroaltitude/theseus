@@ -62,6 +62,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v5", include_str!("../packs/route.v5.toml")),
     ("route.v6", include_str!("../packs/route.v6.toml")),
     ("route.v7", include_str!("../packs/route.v7.toml")),
+    ("reply_data.v1", include_str!("../packs/reply_data.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("heard.v1", include_str!("../packs/heard.v1.toml")),
@@ -1477,10 +1478,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            28,
+            29,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
-             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1 and families.v1"
+             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 and reply_data.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1705,6 +1706,47 @@ mod tests {
         );
         let opening = v6.description.trim_end_matches('.');
         assert!(v7.description.starts_with(opening), "{}", v7.description);
+    }
+
+    /// reply_data.v1 (theseus-a1wvq.15) asks route.v7's `data` question of one
+    /// reply: the same choices, thresholds and no-match, the open and private
+    /// words verbatim, and only the subject changed.
+    #[test]
+    fn reply_data_v1_is_route_v7s_data_question_about_a_reply() {
+        let (route, reply) = (
+            by_name("route.v7").unwrap(),
+            by_name("reply_data.v1").unwrap(),
+        );
+        let ids: Vec<_> = reply.questions.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(ids, ["data"], "the one question");
+        let (r, d) = (
+            route.question("data").unwrap(),
+            reply.question("data").unwrap(),
+        );
+        assert_eq!(
+            (&d.decides, &d.kind, &d.thresholds, &d.no_match),
+            (&r.decides, &r.kind, &r.thresholds, &r.no_match)
+        );
+        let means = |q: &QuestionDef, id: &str| {
+            q.options.iter().find(|o| o.id == id).unwrap().means.clone()
+        };
+        for id in ["open", "private"] {
+            assert_eq!(means(d, id), means(r, id), "{id} verbatim");
+        }
+        assert_eq!(
+            means(d, "unclear"),
+            means(r, "unclear").map(|m| m.replace("The message", "The reply"))
+        );
+        assert!(d.instructions.contains("this reply") && !d.instructions.contains("message"));
+        assert_eq!(
+            (reply.point, reply.builder, reply.state_cap_tokens),
+            (route.point, route.builder, route.state_cap_tokens)
+        );
+        assert_eq!(
+            reply.action,
+            Action::None,
+            "it acts through no rollback rule"
+        );
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack

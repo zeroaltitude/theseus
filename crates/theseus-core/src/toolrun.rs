@@ -41,7 +41,7 @@ use crate::store::Store;
 mod guarded;
 use guarded::guarded_paths;
 pub use guarded::sandbox_for;
-mod batch;
+pub(crate) mod batch;
 mod calls;
 mod flow_step;
 pub(crate) use flow_step::Stepped;

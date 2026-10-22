@@ -202,18 +202,23 @@ fn close_in(input: &Value) -> Result<CloseIn, String> {
     Ok(i)
 }
 
+/// Whether a call's `id` names the record of the very session that makes
+/// it. The id may be the whole id or the end of it, as `resolve` takes it.
+pub fn is_own_record(input: &Value, session: &str) -> bool {
+    let own = super::of_session(session);
+    input
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|id| id == own || (id.len() >= 6 && own.ends_with(id)))
+}
+
 /// Whether a call is a task's own close: `task.close` of the record of the
 /// very session that makes it (theseus-ay0yx). The record is the task's own, so
 /// the hold on a session that read outside text does not wait on the owner for
-/// it. The id may be the whole id or the end of it, as `resolve` takes it.
+/// it.
 pub fn is_own_close(tool: &str, input: &Value, session: &str) -> bool {
-    let own = super::of_session(session);
-    tool == CLOSE
-        && input
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .is_some_and(|id| id == own || (id.len() >= 6 && own.ends_with(id)))
+    tool == CLOSE && is_own_record(input, session)
 }
 
 /// What the gate's card says of a layer-1 call: the change, before and

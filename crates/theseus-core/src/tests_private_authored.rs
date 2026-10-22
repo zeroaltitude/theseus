@@ -338,3 +338,30 @@ async fn without_google_nothing_is_held() {
     ghost.source = "capture:nd_missing".into();
     assert!(private::authored(&r.core.store, &r.core.cfg, [&ghost]).is_empty());
 }
+
+/// theseus-dyx7o: with `[google]` set, a record kept from a node the store
+/// cannot read is held (an unknown session counts as private), a record from
+/// any other source is not, and with no `[google]` nothing is read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn authored_holds_an_unreadable_capture_node() {
+    let (r, _zai, _dir, _jev) = rig(true);
+    let record = |id: &str, source: &str| StandingRecord {
+        id: id.into(),
+        kind: StandingKind::Order,
+        text: HERON.into(),
+        scope: StandingScope::Everywhere,
+        since_ms: 1,
+        until_ms: None,
+        source: source.into(),
+        ends: None,
+    };
+    let records = [
+        record("std_gone", "capture:nde_missing"),
+        record("std_typed", "cli"),
+    ];
+    let held = private::authored(&r.core.store, &r.core.cfg, &records);
+    assert_eq!(held, ["std_gone".to_string()].into());
+    let mut cfg = (*r.core.cfg).clone();
+    cfg.google = Default::default();
+    assert!(private::authored(&r.core.store, &cfg, &records).is_empty());
+}

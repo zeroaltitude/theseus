@@ -1788,7 +1788,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **The tool screen** (theseus-a1wvq.9; `data::screen`, `turn/screen_step.rs`): right after a restricted, admitted
     loop's calls run, each result it wrote passes only for a file tool, `web.search` or `http.fetch`, with nothing
     redacted (`meta.redactions`), every resource of a file tool canonically within an open root, and a fetch of a
-    public URL. A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
+    public URL; a fetch also fails when its `meta.final_url` is not public (a redirect into the owner's network), and a
+    failed screen is a `session.data` `screened` row (node, word; theseus-lm38z). A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
     follow-up). A result that fails ends the run, not the session: the node stays but is not in `RouteState.screened`,
     so the next loop moves and no run is stored past it, and an open session records the taint naming the result. The turn
     stores the run (through its last node) in its own session write only when every request went out cleared and
@@ -1802,15 +1803,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     first node. A turn that fails before its write-back loses the taint it found, and the next turn takes it again.
     An open request is offered the public tools that start no later work (`open_view::open_public`: never `task.create`,
     `task.split`, `task.claim` or `wake.at`, which would run later, on another model, with the owner's trust;
-    `task.update` and `task.close` stay; theseus-qul8y), and every root it is shown reads `~/…` (`places::home_shown`,
+    `task.update` and `task.close` stay and reach only the open task's own record, `toolrun::batch::own_record_only`
+    refusing another's by id, theseus-ol8w0; theseus-qul8y), and every root it is shown reads `~/…` (`places::home_shown`,
     theseus-mhqlm). `file.read` is not offered there; if it were, an open session's read takes the outside-text hold,
     as a shared place's does. An open task keeps its parent's directory and last target (theseus-5u16e F5): its
     workspace reads are private to routing and the open view (`turn/data_step.rs`), so the directory opens nothing; an
     open session holds no thread card, so `thread_spec` adds none of a thread's text to it.
     Tests: `tests_open_request.rs`, `tests_cn_follow.rs`.
+    **Replies in the run** (theseus-a1wvq.15): the run includes Theseus's own reply only when Jev's data question
+    (`reply_data.v1`, route.v7's `data` question about the reply, asked off the turn's path by `judge/reply_data.rs` for
+    a reply that continues an open run, a `data.reply` row each) judges it `open` at the act band; the write is a compare
+    and set on the stored run (`data::reply::lands`). Only a reply of text (and thinking) is asked about: one carrying a
+    call or any other block (a provider's own tool call and its result) is never asked. A missing, late, private,
+    unclear, below-act answer, a refused reservation, a taint or a moved run leaves the reply a run-ender. `admits` is
+    unchanged. Tests: `tests_reply_data.rs`.
     **Background calls** (theseus-a1wvq.10; `turn/compaction/gate.rs`): a compaction in an open request summarizes only a
     range its run clears (`data::clearance` over the nodes the summary renders and the run's last, the stored run until the
-    turn's admission is read), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
+    turn's admission is read, and only for an open session: `stored_run`, theseus-pohih), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
     `open_step::writer`); a restricted summary profile otherwise falls back to the `[model]` default, or the ring stands.
     Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
     `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
@@ -1831,7 +1840,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
     check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
     applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
-    tree, and writes the line and the `task.draft` row. Tests: `tests_draft.rs`.
+    tree, and writes the line and the `task.draft` row. `first_pass` (a restricted profile, needs `cn_draft`;
+    theseus-a1wvq.17) opens a second draft-kind task on the draft's diff before the review (`draft/first_pass.rs`): its
+    report is in the review's brief and nowhere else, it is bounded at 10 minutes, and one that cannot open lets the
+    review open without it, its tree removed. The core's git in a draft's tree is pinned to the git dir recorded at open,
+    with fsmonitor, external diff and textconv off; `sweep_drafts` settles drafts a crash or cancel left (at start and
+    after each cancel); one step of a draft runs at a time (`draft/flight.rs`; theseus-b0ozi). Tests: `tests_draft.rs`,
+    `tests_draft_first_pass.rs`, `tests_draft_hardening.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design
@@ -2690,6 +2705,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     corrected (`route.corrected`), the one-sided Wilson floor at 90% of the match rate, the replays' cost against the
     originals', and `movable = spend × floor × (1 − cost ratio)`; the replays' cost today against the cap. The
     cockpit's Benchmarks view has a "Your work" panel over it; `theseus model bench [--week]`.
+  The report's draft columns (theseus-a1wvq.12; `own_bench/drafts.rs`, read only): one `DraftCell` per (draft model,
+  review model) from the `task.draft` rows (drafts, applied, reviewed, both costs, measured `lines_changed`, `total_usd`;
+  the reviewer's reported "tests fixed" is never summed), and `draft_skips`, the turns per `draft_skip` word of
+  `route.decided`; `theseus model bench` prints a line per cell and one `draft skips:` line, and nothing without them.
   Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
   `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
   `report::tests`, `rung::tests`.
@@ -3124,6 +3143,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
   announced once that frame is written (`Rec::announce`).
 
+- **The data rule.** A model of restricted origin (`cn` or `unknown`) sees only an open request: the open run and the
+  open view; the provider refuses a request to one without a `DataPass` for that exact request's digest; origin is
+  judged by endpoint and family as well as by catalog row; `[privacy] sensitive_names` go only to models of US origin;
+  a China-origin model only drafts code, in its own tree, with no programs, and nothing it drafts is applied or
+  reported before a Claude review (`final`). The passages: "The restricted-origin floor", "The open view", "The open
+  request, per request", "Sensitive names" and "Drafts" under the judge.
+
 ## Tests
 
 - In-process suites in `src/`: `tests_m3.rs` (turns through the whole core), `tests_continuations.rs`,
@@ -3197,3 +3223,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Tools`, never in place. Tests: `tests_send_path.rs` (counts catalogs made and tool JSON walked; no timing), `tool_set::tests`.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.
+- **The data rule's traps** (theseus-a1wvq.12). DeepSeek's Anthropic endpoint serves a `claude*` model id with a DeepSeek
+  model, so origin comes from the endpoint as well as the id (`catalog::origin_of`). A config row cannot loosen a
+  built-in China-origin row's origin (`Config::validate`). `deepseek-flash` is a floating alias: its served model can
+  change under the same id. A later loop whose request leaves the open run moves to the `[model]` default (`data_move`).
+  `final` without `cn_draft` fails the load, so deep_coding's pair goes on together. `[routing.data] private_topics` was
+  renamed `[privacy] sensitive_names`.

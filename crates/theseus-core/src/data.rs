@@ -23,6 +23,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod reply;
+
 /// Leave to send one compiled request to a model of restricted origin. It
 /// holds that request's digest and covers nothing else: minted, never copied
 /// into another request (no `Clone`, no `Default`).
@@ -316,11 +318,13 @@ impl Unscreened {
 /// the owner's other work, `tools.find` the owner's tools); a scrubbed secret
 /// fails; and, checked again here after the gate, a file tool must name a
 /// resource and every one canonical within an open root, and a fetch must name
-/// a public URL.
+/// a public URL and, when the result names one (`meta.final_url`), end at one:
+/// a redirect may lead into the owner's network (theseus-lm38z).
 pub fn screen(
     tool: &str,
     plan: Option<&theseus_protocol::Plan>,
     redactions: u64,
+    final_url: Option<&str>,
     open: &crate::open_view::Open,
 ) -> Result<(), Unscreened> {
     use theseus_tools::paths;
@@ -342,9 +346,13 @@ pub fn screen(
         (true, _) => {
             !plan.is_some_and(|p| !p.resources.is_empty() && p.resources.iter().all(inside))
         }
-        (_, "http.fetch") => plan.and_then(|p| p.url.as_deref()).is_none_or(|u| {
-            reqwest::Url::parse(u).is_err() || crate::web::net::private_url(u).is_some()
-        }),
+        (_, "http.fetch") => {
+            let not_public = |u: &str| {
+                reqwest::Url::parse(u).is_err() || crate::web::net::private_url(u).is_some()
+            };
+            plan.and_then(|p| p.url.as_deref()).is_none_or(not_public)
+                || final_url.is_some_and(not_public)
+        }
         _ => false,
     };
     match outside {

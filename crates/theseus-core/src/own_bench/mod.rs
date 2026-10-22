@@ -26,6 +26,7 @@
 //! A yardstick, not a self-change: nothing here moves routing. A pack that
 //! would climbs the ladder (shadow, canary, live) on its frozen holdout.
 
+pub mod drafts;
 pub mod rebuild;
 pub mod replay;
 pub mod report;

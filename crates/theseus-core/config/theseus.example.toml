@@ -147,6 +147,15 @@ effort = "high"
 thinking_display = "summarized"
 max_loops = 40
 
+# Sonnet 5.5 at high effort: deep_coding's first reviewer when its China-origin draft is turned on
+# (see the routing classes below). Commented, so a config without a draft carries no new profile.
+# [profiles.sonnethi]
+# provider = "anthropic"
+# model = "claude-sonnet-5-5"
+# effort = "high"
+# thinking_display = "summarized"
+
+# In no class list: GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial).
 [profiles.glm53]
 provider = "zai"
 model = "glm-5.3"
@@ -166,7 +175,7 @@ max_loops = 40
 # model = "deepseek-flash"
 # effort = "max"
 #
-# [profiles.dspro]                      # catalogued; in no mode list
+# [profiles.dspro]                      # catalogued; in no class list
 # provider = "deepseek"
 # model = "deepseek-v4-pro"
 # effort = "high"
@@ -1646,6 +1655,9 @@ failing_streak = 3                      # loops in a row that each had a failed 
 quiet_loops = 8                         # loops in a row with no progress signal
 min_loops_between = 4                   # at most one verdict per this many loops
 max_switches = 2                        # moves per task, up or down
+# No China-origin model is named for chat, quick, sophisticated or review: Haiku 5.5 is two to
+# three times cheaper per short turn and has no forced thinking, and review and judgment stay on
+# Claude. A first-pass bug review by DeepSeek Flash is a later key (theseus-a1wvq.17), not yet here.
 # Each task class's profiles, in order: the first usable wins. Empty: the session's own. A
 # class's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
@@ -1656,6 +1668,7 @@ max_switches = 2                        # moves per task, up or down
 # [routing.classes.trivial]
 # profiles = ["haiku", "cheapest"]
 # China-origin profiles, only for a request that carries open content; trivial only
+# GLM-5.3 Flash serves here only as Haiku's fallback, for a request that carries open content
 # cn_profiles = ["glm"]
 # cn_after = "haiku"
 # switch_confidence = 0.4
@@ -1667,8 +1680,21 @@ max_switches = 2                        # moves per task, up or down
 # profiles = ["opus", "fable"]
 # [routing.classes.deep_coding]
 # profiles = ["opus", "sonnet"]
+# Debugging with an unknown cause, and design, stay on Claude: vendor Terminal-Bench 4.0 has
+# deepseek-flash at 42.3 against Sonnet 5.5's 70.6. The pair below is off by default and goes on
+# together: `final` without `cn_draft` fails the load. It needs the DeepSeek key and a session
+# directory that is a git tree under [routing.data] open_paths; the draft runs no programs.
+# cn_draft = "dsflashmax"               # a China-origin draft at max effort, in its own tree
+# final = ["sonnethi", "opus"]          # a Claude profile reviews and fixes it before anything is applied
 # [routing.classes.routine_coding]
 # profiles = ["haikuhi", "sonnet"]
+# DeepSeek Flash drafts routine coding, tests, mechanical refactors and planned features at about
+# a sixth of Sonnet's cost per trial; Sonnet always reviews and fixes the draft before anything is
+# applied. It needs the DeepSeek key and a session directory that is a git tree under the
+# open_paths of the routing.data table. The draft runs no programs; its reviewer runs the tests.
+# cn_draft = "dsflash"                  # one China-origin profile, only on routine_coding and deep_coding
+# final = ["sonnet"]                    # a Claude profile; the first usable one reviews
+# first_pass = "dsflashmax"            # optional: a restricted-origin profile reads the draft's diff for bugs first; its findings go to the Claude review only
 # [routing.classes.review]                # verification: "check this", a pre-merge review, "is this right?"
 # profiles = ["opushi", "fable"]
 # Your corrections (theseus-q31l): in a private place, "that should have been on fable",

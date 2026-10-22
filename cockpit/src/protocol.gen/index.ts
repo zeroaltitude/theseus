@@ -139,6 +139,7 @@ export type * from './DiscordSource';
 export type * from './DiskStatus';
 export type * from './Doing';
 export type * from './DoingKind';
+export type * from './DraftCell';
 export type * from './EarnedCard';
 export type * from './EarnedGrant';
 export type * from './EarnedGroup';
