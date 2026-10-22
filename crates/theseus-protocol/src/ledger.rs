@@ -98,6 +98,7 @@ ledger_kinds! {
     ContextRecompiled = "context.recompiled",
     ContextUnadmitted = "context.unadmitted",
     DataGateBlocked = "data_gate.blocked",
+    DataReply = "data.reply",
     DiscordBound = "discord.bound",
     DiscordCommand = "discord.command",
     DiscordConfirm = "discord.confirm",
