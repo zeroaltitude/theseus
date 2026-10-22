@@ -141,3 +141,30 @@ async fn a_post_reopened_after_the_sweep_is_not_archived_again() {
     let t = thread(&r, post);
     assert!(!t.archived && !t.locked, "{t:#?}");
 }
+
+/// A Clear done pressed after the task ended but before the forum worker
+/// wrote the post's end is not lost: the row never got `read_ms` (planted
+/// here by taking it off), and a board that cleared since the end reads the
+/// post at the sweep.
+#[tokio::test]
+async fn a_clear_before_the_end_still_counts_as_read() {
+    let (r, post) = a_dm_task().await;
+    ends(&r).await;
+    let mut list = rows(&r);
+    let task = list[0]["task"].as_str().unwrap().to_string();
+    for p in &mut list {
+        p["read_ms"] = Value::Null;
+    }
+    r.core.store.put_meta(KEY, &list).unwrap();
+    ended_ago(&r, 25 * HOUR);
+    let shared = crate::runtime::shared_for_tests(&r.core);
+    shared
+        .tasks
+        .ended_for_tests(&task, theseus_protocol::now_unix_ms() - 25 * HOUR);
+    shared.sweep_once().await;
+    assert!(!thread(&r, post).archived, "never cleared: unread");
+    shared.tasks.clear_done("ses_exe_chat");
+    shared.sweep_once().await;
+    let t = thread(&r, post);
+    assert!(t.archived && t.locked, "{t:#?}");
+}

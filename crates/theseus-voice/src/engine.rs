@@ -158,6 +158,9 @@ fn join(last: &mut Utterance, next: Utterance) {
     last.text = format!("{} {}", last.text, next.text);
     last.length = next.started + next.length - last.started;
     last.closed = next.closed;
+    // `last` was not said over (`goes_on`); `next` may have been, and a
+    // barge-in is never folded away.
+    last.over = next.over;
     last.usage.audio += next.usage.audio;
     last.latency = last.latency.max(next.latency);
 }
@@ -1738,8 +1741,11 @@ impl Engine {
 
     /// The transcribed run at the head of the line ends in an unfinished
     /// utterance whose speaker may yet go on: they have another begun, or
-    /// open, or [`Config::merge`] hasn't passed since it closed. A finished
-    /// transcript never waits.
+    /// open (begun within [`Config::merge`] of the close: a later one is a new
+    /// utterance), or [`Config::merge`] hasn't passed since it closed. A
+    /// finished transcript never waits. The hold gates the whole line, so
+    /// another speaker's transcribed utterance behind it waits at most
+    /// [`Config::merge`] with it (theseus-we57k): turns stay in order.
     fn awaits_its_rest(&self) -> bool {
         let run = self
             .pending
@@ -1760,7 +1766,11 @@ impl Engine {
             && !finished(&last.text)
             && (at_tick(self.ticks) < last.closed + window
                 || begun
-                || self.vads.get(&last.speaker).is_some_and(Vad::is_open))
+                || self
+                    .vads
+                    .get(&last.speaker)
+                    .and_then(Vad::opened_at)
+                    .is_some_and(|t| at_tick(t) <= last.closed + window))
     }
 
     /// Synthesize the first sentence without audio: one at a time, at most
@@ -1837,5 +1847,41 @@ impl Engine {
         if let Some(event) = first {
             self.emit(event);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn said(started: u64, text: &str, over: Option<Over>) -> Utterance {
+        Utterance {
+            speaker: Speaker(1),
+            started: Duration::from_millis(started),
+            length: Duration::from_millis(500),
+            closed: Duration::from_millis(started + 1200),
+            text: text.into(),
+            usage: Usage {
+                provider: "p".into(),
+                model: "m".into(),
+                audio: Duration::from_millis(500),
+                chars: 0,
+            },
+            latency: Duration::ZERO,
+            over,
+            heard_as: HeardAs::Words,
+            judged: None,
+        }
+    }
+
+    /// A joined utterance keeps the later one's `over`: a barge-in is never
+    /// folded away (theseus-we57k).
+    #[test]
+    fn a_joined_utterance_keeps_the_later_ones_over() {
+        let mut last = said(0, "so I was", None);
+        let over = Over::Preparing { turn: TurnId(3) };
+        join(&mut last, said(2000, "thinking", Some(over.clone())));
+        assert_eq!(last.text, "so I was thinking");
+        assert_eq!(last.over, Some(over));
     }
 }

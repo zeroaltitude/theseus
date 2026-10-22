@@ -422,8 +422,10 @@ impl Shared {
 
     /// Every channel that ended `task_channel_keep_days` ago goes, and every
     /// read forum post a day over leaves the forum (`forum::archive`); at the
-    /// start, then once a day, until the daemon stops.
+    /// start, then once a day, until the daemon stops. The forum's archive
+    /// also has an hourly tick of its own, so a read post waits no day for it.
     pub(super) fn sweep_task_channels(self: &Arc<Self>) {
+        self.archive_tick();
         let s = self.clone();
         tokio::spawn(async move {
             let stopped = s.core.outbox.stopped();
