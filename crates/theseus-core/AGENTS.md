@@ -1664,6 +1664,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `admits` for it from then on and never blocks a Claude target. An open task's brief is asked about always while the
     pack acts, waited for past `[routing] max_wait_ms` (`brief_step.rs`); an open task's hold from its parent names no
     URL or query (`external::bare`). Tests: `tests_open_request.rs`.
+    **Background calls** (theseus-a1wvq.10; `turn/compaction/gate.rs`): a compaction in an open request summarizes only a
+    range its run clears (`data::clearance` over the nodes the summary renders and the run's last, the stored run until the
+    turn's admission is read), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
+    `open_step::writer`); a restricted summary profile otherwise falls back to the `[model]` default, or the ring stands.
+    Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
+    `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

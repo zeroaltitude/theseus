@@ -54,6 +54,9 @@ pub(super) struct Held {
     moved: bool,
     /// The nodes the last request carried (theseus-a1wvq.11).
     pub(super) run_nodes: usize,
+    /// The `Summary` nodes this turn's compaction wrote over a range its run
+    /// cleared: the loop's own, as `writer` reads them.
+    pub(super) summaries: Vec<String>,
 }
 
 /// The targets a turn may move to, each set once: routing's, a refusal's
@@ -75,11 +78,13 @@ pub(super) fn slots() -> Slots {
     )
 }
 
-/// Who wrote `n`, for a request of `turn`.
-pub(super) fn writer(n: &Stub, turn: &str, screened: &[String]) -> Writer {
+/// Who wrote `n`, for a request of `turn`; `summaries` are its compaction's
+/// summaries of a cleared range.
+pub(super) fn writer(n: &Stub, turn: &str, screened: &[String], summaries: &[String]) -> Writer {
     match n.kind {
         Kind::ToolResult if screened.contains(&n.id) => Writer::Loop,
         Kind::ToolResult => Writer::ToolResult,
+        Kind::Summary if summaries.contains(&n.id) => Writer::Loop,
         Kind::AssistantMessage | Kind::ToolCall | Kind::Recall
             if n.turn_id.as_deref() == Some(turn) =>
         {
@@ -231,7 +236,7 @@ impl TurnRunner {
                 .map(|(p, n)| Carry {
                     id: n.id.clone(),
                     at: *p,
-                    writer: writer(n, t.tc.turn_id, &t.route.screened),
+                    writer: writer(n, t.tc.turn_id, &t.route.screened, &t.data.summaries),
                 })
                 .collect(),
         })
@@ -329,9 +334,9 @@ impl TurnRunner {
             Err(_) => None,
         };
         let left = since.is_none_or(|at| {
-            nodes[at + 1..]
-                .iter()
-                .any(|(_, n)| writer(n, t.tc.turn_id, &t.route.screened) != Writer::Loop)
+            nodes[at + 1..].iter().any(|(_, n)| {
+                writer(n, t.tc.turn_id, &t.route.screened, &t.data.summaries) != Writer::Loop
+            })
         });
         if !left {
             return Ok(None);
@@ -378,9 +383,10 @@ impl TurnRunner {
             if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
                 let at = nodes.iter().position(|(_, n)| n.id == run.through);
                 let own = at.is_some_and(|at| {
-                    nodes[at + 1..]
-                        .iter()
-                        .all(|(_, n)| writer(n, t.tc.turn_id, &t.route.screened) == Writer::Loop)
+                    nodes[at + 1..].iter().all(|(_, n)| {
+                        writer(n, t.tc.turn_id, &t.route.screened, &t.data.summaries)
+                            == Writer::Loop
+                    })
                 });
                 if let (true, Some((_, last))) = (own, nodes.last()) {
                     let d = session.data.get_or_insert_with(Default::default);
