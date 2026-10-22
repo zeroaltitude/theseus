@@ -1777,7 +1777,7 @@ impl Config {
         // entry (theseus-is8t).
         let secrets = cfg.secrets.clone();
         cfg.judge.resolve(&secrets);
-        cfg.cockpit.resolve(cfg.web.port);
+        cfg.cockpit.resolve(cfg.web.port, cfg.web.enabled);
         Ok(cfg)
     }
 

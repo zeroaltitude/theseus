@@ -16,13 +16,14 @@ use serde::{Deserialize, Serialize};
 pub struct CockpitConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_url: Option<String>,
-    /// The link's base, settled by `resolve`: never read from a note.
+    /// The link's base, settled by `resolve`: never read from a note. None while the web UI is
+    /// off: there is nothing to link to.
     #[serde(skip, default = "localhost_base")]
-    base: String,
+    base: Option<String>,
 }
 
-fn localhost_base() -> String {
-    local_base(super::default_web_port())
+fn localhost_base() -> Option<String> {
+    Some(local_base(super::default_web_port()))
 }
 
 fn local_base(port: u16) -> String {
@@ -44,9 +45,9 @@ impl CockpitConfig {
     }
 
     /// Settle the link's base once the note is read: `public_url`, else
-    /// localhost on the web UI's port.
-    pub fn resolve(&mut self, web_port: u16) {
-        self.base = local_base(web_port);
+    /// localhost on the web UI's port, and none when the web UI is off.
+    pub fn resolve(&mut self, web_port: u16, web_enabled: bool) {
+        self.base = web_enabled.then(|| local_base(web_port));
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -65,8 +66,17 @@ impl CockpitConfig {
 
     /// The link to one turn: the base, `/session/<session>/turn/<turn>`.
     pub fn turn_url(&self, session_id: &str, turn_id: &str) -> String {
-        let base = self.public_url.as_deref().unwrap_or(&self.base);
-        theseus_protocol::inspect::turn_url(base, session_id, turn_id)
+        let base = self.public_url.as_deref().or(self.base.as_deref());
+        let base = base.map_or_else(|| local_base(super::default_web_port()), str::to_string);
+        theseus_protocol::inspect::turn_url(&base, session_id, turn_id)
+    }
+
+    /// The link a reply's footer carries: none when no web UI runs and no `public_url` names one.
+    pub fn turn_link(&self, session_id: &str, turn_id: &str) -> Option<String> {
+        let base = self.public_url.as_deref().or(self.base.as_deref())?;
+        Some(theseus_protocol::inspect::turn_url(
+            base, session_id, turn_id,
+        ))
     }
 }
 
@@ -116,5 +126,29 @@ mod tests {
             assert!(crate::Config::parse(&format!("{secrets}\n[cockpit]\n{bad}\n")).is_err());
         }
         assert!(crate::Config::from_toml("[cockpit]\nbogus = 1\n").is_err());
+    }
+
+    /// A reply links the cockpit only where one runs: web off and no public URL gives no link;
+    /// web on gives the local one; a public URL gives it whatever web says.
+    #[test]
+    fn no_inspect_link_without_a_web_ui() {
+        let off = crate::Config::from_toml("[web]\nenabled = false\n").unwrap();
+        assert_eq!(off.cockpit.turn_link("ses_a", "turn_b"), None);
+        let on = crate::Config::from_toml("[web]\nport = 17433\n").unwrap();
+        assert_eq!(
+            on.cockpit.turn_link("ses_a", "turn_b").as_deref(),
+            Some("http://localhost:17433/session/ses_a/turn/turn_b")
+        );
+        let public = crate::Config::from_toml(
+            "[web]\nenabled = false\n[cockpit]\npublic_url = \"http://localhost:9000\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            public.cockpit.turn_link("ses_a", "turn_b").as_deref(),
+            Some("http://localhost:9000/session/ses_a/turn/turn_b")
+        );
+        assert!(CockpitConfig::default()
+            .turn_link("ses_a", "turn_b")
+            .is_some());
     }
 }
