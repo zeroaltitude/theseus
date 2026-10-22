@@ -129,6 +129,7 @@ fn params(session: &str, input: &str) -> TurnSubmitParams {
         in_reply_to: None,
         via: None,
         surface: None,
+        route_at_ms: None,
     }
 }
 
@@ -475,6 +476,7 @@ async fn a_node_a_split_moved_keeps_its_splits_value() {
         home: home.into(),
         session: home.into(),
         slug: None,
+        bench: None,
     };
     let rec = c.try_claim(&routing, &res).unwrap().expect("claimed");
     for (_, node, to) in turn_nodes(c, home, &res.turn_id) {
