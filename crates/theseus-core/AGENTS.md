@@ -1731,7 +1731,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     carries `origin` and, for a restricted one, `pass` and `run_nodes` per request, and the result's `TurnRoute.data` says `open` only
     once a request left with a pass. `data_gate` is an open word (a `DataWhy` word, `sensitive`, or a later row's own); each one also
     counts on `theseus.route.data_gate` (`Telemetry::record_data_gate(what, why)`).
-  - **A session's data state** (theseus-a1wvq.5; store format 48; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
+  - **A session's data state** (theseus-a1wvq.5; store format 49; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
     `DataState { opened, run, taint }`, opened by an open task (theseus-a1wvq.6), its run kept by an open request's turn (theseus-a1wvq.8). Absent is the
     private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.
     The turn's write-back merges it (`DataState::merge`): a stored taint always wins, `opened` is never cleared, and the

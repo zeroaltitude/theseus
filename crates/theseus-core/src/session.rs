@@ -126,7 +126,7 @@ pub struct SessionRecord {
     pub project: Option<String>,
     /// Its data state (theseus-a1wvq.5, `crate::data::DataState`): opened,
     /// the open run, the taint. Absent reads as the private view with no
-    /// open run, as in every record written before it (store format 48).
+    /// open run, as in every record written before it (store format 49).
     /// A turn's write-back merges it (`DataState::merge`). Boxed, as `routed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Box<crate::data::DataState>>,

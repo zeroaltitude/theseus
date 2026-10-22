@@ -677,9 +677,9 @@ const BULK: usize = 4096;
 /// and the ledger kind `thread.unsplit`.
 /// 48 = linked threads (theseus-98bz.11): a thread record's `links`, and the ledger kinds
 /// `thread.linked`, `thread.unlinked` and `thread.link_proposed`.
-/// 48 = a session's data state (theseus-a1wvq.5): a SESSION record's `data`
+/// 49 = a session's data state (theseus-a1wvq.5): a SESSION record's `data`
 /// (opened, the open run, the taint), and the ledger kind `session.data`.
-const MANIFEST_FORMAT: u32 = 48;
+const MANIFEST_FORMAT: u32 = 49;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

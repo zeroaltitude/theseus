@@ -566,7 +566,8 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   - an open session's transcript read would take the outside-text hold (the open view refuses `file.read` today);
   - a task is private while its parent holds the Google mark, even one taken after the task started;
   - `[memory] synth_profile` naming a profile of restricted origin stops the load, as the floor's seven other keys do;
-  - the store format stays 48 on integ/cn; integ/release renumbers one of the two 48s to 49 (theseus-c1ve9).
+  - the store format is 49 for a session's data state, renumbered at integ/release from integ/cn's 48, which
+    linked threads took first (theseus-c1ve9).
 - **2026-10-19 (night):** the README adds Jev's judgments and the compiled context as features 7 and 8, and features 7
   to 10 become 9 to 12; [On, and still being hardened](#on-and-still-being-hardened) gains both (theseus-dqn4h).
 - **2026-10-18 (late evening):** the README adds voice, activity threads, personas and earned autonomy as features 7
