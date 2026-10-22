@@ -924,6 +924,7 @@ mod calendar;
 mod cards;
 mod earned;
 mod horizon;
+mod link;
 mod onto;
 mod remind;
 mod reply;

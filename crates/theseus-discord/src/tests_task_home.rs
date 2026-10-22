@@ -46,8 +46,14 @@ fn home_record(r: &Rig) -> Option<u64> {
     v?["channel"].as_u64()
 }
 
+/// The home is recorded (`find_task_home`) and stands: its state holds the channel, which `instead_of`
+/// reads, and the core was told, in that order, so the DM lane no longer draws the board (theseus-0prmm).
 async fn home_up(r: &Rig) -> u64 {
-    until(r, "the task home is recorded", || home_record(r).is_some()).await;
+    let dm = format!("discord:dm:{ANA}");
+    until(r, "the task home stands", || {
+        home_record(r).is_some() && r.core.outbox.report_target(Some(dm.clone())).1.is_some()
+    })
+    .await;
     home_record(r).unwrap()
 }
 

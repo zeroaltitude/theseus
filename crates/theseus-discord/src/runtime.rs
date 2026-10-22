@@ -57,7 +57,7 @@ mod earned;
 pub(crate) mod grant;
 mod onto_card;
 mod remind;
-mod seal;
+pub(crate) mod seal;
 pub(crate) use capture_card::{buttons as capture_buttons, card_of as capture_card};
 pub(crate) use earned::{buttons as earned_buttons, candidates as earned_candidates};
 pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_buttons};

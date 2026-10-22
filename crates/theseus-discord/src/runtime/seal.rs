@@ -16,6 +16,8 @@ use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
 use twilight_model::http::interaction::InteractionResponseType;
 
+pub(crate) mod link;
+
 use super::Shared;
 
 /// A card button's custom id: `seal:<yes|no>:<slug>`.
