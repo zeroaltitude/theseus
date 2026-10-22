@@ -206,6 +206,17 @@ async fn a_threads_turn_grows_its_working_set() {
     assert_eq!(set_of(c, "pr-round"), w);
 }
 
+/// A message's bare file name grows nothing; its path grows the file
+/// (theseus-iw50k).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_file_name_in_a_message_does_not_grow_the_set() {
+    let r = rig(|_| vec![Scripted::text("Done.")], |_| {});
+    let c = &r.core;
+    thread(c, "pr-round");
+    submit(c, Some("pr-round"), None, "run slow.sh then tools/fast.sh").await;
+    assert_eq!(set_of(c, "pr-round").files, ["tools/fast.sh"]);
+}
+
 /// A turn at home (a session no thread runs on) grows no thread.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_home_turn_grows_no_thread() {

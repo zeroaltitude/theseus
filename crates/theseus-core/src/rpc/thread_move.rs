@@ -141,6 +141,9 @@ impl Core {
             None => false,
         };
 
+        // The words that grew the wrong thread's set are taken back.
+        self.thread_ungrow(&routed.turn);
+
         // 2. The correction, in one frame.
         let rcx = crate::new_id("rcx");
         let label_id = self.write_correction(&routed, &to, &rcx, &who_label, &via, &title)?;
