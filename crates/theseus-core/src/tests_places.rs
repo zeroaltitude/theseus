@@ -246,7 +246,7 @@ fn rig_defer(
     script: Script,
     deferring: bool,
 ) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch::tempdir();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("open")).unwrap();
     let root = root.canonicalize().unwrap();
