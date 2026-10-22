@@ -2640,11 +2640,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   compilation keeps its digest, and the compile row its layers' digests), so the cockpit rebuilds the parts through
   `context.explain`, which says whether they are still the bytes the turn saw. Thinking, a prompt, a tool's input and
   result, gate records, rows' data and the spans' attributes go to a private place only (`Surface::reads_private`): any
-  other surface gets shapes, sizes and times and `withheld` says why. The link in a footer is `TurnSubmitResult.inspect_url`,
-  set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; left out, `http://localhost:<[web] port>`, settled once at load by `CockpitConfig::resolve`, theseus-ypnxt.5);
-  every renderer shows that string. Tests: `rpc/tests_inspect.rs` (a multi-loop turn with parallel calls, thinking, a
-  compaction and a floor question; the privacy; the 20-loop, 40-call read, p95 under 150 ms in a debug build; no frame
-  written), `config/cockpit.rs`'s.
+  other surface gets shapes, sizes and times and `withheld` says why. The link in a footer is
+  `TurnSubmitResult.inspect_url`, set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; left
+  out, `http://localhost:<[web] port>`, settled once at load by `CockpitConfig::resolve`, theseus-ypnxt.5; no link at
+  all when the web UI is off and no `public_url` names one, `CockpitConfig::turn_link`, so `turn.inspect`'s `url` is
+  empty, theseus-40cuo); every renderer shows that string. Tests: `rpc/tests_inspect.rs` (a multi-loop turn with
+  parallel calls, thinking, a compaction and a floor question; the privacy; the 20-loop, 40-call read, p95 under 150 ms
+  in a debug build; no frame written), `config/cockpit.rs`'s.
 - **`ledger.window`** (theseus-m2tiu, `rpc/window.rs`): the postmortem's read. One page by the kinds' own postings
   (`POSTMORTEM_KINDS`, or a session's tag when narrowed to it and the tasks below it, found from `Kernel::tasks`),
   oldest first, `next` the cursor; each row's strings pass the scrubber. A surface that reads no private text
@@ -2976,6 +2978,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   profile aborts on a panic, so one panic on outside text takes the daemon down. A new reader joins them.
 - `FakeProvider::scripted` scripts a provider's answers. `Parts::for_tests` builds a core around it, and a second
   provider can be inserted into `parts.providers`.
+- `Core::build_with_clock` (test-only) builds a core whose kernel runs on a given clock, so a test drives an hour
+  with a `VirtualClock` (`tests_effort_lapse.rs`, theseus-2ix1k). `test_support::until_event(what, f)` waits with no
+  deadline of its own and prints `waiting for <what>` every 30 s, so a hang names itself in nextest's output.
 - `Store::fail_turn_frame` (test-only) fails the first turn frame whose records match, once, as a full disk would.
 - Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store, by positions and
   record keys, decoding nothing. A node written past the turn's handle panics a debug daemon.
