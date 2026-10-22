@@ -198,3 +198,47 @@ async fn a_held_dms_trusted_tasks_are_both_seen() {
     open_gate(&r);
 }
 
+/// A thread no Discord place runs, made from the CLI.
+fn harbor(r: &Rig) {
+    r.core
+        .thread_new(
+            &theseus_protocol::threads::ThreadNewParams {
+                slug: "harbor".into(),
+                title: Some("Harbor".into()),
+                ..Default::default()
+            },
+            crate::tests_default_forum::cli(),
+        )
+        .unwrap();
+}
+
+/// The DM routes the ask into a thread no Discord place runs (the owner's
+/// answer to "which thread?" on #68, or an explicit address): the tasks run
+/// under that thread's conversation, and the DM, where they were asked for,
+/// still sees both. (Their first calls may run before the watch names the
+/// thread: a tool line is live progress, best effort, so this test does not
+/// ask for it; the two above do.)
+#[tokio::test]
+async fn a_dm_message_routed_to_a_placeless_thread_still_sees_its_tasks() {
+    // The DM's session opens at its bind, so no later ask (a fresh session's)
+    // can bring the thread in: only the turn the DM routes to it can.
+    crate::tests_gateway::OPEN_AT_BIND.with(|o| o.set(true));
+    let r = walk(vec![
+        Scripted::text("Hi."),
+        start(&[REEF, BUOY]),
+        Scripted::text("Started both."),
+    ])
+    .await;
+    let forum = forum_up(&r).await;
+    let home = home_up(&r).await;
+    r.say((ANA, "ana"), None, "hello");
+    replied(&r, ANA_DM, "Hi.").await;
+    harbor(&r);
+    r.say((ANA, "ana"), None, &format!("#harbor {ASK}"));
+    until(&r, "the tasks run under the thread", || {
+        r.core.kernel.tasks(None).unwrap().len() == 2
+    })
+    .await;
+    both_seen(&r, forum, home).await;
+    open_gate(&r);
+}

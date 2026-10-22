@@ -553,6 +553,23 @@ impl Outbox {
         Ok(())
     }
 
+    /// Every thread session with the place it answers at (`show_at`): a
+    /// binding watches their tasks for that place (theseus-h68q6).
+    pub fn shown(&self) -> Result<Vec<(String, String)>> {
+        self.with(|ix| {
+            ix.shown
+                .iter()
+                .map(|(s, t)| (s.clone(), t.clone()))
+                .collect()
+        })
+    }
+
+    /// Whether `session` is a thread's that answers at some place.
+    pub fn is_shown(&self, session: &str) -> bool {
+        self.with(|ix| ix.shown.contains_key(session))
+            .unwrap_or(false)
+    }
+
     /// The session a place runs on (`dm:<user>`, `channel:<id>`), from its
     /// record.
     pub fn place_session(&self, place: &str) -> Result<Option<String>> {
