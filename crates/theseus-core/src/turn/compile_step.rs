@@ -73,8 +73,11 @@ impl TurnRunner {
         Self::standing_here(t, compiled);
         // Who answers this turn, one tail line (theseus-c1uz).
         Self::persona_line(t, compiled);
-        // The place's other threads, for a turn that asks across them (theseus-98bz.9).
-        Self::digest_line(t, compiled);
+        // The place's other threads, for a turn that asks across them (theseus-98bz.9);
+        // their cards are the owner's material, so an open request has none (theseus-rcb2u).
+        if !open {
+            Self::digest_line(t, compiled);
+        }
         // The project this conversation serves, last of all (theseus-n5ui2).
         let project = (!open)
             .then(|| crate::project::slice::attach(&self.store, &self.kernel, session, compiled))

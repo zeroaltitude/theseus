@@ -420,3 +420,22 @@ fn normal(v: &impl serde::Serialize) -> String {
     }
     out
 }
+
+/// The other threads' cards are the owner's material, so a request for open
+/// data carries no digest (theseus-rcb2u): the same `place` turn in the PR's
+/// thread shows one, and shows none once its session is opened.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_request_carries_no_place_digest() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4, true);
+    let c = &r.core;
+    threads(c);
+    let pr = thread_session(c, &jev, "pr-round").await;
+    scope(&jev, "place");
+    ask(c, "pr-round", "What else is going on in this place?").await;
+    assert!(digest_of(&last_request(&r)).is_some(), "the control");
+    crate::tests_open_view::open(c, &pr, None);
+    scope(&jev, "place");
+    ask(c, "pr-round", "And what else is going on in this place?").await;
+    assert_eq!(digest_of(&last_request(&r)), None, "an open request");
+}
