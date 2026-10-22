@@ -307,7 +307,11 @@ impl Core {
                 }
             }
             for (name, seen) in &scope.judgments {
-                packs.push(report::pack_report(name, seen, &scope.labels, window));
+                let mut r = report::pack_report(name, seen, &scope.labels, window);
+                if name == crate::judge::onto::ONTO_PACK {
+                    r.undo = self.onto_undo_to(now_ms)?;
+                }
+                packs.push(r);
             }
             pace(t0.elapsed());
         }
@@ -332,6 +336,20 @@ impl Core {
         }
         self.write_run(&r, records, through, now_ms.min(newest))?;
         Ok((r, read))
+    }
+
+    /// The ontology pack's undo line (theseus-2tqqs): Jev's writes per kind in
+    /// the window to `at_ms` and those the owner took back, by
+    /// `onto_undo::undo_rates`, the one definition; none while the index's
+    /// shape is built.
+    fn onto_undo_to(
+        &self,
+        at_ms: u64,
+    ) -> anyhow::Result<Vec<theseus_protocol::judge_runs::UndoRate>> {
+        let since = at_ms.saturating_sub(learning::onto_undo::WINDOW_MS);
+        Ok(learning::onto_undo::rows_since(&self.store, since)?
+            .map(|rows| learning::onto_undo::undo_rates(&rows, since))
+            .unwrap_or_default())
     }
 
     /// A run's frame: its labels, its `judge.report` rows and its mark,
