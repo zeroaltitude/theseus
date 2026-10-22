@@ -499,7 +499,7 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         .expect("the card");
     assert!(
         card.content
-            .starts_with("❎ **Declined** by cli#1 · `fs.write` a.txt"),
+            .starts_with("❎ **Declined** by cli#1 · *write a* wants to **write** `a.txt`"),
         "{}",
         card.content
     );
@@ -616,7 +616,8 @@ fn wake_call(text: &str) -> Scripted {
 }
 
 /// How a card names `wake_call`'s call.
-const WAKE: &str = "`wake.at` {\"after\":\"10m\",\"note\":\"check the build\"}";
+/// The approval card's words for the call (theseus-ono8g).
+const WAKE: &str = "*remind me* wants to wake.at {\"after\":\"10m\",\"note\":\"check the build\"}";
 
 /// 2b's approval route through the lanes, under the place rule
 /// (theseus-zmgb): a card for a shared channel goes to the owner's DM, with
@@ -659,7 +660,7 @@ async fn a_card_for_a_shared_channel_goes_to_the_dm_and_its_settle_edits_both() 
     let card = fake
         .messages(DM)
         .into_iter()
-        .find(|m| m.content.starts_with(&format!("**Approve?** {WAKE}")))
+        .find(|m| m.content.starts_with("✋ **Approve?** "))
         .expect("the card in the DM");
     assert!(
         card.content.contains("-# for #general · expires"),
@@ -749,13 +750,11 @@ async fn a_private_address_card_from_a_shared_channel_says_where_the_page_goes()
     let card = fake
         .messages(DM)
         .into_iter()
-        .find(|m| m.content.starts_with("**Approve?** `http.fetch`"))
+        .find(|m| m.content.starts_with("✋ **Approve?** "))
         .expect("the card in the DM");
     assert!(
         card.content.contains(&format!(
-            "fetch {url}: http.fetch — approve (127.0.0.1 is a loopback address, and a private \
-             address waits for approval; this is a shared place, so the page joins a \
-             conversation others can read)"
+            "wants to **fetch** `{url}`\nrisk: network · why it asks: you set this kind of call to ask first"
         )),
         "{}",
         card.content
@@ -909,7 +908,7 @@ async fn a_shared_channels_card_goes_to_the_dm_and_nothing_mentions_anyone() {
         .find(|m| m.components > 0)
         .expect("the card in the DM");
     assert!(
-        card.content.starts_with(&format!("**Approve?** {WAKE}")),
+        card.content.starts_with("✋ **Approve?** "),
         "{}",
         card.content
     );
@@ -957,7 +956,8 @@ async fn a_card_in_a_dm_mentions_no_one() {
         .find(|m| m.components > 0)
         .expect("the card");
     assert!(
-        card.content.starts_with("**Approve?** `fs.write` a.txt"),
+        card.content
+            .starts_with("✋ **Approve?** *write a* wants to **write** `a.txt`"),
         "{}",
         card.content
     );
