@@ -156,12 +156,14 @@ impl Run<'_> {
     /// One side of a `same_kind` pair or a kind's name: the titles of the
     /// sessions that said `names`.
     fn titles_of(&self, sessions: &[&str]) -> Vec<String> {
-        sessions
-            .iter()
-            .filter_map(|s| self.core.titled(s))
-            .map(|(_, _, title)| title)
-            .take(SWEEP_TITLES)
-            .collect()
+        theseus_store::blocking(|| {
+            sessions
+                .iter()
+                .filter_map(|s| self.core.titled(s))
+                .map(|(_, _, title)| title)
+                .take(SWEEP_TITLES)
+                .collect()
+        })
     }
 
     /// What Jev says of the `other` answers `said`: which pairs of names are
@@ -230,10 +232,21 @@ impl Run<'_> {
 
     /// The name Jev picked for each cluster that will mint, in `hints.named`.
     async fn kind_names(&mut self, o: &Ontology, folds: &mint::Folds<'_>, hints: &mut Hints) {
+        let mut asked = 0;
         for cluster in mint::leads(o, folds, &hints.same) {
             let names = cluster.spelled(folds);
             let key = format!("kind-name {}", cluster.key);
-            if names.len() < 2 || !self.going() || self.mark.asked.contains_key(&key) {
+            if names.len() < 2 {
+                continue;
+            }
+            if self.mark.asked.contains_key(&key) {
+                // Paid for on an earlier night, when the kind did not mint.
+                if let Some(name) = self.mark.named.get(&cluster.key) {
+                    hints.named.insert(cluster.key.clone(), name.clone());
+                }
+                continue;
+            }
+            if !self.going() {
                 continue;
             }
             let ids: Vec<&str> = cluster.sessions.keys().copied().collect();
@@ -244,13 +257,18 @@ impl Run<'_> {
                 titles: self.titles_of(&ids),
                 names: names.iter().take(NAMES).cloned().collect(),
             };
+            if asked > 0 {
+                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+            }
             let context = json!({"cluster": cluster.key});
             match self.ask(NAME_PACK, Input::NameIt(input), context).await {
                 Asked::Answered(j, cost) => {
-                    self.paid(key, cost);
+                    asked += 1;
                     if let Some(name) = acts(&j).then(|| named(&j, "name", &names)).flatten() {
+                        self.mark.named.insert(cluster.key.clone(), name.clone());
                         hints.named.insert(cluster.key.clone(), name);
                     }
+                    self.paid(key, cost);
                 }
                 Asked::Over(need) => {
                     tracing::info!(

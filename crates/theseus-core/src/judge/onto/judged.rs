@@ -94,6 +94,11 @@ pub struct Mark {
     /// `kind-name <cluster>`, and when it was asked.
     #[serde(default)]
     pub asked: BTreeMap<String, u64>,
+    /// The mined name Jev picked for a cluster (by its key) whose kind did not
+    /// mint that night: kept as long as its `kind-name` ask, and used when the
+    /// cluster mints (`renamed.rs`).
+    #[serde(default)]
+    pub named: BTreeMap<String, String>,
 }
 
 /// What one call came to.
@@ -306,6 +311,8 @@ impl Core {
         }
         mark.asked
             .retain(|_, at| now_ms.saturating_sub(*at) < AGAIN_MS);
+        let Mark { asked, named, .. } = &mut mark;
+        named.retain(|cluster, _| asked.contains_key(&format!("kind-name {cluster}")));
         let before = mark.spent_usd;
         let cap = usd_to_micros((cap_usd - before).max(0.0));
         Ok(Some(Run {

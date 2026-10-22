@@ -233,3 +233,38 @@ async fn the_sweeps_new_asks_stop_at_the_days_money() {
     assert_eq!(r.jev.seen().len(), 3, "{next:?}");
     assert_eq!((next.kinds, next.renamed), (1, 1));
 }
+
+/// A name Jev picked for a cluster is kept under its key when its kind does
+/// not mint that night (`2026-…` is no kind's name), as long as the ask is
+/// not asked again; a later night's cluster uses the kept pick, and asks
+/// nothing (theseus-e3pxa).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kind_name_answer_waits_for_its_mint() {
+    let jev = kind_jev(0.9);
+    pick(&jev, "n2", 0.9);
+    let r = rig(jev, |_| {});
+    said_other(&r, "o1", &["2026 Plan"]);
+    said_other(&r, "o2", &["2026 Plan"]);
+    said_other(&r, "o3", &["2026 Roadmap"]);
+    let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((swept.kinds, swept.refused), (0, 1), "{swept:?}");
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    assert!(mark.asked.contains_key("kind-name 2026plan"), "{mark:?}");
+    assert_eq!(mark.named["2026plan"], "2026 Roadmap");
+
+    // The cluster mints later, under a name the kind can take.
+    let r = rig(FakeJev::start().unwrap(), |_| {});
+    plant_other(&r);
+    let kept = Mark {
+        day: crate::judge::spend::local_day(fresh()),
+        asked: [("kind-name lanternledger".to_string(), fresh())].into(),
+        named: [("lanternledger".to_string(), "Ledger App".to_string())].into(),
+        ..Mark::default()
+    };
+    r.core.store.put_meta(MARK, &kept).unwrap();
+    r.jev.script("same_kind", Scripted::Noul(0.9));
+    let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
+    assert!(snapshot(&r.core).kind("ledger-app").is_some());
+    assert_eq!(r.jev.seen().len(), 1, "only the pair was asked");
+}
