@@ -543,7 +543,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   section the fresh layer lacks, so no reuse can hold another stream's guidance (`prefix/tests.rs`,
   `a_prefix_carries_only_the_asking_streams_own_sections`); the A1 vs A1n gap was a router decision (a new
   stream's first message held in the sticky thread), so `[prefix] enabled` stays true. Tests:
-  `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. A sealed thread's notes, or one with a seal
+  `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. **The cross judge** (theseus-98bz.10;
+  `judge/cross.rs`, `turn/cross_step.rs`, `[threads] cross_recall_judge`, on): the `thread_*` drops whose share of the
+  query's best is above `cross_recall_bar` (not sealed, not held), at most `cross_recall_judge_k` (3) best first, go to
+  `recall_cross.v1` in one request the turn waits for at most `route_wait_ms`; a Noul yes at the confirm bar in a
+  judgment that acts admits the note with the penalty, anything else leaves the drop. Its failures move only its own
+  breaker (`cross::BREAKER`, `recall_cross`, theseus-pt7lt; the `judge.circuit` row names it), and while it is open
+  `cross_live` sends nothing and waits for nothing. **The place digest** (theseus-98bz.9; `[threads] place_digest`, on):
+  `classify.v4`'s `scope` question (asked when the place has live threads, or in a thread's own session with
+  `Inbound.in_thread`, which asks it without the list) answered `place` at its act bar gives that turn's request a
+  digest of the place's other live threads (`place_digest_line_chars` a line), and a turn with the digest asks the cross
+  judge nothing (`tests_cross_judge::no_call_when_the_digest_fired`, which also asserts a drop above the bar, so it
+  cannot pass with nothing to guard). Tests: `rpc/tests_cross_judge.rs`. A sealed thread's notes, or one with a seal
   proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
   rerank and `thread.read`-less lookups included (`memory.lookup`'s words ask with the seal and no distance). The
   `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`
@@ -584,8 +595,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   early judgment's rows carry the home session. Tests: `rpc/tests_thread_route.rs`, `thread_route::tests`,
   theseus-judge's `tests_threads.rs`; the 40-message fixture `fixtures/thread_route_40.json` is also
   `scripts/thread-route-check.py`'s input.
-  **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`.
-  **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` is routed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
+  **The ask and the sticky rule** (theseus-98bz.2, theseus-eqp1v, theseus-98bz.4, theseus-q3ggn): an ask's options are
+  its threads (`[threads] ask_every_thread`: every live, unsealed one up to four, else three and `other`, which an
+  answer of a slug fills; off, the best two), `new` when raised, and `home`. With `sticky_alone_asks` (on) a top thread
+  that stands on stickiness and the chain alone (no entity, no learned correction) and that Jev did not pick is held
+  just under the confirm bar, so the message is asked about; the `new` option rides that ask alone when the message
+  names two or more entities no working set holds (`new_entities`: the import's extractor, a ticket shape `OPS-4214`
+  read as a ref), and any ask Jev raised `new` in. **The directory rule** (theseus-vw8k7; `thread_route::apart_by_dir`,
+  called by `Core::keep_apart_by_dir` in `rpc/home_claim.rs` right after `learned_thread`): with the turn's directory
+  known (the submit's `dir`, else the session's), a thread whose roots are set (absolute or `~/`; a relative one read
+  under the thread's own session's directory) and none of which holds the directory or lies under it keeps only its
+  entity score: stickiness, the chain and a learned correction are dropped; Jev's pick still fuses. A thread with no
+  readable root, or a turn with no directory, is scored as before. The roots predicate is `thread_route::holds_path`,
+  which `home_claim::thread_of` reads too. Tests: `rpc/tests_thread_route.rs`
+  (`a_message_from_another_directory_is_not_placed_by_stickiness`), `thread_route::tests`.
+  **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. A list takes nothing past `thread_join::MAX_SET` (64), and nothing is evicted yet. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`.
+  **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` (`TurnSubmitParams.route_at_ms`) is routed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
   **A lone thread offers a new one** (theseus-98bz.7; `thread_route::lone_offer`, `[threads] single_offers_new`): with one live thread below the confirm bar and two or more entities no working set holds, the message is asked about (the thread, new, home); a spoken turn runs at home. Tests: `rpc/tests_thread_lone.rs`.
 - **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): a thread's session is a private conversation, so the
   keep-warm reads it as it reads any; what differs is who is kept. An active thread whose owner wrote within `[threads]
@@ -672,7 +697,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   whose `split` is `claim_…` (`MovedTo::is_claim`), one frame with the claim's record and its row; a node a split moved keeps its
   value. The lens and recall read it as a split's; the home's compile, which reads `Body::Moved` nodes, is unchanged. `history`
   marks it `claimed_by` (never `moved_to`), and a split may take a claimed node (`refuse_moved`). `thread.unclaim` (`theseus thread
-  unclaim ID`) writes null where the key still holds the claim's value. Tests: `rpc/tests_home_claim.rs`, `home_claim::tests`.
+  unclaim ID`) writes null where the key still holds the claim's value; its `kept` counts only keys holding another claim's
+  or a split's value (a null one is neither, theseus-l4n39). The claim and its undo read the keys and write in one frame
+  under the home session's execution lock, the lock a split's and an unsplit's frames hold, so a split lands wholly
+  before or after them. Tests: `rpc/tests_home_claim.rs`, `home_claim::tests`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
@@ -2470,7 +2498,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Fit` cost while the whole stays under `floor(budget × admit_ceiling)` (`want::extra` returns `Admitted { family,
   tokens, by }`); learned families stay held to `budget + Fit.raised`. What passed the budget rides `Deferral.raised`
   (not stored), `tools.used`'s `raised` and `TurnSubmitResult.raised`, whose `line` closes `harness_lines`.
-  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. Tests: `tests_families.rs`.
+  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. The `families.v1` call is made on every routed
+  prompt, a model with tool search included unless the route pack is below canary (the owner's decision of 2026-10-21:
+  always try to categorize each toolset), so `families_start` is not narrowed. Tests: `tests_families.rs` (the two that
+  read Jev's answer set `judge_wait_ms` to 2,000 in their rig, so the answer is waited for, not raced).
 - **Your own benchmark** (own-benchmark, theseus-pw1q.12; store format 34; `own_bench/`, `compiler/cache.rs`,
   `judge/compare.rs`, `config/route.rs`, `fact/own_bench.rs`; a yardstick, not a self-change: it is not behind `[self]
   mode`, and nothing it finds moves routing): "which model you actually need, measured on your own past work".

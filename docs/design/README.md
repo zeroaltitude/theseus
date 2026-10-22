@@ -13,6 +13,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [m5-judgment.md](m5-judgment.md): M5, judgment: the Jev client, its packs in shadow, the learning ledger, and the ladder from shadow to live. Roadmap steps 23 to 28.
 - [m6-memory.md](m6-memory.md): M6, memory as an experiment: the memory exam, the index tender, recall, and the ablation harness. Roadmap steps 29 to 35.
 - [m7-surface.md](m7-surface.md): M7, the surface: the MCP client and server, recurring wakes, bindings, the task graph, the web UI, self-extension, and voice. Roadmap steps 36 to 39 and 41 to 45.
+- [threads.md](threads.md): the threads lane's rules and decisions: the router's order, the directory rule, the ask's `new` offer, the bench's clock, deferred tools past the budget and the `raised` field, the families call, and the home claim beside a split.
 
 And one review:
 

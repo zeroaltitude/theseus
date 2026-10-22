@@ -49,7 +49,7 @@ Six features in v1 are on and still being hardened. The [README](../README.md) l
 owner's rule (2026-10-18) is that a feature that exists ships on, with its broken parts said plainly, and the fixes
 follow.
 
-- **Jev's judgments** (`route.v7`, `classify.v3`, `rerank.v1` and `security.v3`, live). Each message a person sends
+- **Jev's judgments** (`route.v7`, `classify.v4`, `rerank.v1`, `recall_cross.v1` and `security.v3`, live). Each message a person sends
   gets its model and effort, its class and its thread from Jev, waited for at most 300 ms on the owner's daemon (200 by
   default); Jev's persona pick is recorded in shadow, and recall's order waits for `rerank.v1`. At the v1 benchmarks
   (2026-10-18) Theseus paid the least of four harnesses for a solved task at high effort, level with Claude Code on
@@ -66,9 +66,11 @@ follow.
 - **The compiled context** (`theseus why`, `theseus project attach`). Each request is compiled from the store, with
   the project's slice of an attached session in its last block, and the v1 patch1 project is attached to the owner's
   sessions. Still rough:
-  - A turn Jev detours to a small model as quick or trivial carries only its last exchanges: no recall, no project
-    slice and no context files, and `theseus why` can't show it (theseus-pa1xx, theseus-v4u66). That is why a fresh
-    session on 2026-10-18 did not bring back that evening's decisions, though recall had found them.
+  - A turn Jev detours to a small model as quick or trivial is compiled apart from the session: a quick detour
+    carries its recall and the project's slice rides any detour (theseus-pa1xx, theseus-v4u66), and its first request is
+    held to the place's budget as sent (theseus-3bs4e). `theseus why` names a detoured turn, and `context.explain` shows
+    its request's parts from its `context.detoured` row (theseus-r5ydi). A trivial detour still carries no recall and
+    no context files.
   - The slice shows the first "done when" line and a count of the rest.
 
   The fixes go toward v1 patch1.
@@ -86,8 +88,17 @@ follow.
   The fixes go toward v1 patch1 (theseus-sro04).
 - **Activity threads** (`theseus thread`). They are on by default, with up to 50 live, and five have been live on the
   owner's daemon since 2026-10-18.
-  - The router (the `thread` question of `classify.v3`, fused with a free pre-score) is tested on 40 scripted
-    messages with a scripted Jev.
+  - The router (the `thread` question of `classify.v4`, fused with a free pre-score) is tested on 40 scripted
+    messages with a scripted Jev. When it cannot tell it asks in one line, listing every live thread up to four, and
+    offers a new thread when Jev suggests one or when stickiness alone pointed at the last thread and the message names
+    things no thread holds. A message sent from a directory under none of a thread's roots is no longer placed in that
+    thread by stickiness or by a move the owner once made (theseus-vw8k7); naming its PR, branch or path still is.
+  - A thread's working set grows from the paths and names its turns use. A turn that ran at home but wrote only one
+    thread's files becomes that thread's memory (`theseus thread unclaim` undoes it). Two threads can be linked so
+    each recalls the other's notes, and Jev offers a link once when one keeps drawing on another.
+  - In a thread, notes of other threads are kept out of recall unless near the top; `recall_cross.v1` reads the near
+    misses and lets in those about the same subject, and a question across all the place's work gets a digest of the
+    other threads instead.
   - The thread benchmark (`bench/threads/`) is built and has not been run on the real model.
   - A Discord thread for each thread needs `discord_channel`, which is off by default.
   - A place's home that grows past `[threads] working_tokens` (60,000 tokens a request unless set) tells the owner once,

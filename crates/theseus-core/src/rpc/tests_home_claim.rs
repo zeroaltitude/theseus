@@ -670,3 +670,137 @@ async fn with_the_switch_off_nothing_is_claimed() {
     assert!(on.threads.claim_home_turns);
     assert!(crate::Config::EXAMPLE_TOML.contains("# claim_home_turns = true"));
 }
+
+/// The claim's `Routing` for a turn that ran at `home`.
+fn at_home(home: &str) -> Routing {
+    Routing {
+        tag: ThreadTag {
+            slug: None,
+            title: "home".into(),
+            how: RouteHow::Home,
+            confidence: 0.96,
+            movable: false,
+        },
+        home: home.into(),
+        session: home.into(),
+        slug: None,
+        bench: None,
+    }
+}
+
+/// A node an unsplit nulled after the claim is neither restored nor kept (theseus-l4n39): a split
+/// over the whole claim, its unsplit, then the unclaim counts nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unclaim_counts_a_nulled_node_as_neither() {
+    let p = place(&["tarnlib/tarn/retry.py"], true);
+    let (c, home) = (&p.r.core, p.home.as_str());
+    thread_answer(&p.jev, "home", 0.96);
+    let res = submit(c, home, "fix the retry").await;
+    let id = rows(c, "thread.claimed")[0].data["claim"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    split_over_the_claim(c, home, &res.turn_id);
+    let out = c
+        .thread_unclaim(
+            &ThreadUnclaimParams {
+                claim: id,
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap_or_else(|e| panic!("{}", e.message));
+    assert_eq!((out.restored, out.kept), (0, 0), "{out:?}");
+    let row = &rows(c, "thread.unclaimed")[0].data;
+    assert_eq!(
+        (row["restored"].as_u64(), row["kept"].as_u64()),
+        (Some(0), Some(0))
+    );
+}
+
+/// A home turn longer than a page (64 nodes) is read across pages and claimed whole; one past the
+/// most read (1,024) claims nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_long_home_turn_is_read_across_pages() {
+    let p = place(&["tarnlib/tarn/retry.py"], false);
+    let (c, home) = (&p.r.core, p.home.as_str());
+    thread_answer(&p.jev, "home", 0.96);
+    let res = submit(c, home, "fix the retry").await;
+    let grow = |n: usize| {
+        let recs: Vec<_> = (0..n)
+            .map(|i| {
+                crate::node::Node::user(home, Some(&res.turn_id), "test", &format!("step {i}"))
+                    .record()
+                    .unwrap()
+            })
+            .collect();
+        c.store.append(&recs).unwrap();
+    };
+    grow(70);
+    let whole = turn_nodes(c, home, &res.turn_id).len();
+    assert!(whole > 70, "{whole}");
+    let rec = c.try_claim(&at_home(home), &res).unwrap().expect("claimed");
+    assert_eq!(
+        rec.nodes.len(),
+        whole,
+        "every node of the turn, across pages"
+    );
+    grow(1_024);
+    assert!(
+        c.try_claim(&at_home(home), &res).unwrap().is_none(),
+        "past the most read, nothing"
+    );
+}
+
+/// A split's keys that land while the claim waits are read by it (theseus-l4n39): the claim reads
+/// and writes under the home's execution lock, the lock a split's frame holds. A frame holding that
+/// lock stages a split's key for the turn's message; the claim, started meanwhile, keeps the
+/// split's value and leaves the message out of its record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_split_landing_beside_the_claim_is_kept() {
+    let p = place(&["tarnlib/tarn/retry.py"], false);
+    let (c, home) = (&p.r.core, p.home.as_str());
+    thread_answer(&p.jev, "home", 0.96);
+    let res = submit(c, home, "fix the retry").await;
+    let note = user_node(c, home, &res.turn_id);
+    let exec = c
+        .store
+        .get_session::<SessionRecord>(home)
+        .unwrap()
+        .unwrap()
+        .execution_id
+        .unwrap();
+    let split = MovedTo {
+        thread: "sec-fix".into(),
+        split: "spl_beside".into(),
+    };
+    let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let rec = std::thread::scope(|s| {
+        let (exec, note, split) = (&exec, &note, &split);
+        let splitter = s.spawn(move || {
+            c.kernel
+                .frame(&[exec], |k| {
+                    k.stage(&[theseus_store::NewRecord::json(
+                        theseus_store::kinds::META,
+                        Some(&moved_of_key(note)),
+                        &Some(split),
+                    )?])?;
+                    held_tx.send(()).unwrap();
+                    go_rx.recv().unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        });
+        held_rx.recv().unwrap();
+        let claimer = s.spawn(|| c.try_claim(&at_home(home), &res).unwrap());
+        // The claim is under way; the split's frame lands after it began.
+        std::thread::sleep(Duration::from_millis(300));
+        go_tx.send(()).unwrap();
+        splitter.join().unwrap();
+        claimer.join().unwrap().expect("claimed")
+    });
+    assert!(!rec.nodes.contains(&note), "{:?}", rec.nodes);
+    let to: Option<Option<MovedTo>> = c.store.get_meta(&moved_of_key(&note)).unwrap();
+    assert_eq!(to.flatten(), Some(split));
+}

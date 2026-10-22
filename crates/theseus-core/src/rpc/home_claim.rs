@@ -19,6 +19,12 @@
 //!   home's compile reads `Body::Moved` nodes, not the key, so it is unchanged; nothing is posted.
 //! - **`thread.unclaim`** writes each key back to null where it still holds this claim's value (a
 //!   later split's is kept), marks the record undone and writes `thread.unclaimed`.
+//! - **A split beside the claim** (theseus-l4n39). The claim reads the nodes' keys and writes in one
+//!   frame under the home session's execution lock, the lock a split's frame (`write_moved`, and an
+//!   unsplit's) holds while it writes its keys, and so does the undo. A split refuses while a turn
+//!   runs in its source, but the claim runs right after the home turn ends, when a split may begin,
+//!   so the order is the lock's, not the turn's: a split lands wholly before the claim's read (its
+//!   value is kept) or after its write (it takes the claimed nodes, as a split may).
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +44,7 @@ use crate::fact::thread::{ThreadClaimed, ThreadUnclaimed};
 use crate::moved::{self, MovedTo};
 use crate::node::Node;
 use crate::places::PlaceClass;
-use crate::toolrun::misroute::{fold, normal};
+use crate::thread_route::{entry_path, holds_path};
 
 /// Nodes read a page at a time, back from the session's newest.
 const PAGE: usize = 64;
@@ -76,30 +82,13 @@ pub fn thread_of<'a>(
     live: &[&'a ThreadInfo],
     home: Option<&Path>,
 ) -> Option<(&'a str, Vec<String>)> {
-    let entry = |e: &str| -> Option<PathBuf> {
-        let e = e.trim();
-        if e.is_empty() {
-            return None;
-        }
-        let p = normal(e, home);
-        match p.is_absolute() {
-            true => Some(p),
-            false => dir.map(|d| fold(&Path::new(d).join(&p))),
-        }
-    };
-    let holds = |t: &ThreadInfo, p: &Path| {
-        let w = &t.working_set;
-        w.files.iter().filter_map(|f| entry(f)).any(|f| f == p)
-            || w.roots
-                .iter()
-                .filter_map(|r| entry(r))
-                .any(|r| p.starts_with(r))
-    };
     let mut found: Option<&'a str> = None;
     let mut matched = Vec::new();
     for path in paths {
-        let Some(p) = entry(path) else { continue };
-        let mut of = live.iter().filter(|t| holds(t, &p));
+        let Some(p) = entry_path(path, dir, home) else {
+            continue;
+        };
+        let mut of = live.iter().filter(|t| holds_path(t, &p, dir, home));
         let Some(t) = of.next() else { continue };
         if of.next().is_some() || found.is_some_and(|s| s != t.slug) {
             return None;
@@ -111,6 +100,58 @@ pub fn thread_of<'a>(
 }
 
 impl Core {
+    /// The router's directory rule (`thread_route::apart_by_dir`, theseus-vw8k7), read where the
+    /// message is placed: the turn's directory is the submit's `dir`, else the session's; a
+    /// thread's relative roots are read under its own session's directory (where its working set
+    /// grew them, `thread_grow.rs`). One point read per live thread with relative roots, and none
+    /// when the turn's directory is unknown.
+    pub(super) fn keep_apart_by_dir(
+        &self,
+        p: &theseus_protocol::TurnSubmitParams,
+        session: &crate::session::SessionRecord,
+        live: &[&ThreadInfo],
+        pre: &mut [crate::thread_route::Pre],
+    ) {
+        let Some(dir) = p.dir.as_deref().or(session.dir.as_deref()) else {
+            return;
+        };
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let bases: Vec<(String, Option<String>)> = live
+            .iter()
+            .filter(|t| {
+                t.working_set
+                    .roots
+                    .iter()
+                    .any(|r| !r.trim().is_empty() && !r.starts_with('/') && !r.starts_with('~'))
+            })
+            .map(|t| {
+                let dir = t.session_id.as_deref().and_then(|sid| {
+                    let r: Option<crate::session::SessionRecord> =
+                        self.store.get_session(sid).ok().flatten();
+                    r.and_then(|r| r.dir)
+                });
+                (t.slug.clone(), dir)
+            })
+            .collect();
+        let base = |t: &ThreadInfo| {
+            bases
+                .iter()
+                .find(|(s, _)| *s == t.slug)
+                .and_then(|(_, d)| d.as_deref())
+        };
+        let dropped = crate::thread_route::apart_by_dir(
+            pre,
+            live,
+            &p.input,
+            Some(dir),
+            base,
+            home.as_deref(),
+        );
+        if !dropped.is_empty() {
+            tracing::debug!(dir, threads = ?dropped, "the turn's directory lies under none of these threads' roots");
+        }
+    }
+
     /// After a routed turn: one that ran at home (no thread) has its nodes become the thread its
     /// files say it served, while `[threads] claim_home_turns` is on. A failure is logged and changes
     /// nothing: the turn has answered already.
@@ -156,30 +197,67 @@ impl Core {
         else {
             return Ok(None);
         };
-        let mut nodes = Vec::new();
-        for id in self.turn_nodes_back(&r.home, &res.turn_id)? {
-            let to: Option<Option<MovedTo>> = self.store.get_meta(&moved::moved_of_key(&id))?;
-            if !matches!(to, Some(Some(_))) {
-                nodes.push(id);
-            }
-        }
-        if nodes.is_empty() {
+        let turn_nodes = self.turn_nodes_back(&r.home, &res.turn_id)?;
+        if turn_nodes.is_empty() {
             return Ok(None);
         }
-        let rec = ClaimRecord {
+        let mut rec = ClaimRecord {
             id: crate::new_id(moved::CLAIM),
             thread: slug.to_string(),
             session: r.home.clone(),
             turn: res.turn_id.clone(),
-            nodes,
+            nodes: Vec::new(),
             paths: matched,
             at_ms: theseus_protocol::now_unix_ms(),
             undone: false,
         };
-        let to = MovedTo {
-            thread: rec.thread.clone(),
-            split: rec.id.clone(),
-        };
+        // The keys are read and the claim written under the home's execution lock, the lock a
+        // split's frame holds for its own keys: a split lands wholly before (its value is read and
+        // kept) or after (it takes the claimed nodes, as it may).
+        let exec = self
+            .store
+            .get_session::<crate::session::SessionRecord>(&r.home)?
+            .and_then(|s| s.execution_id);
+        let written = self.under_exec(exec.as_deref(), |store| {
+            for id in &turn_nodes {
+                let to: Option<Option<MovedTo>> = store.get_meta(&moved::moved_of_key(id))?;
+                if !matches!(to, Some(Some(_))) {
+                    rec.nodes.push(id.clone());
+                }
+            }
+            if rec.nodes.is_empty() {
+                return Ok(None);
+            }
+            let to = MovedTo {
+                thread: rec.thread.clone(),
+                split: rec.id.clone(),
+            };
+            let fact = ThreadClaimed {
+                claim: &rec.id,
+                thread: &rec.thread,
+                session: &rec.session,
+                turn: &rec.turn,
+                nodes: rec.nodes.len() as u32,
+                paths: &rec.paths,
+            };
+            let mut records = vec![NewRecord::json(
+                kinds::META,
+                Some(&claim_key(&rec.id)),
+                &rec,
+            )?];
+            for id in &rec.nodes {
+                records.push(NewRecord::json(
+                    kinds::META,
+                    Some(&moved::moved_of_key(id)),
+                    &Some(&to),
+                )?);
+            }
+            records.push(fact::row(&fact, Some(&rec.session), Some(&rec.turn))?);
+            Ok(Some(records))
+        })?;
+        if !written {
+            return Ok(None);
+        }
         let fact = ThreadClaimed {
             claim: &rec.id,
             thread: &rec.thread,
@@ -188,22 +266,34 @@ impl Core {
             nodes: rec.nodes.len() as u32,
             paths: &rec.paths,
         };
-        let mut records = vec![NewRecord::json(
-            kinds::META,
-            Some(&claim_key(&rec.id)),
-            &rec,
-        )?];
-        for id in &rec.nodes {
-            records.push(NewRecord::json(
-                kinds::META,
-                Some(&moved::moved_of_key(id)),
-                &Some(&to),
-            )?);
-        }
-        records.push(fact::row(&fact, Some(&rec.session), Some(&rec.turn))?);
-        self.store.append(&records)?;
         self.rec(Some(&rec.session)).announce(&fact);
         Ok(Some(rec))
+    }
+
+    /// `build`'s records written in one frame under `exec`'s lock (the home session's execution),
+    /// `build` reading what it needs inside it; with no execution (no turn and no split can hold
+    /// one), a plain append. Whether anything was written.
+    fn under_exec(
+        &self,
+        exec: Option<&str>,
+        build: impl FnOnce(&crate::store::Store) -> Result<Option<Vec<NewRecord>>>,
+    ) -> Result<bool> {
+        match exec {
+            Some(e) => self.kernel.frame(&[e], |k| match build(&self.store)? {
+                Some(records) => {
+                    k.stage(&records)?;
+                    Ok(true)
+                }
+                None => Ok(false),
+            }),
+            None => match build(&self.store)? {
+                Some(records) => {
+                    self.store.append(&records)?;
+                    Ok(true)
+                }
+                None => Ok(false),
+            },
+        }
     }
 
     /// The ids of `turn`'s nodes in `sid`, read back from the session's newest node, a page at a
@@ -243,7 +333,10 @@ impl Core {
         }
     }
 
-    /// `thread.unclaim`: the claim `p.claim` undone.
+    /// `thread.unclaim`: the claim `p.claim` undone. `restored` counts the nodes whose key still
+    /// held this claim's value, now null; `kept` those whose key holds another claim's or a split's
+    /// value, left as it is. A node whose key is null already (an unsplit over the claim) is
+    /// neither.
     pub fn thread_unclaim(
         &self,
         p: &ThreadUnclaimParams,
@@ -274,20 +367,53 @@ impl Core {
             thread: rec.thread.clone(),
             split: rec.id.clone(),
         };
-        let mut records = Vec::new();
-        let (mut restored, mut kept) = (0, 0);
-        for node in &rec.nodes {
-            let key = moved::moved_of_key(node);
-            let to: Option<Option<MovedTo>> =
-                self.store.get_meta(&key).map_err(RpcFailure::invalid)?;
-            if to.flatten().as_ref() == Some(&mine) {
-                records.push(NewRecord::json(kinds::META, Some(&key), &None::<MovedTo>));
-                restored += 1;
-            } else {
-                kept += 1;
-            }
-        }
         let (who_s, via) = (who.who(), who.via());
+        let (mut restored, mut kept) = (0, 0);
+        let exec = self
+            .store
+            .get_session::<crate::session::SessionRecord>(&rec.session)
+            .map_err(RpcFailure::invalid)?
+            .and_then(|s| s.execution_id);
+        // Under the home's execution lock, as the claim was written: a split's keys land wholly
+        // before or after this read.
+        self.under_exec(exec.as_deref(), |store| {
+            let mut records = Vec::new();
+            for node in &rec.nodes {
+                let key = moved::moved_of_key(node);
+                let to: Option<Option<MovedTo>> = store.get_meta(&key)?;
+                match to.flatten() {
+                    Some(m) if m == mine => {
+                        records.push(NewRecord::json(kinds::META, Some(&key), &None::<MovedTo>)?);
+                        restored += 1;
+                    }
+                    // Another claim's or a split's value: kept.
+                    Some(_) => kept += 1,
+                    // Nulled already (an unsplit over the claim): neither.
+                    None => {}
+                }
+            }
+            let fact = ThreadUnclaimed {
+                claim: &rec.id,
+                thread: &rec.thread,
+                session: &rec.session,
+                restored,
+                kept,
+                who: &who_s,
+                via: &via,
+            };
+            let done = ClaimRecord {
+                undone: true,
+                ..rec.clone()
+            };
+            records.push(NewRecord::json(
+                kinds::META,
+                Some(&claim_key(&rec.id)),
+                &done,
+            )?);
+            records.push(fact::row(&fact, Some(&rec.session), None)?);
+            Ok(Some(records))
+        })
+        .map_err(RpcFailure::invalid)?;
         let fact = ThreadUnclaimed {
             claim: &rec.id,
             thread: &rec.thread,
@@ -297,21 +423,6 @@ impl Core {
             who: &who_s,
             via: &via,
         };
-        let done = ClaimRecord {
-            undone: true,
-            ..rec.clone()
-        };
-        records.push(NewRecord::json(
-            kinds::META,
-            Some(&claim_key(&rec.id)),
-            &done,
-        ));
-        records.push(fact::row(&fact, Some(&rec.session), None));
-        let records = records
-            .into_iter()
-            .collect::<Result<Vec<_>>>()
-            .map_err(RpcFailure::invalid)?;
-        self.store.append(&records).map_err(RpcFailure::invalid)?;
         self.rec(Some(&rec.session)).announce(&fact);
         Ok(ThreadUnclaimResult {
             claim: rec.id,
