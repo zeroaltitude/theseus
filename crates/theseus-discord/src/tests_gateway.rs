@@ -112,9 +112,21 @@ impl Rig {
         more: &[String],
         tweak: impl FnOnce(&mut Config),
     ) -> Self {
-        let dir = tempfile::tempdir().unwrap();
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild);
+        Self::start_over(fake, model, bindings, more, tweak).await
+    }
+
+    /// The same on a stand-in that already holds a run's messages and a new
+    /// state dir: a process that started again, Discord's side as it was left.
+    pub(crate) async fn start_over(
+        fake: Arc<FakeDiscord>,
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        bindings: &str,
+        more: &[String],
+        tweak: impl FnOnce(&mut Config),
+    ) -> Self {
+        let dir = tempfile::tempdir().unwrap();
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
         if OPEN_AT_BIND.with(std::cell::Cell::get) {
             crate::runtime::open_at_bind(&core);

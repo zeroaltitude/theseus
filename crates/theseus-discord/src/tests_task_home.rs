@@ -5,16 +5,17 @@
 //! forum and the home act).
 
 use std::path::Path;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_core::provider::Scripted;
+use theseus_core::provider::{FakeProvider, Scripted};
 use theseus_protocol::threads::ThreadNewParams;
 use theseus_sim::fake_discord::{Msg, BOT_ID, DEFAULT_GUILD};
 
 use crate::render::board_v2;
 use crate::runtime::default_forum::{BOT_BITS, OWNER_BITS};
 use crate::tests_default_forum::{
-    bindings, cli, dm_lines, forum_up, guild, post_with, posts, rig_in, REEL,
+    bindings, cli, dm_lines, forum_up, guild, post_with, posts, rig_in, tune, REEL,
 };
 use crate::tests_gateway::{Rig, ANA, ANA_DM, LAB};
 use crate::tests_task_threads::{
@@ -492,6 +493,7 @@ async fn the_home_standing_removes_the_dms_board() {
     r.say((ANA, "ana"), None, ASK);
     until(&r, "the post", || posts(&r, forum).len() == 1).await;
     until(&r, "the board in the DM", || !boards(&r, ANA_DM).is_empty()).await;
+    let board = boards(&r, ANA_DM)[0].id.clone();
     let dm_before: Vec<String> = r.posted(ANA_DM).into_iter().map(|m| m.id).collect();
     let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
     let home = shared
@@ -503,15 +505,95 @@ async fn the_home_standing_removes_the_dms_board() {
     })
     .await;
     until(&r, "the board at the home", || !boards(&r, home).is_empty()).await;
-    let kept: Vec<String> = r
-        .posted(ANA_DM)
-        .into_iter()
-        .map(|m| m.id)
-        .filter(|id| dm_before.contains(id))
-        .collect();
-    assert!(
-        kept.len() + 1 >= dm_before.len(),
-        "only the board left the DM: {dm_before:?} -> {kept:?}"
-    );
+    let after: Vec<String> = r.posted(ANA_DM).into_iter().map(|m| m.id).collect();
+    only_the_board_left(&dm_before, &board, &after);
     open_gate(&r);
+}
+
+/// Every message of the DM but the board's `board` is still there.
+fn only_the_board_left(before: &[String], board: &str, after: &[String]) {
+    assert!(
+        before.iter().any(|id| id == board),
+        "{board} was in {before:?}"
+    );
+    assert!(
+        !after.iter().any(|id| id == board),
+        "{board} is gone: {after:?}"
+    );
+    let want: Vec<&String> = before.iter().filter(|id| *id != board).collect();
+    let kept: Vec<&String> = after.iter().filter(|id| before.contains(id)).collect();
+    assert_eq!(
+        kept, want,
+        "only the board left the DM: {before:?} -> {after:?}"
+    );
+}
+
+/// The check names the board: one other message gone fails it (theseus-4v88e).
+#[test]
+#[should_panic(expected = "only the board left the DM")]
+fn a_dm_message_that_is_not_the_board_going_fails_the_check() {
+    let ids = |v: &[&str]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
+    only_the_board_left(&ids(&["a", "b", "c"]), "b", &ids(&["a"]));
+}
+
+/// The old check (`kept + 1 >= before`) passed when the board stayed and some
+/// other message went; this one does not.
+#[test]
+#[should_panic(expected = "is gone")]
+fn the_board_staying_while_another_message_goes_fails_the_check() {
+    let ids = |v: &[&str]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
+    only_the_board_left(&ids(&["a", "b", "c"]), "b", &ids(&["b", "c"]));
+}
+
+/// A restart end to end: the first run drew the DM's board before any home
+/// stood (the home was off) and ended; the next run, started on the same
+/// Discord with the home on, finds its DM lane in place when the home answers,
+/// removes the earlier run's pinned board, and touches nothing else in the DM
+/// (theseus-4v88e).
+#[tokio::test]
+async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
+    let r = rig(
+        vec![start(&[REEF]), Scripted::text("Started.")],
+        |dir| vec![(REEF, [vec![gate(dir)], answers("Reef charted.")].concat())],
+        &bindings(true, ""),
+        |_| {},
+        |c| c.discord.task_home = String::new(),
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.say((ANA, "ana"), None, ASK);
+    until(&r, "the post", || posts(&r, forum).len() == 1).await;
+    until(&r, "the board in the DM", || !boards(&r, ANA_DM).is_empty()).await;
+    let board = boards(&r, ANA_DM)[0].id.clone();
+    let before: Vec<String> = r.posted(ANA_DM).into_iter().map(|m| m.id).collect();
+    // The first process ends: it posts nothing more.
+    r.core.outbox.stop_sending();
+    let again = Rig::start_over(
+        r.fake.clone(),
+        |_, _| Arc::new(FakeProvider::scripted(vec![])),
+        &bindings(true, ""),
+        &[
+            format!("channel:{}", crate::tests_default_forum::OPS),
+            format!("channel:{REEL}"),
+        ],
+        |c| {
+            tune(c);
+            c.discord.task_home = "theseus-tasks".into();
+        },
+    )
+    .await;
+    let home = home_up(&again).await;
+    until(&again, "the earlier board is gone", || {
+        !again.posted(ANA_DM).iter().any(|m| m.id == board)
+    })
+    .await;
+    let after: Vec<String> = again.posted(ANA_DM).into_iter().map(|m| m.id).collect();
+    only_the_board_left(&before, &board, &after);
+    assert!(
+        boards(&again, ANA_DM).is_empty(),
+        "no board drawn in the DM"
+    );
+    assert!(home != ANA_DM);
+    r.core.outbox.stop_sending();
+    again.core.outbox.stop_sending();
 }

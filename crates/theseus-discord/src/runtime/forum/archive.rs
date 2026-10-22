@@ -121,8 +121,10 @@ impl Shared {
     /// The archive's own tick, until the daemon stops.
     pub(crate) fn archive_tick(self: &Arc<Self>) {
         let s = self.clone();
+        // Read here: a test's override is the calling thread's, not the task's.
+        let t = tick();
         tokio::spawn(async move {
-            every(tick(), s.core.outbox.stopped(), || s.archive_read_posts()).await;
+            every(t, s.core.outbox.stopped(), || s.archive_read_posts()).await;
         });
     }
 

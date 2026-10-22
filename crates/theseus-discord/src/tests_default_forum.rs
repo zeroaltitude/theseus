@@ -57,7 +57,7 @@ pub(crate) fn bindings(trusted: bool, lab_extra: &str) -> String {
 /// The rig's config: ana is the one owner, and `#reel` is the activity
 /// thread `tides`' place once the thread exists. The task home is off: the
 /// forum's tests are the DM's as they were, and `tests_task_home.rs` turns it on.
-fn tune(c: &mut Config) {
+pub(crate) fn tune(c: &mut Config) {
     tweak(c);
     c.discord.task_home = String::new();
     c.places.owner = Some(vec![format!("discord:{ANA}")]);

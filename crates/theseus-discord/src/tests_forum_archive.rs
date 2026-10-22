@@ -186,3 +186,22 @@ async fn a_read_post_leaves_on_the_archive_ticks_own_run() {
     until(&r, "the post is archived", || thread(&r, post).archived).await;
     assert!(thread(&r, post).locked);
 }
+
+/// The tick is read where `archive_tick` is called, not inside its task: a
+/// multi-thread runtime runs the task on a worker, whose thread-local override
+/// is unset. Called on the test's thread, the tick takes the test's 200 ms
+/// (theseus-4v88e).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_archive_tick_holds_on_a_multi_thread_runtime() {
+    crate::runtime::forum::archive::tick_for_tests(std::time::Duration::from_millis(200));
+    let (r, post) = a_dm_task().await;
+    ends(&r).await;
+    clear_done(&r).await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    shared
+        .task_posts
+        .ended_for_tests(theseus_protocol::now_unix_ms() - 25 * HOUR);
+    shared.archive_tick();
+    until(&r, "the post is archived", || thread(&r, post).archived).await;
+    assert!(thread(&r, post).locked);
+}
