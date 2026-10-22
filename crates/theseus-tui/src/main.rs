@@ -38,6 +38,8 @@ mod tests_board_edges;
 #[cfg(test)]
 mod tests_board_threads;
 #[cfg(test)]
+mod tests_cancel;
+#[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
 mod tests_diff;
