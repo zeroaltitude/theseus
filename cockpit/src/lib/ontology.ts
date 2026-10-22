@@ -355,6 +355,9 @@ export function growthWords(g: Growth): string {
   return `${n(g.made, 'category', 'categories')} made${undone} and ${n(g.kinds, 'kind', 'kinds')} added in ${g.days.length} days`
 }
 
+/** The sentence a sweep-minted kind's description ends with when Jev's pick named it: `NAMED_NOTE` in the core's `mint.rs`. */
+export const NAMED_NOTE = 'Jev picked its name.'
+
 export interface Minted {
   /** The write's id (a judgment's, for Jev's): what `ontology.undo` takes. One write may mint several categories. */
   write: string
@@ -374,6 +377,8 @@ export interface Minted {
   undoneAt: number | null
   /** How many categories this write minted: an undo takes all of them back. */
   siblings: number
+  /** The write's kind was named by Jev's pick (its description ends with `NAMED_NOTE`). */
+  named: boolean
 }
 
 /** The membership rows of each machine write: the session whose list it set, and the confidence it gave each category. */
@@ -402,6 +407,11 @@ function writeLists(rows: readonly LedgerEntry[]): Map<string, { session: string
 export function mintedOf(rows: readonly LedgerEntry[], origins: readonly string[] = MACHINE_ORIGINS): Minted[] {
   const undone = undoneWrites(rows)
   const lists = writeLists(rows)
+  const named = new Set<string>()
+  for (const r of rows) {
+    const u = r.kind === 'ontology.kind' ? undoOf(obj(r.data)) : null
+    if (u && str(u.wrote.description)?.endsWith(NAMED_NOTE)) named.add(u.write)
+  }
   const out: Minted[] = []
   const seen = new Set<string>()
   for (const r of rows) {
@@ -416,13 +426,38 @@ export function mintedOf(rows: readonly LedgerEntry[], origins: readonly string[
     out.push({
       write: u.write, category: id, name: str(d.name) ?? id, kind: str(d.kind) ?? '', parent: str(d.parent), origin,
       at: r.at_unix_ms, session: list?.session ?? r.session_id, confidence: list?.confidence.get(id) ?? null,
-      undone: undone.has(u.write), undoneAt: undone.get(u.write) ?? null, siblings: 0,
+      undone: undone.has(u.write), undoneAt: undone.get(u.write) ?? null, siblings: 0, named: named.has(u.write),
     })
   }
   const per = new Map<string, number>()
   for (const m of out) per.set(m.write, (per.get(m.write) ?? 0) + 1)
   for (const m of out) m.siblings = per.get(m.write) ?? 1
   return out.sort((a, b) => b.at - a.at || a.category.localeCompare(b.category))
+}
+
+export interface Renamed {
+  write: string
+  category: string
+  from: string
+  to: string
+  /** When the category row was written, ms. */
+  at: number
+  undone: boolean
+}
+
+/** What the sweep renamed, newest first: the `ontology.category` rows of a `-rename` write, whose `before` held another name. */
+export function renamedOf(rows: readonly LedgerEntry[]): Renamed[] {
+  const undone = undoneWrites(rows)
+  const out: Renamed[] = []
+  for (const r of rows) {
+    if (r.kind !== 'ontology.category') continue
+    const u = undoOf(obj(r.data))
+    const from = u ? str(obj(u.before).name) : null
+    const to = u ? str(u.wrote.name) : null
+    if (!u || !u.write.endsWith('-rename') || from === null || to === null) continue
+    out.push({ write: u.write, category: str(obj(r.data).id) ?? '', from, to, at: r.at_unix_ms, undone: undone.has(u.write) })
+  }
+  return out.sort((a, b) => b.at - a.at)
 }
 
 /** The address of the judgment that made a write (the Judgment view reads `?id=`). */

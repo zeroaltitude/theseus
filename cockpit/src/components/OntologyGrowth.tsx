@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { ChartColumnStacked, Sprout, Undo2 } from 'lucide-react'
 import type { OntologyUndoParams, OntologyUndoResult } from '@protocol'
-import { confidenceWords, growthOf, growthWords, judgmentHref, mintedOf, seriesOf, undoAsk, type Minted } from '@/lib/ontology'
+import { confidenceWords, growthOf, growthWords, judgmentHref, mintedOf, renamedOf, seriesOf, undoAsk, type Minted } from '@/lib/ontology'
 import { useHistoryRows } from '@/lib/history'
 import { cn, ago } from '@/lib/format'
 import { CHROME, MARK, TIME_LABELS, TIP_FRAME, TONE_MARK, baseAxis, barRadius, countTick, slotColor, slots, stackTop, valueAxis } from '@/lib/viz'
@@ -85,6 +85,7 @@ export function GrowthPanel() {
 export function MintedPanel({ disabled }: { disabled: boolean }) {
   const { rows } = useHistoryRows()
   const minted = useMemo(() => mintedOf(rows), [rows])
+  const renamed = useMemo(() => renamedOf(rows), [rows])
   const { write, busy, refused } = useOntologyWrite()
   const undo = async (m: Minted) => {
     const p: OntologyUndoParams = { write: m.write }
@@ -93,7 +94,7 @@ export function MintedPanel({ disabled }: { disabled: boolean }) {
   const live = minted.filter((m) => !m.undone).length
   return (
     <Panel help="ontology.minted" title={<>minted by machines · {live.toLocaleString()}{live !== minted.length && <span className="text-ink-faint"> of {minted.length.toLocaleString()}</span>}</>} icon={<Sprout size={13} />} bodyClassName="max-h-96 overflow-auto">
-      {minted.length === 0 ? <Empty>nothing minted yet: Jev, the sweep and the dream write here when they make a category</Empty> : (
+      {minted.length === 0 && renamed.length === 0 ? <Empty>nothing minted yet: Jev, the sweep and the dream write here when they make a category</Empty> : (
         <div className="flex flex-col gap-2 p-2">
           <Refused words={refused} />
           <table className="w-full text-[11.5px]">
@@ -105,6 +106,7 @@ export function MintedPanel({ disabled }: { disabled: boolean }) {
                 <tr key={`${m.write}:${m.category}`} className="border-t border-line/50">
                   <td className={cn('py-1', m.undone && 'text-ink-faint line-through')}>
                     <span className="text-ink">{m.name}</span>
+                    {m.named && <span className="ml-1"><Pill tone="think">named by Jev</Pill></span>}
                     <div className="num text-[10px] text-ink-faint">{m.category}</div>
                   </td>
                   <td className="px-1"><Pill tone={m.origin === 'jev' ? 'think' : 'idle'}>{m.origin}</Pill></td>
@@ -121,6 +123,15 @@ export function MintedPanel({ disabled }: { disabled: boolean }) {
               ))}
             </tbody>
           </table>
+          {renamed.length > 0 && (
+            <ul className="num flex flex-col gap-0.5 text-[11px] text-ink-dim" aria-label="renamed by the sweep">
+              {renamed.map((x) => (
+                <li key={`${x.write}:${x.category}`} className={cn(x.undone && 'text-ink-faint line-through')}>
+                  renamed {x.category}: {x.from} → <span className="text-ink">{x.to}</span> <span className="text-ink-faint" title={new Date(x.at).toLocaleString()}>{ago(x.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </Panel>
