@@ -56,9 +56,9 @@ mod places;
 pub mod postmortem;
 pub mod postmortem_facts;
 mod resident;
+pub mod rewind;
 #[cfg(test)]
 mod route_data;
-pub mod rewind;
 mod rsi;
 mod sandbox;
 pub mod session_dir;

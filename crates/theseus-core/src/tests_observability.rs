@@ -33,15 +33,33 @@ async fn route_decided_records_data_clearance_gate_provider_model_origin() {
     assert_ne!(res.profile, "dsflash");
     let rows = decided(&r.core.store);
     let (a, b) = (&rows[0], &rows[1]);
-    assert_eq!((a["data"].as_str(), a["clearance"].as_str()), (Some("open"), Some("admitted")), "{a}");
+    assert_eq!(
+        (a["data"].as_str(), a["clearance"].as_str()),
+        (Some("open"), Some("admitted")),
+        "{a}"
+    );
     assert!(a["data_confidence"].as_f64().unwrap() > 0.9, "{a}");
     assert_eq!(
-        (a["profile"].as_str(), a["provider"].as_str(), a["model"].as_str(), a["origin"].as_str()),
-        (Some("dsflash"), Some("zai"), Some("glm-5.3-flash"), Some("cn")),
+        (
+            a["profile"].as_str(),
+            a["provider"].as_str(),
+            a["model"].as_str(),
+            a["origin"].as_str()
+        ),
+        (
+            Some("dsflash"),
+            Some("zai"),
+            Some("glm-5.3-flash"),
+            Some("cn")
+        ),
         "{a}"
     );
     assert!(a.get("data_gate").is_none(), "{a}");
-    assert_eq!((b["data"].as_str(), b["clearance"].as_str()), (Some("private"), Some("closed")), "{b}");
+    assert_eq!(
+        (b["data"].as_str(), b["clearance"].as_str()),
+        (Some("private"), Some("closed")),
+        "{b}"
+    );
     assert_eq!(b["data_gate"], "verdict_private", "{b}");
     assert_eq!(b["origin"], "us", "{b}");
     assert_eq!(b["model"], res.model.as_str(), "{b}");
@@ -62,9 +80,15 @@ async fn a_plain_turns_route_row_gains_only_where_it_ran() {
     assert_eq!(d["provider"], res.provider.as_str(), "{d}");
     assert_eq!(d["clearance"], "closed", "{d}");
     // Jev's data answer is the fake's default; nothing gated the turn.
-    assert!(d.get("data_confidence").is_some() && d.get("data_gate").is_none(), "{d}");
+    assert!(
+        d.get("data_confidence").is_some() && d.get("data_gate").is_none(),
+        "{d}"
+    );
     let t = res.route.unwrap().data.expect("data");
-    assert_eq!((t.origin.as_str(), t.gate, t.clearance.as_str()), ("us", None, "closed"));
+    assert_eq!(
+        (t.origin.as_str(), t.gate, t.clearance.as_str()),
+        ("us", None, "closed")
+    );
 }
 
 /// The floor moving a turn off its pinned restricted base writes the
@@ -79,7 +103,11 @@ async fn the_floor_move_names_its_why() {
     for (text, why) in [(OPEN_A, "private_view"), (PRIVATE, "verdict_private")] {
         say(&r.core, &dm(&r.core), text, None).await;
         let d = decided(&r.core.store).pop().unwrap();
-        assert_eq!((d["reason"].as_str(), d["data_gate"].as_str()), (Some("data_gate"), Some(why)), "{d}");
+        assert_eq!(
+            (d["reason"].as_str(), d["data_gate"].as_str()),
+            (Some("data_gate"), Some(why)),
+            "{d}"
+        );
         assert_eq!(d["origin"], "us", "{d}");
     }
     assert!(zai.requests().is_empty());
@@ -92,7 +120,10 @@ async fn the_floor_move_names_its_why() {
 async fn provider_call_records_origin_and_the_pass_per_request() {
     let jev = jev(&[OPEN_A]);
     let script = vec![
-        Scripted::tools("Looking.", &[("f1", "tools_find", json!({"query": "clock"}))]),
+        Scripted::tools(
+            "Looking.",
+            &[("f1", "tools_find", json!({"query": "clock"}))],
+        ),
         Scripted::text("Done."),
     ];
     let (r, zai, _dir) = rig_with(&jev, Some(script), |_| {});
@@ -102,10 +133,17 @@ async fn provider_call_records_origin_and_the_pass_per_request() {
     let rows = calls(&r.core);
     assert_eq!(rows.len(), 2, "{rows:?}");
     let (first, moved) = (&rows[0], &rows[1]);
-    assert_eq!((first["origin"].as_str(), first["pass"].as_bool()), (Some("cn"), Some(true)), "{first}");
+    assert_eq!(
+        (first["origin"].as_str(), first["pass"].as_bool()),
+        (Some("cn"), Some(true)),
+        "{first}"
+    );
     assert_eq!(first["run_nodes"], sent[0].messages.len(), "{first}");
     assert_eq!(moved["origin"], "us", "{moved}");
-    assert!(moved.get("pass").is_none() && moved.get("run_nodes").is_none(), "{moved}");
+    assert!(
+        moved.get("pass").is_none() && moved.get("run_nodes").is_none(),
+        "{moved}"
+    );
 }
 
 /// An admitted turn that runs on the `[model]` default (no request carries a
@@ -126,7 +164,10 @@ async fn the_turns_footer_says_open_only_when_a_request_carried_a_pass() {
     let (r, _zai, _dir) = rig_with(&jev, None, |_| {});
     let res = say(&r.core, &dm(&r.core), OPEN_A, None).await;
     let t = res.route.unwrap().data.expect("data");
-    assert_eq!((t.clearance.as_str(), t.footer().as_deref()), ("open", Some("open")));
+    assert_eq!(
+        (t.clearance.as_str(), t.footer().as_deref()),
+        ("open", Some("open"))
+    );
 }
 
 fn jev_open() -> FakeJev {
@@ -143,21 +184,43 @@ async fn a_data_gate_turn_counts_once_on_the_route_data_gate_metric() {
         otlp_endpoint: Some(rx.endpoint()),
         ..Default::default()
     };
-    let (r, _zai, _dir) = crate::tests_open_request::rig_telemetry(&jev, Telemetry::from_config(&tel, None).unwrap());
+    let (r, _zai, _dir) =
+        crate::tests_open_request::rig_telemetry(&jev, Telemetry::from_config(&tel, None).unwrap());
     say(&r.core, &dm(&r.core), PRIVATE, None).await;
-    assert!(r.core.telemetry().flush(std::time::Duration::from_secs(10)).await);
+    assert!(
+        r.core
+            .telemetry()
+            .flush(std::time::Duration::from_secs(10))
+            .await
+    );
     let got = rx.at("/v1/metrics");
-    let metrics = got.last().expect("an export").body["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+    let metrics = got.last().expect("an export").body["resourceMetrics"][0]["scopeMetrics"][0]
+        ["metrics"]
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let m = metrics.iter().find(|m| m["name"] == "theseus.route.data_gate").expect("the counter");
+    let m = metrics
+        .iter()
+        .find(|m| m["name"] == "theseus.route.data_gate")
+        .expect("the counter");
     let points = m["sum"]["dataPoints"].as_array().unwrap();
     assert_eq!(points.len(), 1, "{points:?}");
     let attr = |k: &str| {
-        points[0]["attributes"].as_array().unwrap().iter().find(|a| a["key"] == k).unwrap()["value"]["stringValue"].clone()
+        points[0]["attributes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["key"] == k)
+            .unwrap()["value"]["stringValue"]
+            .clone()
     };
-    assert_eq!((attr("theseus.data_gate.what"), attr("theseus.data_gate.why")), (json!("route"), json!("verdict_private")));
+    assert_eq!(
+        (
+            attr("theseus.data_gate.what"),
+            attr("theseus.data_gate.why")
+        ),
+        (json!("route"), json!("verdict_private"))
+    );
     let n = &points[0]["asInt"];
     assert!(n == 1 || n == "1", "{n}");
 }

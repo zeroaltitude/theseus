@@ -143,9 +143,10 @@ pub struct Waited {
     pub answered: Option<tokio::time::Instant>,
 }
 
-/// The row's times (theseus-ddbi).
+/// The row's times (theseus-ddbi), and the compile's estimate it was made at.
 #[derive(Default)]
 pub(super) struct Timed {
+    est_tokens: u64,
     waited: Duration,
     late: bool,
     answered_ms: Option<u64>,
@@ -384,7 +385,11 @@ impl TurnRunner {
             let compiled =
                 Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
             if let (Some(d), Ok(Ok(c))) = (&floored, &compiled) {
-                self.record_route(t, None, Some(d), None, c.est_tokens, Timed::default(), None);
+                let timed = Timed {
+                    est_tokens: c.est_tokens,
+                    ..Timed::default()
+                };
+                self.record_route(t, None, Some(d), None, timed, None);
             }
             return compiled;
         };
@@ -531,8 +536,8 @@ impl TurnRunner {
             verdict.as_ref(),
             decision.as_ref(),
             reason,
-            compiled.est_tokens,
             Timed {
+                est_tokens: compiled.est_tokens,
                 waited,
                 late,
                 answered_ms,
@@ -740,7 +745,6 @@ impl TurnRunner {
         verdict: Option<&Verdict>,
         decision: Option<&Decision>,
         reason: Option<Reason>,
-        est_tokens: u64,
         timed: Timed,
         steering: Option<&Steering>,
     ) {
@@ -776,7 +780,7 @@ impl TurnRunner {
             reason: reason.as_str(),
             detour: decision.is_some_and(|d| d.detour),
             switch: decision.is_some_and(|d| d.switch),
-            est_tokens,
+            est_tokens: timed.est_tokens,
             wait_ms: timed.waited.as_millis() as u64,
             late: timed.late,
             answered_ms: timed.answered_ms,

@@ -99,7 +99,12 @@ pub(crate) fn rig_telemetry(
     let dir = tempfile::tempdir().unwrap();
     let notes = dir.path().join("notes.md");
     std::fs::write(&notes, format!("{SECRET}\n")).unwrap();
-    let r = rig_parts(Some(jev), 8, |c| config(c, &notes), move |p| p.telemetry = Some(tel));
+    let r = rig_parts(
+        Some(jev),
+        8,
+        |c| config(c, &notes),
+        move |p| p.telemetry = Some(tel),
+    );
     let zai = r.zai.clone();
     (r, zai, dir)
 }
@@ -136,7 +141,12 @@ pub(crate) fn dm(core: &Core) -> String {
 }
 
 /// The owner's message in `sid`, on the live profile or `chosen`.
-pub(crate) async fn say(core: &Arc<Core>, sid: &str, text: &str, chosen: Option<&str>) -> TurnSubmitResult {
+pub(crate) async fn say(
+    core: &Arc<Core>,
+    sid: &str,
+    text: &str,
+    chosen: Option<&str>,
+) -> TurnSubmitResult {
     try_say(core, sid, text, chosen).await.unwrap()
 }
 

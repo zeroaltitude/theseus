@@ -288,10 +288,7 @@ mod tests {
         };
         let json = serde_json::to_string(&with).unwrap();
         assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), with);
-        let without = TurnRoute {
-            data: None,
-            ..with
-        };
+        let without = TurnRoute { data: None, ..with };
         let json = serde_json::to_string(&without).unwrap();
         assert!(!json.contains("data"), "{json}");
         assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), without);

@@ -367,7 +367,10 @@ mod tests {
             (t.data, t.mode) = (d, mode.map(Into::into));
             routed(&r)
         };
-        assert_eq!(say(None, Some("trivial")).as_deref(), Some("routed: trivial"));
+        assert_eq!(
+            say(None, Some("trivial")).as_deref(),
+            Some("routed: trivial")
+        );
         assert_eq!(
             say(data("admitted", None), Some("trivial")).as_deref(),
             Some("routed: trivial")
@@ -380,7 +383,10 @@ mod tests {
             say(data("closed", Some("verdict_private")), Some("trivial")).as_deref(),
             Some("routed: trivial \u{b7} data gate: verdict_private")
         );
-        assert_eq!(say(data("open", None), None).as_deref(), Some("routed: open"));
+        assert_eq!(
+            say(data("open", None), None).as_deref(),
+            Some("routed: open")
+        );
         assert_eq!(say(data("closed", None), None), None);
     }
 

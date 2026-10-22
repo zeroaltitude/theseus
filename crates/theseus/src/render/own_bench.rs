@@ -404,10 +404,16 @@ mod tests {
             ..RouteReportResult::default()
         };
         let lines = report_lines(&r);
-        assert_eq!(lines[1], "  glm-x @ default [cn]: 3 turns, $0.30; not replayed yet");
+        assert_eq!(
+            lines[1],
+            "  glm-x @ default [cn]: 3 turns, $0.30; not replayed yet"
+        );
         assert_eq!(lines[2], "  cn \u{b7} data open: 3 turns, $0.30");
         assert_eq!(lines[3], "  us \u{b7} data private: 1 turns, $1.00");
-        assert_eq!(lines[4], "  kept off a restricted-origin model: verdict_private 1");
+        assert_eq!(
+            lines[4],
+            "  kept off a restricted-origin model: verdict_private 1"
+        );
         r.data = vec![data("unrecorded", "none", 3, 0.3)];
         r.gates.clear();
         assert!(report_lines(&r)[2].starts_with("Movable"));

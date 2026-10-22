@@ -62,7 +62,10 @@ pub fn data_cells(turns: &[Turn]) -> (Vec<DataCell>, Vec<GateCount>) {
     let mut cells: BTreeMap<(&str, &str), DataCell> = BTreeMap::new();
     let mut gates: BTreeMap<&str, u64> = BTreeMap::new();
     for t in turns {
-        let (origin, data) = (origin_of(&t.data), t.data.verdict.as_deref().unwrap_or("none"));
+        let (origin, data) = (
+            origin_of(&t.data),
+            t.data.verdict.as_deref().unwrap_or("none"),
+        );
         let c = cells.entry((origin, data)).or_insert_with(|| DataCell {
             origin: origin.into(),
             data: data.into(),
@@ -76,7 +79,10 @@ pub fn data_cells(turns: &[Turn]) -> (Vec<DataCell>, Vec<GateCount>) {
     }
     let gates = gates
         .into_iter()
-        .map(|(why, turns)| GateCount { why: why.into(), turns })
+        .map(|(why, turns)| GateCount {
+            why: why.into(),
+            turns,
+        })
         .collect();
     (cells.into_values().collect(), gates)
 }
@@ -442,23 +448,34 @@ mod tests {
     /// `unknown`, a real restricted origin).
     #[test]
     fn the_report_counts_turns_per_origin_and_data_and_gate_skips() {
-        let with = |model: &str, cost: f64, origin: Option<&str>, v: Option<&str>, g: Option<&str>| {
-            Turn {
+        let with =
+            |model: &str, cost: f64, origin: Option<&str>, v: Option<&str>, g: Option<&str>| Turn {
                 data: Data {
                     origin: origin.map(Into::into),
                     verdict: v.map(Into::into),
                     gate: g.map(Into::into),
                 },
                 ..turn(model, "", cost, false)
-            }
-        };
+            };
         let turns = [
             with("glm", 0.10, Some("cn"), Some("open"), None),
             with("glm", 0.20, Some("cn"), Some("open"), None),
-            with("sonnet", 1.00, Some("us"), Some("private"), Some("verdict_private")),
+            with(
+                "sonnet",
+                1.00,
+                Some("us"),
+                Some("private"),
+                Some("verdict_private"),
+            ),
             with("sonnet", 2.00, Some("us"), None, None),
             with("sonnet", 4.00, None, None, None),
-            with("sonnet", 0.50, Some("unknown"), Some("unclear"), Some("verdict_unclear")),
+            with(
+                "sonnet",
+                0.50,
+                Some("unknown"),
+                Some("unclear"),
+                Some("verdict_unclear"),
+            ),
             with("mixed", 1.00, Some("us"), None, Some("verdict_private")),
             with("mixed", 1.00, Some("cn"), None, None),
         ];

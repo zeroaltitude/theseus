@@ -2721,10 +2721,12 @@ impl TurnRunner {
             settled_micros: cost,
             s0: t.trace.now_us(),
             origin: self.ran_of(&target.profile).origin,
-            sent: self.restricted_profile(&target.profile).then(|| fact::turn::Sent {
-                pass: compiled.request.data_pass.is_some(),
-                run_nodes: t.data.run_nodes,
-            }),
+            sent: self
+                .restricted_profile(&target.profile)
+                .then(|| fact::turn::Sent {
+                    pass: compiled.request.data_pass.is_some(),
+                    run_nodes: t.data.run_nodes,
+                }),
         };
         // The call's `provider.call` row rides in its completion's frame, after
         // the node (theseus-qa0).

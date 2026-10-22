@@ -359,6 +359,8 @@ mod tests_money;
 #[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
+mod tests_observability;
+#[cfg(test)]
 mod tests_offer;
 #[cfg(test)]
 mod tests_one_turn;
@@ -374,8 +376,6 @@ mod tests_ontology;
 mod tests_ontology_bind;
 #[cfg(test)]
 mod tests_ontology_undo;
-#[cfg(test)]
-mod tests_observability;
 #[cfg(test)]
 mod tests_open_request;
 #[cfg(test)]

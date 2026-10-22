@@ -114,7 +114,11 @@ impl TurnRunner {
     /// its route row, when it did: the floor's own word where it moved the
     /// decision, else the admission's, when the verdict's mode lists
     /// restricted profiles that an unadmitted turn was left without.
-    pub(super) fn data_gate_why(&self, t: &mut Turn<'_>, mode: Option<&str>) -> Option<&'static str> {
+    pub(super) fn data_gate_why(
+        &self,
+        t: &mut Turn<'_>,
+        mode: Option<&str>,
+    ) -> Option<&'static str> {
         t.route.gated.take().or_else(|| {
             let why = t.route.admitted.0.as_ref().err()?;
             let listed = !self.cfg.routing.classes.table(mode?).cn_profiles.is_empty();

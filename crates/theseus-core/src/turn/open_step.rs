@@ -354,7 +354,7 @@ impl TurnRunner {
         };
         let p = p.clone();
         t.route.gated = Some(DataWhy::ToolResult.as_str());
-        self.record_route(t, None, Some(&d), None, 0, Default::default(), None);
+        self.record_route(t, None, Some(&d), None, Default::default(), None);
         if t.route.keeps.is_some() {
             // The detour goes on in the session's own view.
             t.tc.open = self.open_of(session);
