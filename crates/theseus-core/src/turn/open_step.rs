@@ -341,6 +341,9 @@ impl TurnRunner {
         if !left {
             return Ok(None);
         }
+        if let Some(f) = Self::draft_stopped(t, "a node past its open run") {
+            return Ok(Some(f));
+        }
         t.data.moved = true;
         let d = Decision {
             profile: super::data_step::DEFAULT_PROFILE.into(),

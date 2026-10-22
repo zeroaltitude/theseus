@@ -350,7 +350,7 @@ impl Core {
         });
         let opened = d
             .open
-            .then(|| crate::data::open_task(&mut rec, d.now))
+            .then(|| crate::data::open_task(&mut rec, crate::data::OpenHow::Task, d.now))
             .transpose()?;
         let mut records = match d.hold {
             Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),

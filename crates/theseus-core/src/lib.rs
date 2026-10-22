@@ -43,6 +43,7 @@ pub mod data;
 pub mod data_gate;
 pub mod day_ceiling;
 pub mod disk;
+pub mod draft;
 pub mod egress;
 pub mod engage;
 pub mod extend;
@@ -280,6 +281,8 @@ mod tests_day_total;
 mod tests_defer;
 #[cfg(test)]
 mod tests_disk_watch;
+#[cfg(test)]
+mod tests_draft;
 #[cfg(test)]
 mod tests_effort_sticky;
 #[cfg(test)]

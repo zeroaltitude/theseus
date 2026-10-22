@@ -358,6 +358,7 @@ ledger_kinds! {
     TaskClaimed = "task.claimed",
     TaskClosed = "task.closed",
     TaskCreated = "task.created",
+    TaskDraft = "task.draft",
     TaskEnded = "task.ended",
     TaskLeaseExpired = "task.lease_expired",
     TaskPaused = "task.paused",

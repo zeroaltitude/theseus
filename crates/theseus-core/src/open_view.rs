@@ -44,6 +44,10 @@ pub struct Open {
     /// The session's directory is under the roots: its block is kept, and
     /// its programs may run there.
     pub within: bool,
+    /// A China-origin draft's (theseus-a1wvq.13): never offered a program,
+    /// though its tree is under the roots, until its programs run in a view
+    /// that sees only them (theseus-a1wvq.16).
+    pub draft: bool,
 }
 
 /// The tools that run a program: `proc.run`, its jobs, and the terminal.
@@ -55,10 +59,23 @@ pub fn runs_tool(name: &str) -> bool {
 impl Open {
     /// The reach of a session working in `cwd` under `roots`, kept.
     pub fn of(roots: Vec<PathBuf>, cwd: &Path) -> &'static Open {
+        Self::kept(roots, cwd, false)
+    }
+
+    /// The reach of a draft session working in `cwd` under `roots`, kept.
+    pub fn of_draft(roots: Vec<PathBuf>, cwd: &Path) -> &'static Open {
+        Self::kept(roots, cwd, true)
+    }
+
+    fn kept(roots: Vec<PathBuf>, cwd: &Path, draft: bool) -> &'static Open {
         static KEPT: Mutex<Vec<&'static Open>> = Mutex::new(Vec::new());
         let cwd = paths::canonical_best_effort(cwd);
         let within = roots.iter().any(|r| paths::within(&cwd, r));
-        let open = Open { roots, within };
+        let open = Open {
+            roots,
+            within,
+            draft,
+        };
         let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(o) = kept.iter().find(|o| ***o == open) {
             return o;
@@ -72,7 +89,7 @@ impl Open {
     pub fn offers(&self, name: &str) -> bool {
         public_tool(name)
             || (files_tool(name) && !self.roots.is_empty())
-            || (runs_tool(name) && self.within)
+            || (runs_tool(name) && self.within && !self.draft)
     }
 
     /// Why the gate refuses a call of an open request, or None: a tool it is
@@ -103,7 +120,7 @@ impl Open {
 
     /// The tools paragraph of an open request: what it is offered, and why.
     pub fn note(&self, postures: &str, ceiling_note: &str) -> String {
-        let reach = match (self.roots.is_empty(), self.within) {
+        let reach = match (self.roots.is_empty(), self.within && !self.draft) {
             (true, _) => "no files".to_string(),
             (false, false) => format!(
                 "files only under {} (give their absolute paths)",
@@ -125,14 +142,17 @@ impl Open {
 
 /// The open roots of `session`: `[routing.data] open_paths`, expanded and
 /// canonical, as `places::public_roots` makes `[places] public_paths`. A
-/// function of the session, never a stored field: theseus-a1wvq.13 adds a
-/// draft task's own tree here, from the task's id.
-pub fn open_roots(cfg: &crate::Config, _session: &SessionRecord) -> Vec<PathBuf> {
+/// function of the session, never a stored field: a draft session's own tree
+/// joins them, from its id (theseus-a1wvq.13), and no other session's.
+pub fn open_roots(cfg: &crate::Config, session: &SessionRecord) -> Vec<PathBuf> {
+    let tree = crate::draft::is_draft(session)
+        .then(|| paths::canonical_best_effort(&crate::draft::tree_of(cfg, &session.session_id)));
     cfg.routing
         .data
         .open_paths
         .iter()
         .map(|p| paths::canonical_best_effort(&crate::config::expand(p)))
+        .chain(tree)
         .collect()
 }
 
@@ -156,7 +176,11 @@ impl TurnRunner {
 
     fn reach_of(&self, session: &SessionRecord) -> &'static Open {
         let cwd = self.tools.cwd_for(session.dir.as_deref());
-        Open::of(open_roots(&self.cfg, session), &cwd)
+        let roots = open_roots(&self.cfg, session);
+        match crate::draft::is_draft(session) {
+            true => Open::of_draft(roots, &cwd),
+            false => Open::of(roots, &cwd),
+        }
     }
 
     /// One request of `session` on `target` in the open view, for a session

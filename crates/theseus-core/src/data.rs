@@ -525,19 +525,17 @@ pub fn opened_row(session: &str, how: OpenHow) -> anyhow::Result<theseus_store::
     )
 }
 
-/// Open `rec` as an open task at `at_ms` (theseus-a1wvq.6): its data state
-/// says so and nothing more, and the returned row rides the same frame as
-/// the record. Both paths that start a task call this one.
+/// Open `rec` as an open task (theseus-a1wvq.6) or a draft (theseus-a1wvq.13)
+/// at `at_ms`: its data state says so and nothing more, and the returned row
+/// rides the same frame as the record. Every path that starts one calls this.
 pub fn open_task(
     rec: &mut crate::session::SessionRecord,
+    how: OpenHow,
     at_ms: u64,
 ) -> anyhow::Result<theseus_store::NewRecord> {
-    let opened = Opened {
-        how: OpenHow::Task,
-        at_ms,
-    };
+    let opened = Opened { how, at_ms };
     rec.data = Some(Box::new(DataState::new(Some(opened), None, None)));
-    opened_row(&rec.session_id, OpenHow::Task)
+    opened_row(&rec.session_id, how)
 }
 
 /// A `session.data` row: an open session's first node that was not open.
