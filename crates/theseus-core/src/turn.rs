@@ -72,7 +72,7 @@ pub mod compaction;
 mod compile_step;
 mod cross_step;
 mod cut_step;
-mod data_step;
+pub(crate) mod data_step;
 mod defer_step;
 mod deferred_step;
 mod detour_step;

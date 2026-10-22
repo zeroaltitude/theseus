@@ -303,7 +303,11 @@ impl Core {
     /// request holds many sessions' text, which no pass can cover. A profile
     /// of restricted origin becomes the `[model]` default, said in the
     /// report; none when that is restricted too.
-    fn unrestricted(&self, profile: String, report: &mut SynthesisReport) -> Option<String> {
+    pub(crate) fn unrestricted(
+        &self,
+        profile: String,
+        report: &mut SynthesisReport,
+    ) -> Option<String> {
         let restricted = |p: &str| {
             self.cfg
                 .profile_origin(p, &self.runner.catalog)
@@ -312,6 +316,9 @@ impl Core {
         if !restricted(&profile) {
             return Some(profile);
         }
+        self.runner
+            .judge
+            .record_data_gate("consolidation", "restricted_origin");
         let said =
             format!("synth_profile `{profile}` is of restricted origin; written with `default`");
         let why = report
