@@ -55,6 +55,10 @@ pub async fn open(conn: &mut Conn, json: bool, what: What) -> Result<()> {
         );
         return Ok(());
     }
+    if r.url.is_empty() {
+        println!("no web UI runs, so there is no link: set `[web] enabled = true`, or `[cockpit] public_url` where a relay serves it");
+        return Ok(());
+    }
     println!("{}", r.url);
     if !print {
         browse(&r.url);
