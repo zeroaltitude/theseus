@@ -91,6 +91,13 @@ DKIM for that domain only notices.
 
 ## The gate
 
-Interim: the first gate run passed door, keel, fmt, shape, features, clippy, clippy-probe and cockpit, then its test build
-ran out of disk (a second profile beside mine). It is being rerun on a cleared `target/`; the result follows in a later
-report commit.
+`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` (the first attempt ran out of disk in its test build, so
+`target/` was cleared and the gate rerun alone): door, keel, keel tests, fmt, shape, features, clippy (430 s),
+clippy-probe, cockpit, test build and reader rule all passed. The suite: 7,544 run, 7,510 passed, **34 failed**, all of them
+the known L1 failures on this root VM (theseus-pv6i): `theseus-sandbox::contract` clause_05/07/09/10/11/12, the egress_18b
+pair and a few more contract tests, and `theseusd::sandbox` (the cancel, deadline, grant, proxy, health, bench-row
+and approved-host cases). No other test failed, none of the three named flakes did, and none touches mail, watches,
+Google or the Discord card. The phases after the suite were not run by the gate: I ran `cargo nextest run -p theseus-protocol`
+(196 passed; the cockpit's generated types are unchanged, this row adds no protocol type). The lifecycle, jobs, turn
+and size benches are the owner's machine's budgets and were not run here; the row adds nothing to the start path or a
+plain turn (`a_plain_turn_stays_within_its_frame_budget` is in the passing suite).
