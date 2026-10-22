@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crossterm::event::KeyCode;
 use serde_json::json;
 use theseus_protocol::thread_route::{AskOption, RouteHow, ThreadAsk, ThreadTag};
-use theseus_protocol::{Event, TurnSubmitResult};
+use theseus_protocol::{Event, ThreadPlaced, TurnStarted, TurnSubmitResult};
 
 use super::tests::{Rig, SID, T0};
 use crate::tests::Answer;
@@ -149,4 +149,129 @@ async fn a_message_the_router_placed_in_a_thread_says_so() {
     let text = r.text();
     assert!(text.contains("→ thread security fix"), "{text}");
     assert!(text.contains("ses_thread_security"), "{text}");
+}
+
+const PLACED: &str = "ses_thread_security";
+
+fn placed_tag() -> ThreadTag {
+    ThreadTag {
+        slug: Some("security-fix".into()),
+        title: "security fix".into(),
+        how: RouteHow::Quiet,
+        confidence: 0.95,
+        movable: false,
+    }
+}
+
+/// The daemon's notification that the router placed this chat's message.
+fn placed(turn: &str) -> Event {
+    Event::ThreadPlaced(ThreadPlaced {
+        session_id: SID.into(),
+        placed: PLACED.into(),
+        turn_id: turn.into(),
+        tag: placed_tag(),
+    })
+}
+
+fn started(session: &str, turn: &str) -> Event {
+    Event::TurnStarted(TurnStarted {
+        session_id: session.into(),
+        turn_id: turn.into(),
+        ..Default::default()
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_placed_turns_task_shows_in_the_chats_footer() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.settle().await;
+    // The chat watches the board again with the placed session among its
+    // roots (a second watch replaces the first's), so its tasks reach it.
+    let watches = r.daemon.asked("work.watch");
+    assert_eq!(watches.len(), 2, "{watches:?}");
+    assert_eq!(watches[1]["roots"], json!([SID, PLACED]));
+    super::tests_tasks::push(
+        &r,
+        10,
+        vec![super::tests_tasks::task(1, "Audit the vault", 10)],
+    );
+    r.advance(100).await;
+    assert!(r.text().contains("Audit the vault"), "{}", r.text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_placement_is_told_when_it_happens() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.advance(100).await;
+    let said = |t: &str| t.matches("→ thread security fix").count();
+    let text = r.text();
+    assert_eq!(said(&text), 1, "{text}");
+    assert!(text.contains("go there: theseus chat ses_thread_security"));
+    r.type_text("why is the vault build red").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("Looked at the vault.").await;
+    let text = r.text();
+    assert_eq!(said(&text), 1, "the result tells it no second time: {text}");
+    assert_eq!(text.matches("go there:").count(), 1, "{text}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn another_turn_of_the_thread_is_not_the_chats() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    // A turn sent to the thread's session from elsewhere starts no live line.
+    r.tell(started(PLACED, "turn_other"));
+    r.advance(300).await;
+    assert!(!r.text().contains("thinking"), "{}", r.text());
+    // The placed turn's own start does.
+    r.tell(started(PLACED, "turn_t1"));
+    r.advance(300).await;
+    assert!(r.text().contains("thinking"), "{}", r.text());
+}
+
+/// A turn that ran no model: held in a shared place.
+#[tokio::test(start_paused = true)]
+async fn a_held_turn_names_no_model_in_the_chat() {
+    let base = super::tests::script();
+    let sent = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let script: crate::tests::Script = Arc::new(move |m, p| -> Answer {
+        if m != "turn.submit" {
+            return base(m, p);
+        }
+        let n = sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (stop, model) = match n {
+            0 => ("held", "claude-opus-5-5"),
+            _ => ("end_turn", "claude-sonnet-5-5"),
+        };
+        let r = TurnSubmitResult {
+            session_id: SID.into(),
+            turn_id: format!("turn_h{n}"),
+            output: "I don't share that here.".into(),
+            model: model.into(),
+            elapsed_ms: 900,
+            stop_reason: stop.into(),
+            ..Default::default()
+        };
+        Ok(serde_json::to_value(r).unwrap())
+    });
+    let mut r = Rig::with(100, 40, script).await;
+    r.ready().await;
+    r.type_text("what is the owner's address").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("held: no model ran").await;
+    let text = r.text();
+    assert!(!text.contains("Opus"), "{text}");
+    assert!(
+        text.contains("Sonnet 5.5"),
+        "the status line keeps the last model: {text}"
+    );
+    // Every other turn's line is as it was.
+    r.type_text("and the weather").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("900 ms · Sonnet 5.5").await;
 }
