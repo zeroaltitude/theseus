@@ -14,11 +14,13 @@
 //!   parent could not): a user message's text, a reply's text, or a tool
 //!   result's content. Matching is exact and case-sensitive, with every run
 //!   of whitespace, in the quote and in the node, read as one space, and the
-//!   quote's ends trimmed. It needs at least `MIN_QUOTE_CHARS` characters so
-//!   read, and exactly one node holding it: otherwise the call fails and says
-//!   why (no match; ambiguous, with each candidate's id, author, and time;
-//!   too short, naming any node whose whole text it is), and the model tries
-//!   again. A `{node}` piece names a node of the same transcript by its id.
+//!   quote's ends trimmed. It needs exactly one node holding it, and at least
+//!   `MIN_QUOTE_CHARS` non-space characters (a token floor that stops an empty
+//!   or punctuation-only quote; uniqueness is what makes a quote precise, so
+//!   a short instruction quoted whole, "B) slow.sh load 3", is admitted):
+//!   otherwise the call fails and says why (no match; ambiguous, with each
+//!   candidate's id, author, and time; too short, naming any node whose whole
+//!   text it is), and the model tries again. A `{node}` piece names a node of the same transcript by its id.
 //!   The reply that holds the call is never a source: a piece is what someone
 //!   said before the call, not the call's own words; nor is an earlier
 //!   `task.create`'s result, which echoes its pieces' first lines.
@@ -44,8 +46,9 @@ use crate::node::{Body, Node, Origin, ResultStatus};
 /// The refusal without an arrangement (M5 §2.10).
 pub const REFUSAL: &str =
     "Promotion needs an arrangement: quote the messages that define this work.";
-/// The shortest quote, in characters, with whitespace runs read as one.
-pub const MIN_QUOTE_CHARS: usize = 20;
+/// The shortest quote, in non-space characters: a token floor only, since a
+/// quote must also match exactly one node (theseus-e31an).
+pub const MIN_QUOTE_CHARS: usize = 4;
 /// The most pieces an arrangement takes.
 pub const MAX_PIECES: usize = 12;
 /// The most of one piece's text the child reads, in characters.
@@ -371,7 +374,7 @@ fn find<'n>(
     } else {
         shown
     };
-    let chars = q.chars().count();
+    let chars = q.chars().filter(|c| !c.is_whitespace()).count();
     if chars < MIN_QUOTE_CHARS {
         let whole: Vec<String> = sources
             .iter()
@@ -379,7 +382,7 @@ fn find<'n>(
             .map(|(n, _)| candidate(n))
             .collect();
         let hint = if whole.is_empty() {
-            "quote a longer span of the message".to_string()
+            "quote the words of the message that define the work, exactly as written".to_string()
         } else {
             format!(
                 "it is the whole of {}: name it as {{\"node\": \"<id>\", \"role\": …}} instead",
@@ -389,7 +392,7 @@ fn find<'n>(
         return Err(Refused {
             class: "short",
             message: format!(
-                "piece {i}'s quote \"{shown}\" is {chars} characters, under the \
+                "piece {i}'s quote \"{shown}\" has {chars} non-space characters, under the \
                  {MIN_QUOTE_CHARS} a quote needs: {hint}"
             ),
         });
@@ -737,12 +740,13 @@ mod tests {
         assert_eq!(err.unwrap()[0].node, t[1].1.id);
         let err = resolve(&quoting("the lamp's bulb with"), &t, None);
         assert_eq!(err.unwrap()[0].node, t[0].1.id);
+        // A short quote is as good as its uniqueness (theseus-e31an).
         let err = resolve(&quoting("lamp's bulb"), &t, None).unwrap_err();
-        assert_eq!(err.class, "short");
+        assert_eq!(err.class, "ambiguous");
         let err = resolve(&quoting("Then log it"), &t, None).unwrap_err();
-        assert_eq!(err.class, "short", "{}", err.message);
-        let err = resolve(&quoting("the lamp's bulb wi"), &t, None).unwrap_err();
-        assert_eq!(err.class, "short");
+        assert_eq!(err.class, "ambiguous", "{}", err.message);
+        let one = resolve(&quoting("the lamp's bulb wi"), &t, None).unwrap();
+        assert_eq!(one[0].node, t[0].1.id);
         let err = resolve(&quoting("place the lamp's bulb"), &t, None).unwrap_err();
         assert_eq!(err.class, "ambiguous", "{}", err.message);
         assert!(
@@ -764,12 +768,16 @@ mod tests {
     #[test]
     fn a_short_quote_fails_and_names_a_node_it_is_the_whole_of() {
         let t = vec![at(
-            Node::user("ses_lighthouse", None, "cli", "Do it."),
+            Node::user("ses_lighthouse", None, "cli", "OK."),
             1_790_000_000_000,
         )];
-        let err = resolve(&quoting("Do  it."), &t, None).unwrap_err();
+        let err = resolve(&quoting(" OK. "), &t, None).unwrap_err();
         assert_eq!(err.class, "short");
-        assert!(err.message.contains("is 6 characters"), "{}", err.message);
+        assert!(
+            err.message.contains("has 3 non-space characters"),
+            "{}",
+            err.message
+        );
         assert!(err.message.contains(&t[0].1.id), "{}", err.message);
     }
 
@@ -793,7 +801,7 @@ mod tests {
         assert_eq!(got[0].node, t[0].1.id);
         let twice = input(json!({"pieces": [
             {"quote": "with the brighter one", "role": "objective"},
-            {"quote": "Then log it.", "role": "acceptance"}]}));
+            {"quote": "it.", "role": "acceptance"}]}));
         let err = resolve(&twice, &t, None).unwrap_err();
         assert_eq!(err.class, "short");
         let twice = input(json!({"pieces": [
