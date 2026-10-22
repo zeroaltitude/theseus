@@ -84,8 +84,11 @@ follow.
   - The short greeting clips.
   - 2026-10-22: the owner's re-test heard sentences chopped at a pause and the first "go ahead" clipped. A quiet listener
     now closes an utterance after `[voice] pause_ms` (1200 ms, was 700), the silence before Theseus's first sound is
-    `[voice] lead_in_ms` (400 ms, was 100), a cut-off clip's fade is 10 ms, and an unfinished sentence waits
+    `[voice] lead_in_ms` (600 ms, was 400), a cut-off clip's fade is 10 ms, and an unfinished sentence waits
     `[voice] merge_ms` (1500 ms) for its rest (theseus-bp0lp). Awaiting the owner's live check.
+  - 2026-10-22: between a reply's sentences the seam keeps sending silence (a 700 ms warm track after each clip), and a
+    sentence that finds nothing warm gets `[voice] gap_lead_in_ms` (200 ms) of silence first (theseus-9d9aq). Awaiting
+    the owner's live check.
   - A voice turn has no clock.
   - Discord's typing indicator can stick after a deaf turn.
 
@@ -523,6 +526,13 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-22: v1 patch1 tail, part 4** (theseus-v54l9, theseus-tlhjt, theseus-hwv3t, theseus-dowi0.1, theseus-4qdh8,
+  theseus-rcb2u). `theseus herdr up` switches herdr to the `theseus` workspace (`--no-focus` to skip) and says which, or
+  how to attach; the TUI board's `c` refuses an ended task and takes the cursor's row; the chat footer follows a running
+  job's last line (views apply by position, then time); the answer card lists waiting questions in tab order. A message
+  that names a live thread by its title (every content word of it) gives that thread 0.35 pre-router evidence, so two
+  titles named ask which, and one title named can tip a guess toward its thread; an open request carries no place
+  digest.
 - **2026-10-22: v1 patch1 tail, part 3** (theseus-xe77s, theseus-efb8i, theseus-94782, theseus-wy8pt, theseus-ysp2k,
   theseus-we57k, theseus-40cuo). A double quote in a raw Drive `q` now pairs up as a single quote does (`\"` escapes
   included), so `name = "a(b"` passes and an unpaired `"` is refused as unbalanced instead of slipping past the check
