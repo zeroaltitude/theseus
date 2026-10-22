@@ -530,7 +530,7 @@ impl TurnRunner {
 
     /// The first loop's compile, the wait for the verdict beside it, and the
     /// decision: the first compile kept, a switch's compile, or a detour's.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     async fn compile_first<'a>(
         &self,
         t: &mut Turn<'a>,
@@ -571,7 +571,17 @@ impl TurnRunner {
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
-            Err(f) => return Ok(Err(self.held(t, f, (got, live, unreachable), rx, session))),
+            Err(f) => {
+                let timed = Timed {
+                    waited,
+                    late,
+                    answered_ms,
+                    ..Timed::default()
+                };
+                let seen = (got, live, unreachable);
+                let held = self.held(t, f, seen, rx, session, (timed, steering.as_ref()));
+                return Ok(Err(held));
+            }
         };
         let base = t.target.profile.clone();
         let (verdict, reason) = self.read_verdict(
@@ -664,14 +674,15 @@ impl TurnRunner {
         }
     }
 
-    /// A failed compile still holds a reach for the owner's personal details:
-    /// the verdict is read and the privacy check run, and `f` goes on as it
-    /// was; the turn loop then ends the turn held (theseus-cljlz). The turn
-    /// is still counted in the route's books (theseus-qiyxq): its
+    /// A compile failed (every failure comes here, held or not): the verdict
+    /// is read and the privacy check run, and `f` goes on as it was; the turn
+    /// loop then ends the turn held where the verdict holds (theseus-cljlz).
+    /// The turn is still counted in the route's books (theseus-qiyxq): its
     /// `route.decided` row (no decision, so the profile it would have run on
-    /// and a reason of the verdict's absence or kind; the wait is not timed
-    /// here) and the correction memory's note, so route stats count held
-    /// turns. Not the persona: no persona answers the fixed line.
+    /// and a reason of the verdict's absence or kind; the wait, `late`,
+    /// `answered_ms` and the steering are the turn's own, theseus-m1a51) and
+    /// the correction memory's note, so route stats count these turns. Not the
+    /// persona: no persona answers the fixed line.
     fn held(
         &self,
         t: &mut Turn<'_>,
@@ -679,11 +690,12 @@ impl TurnRunner {
         (got, live, unreachable): (Got, bool, bool),
         rx: RouteWait,
         session: &SessionRecord,
+        (timed, steering): (Timed, Option<&Steering>),
     ) -> Failure {
         let last = session.last_turn_id.as_deref();
         let (verdict, reason) = self.read_verdict(t, got, live, rx, last, unreachable);
         self.personal_warn(t, verdict.as_ref());
-        self.record_route(t, verdict.as_ref(), None, reason, Default::default(), None);
+        self.record_route(t, verdict.as_ref(), None, reason, timed, steering);
         self.note_routed(t, verdict.as_ref(), None);
         f
     }
