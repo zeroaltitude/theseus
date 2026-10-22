@@ -175,7 +175,8 @@ async fn a_family_jev_judges_relevant_loads_without_being_named() {
     let ask = "Which cloud account is this session on right now?";
     let jev = FakeJev::start().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let (r, haiku) = rig_on(&jev, dir.path(), 4, |_| {});
+    // Jev's answer is waited for, not raced: the most the config takes (theseus-powrh).
+    let (r, haiku) = rig_on(&jev, dir.path(), 4, |c| c.tools.defer.judge_wait_ms = 2_000);
     // A first message, to read how the request numbers the families.
     turn(&r.core, None, "Say hello.", None).await;
     let calls = families_calls(&jev);
@@ -302,6 +303,8 @@ async fn one_families_judgment_per_prompt() {
         |c| {
             c.routing.max_wait_ms = 5_000;
             owner_shape(c, dir.path());
+            // Waited for, not raced (theseus-powrh).
+            c.tools.defer.judge_wait_ms = 2_000;
         },
         move |parts| {
             parts.cfg.tools.defer.enabled = true;
