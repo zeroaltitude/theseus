@@ -71,11 +71,26 @@ impl Sandbox {
             .chain(base.ro_paths)
             .filter(|p| !workspace.contains(p))
             .collect();
+        let rw = vec![b.tree.to_path_buf(), b.target.to_path_buf()];
+        // The floor and the credentials, the sealed sets among them, less any
+        // directory that holds what this view binds: the view is built from
+        // nothing but its binds, so a mask over such a directory (the
+        // approve list's `~/.theseus`, which holds the gate, the tree and the
+        // build tree) would cover the binds themselves, and the gate would
+        // find no script. What the directory holds that must stay hidden is
+        // listed on its own (the store, the spool, the sealed sets).
+        let hidden: Vec<PathBuf> = base
+            .hidden
+            .into_iter()
+            .filter(|h| {
+                !(rw.iter().chain(&ro_paths).chain(&workspace))
+                    .any(|bound| bound != h && bound.starts_with(h))
+            })
+            .collect();
         L1 {
             workspace,
             ro_paths,
-            // The floor and the credentials, the sealed sets among them.
-            hidden: base.hidden,
+            hidden,
             limits: SandboxLimits {
                 scratch_mb: base.limits.scratch_mb.max(BUILD_TMP_MB),
                 tmp_mb: base.limits.tmp_mb.max(BUILD_TMP_MB),
@@ -84,7 +99,7 @@ impl Sandbox {
             },
             egress: Vec::new(),
             egress_dns: None,
-            rw: vec![b.tree.to_path_buf(), b.target.to_path_buf()],
+            rw,
         }
     }
 }
