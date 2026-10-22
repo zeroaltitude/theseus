@@ -62,6 +62,8 @@ mod tests_task_watch;
 #[cfg(test)]
 mod tests_typing;
 #[cfg(test)]
+mod tests_walk1b;
+#[cfg(test)]
 mod tests_war_room;
 pub mod viewers;
 

@@ -76,6 +76,10 @@ struct Model {
     home: Option<(String, String)>,
     /// The ticket of the newest snapshot applied (`Tasks::snapshot`).
     applied: u64,
+    /// The threads that answer at a place, each with that place's session
+    /// (`Tasks::set_shown`): a message the place routed to a thread runs
+    /// there, and its tasks are the place's (theseus-h68q6).
+    shown: HashMap<String, String>,
 }
 
 pub(crate) struct Tasks {
@@ -163,6 +167,17 @@ impl Tasks {
     pub fn set_home(&self, home: Option<(String, String)>) -> bool {
         let mut m = self.model.lock().unwrap();
         std::mem::replace(&mut m.home, home.clone()) != home
+    }
+
+    /// The thread sessions that answer at a place, each with that place's
+    /// session.
+    pub fn set_shown(&self, shown: HashMap<String, String>) {
+        self.model.lock().unwrap().shown = shown;
+    }
+
+    /// Whether the thread session `sid` is watched for a place already.
+    pub fn is_shown(&self, sid: &str) -> bool {
+        self.model.lock().unwrap().shown.contains_key(sid)
     }
 
     /// The numbers now, and a receiver that wakes when they change.
@@ -403,6 +418,7 @@ impl Tasks {
                 .as_ref()
                 .map(|h| h.0.clone()),
         );
+        roots.extend(shared.tasks.model.lock().unwrap().shown.keys().cloned());
         roots
     }
 
@@ -557,9 +573,11 @@ fn roots_of(m: &Model, session_id: &str) -> HashSet<String> {
         .values()
         .filter(|v| v.kind == WorkKind::Conversation)
         .filter(|v| {
-            v.session_id
-                .as_deref()
-                .is_some_and(|s| s == session_id || Some(s) == adopted)
+            v.session_id.as_deref().is_some_and(|s| {
+                s == session_id
+                    || Some(s) == adopted
+                    || m.shown.get(s).is_some_and(|p| p == session_id)
+            })
         })
         .map(|v| v.id.clone())
         .collect()
@@ -586,7 +604,7 @@ fn sessions_of(m: &Model, roots: &HashSet<String>) -> HashSet<String> {
         .filter_map(|v| v.session_id.clone())
         .map(|s| match &m.home {
             Some((home, place)) if *home == s => place.clone(),
-            _ => s,
+            _ => m.shown.get(&s).cloned().unwrap_or(s),
         })
         .collect()
 }
@@ -671,9 +689,43 @@ fn home_of(shared: &Shared) -> Option<(String, String)> {
         .map(|s| (home, s))
 }
 
+/// The threads that answer at one of this binding's places (`show_at`),
+/// each with that place's session: a message a place routed to a thread runs
+/// in the thread's session, and its tasks are that place's (theseus-h68q6).
+fn shown_of(shared: &Shared) -> HashMap<String, String> {
+    let core = &shared.core;
+    let Ok(shown) = core.outbox.shown() else {
+        return HashMap::new();
+    };
+    let routes = shared.routes.lock().unwrap();
+    shown
+        .into_iter()
+        .filter_map(|(thread, target)| {
+            let place = target.strip_prefix("discord:")?;
+            let session = core.outbox.place_session(place).ok().flatten()?;
+            (session != thread && routes.by_session.contains_key(&session))
+                .then_some((thread, session))
+        })
+        .collect()
+}
+
+/// A turn started in a session no place runs: a thread that answers at a
+/// place and is not watched yet is asked for at once, not a debounce later,
+/// so the tasks it starts are the place's before their first calls run.
+fn turn_started(shared: &Arc<Shared>, sid: &str) {
+    if shared.routes.lock().unwrap().by_session.contains_key(sid) || shared.tasks.is_shown(sid) {
+        return;
+    }
+    if shared.core.outbox.is_shown(sid) {
+        let s = shared.clone();
+        tokio::spawn(async move { ask(&s).await });
+    }
+}
+
 /// Read the watch now: the roots the places have, as `work.watch` names them, and what the board holds.
 pub(super) async fn ask(shared: &Arc<Shared>) {
     shared.tasks.set_home(home_of(shared));
+    shared.tasks.set_shown(shown_of(shared));
     let roots = Tasks::roots(shared);
     if roots.is_empty() {
         return;
@@ -704,7 +756,7 @@ pub(super) async fn ask(shared: &Arc<Shared>) {
 
 /// The engine's events the model takes (`route`): a frame's changes, and a
 /// lost stream, which is read again. True when the event is the model's.
-pub(super) fn heard(shared: &Shared, e: &theseus_protocol::Event) -> bool {
+pub(super) fn heard(shared: &Arc<Shared>, e: &theseus_protocol::Event) -> bool {
     use theseus_protocol::Event;
     match e {
         Event::WorkChanged(c) => {
@@ -722,6 +774,10 @@ pub(super) fn heard(shared: &Shared, e: &theseus_protocol::Event) -> bool {
         Event::EventsLost(_) => {
             shared.tasks.rewatch();
             true
+        }
+        Event::TurnStarted(t) => {
+            turn_started(shared, &t.session_id);
+            false
         }
         _ => false,
     }
