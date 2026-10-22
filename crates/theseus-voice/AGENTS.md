@@ -37,7 +37,10 @@ the head of the greeting isn't eaten; the next sentence of a reply gets none. A 
 An utterance whose transcript has no `.`, `?` or `!` at its end waits `Config::merge` (`[voice] merge_ms`, 1500 ms; zero, the engine's
 default, is off) after it closed for the same speaker's next one, and the two are one `Utterance` in one turn (`start_turn`:
 `awaits_its_rest`, `goes_on`); a finished transcript, or one said over Theseus's speech, never waits. The judge's path is untouched:
-each utterance is judged alone, before the merge.
+each utterance is judged alone, before the merge. The hold gates the whole line (turns stay in the order the utterances closed), so
+another speaker's transcribed utterance behind it waits too: at most `merge_ms` past the close, or the end of an utterance the
+holding speaker began inside that window. An open VAD that began after the window does not hold (it is a new utterance); a
+joined utterance keeps the later one's `over`, so a barge-in is never folded away (theseus-we57k).
 
 Theseus cancels its own voice from what a listener sends (theseus-yaxcp, `Config::echo_cancel`, `[voice] echo_cancel`, default
 true). `src/echo.rs` is the engine's side: the clips it plays, tick by tick as the seam was told to send them (a clip begun
