@@ -38,6 +38,8 @@ fn words(s: &str) -> Vec<String> {
 /// than one of them: a lone word is a topic many threads share, never a name.
 pub fn title_hit(text: &str, title: &str) -> Option<f64> {
     let mut title = words(title);
+    // Order is no matter here: the words are a set.
+    title.sort();
     title.dedup();
     let said = words(text);
     (title.len() > 1 && title.iter().all(|w| said.contains(w))).then_some(TITLE)
@@ -54,6 +56,14 @@ mod tests {
         let t = "Docs word census";
         let said = "the word census of the sample docs";
         assert_eq!(title_hit(said, t), Some(TITLE));
+    }
+
+    #[test]
+    fn a_titles_repeated_word_counts_once() {
+        // One word said twice is still one word, never a name.
+        assert_eq!(title_hit("log log log", "Log log"), None);
+        // A word that comes back after another counts once, and the title still hits.
+        assert_eq!(title_hit("the log notes", "Log notes log"), Some(TITLE));
     }
 
     #[test]

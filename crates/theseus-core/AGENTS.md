@@ -578,8 +578,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
   against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
   noisy-or, a thread whose title the message names in every content word adding 0.35 unshared (`thread_title.rs`,
-  theseus-4qdh8: two titles named contend and are asked); `thread_flow.rs` holds its `State`: the last thread per home session, routed turns, pending asks,
-  correction memory); then `classify.v2`'s `thread` question (`Source::Threads`, at most 50 options plus `new_thread`
+  theseus-4qdh8: two titles named contend and are asked); `thread_flow.rs` holds its `State`: the last thread per
+  home session, routed turns, pending asks, correction memory); then `classify.v2`'s `thread` question
+  (`Source::Threads`, at most 50 options plus `new_thread`
   and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
   the point before the turn and the turn takes the handed-off `Early` (keyed by session, with a pre-minted turn id), so
   routing adds no model call (`tests_thread_route::jevs_thread_answer_rides_the_one_inbound_request…` holds
