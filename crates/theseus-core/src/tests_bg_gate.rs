@@ -7,7 +7,9 @@
 //! - an open session's summary of a range its run clears goes to its own
 //!   restricted model with a pass, joins the run, and the run is stored;
 //! - a restricted summary profile never reads a private session: the
-//!   `[model]` default writes the summary and the row says why.
+//!   `[model]` default writes the summary and the row says why;
+//! - a later loop's compaction over this turn's screened tool results
+//!   (theseus-a1wvq.9) clears them as the loop's own.
 //!
 //! The consolidation, keep-warm and replay tests are in their own suites.
 
@@ -20,7 +22,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 use crate::bus::EventSink;
 use crate::data;
 use crate::node::Body;
-use crate::provider::ProviderRequest;
+use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::test_support::rows_2k;
 use crate::tests_judge::kinds;
@@ -48,6 +50,15 @@ fn words(tag: &str, tokens: usize) -> String {
 /// The config: `dsflash` of restricted origin alone in `trivial`'s
 /// `cn_profiles`, the owner's DM, and a small window for both models.
 fn rig(jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
+    rig_with(jev, tweak, |_| {})
+}
+
+/// `rig`, its parts as `parts` leaves them (a scripted `zai`).
+fn rig_with(
+    jev: &FakeJev,
+    tweak: impl FnOnce(&mut crate::Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
     rig_parts(
         Some(jev),
         60,
@@ -69,7 +80,7 @@ fn rig(jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
             }
             tweak(c);
         },
-        |_| {},
+        parts,
     )
 }
 
@@ -260,4 +271,69 @@ async fn a_restricted_summary_profile_in_a_private_session_falls_back() {
             .contains("data_gate: private_view"),
         "{row}"
     );
+}
+
+/// The join of the tool screen (theseus-a1wvq.9) with this row: an open
+/// session on `dsflash` reads large files under `open_paths`, each passing
+/// the screen, until a later loop rings. The range it drops holds this
+/// turn's screened results, which are the loop's own, so the summary goes
+/// to `dsflash` with a pass, the turn stays there, and nothing is refused.
+/// The gate's range judged without the screened list would read
+/// `tool_result` and the ring would stand.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_later_loop_compacts_over_this_turns_screened_results() {
+    let open = tempfile::tempdir().unwrap();
+    let root = open.path().to_string_lossy().into_owned();
+    // About 6,500 tokens a file, in short lines (a read cuts a long one).
+    let body: String = (0..350)
+        .map(|i| format!("{i}: the keeper logged the tide and the wind before the lamp was lit.\n"))
+        .collect();
+    let mut script = Vec::new();
+    for k in 0..16 {
+        let path = open.path().join(format!("log-{k:02}.txt"));
+        std::fs::write(&path, format!("log {k}\n{body}")).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        script.push(Scripted::tools(
+            &format!("Reading log {k}."),
+            &[(&format!("f{k}"), "fs_read", json!({"path": path}))],
+        ));
+    }
+    script.push(Scripted::text("Every log agrees with the tide table."));
+    let zai = Arc::new(FakeProvider::scripted(script));
+    let z = zai.clone();
+    let jev = jev(true);
+    let r = rig_with(
+        &jev,
+        |c| {
+            c.memory.summary_profile = "session".into();
+            c.routing.data.open_paths = vec![root.clone()];
+            c.tools.projects_dir = Some(root.clone());
+            c.tools.cwd = Some(root.clone());
+        },
+        move |p| {
+            p.providers.insert("zai".into(), z);
+        },
+    );
+    let sid = open_session(&r, "dsflash").await;
+    let res = say(&r.core, &sid, "Read every log here and say if they agree.").await;
+    assert_eq!(res.profile, "dsflash", "{:?}", res.route);
+
+    let rows = compacted(&r.core);
+    assert!(
+        rows.iter()
+            .any(|row| row["outcome"] == "compaction" && row["profile"] == "dsflash"),
+        "a later loop compacted on dsflash: {rows:?}"
+    );
+    assert!(summary_calls(&zai.requests()) >= 1, "{rows:?}");
+    assert!(r.claude.requests().is_empty(), "nothing went elsewhere");
+    assert_eq!(blocked(&r.core), 0, "every call carried its pass");
+    let screened = r
+        .core
+        .store
+        .transcript(&sid)
+        .unwrap()
+        .iter()
+        .filter(|(_, n)| matches!(n.body, Body::ToolResult { .. }))
+        .count();
+    assert!(screened >= 2, "{screened} results");
 }
