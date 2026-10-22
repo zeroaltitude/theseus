@@ -44,6 +44,17 @@ fn rig(
     zai: Vec<Scripted>,
     claude: Option<Vec<Scripted>>,
 ) -> Shown {
+    rig_tools(jev, open, zai, claude, vec![])
+}
+
+/// [`rig`], with stand-in tools registered beside the built-in ones.
+fn rig_tools(
+    jev: &theseus_judge::fake::FakeJev,
+    open: tempfile::TempDir,
+    zai: Vec<Scripted>,
+    claude: Option<Vec<Scripted>>,
+    tools: Vec<Arc<dyn theseus_tools::Tool>>,
+) -> Shown {
     let notes = tempfile::tempdir().unwrap();
     std::fs::write(notes.path().join("notes.md"), "the vault code is 4417\n").unwrap();
     let root = open.path().to_string_lossy().into_owned();
@@ -62,6 +73,7 @@ fn rig(
             cfg.tools.cwd = Some(root.clone());
         },
         move |p| {
+            p.toollets = tools;
             p.providers.insert("zai".into(), z);
             if let Some(c) = c {
                 let name = p.cfg.model.provider.clone();
@@ -442,4 +454,85 @@ async fn a_failed_screen_leaves_its_word_in_the_store() {
         (rows[0]["word"].as_str(), rows[0]["node"].as_str()),
         (Some("secret"), Some(id.as_str()))
     );
+}
+
+/// A stand-in for `http.fetch` that needs no network: it plans a public URL
+/// and answers a result whose `meta.final_url` is where a redirect ended.
+struct Redirected;
+
+impl theseus_tools::Tool for Redirected {
+    fn name(&self) -> &str {
+        "http.fetch"
+    }
+    fn description(&self) -> &str {
+        "a fetch that ends elsewhere"
+    }
+    fn input_schema(&self) -> Value {
+        json!({"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]})
+    }
+    fn class(&self) -> theseus_tools::ToolClass {
+        theseus_tools::ToolClass::Read
+    }
+    fn backend(&self) -> theseus_tools::Backend {
+        theseus_tools::Backend::Async
+    }
+    fn retry(&self) -> theseus_tools::Retry {
+        theseus_tools::Retry::SafeToRepeat
+    }
+    fn plan(&self, input: &Value, _ctx: &theseus_tools::ToolCtx) -> Result<Plan, String> {
+        Ok(fetch(input["url"].as_str().unwrap_or_default()))
+    }
+    fn run_async(&self, input: &Value, _ctx: &theseus_tools::ToolCtx) -> theseus_tools::AsyncRun {
+        let url = input["url"].clone();
+        Box::pin(std::future::ready(Ok((
+            theseus_tools::ToolOutput {
+                text: "A page of tide tables.".into(),
+                meta: json!({"url": url, "final_url": "http://10.0.0.10/tides", "status": 200}),
+            },
+            None,
+        ))))
+    }
+}
+
+/// theseus-atbgl: the turn passes the result's `meta.final_url` to the
+/// screen, not only `data::screen` taking it. A fetch of a public URL that a
+/// redirect ended at a private address fails the screen as `outside`, taints
+/// the open task, and is not screened open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turns_fetch_that_redirected_into_the_owners_network_is_not_screened_open() {
+    let jev = task_jev();
+    let calls = vec![
+        Scripted::tools(
+            "Fetching.",
+            &[(
+                "f1",
+                "http_fetch",
+                json!({"url": "https://example.com/tides"}),
+            )],
+        ),
+        Scripted::text("Done."),
+    ];
+    let s = rig_tools(
+        &jev,
+        tempfile::tempdir().unwrap(),
+        calls,
+        None,
+        vec![Arc::new(Redirected)],
+    );
+    let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+    let (id, tool, meta) = results(&s.r.core, &sid).remove(0);
+    assert_eq!(tool, "http.fetch");
+    assert_eq!(meta["final_url"], "http://10.0.0.10/tides", "{meta}");
+    let rows: Vec<Value> = crate::tests_judge::kinds(&s.r.core.store, "session.data")
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(sid.as_str()) && r.data["row"] == "screened")
+        .map(|r| r.data)
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0]["word"].as_str(), rows[0]["node"].as_str()),
+        (Some("outside"), Some(id.as_str()))
+    );
+    let taint = rec.data.unwrap().taint.expect("the task is tainted");
+    assert_eq!(taint.node.as_deref(), Some(id.as_str()));
 }
