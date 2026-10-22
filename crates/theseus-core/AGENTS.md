@@ -1595,15 +1595,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **A turn's effort keeps the cache** (theseus-o719, `compiler/effort.rs`): a change of the top-level
     `output_config.effort` restarts the provider's cache of the messages (only tools and system stay: a 625k DM on
     Fable 5.1 wrote 612k again for one `low` turn). On a model that takes per-message effort (`effort::default_of`:
-    Fable 5.1 alone, the one seen to take it live; Sonnet 5.5 answered it with a 400 on 2026-10-11, theseus-posww;
+    Fable 5.1 and Sonnet 5.5; the 400s of 2026-10-11 and 2026-10-21 were requests sent without the beta, theseus-blzt6;
     Anthropic's API only) the top-level effort stays the profile's own, and
     a turn at another level gets an effort-only system message before its user message
     (`mid-conversation-output-config-2026-07-01`). Its first answer records the level (`effort`, store format 27);
     the render puts each record's message back before the user message its answer follows, so later requests repeat
-    the bytes. Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
+    the bytes; the beta rides every request that carries one, at every loop (`place`, `retarget`: `sync_beta`). Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
-    top, and the model takes none for the daemon's life (`turn/effort_step.rs`, `provider.effort_refused`).
-    Tests: `tests_turn_effort.rs`.
+    top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
+    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
     (`TurnRunner::engages`, `Target.engages`: a DM, a channel, a thread; a cli, task or headless session's persona is fixed, so

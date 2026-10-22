@@ -27,11 +27,16 @@
 //!   message, and only before a user message that opens with the turn's text:
 //!   one that opens with tool results stays next to its calls, and the turn
 //!   runs at the level in force.
+//! - **The beta** ([`sync_beta`]) rides every request that carries a message,
+//!   at every loop. It once rode only a request that opened a turn, so a
+//!   request after a tool call went out with the turn's message and without
+//!   the beta, and the provider read the unknown field as `messages.N.
+//!   output_config: Extra inputs are not permitted` (theseus-blzt6).
 //! - **Any other model** gets no such message: the top-level effort, as
 //!   before, and the history's messages are left out; Jev's level there is
 //!   sticky instead (`routing::effort::sticky`). The catalog names the models
 //!   that take messages ([`default_of`]); a 400 that names `output_config`
-//!   marks any other model refusing for the daemon's life (theseus-posww).
+//!   marks any other model refusing for an hour (theseus-posww).
 
 use serde_json::{json, Value};
 
@@ -46,11 +51,10 @@ pub const BETA_TURN_EFFORT: &str = "mid-conversation-output-config-2026-07-01";
 /// The level a model that takes per-message effort runs at without one:
 /// `high`, every such model's default. Which models take it is the catalog's
 /// (`CatalogEntry::per_message_effort`, so a row's edit enables one with no
-/// code): Fable 5.1 alone is seen to accept the message live. On 2026-10-11
-/// Claude Sonnet 5.5 answered it with a 400 (`messages.190.output_config:
-/// Extra inputs are not permitted`) and every request of a conversation that
-/// held one failed; a row that turns it on needs a live check first
-/// (theseus-posww). One that still refuses it is found out at run time
+/// code). Sonnet 5.5's 400 of 2026-10-11 (`messages.190.output_config: Extra
+/// inputs are not permitted`) was a request sent without the beta, not a
+/// refusal of the message (theseus-blzt6). A row that turns it on needs a
+/// live check first; one that refuses it anyway is found out at run time
 /// ([`refused_by`]).
 pub fn default_of(entry: Option<&CatalogEntry>) -> Option<Effort> {
     entry.filter(|e| e.per_message_effort).map(|_| Effort::High)
@@ -159,13 +163,21 @@ pub fn place(
 /// The turn's own level, before its user message when it changes the level
 /// in force, replacing one placed before (route.v3 decides after the first
 /// compile); none for any other model, or after the turn's first answer.
-/// Where a message went in.
+/// Where a message went in. The beta is synced on every request of a model
+/// that takes messages, placed here or not: a request after a tool call
+/// repeats the turn's message and needs it (theseus-blzt6).
 pub fn retarget(
     req: &mut ProviderRequest,
     spec: &RequestSpec,
     entry: Option<&CatalogEntry>,
 ) -> Option<usize> {
     let default = default_of(entry).filter(|_| takes(spec, entry, &req.model))?;
+    let placed = place_own(req, spec, default);
+    sync_beta(req);
+    placed
+}
+
+fn place_own(req: &mut ProviderRequest, spec: &RequestSpec, default: Effort) -> Option<usize> {
     let mut at = req.messages.len().checked_sub(1)?;
     if !opens_turn(&req.messages[at]) {
         return None;
@@ -180,12 +192,10 @@ pub fn retarget(
         .find_map(level_of)
         .or(spec.effort);
     let want = spec.turn_effort.or(spec.effort);
-    let placed = (want != running).then(|| {
+    (want != running).then(|| {
         req.messages.insert(at, message(want.unwrap_or(default)));
         at
-    });
-    sync_beta(req);
-    placed
+    })
 }
 
 /// The level a request placed before its turn's user message: what its
