@@ -148,6 +148,7 @@ fn a_session_waiting_on_the_owner_reads_live_whatever_its_age() {
         floor: false,
         budget: false,
         expires_at_ms: 0,
+        turn_id: None,
     };
     let pending = [(r.execution_id.clone().unwrap(), vec![ask])].into();
     let shown = c.session_info(&r, &pending);

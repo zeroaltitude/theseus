@@ -67,14 +67,14 @@ impl Core {
             let ttl = self.kernel.config().confirm_ttl_ms;
             return Some(super::packs::promotion_request(a, session, ttl));
         }
-        let (tool, input, gate) = nodes.iter().find_map(|(_, n)| match &n.body {
+        let (tool, input, gate, turn_id) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
                 input,
                 correlation_id: Some(c),
                 gate,
                 ..
-            } if *c == a.correlation_id => Some((tool, input, gate)),
+            } if *c == a.correlation_id => Some((tool, input, gate, n.turn_id.clone())),
             _ => None,
         })?;
         let decision = gate
@@ -85,7 +85,7 @@ impl Core {
             correlation_id: a.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: a.execution_id.clone(),
-            turn_id: None,
+            turn_id,
             tool: tool.clone(),
             input: input.clone(),
             resource: a.resource.clone(),
@@ -125,7 +125,7 @@ impl Core {
             correlation_id: q.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: e.id.clone(),
-            turn_id: None,
+            turn_id: budget_turn(q),
             tool: BUDGET_TOOL.into(),
             input: json!({"spent_usd": usd(b.spent_micros), "limit_usd": usd(b.limit_micros), "needed_usd": needed}),
             resource: None,
@@ -234,21 +234,21 @@ impl Core {
         let mut read: BTreeMap<String, Vec<(u64, Node)>> = BTreeMap::new();
         let mut out: BTreeMap<String, Vec<PendingConfirm>> = BTreeMap::new();
         for a in pending {
-            let decision = match (a.tool == BUDGET_TOOL, known) {
-                (true, _) => None,
+            let (decision, turn) = match (a.tool == BUDGET_TOOL, known) {
+                (true, _) => (None, None),
                 (false, Some((sid, nodes))) if sid == a.session_id => {
-                    decision_of(nodes, &a.correlation_id)
+                    call_of(nodes, &a.correlation_id)
                 }
                 (false, _) => {
                     let nodes = read.entry(a.session_id.clone()).or_insert_with(|| {
                         self.store.session_nodes(&a.session_id).unwrap_or_default()
                     });
-                    decision_of(nodes, &a.correlation_id)
+                    call_of(nodes, &a.correlation_id)
                 }
             };
             out.entry(a.execution_id.clone())
                 .or_default()
-                .push(crate::push::pending_of(a, decision.as_ref(), ttl));
+                .push(crate::push::pending_of(a, decision.as_ref(), turn, ttl));
         }
         out
     }
@@ -1088,15 +1088,29 @@ impl Act<'_> {
     }
 }
 
-/// The gate's decision on the tool call `correlation_id` names, from its
-/// node in `nodes`, a session's transcript.
-fn decision_of(nodes: &[(u64, Node)], correlation_id: &str) -> Option<GateDecision> {
-    nodes.iter().rev().find_map(|(_, n)| match &n.body {
-        Body::ToolCall {
-            correlation_id: Some(c),
-            gate,
-            ..
-        } if c == correlation_id => gate.as_ref().and_then(|g| g.decision.clone()),
-        _ => None,
-    })
+/// The gate's decision on the tool call `correlation_id` names, and the turn
+/// that made it, from its node in `nodes`, a session's transcript.
+fn call_of(nodes: &[(u64, Node)], correlation_id: &str) -> (Option<GateDecision>, Option<String>) {
+    nodes
+        .iter()
+        .rev()
+        .find_map(|(_, n)| match &n.body {
+            Body::ToolCall {
+                correlation_id: Some(c),
+                gate,
+                ..
+            } if c == correlation_id => Some((
+                gate.as_ref().and_then(|g| g.decision.clone()),
+                n.turn_id.clone(),
+            )),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// The turn whose model call a budget question waits on, when its proposal
+/// names it (`Turn::budget_call`).
+pub(crate) fn budget_turn(q: &Action) -> Option<String> {
+    let turn = q.proposal.as_ref()?.args["call"]["turn_id"].as_str();
+    turn.map(String::from)
 }

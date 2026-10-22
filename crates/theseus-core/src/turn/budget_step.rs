@@ -104,7 +104,7 @@ impl TurnRunner {
     /// (theseus-9e02), the `brake` that makes it one: the window's spend, the
     /// line, and the window's length.
     pub(super) fn budget_call(t: &mut Turn<'_>) -> Value {
-        let mut call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens});
+        let mut call = json!({"profile": t.target.profile, "model": t.target.model, "max_output_tokens": t.target.max_tokens, "turn_id": t.tc.turn_id});
         if let Some(b) = t.braked.take() {
             call["brake"] = json!({
                 "spent_usd": micros_to_usd(b.spent),

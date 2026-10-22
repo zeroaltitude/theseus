@@ -18,6 +18,7 @@ fn ask(tool: &str, reason: &str) -> PendingConfirm {
         floor: false,
         budget: false,
         expires_at_ms: AT + 300_000,
+        turn_id: None,
     }
 }
 

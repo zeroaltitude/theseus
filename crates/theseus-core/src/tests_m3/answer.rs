@@ -99,6 +99,30 @@ async fn an_approvals_options_run_it_or_decline_it() {
     assert!(r.root.join("out.txt").exists());
 }
 
+/// A question names the turn whose call asks, so a chat that follows the
+/// session shows only its own turns' (theseus-fkvb0): an approval's from its
+/// call's node, a budget question's from the call it waits on, in
+/// `confirm.list` and in `budget.list`.
+#[tokio::test]
+async fn confirm_list_carries_the_asking_turn() {
+    let r = rig(write_script());
+    let res = turn(&r.core, None, "write out.txt").await;
+    let q = r.core.confirm_list().unwrap().remove(0);
+    assert_eq!(q.turn_id.as_deref(), Some(res.turn_id.as_str()));
+    let r = over_limit_rig();
+    let res = turn(&r.core, None, "hello").await;
+    assert_eq!(res.stop_reason, "budget", "{res:?}");
+    let q = r.core.confirm_list().unwrap().remove(0);
+    assert_eq!(q.turn_id.as_deref(), Some(res.turn_id.as_str()), "{q:?}");
+    let listed = r.core.budget_list().unwrap();
+    let asked = listed
+        .executions
+        .iter()
+        .find_map(|b| b.question.as_ref())
+        .unwrap();
+    assert_eq!(asked.turn_id.as_deref(), Some(res.turn_id.as_str()));
+}
+
 /// A budget question's two answers: `reset` sends the spend back to $0 and
 /// the call proceeds; `decline` leaves the session waiting. An approval's
 /// option is not a budget's.

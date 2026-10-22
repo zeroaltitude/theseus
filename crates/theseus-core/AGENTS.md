@@ -1591,7 +1591,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` and
-    `context.detoured` (`ContextDetour` carry `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
+    `context.detoured` (`ContextDetour` carries `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
     in the one frame with `loop.started`) and no `context.compiled`, since its compilation is never stored (`tests_route_rows.rs`); `context.explain`
     explains a turn with no compile from that row (`ContextExplainResult.detour`, the turn list's `detoured`; theseus-r5ydi), and the
     conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`

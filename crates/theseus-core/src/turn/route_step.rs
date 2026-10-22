@@ -204,6 +204,21 @@ pub(super) struct Timed {
     answered_ms: Option<u64>,
 }
 
+impl Timed {
+    /// The times of a turn that waited `w` for its verdict from `started`.
+    fn of(w: &Waited, late: bool, started: std::time::Instant) -> Self {
+        let answered = w
+            .answered
+            .map(|at| at.into_std().saturating_duration_since(started));
+        Self {
+            est_tokens: 0,
+            waited: w.waited,
+            late,
+            answered_ms: answered.map(|d| d.as_millis() as u64),
+        }
+    }
+}
+
 /// Run `compile`, then wait for the verdict at most `max_wait` after it
 /// ends (not waiting at all when `wait` is false): the verdict's call
 /// started before the compile, so its time runs beside it.
@@ -559,19 +574,19 @@ impl TurnRunner {
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
         // Missed: the turn decides without its own verdict (theseus-ddbi).
         let late = live && steering.is_none() && w.got == Got::Late;
-        let answered_ms = w.answered.map(|at| {
-            at.into_std()
-                .saturating_duration_since(t.started)
-                .as_millis() as u64
-        });
         if live && steering.is_none() {
             self.judge.record_route_wait(w.waited, late);
         }
-        let (got, waited) = (w.got, w.waited);
+        let timed = Timed::of(&w, late, t.started);
+        let got = w.got;
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
-            Err(f) => return Ok(Err(self.held(t, f, (got, live, unreachable), rx, session))),
+            Err(f) => {
+                let seen = (got, live, unreachable);
+                let held = self.held(t, f, seen, rx, session, (timed, steering.as_ref()));
+                return Ok(Err(held));
+            }
         };
         let base = t.target.profile.clone();
         let (verdict, reason) = self.read_verdict(
@@ -601,9 +616,7 @@ impl TurnRunner {
             reason,
             Timed {
                 est_tokens: compiled.est_tokens,
-                waited,
-                late,
-                answered_ms,
+                ..timed
             },
             steering.as_ref(),
         );
@@ -664,14 +677,15 @@ impl TurnRunner {
         }
     }
 
-    /// A failed compile still holds a reach for the owner's personal details:
-    /// the verdict is read and the privacy check run, and `f` goes on as it
-    /// was; the turn loop then ends the turn held (theseus-cljlz). The turn
-    /// is still counted in the route's books (theseus-qiyxq): its
+    /// A compile failed (every failure comes here, held or not): the verdict
+    /// is read and the privacy check run, and `f` goes on as it was; the turn
+    /// loop then ends the turn held where the verdict holds (theseus-cljlz).
+    /// The turn is still counted in the route's books (theseus-qiyxq): its
     /// `route.decided` row (no decision, so the profile it would have run on
-    /// and a reason of the verdict's absence or kind; the wait is not timed
-    /// here) and the correction memory's note, so route stats count held
-    /// turns. Not the persona: no persona answers the fixed line.
+    /// and a reason of the verdict's absence or kind; the wait, `late`,
+    /// `answered_ms` and the steering are the turn's own, theseus-m1a51) and
+    /// the correction memory's note, so route stats count these turns. Not the
+    /// persona: no persona answers the fixed line.
     fn held(
         &self,
         t: &mut Turn<'_>,
@@ -679,11 +693,12 @@ impl TurnRunner {
         (got, live, unreachable): (Got, bool, bool),
         rx: RouteWait,
         session: &SessionRecord,
+        (timed, steering): (Timed, Option<&Steering>),
     ) -> Failure {
         let last = session.last_turn_id.as_deref();
         let (verdict, reason) = self.read_verdict(t, got, live, rx, last, unreachable);
         self.personal_warn(t, verdict.as_ref());
-        self.record_route(t, verdict.as_ref(), None, reason, Default::default(), None);
+        self.record_route(t, verdict.as_ref(), None, reason, timed, steering);
         self.note_routed(t, verdict.as_ref(), None);
         f
     }

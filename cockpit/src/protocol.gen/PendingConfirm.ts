@@ -25,4 +25,8 @@ budget: boolean,
 /**
  * When the question stops holding; 0 for a budget question.
  */
-expires_at_ms: number, };
+expires_at_ms: number, 
+/**
+ * The turn whose call asks, when the daemon knows it (`ConfirmRequest::turn_id`).
+ */
+turn_id?: string, };

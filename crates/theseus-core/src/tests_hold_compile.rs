@@ -30,6 +30,13 @@ fn reach(tokens: usize) -> String {
 /// A route rig whose model's window the message passes, Jev reading it as a
 /// sure reach, and a session in a guild channel (shared) or not (private).
 fn rigged(shared: bool) -> (Rig, FakeJev, String) {
+    rigged_with(shared, |_| {})
+}
+
+fn rigged_with(
+    shared: bool,
+    more: impl Fn(&mut crate::Config) + 'static,
+) -> (Rig, FakeJev, String) {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
     jev.script(
@@ -48,6 +55,7 @@ fn rigged(shared: bool) -> (Rig, FakeJev, String) {
                 ..Default::default()
             },
         );
+        more(c);
     });
     r.core
         .runner
@@ -168,4 +176,31 @@ async fn a_compile_failure_in_a_private_place_still_fails() {
     let warned = rows(&r.core, "privacy.warned");
     assert_eq!(warned.len(), 1, "{warned:?}");
     assert_eq!(warned[0]["held"].as_bool(), Some(false));
+}
+
+/// A compile failure's route row carries the turn's own wait: a verdict held
+/// past `max_wait_ms` is `late`, waited the bound, never answered
+/// (theseus-m1a51).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_compile_failure_records_its_wait_and_steer() {
+    let (r, jev, sid) = rigged_with(false, |c| {
+        c.routing.max_wait_ms = 300;
+        c.judge.total_secs = 30;
+    });
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    run(&r.core, &sid, &reach(50_000))
+        .await
+        .expect_err("past the window alone");
+    let routed = rows(&r.core, "route.decided");
+    assert_eq!(routed.len(), 1, "{routed:?}");
+    let d = &routed[0];
+    assert!(
+        d["wait_ms"].as_u64().unwrap() >= 300,
+        "the bound waited: {d}"
+    );
+    assert_eq!(
+        (&d["late"], &d["answered_ms"]),
+        (&Value::Bool(true), &Value::Null)
+    );
+    jev.release();
 }
