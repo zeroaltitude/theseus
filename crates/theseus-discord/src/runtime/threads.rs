@@ -702,6 +702,17 @@ impl Shared {
                 let line = format!("🧵 <#{thread}> · {}", clip(&v.title));
                 let at = self.task_posts.home.instead_of(self, &p.target);
                 self.say_to(at.as_deref().unwrap_or(&p.target), line, &p.session);
+                // The DM's pointer went to the home: the DM, where the task
+                // was asked for, says it started, in one quiet line
+                // (theseus-h68q6: a notified start is seen where it began).
+                if at.is_some() {
+                    let started = format!(
+                        "🔔 started task `{}` · {} · <#{thread}>",
+                        board_v2::short(&v.id),
+                        clip(&v.title)
+                    );
+                    self.say_to(&p.target, started, &p.session);
+                }
                 self.task_threads.settle(&v.id);
                 // The task may have ended while the thread was made.
                 let _ = p.tx.send(PlaceMsg::Tasks);
