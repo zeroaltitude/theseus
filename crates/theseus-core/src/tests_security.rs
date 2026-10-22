@@ -99,7 +99,7 @@ pub(crate) fn core(
     jev: Option<&FakeJev>,
     tweak: impl FnOnce(&mut Config),
 ) -> (Arc<Core>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch::tempdir();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());

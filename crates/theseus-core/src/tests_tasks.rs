@@ -118,7 +118,7 @@ pub(crate) fn rig(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut Config),
 ) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch::tempdir();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
