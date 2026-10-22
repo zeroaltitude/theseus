@@ -235,8 +235,11 @@ mod voice {
             let t = std::time::Instant::now();
             // Attached before the join, so the handshake's speaking events
             // are heard (theseus-sro04).
-            let mut io =
-                SongbirdIo::join(&self.0, guild, channel, Duration::from_millis(400)).await?;
+            let lead = theseus_voice::LeadIn {
+                spell: Duration::from_millis(600),
+                gap: Duration::from_millis(200),
+            };
+            let mut io = SongbirdIo::join(&self.0, guild, channel, lead).await?;
             eprintln!(
                 "joined channel {channel} in guild {guild} in {} ms",
                 t.elapsed().as_millis()

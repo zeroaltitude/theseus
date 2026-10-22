@@ -429,7 +429,10 @@ impl Place {
             &songbird,
             guild,
             chan,
-            Duration::from_millis(voice.cfg.lead_in_ms),
+            theseus_voice::LeadIn {
+                spell: Duration::from_millis(voice.cfg.lead_in_ms),
+                gap: Duration::from_millis(voice.cfg.gap_lead_in_ms),
+            },
         );
         let io = match tokio::time::timeout(JOIN_WAIT, joined).await {
             Ok(Ok(io)) => io,

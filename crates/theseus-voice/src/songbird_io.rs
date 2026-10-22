@@ -47,12 +47,13 @@ use songbird::input::Input;
 use songbird::packet::rtcp::RtcpPacket;
 use songbird::packet::Packet as _;
 use songbird::shards::TwilightMap;
-use songbird::tracks::TrackHandle;
+use songbird::tracks::{Track, TrackHandle};
 use songbird::{Call, Songbird};
 use tokio::sync::{mpsc, watch};
 
-use crate::audio::{Audio, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
+use crate::audio::{Audio, FRAME_SAMPLES, SAMPLE_RATE};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
+use crate::warm::{led_in, warm_silence, AfterClip, LeadIn, Silence, Spell, Warm, Warmth};
 
 /// songbird's configuration as the engine needs it: what's received is
 /// decoded to 48 kHz mono. songbird's default only decrypts, and its events
@@ -84,58 +85,6 @@ pub fn clip_input(clip: &Audio) -> Input {
         bytes.extend_from_slice(&(f32::from(s) / 32768.0).to_le_bytes());
     }
     Input::from(bytes)
-}
-
-/// A clip that begins this long after the last one ended starts a new spell.
-const SPELL_GAP: Duration = Duration::from_millis(500);
-
-/// `clip` after `frames` silent frames.
-fn led_in(clip: &Audio, frames: u32) -> Audio {
-    let mut samples = vec![0; frames as usize * FRAME_SAMPLES];
-    samples.extend_from_slice(clip.samples());
-    Audio::new(samples)
-}
-
-/// Whether the bot is speaking: a clip that starts a spell, after quiet,
-/// gets the lead-in, and the next sentence of the same reply does not.
-struct Spell {
-    /// Silent frames sent before the first clip of a spell, so the listener's
-    /// jitter buffer and Discord's speaking-state flip don't eat its head
-    /// ("Theseus here" heard as "seus here", theseus-yf9ct). 0 is off.
-    lead_in: u32,
-    clip: Option<ClipId>,
-    quiet_since: Option<Instant>,
-}
-
-impl Spell {
-    /// A spell that leads in with `lead_in` of silence, in whole frames
-    /// rounded up.
-    fn new(lead_in: Duration) -> Self {
-        Self {
-            lead_in: lead_in.as_nanos().div_ceil(FRAME.as_nanos()) as u32,
-            clip: None,
-            quiet_since: None,
-        }
-    }
-
-    /// Clip `id` begins at `now`: does it need the lead-in?
-    fn begin(&mut self, id: ClipId, now: Instant) -> bool {
-        let lead = self.clip.is_none()
-            && self
-                .quiet_since
-                .is_none_or(|since| now.saturating_duration_since(since) >= SPELL_GAP);
-        self.clip = Some(id);
-        lead && self.lead_in > 0
-    }
-
-    /// Clip `id` ended or was stopped (an earlier clip's end, after a later
-    /// began, changes nothing).
-    fn end(&mut self, id: ClipId, now: Instant) {
-        if self.clip == Some(id) {
-            self.clip = None;
-            self.quiet_since = Some(now);
-        }
-    }
 }
 
 /// What one SSRC has sent so far: the live check's log (44a), and Health's
@@ -337,6 +286,8 @@ pub struct SongbirdIo {
     tx: mpsc::UnboundedSender<Signal>,
     track: Option<TrackHandle>,
     spell: Spell,
+    /// The silent tracks that keep the stream warm between clips.
+    warm: Warm<TrackHandle>,
     /// The silence sent before the clip last played (`VoiceIo::lead_in`).
     lead_in: usize,
     ssrcs: Arc<Mutex<Ssrcs>>,
@@ -429,7 +380,7 @@ impl SongbirdIo {
         songbird: &Songbird,
         guild: NonZeroU64,
         channel: NonZeroU64,
-        lead_in: Duration,
+        lead_in: LeadIn,
     ) -> songbird::error::JoinResult<Self> {
         Self::join_call(songbird.get_or_insert(guild), channel, lead_in).await
     }
@@ -437,7 +388,7 @@ impl SongbirdIo {
     async fn join_call(
         call: Arc<tokio::sync::Mutex<Call>>,
         channel: NonZeroU64,
-        lead_in: Duration,
+        lead_in: LeadIn,
     ) -> songbird::error::JoinResult<Self> {
         let io = Self::attach(Arc::clone(&call), lead_in).await;
         // songbird hands the gateway's voice updates to the call under its
@@ -452,8 +403,8 @@ impl SongbirdIo {
     /// `Call`) with its own, and spawns nothing. Attached after the call has
     /// joined, it misses the speaking events of anyone already talking:
     /// [`SongbirdIo::join`] attaches before. `lead_in` is the silence before
-    /// the first clip of a speaking spell (zero is off).
-    pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>, lead_in: Duration) -> Self {
+    /// a clip (`crate::warm`).
+    pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>, lead_in: LeadIn) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let ssrcs = Arc::new(Mutex::new(Ssrcs::default()));
         let rejoining = Arc::new(AtomicBool::new(false));
@@ -490,6 +441,7 @@ impl SongbirdIo {
             tx,
             track: None,
             spell: Spell::new(lead_in),
+            warm: Warm::new(),
             lead_in: 0,
             ssrcs,
             rejoining,
@@ -590,21 +542,32 @@ impl VoiceIo for SongbirdIo {
 
     fn play(&mut self, id: ClipId, clip: Audio) -> BoxFuture<'_, ()> {
         Box::pin(async move {
-            let led = self.spell.begin(id, Instant::now());
-            self.lead_in = if led {
-                self.spell.lead_in as usize * FRAME_SAMPLES
-            } else {
-                0
+            let frames = self.spell.begin(id, Instant::now(), self.warm.warmth.on());
+            self.lead_in = frames as usize * FRAME_SAMPLES;
+            let input = clip_input(&led_in(&clip, frames));
+            // The clip's warm silence waits beside it, paused, so its end
+            // starts it at once (`crate::warm`).
+            let (track, warm) = {
+                let mut call = self.call.lock().await;
+                let warm = call.play(Track::new(clip_input(&warm_silence())).pause());
+                (call.play_input(input), warm)
             };
-            let input = match led {
-                true => clip_input(&led_in(&clip, self.spell.lead_in)),
-                false => clip_input(&clip),
-            };
-            let track = self.call.lock().await.play_input(input);
+            let _ = warm.add_event(
+                Event::Track(TrackEvent::End),
+                WarmEnded {
+                    warmth: self.warm.warmth.clone(),
+                    id,
+                },
+            );
             let ended = Ended {
                 tx: self.tx.clone(),
-                id,
+                after: Arc::new(AfterClip {
+                    id,
+                    warm: Some(warm.clone()),
+                    warmth: self.warm.warmth.clone(),
+                }),
             };
+            self.warm.add(warm);
             // A track that ends or fails is over either way. If the track is
             // already gone, the error says so, and its `Ended` is sent here.
             let added = track
@@ -621,6 +584,8 @@ impl VoiceIo for SongbirdIo {
         if let Some(id) = self.spell.clip {
             self.spell.end(id, Instant::now());
         }
+        // The warm tracks first, so the stopped clip's end starts none.
+        self.warm.stop();
         if let Some(track) = self.track.take() {
             // A track already gone has sent its `Ended`.
             let _ = track.stop();
@@ -715,14 +680,41 @@ fn mono(pcm: &[i16]) -> Vec<i16> {
 #[derive(Clone)]
 struct Ended {
     tx: mpsc::UnboundedSender<Signal>,
-    id: ClipId,
+    after: Arc<AfterClip<TrackHandle>>,
 }
 
 #[async_trait]
 impl EventHandler for Ended {
     async fn act(&self, _: &EventContext<'_>) -> Option<Event> {
-        let _ = self.tx.send(Signal::Heard(Heard::Ended(self.id)));
+        // The warm silence starts before the engine hears the end, so the
+        // next clip reads it as playing.
+        self.after.ended();
+        let _ = self.tx.send(Signal::Heard(Heard::Ended(self.after.id)));
         // Once is enough: remove this handler.
+        Some(Event::Cancel)
+    }
+}
+
+impl Silence for TrackHandle {
+    fn play(&self) -> bool {
+        TrackHandle::play(self).is_ok()
+    }
+
+    fn stop(&self) {
+        let _ = TrackHandle::stop(self);
+    }
+}
+
+/// A warm track's end: the warmth goes out, and the engine hears nothing.
+struct WarmEnded {
+    warmth: Warmth,
+    id: ClipId,
+}
+
+#[async_trait]
+impl EventHandler for WarmEnded {
+    async fn act(&self, _: &EventContext<'_>) -> Option<Event> {
+        self.warmth.ended(self.id);
         Some(Event::Cancel)
     }
 }
@@ -751,22 +743,39 @@ mod tests {
         assert_eq!(decoded, chime.len());
     }
 
+    /// A lead-in of `ms` before a spell, none after a gap.
+    fn spell_of(ms: u64) -> LeadIn {
+        LeadIn {
+            spell: Duration::from_millis(ms),
+            gap: Duration::ZERO,
+        }
+    }
+
     #[test]
     fn the_first_clip_after_quiet_leads_in_and_the_next_sentence_does_not() {
         let t0 = Instant::now();
         let ms = Duration::from_millis;
-        let mut spell = Spell::new(Duration::from_millis(100));
-        assert!(
-            spell.begin(ClipId(0), t0),
+        let mut spell = Spell::new(spell_of(100));
+        assert_eq!(
+            spell.begin(ClipId(0), t0, false),
+            5,
             "the greeting after a quiet call"
         );
         spell.end(ClipId(0), t0 + ms(1200));
-        assert!(!spell.begin(ClipId(1), t0 + ms(1210)), "the next sentence");
+        assert_eq!(
+            spell.begin(ClipId(1), t0 + ms(1210), true),
+            0,
+            "the next sentence, under the warm silence"
+        );
         spell.end(ClipId(1), t0 + ms(2000));
-        assert!(spell.begin(ClipId(2), t0 + ms(2600)), "a reply after quiet");
+        assert_eq!(
+            spell.begin(ClipId(2), t0 + ms(2600), true),
+            5,
+            "a reply after quiet"
+        );
         // A stopped clip's late `Ended` leaves the next one's spell alone.
         spell.end(ClipId(2), t0 + ms(2700));
-        assert!(spell.begin(ClipId(3), t0 + ms(3300)));
+        assert_eq!(spell.begin(ClipId(3), t0 + ms(3300), false), 5);
         spell.end(ClipId(2), t0 + ms(3310));
         assert_eq!(spell.clip, Some(ClipId(3)));
         let chime = Audio::chime();
@@ -782,17 +791,57 @@ mod tests {
     #[test]
     fn a_spell_leads_in_with_the_configured_silence() {
         let chime = Audio::chime();
-        let mut spell = Spell::new(Duration::from_millis(400));
+        let mut spell = Spell::new(spell_of(400));
         assert_eq!(spell.lead_in, 20);
-        assert!(spell.begin(ClipId(0), Instant::now()));
+        assert_eq!(spell.begin(ClipId(0), Instant::now(), false), 20);
         let led = led_in(&chime, spell.lead_in);
         assert_eq!(led.len(), chime.len() + 20 * FRAME_SAMPLES);
         assert!(led.samples()[..20 * FRAME_SAMPLES].iter().all(|&s| s == 0));
         assert_eq!(&led.samples()[20 * FRAME_SAMPLES..], chime.samples());
-        assert_eq!(Spell::new(Duration::from_millis(410)).lead_in, 21);
-        let mut off = Spell::new(Duration::ZERO);
-        assert!(!off.begin(ClipId(0), Instant::now()), "no lead when off");
+        assert_eq!(Spell::new(spell_of(410)).lead_in, 21);
+        let mut off = Spell::new(LeadIn::default());
+        assert_eq!(
+            off.begin(ClipId(0), Instant::now(), false),
+            0,
+            "no lead when off"
+        );
         assert_eq!(led_in(&chime, off.lead_in).len(), chime.len());
+    }
+
+    /// `VoiceIo::lead_in` is the silence that led the clip played last, which
+    /// the echo canceller aligns by: the spell's after quiet, the gap's when
+    /// nothing was warm, none under the warm silence (theseus-9d9aq).
+    #[tokio::test]
+    async fn lead_in_reports_the_silence_that_led_the_clip() {
+        let id = |n| std::num::NonZeroU64::new(n).unwrap();
+        let shard = songbird::shards::Shard::Generic(Arc::new(Sent::default()));
+        let call = Call::new(
+            songbird::id::GuildId::from(id(1)),
+            shard,
+            UserId::from(id(2)),
+        );
+        let lead = LeadIn {
+            spell: Duration::from_millis(600),
+            gap: Duration::from_millis(200),
+        };
+        let mut io = SongbirdIo::attach(Arc::new(tokio::sync::Mutex::new(call)), lead).await;
+        let end = async |io: &mut SongbirdIo, n| {
+            io.tx.send(Signal::Heard(Heard::Ended(ClipId(n)))).unwrap();
+            assert_eq!(io.next().await, Some(Heard::Ended(ClipId(n))));
+        };
+        io.play(ClipId(0), Audio::chime()).await;
+        assert_eq!(io.lead_in(), 30 * FRAME_SAMPLES, "a spell's first clip");
+        end(&mut io, 0).await;
+        // No connection here, so no warm track plays: the gap's lead-in.
+        io.play(ClipId(1), Audio::chime()).await;
+        assert_eq!(io.lead_in(), 10 * FRAME_SAMPLES, "after a gap kept cold");
+        end(&mut io, 1).await;
+        // As clip 1's end does once its warm track plays.
+        io.warm.warmth.began(ClipId(1));
+        io.play(ClipId(2), Audio::chime()).await;
+        assert_eq!(io.lead_in(), 0, "under the warm silence");
+        io.stop().await;
+        assert!(!io.warm.warmth.on(), "a stop ends the warmth");
     }
 
     #[tokio::test]
@@ -1017,7 +1066,7 @@ mod tests {
             shard,
             UserId::from(id(2)),
         )));
-        let r = SongbirdIo::join_call(Arc::clone(&call), id(3), Duration::ZERO).await;
+        let r = SongbirdIo::join_call(Arc::clone(&call), id(3), LeadIn::default()).await;
         assert!(r.is_err(), "no voice server answers here");
         assert_eq!(*sent.0.lock().unwrap(), [Some(3)]);
     }
@@ -1039,7 +1088,7 @@ mod tests {
             )));
             let channel = songbird::id::ChannelId::from(id(3));
             drop(call.lock().await.join(channel).await.unwrap());
-            let io = SongbirdIo::attach(Arc::clone(&call), Duration::ZERO).await;
+            let io = SongbirdIo::attach(Arc::clone(&call), LeadIn::default()).await;
             io.ssrcs.lock().unwrap().report(11, None, Instant::now());
             let (link, wanted) = (io.link(), Arc::new(AtomicBool::new(true)));
             let still = Arc::clone(&wanted);
