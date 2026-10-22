@@ -455,6 +455,14 @@ impl JudgeService {
         }
     }
 
+    /// A turn the data rule kept off a restricted-origin model, as
+    /// `theseus.route.data_gate` (theseus-a1wvq.11).
+    pub fn record_data_gate(&self, what: &str, why: &str) {
+        if let Some(t) = self.telemetry.get() {
+            t.record_data_gate(what, why);
+        }
+    }
+
     /// The session holds a late verdict (a test's wait for one to land).
     #[cfg(test)]
     pub fn has_late(&self, session: &str) -> bool {

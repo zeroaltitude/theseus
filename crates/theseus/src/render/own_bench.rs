@@ -29,8 +29,12 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
         out.push("  no turns in the window.".into());
     }
     for c in &r.cells {
+        let origin = match c.origin.as_str() {
+            "" => String::new(),
+            o => format!(" [{o}]"),
+        };
         let mut line = format!(
-            "  {} @ {}: {} turns, {}",
+            "  {} @ {}{origin}: {} turns, {}",
             c.model,
             effort(&c.effort),
             c.turns,
@@ -67,6 +71,7 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
         }
         out.push(line);
     }
+    out.extend(data_lines(r));
     out.push(format!(
         "Movable at {:.0}% confidence: {} of {}.",
         r.confidence * 100.0,
@@ -87,6 +92,29 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
             usd(r.replay_day_usd)
         ),
     });
+    out
+}
+
+/// The data rule's columns (theseus-a1wvq.11): a line per origin and Jev's
+/// data verdict, and one of the gate's skips by reason. Nothing when every
+/// turn is from before routing recorded its origin.
+fn data_lines(r: &RouteReportResult) -> Vec<String> {
+    if r.data.iter().all(|d| d.origin == "unrecorded") {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = r
+        .data
+        .iter()
+        .map(|d| {
+            let turns = format!("{} turns, {}", d.turns, usd(d.spend_usd));
+            format!("  {} · data {}: {turns}", d.origin, d.data)
+        })
+        .collect();
+    if !r.gates.is_empty() {
+        let why = r.gates.iter().map(|g| format!("{} {}", g.why, g.turns));
+        let why = why.collect::<Vec<_>>().join(", ");
+        out.push(format!("  kept off a restricted-origin model: {why}"));
+    }
     out
 }
 
@@ -205,6 +233,7 @@ mod tests {
     fn cell() -> RouteCell {
         RouteCell {
             model: "claude-sonnet-5-5".into(),
+            origin: String::new(),
             effort: "high".into(),
             turns: 40,
             spend_usd: 12.5,
@@ -244,6 +273,8 @@ mod tests {
             replay_today_usd: 0.31,
             replay_day_usd: 1.0,
             sampler: None,
+            data: vec![],
+            gates: vec![],
         };
         assert_eq!(
             report_lines(&r),
@@ -280,6 +311,8 @@ mod tests {
             replay_today_usd: 0.31,
             replay_day_usd: 1.0,
             sampler: None,
+            data: vec![],
+            gates: vec![],
         };
         let lines = report_lines(&r);
         assert!(lines[1].contains("; whole turns: 4 replayed, 3 matched, 2 with the same tests"));
@@ -340,5 +373,43 @@ mod tests {
             ]
         );
         let _ = TurnReplayResult::default();
+    }
+
+    /// The data rule's lines (theseus-a1wvq.11): the origin on each cell, a
+    /// line per origin and verdict, one of the gate's skips; and nothing more
+    /// when every turn is from before the keys.
+    #[test]
+    fn the_report_says_origin_data_and_gate_skips() {
+        use theseus_protocol::own_bench::{DataCell, GateCount};
+        let data = |origin: &str, data: &str, turns: u64, spend_usd: f64| DataCell {
+            origin: origin.into(),
+            data: data.into(),
+            turns,
+            spend_usd,
+        };
+        let mut r = RouteReportResult {
+            window_days: 1,
+            cells: vec![RouteCell {
+                model: "glm-x".into(),
+                origin: "cn".into(),
+                turns: 3,
+                spend_usd: 0.3,
+                ..RouteCell::default()
+            }],
+            data: vec![data("cn", "open", 3, 0.3), data("us", "private", 1, 1.0)],
+            gates: vec![GateCount {
+                why: "verdict_private".into(),
+                turns: 1,
+            }],
+            ..RouteReportResult::default()
+        };
+        let lines = report_lines(&r);
+        assert_eq!(lines[1], "  glm-x @ default [cn]: 3 turns, $0.30; not replayed yet");
+        assert_eq!(lines[2], "  cn \u{b7} data open: 3 turns, $0.30");
+        assert_eq!(lines[3], "  us \u{b7} data private: 1 turns, $1.00");
+        assert_eq!(lines[4], "  kept off a restricted-origin model: verdict_private 1");
+        r.data = vec![data("unrecorded", "none", 3, 0.3)];
+        r.gates.clear();
+        assert!(report_lines(&r)[2].starts_with("Movable"));
     }
 }

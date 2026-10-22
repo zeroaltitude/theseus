@@ -5,6 +5,12 @@
  */
 export type RouteCell = { model: string, 
 /**
+ * The origin of the cell's turns' model (`us`, `eu`, `cn`, `unknown`),
+ * `unrecorded` for turns from before routing recorded it, `mixed` if
+ * they differ; empty for a cell no turn is in (theseus-a1wvq.11).
+ */
+origin: string, 
+/**
  * The effort the turns ran at; empty: the profile's own.
  */
 effort: string, turns: number, spend_usd: number, 

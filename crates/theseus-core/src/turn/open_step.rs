@@ -51,6 +51,8 @@ pub(super) struct Held {
     taint: Option<Taint>,
     /// A later loop moved off a restricted model.
     moved: bool,
+    /// The nodes the last request carried (theseus-a1wvq.11).
+    pub(super) run_nodes: usize,
 }
 
 /// The targets a turn may move to, each set once: routing's, a refusal's
@@ -238,14 +240,19 @@ impl TurnRunner {
     /// cleared. A request that fails gets none, so the chokepoint refuses it
     /// if anything still sends it to a restricted model.
     pub(super) fn data_pass(t: &mut Turn<'_>, compiled: &mut Compiled) {
+        let mut run_nodes = 0;
         let cleared = match (&t.route.admitted.0, t.tc.open) {
             (Err(why), _) => Clearance::closed(*why),
             (Ok(_), None) => Clearance::closed(DataWhy::PrivateView),
             (Ok(run), Some(_)) => Self::carried(t, run, compiled).map_or_else(
                 |_| Clearance::closed(DataWhy::Unchecked),
-                |c| data::clearance(run, &c),
+                |c| {
+                    run_nodes = c.nodes.len();
+                    data::clearance(run, &c)
+                },
             ),
         };
+        t.data.run_nodes = run_nodes;
         if cleared.is_cleared() {
             let digest = compiled.request.digest();
             compiled.request.data_pass = cleared.pass(&digest);
@@ -346,7 +353,8 @@ impl TurnRunner {
             ))));
         };
         let p = p.clone();
-        Self::record_route(t, None, Some(&d), None, 0, Default::default(), None);
+        t.route.gated = Some(DataWhy::ToolResult.as_str());
+        self.record_route(t, None, Some(&d), None, 0, Default::default(), None);
         if t.route.keeps.is_some() {
             // The detour goes on in the session's own view.
             t.tc.open = self.open_of(session);

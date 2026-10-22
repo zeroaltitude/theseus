@@ -1616,6 +1616,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     restricted profile for the owner-material keys (`[people] extract_profile`, `[card] profile`, `[threads]
     import_profile`, `[judge.learn] writer_profile`, `[self] reviewer_profile`, `[initiative] profile`, `[ontology]
     name_profile`) and a China-origin `[judge] api_base`. Tests: `tests_data_floor.rs`, `config/data_floor.rs`.
+    **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries the turn's
+    admission and gate (`data`, `data_confidence`, `clearance`: `admitted` or `closed`, never a pass; `data_gate`, only when the rule
+    kept the turn off a restricted-origin model) and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call`
+    carries `origin` and, for a restricted one, `pass` and `run_nodes` per request, and the result's `TurnRoute.data` says `open` only
+    once a request left with a pass. `data_gate` is an open word (a `DataWhy` word, `sensitive`, or a later row's own); each one also
+    counts on `theseus.route.data_gate` (`Telemetry::record_data_gate(what, why)`).
   - **A session's data state** (theseus-a1wvq.5; store format 48; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
     `DataState { opened, run, taint }`, opened by an open task (theseus-a1wvq.6), its run kept by an open request's turn (theseus-a1wvq.8). Absent is the
     private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.

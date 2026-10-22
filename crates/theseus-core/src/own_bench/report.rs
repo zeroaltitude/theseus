@@ -15,7 +15,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use theseus_protocol::own_bench::{RouteCell, RouteReportParams, RouteReportResult};
+use theseus_protocol::own_bench::{
+    DataCell, GateCount, RouteCell, RouteReportParams, RouteReportResult,
+};
 use theseus_protocol::LedgerKind;
 
 use super::sampler::Candidate;
@@ -36,6 +38,47 @@ pub struct Turn {
     pub cost_usd: f64,
     /// The owner corrected its routing.
     pub checked: bool,
+    /// What its `route.decided` rows say of the data rule (theseus-a1wvq.11).
+    pub data: Data,
+}
+
+/// A turn's data rule as its route rows wrote it: the origin it ended on
+/// (none: the rows predate it), Jev's data answer, and why the rule kept it
+/// off a restricted-origin model.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Data {
+    pub origin: Option<String>,
+    pub verdict: Option<String>,
+    pub gate: Option<String>,
+}
+
+/// The origin a turn's cell says: `unrecorded` before routing wrote one.
+fn origin_of(d: &Data) -> &str {
+    d.origin.as_deref().unwrap_or("unrecorded")
+}
+
+/// Per origin and data verdict, and the gate's skips per reason, sorted.
+pub fn data_cells(turns: &[Turn]) -> (Vec<DataCell>, Vec<GateCount>) {
+    let mut cells: BTreeMap<(&str, &str), DataCell> = BTreeMap::new();
+    let mut gates: BTreeMap<&str, u64> = BTreeMap::new();
+    for t in turns {
+        let (origin, data) = (origin_of(&t.data), t.data.verdict.as_deref().unwrap_or("none"));
+        let c = cells.entry((origin, data)).or_insert_with(|| DataCell {
+            origin: origin.into(),
+            data: data.into(),
+            ..DataCell::default()
+        });
+        c.turns += 1;
+        c.spend_usd += t.cost_usd;
+        if let Some(g) = &t.data.gate {
+            *gates.entry(g).or_default() += 1;
+        }
+    }
+    let gates = gates
+        .into_iter()
+        .map(|(why, turns)| GateCount { why: why.into(), turns })
+        .collect();
+    (cells.into_values().collect(), gates)
 }
 
 /// A `route.replay.judged` row, as the report reads it.
@@ -111,6 +154,11 @@ pub fn cells(turns: &[Turn], judged: &[Judged]) -> Vec<RouteCell> {
         let c = by.entry((t.model.clone(), t.effort.clone())).or_default();
         c.model.clone_from(&t.model);
         c.effort.clone_from(&t.effort);
+        match c.origin.as_str() {
+            "" => c.origin = origin_of(&t.data).into(),
+            o if o != origin_of(&t.data) => c.origin = "mixed".into(),
+            _ => {}
+        }
         c.turns += 1;
         c.spend_usd += t.cost_usd;
         c.checked += u64::from(t.checked);
@@ -159,6 +207,23 @@ pub fn cells(turns: &[Turn], judged: &[Judged]) -> Vec<RouteCell> {
 }
 
 impl Core {
+    /// Each turn's data rule from its `route.decided` rows since `since_ms`:
+    /// the origin of the last row that names one (the model the turn ended
+    /// on), the first data answer, the first gate word. A row from before
+    /// the keys has none of them.
+    fn route_data_since(&self, since_ms: u64) -> anyhow::Result<BTreeMap<String, Data>> {
+        let mut out: BTreeMap<String, Data> = BTreeMap::new();
+        for r in self.rows_since(LedgerKind::RouteDecided, since_ms)? {
+            let Some(turn) = r.turn_id else { continue };
+            let d = out.entry(turn).or_default();
+            let word = |k: &str| r.data[k].as_str().map(str::to_string);
+            d.origin = word("origin").or(d.origin.take());
+            d.verdict = d.verdict.take().or_else(|| word("data"));
+            d.gate = d.gate.take().or_else(|| word("data_gate"));
+        }
+        Ok(out)
+    }
+
     /// `route.report`: a day, or a week with `week`.
     pub async fn route_report(
         self: &std::sync::Arc<Self>,
@@ -185,6 +250,7 @@ impl Core {
             .filter_map(|r| r.data["turn"].as_str().map(str::to_string))
             .collect();
         let turns = self.turns_since(since)?;
+        let mut data = self.route_data_since(since)?;
         let lines: Vec<Turn> = turns
             .iter()
             .map(|c: &Candidate| Turn {
@@ -192,6 +258,7 @@ impl Core {
                 effort: c.effort.clone(),
                 cost_usd: c.cost_usd,
                 checked: corrected.contains(&c.turn),
+                data: data.remove(&c.turn).unwrap_or_default(),
             })
             .collect();
         let judged: Vec<Judged> = self
@@ -212,6 +279,7 @@ impl Core {
             })
             .collect();
         let mut cells = cells(&lines, &judged);
+        let (data, gates) = data_cells(&lines);
         let wholes: Vec<Whole> = self
             .rows_since(LedgerKind::TurnReplayed, since)?
             .into_iter()
@@ -242,6 +310,8 @@ impl Core {
             total_spend_usd: cells.iter().map(|c| c.spend_usd).sum::<f64>() + 0.0,
             total_movable_usd: cells.iter().map(|c| c.movable_usd).sum::<f64>() + 0.0,
             cells,
+            data,
+            gates,
             labels_fed,
             replay_today_usd: self.replay_spent_today(now_ms)?,
             replay_day_usd: cap,
@@ -261,6 +331,7 @@ mod tests {
             effort: effort.into(),
             cost_usd: cost,
             checked,
+            data: Data::default(),
         }
     }
 
@@ -359,5 +430,62 @@ mod tests {
             (f.turns, f.whole_replayed, f.whole_matched, f.tests_same),
             (0, 1, 1, 0)
         );
+    }
+
+    fn cells_of(turns: &[Turn]) -> Vec<RouteCell> {
+        cells(turns, &[])
+    }
+
+    /// The data columns from planted rows (theseus-a1wvq.11): turns and spend
+    /// per origin and verdict, the gate's skips per reason, a mixed cell, and
+    /// an old row, which has no origin, counted as `unrecorded` (never as
+    /// `unknown`, a real restricted origin).
+    #[test]
+    fn the_report_counts_turns_per_origin_and_data_and_gate_skips() {
+        let with = |model: &str, cost: f64, origin: Option<&str>, v: Option<&str>, g: Option<&str>| {
+            Turn {
+                data: Data {
+                    origin: origin.map(Into::into),
+                    verdict: v.map(Into::into),
+                    gate: g.map(Into::into),
+                },
+                ..turn(model, "", cost, false)
+            }
+        };
+        let turns = [
+            with("glm", 0.10, Some("cn"), Some("open"), None),
+            with("glm", 0.20, Some("cn"), Some("open"), None),
+            with("sonnet", 1.00, Some("us"), Some("private"), Some("verdict_private")),
+            with("sonnet", 2.00, Some("us"), None, None),
+            with("sonnet", 4.00, None, None, None),
+            with("sonnet", 0.50, Some("unknown"), Some("unclear"), Some("verdict_unclear")),
+            with("mixed", 1.00, Some("us"), None, Some("verdict_private")),
+            with("mixed", 1.00, Some("cn"), None, None),
+        ];
+        let (data, gates) = data_cells(&turns);
+        let got: Vec<_> = data
+            .iter()
+            .map(|c| (c.origin.as_str(), c.data.as_str(), c.turns, c.spend_usd))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("cn", "none", 1, 1.0),
+                ("cn", "open", 2, 0.30000000000000004),
+                ("unknown", "unclear", 1, 0.5),
+                ("unrecorded", "none", 1, 4.0),
+                ("us", "none", 2, 3.0),
+                ("us", "private", 1, 1.0),
+            ]
+        );
+        let gates: Vec<_> = gates.iter().map(|g| (g.why.as_str(), g.turns)).collect();
+        assert_eq!(gates, [("verdict_private", 2), ("verdict_unclear", 1)]);
+        let cells = cells(&turns, &[]);
+        let origin = |m: &str| cells.iter().find(|c| c.model == m).unwrap().origin.clone();
+        assert_eq!(origin("glm"), "cn");
+        assert_eq!(origin("mixed"), "mixed");
+        assert_eq!(origin("sonnet"), "mixed", "an old row beside recorded ones");
+        let old = cells_of(&turns[4..5]);
+        assert_eq!(old[0].origin, "unrecorded");
     }
 }

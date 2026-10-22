@@ -21,6 +21,7 @@
 use super::*;
 use crate::provider::Provider;
 use crate::routing::{Decision, HoldNext, Reason};
+use theseus_protocol::route::{TurnData, TurnRoute};
 
 /// The profile the `[model]` section builds.
 pub(super) const DEFAULT_PROFILE: &str = "default";
@@ -97,6 +98,51 @@ impl TurnRunner {
         (floor.sensitive && self.uncleared_profile(profile)).then(|| REFUSED.to_string())
     }
 
+    /// The provider, model and origin word of `profile`, for the rows that name
+    /// where a turn ran: a profile that does not resolve has no provider or
+    /// model and origin `unknown`.
+    pub(super) fn ran_of(&self, profile: &str) -> fact::route::Ran<'_> {
+        let p = self.cfg.all_profiles().get(profile);
+        fact::route::Ran {
+            provider: p.map(|p| p.provider.as_str()),
+            model: p.map(|p| p.model.as_str()),
+            origin: crate::data_gate::word(self.cfg.profile_origin(profile, &self.catalog)),
+        }
+    }
+
+    /// Why the data rule kept the turn off a restricted-origin profile, for
+    /// its route row, when it did: the floor's own word where it moved the
+    /// decision, else the admission's, when the verdict's mode lists
+    /// restricted profiles that an unadmitted turn was left without.
+    pub(super) fn data_gate_why(&self, t: &mut Turn<'_>, mode: Option<&str>) -> Option<&'static str> {
+        t.route.gated.take().or_else(|| {
+            let why = t.route.admitted.0.as_ref().err()?;
+            let listed = !self.cfg.routing.classes.table(mode?).cn_profiles.is_empty();
+            listed.then(|| why.as_str())
+        })
+    }
+
+    /// A request left with a pass: the turn's result says `open`, from then
+    /// on (theseus-a1wvq.11). A turn that asked no route has no result yet,
+    /// so it takes one for its base.
+    pub(super) fn note_open(&self, t: &mut Turn<'_>, compiled: &Compiled) {
+        if compiled.request.data_pass.is_none() {
+            return;
+        }
+        let profile = t.target.profile.clone();
+        let r = t.route.result.get_or_insert_with(|| TurnRoute {
+            reason: Reason::NoVerdict.as_str().into(),
+            from: profile.clone(),
+            ..Default::default()
+        });
+        let d = r.data.get_or_insert_with(|| TurnData {
+            clearance: "open".into(),
+            origin: self.ran_of(&profile).origin.into(),
+            ..Default::default()
+        });
+        d.clearance = "open".into();
+    }
+
     /// The route's answer, kept where the floor lets the turn run: the
     /// decision stands when the floor lets its profile (else the turn's own)
     /// run, else the `[model]` default runs if the floor lets it and it is
@@ -120,6 +166,11 @@ impl TurnRunner {
         if t.route.floor().cleared && !open {
             t.route.admitted = super::open_step::Admitted(Err(crate::data::DataWhy::PrivateView));
         }
+        let clearance_moved = !floor.cleared && self.restricted_profile(ran);
+        t.route.gated = Some(match (&t.route.admitted.0, clearance_moved) {
+            (Err(why), true) => why.as_str(),
+            _ => "sensitive",
+        });
         let usable = self
             .route_profiles(floor)
             .get(DEFAULT_PROFILE)

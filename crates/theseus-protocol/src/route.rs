@@ -54,6 +54,42 @@ pub struct TurnRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub persona: Option<RoutePersona>,
+    /// The data rule's part in the turn (theseus-a1wvq.11), when routing
+    /// recorded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub data: Option<TurnData>,
+}
+
+/// What the data rule did for a turn, for the route line.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TurnData {
+    /// Jev's data answer (`open`, `private`, `unclear`), when it gave one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub verdict: Option<String>,
+    /// `admitted` or `closed` as routing found the turn, `open` once a request of it carried a pass.
+    pub clearance: String,
+    /// Why the data rule kept the turn off a restricted-origin model: an open word, absent when it did not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub gate: Option<String>,
+    /// The origin of the model the turn ran on (`us`, `eu`, `cn`, `unknown`).
+    pub origin: String,
+}
+
+impl TurnData {
+    /// The route line's data words, as every surface words them: `open` when a
+    /// request carried a pass, `data gate: <why>` when the rule kept the turn
+    /// off a restricted-origin model, nothing otherwise.
+    pub fn footer(&self) -> Option<String> {
+        match (self.clearance.as_str(), &self.gate) {
+            ("open", _) => Some("open".into()),
+            (_, Some(g)) => Some(format!("data gate: {g}")),
+            _ => None,
+        }
+    }
 }
 
 /// The persona that answered a turn and why, for the route line.
@@ -233,6 +269,47 @@ pub fn model_name(id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A turn's route with and without its data part round-trips, and a result
+    /// from before it reads as none; the footer words it once for every surface.
+    #[test]
+    fn turn_route_data_round_trips() {
+        let data = TurnData {
+            verdict: Some("open".into()),
+            clearance: "open".into(),
+            gate: None,
+            origin: "cn".into(),
+        };
+        let with = TurnRoute {
+            reason: "verdict".into(),
+            from: "sonnet".into(),
+            data: Some(data.clone()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&with).unwrap();
+        assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), with);
+        let without = TurnRoute {
+            data: None,
+            ..with
+        };
+        let json = serde_json::to_string(&without).unwrap();
+        assert!(!json.contains("data"), "{json}");
+        assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), without);
+        let old = r#"{"reason":"verdict","from":"sonnet"}"#;
+        assert_eq!(serde_json::from_str::<TurnRoute>(old).unwrap().data, None);
+        let gated = |clearance: &str, gate: Option<&str>| TurnData {
+            clearance: clearance.into(),
+            gate: gate.map(Into::into),
+            ..data.clone()
+        };
+        assert_eq!(data.footer().as_deref(), Some("open"));
+        assert_eq!(
+            gated("closed", Some("verdict_private")).footer().as_deref(),
+            Some("data gate: verdict_private")
+        );
+        assert_eq!(gated("admitted", None).footer(), None);
+        assert_eq!(gated("closed", None).footer(), None);
+    }
 
     /// The one line every surface shows, by how the turn ended (the cockpit's
     /// `test/fallback.test.ts` holds the same strings).

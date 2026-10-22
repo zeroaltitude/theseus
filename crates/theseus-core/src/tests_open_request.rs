@@ -26,15 +26,15 @@ use crate::tests_route::{call, decided, mode, rig_parts, Rig};
 use crate::turn::TurnRequest;
 use crate::Core;
 
-const OWNER: u64 = crate::tests_places::OWNER;
+pub(crate) const OWNER: u64 = crate::tests_places::OWNER;
 /// The owner's private notes, a context file not marked public.
 const SECRET: &str = "the vault code is 4417";
 /// A standing fact of the owner's.
 const FACT: &str = "the owner keeps bees at Hollowmere";
 /// A message Jev judges private, with its marker.
-const PRIVATE: &str = "Remind me what the Acme lease said, marker-7c1q.";
+pub(crate) const PRIVATE: &str = "Remind me what the Acme lease said, marker-7c1q.";
 /// Messages Jev judges open.
-const OPEN_A: &str = "What is the boiling point of water at sea level?";
+pub(crate) const OPEN_A: &str = "What is the boiling point of water at sea level?";
 const OPEN_B: &str = "And how many grams in a kilogram?";
 const OPEN_C: &str = "Spell the word widget backwards.";
 
@@ -53,7 +53,7 @@ fn config(c: &mut crate::Config, notes: &std::path::Path) {
 
 /// A rig as `config` says, its `zai` fake answering by `zai` when given;
 /// and the fake that records what reached `dsflash`.
-fn rig_with(
+pub(crate) fn rig_with(
     jev: &FakeJev,
     zai: Option<Vec<Scripted>>,
     tweak: impl FnOnce(&mut crate::Config),
@@ -91,10 +91,23 @@ fn rig_with(
     (r, zai, dir)
 }
 
+/// `rig_with`, its core's telemetry the given one's.
+pub(crate) fn rig_telemetry(
+    jev: &FakeJev,
+    tel: crate::telemetry::Telemetry,
+) -> (Rig, Arc<FakeProvider>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, format!("{SECRET}\n")).unwrap();
+    let r = rig_parts(Some(jev), 8, |c| config(c, &notes), move |p| p.telemetry = Some(tel));
+    let zai = r.zai.clone();
+    (r, zai, dir)
+}
+
 /// Jev: every message `trivial`, its data `private` at the act band, but
 /// the messages in `open`, judged `open` at the act band (matched as the
 /// state's `message`, never an earlier one the state quotes).
-fn jev(open: &[&str]) -> FakeJev {
+pub(crate) fn jev(open: &[&str]) -> FakeJev {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     for text in open {
@@ -105,7 +118,7 @@ fn jev(open: &[&str]) -> FakeJev {
     jev
 }
 
-fn choice(option: &str, confidence: f64) -> Jev {
+pub(crate) fn choice(option: &str, confidence: f64) -> Jev {
     Jev::Choice {
         option: option.into(),
         confidence,
@@ -113,7 +126,7 @@ fn choice(option: &str, confidence: f64) -> Jev {
 }
 
 /// A session posting to the owner's DM.
-fn dm(core: &Core) -> String {
+pub(crate) fn dm(core: &Core) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     core.outbox
@@ -123,7 +136,7 @@ fn dm(core: &Core) -> String {
 }
 
 /// The owner's message in `sid`, on the live profile or `chosen`.
-async fn say(core: &Arc<Core>, sid: &str, text: &str, chosen: Option<&str>) -> TurnSubmitResult {
+pub(crate) async fn say(core: &Arc<Core>, sid: &str, text: &str, chosen: Option<&str>) -> TurnSubmitResult {
     try_say(core, sid, text, chosen).await.unwrap()
 }
 
@@ -156,11 +169,11 @@ async fn try_say(
         .await
 }
 
-fn record(core: &Core, sid: &str) -> SessionRecord {
+pub(crate) fn record(core: &Core, sid: &str) -> SessionRecord {
     core.store.get_session(sid).unwrap().unwrap()
 }
 
-fn text(req: &ProviderRequest) -> String {
+pub(crate) fn text(req: &ProviderRequest) -> String {
     serde_json::to_string(req).unwrap()
 }
 
