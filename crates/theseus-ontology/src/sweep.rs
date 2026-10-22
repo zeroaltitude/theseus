@@ -54,6 +54,13 @@ pub enum Step {
         sessions: Vec<String>,
         records: Vec<Record>,
     },
+    /// `category` renamed from `from` (`renamed.rs`); the old name is kept in
+    /// its description.
+    Rename {
+        category: CategoryId,
+        from: String,
+        records: Vec<Record>,
+    },
 }
 
 impl Step {
@@ -61,16 +68,18 @@ impl Step {
         match self {
             Step::Decay { records, .. }
             | Step::Merge { records, .. }
-            | Step::Split { records, .. } => records,
+            | Step::Split { records, .. }
+            | Step::Rename { records, .. } => records,
         }
     }
 
-    /// A short word for the write's id: `decay`, `merge` or `split`.
+    /// A short word for the write's id: `decay`, `merge`, `split` or `rename`.
     pub fn word(&self) -> &'static str {
         match self {
             Step::Decay { .. } => "decay",
             Step::Merge { .. } => "merge",
             Step::Split { .. } => "split",
+            Step::Rename { .. } => "rename",
         }
     }
 }

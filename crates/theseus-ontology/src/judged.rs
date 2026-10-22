@@ -56,7 +56,7 @@ impl Category {
 
 impl Ontology {
     /// A machine's category nothing else holds on to: no guidance, no child.
-    fn loose(&self, c: &Category) -> bool {
+    pub(crate) fn loose(&self, c: &Category) -> bool {
         c.by_machine()
             && !self.guidance(&c.id).is_some_and(|g| !g.is_empty())
             && self.children(Some(&c.id)).is_empty()

@@ -1,0 +1,25 @@
+# same_kind.v1 (theseus-63tfk.1): whether two groups of sessions that said
+# `other` to the ontology's kind question talk about one kind of thing under
+# different names. The nightly sweep asks it, off every turn's path, of a pair
+# of mined names no session shares, before it clusters the answers that mint a
+# kind. The state is each side's mined names and up to twelve of its sessions'
+# titles. One Noul. At the act band the sweep counts the two as one cluster;
+# below it they stay apart.
+id = "same_kind"
+version = 1
+jev_model = "jev-1.13.0"
+point = "consolidation"
+state = "same_kind"
+state_cap_tokens = 2500
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Whether two groups of sessions whose messages fit none of the listed kinds are about one kind of thing, named two ways."
+
+[questions.same_kind]
+type = "noul"
+instructions = "Are the sessions of the first group and the sessions of the second group about the same kind of thing, so that one new kind would hold them all?"
+act = 0.85
+confirm = 0.60
+when_true = "Both groups' sessions are about one kind of thing: each group's names and titles would fit the other, and the names differ in wording only."
+when_false = "The groups are about different kinds of things, or only share a word."

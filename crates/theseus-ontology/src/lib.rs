@@ -34,6 +34,7 @@ pub mod merge;
 pub mod ontology;
 pub mod person;
 pub mod refusal;
+mod renamed;
 pub mod sweep;
 mod text;
 
@@ -170,5 +171,7 @@ mod tests_manifest;
 mod tests_origins;
 #[cfg(test)]
 mod tests_people;
+#[cfg(test)]
+mod tests_renamed;
 #[cfg(test)]
 mod tests_sweep;
