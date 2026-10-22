@@ -183,6 +183,11 @@ pub struct RouteReportParams {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RouteCell {
     pub model: String,
+    /// The origin of the cell's turns' model (`us`, `eu`, `cn`, `unknown`),
+    /// `unrecorded` for turns from before routing recorded it, `mixed` if
+    /// they differ; empty for a cell no turn is in (theseus-a1wvq.11).
+    #[serde(default)]
+    pub origin: String,
     /// The effort the turns ran at; empty: the profile's own.
     pub effort: String,
     #[cfg_attr(test, ts(type = "number"))]
@@ -224,6 +229,28 @@ pub struct RouteCell {
     pub replay_usd: f64,
 }
 
+/// The turns of one model origin and Jev's data verdict (theseus-a1wvq.11).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct DataCell {
+    /// `us`, `eu`, `cn`, `unknown`, or `unrecorded` for a row from before routing recorded it.
+    pub origin: String,
+    /// `open`, `private`, `unclear`, or `none` without a data answer.
+    pub data: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub turns: u64,
+    pub spend_usd: f64,
+}
+
+/// Turns the data rule kept off a restricted-origin model, by why.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct GateCount {
+    pub why: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub turns: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RouteReportResult {
@@ -234,6 +261,12 @@ pub struct RouteReportResult {
     /// The confidence the floor is stated at (0.9: a one-sided bound).
     pub confidence: f64,
     pub cells: Vec<RouteCell>,
+    /// Turns and spend per origin and data verdict, and the gate's skips per
+    /// reason; the restricted origins' spend is what moved to them.
+    #[serde(default)]
+    pub data: Vec<DataCell>,
+    #[serde(default)]
+    pub gates: Vec<GateCount>,
     pub total_spend_usd: f64,
     pub total_movable_usd: f64,
     /// The replays' cost today against `[route_bench] replay_day_usd`.

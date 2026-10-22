@@ -91,6 +91,24 @@ pub(crate) fn rig_with(
     (r, zai, dir)
 }
 
+/// `rig_with`, its core's telemetry the given one's.
+pub(crate) fn rig_telemetry(
+    jev: &FakeJev,
+    tel: crate::telemetry::Telemetry,
+) -> (Rig, Arc<FakeProvider>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, format!("{SECRET}\n")).unwrap();
+    let r = rig_parts(
+        Some(jev),
+        8,
+        |c| config(c, &notes),
+        move |p| p.telemetry = Some(tel),
+    );
+    let zai = r.zai.clone();
+    (r, zai, dir)
+}
+
 /// Jev: every message `trivial`, its data `private` at the act band, but
 /// the messages in `open`, judged `open` at the act band (matched as the
 /// state's `message`, never an earlier one the state quotes).

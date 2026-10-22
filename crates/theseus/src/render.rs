@@ -57,6 +57,8 @@ pub mod postmortem;
 pub mod postmortem_facts;
 mod resident;
 pub mod rewind;
+#[cfg(test)]
+mod route_data;
 mod rsi;
 mod sandbox;
 pub mod session_dir;
@@ -522,10 +524,12 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             .persona
             .as_ref()
             .map_or(String::new(), |p| format!(" · {}", p.words()));
+        let data = ro.data.as_ref().and_then(|d| d.footer());
+        let data = data.map_or(String::new(), |d| format!(" · {d}"));
         match (&ro.mode, ro.reason.is_empty()) {
-            (Some(m), _) => format!("{who} · {m} ({}){effort}", ro.reason),
-            (None, true) => who,
-            (None, false) => format!("{who} · route {}{effort}", ro.reason),
+            (Some(m), _) => format!("{who} · {m} ({}){effort}{data}", ro.reason),
+            (None, true) => who + &data,
+            (None, false) => format!("{who} · route {}{effort}{data}", ro.reason),
         }
     });
     format!(

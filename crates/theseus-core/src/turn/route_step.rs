@@ -49,7 +49,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-use theseus_protocol::route::TurnRoute;
+use theseus_protocol::route::{TurnData, TurnRoute};
 
 use super::*;
 use crate::config::PackMode;
@@ -98,6 +98,9 @@ pub(super) struct RouteState {
     /// The ids of the result nodes this turn screened and passed
     /// (`screen_step.rs`): carried as the loop's own.
     pub(super) screened: Vec<String>,
+    /// Why the floor moved the turn off a restricted-origin profile, for its
+    /// route row (`data_step`, theseus-a1wvq.11).
+    pub(super) gated: Option<&'static str>,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -143,9 +146,10 @@ pub struct Waited {
     pub answered: Option<tokio::time::Instant>,
 }
 
-/// The row's times (theseus-ddbi).
+/// The row's times (theseus-ddbi), and the compile's estimate it was made at.
 #[derive(Default)]
 pub(super) struct Timed {
+    est_tokens: u64,
     waited: Duration,
     late: bool,
     answered_ms: Option<u64>,
@@ -384,7 +388,11 @@ impl TurnRunner {
             let compiled =
                 Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
             if let (Some(d), Ok(Ok(c))) = (&floored, &compiled) {
-                Self::record_route(t, None, Some(d), None, c.est_tokens, Timed::default(), None);
+                let timed = Timed {
+                    est_tokens: c.est_tokens,
+                    ..Timed::default()
+                };
+                self.record_route(t, None, Some(d), None, timed, None);
             }
             return compiled;
         };
@@ -526,13 +534,13 @@ impl TurnRunner {
             self.route_effort(t, v, decision.as_ref(), spent, reason.is_none())
         });
         self.verdict_asides(t, verdict.as_ref());
-        Self::record_route(
+        self.record_route(
             t,
             verdict.as_ref(),
             decision.as_ref(),
             reason,
-            compiled.est_tokens,
             Timed {
+                est_tokens: compiled.est_tokens,
                 waited,
                 late,
                 answered_ms,
@@ -735,11 +743,11 @@ impl TurnRunner {
 
     /// The `route.decided` row, and what the turn's result says.
     pub(super) fn record_route(
+        &self,
         t: &mut Turn<'_>,
         verdict: Option<&Verdict>,
         decision: Option<&Decision>,
         reason: Option<Reason>,
-        est_tokens: u64,
         timed: Timed,
         steering: Option<&Steering>,
     ) {
@@ -754,6 +762,18 @@ impl TurnRunner {
         let applied = e
             .filter(EffortDecision::applied)
             .and_then(|e| e.sent.or(e.ran));
+        let mode = verdict.map(|v| v.mode.as_str());
+        let gate = self.data_gate_why(t, mode);
+        if let Some(why) = gate {
+            self.judge.record_data_gate("route", why);
+        }
+        let answered = verdict.and_then(|v| v.data.as_deref());
+        // Jev's admission: the floor's `private_view` turns an admitted turn
+        // closed for the request, not for the verdict.
+        let admitted = t.route.admitted.0.is_ok() || gate == Some("private_view");
+        let clearance = if admitted { "admitted" } else { "closed" };
+        let ran = self.ran_of(&profile);
+        let origin = ran.origin;
         t.record(&fact::route::RouteDecided {
             mode: verdict.map(|v| v.mode.as_str()),
             confidence: verdict.map(|v| v.confidence),
@@ -763,7 +783,7 @@ impl TurnRunner {
             reason: reason.as_str(),
             detour: decision.is_some_and(|d| d.detour),
             switch: decision.is_some_and(|d| d.switch),
-            est_tokens,
+            est_tokens: timed.est_tokens,
             wait_ms: timed.waited.as_millis() as u64,
             late: timed.late,
             answered_ms: timed.answered_ms,
@@ -776,8 +796,19 @@ impl TurnRunner {
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
             effort_sent: e.and_then(|e| e.sent).map(effort::name),
             checkpoint: None,
+            ran,
+            data: Some(fact::route::RouteData {
+                verdict: answered.map(|a| (a.choice.as_str(), a.confidence)),
+                clearance,
+                gate,
+            }),
         });
-        let persona_shown = t.route.result.take().and_then(|r| r.persona);
+        let prior = t.route.result.take();
+        let opened = prior
+            .as_ref()
+            .and_then(|r| r.data.as_ref())
+            .is_some_and(|d| d.clearance == "open");
+        let persona_shown = prior.and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
             reason: reason.as_str().into(),
@@ -787,6 +818,12 @@ impl TurnRunner {
             effort_reason: e.map(|e| e.reason.as_str().into()),
             effort_applied: applied.map(|e| effort::name(e).into()),
             persona: persona_shown,
+            data: Some(TurnData {
+                verdict: answered.map(|a| a.choice.clone()),
+                clearance: if opened { "open" } else { clearance }.into(),
+                gate: gate.map(Into::into),
+                origin: origin.into(),
+            }),
         });
     }
 

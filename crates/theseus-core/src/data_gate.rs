@@ -146,7 +146,7 @@ impl Gated {
 }
 
 /// An origin's word, as the config and the rows write it.
-fn word(o: ModelOrigin) -> &'static str {
+pub(crate) fn word(o: ModelOrigin) -> &'static str {
     match o {
         ModelOrigin::Us => "us",
         ModelOrigin::Eu => "eu",

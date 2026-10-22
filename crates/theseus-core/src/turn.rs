@@ -1862,6 +1862,7 @@ impl TurnRunner {
             let said_before = (t.output.len(), t.said.len());
             self.spend_checked(t, session)?;
             Self::data_pass(t, &mut compiled);
+            self.note_open(t, &compiled);
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             self.self_settled(t, &called);
@@ -2721,6 +2722,13 @@ impl TurnRunner {
             correlation_id: &action.correlation_id,
             settled_micros: cost,
             s0: t.trace.now_us(),
+            origin: self.ran_of(&target.profile).origin,
+            sent: self
+                .restricted_profile(&target.profile)
+                .then(|| fact::turn::Sent {
+                    pass: compiled.request.data_pass.is_some(),
+                    run_nodes: t.data.run_nodes,
+                }),
         };
         // The call's `provider.call` row rides in its completion's frame, after
         // the node (theseus-qa0).
