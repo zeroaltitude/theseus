@@ -65,7 +65,7 @@ pub(crate) fn fixture() -> Fixture {
 }
 
 pub(super) fn fixture_with(gate: &str) -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch::tempdir();
     let root = dir.path().canonicalize().unwrap();
     let seed = root.join("seed");
     std::fs::create_dir_all(seed.join("scripts")).unwrap();

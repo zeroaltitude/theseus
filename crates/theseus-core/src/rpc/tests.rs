@@ -24,7 +24,7 @@ pub(super) fn test_core(reply: &str) -> Arc<Core> {
 
 /// `test_core` over a config `edit` has changed.
 pub(super) fn test_core_with(reply: &str, edit: impl FnOnce(&mut Config)) -> Arc<Core> {
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
@@ -120,7 +120,7 @@ fn serving_core(
         refs,
         Arc::new(vault),
     ));
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
@@ -850,7 +850,7 @@ async fn same_session_serializes_turns() {
 
 #[tokio::test]
 async fn provider_failure_is_classified_and_ledgered() {
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let core = Core::build(Parts::for_tests(
         Config::example(),
@@ -1062,7 +1062,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
             }),
             _ => Scripted::text("never asked"),
         };
-        let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+        let dir = crate::scratch::dir("t");
         let store = Store::open(&dir.join("store")).unwrap();
         let fake = FakeProvider {
             chunk: usize::MAX,
@@ -1199,7 +1199,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
     use theseus_store::{kinds, NewRecord};
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut ended = SessionRecord::new(SessionKind::Conversation, None);
     ended.turns = 15;
@@ -1463,7 +1463,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn per_turn_provider_and_model_selection() {
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
     providers.insert(
@@ -1610,7 +1610,7 @@ fn second_model() -> Config {
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn live_profile_switch_persists_and_routes() {
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mk = |store: Store| {
         let mut providers: BTreeMap<String, Arc<dyn Provider>> = BTreeMap::new();
@@ -1884,7 +1884,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     let _ = srv.await;
 
     // Off: the methods refuse and health says so.
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
@@ -1922,7 +1922,7 @@ fn telemetry_core(
     tweak: impl FnOnce(&mut crate::telemetry::TelemetryConfig),
     secrets: Arc<SecretBoard>,
 ) -> Arc<Core> {
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();

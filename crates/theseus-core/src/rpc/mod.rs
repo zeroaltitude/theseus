@@ -148,6 +148,8 @@ mod tests_prefix;
 #[cfg(test)]
 mod tests_rewind;
 #[cfg(test)]
+mod tests_scratch;
+#[cfg(test)]
 mod tests_self;
 #[cfg(test)]
 mod tests_self_backlog;

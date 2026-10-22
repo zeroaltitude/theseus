@@ -77,7 +77,7 @@ pub(super) fn spec(name: &str) -> Value {
 
 /// Load `spec(name)` as the `"self"` principal, `age_days` ago.
 pub(super) fn load_self(c: &Core, name: &str, age_days: u64) -> theseus_protocol::flow::FlowInfo {
-    let path = std::env::temp_dir().join(format!("{name}-{}.flow.json", crate::new_id("f")));
+    let path = crate::scratch::file(name, "flow.json");
     std::fs::write(&path, spec(name).to_string()).unwrap();
     let info = c.flow_load(&path, "self", "mint").unwrap();
     let mut set = LoadedSet::read(&c.store).unwrap();
@@ -249,7 +249,7 @@ fn a_thirteenth_tool_waits_and_per_night_caps_deploys() {
 #[tokio::test]
 async fn the_tender_leaves_a_tool_the_owner_loaded_alone() {
     let c = acting();
-    let path = std::env::temp_dir().join(format!("owned-{}.flow.json", crate::new_id("f")));
+    let path = crate::scratch::file("owned", "flow.json");
     std::fs::write(&path, spec("owned_flow").to_string()).unwrap();
     c.flow_load(&path, "owner", "cli").unwrap();
     let mut set = LoadedSet::read(&c.store).unwrap();

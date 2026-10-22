@@ -54,7 +54,7 @@ pub(super) fn acting(mine: bool) -> Arc<Core> {
 
 /// An invented repository on disk: a `.git/config` with an origin.
 pub(super) fn repo() -> PathBuf {
-    let d = std::env::temp_dir().join(format!("theseus-mine-{}", crate::new_id("r")));
+    let d = crate::scratch::dir("mine");
     std::fs::create_dir_all(d.join(".git")).unwrap();
     std::fs::write(
         d.join(".git/config"),
