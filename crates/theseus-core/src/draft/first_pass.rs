@@ -162,43 +162,62 @@ impl TurnRunner {
             d.first_pass = None;
             return Ok(false);
         };
-        let corr = correlation(sid);
-        let (_, fp_sid) = theseus_kernel::task_ids(&corr);
-        let tree = super::tree_of(&self.cfg, &fp_sid);
         // A failure once the tree is made would leave it on disk, and every
         // later end of the draft fail at `worktree add`, the review never
         // opening: the review opens without a first pass instead, and the
         // tree goes (best effort).
-        let tried = async {
-            let diff = Self::first_pass_tree(d, &tree).await?;
-            let parent = self
-                .kernel
-                .execution(&d.parent_execution)?
-                .context("the draft's conversation has no execution")?;
-            let want = parent.budget.available() / crate::task::DEFAULT_SHARE.1
-                * crate::task::DEFAULT_SHARE.0;
-            let how = Opening {
-                reports_to: None,
-                wake_parent: false,
-                start_at_ms: None,
-            };
-            let now = theseus_protocol::now_unix_ms();
-            let mut staged = d.clone();
-            staged.first_pass = Some(FirstPass {
-                task: Some(fp_sid.clone()),
-                deadline_ms: now + BOUND.as_millis() as u64,
-                ..fp
-            });
-            let mark = Mark {
-                draft: sid.to_string(),
-                tree: tree.to_string_lossy().into_owned(),
-            };
-            let opened = self.kernel.open_task_owned(
-                &d.parent_execution,
-                &corr,
-                want.max(1),
-                how,
-                |task| {
+        match self.open_first_pass(sid, d, fp, profile).await {
+            Ok(opened) => {
+                if opened {
+                    self.arm_first_pass(sid, BOUND);
+                }
+                Ok(true)
+            }
+            Err(e) => {
+                self.first_pass_not_opened(sid, d, &e).await;
+                Ok(false)
+            }
+        }
+    }
+
+    /// The first pass's task, on a tree of its own at the draft's commit:
+    /// true when this call opened it.
+    async fn open_first_pass(
+        &self,
+        sid: &str,
+        d: &Draft,
+        fp: FirstPass,
+        profile: crate::session::TargetRef,
+    ) -> Result<bool> {
+        let corr = correlation(sid);
+        let (_, fp_sid) = theseus_kernel::task_ids(&corr);
+        let tree = super::tree_of(&self.cfg, &fp_sid);
+        let diff = Self::first_pass_tree(d, &tree).await?;
+        let parent = self
+            .kernel
+            .execution(&d.parent_execution)?
+            .context("the draft's conversation has no execution")?;
+        let want =
+            parent.budget.available() / crate::task::DEFAULT_SHARE.1 * crate::task::DEFAULT_SHARE.0;
+        let how = Opening {
+            reports_to: None,
+            wake_parent: false,
+            start_at_ms: None,
+        };
+        let now = theseus_protocol::now_unix_ms();
+        let mut staged = d.clone();
+        staged.first_pass = Some(FirstPass {
+            task: Some(fp_sid.clone()),
+            deadline_ms: now + BOUND.as_millis() as u64,
+            ..fp
+        });
+        let mark = Mark {
+            draft: sid.to_string(),
+            tree: tree.to_string_lossy().into_owned(),
+        };
+        let opened =
+            self.kernel
+                .open_task_owned(&d.parent_execution, &corr, want.max(1), how, |task| {
                     let id = &task.session_id;
                     let mut rec =
                         SessionRecord::with_id(id.clone(), SessionKind::Task, Some("task".into()));
@@ -242,31 +261,25 @@ impl TurnRunner {
                         &staged,
                     )?);
                     Ok(records)
-                },
-            )?;
-            anyhow::Ok(opened.opened)
-        }
+                })?;
+        Ok(opened.opened)
+    }
+
+    /// A first pass that did not open: its tree goes (best effort), and the
+    /// draft drops it, so the review opens without it.
+    async fn first_pass_not_opened(&self, sid: &str, d: &mut Draft, e: &anyhow::Error) {
+        let (_, fp_sid) = theseus_kernel::task_ids(&correlation(sid));
+        let tree = super::tree_of(&self.cfg, &fp_sid);
+        tracing::warn!(error = %format!("{e:#}"), draft = %sid, "a first pass did not open: the review opens without it");
+        let (dir, at) = (d.dir.clone(), tree.clone());
+        let closed = tokio::task::spawn_blocking(move || {
+            !at.exists() || super::close_tree(Path::new(&dir), &at).is_ok()
+        })
         .await;
-        let opened = match tried {
-            Ok(opened) => opened,
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), draft = %sid, "a first pass did not open: the review opens without it");
-                let (dir, at) = (d.dir.clone(), tree.clone());
-                let closed = tokio::task::spawn_blocking(move || {
-                    !at.exists() || super::close_tree(Path::new(&dir), &at).is_ok()
-                })
-                .await;
-                if !matches!(closed, Ok(true)) {
-                    tracing::warn!(tree = %tree.display(), "a first pass that did not open: its tree was not removed");
-                }
-                d.first_pass = None;
-                return Ok(false);
-            }
-        };
-        if opened {
-            self.arm_first_pass(sid, BOUND);
+        if !matches!(closed, Ok(true)) {
+            tracing::warn!(tree = %tree.display(), "a first pass that did not open: its tree was not removed");
         }
-        Ok(true)
+        d.first_pass = None;
     }
 
     /// The first pass's worktree at the draft's commit, and the draft's diff.
