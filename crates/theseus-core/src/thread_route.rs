@@ -15,7 +15,10 @@
 //!    `[threads] sticky_half_life_secs`: strong for a minute, weak after an
 //!    hour) and from the **reply chain** (right after a thread's reply, with no
 //!    thread's entity named, the message is likelier its follow-up: 0.7 at
-//!    once). The three combine as independent evidence, `1 - Π(1 - p)`. Only a
+//!    once). A thread whose **title** the message names (every content word of
+//!    it, [`thread_title`](crate::thread_title)) adds evidence of 0.35, not
+//!    shared out, so two titles named make two contenders (theseus-4qdh8).
+//!    The four combine as independent evidence, `1 - Π(1 - p)`. Only a
 //!    named entity decides alone: stickiness and the chain are priors, capped
 //!    below the act bar together (0.88), since in the owner's DMs a third to
 //!    a half of consecutive messages switch concern, and a follow-up that
@@ -51,6 +54,7 @@ use std::path::{Path, PathBuf};
 use theseus_protocol::thread_route::{AskOption, RouteHow, ThreadTag};
 use theseus_protocol::threads::{ThreadInfo, WorkingSet};
 
+use crate::thread_title::title_hit;
 use crate::toolrun::misroute::{fold, normal};
 
 /// The classify pack's bars for the `thread` question.
@@ -513,6 +517,9 @@ pub fn pre_route(
         .zip(&hits)
         .map(|(t, h)| {
             let entity = entity_of(h, hitting);
+            // A title the message names is evidence beside the entity, never
+            // shared out (theseus-4qdh8).
+            let title = title_hit(text, &t.title);
             // A thread the message names nothing of loses stickiness and the
             // chain when another thread's entity is named.
             let other_named = hitting > 0 && h.is_empty();
@@ -535,8 +542,10 @@ pub fn pre_route(
                 entity,
                 sticky,
                 chain,
-                score: noisy_or(&[entity, sticky, chain]),
-                hits: h.iter().map(|(_, e)| e.clone()).collect(),
+                score: noisy_or(&[entity, title.unwrap_or(0.0), sticky, chain]),
+                hits: (h.iter().map(|(_, e)| e.clone()))
+                    .chain(title.map(|_| t.title.clone()))
+                    .collect(),
                 learned: false,
             }
         })

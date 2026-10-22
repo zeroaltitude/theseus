@@ -28,6 +28,8 @@ use crate::session::SessionRecord;
 use crate::tests_inbound::inbound_only;
 use crate::tests_judge::{rig_on, texts, Rig};
 
+mod title;
+
 /// The owner, and a second place of theirs.
 const OWNER: u64 = 314_159_265_358_979;
 const OWNER2: u64 = 271_828_182_845_904;
