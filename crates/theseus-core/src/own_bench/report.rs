@@ -50,6 +50,8 @@ pub struct Data {
     pub origin: Option<String>,
     pub verdict: Option<String>,
     pub gate: Option<String>,
+    /// Why a class that drafts did not, this turn (theseus-a1wvq.12).
+    pub draft_skip: Option<String>,
 }
 
 /// The origin a turn's cell says: `unrecorded` before routing wrote one.
@@ -226,6 +228,7 @@ impl Core {
             d.origin = word("origin").or(d.origin.take());
             d.verdict = d.verdict.take().or_else(|| word("data"));
             d.gate = d.gate.take().or_else(|| word("data_gate"));
+            d.draft_skip = d.draft_skip.take().or_else(|| word("draft_skip"));
         }
         Ok(out)
     }
@@ -286,6 +289,11 @@ impl Core {
             .collect();
         let mut cells = cells(&lines, &judged);
         let (data, gates) = data_cells(&lines);
+        let draft_rows: Vec<_> = self
+            .rows_since(LedgerKind::TaskDraft, since)?
+            .iter()
+            .map(|r| super::drafts::Draft::of_row(&r.data))
+            .collect();
         let wholes: Vec<Whole> = self
             .rows_since(LedgerKind::TurnReplayed, since)?
             .into_iter()
@@ -318,6 +326,8 @@ impl Core {
             cells,
             data,
             gates,
+            drafts: super::drafts::drafts(&draft_rows),
+            draft_skips: super::drafts::skips(&lines),
             labels_fed,
             replay_today_usd: self.replay_spent_today(now_ms)?,
             replay_day_usd: cap,
@@ -454,6 +464,7 @@ mod tests {
                     origin: origin.map(Into::into),
                     verdict: v.map(Into::into),
                     gate: g.map(Into::into),
+                    ..Data::default()
                 },
                 ..turn(model, "", cost, false)
             };

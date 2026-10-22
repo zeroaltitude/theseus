@@ -251,6 +251,29 @@ pub struct GateCount {
     pub turns: u64,
 }
 
+/// China-origin drafts and their Claude review, one cell per (draft model,
+/// review model) (theseus-a1wvq.12). `lines_changed` is measured; the
+/// reviewer's own "tests fixed" count is reported, so it is not summed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct DraftCell {
+    pub draft_model: String,
+    /// `none` for a draft no review ran for.
+    pub review_model: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub drafts: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub applied: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub reviewed: u64,
+    pub draft_usd: f64,
+    pub review_usd: f64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub lines_changed: u64,
+    /// `draft_usd + review_usd`: what the bench arm sets against Claude alone.
+    pub total_usd: f64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RouteReportResult {
@@ -267,6 +290,12 @@ pub struct RouteReportResult {
     pub data: Vec<DataCell>,
     #[serde(default)]
     pub gates: Vec<GateCount>,
+    /// Drafts and their review, and the turns whose class drafts that did
+    /// not, by `draft_skip` word (theseus-a1wvq.12).
+    #[serde(default)]
+    pub drafts: Vec<DraftCell>,
+    #[serde(default)]
+    pub draft_skips: Vec<GateCount>,
     pub total_spend_usd: f64,
     pub total_movable_usd: f64,
     /// The replays' cost today against `[route_bench] replay_day_usd`.

@@ -511,7 +511,10 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   block; a conversation's turn the route placed asks a checkpoint when its loops keep failing, and moves up, as a task
   does; `route.v7` rewords Jev's data question (content, not the place; `private` needs a sign; work whose owner the
   message does not show is `unclear`) and asks a new `personal` question, whose yes warns the owner by DM and holds
-  nothing.
+  nothing. The template now shows the
+  China-origin coding guidance (`cn_draft` and `final` on `routine_coding` and `deep_coding`, commented, with why), and
+  `theseus model bench` reports each draft and its review's cost and the turns whose class drafts that did not
+  (theseus-a1wvq.12).
 - **2026-10-21: China-origin follow-ups** (theseus-gmyoy, theseus-5u16e, theseus-mhqlm, theseus-qul8y, theseus-y8k3u,
   theseus-z1ros, theseus-350xc, theseus-1v7fl):
   - a task the model creates (`task.create`) is tested as `task.start`'s is: no inherited open run, and an open task's

@@ -72,6 +72,7 @@ pub fn report_lines(r: &RouteReportResult) -> Vec<String> {
         out.push(line);
     }
     out.extend(data_lines(r));
+    out.extend(draft_lines(r));
     out.push(format!(
         "Movable at {:.0}% confidence: {} of {}.",
         r.confidence * 100.0,
@@ -114,6 +115,44 @@ fn data_lines(r: &RouteReportResult) -> Vec<String> {
         let why = r.gates.iter().map(|g| format!("{} {}", g.why, g.turns));
         let why = why.collect::<Vec<_>>().join(", ");
         out.push(format!("  kept off a restricted-origin model: {why}"));
+    }
+    out
+}
+
+/// The draft columns (theseus-a1wvq.12): a line per draft and review model
+/// pair, and one line of the turns whose class drafts that did not, by why.
+/// Nothing when both lists are empty.
+fn draft_lines(r: &RouteReportResult) -> Vec<String> {
+    let mut out: Vec<String> = r
+        .drafts
+        .iter()
+        .map(|d| {
+            let review = if d.review_model == "none" {
+                "no review".to_string()
+            } else {
+                d.review_model.clone()
+            };
+            format!(
+                "  draft {} \u{2192} {review}: {} drafts, {} applied, {} + {} = {}, {} lines changed",
+                d.draft_model,
+                d.drafts,
+                d.applied,
+                usd(d.draft_usd),
+                usd(d.review_usd),
+                usd(d.total_usd),
+                d.lines_changed
+            )
+        })
+        .collect();
+    if !r.draft_skips.is_empty() {
+        let why = r
+            .draft_skips
+            .iter()
+            .map(|g| format!("{} {}", g.why, g.turns));
+        out.push(format!(
+            "  draft skips: {}",
+            why.collect::<Vec<_>>().join(" \u{b7} ")
+        ));
     }
     out
 }
@@ -275,6 +314,8 @@ mod tests {
             sampler: None,
             data: vec![],
             gates: vec![],
+            drafts: vec![],
+            draft_skips: vec![],
         };
         assert_eq!(
             report_lines(&r),
@@ -313,6 +354,8 @@ mod tests {
             sampler: None,
             data: vec![],
             gates: vec![],
+            drafts: vec![],
+            draft_skips: vec![],
         };
         let lines = report_lines(&r);
         assert!(lines[1].contains("; whole turns: 4 replayed, 3 matched, 2 with the same tests"));
@@ -417,5 +460,69 @@ mod tests {
         r.data = vec![data("unrecorded", "none", 3, 0.3)];
         r.gates.clear();
         assert!(report_lines(&r)[2].starts_with("Movable"));
+    }
+
+    /// The draft columns (theseus-a1wvq.12): a cell line and the skips line
+    /// after the data lines; a report with neither is what it was.
+    #[test]
+    fn the_report_words_drafts_and_their_skips_and_is_unchanged_without() {
+        use theseus_protocol::own_bench::{DraftCell, GateCount};
+        let plain = RouteReportResult {
+            window_days: 1,
+            cells: vec![cell()],
+            ..RouteReportResult::default()
+        };
+        let before = report_lines(&plain);
+        assert!(before.iter().all(|l| !l.contains("draft")));
+        let r = RouteReportResult {
+            drafts: vec![DraftCell {
+                draft_model: "dsflash".into(),
+                review_model: "sonnet".into(),
+                drafts: 4,
+                applied: 3,
+                reviewed: 4,
+                draft_usd: 0.19,
+                review_usd: 0.88,
+                lines_changed: 212,
+                total_usd: 1.07,
+            }],
+            draft_skips: vec![
+                GateCount {
+                    why: "dir_not_open".into(),
+                    turns: 5,
+                },
+                GateCount {
+                    why: "not_git".into(),
+                    turns: 1,
+                },
+            ],
+            ..plain
+        };
+        let lines = report_lines(&r);
+        let at = lines
+            .iter()
+            .position(|l| l.starts_with("  draft "))
+            .unwrap();
+        assert_eq!(
+            lines[at],
+            "  draft dsflash \u{2192} sonnet: 4 drafts, 3 applied, $0.19 + $0.88 = $1.07, 212 lines changed"
+        );
+        assert_eq!(
+            lines[at + 1],
+            "  draft skips: dir_not_open 5 \u{b7} not_git 1"
+        );
+        let rest: Vec<_> = lines
+            .iter()
+            .filter(|l| !l.contains("draft"))
+            .cloned()
+            .collect();
+        assert_eq!(rest, before);
+        let skips_only = RouteReportResult {
+            drafts: vec![],
+            ..r
+        };
+        assert!(report_lines(&skips_only)
+            .iter()
+            .any(|l| l.starts_with("  draft skips:")));
     }
 }

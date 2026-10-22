@@ -334,3 +334,38 @@ async fn an_empty_report_totals_a_positive_zero() {
         assert!(v == 0.0 && v.is_sign_positive(), "{v}");
     }
 }
+
+/// The report reads a draft and a skip from the ledger (theseus-a1wvq.12):
+/// a `task.draft` row is a cell, and a turn's `route.decided` `draft_skip`
+/// is a count.
+#[tokio::test]
+async fn the_report_reads_a_draft_from_the_ledger() {
+    let r = rig(None);
+    script(&r, &["fine"]);
+    let (sid, t) = asked(&r).await;
+    let put = |kind: &str, turn: Option<&str>, data: serde_json::Value| {
+        let row = crate::ledger::LedgerRow::named(kind, Some(&sid), turn, data);
+        r.core.store.append_ledger(&row).unwrap();
+    };
+    put(
+        "task.draft",
+        None,
+        serde_json::json!({
+            "draft_model": "deepseek-flash", "review_model": "claude-sonnet-5-5",
+            "draft_cost_usd": 0.05, "review_cost_usd": 0.25,
+            "lines_changed": 40, "applied": true, "draft_outcome": "complete",
+        }),
+    );
+    put(
+        "route.decided",
+        Some(&t),
+        serde_json::json!({"draft_skip": "dir_not_open"}),
+    );
+    let rep = r.core.route_report_now(false, now()).unwrap();
+    assert_eq!(rep.drafts.len(), 1, "{:?}", rep.drafts);
+    assert_eq!(rep.drafts[0].draft_model, "deepseek-flash");
+    assert_eq!(rep.drafts[0].lines_changed, 40);
+    assert!((rep.drafts[0].total_usd - 0.30).abs() < 1e-9);
+    let skips: Vec<_> = rep.draft_skips.iter().map(|g| (&*g.why, g.turns)).collect();
+    assert_eq!(skips, [("dir_not_open", 1)]);
+}
