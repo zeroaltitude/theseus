@@ -163,3 +163,212 @@ async fn the_beat_does_not_starve_the_cache() {
     assert_eq!(meta["warm_reads"], 2);
     assert_eq!(meta["beat"], true);
 }
+
+// ---- the status line at each beat (theseus-5d204)
+
+/// The place the bound session's posts go to.
+const PLACE: &str = "discord:dm:7";
+
+/// Bind the session to a private place, so its notices are outbox posts.
+fn bind(r: &Rig, s: &SessionRecord) {
+    r.core.outbox.bind_place("dm:7", &s.session_id).unwrap();
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: PLACE.into(),
+            name: "DM".into(),
+            private: true,
+            ..Default::default()
+        });
+}
+
+/// The notices the place has been sent: what the status line posts.
+fn statuses(r: &Rig) -> Vec<String> {
+    r.core
+        .outbox
+        .open_for(PLACE)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect()
+}
+
+fn status_off(c: &mut Config) {
+    c.tools.job_wait_beat_secs = 600;
+    c.tools.job_wait_status = false;
+}
+
+/// The key test: a silent job's beat posts one plain line to the place, from
+/// facts alone, and the model's requests and results are as they were.
+#[tokio::test(start_paused = true)]
+async fn a_silent_jobs_beat_posts_one_status_line_to_its_place() {
+    let r = rig(script(1500), beat(600));
+    let s = r.session();
+    bind(&r, &s);
+    let turn = r.submit(&s, "search it");
+    r.until_calls(2).await;
+    print(&r, &the_job(&r), "round 1\nround 2\n");
+    turn.await.unwrap();
+    let lines = statuses(&r);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let l = &lines[0];
+    for want in [
+        "j1",
+        "still running",
+        "10 min",
+        "no new output",
+        "\"round 2\"",
+    ] {
+        assert!(l.contains(want), "{want:?} in {l}");
+    }
+    assert!(!l.contains('\n'), "{l:?}");
+    assert_eq!(r.turns.requests().len(), 3, "no model call of its own");
+    let next = serde_json::to_string(&r.turns.requests()[2].messages).unwrap();
+    assert!(!next.contains("still running:"), "the model never reads it");
+}
+
+/// A wait that does not beat posts nothing: the job prints, the beat is off,
+/// or the switch is.
+#[tokio::test(start_paused = true)]
+async fn no_status_line_without_a_beat() {
+    // A job that prints every 100 s keeps its 900 s wait.
+    let r = rig(script(900), beat(600));
+    let s = r.session();
+    bind(&r, &s);
+    let turn = r.submit(&s, "build it");
+    r.until_calls(2).await;
+    let corr = the_job(&r);
+    let core = r.core.clone();
+    let printer = tokio::spawn(async move {
+        for n in 1..=8 {
+            tokio::time::sleep(Duration::from_secs(100)).await;
+            let path = core.spool.result_path(&corr);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let old = std::fs::read_to_string(&path).unwrap_or_default();
+            std::fs::write(&path, format!("{old}line {n}\n")).unwrap();
+        }
+    });
+    turn.await.unwrap();
+    printer.abort();
+    assert_eq!(statuses(&r), Vec::<String>::new(), "it printed");
+
+    // The beat off fires nothing.
+    let r = rig(script(1500), beat(0));
+    let s = r.session();
+    bind(&r, &s);
+    r.submit(&s, "search it").await.unwrap();
+    assert_eq!(statuses(&r), Vec::<String>::new(), "no beat");
+
+    // The switch off leaves the beat as it is, and posts nothing.
+    let on = rig(script(1500), beat(600));
+    let s = on.session();
+    on.submit(&s, "search it").await.unwrap();
+    let with = on.result(&s.session_id, "t2");
+    let off = rig(script(1500), status_off);
+    let s = off.session();
+    bind(&off, &s);
+    off.submit(&s, "search it").await.unwrap();
+    let without = off.result(&s.session_id, "t2");
+    assert_eq!(with.1, without.1, "the beat's text is the same");
+    assert_eq!(without.2["beat"], true);
+    assert_eq!(statuses(&off), Vec::<String>::new(), "the switch is off");
+}
+
+/// Each beat posts its own line: a second wait on the same silent job beats
+/// again, and the place has two.
+#[tokio::test(start_paused = true)]
+async fn each_beat_posts_its_own_line() {
+    let mut steps = script(1500);
+    steps.insert(
+        2,
+        Scripted::tools(
+            "Waiting more.",
+            &[("t3", "job_wait", json!({"job": "j1", "timeout_secs": 1500}))],
+        ),
+    );
+    let r = rig(steps, beat(600));
+    let s = r.session();
+    bind(&r, &s);
+    r.submit(&s, "search it").await.unwrap();
+    let lines = statuses(&r);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines.iter().all(|l| l.contains("still running")),
+        "{lines:?}"
+    );
+}
+
+/// A job past its file's head is not silent, and nothing is posted.
+#[tokio::test(start_paused = true)]
+async fn a_held_job_posts_nothing() {
+    let r = rig(script(900), |c| {
+        c.tools.job_wait_beat_secs = 600;
+        c.tools.job_output_max_bytes = 1 << 20;
+    });
+    let s = r.session();
+    bind(&r, &s);
+    let turn = r.submit(&s, "build it");
+    r.until_calls(2).await;
+    let (head, _) = theseus_kernel::redact::split(r.core.tools.output_max_bytes);
+    print(&r, &the_job(&r), &"x".repeat(head as usize));
+    turn.await.unwrap();
+    let (_, text, meta) = r.result(&s.session_id, "t2");
+    assert!(meta.get("beat").is_none(), "{text}");
+    assert_eq!(statuses(&r), Vec::<String>::new());
+}
+
+/// A session with no place gets its beat result and no post.
+#[tokio::test(start_paused = true)]
+async fn an_unbound_session_posts_nothing() {
+    let r = rig(script(1500), beat(600));
+    let s = r.session();
+    r.submit(&s, "search it").await.unwrap();
+    let (_, _, meta) = r.result(&s.session_id, "t2");
+    assert_eq!(meta["beat"], true);
+    assert_eq!(statuses(&r), Vec::<String>::new());
+}
+
+/// A secret the job printed is not in the line that leaves.
+#[tokio::test(start_paused = true)]
+async fn the_status_line_is_scrubbed() {
+    const SECRET: &str = "invented-secret-1a2b3c4d5e6f7a8b";
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(dir.path(), false, beat(600));
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let turns = Arc::new(FakeProvider::scripted(script(1500)));
+    let reads = Arc::new(FakeProvider::default());
+    let split = Arc::new(Split {
+        turns: turns.clone(),
+        reads: reads.clone(),
+    });
+    let gate = Arc::new(Gated::default());
+    let mut parts = crate::rpc::Parts::for_tests(cfg, split, store);
+    parts.launcher = gate.clone();
+    parts.scrubber = Arc::new(crate::scrub::Scrubber::with_values(vec![(
+        SECRET.into(),
+        "demo_secret".into(),
+    )]));
+    let r = Rig {
+        core: Core::build(parts).unwrap(),
+        turns,
+        reads,
+        gate,
+        _dir: dir,
+    };
+    let s = r.session();
+    bind(&r, &s);
+    let turn = r.submit(&s, "search it");
+    r.until_calls(2).await;
+    print(&r, &the_job(&r), &format!("token {SECRET}\n"));
+    turn.await.unwrap();
+    let lines = statuses(&r);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(!lines[0].contains(SECRET), "{}", lines[0]);
+    assert!(lines[0].contains("Last line:"), "{}", lines[0]);
+}

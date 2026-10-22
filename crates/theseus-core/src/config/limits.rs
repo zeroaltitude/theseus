@@ -179,6 +179,12 @@ pub fn default_job_wait_beat_secs() -> u64 {
     600
 }
 
+/// `[tools] job_wait_status` (theseus-5d204): at each beat, one status line to
+/// the session's place, with no model call. On.
+pub fn default_job_wait_status() -> bool {
+    true
+}
+
 /// `[tools] job_wait_max_secs` is at least `proc_sync_secs` (a wait is never
 /// shorter than a foreground run's) and at most what the tool's deadline
 /// covers (`theseus_tools::jobs::WAIT_SECS_MAX`).
