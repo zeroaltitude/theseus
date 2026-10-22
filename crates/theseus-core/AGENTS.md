@@ -1659,7 +1659,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     In a place only the owner writes in, nothing is held: the turn and its reply go on. **In a shared place the reply is held**
     (theseus-i1z13, the owner's 2026-10-18 20:46 spec): `warn` sets `RouteState::held`, and the turn loop, once the first compile
     returns, ends the turn with `hold_reply` and no model call: `I don't share that here.` (`HELD_REPLY`) is the turn's assistant
-    node and output (so the next turn's history reads it), the stop reason stays `end_turn` (a footer says nothing of why),
+    node and output (so the next turn's history reads it), the stop reason is `held` (theseus-2rvwv: the footers say the reply was held and name no model),
     and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
     the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
     posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message

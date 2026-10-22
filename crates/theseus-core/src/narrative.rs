@@ -355,6 +355,7 @@ pub fn end_phrase(reason: &str) -> String {
         crate::provider::WINDOW_EXCEEDED => {
             "the model's answer was cut at its context window".into()
         }
+        "held" => "the reply was held: no model ran".into(),
         "budget" => "the session reached its spend limit and asks the operator".into(),
         other => format!("the stop reason is {other}"),
     }
@@ -468,6 +469,7 @@ mod tests {
             "it stopped to call 2 tools"
         );
         assert_eq!(end_phrase("no_tool_calls"), "the model ended its turn");
+        assert_eq!(end_phrase("held"), "the reply was held: no model ran");
     }
 
     /// The subject names the program and its subcommand, never the rest of

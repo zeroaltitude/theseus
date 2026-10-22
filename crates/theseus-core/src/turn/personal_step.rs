@@ -30,6 +30,9 @@ pub const KIND: &str = "privacy_warning";
 /// What the requester is told in a shared place instead of an answer.
 pub const HELD_REPLY: &str = "I don't share that here.";
 
+/// The held turn's stop reason, on its result and its node: no model answered.
+pub const STOP_REASON: &str = "held";
+
 /// The message's first characters the warning quotes.
 const QUOTE_CHARS: usize = 200;
 
@@ -200,7 +203,7 @@ impl TurnRunner {
                 blocks: vec![json!({"type": "text", "text": HELD_REPLY})],
                 model: t.target.model.clone(),
                 provider: t.target.provider.clone(),
-                stop_reason: None,
+                stop_reason: Some(STOP_REASON.into()),
                 usage: Default::default(),
                 cost_usd: None,
                 catalog_version: None,
@@ -214,6 +217,7 @@ impl TurnRunner {
         t.tc.store.append(&[node.record()?])?;
         t.tc.node_written(&node);
         t.output.push_str(HELD_REPLY);
+        t.stop_reason = STOP_REASON.into();
         t.said.push((i, node.id));
         Ok(())
     }
