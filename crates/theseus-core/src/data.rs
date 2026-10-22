@@ -8,6 +8,15 @@
 //! `Carried`, is the only cleared `Clearance`, and so the only source of a
 //! pass. The turn's side is `turn/open_step.rs`.
 //!
+//! The screen (theseus-a1wvq.9): a tool's result joins an open request's run
+//! only when `screen` passes it, and a result it fails ends the run there, never
+//! the session. The result is the one part of an open request that no person
+//! wrote and Jev never judged, so only the file tools under the open roots, a
+//! search and a fetch of a public address may pass, and only a result the
+//! scrubber found nothing in. A program's result never passes (it can read any
+//! path the daemon's user can); a sandboxed program run is a later row. The
+//! turn's side is `turn/screen_step.rs`.
+//!
 //! A session's data state (theseus-a1wvq.5, `SessionRecord.data`): whether
 //! it was opened, its open run, and its taint. An open task opens one
 //! (theseus-a1wvq.6); an open request's turn stores its run.
@@ -216,7 +225,8 @@ pub fn admits_again(s: Option<&DataState>, last: Option<&str>) -> Result<OpenRun
 pub enum Writer {
     /// This request's own turn: its answer, its calls, its recall.
     Loop,
-    /// A tool's result: unscreened until the tool-screen row.
+    /// A tool's result the turn did not screen (`screen`): a screened one
+    /// is carried as the loop's own.
     ToolResult,
     /// Anyone else: a steer, a late result, a wake, a report.
     Other,
@@ -272,6 +282,77 @@ fn refused(run: &OpenRun, c: &Carried) -> Option<DataWhy> {
         })
 }
 
+// ------------------------------------------------------------ the screen
+
+/// Why a tool's result did not pass the screen (`screen`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unscreened {
+    /// A program's output: it can print any file the daemon's user reads.
+    Program,
+    /// A tool the screen does not list.
+    Tool,
+    /// The scrubber found a secret in it.
+    Secret,
+    /// A path outside the open roots, or a private address.
+    Outside,
+}
+
+impl Unscreened {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Unscreened::Program => "program",
+            Unscreened::Tool => "tool",
+            Unscreened::Secret => "secret",
+            Unscreened::Outside => "outside",
+        }
+    }
+}
+
+/// Whether one tool result may join an open request's run: `plan` is the call's
+/// own plan (none when it does not plan), `redactions` the result node's
+/// `meta.redactions`, and `open` the request's reach. In order: a program
+/// fails; only the file tools (`places::files_tool`), `web.search` and
+/// `http.fetch` are listed, every other tool's result fails (a task list names
+/// the owner's other work, `tools.find` the owner's tools); a scrubbed secret
+/// fails; and, checked again here after the gate, a file tool must name a
+/// resource and every one canonical within an open root, and a fetch must name
+/// a public URL.
+pub fn screen(
+    tool: &str,
+    plan: Option<&theseus_protocol::Plan>,
+    redactions: u64,
+    open: &crate::open_view::Open,
+) -> Result<(), Unscreened> {
+    use theseus_tools::paths;
+    if crate::open_view::runs_tool(tool) {
+        return Err(Unscreened::Program);
+    }
+    let file = crate::places::files_tool(tool);
+    if !(file || matches!(tool, "web.search" | "http.fetch")) {
+        return Err(Unscreened::Tool);
+    }
+    if redactions > 0 {
+        return Err(Unscreened::Secret);
+    }
+    let inside = |r: &theseus_protocol::Resource| {
+        let p = paths::canonical_best_effort(&r.path);
+        open.roots.iter().any(|root| paths::within(&p, root))
+    };
+    let outside = match (file, tool) {
+        (true, _) => {
+            !plan.is_some_and(|p| !p.resources.is_empty() && p.resources.iter().all(inside))
+        }
+        (_, "http.fetch") => plan.and_then(|p| p.url.as_deref()).is_none_or(|u| {
+            reqwest::Url::parse(u).is_err() || crate::web::net::private_url(u).is_some()
+        }),
+        _ => false,
+    };
+    match outside {
+        true => Err(Unscreened::Outside),
+        false => Ok(()),
+    }
+}
+
 // ------------------------------------------------------------ the session's state
 
 /// How a session came to be open (theseus-a1wvq.5).
@@ -309,8 +390,8 @@ pub struct Opened {
 /// - a person's message Jev judged `open` at the act band (`admits`);
 /// - an open request's own answer and calls, every request of its turn
 ///   cleared (`turn/open_step.rs`, `data_end`);
-/// - an open request's tool result that passed the screen (theseus-a1wvq.9;
-///   until then a tool result ends the run).
+/// - an open request's tool result that passed the screen (theseus-a1wvq.9,
+///   `screen`).
 ///
 /// Any other node ends it: a private or unclear message, a seal, an
 /// attachment, an unscreened tool result, `channel.read` text, a merge, a

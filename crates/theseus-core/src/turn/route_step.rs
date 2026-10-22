@@ -95,6 +95,9 @@ pub(super) struct RouteState {
     /// (theseus-a1wvq.8, `data::admits`). Unchecked at the turn's start; it
     /// never mints a pass: each request's own `data::clearance` does.
     pub(super) admitted: super::open_step::Admitted,
+    /// The ids of the result nodes this turn screened and passed
+    /// (`screen_step.rs`): carried as the loop's own.
+    pub(super) screened: Vec<String>,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,

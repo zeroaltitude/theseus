@@ -97,6 +97,7 @@ mod rerank_step;
 mod retract_step;
 mod retry_step;
 mod route_step;
+mod screen_step;
 mod self_budget_step;
 pub(crate) mod situation_step;
 mod spec_step;
@@ -1983,6 +1984,7 @@ impl TurnRunner {
             }
             self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
+            self.screen_loop(t, session, &uses);
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the
             // cut answer out; so does the reply. A retry cut too fails the turn.

@@ -15,8 +15,9 @@
 //! - **The pass** (`data_pass`, before `call_model`): the request's
 //!   `data::Carried`, its `data::clearance`, and a pass for its digest when
 //!   cleared. Each request's clearance is kept on the turn.
-//! - **A later loop** whose nodes leave the run (a tool's result, anything
-//!   but the loop's own answer and calls) moves to the `[model]` default with
+//! - **A later loop** whose nodes leave the run (a tool's result the turn did
+//!   not screen, `screen_step.rs`; anything but the loop's own answer, calls
+//!   and screened results) moves to the `[model]` default with
 //!   `data_gate` before it compiles (`data_move`), as a plain detour.
 //! - **The run is stored** in the turn's own session write when every request
 //!   went out cleared and nothing but the turn's own loop came after the run
@@ -48,7 +49,7 @@ pub(super) struct Held {
     /// Each request's clearance, in order.
     pub(super) requests: Vec<Clearance>,
     /// The first input or request of an open session not admitted.
-    taint: Option<Taint>,
+    pub(super) taint: Option<Taint>,
     /// A later loop moved off a restricted model.
     moved: bool,
 }
@@ -73,8 +74,9 @@ pub(super) fn slots() -> Slots {
 }
 
 /// Who wrote `n`, for a request of `turn`.
-fn writer(n: &Stub, turn: &str) -> Writer {
+pub(super) fn writer(n: &Stub, turn: &str, screened: &[String]) -> Writer {
     match n.kind {
+        Kind::ToolResult if screened.contains(&n.id) => Writer::Loop,
         Kind::ToolResult => Writer::ToolResult,
         Kind::AssistantMessage | Kind::ToolCall | Kind::Recall
             if n.turn_id.as_deref() == Some(turn) =>
@@ -227,7 +229,7 @@ impl TurnRunner {
                 .map(|(p, n)| Carry {
                     id: n.id.clone(),
                     at: *p,
-                    writer: writer(n, t.tc.turn_id),
+                    writer: writer(n, t.tc.turn_id, &t.route.screened),
                 })
                 .collect(),
         })
@@ -299,8 +301,8 @@ impl TurnRunner {
     }
 
     /// A later loop on a restricted model whose request would carry a node
-    /// past the run that the loop did not write (a tool's result: nothing is
-    /// screened yet) moves to the `[model]` default with `data_gate` before
+    /// past the run that the loop did not write (a tool's result that failed
+    /// the screen) moves to the `[model]` default with `data_gate` before
     /// it compiles, once a turn; a detour then compiles as a plain one, in
     /// the session's own view. The turn stores no run.
     pub(super) fn data_move<'a>(
@@ -322,7 +324,7 @@ impl TurnRunner {
         let left = since.is_none_or(|at| {
             nodes[at + 1..]
                 .iter()
-                .any(|(_, n)| writer(n, t.tc.turn_id) != Writer::Loop)
+                .any(|(_, n)| writer(n, t.tc.turn_id, &t.route.screened) != Writer::Loop)
         });
         if !left {
             return Ok(None);
@@ -370,7 +372,7 @@ impl TurnRunner {
                 let own = at.is_some_and(|at| {
                     nodes[at + 1..]
                         .iter()
-                        .all(|(_, n)| writer(n, t.tc.turn_id) == Writer::Loop)
+                        .all(|(_, n)| writer(n, t.tc.turn_id, &t.route.screened) == Writer::Loop)
                 });
                 if let (true, Some((_, last))) = (own, nodes.last()) {
                     let d = session.data.get_or_insert_with(Default::default);
