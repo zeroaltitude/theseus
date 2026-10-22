@@ -105,6 +105,10 @@ pub struct PendingConfirm {
     /// When the question stops holding; 0 for a budget question.
     #[serde(default)]
     pub expires_at_ms: u64,
+    /// The turn whose call asks, when the daemon knows it (`ConfirmRequest::turn_id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub turn_id: Option<String>,
 }
 
 /// One execution as every surface shows it: `execution.changed`'s params, and
@@ -677,6 +681,7 @@ mod tests {
             floor: false,
             budget: false,
             expires_at_ms: 1_790_000_300_000,
+            turn_id: None,
         }
     }
 

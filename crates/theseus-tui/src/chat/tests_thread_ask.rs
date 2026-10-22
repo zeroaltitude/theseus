@@ -261,6 +261,17 @@ async fn a_placed_threads_other_turn_does_not_ask_in_this_chat() {
     r.shows("y yes").await;
 }
 
+/// A question that names no turn (an older daemon's, a background worker's)
+/// still asks in this chat (theseus-fkvb0).
+#[tokio::test(start_paused = true)]
+async fn a_question_naming_no_turn_asks_in_this_chat() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(asking(None));
+    r.shows("y yes").await;
+}
+
 /// A task change of another turn of the placed thread's session is not
 /// counted in this chat; one with no turn (a background worker's) is.
 #[tokio::test(start_paused = true)]

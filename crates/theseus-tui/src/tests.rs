@@ -414,6 +414,7 @@ pub fn pending(correlation_id: &str, reason: &str) -> PendingConfirm {
         floor: false,
         budget: false,
         expires_at_ms: 0,
+        turn_id: None,
     }
 }
 
