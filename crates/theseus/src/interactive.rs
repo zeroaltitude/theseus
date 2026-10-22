@@ -696,8 +696,12 @@ impl Watch {
         // parked turn's footer comes after its question): the line to answer
         // on goes last again, so it is the one the terminal ends on. The
         // question's block is above already and prints once.
+        // In a herdr pane the prompt stays where it was said: the pane's one prompt per question
+        // (theseus-xgfps), and the answer card is the place to answer.
+        let in_herdr = std::env::var("HERDR_ENV").is_ok_and(|v| v == "1");
         let below = self.printer.lines_printed() != printed;
-        if self.interactive && self.asked.is_some() && self.asked == was_asked && below {
+        if self.interactive && self.asked.is_some() && self.asked == was_asked && below && !in_herdr
+        {
             self.say_prompt(false);
         }
         Ok(())

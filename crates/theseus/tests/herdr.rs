@@ -1782,3 +1782,38 @@ fn a_stop_cancels_the_task_a_pane_shows() {
     let cancel = d.wait_for("task.cancel", 1);
     assert_eq!(cancel[0]["params"]["task"], "ses_01a1772ee8");
 }
+
+/// A call that starts while a question waits prints below the question; in a herdr pane that
+/// does not say the prompt again: the pane's prompt is one per question (theseus-xgfps).
+#[test]
+fn a_pane_says_its_prompt_once_when_events_print_below_the_question() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let waiting = view(
+        20,
+        "waiting",
+        "needs_you",
+        "confirm proc.run: run the tide tables",
+        Some("act_m3"),
+        0.0,
+    );
+    let d = daemon(dir.path(), waiting, vec![question("act_m3")]);
+    let mut w = Watch::start(&d, Some(&herdr), &["--interactive"]);
+    w.wait_prompt(1);
+    for n in 1..=2 {
+        d.push(
+            "tool.started",
+            json!({"session_id": S, "turn_id": "trn_1", "tool_use_id": format!("tu_{n}"),
+                "tool": "fs.read", "correlation_id": format!("act_r{n}"), "backend": "inproc"}),
+        );
+        w.wait_err("fs.read", n);
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    drop(w.child.stdin.take());
+    let (_, err) = w.finish();
+    let count = err
+        .lines()
+        .filter(|l| *l == "  approve? [y/N/t/note]")
+        .count();
+    assert_eq!(count, 1, "{err}");
+}
