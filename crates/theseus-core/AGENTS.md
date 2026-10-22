@@ -1587,8 +1587,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and on a switch `cold_tokens` and `cache_usd`). The judgment's settled cost is charged to the task's execution by the
     judge (`Kernel::charge_execution`: no row, no word to the day ceiling, since `judge.budget` already holds it), a task
     that cannot cover `RESERVE_MICROS` skips the ask (reason `budget`), and its `loop.ended` rows say `on` while it is off
-    its base (the work board's `moved_to`, the progress line's `on sonnet`). Tests: `tests_task_checkpoint.rs`,
+    its base (the work board's `moved_to`, the progress line's `on sonnet`). **Effort without a move** (theseus-53ujg.3): a
+    verdict that keeps the profile and asks more effort raises it by `route_effort`'s rule, with no slot; the sticky rule
+    never holds that raise, a model that takes per-message effort records it as not applied, and a checkpoint never lowers
+    effort. An ineligible turn's checkpoint state stays `Off` (`checkpoint_apply` no longer puts it back as `Unread`).
+    Tests: `tests_task_checkpoint.rs`, `tests_checkpoint_effort.rs`,
     `routing::checkpoint::tests`. Not covered: a task a model made with `task.create` (it has no brief mark).
+    **A routed profile's effort floor** (theseus-53ujg.3; `routing/effort.rs`): on a profile a routing class chose (not the
+    session's base), the turn runs at no less than the profile's own `effort`. It applies after the 0.70 gate and before
+    `effort_bounds`, is not gated, and `effort_reason` is `floored` only when it raised the level; on the base profile Jev
+    may still go below.
     **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.70, else
     `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
