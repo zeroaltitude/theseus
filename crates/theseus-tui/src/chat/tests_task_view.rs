@@ -513,6 +513,46 @@ async fn chat_task_inspect_is_read_only_and_an_unknown_task_is_said() {
     r.shows("no task `nothere`").await;
 }
 
+/// The popup `--task ID --inspect` is a read-only look: Esc, or two Ctrl-C, ends it and opens no
+/// conversation; a join (`--task ID`) still goes back to main (theseus-xgfps).
+#[tokio::test(start_paused = true)]
+async fn esc_ends_an_inspect_popup() {
+    let mut r = cold(SHORT, false).await;
+    r.press(KeyCode::Esc).await;
+    r.settle().await;
+    assert!(r.runner.quitting());
+    assert!(r.daemon.asked("session.open").is_empty());
+    let mut r = cold(SHORT, false).await;
+    r.ctrl('c').await;
+    r.ctrl('c').await;
+    r.settle().await;
+    assert!(r.runner.quitting());
+    let mut r = cold(SHORT, true).await;
+    r.press(KeyCode::Esc).await;
+    r.shows("back in main").await;
+    assert!(!r.runner.quitting());
+}
+
+/// A joined task's call whose start this view never saw (a wait that began before the join) is
+/// worded by its tool, never as `Run `null`` (theseus-xgfps).
+#[tokio::test(start_paused = true)]
+async fn a_joined_tasks_job_wait_reads_as_a_wait() {
+    let mut r = cold(SHORT, true).await;
+    r.tell(theseus_protocol::Event::ToolEnded(
+        theseus_protocol::ToolEnded {
+            session_id: TASK.into(),
+            turn_id: "trn_t1".into(),
+            tool_use_id: "tu_w1".into(),
+            tool: "job.wait".into(),
+            status: "ok".into(),
+            duration_ms: Some(1_200),
+            ..Default::default()
+        },
+    ));
+    r.shows("● Wait for a job").await;
+    assert!(!r.text().contains("null"), "{}", r.text());
+}
+
 // ------------------------------------------------------------ the header
 
 fn golden(name: &str, got: &str) {
