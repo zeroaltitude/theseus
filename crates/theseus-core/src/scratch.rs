@@ -47,9 +47,32 @@ fn named(base: &Path, tag: &str) -> PathBuf {
     base.join(format!("{PREFIX}{}", crate::new_id(tag)))
 }
 
-/// Removes a directory or a file, and says nothing of one that is gone.
+/// Removes a directory or a file, and says nothing of one that is gone. A tree
+/// a test froze read-only (an extension's copy, a sealed runner's binaries) is
+/// made writable first and removed again.
 fn remove(path: impl AsRef<Path>) {
-    let _ = std::fs::remove_dir_all(&path).or_else(|_| std::fs::remove_file(&path));
+    let path = path.as_ref();
+    if std::fs::remove_dir_all(path).is_err() {
+        thaw(path);
+        let _ = std::fs::remove_dir_all(path).or_else(|_| std::fs::remove_file(path));
+    }
+}
+
+/// Gives every directory at and under `path` the owner's `rwx`, parents first
+/// so the walk can enter each. A file is deleted by its directory's mode.
+fn thaw(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    if !meta.is_dir() {
+        return;
+    }
+    let mode = meta.permissions().mode() | 0o700;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+    for e in std::fs::read_dir(path).into_iter().flatten().flatten() {
+        thaw(&e.path());
+    }
 }
 
 /// Notes `path` for removal at exit. The first one in a process also hooks
@@ -141,5 +164,20 @@ mod tests {
         assert!(p.starts_with(base.path()));
         remove_all(vec![p.clone()]);
         assert!(!p.exists() && other.exists());
+    }
+
+    #[test]
+    fn a_read_only_tree_is_removed() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let p = make(base.path(), "ro");
+        let inner = p.join("store/sealed");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("frozen"), b"x").unwrap();
+        for d in [&inner, &p.join("store"), &p] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+        remove(&p);
+        assert!(!p.exists());
     }
 }
