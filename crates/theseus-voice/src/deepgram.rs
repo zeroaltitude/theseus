@@ -41,7 +41,7 @@ pub const PROVIDER: &str = "deepgram";
 pub const SYNTHESES: usize = 3;
 
 /// A clip still cut off after every ask ends in this fade, not a click.
-const FADE: Duration = Duration::from_millis(30);
+const FADE: Duration = Duration::from_millis(10);
 
 /// How Deepgram is asked. [`Default`] is v1's: nova-3 in US English, and the
 /// Aura-2 voice Andromeda.

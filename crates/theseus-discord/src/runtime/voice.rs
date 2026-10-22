@@ -425,7 +425,12 @@ impl Place {
         );
         // Its handlers attach before the join, so the speaking events Discord
         // sends in the handshake are heard (theseus-sro04).
-        let joined = SongbirdIo::join(&songbird, guild, chan);
+        let joined = SongbirdIo::join(
+            &songbird,
+            guild,
+            chan,
+            Duration::from_millis(voice.cfg.lead_in_ms),
+        );
         let io = match tokio::time::timeout(JOIN_WAIT, joined).await {
             Ok(Ok(io)) => io,
             Ok(Err(e)) => return Err(self.join_failed(&songbird, &place, format!("{e}")).await),
@@ -892,15 +897,18 @@ async fn greet(
     let _ = commands.send(Command::Report { text });
 }
 
-/// The engine's settings for a call: the design's, with the switches `[voice]`
-/// owns (`join_guard`, `echo_cancel`, `judge_ms`). The engine's own default has
-/// the first two off, so the engine's tests read as they did; this is the one
-/// place the config turns them on.
+/// The engine's settings for a call: the design's, with the keys `[voice]`
+/// owns (`join_guard`, `echo_cancel`, `judge_ms`, `pause_ms`, `merge_ms`). The
+/// engine's own default has the guard and the echo cancel off, the pause at
+/// 700 ms and the merge off, so the engine's tests read as they did; this is the
+/// one place the config sets them.
 fn engine_config(users: impl IntoIterator<Item = Speaker>, cfg: &VoiceConfig) -> EngineConfig {
     let mut config = EngineConfig::new(users);
     config.join_guard = cfg.join_guard;
     config.echo_cancel = cfg.echo_cancel;
     config.judge_ms = Duration::from_millis(cfg.judge_ms);
+    config.end_of_utterance = Duration::from_millis(cfg.pause_ms);
+    config.merge = Duration::from_millis(cfg.merge_ms);
     config
 }
 

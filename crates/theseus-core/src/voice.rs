@@ -88,6 +88,19 @@ pub struct VoiceConfig {
     /// rules decide as they always did.
     #[serde(default = "default_judge_ms")]
     pub judge_ms: u64,
+    /// How long a quiet listener closes an utterance, in milliseconds. A
+    /// natural pause inside a sentence runs 0.7 to 1.2 s.
+    #[serde(default = "default_pause_ms")]
+    pub pause_ms: u64,
+    /// The silence sent before the first clip of a speaking spell, in
+    /// milliseconds, so the head of a greeting isn't eaten. 0 is off.
+    #[serde(default = "default_lead_in_ms")]
+    pub lead_in_ms: u64,
+    /// How long an utterance whose transcript has no terminal punctuation
+    /// waits for the same speaker's next one, in milliseconds; the two are
+    /// one turn. 0 is off.
+    #[serde(default = "default_merge_ms")]
+    pub merge_ms: u64,
 }
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
@@ -122,6 +135,15 @@ fn default_deaf_after_secs() -> u64 {
 fn default_judge_ms() -> u64 {
     250
 }
+fn default_pause_ms() -> u64 {
+    1_200
+}
+fn default_lead_in_ms() -> u64 {
+    400
+}
+fn default_merge_ms() -> u64 {
+    1_500
+}
 
 impl Default for VoiceConfig {
     fn default() -> Self {
@@ -140,6 +162,9 @@ impl Default for VoiceConfig {
             echo_cancel: default_status(),
             judge_unclear: default_status(),
             judge_ms: default_judge_ms(),
+            pause_ms: default_pause_ms(),
+            lead_in_ms: default_lead_in_ms(),
+            merge_ms: default_merge_ms(),
         }
     }
 }
@@ -173,6 +198,28 @@ impl crate::config::Config {
                 "voice.judge_ms = {}: a judgment of an unclear transcript waits 1 to 2000 ms \
                  (250 is the default); `judge_unclear = false` turns it off",
                 v.judge_ms
+            );
+        }
+        if !(300..=3_000).contains(&v.pause_ms) {
+            bail!(
+                "voice.pause_ms = {}: a quiet listener closes an utterance after 300 to 3000 ms \
+                 (1200 is the default); below 300 every breath is a turn, above 3 s a reply \
+                 waits too long",
+                v.pause_ms
+            );
+        }
+        if v.lead_in_ms > 1_000 {
+            bail!(
+                "voice.lead_in_ms = {}: the silence before a spell is 0 to 1000 ms \
+                 (400 is the default; 0 is off)",
+                v.lead_in_ms
+            );
+        }
+        if v.merge_ms > 5_000 {
+            bail!(
+                "voice.merge_ms = {}: an unfinished sentence waits 0 to 5000 ms for its rest \
+                 (1500 is the default; 0 is off)",
+                v.merge_ms
             );
         }
         if !(v.api_base.starts_with("https://") || v.api_base.starts_with("http://")) {
@@ -408,6 +455,37 @@ mod tests {
                 e.contains("voice.judge_ms") && e.contains("judge_unclear = false"),
                 "{e}"
             );
+        }
+    }
+
+    /// The pause, the lead-in and the merge default to 1200, 400 and 1500 ms,
+    /// read back when set, and a value outside its range is refused with the key
+    /// named (theseus-bp0lp).
+    #[test]
+    fn the_pause_the_lead_in_and_the_merge_have_defaults_and_ranges() {
+        let with = |section: &str| {
+            Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML)).map(|(c, _)| c)
+        };
+        let none = Config::example().voice;
+        assert_eq!(
+            (none.pause_ms, none.lead_in_ms, none.merge_ms),
+            (1_200, 400, 1_500)
+        );
+        let cfg = with("[voice]\nenabled = true").unwrap();
+        assert_eq!((cfg.voice.pause_ms, cfg.voice.lead_in_ms), (1_200, 400));
+        assert_eq!(cfg.voice.merge_ms, 1_500);
+        let cfg = with("[voice]\npause_ms = 1400\nlead_in_ms = 0\nmerge_ms = 0").unwrap();
+        assert_eq!((cfg.voice.pause_ms, cfg.voice.lead_in_ms), (1_400, 0));
+        assert_eq!(cfg.voice.merge_ms, 0);
+        for (key, bad) in [
+            ("pause_ms", "299"),
+            ("pause_ms", "3001"),
+            ("lead_in_ms", "1001"),
+            ("merge_ms", "5001"),
+        ] {
+            let e = with(&format!("[voice]\n{key} = {bad}")).unwrap_err();
+            let e = format!("{e:#}");
+            assert!(e.contains(&format!("voice.{key} = {bad}")), "{e}");
         }
     }
 

@@ -56,3 +56,24 @@ fn the_calls_speakers_are_the_engines_listed() {
     assert_eq!(c.listed.len(), 2);
     assert!(c.listed.contains(&Speaker(9)));
 }
+
+/// A call closes an utterance after `[voice] pause_ms`: 1200 ms with no section,
+/// though the engine's own default is 700 (theseus-bp0lp).
+#[test]
+fn a_call_closes_an_utterance_after_the_configured_pause() {
+    let none = Config::example();
+    let c = engine_config([Speaker(7)], &none.voice);
+    assert_eq!(c.end_of_utterance, Duration::from_millis(1_200));
+    let c = call_with("[voice]\npause_ms = 1400");
+    assert_eq!(c.end_of_utterance, Duration::from_millis(1_400));
+}
+
+/// A call merges an unfinished utterance with the next within `[voice] merge_ms`:
+/// 1500 ms with no section, and 0 turns it off.
+#[test]
+fn a_call_merges_an_unfinished_utterance_within_the_configured_window() {
+    let c = engine_config([Speaker(7)], &Config::example().voice);
+    assert_eq!(c.merge, Duration::from_millis(1_500));
+    let c = call_with("[voice]\nmerge_ms = 0");
+    assert_eq!(c.merge, Duration::ZERO);
+}
