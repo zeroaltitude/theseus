@@ -11,7 +11,9 @@ scripts/keel-signers carries a trailer for it:
 
     Keel: <rule> <path>[, <path>...] — <why>
 
-(`--` or ` - ` may stand for the dash; a path may be a glob). An unsigned commit's trailer counts for nothing, so a
+(`--` or ` - ` may stand for the dash; a path may be a glob). A line whose rule is not one of the rules below, whose
+path holds a space, or that is no trailer (a `Keel:` line above the message's last paragraph, which git never reads)
+is refused, saying so. An unsigned commit's trailer counts for nothing, so a
 branch can't ack itself; nor does one signed with an ssh or x509 key, whatever it verifies against: GPG keys only. The signer list is read from the base, never the head, so a branch can't list its own key.
 
 The range (`THESEUS_KEEL_BASE=<rev>` or `--base` overrides its base, and the gate finds it as below in its own shell,
@@ -54,12 +56,18 @@ The rules, by the name the report and the ack use:
                   clippy.toml threshold raised or removed, or an allow-* switch turned on.
   budget-raised   a numeric literal raised, or its line removed, in:
                     crates/theseus-sim/src/lifecycle.rs   fn budget_ms, fn margin_ms, const CANCEL_FRAMES
-                    crates/theseus-sim/src/perf.rs        const PLAIN_TURN_FRAMES, TOOL_TURN_FRAMES, BINARY_MB
+                    crates/theseus-sim/src/perf.rs        const PLAIN_TURN_FRAMES, TOOL_TURN_FRAMES, BINARY_MB,
+                                                          BATCH_OVER_ONE_CALL_MS (the batch turn's allowance)
                     crates/theseus-sim/src/jobs.rs        const START_P95_MS
                     crates/theseus-core/src/first_request.rs  const CLI_TASK_TOKENS, DM_TOKENS, CHANNEL_TOKENS,
                                                           HEADLESS_TOKENS (the first request's token budgets: the
                                                           owner's signed yes, 2026-10-15)
                     scripts/gate.sh                       THESEUS_GATE_BENCH_ALLOWANCE's default
+                    crates/theseus-sim/src/**/*.rs but its tests  a const naming BUDGET, MARGIN, SLACK, TOLERANCE or
+                                                          ALLOWANCE, across the changed files (one moved keeps its
+                                                          value; a new one is no finding); only in the sim crate,
+                                                          since elsewhere such names are not bench limits
+                  a new arm of a keel fn's match is judged against the base's fall-through for it.
   cap-raised      a spend or loop cap raised, removed, or its mode loosened (end/ask to notify, or a mode named for
                   the first time as notify or off):
                     bench/**/*.toml                       keys naming max_loops, max_turns, spend, budget, usd
@@ -1015,13 +1023,50 @@ def rust_item_lines(src, kind, name):
 BUDGETS = {
     "crates/theseus-sim/src/lifecycle.rs": [("fn", "budget_ms"), ("fn", "margin_ms"), ("const", "CANCEL_FRAMES")],
     "crates/theseus-sim/src/perf.rs": [("const", "PLAIN_TURN_FRAMES"), ("const", "TOOL_TURN_FRAMES"),
-                                       ("const", "BINARY_MB")],
+                                       ("const", "BINARY_MB"), ("const", "BATCH_OVER_ONE_CALL_MS")],
     "crates/theseus-sim/src/jobs.rs": [("const", "START_P95_MS")],
     # The first request's budgets in tokens (theseus-to0xw): raising one is the owner's signed change (his "Yes!" of
     # 2026-10-15 09:50 to "make any raise of the 8,000 / 15,000 limits need your signed OK").
     "crates/theseus-core/src/first_request.rs": [("const", "CLI_TASK_TOKENS"), ("const", "DM_TOKENS"),
                                                  ("const", "CHANNEL_TOKENS"), ("const", "HEADLESS_TOKENS")],
 }
+
+
+ARM = re.compile(r'^\s*("[^"]*"(?:\s*\|\s*"[^"]*")*)\s*=>\s*(.*?),?\s*$')
+FALL = re.compile(r"^\s*_\s*=>\s*(.*?),?\s*$")
+
+
+def match_arms(lines):
+    """A fn's `match` over string literals, read as {pattern: (numbers, line, text)} and the fall-through's
+    (numbers, line, text), with the arms' line numbers; None when it has no `_ =>` arm."""
+    arms, rows, fall = {}, set(), None
+    for n, t in lines:
+        m = ARM.match(t)
+        if m:
+            rows.add(n)
+            for p in re.findall(r'"[^"]*"', m.group(1)):
+                arms[p] = ([num(x) for x in NUM.findall(m.group(2))], n, t.strip().rstrip(","))
+        elif FALL.match(t):
+            fall = ([num(x) for x in NUM.findall(t)], n, t.strip().rstrip(",") + " (the fall-through)")
+    return (arms, fall, rows) if fall else None
+
+
+def compare_arms(path, base, head, out):
+    """Each pattern's value at the head against its value at the base: the arm that names it, else the fall-through.
+    A head arm is judged on the patterns it names, so a new arm is judged against the fall-through it replaced and a
+    split or merged arm keeps its value; a base arm with a pattern no numbered head arm names is gone, as before. A
+    pattern the base gave no number is unbudgeted there: a new budget for it is no finding."""
+    (barms, bfall, _), (harms, _, _) = base, head
+    for line in sorted({v[1] for v in harms.values()}):
+        for p in [p for p, v in harms.items() if v[1] == line]:
+            (old, _, otext), (new, _, ntext) = barms.get(p, bfall), harms[p]
+            if old and any(b > a for a, b in zip(old, new)):
+                out.append(Finding("budget-raised", path, line, otext, ntext))
+                break
+    for line in sorted({v[1] for v in barms.values()}):
+        if any(barms[p][0] and not harms.get(p, ([],))[0] for p, v in barms.items() if v[1] == line):
+            out.append(Finding("budget-raised", path, line, next(v[2] for v in barms.values() if v[1] == line),
+                               "(gone or rewritten)"))
 
 
 def budget_rule(tree, path, out):
@@ -1035,6 +1080,10 @@ def budget_rule(tree, path, out):
         if not old:
             continue
         new = rust_item_lines(tree.new(path), kind, name)
+        base, head = (match_arms(old), match_arms(new)) if kind == "fn" else (None, None)
+        if base and head:
+            compare_arms(path, base, head, out)
+            old, new = [r for r in old if r[0] not in base[2]], [r for r in new if r[0] not in head[2]]
         compare_rows("budget-raised", path, shape_rows(old), shape_rows(new), out)
 
 
@@ -1133,12 +1182,22 @@ def cap_items(src):
     return items + [("const", m.group(1)) for m in CAP_CONST.finditer(code) if CAP_UNIT.search(m.group(1))]
 
 
-def cap_code_rule(tree, paths, out):
+# The sim crate's budget terms by name (theseus-qfohm): a const naming BUDGET, MARGIN, SLACK, TOLERANCE or ALLOWANCE in
+# crates/theseus-sim/src/ outside its tests, judged as cap_code_rule judges a cap's. Only there: elsewhere such names
+# (a token's REFRESH_MARGIN) are not bench limits, and raising some of them tightens.
+SIM_BUDGET_CONST = re.compile(r"\bconst\s+([A-Z0-9_]*(?:BUDGET|MARGIN|SLACK|TOLERANCE|ALLOWANCE)[A-Z0-9_]*)\s*:")
+
+
+def sim_budget_items(src):
+    return [("const", m.group(1)) for m in SIM_BUDGET_CONST.finditer(strip_rs_comments(src or ""))]
+
+
+def cap_code_rule(tree, paths, out, rule="cap-raised", items=cap_items):
     base, head = defaultdict(list), defaultdict(list)
     for p in paths:
-        for kind, name in cap_items(tree.old(p)):
+        for kind, name in items(tree.old(p)):
             base[name].append((p, kind))
-        for kind, name in cap_items(tree.new(p)):
+        for kind, name in items(tree.new(p)):
             head[name].append((p, kind))
     for name, places in base.items():
         for p, kind in places:
@@ -1147,10 +1206,10 @@ def cap_code_rule(tree, paths, out):
                 continue
             there = [x for x in head.get(name, []) if x[0] == p] or head.get(name, [])
             if not there:
-                out.append(Finding("cap-raised", p, old[0][2], f"{kind} {name}: {old[0][3]}", "(gone)"))
+                out.append(Finding(rule, p, old[0][2], f"{kind} {name}: {old[0][3]}", "(gone)"))
                 continue
             hp, hk = there[0]
-            compare_rows("cap-raised", hp, old, shape_rows(rust_item_lines(tree.new(hp), hk, name)), out)
+            compare_rows(rule, hp, old, shape_rows(rust_item_lines(tree.new(hp), hk, name)), out)
 
 
 # CI's workflows (theseus-pw1q.18): a step's command (each `&&`/`;` part of a run, a uses' action, a command:) gone or
@@ -1446,6 +1505,8 @@ def judge(tree, paths):
     out = []
     tests_rule(tree, [p for p in paths if p.endswith((".rs", ".py")) or TS_TEST_FILE.search(p)], out)
     cap_code_rule(tree, [p for p in paths if p.endswith(".rs")], out)
+    cap_code_rule(tree, [p for p in paths if p.startswith("crates/theseus-sim/src/") and p.endswith(".rs")
+                         and not TEST_FILE.search(p) and "/tests/" not in p], out, "budget-raised", sim_budget_items)
     cap_python(tree, [p for p in paths if p.startswith("bench/") and p.endswith(".py")
                       and not os.path.basename(p).startswith("test_")], out)
     for p in paths:
@@ -1500,16 +1561,32 @@ def signature_kind(repo, sha):
     return SIG_KINDS.get(m.group(1), m.group(1).lower()) if m else None
 
 
+def ack_fault(m):
+    """What makes a well-formed ack line name nothing: a rule that is not one, or a path with a space in it."""
+    if m.group("rule") not in RULES:
+        return f"`{m.group('rule')}` is not a rule (the rules: {', '.join(RULES)})"
+    spaced = next((p.strip() for p in m.group("paths").split(",") if re.search(r"\s", p.strip())), None)
+    return spaced and f"a path holds a space: `{spaced}` (paths are comma-separated)"
+
+
 def acks(repo, base, head_commit, keys):
     """[(rule, [path globs], sha)] from the range's commits whose signature a listed key made."""
-    out = git(repo, "log", "--format=%H%x00%(trailers:key=Keel,valueonly,unfold)%x1e", f"{base}..{head_commit}")
+    out = git(repo, "log", "--format=%H%x00%(trailers:key=Keel,valueonly,unfold)%x00%B%x1e", f"{base}..{head_commit}")
     found, refused = [], []
     for rec in out.split("\x1e"):
         rec = rec.strip("\n")
         if not rec:
             continue
-        sha, _, trailers = rec.partition("\0")
+        sha, _, rest = rec.partition("\0")
+        trailers, _, body = rest.partition("\0")
         lines = [x for x in trailers.split("\n") if x.strip()]
+        # A Keel: line above the message's last paragraph is no trailer: git never reads it (94eb8a7d's was one).
+        for x in re.findall(r"(?m)^Keel:[ \t]*(\S.*?)\s*$", body):
+            if not any(t.strip().startswith(x) for t in lines):
+                fault = ACK.match(x) and ack_fault(ACK.match(x))
+                refused.append((sha, x, "not a trailer: git reads trailers from the message's last paragraph only "
+                                        "(put the Keel: lines beside Co-Authored-By, with no blank line between)"
+                                        + (f"; and {fault}" if fault else "")))
         if not lines:
             continue
         verdict = git(repo, "log", "-1", "--format=%G?%x00%GF%x00%GP", sha, check=False) or "N\0\0"
@@ -1530,6 +1607,9 @@ def acks(repo, base, head_commit, keys):
                     f"signed by {fpr or 'an unknown key'}, not a key in {SIGNERS} at the base" if mark in ("G", "U")
                     else f"its signature does not verify (%G? is {mark})")
                 refused.append((sha, x, why))
+                continue
+            if ack_fault(m):
+                refused.append((sha, x, ack_fault(m)))
                 continue
             paths = [p.strip() for p in m.group("paths").split(",") if p.strip()]
             found.append((m.group("rule"), paths, sha))
