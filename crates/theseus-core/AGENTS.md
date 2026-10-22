@@ -640,6 +640,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   card with no button (`theseus thread link a b` is in its words); a pair is asked once, whatever the owner did. Off, nothing is
   counted, written or posted. Not yet: a card with Link / Not needed buttons and a Discord `/thread link` (theseus-98bz.12).
   Tests: `rpc/tests_thread_link.rs`, the layouts' format-47 thread sample.
+  **A home turn's claim** (theseus-98bz.6; no store format change: the META key `thread.claim.<id>`, `claim_` values of
+  `moved.of.<node>`, the ledger kinds `thread.claimed` and `thread.unclaimed`; `rpc/home_claim.rs`, `[threads] claim_home_turns`, on):
+  a routed turn that ran at home (`thread_routed_turn`, no slug) whose result's files, all of them (`more` zero), fall in exactly one
+  live, unsealed thread's working set (`home_claim::thread_of`, pure: a `files` entry, or under a `roots` entry, a relative one under
+  the turn's directory) has its own nodes (paged back from the session's newest, at most 1,024) keyed to that thread by a `MovedTo`
+  whose `split` is `claim_…` (`MovedTo::is_claim`), one frame with the claim's record and its row; a node a split moved keeps its
+  value. The lens and recall read it as a split's; the home's compile, which reads `Body::Moved` nodes, is unchanged. `history`
+  marks it `claimed_by` (never `moved_to`), and a split may take a claimed node (`refuse_moved`). `thread.unclaim` (`theseus thread
+  unclaim ID`) writes null where the key still holds the claim's value. Tests: `rpc/tests_home_claim.rs`, `home_claim::tests`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,

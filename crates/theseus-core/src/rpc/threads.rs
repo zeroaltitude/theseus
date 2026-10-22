@@ -14,8 +14,8 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::json;
 use theseus_protocol::threads::{
     place_of, slug_ok, ThreadEditParams, ThreadInfo, ThreadListParams, ThreadListResult,
-    ThreadNameParams, ThreadNewParams, ThreadRow, ThreadState, WorkingSet, MAX_CARD,
-    MAX_LINE_CHARS, MAX_TOPICS,
+    ThreadNameParams, ThreadNewParams, ThreadRow, ThreadState, ThreadUnclaimParams, WorkingSet,
+    MAX_CARD, MAX_LINE_CHARS, MAX_TOPICS,
 };
 use theseus_protocol::{error_code, method, SessionOpenParams};
 use theseus_store::{kinds, NewRecord, Page};
@@ -123,6 +123,9 @@ impl Core {
             method::THREAD_LINK | method::THREAD_UNLINK => {
                 self.rpc_thread_links(name, params, conn)
             }
+            method::THREAD_UNCLAIM => route(params, |p: ThreadUnclaimParams| {
+                self.thread_unclaim(&p, conn.answerer(p.author.clone(), p.discord.clone()))
+            }),
             method::THREAD_DONE => route(params, |p: ThreadNameParams| {
                 self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
             }),

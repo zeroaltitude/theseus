@@ -1,12 +1,14 @@
 //! `theseus thread split` and `unsplit` (theseus-vt9k; theseus-q9b85): whole turns of a thread, or of
 //! a place's own session (its home), move into a thread, and the source's compile leaves them out.
+//! `unclaim` undoes a home turn's claim (theseus-98bz.6), the lighter mark a split replaces.
 
 use anyhow::{bail, Result};
 use clap::Args;
 use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::threads::{
-    ThreadSplitParams, ThreadSplitPlan, ThreadSplitResult, ThreadUnsplitParams, ThreadUnsplitResult,
+    ThreadSplitParams, ThreadSplitPlan, ThreadSplitResult, ThreadUnclaimParams,
+    ThreadUnclaimResult, ThreadUnsplitParams, ThreadUnsplitResult,
 };
 
 use crate::cmd::output;
@@ -153,6 +155,33 @@ pub async fn unsplit(conn: &mut Conn, json: bool, split: String) -> Result<()> {
     })
 }
 
+/// `thread unclaim CLAIM` (theseus-98bz.6): a home turn's claim undone.
+pub async fn unclaim(conn: &mut Conn, json: bool, claim: String) -> Result<()> {
+    let p = ThreadUnclaimParams {
+        claim,
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::THREAD_UNCLAIM, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: ThreadUnclaimResult| {
+        println!("{}", unclaim_line(&r));
+        Ok(())
+    })
+}
+
+/// What an undone claim did, in one line.
+pub fn unclaim_line(r: &ThreadUnclaimResult) -> String {
+    let kept = match r.kept {
+        0 => String::new(),
+        n => format!(" ({n} a split took since stay with it)"),
+    };
+    format!(
+        "Undid {}: {} nodes of {} belong to no thread again, not {}'s{kept}. Nothing was deleted.",
+        r.claim, r.restored, r.session, r.thread
+    )
+}
+
 fn messages(n: u32) -> String {
     match n {
         1 => "1 message".to_string(),
@@ -287,4 +316,26 @@ pub fn unsplit_lines(r: &ThreadUnsplitResult) -> Vec<String> {
         },
         "Nothing was deleted.".to_string(),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_undone_claim_says_what_went_back_and_what_a_split_kept() {
+        let mut r = ThreadUnclaimResult {
+            claim: "claim_01".into(),
+            thread: "pr-round".into(),
+            session: "ses_home".into(),
+            restored: 4,
+            kept: 0,
+        };
+        assert_eq!(
+            unclaim_line(&r),
+            "Undid claim_01: 4 nodes of ses_home belong to no thread again, not pr-round's. Nothing was deleted."
+        );
+        r.kept = 1;
+        assert!(unclaim_line(&r).contains("(1 a split took since stay with it)"));
+    }
 }

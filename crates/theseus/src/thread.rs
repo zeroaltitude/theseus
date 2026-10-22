@@ -1,6 +1,6 @@
 //! `theseus thread …` (theseus-nhew): the threads on virtual places
 //! `thread:<slug>`. `list` and `show` read; `new`, `edit`, `pause`, `resume`,
-//! `done`, `reopen`, `merge`, `unmerge`, `split` and `unsplit` are the owner's
+//! `done`, `reopen`, `merge`, `unmerge`, `split`, `unsplit` and `unclaim` are the owner's
 //! acts (refused inside a job, `client::OPERATORS`). Address a thread with
 //! `theseus ask --thread <slug>`. A merge or a split deletes nothing:
 //! `unmerge` undoes a merge and `unsplit` a split (theseus-vt9k,
@@ -166,6 +166,10 @@ pub enum ThreadCmd {
     /// range again in its own place, the quoted turns leave the target's compile, and a thread the
     /// split opened is done.
     Unsplit { split: String },
+    /// Undo a claim by its id (`claim_…`, which `theseus history` shows as "claimed by" on the
+    /// nodes of a turn that ran at home but wrote one thread's files): the nodes belong to no
+    /// thread again, but those a split took since.
+    Unclaim { claim: String },
 }
 
 impl Default for ThreadCmd {
@@ -295,6 +299,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Unlink { slug, other } => linking(conn, json, false, slug, other).await,
         ThreadCmd::Split(a) => split::split(conn, json, a).await,
         ThreadCmd::Unsplit { split } => split::unsplit(conn, json, split).await,
+        ThreadCmd::Unclaim { claim } => split::unclaim(conn, json, claim).await,
     }
 }
 

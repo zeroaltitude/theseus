@@ -343,6 +343,8 @@ ledger_kinds! {
     ThreadSplit = "thread.split",
     ThreadUnsplit = "thread.unsplit",
     ThreadUnmerged = "thread.unmerged",
+    ThreadClaimed = "thread.claimed",
+    ThreadUnclaimed = "thread.unclaimed",
     SynthesisChecked = "synthesis.checked",
     SynthesisProposed = "synthesis.proposed",
     SynthesisScored = "synthesis.scored",

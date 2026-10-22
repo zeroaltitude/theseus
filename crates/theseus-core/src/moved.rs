@@ -141,6 +141,18 @@ pub struct MovedTo {
     pub split: String,
 }
 
+/// The id prefix of a claim (theseus-98bz.6, `rpc/home_claim.rs`): a [`MovedTo`] whose `split` is
+/// `claim_…` keys a home turn's node to the thread it served. Recall reads it as a split's; nothing
+/// left the home's compile, and a split may take the node over.
+pub const CLAIM: &str = "claim";
+
+impl MovedTo {
+    /// Whether this is a claim's value, not a split's.
+    pub fn is_claim(&self) -> bool {
+        self.split.starts_with("claim_")
+    }
+}
+
 /// What a split left, for its undo.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SplitRecord {

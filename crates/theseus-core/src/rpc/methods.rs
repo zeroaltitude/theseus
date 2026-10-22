@@ -1280,8 +1280,13 @@ impl Core {
                 Value::Object(o) => o,
                 _ => serde_json::Map::new(),
             };
-            d.insert("moved_to".into(), Value::String(m.thread));
-            d.insert("split".into(), Value::String(m.split));
+            // A claim (theseus-98bz.6) keys a home turn's node to its thread: nothing moved.
+            let (thread, id) = match m.is_claim() {
+                true => ("claimed_by", "claim"),
+                false => ("moved_to", "split"),
+            };
+            d.insert(thread.into(), Value::String(m.thread));
+            d.insert(id.into(), Value::String(m.split));
             info.detail = Value::Object(d);
         }
         info
