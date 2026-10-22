@@ -67,6 +67,8 @@ mod tests_morning;
 mod tests_private;
 #[cfg(test)]
 mod tests_sheets_slides;
+#[cfg(test)]
+mod tests_write_hold;
 
 pub use external::{finish, Finished, Source};
 

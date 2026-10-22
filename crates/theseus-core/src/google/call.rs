@@ -74,6 +74,18 @@ impl Planned {
     }
 }
 
+/// A write that makes, sends or deletes something returns Theseus's own
+/// action echoed back (a created draft's id, an inserted event, a sent
+/// message's id), not text anyone else wrote, so it holds no session
+/// (theseus-e31an: a `drafts.create` echo held the owner's DM for three
+/// days). An update's echo (`patch`, `modify`, `update`) is the whole of an
+/// object someone else may have written, and stays outside text, as every
+/// read does unless its own source clears it.
+pub fn own_echo(class: Class, method: &str) -> bool {
+    let verb = method.rsplit('.').next().unwrap_or_default();
+    class != Class::Read && matches!(verb, "create" | "insert" | "send" | "delete")
+}
+
 pub struct CallTool(Arc<Google>);
 
 impl CallTool {
@@ -178,15 +190,12 @@ impl Tool for CallTool {
                         p.label, r.status, r.attempts
                     );
                     let meta = json!({"method": p.label, "http_status": r.status});
-                    Ok(finish(
-                        g.account(),
-                        text,
-                        meta,
-                        done.row,
-                        Source::Outside {
-                            label: &format!("google:{}", p.label),
-                        },
-                    ))
+                    let label = format!("google:{}", p.label);
+                    let source = match own_echo(p.class(), &p.label) {
+                        true => Source::None,
+                        false => Source::Outside { label: &label },
+                    };
+                    Ok(finish(g.account(), text, meta, done.row, source))
                 }
                 Err(f) => {
                     // A send that was refused before it could go out is not a send.
