@@ -898,7 +898,7 @@ async fn greet(
 }
 
 /// The engine's settings for a call: the design's, with the switches `[voice]`
-/// owns (`join_guard`, `echo_cancel`, `judge_ms`, `pause_ms`). The engine's own default has
+/// owns (`join_guard`, `echo_cancel`, `judge_ms`, `pause_ms`, `merge_ms`). The engine's own default has
 /// the first two off, so the engine's tests read as they did; this is the one
 /// place the config turns them on.
 fn engine_config(users: impl IntoIterator<Item = Speaker>, cfg: &VoiceConfig) -> EngineConfig {
@@ -907,6 +907,7 @@ fn engine_config(users: impl IntoIterator<Item = Speaker>, cfg: &VoiceConfig) ->
     config.echo_cancel = cfg.echo_cancel;
     config.judge_ms = Duration::from_millis(cfg.judge_ms);
     config.end_of_utterance = Duration::from_millis(cfg.pause_ms);
+    config.merge = Duration::from_millis(cfg.merge_ms);
     config
 }
 

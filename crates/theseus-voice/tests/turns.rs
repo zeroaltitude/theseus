@@ -1200,6 +1200,78 @@ async fn a_thought_split_by_a_pause_gets_one_answer() {
     );
 }
 
+/// The owner says `first` from 0 to 1 s (it closes at 1.7 s) and `second` from
+/// `again` for 0.8 s, with the merge window at `merge` (theseus-bp0lp): the
+/// turns, with their times.
+async fn said_twice(
+    merge: u64,
+    first_text: &str,
+    again: u64,
+    second_text: &str,
+) -> Vec<(Duration, Vec<(Speaker, String)>)> {
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 12_000)
+        .say(OWNER, 0, 1000)
+        .say(OWNER, again, 800)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, first_text)
+            .transcript(OWNER, second_text),
+    );
+    let mut config = Config::new([OWNER, ROBIN]);
+    config.acknowledge_after = Duration::from_secs(60);
+    config.merge = ms(merge);
+    let (seen, _) = call_with(config, io, speech, first(""), vec![]).await;
+    turns(&seen)
+        .into_iter()
+        .map(|(at, us)| {
+            (
+                at,
+                us.into_iter().map(|(s, t)| (s, t.to_string())).collect(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unfinished_utterance_waits_for_its_rest() {
+    // "so I was thinking" has no full stop: it waits for the owner's next
+    // utterance, begun 0.8 s after it closed, and the two are one turn. The
+    // second, closed at 4 s, has no full stop either, so it waits its own
+    // window: the turn is at 5.5 s.
+    let one = said_twice(1500, "so I was thinking", 2500, "we should go").await;
+    assert_eq!(
+        one,
+        [(
+            ms(5500),
+            vec![(OWNER, "so I was thinking we should go".to_string())]
+        )]
+    );
+    // A finished one is a turn at once, as before; the next is another (at
+    // 5.5 s: it is unfinished itself, and waits its window).
+    let two = said_twice(1500, "Go ahead.", 2500, "we should go").await;
+    assert_eq!(
+        two,
+        [
+            (ms(1700), vec![(OWNER, "Go ahead.".to_string())]),
+            (ms(5500), vec![(OWNER, "we should go".to_string())]),
+        ]
+    );
+    // With the merge off the unfinished pair is two turns, the first at its close.
+    let off = said_twice(0, "so I was thinking", 2500, "we should go").await;
+    assert_eq!(off.len(), 2, "{off:?}");
+    assert_eq!(off[0].0, ms(1700));
+    // A follow-on 2 s after the close is past the window: the first waited
+    // 1.5 s, then was a turn of its own.
+    let late = said_twice(1500, "so I was thinking", 3700, "we should go").await;
+    assert_eq!(late.len(), 2, "{late:?}");
+    assert_eq!(
+        late[0],
+        (ms(3200), vec![(OWNER, "so I was thinking".to_string())])
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_cut_acknowledgment_isnt_said_again() {
     // Turn 0 runs from 1.2 s to 4.2 s: its acknowledgment plays at 3.2 s, and

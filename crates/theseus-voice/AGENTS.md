@@ -34,6 +34,10 @@ or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "The
 the head of the greeting isn't eaten; the next sentence of a reply gets none. A quiet listener closes an utterance after
 `[voice] pause_ms` (1200 ms; `Config::end_of_utterance`, which the engine's own default leaves at 700, set only by the binding's
 `engine_config`), since a natural pause inside a sentence runs 0.7 to 1.2 s (theseus-bp0lp).
+An utterance whose transcript has no `.`, `?` or `!` at its end waits `Config::merge` (`[voice] merge_ms`, 1500 ms; zero, the engine's
+default, is off) after it closed for the same speaker's next one, and the two are one `Utterance` in one turn (`start_turn`:
+`awaits_its_rest`, `goes_on`); a finished transcript, or one said over Theseus's speech, never waits. The judge's path is untouched:
+each utterance is judged alone, before the merge.
 
 Theseus cancels its own voice from what a listener sends (theseus-yaxcp, `Config::echo_cancel`, `[voice] echo_cancel`, default
 true). `src/echo.rs` is the engine's side: the clips it plays, tick by tick as the seam was told to send them (a clip begun

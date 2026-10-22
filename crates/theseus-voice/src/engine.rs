@@ -108,6 +108,12 @@ pub struct Config {
     /// of waits for the engine's [`Judge`], if it has one: 250 ms
     /// (theseus-s3dwj). Nothing else waits for it.
     pub judge_ms: Duration,
+    /// An utterance whose transcript has no terminal punctuation (`.`, `?`,
+    /// `!`) waits this long after it closed for the same speaker's next one,
+    /// and the two are one turn (theseus-bp0lp). Zero is off, here, so the
+    /// engine's own tests read as they did; the session sets it from
+    /// `[voice] merge_ms`, which defaults to 1500 ms.
+    pub merge: Duration,
 }
 
 impl Config {
@@ -127,6 +133,7 @@ impl Config {
             join_guard: false,
             echo_cancel: false,
             judge_ms: Duration::from_millis(250),
+            merge: Duration::ZERO,
         }
     }
 
@@ -139,6 +146,20 @@ impl Config {
             pre_roll_frames: frames(self.pre_roll),
         }
     }
+}
+
+/// Whether `text` ends as a sentence does.
+fn finished(text: &str) -> bool {
+    text.trim_end().ends_with(['.', '?', '!'])
+}
+
+/// `last` and the utterance that goes on it, as one.
+fn join(last: &mut Utterance, next: Utterance) {
+    last.text = format!("{} {}", last.text, next.text);
+    last.length = next.started + next.length - last.started;
+    last.closed = next.closed;
+    last.usage.audio += next.usage.audio;
+    last.latency = last.latency.max(next.latency);
 }
 
 /// `length` in whole frames, rounded up.
@@ -1665,7 +1686,10 @@ impl Engine {
         if self.turn.is_some() {
             return;
         }
-        let mut utterances = Vec::new();
+        if self.awaits_its_rest() {
+            return;
+        }
+        let mut utterances: Vec<Utterance> = Vec::new();
         while self
             .pending
             .front()
@@ -1676,7 +1700,10 @@ impl Engine {
                 ..
             }) = self.pending.pop_front()
             {
-                utterances.push(*utterance);
+                match utterances.last_mut() {
+                    Some(last) if self.goes_on(last, &utterance) => join(last, *utterance),
+                    _ => utterances.push(*utterance),
+                }
             }
         }
         if utterances.is_empty() {
@@ -1696,6 +1723,44 @@ impl Engine {
             last_speech,
         });
         self.emit(Event::Turn { id, utterances });
+    }
+
+    /// Whether `next` goes on `last`'s thought: the same speaker, `last`
+    /// unfinished and not said over Theseus's speech, begun within
+    /// [`Config::merge`] of its close.
+    fn goes_on(&self, last: &Utterance, next: &Utterance) -> bool {
+        !self.config.merge.is_zero()
+            && last.speaker == next.speaker
+            && last.over.is_none()
+            && !finished(&last.text)
+            && next.started <= last.closed + self.config.merge
+    }
+
+    /// The transcribed run at the head of the line ends in an unfinished
+    /// utterance whose speaker may yet go on: they have another begun, or
+    /// open, or [`Config::merge`] hasn't passed since it closed. A finished
+    /// transcript never waits.
+    fn awaits_its_rest(&self) -> bool {
+        let run = self
+            .pending
+            .iter()
+            .take_while(|p| !matches!(p.state, Transcribed::Waiting))
+            .count();
+        let Some(Transcribed::Got(last)) = run.checked_sub(1).map(|i| &self.pending[i].state)
+        else {
+            return false;
+        };
+        let window = self.config.merge;
+        let begun = self
+            .pending
+            .get(run)
+            .is_some_and(|p| p.speaker == last.speaker && p.started <= last.closed + window);
+        !window.is_zero()
+            && last.over.is_none()
+            && !finished(&last.text)
+            && (at_tick(self.ticks) < last.closed + window
+                || begun
+                || self.vads.get(&last.speaker).is_some_and(Vad::is_open))
     }
 
     /// Synthesize the first sentence without audio: one at a time, at most
