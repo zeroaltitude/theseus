@@ -3147,6 +3147,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - `Core::build_with_clock` (test-only) builds a core whose kernel runs on a given clock, so a test drives an hour
   with a `VirtualClock` (`tests_effort_lapse.rs`, theseus-2ix1k). `test_support::until_event(what, f)` waits with no
   deadline of its own and prints `waiting for <what>` every 30 s, so a hang names itself in nextest's output.
+- A test's temp directory or file comes from `crate::scratch` (`dir`, `file`, `tempdir`; theseus-5hr6i) and is
+  removed when the process exits, leaked into a task or not; a killed process's are pruned once six hours old. Prefer it
+  over a bare `tempfile::tempdir()` whenever the fixture can be leaked into a task.
 - `Store::fail_turn_frame` (test-only) fails the first turn frame whose records match, once, as a full disk would.
 - Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store, by positions and
   record keys, decoding nothing. A node written past the turn's handle panics a debug daemon.

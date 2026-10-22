@@ -106,7 +106,7 @@ pub(crate) fn rig_on_clock(
     tweak: impl FnOnce(&mut Config),
     clock: Arc<dyn theseus_kernel::Clock>,
 ) -> Rig {
-    let dir = Arc::new(tempfile::tempdir().unwrap());
+    let dir = Arc::new(crate::scratch::tempdir());
     rig_with(dir, jev, n, tweak, board(), |_| {}, clock)
 }
 
