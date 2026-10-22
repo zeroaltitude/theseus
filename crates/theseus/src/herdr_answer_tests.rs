@@ -199,3 +199,20 @@ fn esc_closes_the_answer_card() {
         Decision::Unknown("note [A".into())
     );
 }
+
+/// The card lists the other questions in the order `tab` walks them, the next one first.
+#[test]
+fn the_listed_waiting_order_is_the_tab_order() {
+    let qs = three();
+    let ids = |shown: usize| -> Vec<String> {
+        others_after(&qs, &qs[shown])
+            .iter()
+            .map(|q| q.correlation_id.clone())
+            .collect()
+    };
+    // Raw order would list aaaa11 before cccc33 here; tab goes to cccc33.
+    assert_eq!(ids(0), ["act_0000cccc33", "act_0000aaaa11"]);
+    assert_eq!(ids(1), ["act_0000bbbb22", "act_0000cccc33"]);
+    assert_eq!(ids(2), ["act_0000aaaa11", "act_0000bbbb22"]);
+    assert!(others_after(&qs[..1], &qs[0]).is_empty());
+}

@@ -73,7 +73,7 @@ The plugin's startup hook runs `theseus herdr up --boot 2>/dev/null || theseus h
 restored as bare shells (the focused one too: the hook runs in no pane, so its `HERDR_PANE_ID` is not a pane of ours), then makes the `theseus` workspace with a `main` tab (`theseus chat`, the home conversation)
 and a `board` tab (the follower, `theseus herdr up --follow --here`), even when no task is running, so a task that
 starts later gets its tab by itself. A tab that is already there is left alone: running it again makes nothing new.
-`theseus herdr up --follow` does the same from a shell. `theseus herdr sync` is safe to run at any time.
+`theseus herdr up --follow` does the same from a shell, then switches herdr to the `theseus` workspace (`--no-focus` leaves the front alone; with no herdr client attached it says to run `herdr`), and returns at once because the `board` tab is the follower. `theseus herdr sync` is safe to run at any time.
 
 ## Troubleshooting
 

@@ -123,12 +123,13 @@ impl Chat {
         }
     }
 
-    /// A frame's changes, by the position rule.
+    /// A frame's changes, by (position, time): the daemon's sample of a running job's last line
+    /// keeps its frame's position and takes a later time (theseus-hwv3t).
     pub(super) fn work_changed(&mut self, c: WorkChanged) {
         self.board.position = self.board.position.max(c.position);
         for v in c.views {
             let prev = self.board.views.get(&v.id);
-            if prev.is_some_and(|p| p.position >= v.position) {
+            if prev.is_some_and(|p| (p.position, p.at_ms) >= (v.position, v.at_ms)) {
                 continue;
             }
             // A question is told by its event's line, once: the snapshot's

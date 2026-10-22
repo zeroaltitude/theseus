@@ -1339,10 +1339,29 @@ impl App {
     }
 
     /// `s`, `S` or `c`, once: the footer asks for the same key again (`S` also takes `y`).
+    /// `c` acts on the row under the cursor when the list is on screen beside another open
+    /// session, else on the open one (theseus-tlhjt); `s` and `S` keep the open one.
     fn arm(&mut self, arm: Arm) {
-        let Some(sid) = self.on_screen() else {
+        let Some(open) = self.on_screen() else {
             return;
         };
+        let sid = match arm {
+            Arm::Cancel if self.wide() => {
+                let rows = self.rows();
+                self.cursor(&rows)
+                    .map_or(open, |i| rows[i].session_id.clone())
+            }
+            _ => open,
+        };
+        let ended = self
+            .board
+            .work
+            .of_session(&sid)
+            .is_some_and(|w| w.state.ended());
+        if arm == Arm::Cancel && ended {
+            self.flash = Some((Tag::Dim, "that task has already finished".to_string()));
+            return;
+        }
         let kind = self.board.view(&sid).map(|v| v.kind);
         let refusal = match (arm, kind) {
             (Arm::Stop | Arm::StopAll, Some(SessionKind::Task)) => {

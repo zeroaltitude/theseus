@@ -72,6 +72,9 @@ pub struct UpArgs {
     /// Run the follower in this process (what the board tab runs).
     #[arg(long)]
     pub here: bool,
+    /// Leave herdr showing the workspace it is showing: no switch to `theseus` after `up`.
+    #[arg(long)]
+    pub no_focus: bool,
 }
 
 /// What `up` knows of its two sockets.
@@ -110,8 +113,14 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: UpArgs) -> Re
             &format!("closed {closed} pane(s) a herdr restart left"),
         );
     }
+    let focus = !a.no_focus && !a.boot;
     if follow && !a.here {
-        return base_tabs(&mut ctx).await;
+        base_tabs(&mut ctx).await?;
+        say(
+            &ctx,
+            "the board tab is the follower, so `up --follow` returns now",
+        );
+        return show_workspace(&mut ctx, focus).await;
     }
     let grace = Duration::from_secs(a.finished_grace);
     let mut f = Follower::new(grace);
@@ -119,7 +128,54 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: UpArgs) -> Re
     if follow {
         return follow_loop(ctx, f).await;
     }
-    one_shot(&mut ctx, f).await
+    one_shot(&mut ctx, f).await?;
+    show_workspace(&mut ctx, focus && !a.here).await
+}
+
+/// Bring herdr's `theseus` workspace to the front (`workspace.focus`) unless it is there, and say
+/// so. herdr's answer does not say whether a client is attached to show it, so the workspace
+/// listed again says: not in front after the call, then no client has it, and the line says how
+/// to attach (theseus-v54l9).
+async fn show_workspace(ctx: &mut Ctx, focus: bool) -> Result<()> {
+    if !focus {
+        return Ok(());
+    }
+    let mut here = workspace_row(ctx).await?;
+    let Some((id, number, false)) = here.clone() else {
+        return Ok(());
+    };
+    ctx.h
+        .call("workspace.focus", wire::focus_params(&id))
+        .await?;
+    here = workspace_row(ctx).await?;
+    say(
+        ctx,
+        &match here {
+            Some((_, _, true)) => format!("herdr: switched to workspace {number} ({WORKSPACE})"),
+            _ => format!(
+                "herdr: workspace {number} ({WORKSPACE}) is ready, but no herdr client shows it: \
+                 run `herdr` to attach"
+            ),
+        },
+    );
+    Ok(())
+}
+
+/// The `theseus` workspace as herdr lists it: its id, its number, and whether it is in front.
+async fn workspace_row(ctx: &mut Ctx) -> Result<Option<(String, u64, bool)>> {
+    let w = ctx.h.call("workspace.list", json!({})).await?;
+    Ok(w["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|w| w["label"] == WORKSPACE)
+        .and_then(|w| {
+            Some((
+                w["workspace_id"].as_str()?.to_string(),
+                w["number"].as_u64()?,
+                w["focused"].as_bool()?,
+            ))
+        }))
 }
 
 fn say(ctx: &Ctx, line: &str) {
