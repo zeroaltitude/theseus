@@ -288,17 +288,24 @@ fn is_wrong(label: &Value) -> bool {
     }
 }
 
-/// A turn that ran past its budget, or whose first token did.
+/// A turn whose model calls ran past the budget, or whose first token did.
+///
+/// A turn's wall time is the model's calls plus its tools' runs (a long
+/// search, a job that hangs), and many loops each add both. Only the model's
+/// own time is the model's to answer for, so the turn budget is held against
+/// `model_ms`, the sum of the turn's calls. A row from before `model_ms` was
+/// written has only `elapsed_ms`, and keeps the whole of it.
 fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
     let elapsed = d["elapsed_ms"].as_u64()?;
+    let spent = d["model_ms"].as_u64().unwrap_or(elapsed);
     let first = d["first_token_ms"].as_u64().unwrap_or(0);
     let model = word(&d["model"]);
-    if elapsed > TURN_BUDGET_MS {
+    if spent > TURN_BUDGET_MS {
         o.key = format!("turn.slow:{model}");
         o.title = format!("Turns on {model} run past {} s", TURN_BUDGET_MS / 1000);
         o.note = format!(
-            "{elapsed} ms, {} ms over the turn budget",
-            elapsed - TURN_BUDGET_MS
+            "{spent} ms in model calls of a {elapsed} ms turn, {} ms over the turn budget",
+            spent - TURN_BUDGET_MS
         );
     } else if first > FIRST_TOKEN_BUDGET_MS {
         o.key = format!("turn.first_token:{model}");
@@ -467,5 +474,42 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn ended(data: Value) -> Option<Obs> {
+        of_row(7, &LedgerRow::named("turn.ended", None, None, data))
+    }
+
+    #[test]
+    fn a_turn_slow_in_its_tools_is_not_the_models_to_answer_for() {
+        // The ledger's own case: 234 s of wall time in a turn of many loops,
+        // most of it a search and a hung job, the model's calls under 120 s.
+        let tools = json!({"elapsed_ms": 234_028, "model_ms": 104_000,
+            "first_token_ms": 900, "model": "claude-sonnet-5-5"});
+        assert!(ended(tools).is_none());
+    }
+
+    #[test]
+    fn a_turn_whose_model_calls_pass_the_budget_is_slow_on_that_model() {
+        let o = ended(json!({"elapsed_ms": 200_000, "model_ms": 150_000,
+            "first_token_ms": 900, "model": "claude-sonnet-5-5"}))
+        .expect("the model's own time is over the budget");
+        assert_eq!(o.key, "turn.slow:claudesonnet55");
+        assert!(o.note.contains("150000 ms in model calls"), "{}", o.note);
+    }
+
+    #[test]
+    fn a_row_without_model_ms_keeps_judging_the_whole_turn() {
+        let o = ended(json!({"elapsed_ms": 234_028, "first_token_ms": 900,
+            "model": "claude-sonnet-5-5"}))
+        .expect("an older row has only its wall time");
+        assert_eq!(o.key, "turn.slow:claudesonnet55");
     }
 }
