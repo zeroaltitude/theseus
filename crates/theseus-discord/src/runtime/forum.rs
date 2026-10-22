@@ -48,6 +48,8 @@ use super::{Place, Shared};
 use crate::bindings::Bindings;
 use crate::render::{board_v2, task_view, v2};
 
+mod archive;
+
 /// A card is edited at most once in this long.
 pub(crate) const CARD_EVERY: Duration = Duration::from_secs(2);
 
@@ -167,6 +169,12 @@ pub(crate) struct Post {
     /// as the place its cards go to (theseus-90qqy).
     #[serde(default)]
     pub bound: Option<(String, String)>,
+    /// When the owner saw its task's end (the board's Clear done), and when
+    /// the post was archived and locked for it (`archive`, theseus-n9dkb).
+    #[serde(default)]
+    pub read_ms: Option<u64>,
+    #[serde(default)]
+    pub archived_ms: Option<u64>,
 }
 
 /// How long a finished task's post stays in the list for its link (the board
@@ -253,14 +261,11 @@ impl TaskPosts {
         let list: Vec<Post> = store.get_meta(OPEN_KEY).ok().flatten().unwrap_or_default();
         *self.posts.lock().unwrap() = list
             .into_iter()
-            .filter(|p| {
-                p.ended_ms
-                    .is_none_or(|e| now.saturating_sub(e) < LINK_KEPT_MS)
-            })
+            .filter(|p| archive::kept(p, now, LINK_KEPT_MS))
             .collect();
     }
 
-    fn save(&self, store: &theseus_core::store::Store) {
+    pub(super) fn save(&self, store: &theseus_core::store::Store) {
         let list = self.posts.lock().unwrap().clone();
         if let Err(e) = store.put_meta(OPEN_KEY, &list) {
             tracing::warn!(error = %format!("{e:#}"), "the open task posts were not saved");
@@ -983,6 +988,8 @@ impl Worker {
             ended_ms: None,
             link: link.map(str::to_string),
             bound: None,
+            read_ms: None,
+            archived_ms: None,
         };
         let now = Instant::now();
         self.slots.insert(

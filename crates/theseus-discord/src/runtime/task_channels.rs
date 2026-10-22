@@ -420,7 +420,8 @@ impl Shared {
         self.task_threads.save(&self.core.store);
     }
 
-    /// Every channel that ended `task_channel_keep_days` ago goes; at the
+    /// Every channel that ended `task_channel_keep_days` ago goes, and every
+    /// read forum post a day over leaves the forum (`forum::archive`); at the
     /// start, then once a day, until the daemon stops.
     pub(super) fn sweep_task_channels(self: &Arc<Self>) {
         let s = self.clone();
@@ -446,6 +447,7 @@ impl Shared {
                 self.delete_task_channel(&m).await;
             }
         }
+        self.archive_read_posts().await;
     }
 
     /// The task has a channel: made, listed, run as a place, and linked.
@@ -575,7 +577,8 @@ impl Shared {
     /// by then).
     fn close_old_thread(self: &Arc<Self>, old: Made) {
         // A post of the default forum stays, unarchived, as the task's index
-        // card linking the channel (theseus-bh3t.6): only its place goes.
+        // card linking the channel (theseus-bh3t.6): only its place goes. The
+        // sweep archives it once read and a day over (theseus-n9dkb).
         let post = self.task_posts.owns(&old.task);
         if post {
             if let Some(url) = self.task_threads.url_of(&old.task) {
