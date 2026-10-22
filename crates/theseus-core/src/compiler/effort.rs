@@ -153,6 +153,9 @@ pub fn place(
     if let Some(at) = retarget(req, spec, entry) {
         tail_from += usize::from(at < tail_from);
     }
+    // `retarget` leaves a request that ends in tool results as it is, without
+    // syncing the beta; the recorded messages above ride it all the same.
+    sync_beta(req);
     tail_from
 }
 

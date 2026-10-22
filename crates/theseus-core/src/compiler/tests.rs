@@ -182,6 +182,56 @@ fn appending_keeps_every_earlier_byte_and_tool_results_follow_their_call() {
     assert!(c3.repairs.is_empty());
 }
 
+/// A request that ends in tool results, mid-way through a tool loop, carries
+/// the effort-only message its turn's first answer recorded, so it must carry
+/// the beta that allows it too. Without the beta Anthropic answers a 400
+/// (`messages.N.output_config: Extra inputs are not permitted`) to every call
+/// after the first of a turn that ran at another level.
+#[test]
+fn a_request_ending_in_tool_results_carries_the_per_message_effort_beta() {
+    let mut sp = spec("claude-fable-5-1", "You are Theseus.");
+    sp.turn_effort = Some(Effort::Low);
+    let answer = Node::assistant(
+        "s",
+        "t",
+        0,
+        Body::AssistantMessage {
+            blocks: vec![
+                json!({"type": "text", "text": "Reading."}),
+                json!({"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "/x"}}),
+            ],
+            model: "claude-fable-5-1".into(),
+            provider: "anthropic".into(),
+            stop_reason: None,
+            usage: Usage::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: Some(Effort::Low),
+        },
+    );
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "read /x")),
+        (2, answer),
+        (3, result("t1", "X", ResultStatus::Ok, false)),
+    ];
+    let c = run(&nodes, None, &sp, 3);
+    let msgs = &c.request.messages;
+    assert_eq!(msgs.last().unwrap()["content"][0]["type"], "tool_result");
+    assert!(
+        msgs.iter().any(|m| m["role"] == "system"),
+        "the recorded effort renders before its turn: {msgs:?}"
+    );
+    assert!(
+        c.request.betas.iter().any(|b| b == BETA_TURN_EFFORT),
+        "a message that carries output_config needs its beta: {:?}",
+        c.request.betas
+    );
+}
+
 #[test]
 fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
     let sp = spec("claude-opus-5", "A");
