@@ -319,3 +319,43 @@ async fn the_dm_board_drawn_before_the_home_answers_does_not_stay() {
     lane.apply_live().await;
     assert!(boards(&fake).is_empty(), "{:#?}", fake.messages(CHANNEL));
 }
+
+/// The DM's board was pinned by an earlier run of the daemon, so this lane
+/// knows no message of it; once the home stands the pinned board is found and
+/// removed, once, and a pinned message of the bot's that is no board stays
+/// as it was.
+#[tokio::test]
+async fn an_earlier_runs_dm_board_goes_when_the_home_stands() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut first = lane(d.path(), &fake);
+    first.take(live(board(1)));
+    first.take(super::tests_bound::upsert("note", "a pinned note"));
+    first.apply_live().await;
+    let (c, note) = first.msgs["note"];
+    first.pin(c, note).await;
+    assert_eq!(boards(&fake).len(), 1, "drawn by the earlier run");
+    let note_of = || -> Vec<Value> {
+        fake.messages(CHANNEL)
+            .iter()
+            .filter(|m| m.id == note.to_string())
+            .map(|m| serde_json::to_value(m).unwrap())
+            .collect()
+    };
+    let before = note_of();
+    // A new process: a fresh lane, which knows no message.
+    let d2 = tempfile::tempdir().unwrap();
+    let mut second = lane(d2.path(), &fake);
+    second.take(LaneMsg::BoardMoved);
+    second.drop_stale_board().await;
+    assert!(boards(&fake).is_empty(), "{:#?}", fake.messages(CHANNEL));
+    let after = note_of();
+    assert_eq!(before.len(), 1);
+    assert_eq!(before, after, "the pinned note is as it was");
+    assert_eq!(after[0]["pinned"], true);
+    // Once: a board drawn after that is no stale one.
+    second.take(live(board(2)));
+    second.apply_live().await;
+    second.drop_stale_board().await;
+    assert_eq!(boards(&fake).len(), 1, "{:#?}", fake.messages(CHANNEL));
+}

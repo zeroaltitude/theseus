@@ -191,6 +191,8 @@ impl Shared {
     /// the home is looked for without waiting for it.
     pub(super) fn start_task_home(self: &Arc<Self>, b: &Bindings) {
         let d = &self.task_posts.home;
+        #[cfg(test)]
+        daemon::register(self);
         d.set_voice(b);
         let cfg = &self.core.cfg.discord;
         let guild = self.place_bits.trusted_guild().map(|g| g.to_string());
@@ -617,5 +619,37 @@ impl Shared {
         *d.wanted.lock().unwrap() = Some((guild.to_string(), wanted.to_string()));
         self.ensure_task_home().await;
         d.channel()
+    }
+}
+
+/// The binding a test's core runs, found by its core: what the rig needs to
+/// reach the daemon's own state (`shared_for_tests` makes a second one).
+#[cfg(test)]
+pub(crate) use daemon::of as daemon_for_tests;
+
+#[cfg(test)]
+mod daemon {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock, Weak};
+
+    use super::Shared;
+    use theseus_core::Core;
+
+    type Map = Mutex<HashMap<usize, Weak<Shared>>>;
+
+    fn map() -> &'static Map {
+        static M: OnceLock<Map> = OnceLock::new();
+        M.get_or_init(Map::default)
+    }
+
+    pub(super) fn register(s: &Arc<Shared>) {
+        let key = Arc::as_ptr(&s.core) as usize;
+        map().lock().unwrap().insert(key, Arc::downgrade(s));
+    }
+
+    /// The binding that runs on `core`, once it has started.
+    pub(crate) fn of(core: &Arc<Core>) -> Option<Arc<Shared>> {
+        let key = Arc::as_ptr(core) as usize;
+        map().lock().unwrap().get(&key)?.upgrade()
     }
 }

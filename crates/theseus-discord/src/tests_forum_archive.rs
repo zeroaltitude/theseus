@@ -168,3 +168,21 @@ async fn a_clear_before_the_end_still_counts_as_read() {
     let t = thread(&r, post);
     assert!(t.archived && t.locked, "{t:#?}");
 }
+
+/// The archive has its own tick: a read post a day over leaves the forum
+/// between the sweeps (the start's and the daily one), because
+/// `sweep_task_channels` spawns `archive_tick`. The tick is shortened for the
+/// test; the post's end is moved back in the binding's own list, which no
+/// sweep reads until a day passes.
+#[tokio::test]
+async fn a_read_post_leaves_on_the_archive_ticks_own_run() {
+    crate::runtime::forum::archive::tick_for_tests(std::time::Duration::from_millis(200));
+    let (r, post) = a_dm_task().await;
+    ends(&r).await;
+    clear_done(&r).await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let ended = theseus_protocol::now_unix_ms() - 25 * HOUR;
+    shared.task_posts.ended_for_tests(ended);
+    until(&r, "the post is archived", || thread(&r, post).archived).await;
+    assert!(thread(&r, post).locked);
+}
