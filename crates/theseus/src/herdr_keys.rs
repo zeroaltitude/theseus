@@ -176,8 +176,8 @@ pub async fn next(conn: &mut Conn, herdr_socket: Option<PathBuf>) -> Result<()> 
     Ok(())
 }
 
-/// What `stop` does for a pane of this kind: a task is cancelled by its short id, a conversation's
-/// work is halted by its session.
+/// What `stop` does for a pane of this kind: a task is cancelled by its session id (the pane's
+/// `task` token is its title, not an id), a conversation's work is halted by its session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stop {
     Cancel(String),
@@ -188,12 +188,7 @@ pub enum Stop {
 pub fn stop_for(tokens: &Value) -> Option<Stop> {
     let session = tokens["session"].as_str()?.to_string();
     match tokens["kind"].as_str()? {
-        "task" => Some(Stop::Cancel(
-            tokens["task"]
-                .as_str()
-                .filter(|t| !t.is_empty())
-                .map_or_else(|| session.clone(), str::to_string),
-        )),
+        "task" => Some(Stop::Cancel(session)),
         "conversation" => Some(Stop::Halt(session)),
         _ => None,
     }

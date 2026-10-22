@@ -1737,3 +1737,48 @@ fn one_question_one_prompt_in_a_pane() {
     assert_eq!(count(&|l| l.contains("[answer]")), 1, "{err}");
     assert_eq!(count(&|l| l.contains("proc.run")), 1, "one card: {err}");
 }
+
+/// prefix+shift+s on a task's pane cancels the task the pane shows: the pane's `task` token is the
+/// title, so the cancel names the pane's session (theseus-dtvqa).
+#[test]
+fn a_stop_cancels_the_task_a_pane_shows() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::answering(dir.path(), |req| match req["method"].as_str() {
+        Some("pane.get") => Ok(
+            json!({"type": "pane_info", "pane": {"pane_id": PANE, "tokens": {
+            "kind": "task", "session": "ses_01a1772ee8", "task": "[walkthrough] drift"}}}),
+        ),
+        _ => Ok(json!({"type": "ok"})),
+    });
+    let d = FakeDaemon::start(dir.path(), |req| {
+        Some(match req["method"].as_str().unwrap() {
+            "wake.cancel" => Err(json!({"code": -32002, "message": "no pending wake is named"})),
+            "task.cancel" => Ok(json!({"task": {"short": "a1b2c3", "state": "cancelled"},
+                "cancelled_actions": []})),
+            other => Err(json!({"code": -32601, "message": format!("no {other}")})),
+        })
+    });
+    let out = Command::new(THESEUS)
+        .arg("--socket")
+        .arg(&d.sock)
+        .args([
+            "--json",
+            "herdr",
+            "stop",
+            "--pane",
+            PANE,
+            "--yes",
+            "--herdr-socket",
+        ])
+        .arg(&herdr.sock)
+        .env_remove("THESEUS_SOCKET")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cancel = d.wait_for("task.cancel", 1);
+    assert_eq!(cancel[0]["params"]["task"], "ses_01a1772ee8");
+}

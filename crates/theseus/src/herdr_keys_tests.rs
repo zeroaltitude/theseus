@@ -166,13 +166,13 @@ fn next_is_the_task_that_has_waited_longest() {
     assert!(pane_of(&panes, "ses_none").is_none());
 }
 
-/// `stop` cancels a task by its short id and halts a conversation by its session; a pane that is
+/// `stop` cancels a task by its session id and halts a conversation by its session; a pane that is
 /// not Theseus's stops nothing.
 #[test]
 fn stop_is_cancel_for_a_task_and_halt_for_a_conversation() {
     assert_eq!(
-        stop_for(&json!({"kind": "task", "session": "ses_a", "task": "a1b2c3"})),
-        Some(Stop::Cancel("a1b2c3".into()))
+        stop_for(&json!({"kind": "task", "session": "ses_a", "task": "[walkthrough] drift"})),
+        Some(Stop::Cancel("ses_a".into()))
     );
     assert_eq!(
         stop_for(&json!({"kind": "conversation", "session": "ses_a"})),
@@ -197,8 +197,30 @@ fn plugin_says_where_it_is_and_how_to_link_it() {
         "{lines:?}"
     );
     assert!(plugin_dir(std::path::Path::new("/nowhere"))
+        .unwrap()
         .join("herdr-plugin.toml")
         .is_file());
+}
+
+/// A directory is named only when it holds the plugin: with none, the lines say where they looked.
+#[test]
+fn plugin_dir_names_only_a_directory_that_holds_the_plugin() {
+    if let Some(dir) = plugin_dir(std::path::Path::new("/nowhere/bin/theseus")) {
+        assert!(dir.join("herdr-plugin.toml").is_file(), "{dir:?}");
+    }
+    let candidates = plugin_candidates(std::path::Path::new("/nowhere/bin/theseus"));
+    assert!(candidates.iter().any(|c| c.starts_with("/nowhere")));
+    // The same lines, when no candidate holds the plugin.
+    let lines = plugin_lines_for(None, &candidates);
+    assert!(lines[0].contains("found no plugin directory"), "{lines:?}");
+    assert!(
+        lines[1].contains("/nowhere/bin/contrib/herdr/theseus"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().all(|l| !l.starts_with("link it once")),
+        "{lines:?}"
+    );
 }
 
 /// prefix+i reads the focused pane's task, and nothing else's.
