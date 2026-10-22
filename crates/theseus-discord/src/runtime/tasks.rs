@@ -331,11 +331,19 @@ impl Tasks {
         all
     }
 
-    /// The place's done tasks are seen: the board drops them from now.
-    pub fn clear_done(&self, session_id: &str) {
+    /// The place's done tasks are seen: the board drops them from now. The
+    /// ended tasks under the place, which the owner has now seen (their
+    /// forum posts may leave the forum, theseus-n9dkb).
+    pub fn clear_done(&self, session_id: &str) -> Vec<String> {
         let mut m = self.model.lock().unwrap();
         m.cleared
             .insert(session_id.to_string(), theseus_protocol::now_unix_ms());
+        let roots = roots_of(&m, session_id);
+        m.views
+            .values()
+            .filter(|v| roots.contains(&v.root) && counted(v) && v.state.ended())
+            .map(|v| v.id.clone())
+            .collect()
     }
 
     /// A view held, by its id.

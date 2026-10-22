@@ -36,6 +36,8 @@ mod tests_cite;
 #[cfg(test)]
 mod tests_default_forum;
 #[cfg(test)]
+mod tests_forum_archive;
+#[cfg(test)]
 mod tests_gateway;
 #[cfg(test)]
 mod tests_live;
