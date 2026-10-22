@@ -6,7 +6,10 @@
 //! at the act band from the route pack's own mode, onto a stored run that is
 //! still the one the reply was queued against (`data::reply::lands`). Every
 //! other outcome, a refused reservation and a failed call included, writes
-//! only the `data.reply` row, and the reply stays the end of the run.
+//! only the `data.reply` row, and the reply stays the end of the run; a
+//! reply that was never asked (the pack unbuilt, its state unprepared) writes
+//! nothing, and one whose reservation was refused writes its row with no
+//! answer and no cost, so bench and inspect see the ask (theseus-uaqox).
 //! One judgment a reply: the pack takes one input, and a reply is asked about
 //! once.
 
@@ -71,7 +74,7 @@ impl JudgeService {
         pack: Arc<Pack>,
         ask: &ReplyAsk,
         today: &str,
-    ) -> Option<(Prepared, super::Beside)> {
+    ) -> Result<(Prepared, super::Beside), Unasked> {
         let input = InboundInput {
             message: ask.text.clone(),
             author: "assistant".into(),
@@ -92,12 +95,13 @@ impl JudgeService {
             onto: None,
         };
         let scrub = ScrubWith(self.scrubber.clone());
-        let state = theseus_judge::prepare(&pack, &Input::Inbound(input), &scrub).ok()?;
+        let state = theseus_judge::prepare(&pack, &Input::Inbound(input), &scrub)
+            .map_err(|_| Unasked::Nothing)?;
         let blob = self.stage_blob(state.state.json.as_bytes());
         let built = self
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
-            .ok()?;
+            .map_err(|_| Unasked::Nothing)?;
         let mut context = json!({
             "session": ask.session, "purpose": "reply_data", "node": ask.node,
             "baseline": "none", "blob": blob, "on_path_ms": 0,
@@ -109,8 +113,8 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&jask))
             .unwrap_or(0);
-        let beside = self.reserve_beside(today, need)?;
-        Some((
+        let beside = self.reserve_beside(today, need).ok_or(Unasked::Refused)?;
+        Ok((
             Prepared {
                 built,
                 ask: jask,
@@ -150,6 +154,14 @@ impl JudgeService {
     }
 }
 
+/// Why a reply was not asked: nothing was spent either way.
+enum Unasked {
+    /// The state or the client could not be built.
+    Nothing,
+    /// The day's budget refused the reservation.
+    Refused,
+}
+
 /// One reply's judgment, in its own task. The service is held only around the
 /// blocking halves, never across the call or the wait for a quiet moment.
 async fn reply_one(me: Weak<JudgeService>, pack: Arc<Pack>, ask: ReplyAsk) {
@@ -157,20 +169,19 @@ async fn reply_one(me: Weak<JudgeService>, pack: Arc<Pack>, ask: ReplyAsk) {
     let Some(svc) = me.upgrade() else { return };
     let total = Duration::from_secs(svc.cfg.total_secs);
     let (day, queued) = (today.clone(), ask.clone());
-    let prepared = tokio::task::spawn_blocking(move || svc.prepare_reply(pack, &queued, &day))
-        .await
-        .ok()
-        .flatten();
-    let Some((
+    let prepared =
+        tokio::task::spawn_blocking(move || svc.prepare_reply(pack, &queued, &day)).await;
+    let (
         Prepared {
             built,
             ask: jask,
             need,
         },
         beside,
-    )) = prepared
-    else {
-        return;
+    ) = match prepared {
+        Ok(Ok(p)) => p,
+        Ok(Err(Unasked::Refused)) => return land(&me, ask, None, None).await,
+        _ => return,
     };
     let wrote = beside.spawn(&me);
     let judgments = built
@@ -199,6 +210,16 @@ async fn reply_one(me: Weak<JudgeService>, pack: Arc<Pack>, ask: ReplyAsk) {
     if let Some(w) = wrote {
         let _ = w.await;
     }
+    land(&me, ask, answer, cost).await;
+}
+
+/// The answer's write, between turns.
+async fn land(
+    me: &Weak<JudgeService>,
+    ask: ReplyAsk,
+    answer: Option<DataAnswer>,
+    cost: Option<u64>,
+) {
     let (turns, timing) = match me.upgrade() {
         Some(s) => (s.between.get().cloned(), s.sink_timing()),
         None => return,
