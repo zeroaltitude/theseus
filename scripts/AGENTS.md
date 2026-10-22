@@ -35,6 +35,9 @@ THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git commit -S -F <message file>
 scripts/gate.sh && git commit -S -F <message file>
 ```
 
+A `Keel:` line goes in the commit message's last paragraph, beside the `Co-Authored-By` trailer: the guard refuses an ack in
+an earlier paragraph.
+
 It runs, in order:
 
 0. *Without the lock, before any compile*, the keel guard (`keel`, then `keel tests`; see "The keel guard"): a branch

@@ -718,3 +718,19 @@ fn a_raw_q_must_balance() {
     );
     assert_eq!(q("(a or b)").unwrap(), "((a or b)) and trashed = false");
 }
+
+#[test]
+fn a_double_quote_delimits_a_drive_query() {
+    use super::drive::compile_q;
+    let q = |q| compile_q(Some(q), None, None, None, None);
+    assert_eq!(
+        q(r#"name = "a(b""#).unwrap(),
+        r#"(name = "a(b") and trashed = false"#
+    );
+    assert!(q(r#"name = "a"#).unwrap_err().contains("unbalanced"));
+    assert!(q(r#"name = "it\"s""#).is_ok());
+    assert!(
+        q(r#"name = "it's""#).is_ok(),
+        "a single quote inside double ones"
+    );
+}

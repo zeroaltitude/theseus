@@ -11,8 +11,9 @@ use theseus_protocol::task_start::{TaskStartParams, TaskStartResult};
 use crate::approval::{Answerer, Surface};
 use crate::places::BoundPlace;
 use crate::session::{SessionRecord, TargetRef};
+use crate::test_support::until_event;
 use crate::tests_route::{decided, mode, session, Rig};
-use crate::tests_tasks::{exec, until};
+use crate::tests_tasks::exec;
 use theseus_protocol::PlaceCeiling;
 
 pub(crate) fn cli() -> Answerer {
@@ -63,7 +64,7 @@ pub(crate) fn params(brief: &str, profile: Option<&str>) -> TaskStartParams {
 pub(crate) async fn run(r: &Rig, p: &TaskStartParams) -> (TaskStartResult, SessionRecord) {
     let started = r.core.task_start(p, cli()).unwrap();
     let id = started.session_id.replacen("ses_", "exe_", 1);
-    until("the task's turn", || {
+    until_event("the task's first turn", || {
         exec(&r.core, &id).state == ExecState::Complete
     })
     .await;

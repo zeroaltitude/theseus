@@ -285,13 +285,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
-  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`), an answer over 400
-  characters refused, never cut; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream write of
-  the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim after
-  the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours, so a
-  night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
-  `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`,
-  `tests_onto_judged.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
+  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
+  call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
+  message cannot be read left out (the category waits only below 5 left), and `[ontology] dream_guidance` off (default
+  on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
+  write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
+  after the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours,
+  so a night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
+  `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`, `tests_onto_judged.rs`,
+  `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
@@ -1659,7 +1661,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     a turn at another level gets an effort-only system message before its user message
     (`mid-conversation-output-config-2026-07-01`). Its first answer records the level (`effort`, store format 27);
     the render puts each record's message back before the user message its answer follows, so later requests repeat
-    the bytes; the beta rides every request that carries one, at every loop (`place`, `retarget`: `sync_beta`). Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
+    the bytes; the beta rides every request that carries one, at every loop (`place`, `retarget`: `sync_beta`). Never
+    derive these messages from the spec: a history edit breaks the cache and preserved thinking. The 2026-10-11 Sonnet 5.5
+    400 (`messages.190.output_config: Extra inputs are not permitted`) was a request sent without the beta, not a refusal
+    of the message. **The server-side fallback** (`BETA_FALLBACKS`, `compiler::server_fallbacks`): the request is compiled
+    for the profile's model alone, and `effort::takes` reads that model's row, never the fallback the provider may serve
+    it on, so the messages and the beta ride it either way. A fallback model without per-message effort that refuses
+    them answers the 400 below, and the hold lands on the request's model, not on the fallback's.
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
     Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`.
@@ -2797,11 +2805,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   compilation keeps its digest, and the compile row its layers' digests), so the cockpit rebuilds the parts through
   `context.explain`, which says whether they are still the bytes the turn saw. Thinking, a prompt, a tool's input and
   result, gate records, rows' data and the spans' attributes go to a private place only (`Surface::reads_private`): any
-  other surface gets shapes, sizes and times and `withheld` says why. The link in a footer is `TurnSubmitResult.inspect_url`,
-  set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; left out, `http://localhost:<[web] port>`, settled once at load by `CockpitConfig::resolve`, theseus-ypnxt.5);
-  every renderer shows that string. Tests: `rpc/tests_inspect.rs` (a multi-loop turn with parallel calls, thinking, a
-  compaction and a floor question; the privacy; the 20-loop, 40-call read, p95 under 150 ms in a debug build; no frame
-  written), `config/cockpit.rs`'s.
+  other surface gets shapes, sizes and times and `withheld` says why. The link in a footer is
+  `TurnSubmitResult.inspect_url`, set where the result is built from `[cockpit] public_url` (`config/cockpit.rs`; left
+  out, `http://localhost:<[web] port>`, settled once at load by `CockpitConfig::resolve`, theseus-ypnxt.5; no link at
+  all when the web UI is off and no `public_url` names one, `CockpitConfig::turn_link`, so `turn.inspect`'s `url` is
+  empty, theseus-40cuo); every renderer shows that string. Tests: `rpc/tests_inspect.rs` (a multi-loop turn with
+  parallel calls, thinking, a compaction and a floor question; the privacy; the 20-loop, 40-call read, p95 under 150 ms
+  in a debug build; no frame written), `config/cockpit.rs`'s.
 - **`ledger.window`** (theseus-m2tiu, `rpc/window.rs`): the postmortem's read. One page by the kinds' own postings
   (`POSTMORTEM_KINDS`, or a session's tag when narrowed to it and the tasks below it, found from `Kernel::tasks`),
   oldest first, `next` the cursor; each row's strings pass the scrubber. A surface that reads no private text
@@ -3133,6 +3143,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   profile aborts on a panic, so one panic on outside text takes the daemon down. A new reader joins them.
 - `FakeProvider::scripted` scripts a provider's answers. `Parts::for_tests` builds a core around it, and a second
   provider can be inserted into `parts.providers`.
+- `Core::build_with_clock` (test-only) builds a core whose kernel runs on a given clock, so a test drives an hour
+  with a `VirtualClock` (`tests_effort_lapse.rs`, theseus-2ix1k). `test_support::until_event(what, f)` waits with no
+  deadline of its own and prints `waiting for <what>` every 30 s, so a hang names itself in nextest's output.
 - `Store::fail_turn_frame` (test-only) fails the first turn frame whose records match, once, as a full disk would.
 - Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store, by positions and
   record keys, decoding nothing. A node written past the turn's handle panics a debug daemon.

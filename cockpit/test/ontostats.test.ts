@@ -93,6 +93,7 @@ const stored: UndoRate[] = [
 test('each kind’s acts and undos are counted, a write that acted on two kinds once for each', () => {
   const s = ontoStatsOf(two)
   assert.equal(ontoKindWords(stored, '2026-10-20'), "undo rate by kind (Jev's writes, 7 days to 2026-10-20): person 1 of 1 (100%) · topic 1 of 2 (50%)")
+  assert.match(ontoKindWords(stored, '2026-10-20', 3), /^undo rate by kind \(Jev's writes, 3 days to 2026-10-20\)/, 'the window is the report’s')
   assert.equal(s.acts, 3, 'the writes are 3 though the kind acts are 4')
   assert.ok(!('kinds' in s) && !('undos' in s), 'the cockpit keeps no tally of its own')
 })
@@ -121,6 +122,6 @@ test('the learning report draws the pack’s line from the ledger for the report
   const v = readFileSync(new URL('../src/components/LearningReport.tsx', import.meta.url), 'utf8')
   assert.match(v, /ontoStatsOf\([^)]*day: date/)
   assert.match(v, /ontoLine\(/)
-  assert.match(v, /ontoKindWords\(p\.undo \?\? \[\], date\)/)
+  assert.match(v, /ontoKindWords\(p\.undo \?\? \[\], date, p\.undo_days\)/)
   assert.match(v, /p\.pack === ONTO_PACK/)
 })

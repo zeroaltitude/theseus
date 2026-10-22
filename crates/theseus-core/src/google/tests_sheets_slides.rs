@@ -465,6 +465,34 @@ async fn a_create_answer_with_no_id_is_refused() {
 }
 
 #[tokio::test]
+async fn an_empty_spreadsheet_id_is_refused() {
+    let r = rig(vec![]).await;
+    r.fake.route("POST", "/v4/spreadsheets", |_| {
+        Reply::json(200, json!({"spreadsheetId": ""}))
+    });
+    let f = run(
+        &r,
+        "sheets.write",
+        json!({"title": "Odd", "values": [["a"]]}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        f.message.contains("named no spreadsheet id"),
+        "{}",
+        f.message
+    );
+}
+
+#[test]
+fn a_refusal_with_no_calls_carries_no_google_called() {
+    let f = super::sheets::refused("nothing went through", vec![]);
+    assert!(f.meta.get("google_called").is_none(), "{}", f.meta);
+    let f = super::sheets::refused("after one", vec![json!({"method": "m"})]);
+    assert_eq!(f.meta["google_called"]["method"], "m");
+}
+
+#[tokio::test]
 async fn three_rows_make_three_ledger_rows() {
     let r = rig(vec![]).await;
     let row = |m: &str| json!({"tool": "drive.read", "method": m, "class": "read"});

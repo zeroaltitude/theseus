@@ -46,6 +46,32 @@ impl Lane {
         Ok(())
     }
 
+    /// The board is drawn elsewhere now: forget this lane's, and any state
+    /// of it waiting, and remove the message at the next turn of the loop.
+    pub(super) fn board_moved(&mut self) {
+        self.live.retain(|o| o.key() != Some(BOARD_KEY));
+        self.sent.remove(BOARD_KEY);
+        self.stale_board = self.msgs.remove(BOARD_KEY);
+    }
+
+    /// Delete the board `board_moved` set aside; a message already gone is done.
+    pub(super) async fn drop_stale_board(&mut self) {
+        let Some((channel, message)) = self.stale_board.take() else {
+            return;
+        };
+        let sent = self
+            .shared
+            .http
+            .delete_message(Id::new(channel), Id::new(message))
+            .await;
+        if let Err(e) = sent {
+            if SendErr::of(&e).gone {
+                return;
+            }
+            tracing::info!(place = %self.label, error = %e, "the old task board was not removed");
+        }
+    }
+
     /// The bot's pinned board in `channel`, if it has one.
     async fn find_board(&self, channel: u64) -> Option<u64> {
         let pins = match self.shared.http.pins(Id::new(channel)).await {

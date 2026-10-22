@@ -69,6 +69,11 @@ impl Vad {
         self.open.is_some()
     }
 
+    /// The tick the open utterance began at (its pre-roll's first), if one is open.
+    pub fn opened_at(&self) -> Option<u64> {
+        self.open.as_ref().map(|o| o.first_tick)
+    }
+
     /// The open utterance's audio so far, to its last speech frame.
     pub fn so_far(&self) -> Option<Audio> {
         self.open

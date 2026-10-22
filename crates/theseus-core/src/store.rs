@@ -141,6 +141,9 @@ pub struct Store {
     /// A turn frame a test makes fail (`fail_turn_frame`).
     #[cfg(test)]
     faults: Arc<Faults>,
+    /// Whether a ledger page read fails (`fail_ledger_pages`).
+    #[cfg(test)]
+    page_fault: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// One writer at a time per session record (theseus-xeo): the ids being
@@ -533,6 +536,8 @@ impl Store {
             reads: Default::default(),
             #[cfg(test)]
             faults: Default::default(),
+            #[cfg(test)]
+            page_fault: Default::default(),
         })
     }
 
@@ -557,6 +562,13 @@ impl Store {
     #[cfg(test)]
     pub fn fail_turn_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
         *self.faults.0.lock().unwrap() = Some(Box::new(check));
+    }
+
+    /// Make every ledger page read fail from now on, as a bad disk would.
+    #[cfg(test)]
+    pub fn fail_ledger_pages(&self) {
+        self.page_fault
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// A turn's session write, which rides in the turn's next frame
@@ -865,6 +877,10 @@ impl Store {
         page: &theseus_store::Page,
     ) -> Result<Option<theseus_store::PageOut>> {
         debug_assert_eq!(page.kind, kinds::LEDGER);
+        #[cfg(test)]
+        if self.page_fault.load(std::sync::atomic::Ordering::Relaxed) {
+            anyhow::bail!("an injected fault: the ledger page was not read");
+        }
         self.inner.page(page)
     }
 
@@ -1338,6 +1354,7 @@ pub(crate) mod tests {
             tasks: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),
+            page_fault: Default::default(),
         }
         .for_turn();
         small.put_meta("a", &1).unwrap();

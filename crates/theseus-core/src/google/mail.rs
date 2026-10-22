@@ -34,7 +34,7 @@ use theseus_tools::{
 };
 
 use super::mime::{self, Draft};
-use super::{finish, CallFailed, Finished, Google, Meta, Source};
+use super::{finish, sheets, CallFailed, Finished, Google, Meta, Source};
 
 pub const SEARCH: &str = "gmail.search";
 pub const READ: &str = "gmail.read";
@@ -84,46 +84,41 @@ pub fn tools(g: &Arc<Google>) -> Vec<Arc<dyn Tool>> {
 
 // ------------------------------------------------------------------ calls
 
-/// The rows of one tool call's REST calls, as the one `google.called` row its
-/// result carries: attempts and quota units add, the leading call's service,
-/// tool and method stay, a failure makes the outcome the failure's.
-fn merged(rows: &[Value]) -> Value {
-    // A send or a trash is the call that matters, then a write (a draft's
-    // create): its row leads.
-    let lead = ["authority", "write"]
-        .iter()
-        .find_map(|c| rows.iter().find(|r| r["class"] == *c))
-        .or(rows.first());
-    let mut row = lead.cloned().unwrap_or(Value::Null);
-    if rows.len() > 1 {
-        let sum = |k: &str| rows.iter().filter_map(|r| r[k].as_u64()).sum::<u64>();
-        row["attempts"] = sum("attempts").into();
-        row["quota_units"] = sum("quota_units").into();
-        row["ms"] = sum("ms").into();
-        row["calls"] = rows.len().into();
-        if let Some(bad) = rows.iter().find(|r| r["outcome"] != "ok") {
-            for k in ["status", "outcome", "error"] {
-                row[k] = bad[k].clone();
-            }
-        } else if let Some(last) = rows.last() {
-            row["status"] = last["status"].clone();
-        }
-    }
-    row
+/// `finish` with each REST call's `google.called` row: the last is the
+/// result's own, the earlier ones ride in `google_called_also`.
+fn finished(
+    account: &str,
+    text: String,
+    meta: Value,
+    rows: &[Value],
+    source: Source<'_>,
+) -> Finished {
+    let (meta, last) = sheets::with_rows(meta, rows.to_vec());
+    finish(account, text, meta, last, source)
 }
 
 fn failure(f: CallFailed, rows: &[Value]) -> ToolFailure {
+    let meta = json!({"private": true, "outcome_unknown": f.unknown});
     ToolFailure {
         message: f.message,
-        meta: json!({"private": true, "google_called": merged(rows), "outcome_unknown": f.unknown}),
+        meta: with_called(meta, rows),
     }
 }
 
 fn refusal(message: impl Into<String>, rows: &[Value]) -> ToolFailure {
     ToolFailure {
         message: message.into(),
-        meta: json!({"private": true, "google_called": merged(rows)}),
+        meta: with_called(json!({"private": true}), rows),
     }
+}
+
+/// `meta` with `google_called` (the last row, when there is one) and the rest.
+fn with_called(meta: Value, rows: &[Value]) -> Value {
+    let (mut meta, last) = sheets::with_rows(meta, rows.to_vec());
+    if !last.is_null() {
+        meta["google_called"] = last;
+    }
+    meta
 }
 
 impl Mail {
@@ -625,7 +620,7 @@ impl Mail {
             None => Source::None,
         };
         let meta = json!({"threads": lines.len()});
-        Ok(finish(self.g.account(), text, meta, merged(&rows), source))
+        Ok(finished(self.g.account(), text, meta, &rows, source))
     }
 }
 
@@ -770,11 +765,11 @@ impl Tool for ReadTool {
             }
             let digest = card.as_ref().map(|c| c["digest"].clone());
             let meta = json!({"id": id, "messages": messages.len(), "saved": saved.len(), "digest": digest});
-            Ok(finish(
+            Ok(finished(
                 m.g.account(),
                 text,
                 meta,
-                merged(&rows),
+                &rows,
                 Source::Mail {
                     thread: &thread,
                     from: &from,
@@ -1026,13 +1021,7 @@ impl Tool for DraftTool {
                 card_text(&card)
             );
             let meta = json!({"draft_id": id, "digest": card["digest"]});
-            Ok(finish(
-                m.g.account(),
-                text,
-                meta,
-                merged(&rows),
-                Source::None,
-            ))
+            Ok(finished(m.g.account(), text, meta, &rows, Source::None))
         })
     }
 }
@@ -1232,13 +1221,7 @@ impl Tool for SendTool {
                         sent["id"].as_str().unwrap_or("?")
                     );
                     let meta = json!({"draft_id": id, "message_id": sent["id"]});
-                    Ok(finish(
-                        m.g.account(),
-                        text,
-                        meta,
-                        merged(&rows),
-                        Source::None,
-                    ))
+                    Ok(finished(m.g.account(), text, meta, &rows, Source::None))
                 }
                 Err(f) => {
                     // A send refused before it could go out is not a send; one that may have gone is counted.
@@ -1373,13 +1356,7 @@ impl Tool for LabelTool {
                 done.join(", ")
             );
             let meta = json!({"ids": done, "trash": a.trash});
-            Ok(finish(
-                m.g.account(),
-                text,
-                meta,
-                merged(&rows),
-                Source::None,
-            ))
+            Ok(finished(m.g.account(), text, meta, &rows, Source::None))
         })
     }
 }

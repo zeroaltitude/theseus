@@ -297,6 +297,8 @@ mod tests_draft;
 #[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
+mod tests_effort_lapse;
+#[cfg(test)]
 mod tests_effort_sticky;
 #[cfg(test)]
 mod tests_egress;

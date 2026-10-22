@@ -2052,3 +2052,29 @@ async fn a_cut_quotes_the_sentences_as_they_were_played() {
         (CutWhy::Words, 2, Some(TABLE), "Monday was the most.")
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_open_vad_after_the_window_does_not_hold_the_turn() {
+    // "so I was thinking" (0 to 1 s, closed at 1.7 s) is transcribed 3 s later,
+    // at 4.7 s, past its window (to 3.2 s). The owner began another utterance
+    // at 4 s, so a VAD is open then, but it is a new utterance, not the rest of
+    // the first: the first's turn is at 4.7 s, not after the second closes.
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 20_000)
+        .say(OWNER, 0, 1000)
+        .say(OWNER, 4000, 3000)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .delays(Duration::from_secs(3), Duration::ZERO)
+            .transcript(OWNER, "so I was thinking")
+            .transcript(OWNER, "never mind."),
+    );
+    let mut config = Config::new([OWNER, ROBIN]);
+    config.acknowledge_after = Duration::from_secs(60);
+    config.merge = ms(1500);
+    let (seen, _) = call_with(config, io, speech, first(""), vec![]).await;
+    let t = turns(&seen);
+    assert_eq!(t.len(), 2, "{t:?}");
+    assert_eq!(t[0], (ms(4700), vec![(OWNER, "so I was thinking")]));
+}

@@ -489,6 +489,19 @@ async fn a_turns_result_links_to_it_at_the_configured_address() {
     assert!(seen.trace.is_some(), "the turn's trace row");
 }
 
+/// With the web UI off and no `public_url`, `turn.inspect` answers no link: `theseus open turn`
+/// then says so instead of printing a default-port address nothing serves (theseus-40cuo).
+#[test]
+fn no_web_ui_means_no_link() {
+    let core = test_core_with("ok", |c| {
+        c.web.enabled = false;
+        c.web.port = 17433;
+        c.cockpit.resolve(c.web.port, c.web.enabled);
+    });
+    let (s, t) = build(&core, 2, 1);
+    assert_eq!(inspect(&core, &s, &t, true).url, "");
+}
+
 /// Over a connection the surface decides what a read holds: the Discord
 /// binding's gets the shapes alone, the CLI's the texts (turn-inspector's join
 /// review: the split was held below the protocol, and a planted revert that

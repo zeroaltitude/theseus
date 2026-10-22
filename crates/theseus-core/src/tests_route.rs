@@ -99,6 +99,17 @@ pub(crate) fn rig_on(
     rig_built(dir, jev, n, tweak, secrets, |_| {})
 }
 
+/// The rig with the kernel on `clock`, for a test that drives time itself (theseus-2ix1k).
+pub(crate) fn rig_on_clock(
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    clock: Arc<dyn theseus_kernel::Clock>,
+) -> Rig {
+    let dir = Arc::new(tempfile::tempdir().unwrap());
+    rig_with(dir, jev, n, tweak, board(), |_| {}, clock)
+}
+
 fn rig_built(
     dir: Arc<tempfile::TempDir>,
     jev: Option<&FakeJev>,
@@ -106,6 +117,26 @@ fn rig_built(
     tweak: impl FnOnce(&mut Config),
     secrets: Arc<crate::secrets::SecretBoard>,
     parts: impl FnOnce(&mut Parts),
+) -> Rig {
+    rig_with(
+        dir,
+        jev,
+        n,
+        tweak,
+        secrets,
+        parts,
+        Arc::new(theseus_kernel::RealClock),
+    )
+}
+
+fn rig_with(
+    dir: Arc<tempfile::TempDir>,
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    secrets: Arc<crate::secrets::SecretBoard>,
+    parts: impl FnOnce(&mut Parts),
+    clock: Arc<dyn theseus_kernel::Clock>,
 ) -> Rig {
     let mut cfg = crate::tests_judge::judge_config(dir.path(), jev);
     routing_only(&mut cfg);
@@ -119,7 +150,7 @@ fn rig_built(
     p.providers.insert("zai".into(), zai.clone());
     p.secrets = secrets;
     parts(&mut p);
-    let core = Core::build(p).unwrap();
+    let core = Core::build_with_clock(p, clock).unwrap();
     crate::tests_judge::warm(&core);
     Rig {
         core,
@@ -148,6 +179,19 @@ pub(crate) async fn turn_attached(
     chosen: Option<&str>,
     attachments: Vec<theseus_protocol::Attachment>,
 ) -> TurnSubmitResult {
+    try_turn_attached(core, session, input, chosen, attachments)
+        .await
+        .unwrap()
+}
+
+/// [`turn_attached`], the turn's failure returned.
+pub(crate) async fn try_turn_attached(
+    core: &Arc<Core>,
+    session: Option<&str>,
+    input: &str,
+    chosen: Option<&str>,
+    attachments: Vec<theseus_protocol::Attachment>,
+) -> anyhow::Result<TurnSubmitResult> {
     let rec = match session {
         Some(id) => core
             .store
@@ -183,7 +227,6 @@ pub(crate) async fn turn_attached(
             answer_at: None,
         })
         .await
-        .unwrap()
 }
 
 pub(crate) fn mode(jev: &FakeJev, m: &str, confidence: f64) {

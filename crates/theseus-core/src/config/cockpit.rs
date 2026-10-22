@@ -64,13 +64,6 @@ impl CockpitConfig {
         Ok(())
     }
 
-    /// The link to one turn: the base, `/session/<session>/turn/<turn>`.
-    pub fn turn_url(&self, session_id: &str, turn_id: &str) -> String {
-        let base = self.public_url.as_deref().or(self.base.as_deref());
-        let base = base.map_or_else(|| local_base(super::default_web_port()), str::to_string);
-        theseus_protocol::inspect::turn_url(&base, session_id, turn_id)
-    }
-
     /// The link a reply's footer carries: none when no web UI runs and no `public_url` names one.
     pub fn turn_link(&self, session_id: &str, turn_id: &str) -> Option<String> {
         let base = self.public_url.as_deref().or(self.base.as_deref())?;
@@ -93,30 +86,32 @@ mod tests {
         assert_eq!(cfg.cockpit, CockpitConfig::default());
         assert!(crate::Config::EXAMPLE_TOML.contains("# [cockpit]\n# public_url = "));
         assert_eq!(
-            cfg.cockpit.turn_url("ses_a", "turn_b"),
-            "http://localhost:7433/session/ses_a/turn/turn_b"
+            cfg.cockpit.turn_link("ses_a", "turn_b").as_deref(),
+            Some("http://localhost:7433/session/ses_a/turn/turn_b")
         );
         let relay =
             crate::Config::from_toml("[cockpit]\npublic_url = \"http://localhost:17433/\"\n")
                 .unwrap();
         assert_eq!(
-            relay.cockpit.turn_url("ses_a", "turn_b"),
-            "http://localhost:17433/session/ses_a/turn/turn_b"
+            relay.cockpit.turn_link("ses_a", "turn_b").as_deref(),
+            Some("http://localhost:17433/session/ses_a/turn/turn_b")
         );
         let ported = crate::Config::from_toml("[web]\nport = 17433\n").unwrap();
         assert!(ported.cockpit.is_default());
         assert_eq!(
-            ported.cockpit.turn_url("ses_a", "turn_b"),
-            "http://localhost:17433/session/ses_a/turn/turn_b"
+            ported.cockpit.turn_link("ses_a", "turn_b").as_deref(),
+            Some("http://localhost:17433/session/ses_a/turn/turn_b")
         );
         let both = crate::Config::from_toml(
             "[web]\nport = 17433\n[cockpit]\npublic_url = \"http://localhost:9000\"\n",
         )
         .unwrap();
         assert_eq!(
-            both.cockpit.turn_url("ses_a", "turn_b"),
-            "http://localhost:9000/session/ses_a/turn/turn_b"
+            both.cockpit.turn_link("ses_a", "turn_b").as_deref(),
+            Some("http://localhost:9000/session/ses_a/turn/turn_b")
         );
+        let no_web = crate::Config::from_toml("[web]\nenabled = false\nport = 17433\n").unwrap();
+        assert_eq!(no_web.cockpit.turn_link("ses_a", "turn_b"), None);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         for bad in [
             "public_url = \"localhost:7433\"",

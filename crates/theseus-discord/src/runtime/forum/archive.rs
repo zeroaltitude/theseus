@@ -12,12 +12,24 @@
 //! - **Archived and locked**, never deleted: hidden from the forum's list,
 //!   still searchable, and the owner may open it again. It is done once
 //!   (`archived_ms`), so a post the owner reopens is left alone.
-//! - It runs on the task channels' sweep (`Shared::sweep_once`).
+//! - It runs on its own hourly tick (`ARCHIVE_TICK`, `Shared::archive_tick`), so a
+//!   read post leaves at most an hour after its day, and on the task channels'
+//!   sweep (`Shared::sweep_once`: at the start, then daily).
+//! - A Clear done pressed after the task ended but before the forum worker
+//!   wrote the post's end still reads it: the tick asks the board
+//!   (`Tasks::cleared_since_end`) and keeps the answer in `read_ms`.
 //! - **What a restart keeps.** A finished post stays in the list until it is
 //!   archived, or `UNREAD_KEPT_MS` unread; an archived one a day for its link.
 
+use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
+
 use super::{Post, TaskPosts};
 use crate::runtime::Shared;
+
+/// How often the archive looks for a read post a day over.
+pub(crate) const ARCHIVE_TICK: Duration = Duration::from_secs(3600);
 
 /// A read post of a finished task is archived this long after it ended.
 pub(crate) const ARCHIVE_AFTER_MS: u64 = 24 * 3_600_000;
@@ -61,12 +73,50 @@ impl TaskPosts {
     }
 }
 
+/// Run `run` every `period` until `stopped`.
+async fn every<F: Future<Output = ()>>(
+    period: Duration,
+    stopped: impl Future<Output = ()>,
+    mut run: impl FnMut() -> F,
+) {
+    tokio::pin!(stopped);
+    loop {
+        tokio::select! {
+            () = tokio::time::sleep(period) => {}
+            () = &mut stopped => return,
+        }
+        run().await;
+    }
+}
+
 impl Shared {
+    /// The archive's own tick, until the daemon stops.
+    pub(crate) fn archive_tick(self: &Arc<Self>) {
+        let s = self.clone();
+        tokio::spawn(async move {
+            every(ARCHIVE_TICK, s.core.outbox.stopped(), || {
+                s.archive_read_posts()
+            })
+            .await;
+        });
+    }
+
     /// Every finished post the owner has read and that ended a day ago is
     /// archived and locked, once; a refusal is tried again at the next sweep.
     pub(crate) async fn archive_read_posts(&self) {
         // The sweep may run before the forum's worker has read the list.
         self.task_posts.load(&self.core.store);
+        let cleared: Vec<String> = self
+            .task_posts
+            .posts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|p| p.ended_ms.is_some() && p.read_ms.is_none())
+            .filter(|p| self.tasks.cleared_since_end(&p.task))
+            .map(|p| p.task.clone())
+            .collect();
+        self.task_posts.seen(&cleared, &self.core.store);
         let now = theseus_protocol::now_unix_ms();
         let due: Vec<Post> = self
             .task_posts
@@ -159,5 +209,33 @@ mod tests {
             !due(&post(Some(now - 2 * DAY), Some(now - DAY)), now, true),
             "once"
         );
+    }
+
+    /// The tick is within the hour: a read post a day and a minute over is
+    /// archived by the next run, with no daily sweep in the way.
+    #[tokio::test(start_paused = true)]
+    async fn a_read_post_leaves_within_the_hour_after_its_day() {
+        let ran = std::sync::atomic::AtomicU32::new(0);
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let run = every(
+            ARCHIVE_TICK,
+            async {
+                let _ = stopped.await;
+            },
+            || async {
+                ran.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            },
+        );
+        let driver = async {
+            tokio::time::advance(Duration::from_secs(3601)).await;
+            tokio::task::yield_now().await;
+            let _ = stop.send(());
+        };
+        tokio::join!(run, driver);
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let now = 100 * DAY;
+        let read = post(Some(now - DAY - 60_000), None);
+        assert!(due(&read, now, true));
+        assert!(due(&read, now + ARCHIVE_TICK.as_millis() as u64, true));
     }
 }

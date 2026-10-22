@@ -301,3 +301,21 @@ async fn the_latest_board_waits_out_an_outage_and_is_written_when_discord_is_bac
     assert_eq!(b.len(), 1);
     assert!(b[0].content.contains("3 running"), "{}", b[0].content);
 }
+
+/// The DM drew its board before the task home answered; once the home stands
+/// the place tells its lane the board moved, and the DM's message is removed,
+/// a state waiting for it dropped (theseus-ysp2k).
+#[tokio::test]
+async fn the_dm_board_drawn_before_the_home_answers_does_not_stay() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake);
+    lane.take(live(board(1)));
+    lane.apply_live().await;
+    assert_eq!(boards(&fake).len(), 1, "drawn first");
+    lane.take(live(board(2)));
+    lane.take(LaneMsg::BoardMoved);
+    lane.drop_stale_board().await;
+    lane.apply_live().await;
+    assert!(boards(&fake).is_empty(), "{:#?}", fake.messages(CHANNEL));
+}

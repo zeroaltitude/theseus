@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-psl = "2"
+psl.workspace = true
 theseus-protocol.workspace = true
 theseus-files.workspace = true
 theseus-store.workspace = true

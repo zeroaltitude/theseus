@@ -309,7 +309,12 @@ impl Core {
             for (name, seen) in &scope.judgments {
                 let mut r = report::pack_report(name, seen, &scope.labels, window);
                 if name == crate::judge::onto::ONTO_PACK {
-                    r.undo = self.onto_undo_to(now_ms)?;
+                    // The undo line is a courtesy: a store that cannot read its rows leaves it out.
+                    r.undo = self.onto_undo_to(now_ms).unwrap_or_else(|e| {
+                        tracing::warn!(error = %format!("{e:#}"), "learning: the undo line was left out");
+                        Vec::new()
+                    });
+                    r.undo_days = (learning::onto_undo::WINDOW_MS / 86_400_000) as u32;
                 }
                 packs.push(r);
             }

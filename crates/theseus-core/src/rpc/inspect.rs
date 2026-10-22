@@ -135,7 +135,7 @@ impl Core {
         let mut out = TurnInspectResult {
             session_id: sid.into(),
             turn_id: tid.into(),
-            url: self.cfg.cockpit.turn_url(sid, tid),
+            url: self.cfg.cockpit.turn_link(sid, tid).unwrap_or_default(),
             prev_turn,
             next_turn,
             withheld: (!private).then(|| WITHHELD.to_string()),

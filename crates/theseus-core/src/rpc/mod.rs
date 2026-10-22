@@ -406,6 +406,21 @@ const TERMS_STRETCH: usize = 512;
 /// Records a stretch of the index's shape build reads (theseus-vm3n.5).
 const SHAPE_STRETCH: usize = 2048;
 
+#[cfg(test)]
+thread_local! {
+    static TEST_CLOCK: std::cell::RefCell<Option<Arc<dyn theseus_kernel::Clock>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The kernel's clock: a test's (`Core::build_with_clock`), taken once, else the wall clock.
+fn clock_for_build() -> Arc<dyn theseus_kernel::Clock> {
+    #[cfg(test)]
+    if let Some(c) = TEST_CLOCK.with(|c| c.borrow_mut().take()) {
+        return c;
+    }
+    Arc::new(theseus_kernel::RealClock)
+}
+
 impl Core {
     /// The daemon's core, from its config and the secret board, which may
     /// still be resolving: nothing here waits for a secret (theseus-qa0).
@@ -667,6 +682,18 @@ impl Core {
         });
     }
 
+    /// `build` with the kernel on `clock`, which the effort refusal mark reads through `now_ms`,
+    /// so a test drives an hour with a `VirtualClock` (theseus-2ix1k). `Parts` stays as it is:
+    /// the clock waits in a thread-local for the one `build` this thread makes next.
+    #[cfg(test)]
+    pub(crate) fn build_with_clock(
+        parts: Parts,
+        clock: Arc<dyn theseus_kernel::Clock>,
+    ) -> Result<Arc<Self>> {
+        TEST_CLOCK.with(|c| *c.borrow_mut() = Some(clock));
+        Self::build(parts)
+    }
+
     /// Build a core from its parts: the kernel opened on the store and started
     /// (its spool beside the store), then the catalog, the tool runtime, and
     /// the turn runner.
@@ -687,18 +714,15 @@ impl Core {
             cpu_cores,
         } = parts;
         let k0 = std::time::Instant::now();
+        let clock = clock_for_build();
         let cfg = Arc::new(cfg);
         // The kernel shares the store. Its spool sits beside the store dir.
         let spool = Spool::open(&spool_dir(store.dir())).context("opening completion spool")?;
-        let kernel = Arc::new(Kernel::new(
-            store.shared(),
-            Arc::new(theseus_kernel::RealClock),
-            {
-                let mut kc = cfg.kernel.to_kernel_config();
-                kc.wakes.max_routines = cfg.routines.max_routines;
-                kc
-            },
-        ));
+        let kernel = Arc::new(Kernel::new(store.shared(), clock, {
+            let mut kc = cfg.kernel.to_kernel_config();
+            kc.wakes.max_routines = cfg.routines.max_routines;
+            kc
+        }));
         let startup = kernel
             .startup(
                 Some(&spool),

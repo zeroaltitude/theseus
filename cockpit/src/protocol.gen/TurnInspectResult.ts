@@ -7,7 +7,8 @@ import type { Span } from "./Span";
 
 export type TurnInspectResult = { session_id: string, turn_id: string, prompt: InspectPrompt, 
 /**
- * The turn in the cockpit (`[cockpit] public_url`): what `theseus open turn` opens.
+ * The turn in the cockpit (`[cockpit] public_url`): what `theseus open turn` opens. Empty when
+ * no web UI runs and no `public_url` names one.
  */
 url: string, 
 /**

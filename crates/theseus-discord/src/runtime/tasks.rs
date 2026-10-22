@@ -215,6 +215,8 @@ impl Tasks {
             }
             !gone
         });
+        // The snapshot carries no ended child (its absence says nothing of one),
+        // so re-applying it cannot undo an ended view an event already brought.
         for v in r.views {
             apply(&mut m, v, &mut touched);
         }
@@ -379,6 +381,19 @@ impl Tasks {
             .filter(|v| roots.contains(&v.root) && counted(v) && v.state.ended())
             .map(|v| v.id.clone())
             .collect()
+    }
+
+    /// Whether a place that shows the task cleared its done ones at or after
+    /// the task's own end: the owner has seen its end (theseus-wy8pt).
+    pub fn cleared_since_end(&self, id: &str) -> bool {
+        let m = self.model.lock().unwrap();
+        let Some(v) = m.views.get(id).filter(|v| v.state.ended()) else {
+            return false;
+        };
+        let at = v.ended_at_ms.unwrap_or(v.state_since_ms);
+        m.cleared
+            .iter()
+            .any(|(s, t)| *t >= at && roots_of(&m, s).contains(&v.root))
     }
 
     /// A view held, by its id.
@@ -850,6 +865,36 @@ mod tests {
             watch: None,
             project: None,
         }
+    }
+
+    impl Tasks {
+        /// For the archive's test: `task` ended at `ended_ms` under the
+        /// conversation whose session is `ses_exe_chat`.
+        pub(crate) fn ended_for_tests(&self, task: &str, ended_ms: u64) {
+            let chat = view(
+                "exe_chat",
+                WorkKind::Conversation,
+                "exe_chat",
+                WorkState::Ready,
+                1,
+            );
+            let mut done = view(task, WorkKind::Task, "exe_chat", WorkState::Done, 2);
+            done.ended_at_ms = Some(ended_ms);
+            self.changed(changed_of(vec![chat, done], &[]));
+        }
+    }
+
+    #[test]
+    fn a_clear_after_the_tasks_end_has_seen_it() {
+        let t = Tasks::default();
+        let now = theseus_protocol::now_unix_ms();
+        t.ended_for_tests("exe_a", now - 1000);
+        assert!(!t.cleared_since_end("exe_a"), "never cleared");
+        t.clear_done("ses_exe_chat");
+        assert!(t.cleared_since_end("exe_a"));
+        t.ended_for_tests("exe_a", now + 60_000);
+        assert!(!t.cleared_since_end("exe_a"), "ended again after the clear");
+        assert!(!t.cleared_since_end("exe_none"));
     }
 
     fn changed_of(views: Vec<WorkView>, gone: &[&str]) -> WorkChanged {
