@@ -372,6 +372,48 @@ async fn an_unchanged_draft_with_an_attachment_sends() {
     assert_eq!(sends_posted(&r), 1);
 }
 
+/// A file swapped after the card was shown, for another of the same name,
+/// type and byte size, is a changed draft: the digest holds the bytes' hash.
+#[tokio::test]
+async fn a_same_name_same_size_attachment_swap_is_refused() {
+    let r = rig(vec![]).await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({})).await;
+    r.fake
+        .mail()
+        .attach_to_draft(&id, "ledger.csv", "text/csv", b"a,b\n1,2\n");
+    let send = send_of(&r, &id).await;
+    plan(&r, "gmail.send", send.clone()).unwrap();
+    r.fake
+        .mail()
+        .replace_draft_file(&id, "ledger.csv", b"a,b\n9,9\n");
+    let e = run(&r, "gmail.send", send).await.unwrap_err();
+    assert!(e.message.contains("nothing was sent"), "{}", e.message);
+    assert_eq!(sends_posted(&r), 0);
+}
+
+/// The bytes are read to be hashed: a read that fails refuses the send, with
+/// Gmail's error, and nothing is sent.
+#[tokio::test]
+async fn a_draft_attachment_read_failure_refuses_the_send() {
+    let r = rig(vec![]).await;
+    stranger_thread(&r);
+    let id = reply_draft(&r, json!({})).await;
+    r.fake
+        .mail()
+        .attach_to_draft(&id, "ledger.csv", "text/csv", b"a,b\n1,2\n");
+    let send = send_of(&r, &id).await;
+    plan(&r, "gmail.send", send.clone()).unwrap();
+    r.fake.route(
+        "GET",
+        "/gmail/v1/users/me/messages/*/attachments/*",
+        |_| Reply::json(500, json!({"error": {"code": 500, "message": "Attachment unreadable", "errors": [{"reason": "backendError"}]}})),
+    );
+    let e = run(&r, "gmail.send", send).await.unwrap_err();
+    assert!(e.message.contains("Attachment unreadable"), "{}", e.message);
+    assert_eq!(sends_posted(&r), 0);
+}
+
 #[tokio::test]
 async fn an_html_only_change_after_the_card_is_refused() {
     let r = rig(vec![]).await;

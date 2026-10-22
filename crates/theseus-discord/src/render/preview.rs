@@ -69,9 +69,11 @@ fn plan(body: &str) -> String {
 }
 
 /// The draft a send binds, as a quote: From, each recipient with a new one
-/// marked, the subject, the body's first lines and the attachments, cut with
-/// a marker; the last line (`Draft <12 hex>`, what the approval is bound to)
-/// always stays. An `@` is broken so a draft's text can never mention anyone.
+/// marked (` (new)` after one, on a `To:`, `Cc:` or `Bcc:` line alone: a
+/// subject or body saying "(new)" stays plain), the subject, the body's first
+/// lines and the attachments, cut with a marker; the last line (`Draft <12
+/// hex>`, what the approval is bound to) always stays. An `@` is broken so a
+/// draft's text can never mention anyone.
 fn mail(body: &str) -> String {
     let mut lines: Vec<&str> = body.lines().collect();
     let tail = lines.pop().unwrap_or("");
@@ -83,10 +85,13 @@ fn mail(body: &str) -> String {
             Some((_, from)) => format!("From: {from}"),
             None => l.to_string(),
         };
-        format!(
-            "> {}\n",
-            l.replace("(new)", "**(new)**").replace('@', "@\u{200b}")
-        )
+        let flagged = ["To: ", "Cc: ", "Bcc: "].iter().any(|p| l.starts_with(p));
+        let l = if flagged {
+            l.replace("(new)", "**(new)**")
+        } else {
+            l
+        };
+        format!("> {}\n", l.replace('@', "@\u{200b}"))
     };
     let mut out = String::new();
     for l in lines {
@@ -184,5 +189,29 @@ mod tests {
         let h = mail(&long);
         assert!(h.chars().count() < 1000 && h.contains("is cut)"), "{h}");
         assert!(h.ends_with("> -# Draft 0123456789ab"), "{h}");
+    }
+
+    #[test]
+    fn the_discord_send_card_bolds_only_recipient_flags() {
+        let body = "draft r1 from owner@example.test\nTo: sam@example.test (new)\n\
+                    Cc: pat@example.test (new)\nBcc: lee@example.test (new)\n\
+                    Subject: Plan (new)\nBody (first 1 of 1 lines):\n  see the (new) doc\n\
+                    Draft 0123456789ab";
+        let q = ConfirmRequest {
+            tool: "gmail.send".into(),
+            preview: Some(ConfirmPreview {
+                kind: ConfirmPreview::MAIL.into(),
+                body: body.into(),
+            }),
+            ..ConfirmRequest::default()
+        };
+        let h = hunk(&q);
+        for to in ["To: sam", "Cc: pat", "Bcc: lee"] {
+            let l = h.lines().find(|l| l.contains(to)).unwrap();
+            assert!(l.ends_with("**(new)**"), "{l}");
+        }
+        assert!(h.contains("> Subject: Plan (new)\n"), "{h}");
+        assert!(h.contains(">   see the (new) doc\n"), "{h}");
+        assert_eq!(h.matches("**(new)**").count(), 3, "{h}");
     }
 }

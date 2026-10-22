@@ -26,6 +26,8 @@ use crate::Core;
 const STRANGER: &str = "Sam Stranger <stranger@example.test>";
 const DANA: &str = "Dana Colleague <dana@example.test>";
 const QUERY: &str = "from:example.test";
+/// What Gmail's own server writes for mail it authenticated for example.test.
+pub(super) const GMAIL_PASS: &str = "mx.google.com; dkim=pass header.i=@example.test header.s=s1; dmarc=pass (p=NONE) header.from=example.test";
 
 fn bound(core: &Core) {
     core.bind_places(vec![crate::places::BoundPlace {
@@ -252,7 +254,8 @@ async fn a_trusted_senders_mail_starts_a_held_task() {
     look(&r.core, &id).await;
     r.fake.mail().deliver(
         "t9",
-        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks."),
+        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks.")
+            .header("Authentication-Results", GMAIL_PASS),
     );
     look(&r.core, &id).await;
     assert_eq!(task_started(&r.core), 1);
@@ -296,7 +299,8 @@ async fn a_mail_with_no_address_beside_a_trusted_one_only_notices() {
     look(&r.core, &id).await;
     r.fake.mail().deliver(
         "t9",
-        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks."),
+        MsgSpec::new("m9", DANA, "Contract", "Signed, thanks.")
+            .header("Authentication-Results", GMAIL_PASS),
     );
     r.fake.mail().deliver(
         "t10",
@@ -343,9 +347,11 @@ async fn history_poll_resumes_from_the_last_history_id() {
     look(&r.core, &id).await;
     assert_eq!(r.fake.mail().history_starts(), ["100", "100"]);
     // A match after the restart is found from there.
-    r.fake
-        .mail()
-        .deliver("t9", MsgSpec::new("m9", DANA, "Contract", "Signed."));
+    r.fake.mail().deliver(
+        "t9",
+        MsgSpec::new("m9", DANA, "Contract", "Signed.")
+            .header("Authentication-Results", GMAIL_PASS),
+    );
     look(&r.core, &id).await;
     assert_eq!(rows(&r.core, "watch.met").len(), 1);
     assert_eq!(
@@ -389,12 +395,12 @@ async fn a_poll_with_no_new_mail_makes_one_call() {
     let mut rows = Vec::new();
     let result = crate::watch::check::observe(&r.core.watch_tools(), &e, &mut rows).await;
     let frames = theseus_store::frames_written_here();
-    let result = r.core.watch_seen(&rows, result);
+    let result = r.core.watch_seen(&id, &rows, result);
     r.core.watch_finish(&id, result);
     assert_eq!(
         theseus_store::frames_written_here(),
-        frames + 1,
-        "a quiet look writes one frame: its google.called row, and nothing of the watch's"
+        frames,
+        "a quiet look writes no frame: its call is tallied, and nothing is the watch's"
     );
     assert_eq!(rows_of(&r.core, "watch.checked"), 1, "only the baseline");
     let new: Vec<String> = r.fake.log()[log..]
@@ -403,14 +409,19 @@ async fn a_poll_with_no_new_mail_makes_one_call() {
         .collect();
     assert_eq!(new, ["GET /gmail/v1/users/me/history"], "{new:?}");
     assert_eq!(history_calls(&r), history + 1);
-    // Each call is a `google.called` row, and none holds an address or a subject.
+    // The call is in the entry's tally, not a row of its own, and the tally
+    // row holds no address or subject.
     let called = ledgered(&r.core, "google.called");
     assert!(called
         .iter()
-        .any(|c| c["method"] == "gmail.users.history.list"));
-    assert!(called
-        .iter()
-        .all(|c| c["class"] == "read" && !c.to_string().contains("example.test")));
+        .all(|c| c["method"] != "gmail.users.history.list"));
+    let tally = r.core.watches.get(&id).unwrap().quiet.take().unwrap();
+    assert_eq!(tally["method"], "gmail.users.history.list");
+    assert_eq!(
+        (tally["quiet_looks"].clone(), tally["calls"].clone()),
+        (1.into(), 1.into())
+    );
+    assert!(tally["class"] == "read" && !tally.to_string().contains("example.test"));
 }
 
 // ------------------------------------------------------------------ the deadline

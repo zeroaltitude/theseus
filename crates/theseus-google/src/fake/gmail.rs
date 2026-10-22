@@ -187,6 +187,18 @@ impl Mailbox {
         });
     }
 
+    /// Swap the bytes of a draft's file called `name` behind the tool's back:
+    /// the name, type and size may stay what they were.
+    pub fn replace_draft_file(&self, id: &str, name: &str, bytes: &[u8]) {
+        self.with(|s| {
+            if let Some((m, _)) = s.drafts.get_mut(id) {
+                for f in m.spec.files.iter_mut().filter(|f| f.0 == name) {
+                    f.2 = bytes.to_vec();
+                }
+            }
+        });
+    }
+
     /// Attach a file to a draft behind the tool's back.
     pub fn attach_to_draft(&self, id: &str, name: &str, mime: &str, bytes: &[u8]) {
         self.with(|s| {
@@ -563,9 +575,10 @@ fn list_drafts(s: &State) -> Reply {
     Reply::json(200, body)
 }
 
-/// `GET messages`: `in:sent` is the sent-to check; any other query's `from:`
-/// terms (and bare words, of the sender's name) select messages by their
-/// `From` header, newest arrivals last.
+/// `GET messages`: a whole `in:sent` term is the sent-to check; any other
+/// query's `from:` terms (and bare words, of the sender's name) select
+/// messages by their `From` header, newest arrivals last, and `-in:drafts` and
+/// `-in:sent` leave out what carries the `DRAFT` or `SENT` label.
 fn list_messages(s: &State, req: &Req) -> Reply {
     let q = req
         .query()
@@ -573,11 +586,15 @@ fn list_messages(s: &State, req: &Req) -> Reply {
         .find(|(k, _)| k == "q")
         .map(|(_, v)| v)
         .unwrap_or_default();
-    if q.contains("in:sent") {
+    let terms: Vec<&str> = q
+        .split_whitespace()
+        .map(|t| t.trim_matches(['(', ')']))
+        .collect();
+    if terms.contains(&"in:sent") {
         return list_sent(s, &q);
     }
-    let froms: Vec<String> = q
-        .split_whitespace()
+    let froms: Vec<String> = terms
+        .iter()
         .filter_map(|t| t.strip_prefix("from:"))
         .map(str::to_lowercase)
         .collect();
@@ -595,6 +612,8 @@ fn list_messages(s: &State, req: &Req) -> Reply {
                 .unwrap_or_default();
             let has = |l: &str| m.spec.labels.iter().any(|x| x == l);
             froms.iter().all(|f| from.contains(f))
+                && (!terms.contains(&"-in:drafts") || !has("DRAFT"))
+                && (!terms.contains(&"-in:sent") || !has("SENT"))
                 && (!q.contains("is:unread") || has("UNREAD"))
                 && (!q.contains("-category:promotions") || !has("CATEGORY_PROMOTIONS"))
                 && (!q.contains("-category:social") || !has("CATEGORY_SOCIAL"))
