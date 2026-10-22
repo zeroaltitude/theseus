@@ -261,3 +261,37 @@ async fn with_the_switch_off_no_set_grows() {
     assert_eq!(after, before);
     assert!(edits(c).is_empty());
 }
+
+/// A message the owner moved while its turn still ran: the growth that runs
+/// after the turn grows nothing in the thread it was moved from, while the
+/// same growth of an unmoved turn does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_moved_before_its_growth_grows_nothing_in_the_origin() {
+    let r = rig(|_| vec![], |_| {});
+    let c = &r.core;
+    thread(c, "pr-round");
+    let sid = super::tests_thread_recall::thread_session(c, "pr-round");
+    let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    let grow = |text: &str| c.grow_for(None, &rec, text).expect("a thread's turn");
+    c.thread_grow(&grow("answer PRR-4142"), "turn_unmoved");
+    assert_eq!(set_of(c, "pr-round").refs, ["PRR-4142"]);
+    let g = grow("answer PRR-9999");
+    assert!(c.runner.threads.route.take_grew("turn_moved").is_none());
+    c.thread_grow(&g, "turn_moved");
+    assert_eq!(set_of(c, "pr-round").refs, ["PRR-4142"]);
+}
+
+/// A growth that added nothing of the message's leaves no entry for a move
+/// to find.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_growth_pushes_no_grew() {
+    let r = rig(|root| writes(root, "tarnlib/reviews/comment-1.md"), |_| {});
+    let c = &r.core;
+    thread(c, "pr-round");
+    let res = submit(c, Some("pr-round"), None, "please go on").await;
+    assert_eq!(
+        set_of(c, "pr-round").files,
+        ["tarnlib/reviews/comment-1.md"]
+    );
+    assert!(c.runner.threads.route.take_grew(&res.turn_id).is_none());
+}

@@ -1579,7 +1579,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` and
-    `context.detoured` (the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
+    `context.detoured` (`ContextDetour` carry `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
     in the one frame with `loop.started`) and no `context.compiled`, since its compilation is never stored (`tests_route_rows.rs`); `context.explain`
     explains a turn with no compile from that row (`ContextExplainResult.detour`, the turn list's `detoured`; theseus-r5ydi), and the
     conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`
@@ -1837,7 +1837,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
     the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
     posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message
-    that steered a running turn is not read. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
+    that steered a running turn is not read. A compile that fails (`context_overage`) in a shared place still reads the verdict and is held, not failed (theseus-cljlz); in a private place or for a task it fails as before, and a private place's warning still posts. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **A home past its size** (theseus-jg1eg, the follow-up of theseus-vydhq; `turn/home_size_step.rs`): a place's own session (`Outbox::place_session`,
     never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] home_warn_percent` (50) of the
     serving model's context window (`Turn.fill.window`, the catalog's or `[context] working_window_tokens`'s; 1,000,000 when none is

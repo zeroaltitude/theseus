@@ -669,7 +669,12 @@ impl TurnRunner {
 
     /// A failed compile still holds a reach for the owner's personal details:
     /// the verdict is read and the privacy check run, and `f` goes on as it
-    /// was; the turn loop then ends the turn held (theseus-cljlz).
+    /// was; the turn loop then ends the turn held (theseus-cljlz). The turn
+    /// is still counted in the route's books (theseus-qiyxq): its
+    /// `route.decided` row (no decision, so the profile it would have run on
+    /// and a reason of the verdict's absence or kind; the wait is not timed
+    /// here) and the correction memory's note, so route stats count held
+    /// turns. Not the persona: no persona answers the fixed line.
     fn held(
         &self,
         t: &mut Turn<'_>,
@@ -679,8 +684,10 @@ impl TurnRunner {
         session: &SessionRecord,
     ) -> Failure {
         let last = session.last_turn_id.as_deref();
-        let (verdict, _) = self.read_verdict(t, got, live, rx, last, unreachable);
+        let (verdict, reason) = self.read_verdict(t, got, live, rx, last, unreachable);
         self.personal_warn(t, verdict.as_ref());
+        self.record_route(t, verdict.as_ref(), None, reason, Default::default(), None);
+        self.note_routed(t, verdict.as_ref(), None);
         f
     }
 

@@ -83,6 +83,9 @@ struct Recent {
     /// (turn, thread slug, what the turn's message grew into it) of turns
     /// whose message named something new, newest last: a move takes it back.
     grew: VecDeque<(String, String, WorkingSet)>,
+    /// Turns whose growth a move took back (or found none to take): their
+    /// growth, if it has not run yet, grows nothing.
+    ungrown: VecDeque<String>,
 }
 
 /// The router's memory.
@@ -141,11 +144,22 @@ impl State {
         }
     }
 
-    /// What the turn's message grew, once: the thread and the entries.
+    /// What the turn's message grew, once: the thread and the entries. The
+    /// turn is marked either way, so a growth that runs after the move (the
+    /// turn still running) grows nothing in the thread it was moved from.
     pub fn take_grew(&self, turn: &str) -> Option<(String, WorkingSet)> {
         let mut r = lock(&self.recent);
+        r.ungrown.push_back(turn.to_string());
+        while r.ungrown.len() > TURNS {
+            r.ungrown.pop_front();
+        }
         let i = r.grew.iter().position(|(t, _, _)| t == turn)?;
         r.grew.remove(i).map(|(_, s, w)| (s, w))
+    }
+
+    /// Whether a move already took the turn's growth back.
+    pub fn is_ungrown(&self, turn: &str) -> bool {
+        lock(&self.recent).ungrown.iter().any(|t| t == turn)
     }
 
     /// The thread a turn ran in.

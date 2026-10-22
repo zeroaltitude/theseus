@@ -93,22 +93,38 @@ pub fn paths_only(mut named: WorkingSet) -> WorkingSet {
     named
 }
 
-/// The entries `named` gave that `next` holds and `current` did not: what a
-/// message's growth added, to be taken back if the message is moved.
-pub fn added_by(current: &WorkingSet, next: &WorkingSet, named: &WorkingSet) -> WorkingSet {
-    let pick = |c: &[String], n: &[String], by: &[String]| -> Vec<String> {
+/// The entries `named` gave that `next` holds and `current` did not, less
+/// what the turn `touched`: what a message's growth added alone, to be taken
+/// back if the message is moved. An entry the turn also touched is the
+/// turn's, and stays.
+pub fn added_by(
+    current: &WorkingSet,
+    next: &WorkingSet,
+    named: &WorkingSet,
+    touched: &WorkingSet,
+) -> WorkingSet {
+    let pick = |c: &[String], n: &[String], by: &[String], t: &[String]| -> Vec<String> {
         n.iter()
-            .filter(|e| !c.contains(e) && by.iter().any(|b| b.eq_ignore_ascii_case(e)))
+            .filter(|e| {
+                !c.contains(e)
+                    && by.iter().any(|b| b.eq_ignore_ascii_case(e))
+                    && !t.iter().any(|x| x.eq_ignore_ascii_case(e))
+            })
             .cloned()
             .collect()
     };
     WorkingSet {
-        roots: pick(&current.roots, &next.roots, &named.roots),
-        repos: pick(&current.repos, &next.repos, &named.repos),
-        branches: pick(&current.branches, &next.branches, &named.branches),
-        refs: pick(&current.refs, &next.refs, &named.refs),
-        files: pick(&current.files, &next.files, &named.files),
-        hosts: pick(&current.hosts, &next.hosts, &named.hosts),
+        roots: pick(&current.roots, &next.roots, &named.roots, &touched.roots),
+        repos: pick(&current.repos, &next.repos, &named.repos, &touched.repos),
+        branches: pick(
+            &current.branches,
+            &next.branches,
+            &named.branches,
+            &touched.branches,
+        ),
+        refs: pick(&current.refs, &next.refs, &named.refs, &touched.refs),
+        files: pick(&current.files, &next.files, &named.files, &touched.files),
+        hosts: pick(&current.hosts, &next.hosts, &named.hosts, &touched.hosts),
     }
 }
 
@@ -275,9 +291,22 @@ mod tests {
         let cur = ws(&[], &["OPS-1"], &[]);
         let n = ws(&[], &["OPS-1", "OPS-2"], &[]);
         let next = grow(&cur, &none, &n, &[]);
-        let added = added_by(&cur, &next, &n);
+        let added = added_by(&cur, &next, &n, &none);
         assert_eq!(added.refs, ["OPS-2"]);
         assert_eq!(without(&next, &added), cur);
+    }
+
+    /// An entry the message named and the turn also touched is the turn's:
+    /// a move takes back only what the words alone added.
+    #[test]
+    fn a_named_and_touched_entry_stays_on_a_move() {
+        let none = WorkingSet::default();
+        let named = ws(&["tarnlib"], &["OPS-2"], &["tarnlib/a.md"]);
+        let touched = ws(&["tarnlib"], &[], &["tarnlib/a.md"]);
+        let next = grow(&none, &touched, &named, &[]);
+        let added = added_by(&none, &next, &named, &touched);
+        assert_eq!(added, ws(&[], &["OPS-2"], &[]));
+        assert_eq!(without(&next, &added), touched);
     }
 
     /// Nothing new leaves the set as it was, byte for byte.
