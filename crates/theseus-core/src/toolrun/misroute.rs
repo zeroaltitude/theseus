@@ -131,7 +131,7 @@ impl Guards {
             let p = fold(&r.path);
             let inside = armed.roots.iter().any(|root| p.starts_with(root));
             (!inside).then(|| Held {
-                path: shown(&p),
+                path: crate::places::home_shown(&p),
                 verb: match r.access {
                     Access::Exec => "runs a program in",
                     _ => "edits",
@@ -171,16 +171,6 @@ impl ToolRuntime {
             tool.name(),
             &plan.summary,
         )
-    }
-}
-
-/// A path as the question shows it: under the home directory as `~/…`.
-fn shown(p: &Path) -> String {
-    match std::env::var_os("HOME").map(PathBuf::from) {
-        Some(h) if p.starts_with(&h) && p != h => {
-            format!("~/{}", p.strip_prefix(&h).unwrap_or(p).display())
-        }
-        _ => p.display().to_string(),
     }
 }
 

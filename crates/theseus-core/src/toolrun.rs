@@ -1903,7 +1903,8 @@ impl ToolRuntime {
                 true => u64::MAX,
                 false => e.budget.available(),
             });
-        let shared = tc.class != crate::places::PlaceClass::Private;
+        // An open session's reads may reach a model outside the trust: held too.
+        let shared = tc.class != crate::places::PlaceClass::Private || tc.open.is_some();
         self.files.run(
             &nodes,
             tc.store.blobs_handle(),

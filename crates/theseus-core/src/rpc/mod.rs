@@ -166,7 +166,7 @@ mod tests_thread_context;
 #[cfg(test)]
 mod tests_thread_home;
 #[cfg(test)]
-mod tests_thread_import;
+pub(crate) mod tests_thread_import;
 #[cfg(test)]
 mod tests_thread_join;
 #[cfg(test)]

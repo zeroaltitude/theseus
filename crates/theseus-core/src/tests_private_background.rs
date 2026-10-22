@@ -314,3 +314,58 @@ async fn a_task_a_private_sessions_model_creates_is_private() {
         );
     }
 }
+
+/// The learning writer's one request holds every case's session
+/// (`learning/propose.rs`, `write_candidate`; theseus-y8k3u 2): with the
+/// cases' session marked, the floor holds it and nothing reaches the writer;
+/// unmarked, the writer is asked once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_skill_proposal_over_a_private_session_is_private() {
+    use crate::tests_learn_loop::{fake, learn, rig, seed, split_now, writer_reply};
+    for marked in [false, true] {
+        let jev = fake(false);
+        let r = rig(vec![writer_reply(); 3], &jev, private_on);
+        let split = split_now();
+        seed(&r.core, 10, 0, split);
+        if marked {
+            mark(&r.core, "ses_harbor");
+        }
+        let p = learn(&r.core, split).await;
+        assert_eq!(
+            r.fake.requests().len(),
+            usize::from(!marked),
+            "marked {marked}: {p:?}"
+        );
+    }
+}
+
+/// A thread import's card holds every episode's session
+/// (`rpc/thread_import.rs`, `import_card`; theseus-y8k3u 2): with the
+/// imported sessions marked, the floor holds the card's call and nothing is
+/// sent; unmarked, the card is asked once.
+#[tokio::test]
+async fn a_thread_import_of_a_private_session_is_private() {
+    use crate::rpc::tests_thread_import::{card_for, import_export, params, rig, run};
+    for marked in [false, true] {
+        let card = card_for(serde_json::json!([
+            {"text": "The skiff's line is to be replaced.", "episodes": ["E1"]}
+        ]));
+        let r = rig(vec![card], private_on);
+        import_export(&r.core).await;
+        if marked {
+            let all = r
+                .core
+                .store
+                .list_sessions::<crate::session::SessionRecord>();
+            for s in all.unwrap() {
+                mark(&r.core, &s.session_id);
+            }
+        }
+        let got = run(&r.core, &params(Some(&["boat-ops"]))).await;
+        assert_eq!(
+            r.fake.requests().len(),
+            usize::from(!marked),
+            "marked {marked}: {got:?}"
+        );
+    }
+}
