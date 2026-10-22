@@ -1045,6 +1045,14 @@ async fn a_self_tasks_compaction_is_counted_on_the_self_budget() {
         std::fs::create_dir_all(&root).unwrap();
         let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), "glm");
         cfg.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+        // A thousand tokens over the other rigs' window: the ring's six kept
+        // turns leave the 4,096-token summary its room whatever a few bytes
+        // of the tool list move (the open tasks' schemas, theseus-a1wvq.6,
+        // left it 4,045).
+        cfg.catalog
+            .get_mut("claude-sonnet-5-5")
+            .unwrap()
+            .context_window = Some(WINDOW + 1_000);
         let model = Arc::new(FakeProvider::scripted(vec![]));
         let glm = Arc::new(FakeProvider::scripted(vec![summary(
             "The keeper logged six tides; the operator asked for each one.",
@@ -1077,10 +1085,8 @@ async fn a_self_tasks_compaction_is_counted_on_the_self_budget() {
     let out = turn(&r.core, &sid, &words(&format!("turn{}", k - 1), 6_000))
         .await
         .unwrap();
-    assert_eq!(
-        rows(&r.core, "context.compacted")[0]["outcome"],
-        "compaction"
-    );
+    let compacted = rows(&r.core, "context.compacted");
+    assert_eq!(compacted[0]["outcome"], "compaction", "{compacted:?}");
     let v = r.core.runner.self_budget.view().unwrap();
     let cost = out.cost_usd.unwrap();
     assert!(
