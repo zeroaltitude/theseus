@@ -481,11 +481,13 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
         let left = until.saturating_duration_since(Instant::now());
         let silent = silence.as_ref().filter(|s| !held && s.quiet() >= beat);
         if let (Some(s), false) = (silent, left.is_zero()) {
-            match theseus_store::blocking(|| clock.beat(&core, &f, s, asked, reads)) {
-                Some(out) => {
-                    wait_status::post(&core, &f, &clock, s);
-                    return Ok((out, None, None));
-                }
+            let beat_out = theseus_store::blocking(|| {
+                let out = clock.beat(&core, &f, s, asked, reads)?;
+                wait_status::post(&core, &f, &clock, s);
+                Some(out)
+            });
+            match beat_out {
+                Some(out) => return Ok((out, None, None)),
                 // A job past its file's head prints into its wrapper: not silent.
                 None => held = true,
             }
