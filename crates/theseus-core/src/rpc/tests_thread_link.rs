@@ -402,6 +402,44 @@ async fn a_link_follows_a_merged_thread() {
     assert_eq!(item.rank, 1);
 }
 
+/// A link of A through B, with B merged into C, is unlinked by naming C: the link sits on the pair
+/// A and B, and both ends are written, each with its row (theseus-t8fow).
+#[test]
+fn unlink_by_the_live_slug_after_a_merge() {
+    let r = rig_with(MemoryMode::Off, |_| {});
+    let c = &r.core;
+    for s in ["a", "b", "c"] {
+        new_thread(c, s, &format!("Title of {s}"));
+    }
+    link(c, "a", "b").unwrap();
+    c.thread_merge(
+        &ThreadMergeParams {
+            from: "b".into(),
+            into: "c".into(),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    assert_eq!(
+        c.threads().linked_with("a"),
+        BTreeSet::from(["b".to_string(), "c".to_string()])
+    );
+    unlink(c, "a", "c").unwrap();
+    assert!(c.threads().linked_with("a").is_empty());
+    assert!(!c.threads().linked_with("c").contains("a"));
+    assert!(stored(c, "a").links.is_empty() && stored(c, "b").links.is_empty());
+    assert_eq!(
+        rows(c, "thread.unlinked").len(),
+        1,
+        "one row for the pair, as an unlink writes it"
+    );
+    // Nothing sits on the pair any more: a second unlink is the old no-op.
+    let (n, again) = frames(|| unlink(c, "a", "c"));
+    again.unwrap();
+    assert_eq!(n, 0);
+}
+
 /// A link to oneself, to an unknown thread or to a merged one is refused; a thread holds at most 8.
 #[test]
 fn a_link_to_self_unknown_or_merged_is_refused_and_eight_is_the_most() {

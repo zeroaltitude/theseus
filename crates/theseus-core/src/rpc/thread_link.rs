@@ -18,6 +18,7 @@ use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
 use crate::fact::thread::{ThreadLinked, ThreadUnlinked};
+use crate::threads::Board;
 
 /// The most threads one thread may be linked with.
 const MAX_LINKS: usize = 8;
@@ -87,7 +88,7 @@ impl Core {
                     if linking {
                         link_ends(ta, tb)
                     } else {
-                        Ok(unlink_ends(ta, tb))
+                        Ok(unlink_ends(board, ta, tb))
                     }
                 },
                 |_, ts| {
@@ -183,11 +184,33 @@ fn link_ends(a: &ThreadInfo, b: &ThreadInfo) -> Result<Vec<ThreadInfo>> {
     Ok(vec![with_link(a, &b.slug), with_link(b, &a.slug)])
 }
 
-fn unlink_ends(a: &ThreadInfo, b: &ThreadInfo) -> Vec<ThreadInfo> {
-    if !a.links.contains(&b.slug) && !b.links.contains(&a.slug) {
-        return vec![];
-    }
-    vec![without_link(a, &b.slug), without_link(b, &a.slug)]
+fn unlink_ends(board: &Board, a: &ThreadInfo, b: &ThreadInfo) -> Vec<ThreadInfo> {
+    let pair = match a.links.contains(&b.slug) || b.links.contains(&a.slug) {
+        true => Some((a, b)),
+        false => merged_pair(board, a, b),
+    };
+    pair.map_or_else(Vec::new, |(x, y)| {
+        vec![without_link(x, &y.slug), without_link(y, &x.slug)]
+    })
+}
+
+/// The pair a link really sits on, when `b` (or `a`) was merged into the
+/// thread named: a link of `a` to a thread whose live end is `b`, or the
+/// other way round (theseus-t8fow).
+fn merged_pair<'a>(
+    board: &'a Board,
+    a: &'a ThreadInfo,
+    b: &'a ThreadInfo,
+) -> Option<(&'a ThreadInfo, &'a ThreadInfo)> {
+    let through = |t: &'a ThreadInfo, live: &str| {
+        t.links
+            .iter()
+            .find(|l| board.live_of(l).is_some_and(|e| e.slug == live))
+            .and_then(|l| board.get(l))
+    };
+    through(a, &b.slug)
+        .map(|m| (a, m))
+        .or_else(|| through(b, &a.slug).map(|m| (m, b)))
 }
 
 fn with_link(t: &ThreadInfo, other: &str) -> ThreadInfo {
