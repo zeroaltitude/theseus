@@ -285,8 +285,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
-  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`), an answer over 400
-  characters refused, never cut; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream write of
+  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each call, so a stop keeps what was spent), an answer over 400
+  characters refused, never cut, a session whose first or last message cannot be read left out (the category waits only
+  below 5 left), and `[ontology] dream_guidance` off (default on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream write of
   the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim after
   the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours, so a
   night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
@@ -1613,7 +1614,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     a turn at another level gets an effort-only system message before its user message
     (`mid-conversation-output-config-2026-07-01`). Its first answer records the level (`effort`, store format 27);
     the render puts each record's message back before the user message its answer follows, so later requests repeat
-    the bytes; the beta rides every request that carries one, at every loop (`place`, `retarget`: `sync_beta`). Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
+    the bytes; the beta rides every request that carries one, at every loop (`place`, `retarget`: `sync_beta`). Never
+    derive these messages from the spec: a history edit breaks the cache and preserved thinking. The 2026-10-11 Sonnet 5.5
+    400 (`messages.190.output_config: Extra inputs are not permitted`) was a request sent without the beta, not a refusal
+    of the message. **The server-side fallback** (`BETA_FALLBACKS`, `compiler::server_fallbacks`): the request is compiled
+    for the profile's model alone, and `effort::takes` reads that model's row, never the fallback the provider may serve
+    it on, so the messages and the beta ride it either way. A fallback model without per-message effort that refuses
+    them answers the 400 below, and the hold lands on the request's model, not on the fallback's.
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
     Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`.
