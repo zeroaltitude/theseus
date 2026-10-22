@@ -173,7 +173,8 @@ pub enum Decision {
 
 /// A line against a question's keys: a key and the words after it are the answer and its note;
 /// `tab` or `next` is the next question; `q` closes; other words decline with themselves as the
-/// note (the model reads why), as `watch --interactive`'s prompt does. An empty line answers
+/// note (the model reads why), as `watch --interactive`'s prompt does; a line of only Esc closes, and
+/// one with an Esc among words is no answer. An empty line answers
 /// nothing: a stray Enter never declines.
 pub fn decide(line: &str, keys: &[Key]) -> Decision {
     let line = line.trim_matches(|c: char| c == '\n' || c == '\r' || c == ' ');
@@ -183,6 +184,17 @@ pub fn decide(line: &str, keys: &[Key]) -> Decision {
     let line = line.trim();
     if line.is_empty() {
         return Decision::Nothing;
+    }
+    // Esc closes the card; an Esc inside a line is a key, not words to decline with.
+    if line.contains('\x1b') {
+        return if line
+            .trim_matches(|c: char| c == '\x1b' || c.is_whitespace())
+            .is_empty()
+        {
+            Decision::Quit
+        } else {
+            Decision::Unknown(line.replace('\x1b', ""))
+        };
     }
     let (head, rest) = match line.split_once(char::is_whitespace) {
         Some((h, r)) => (h, Some(r.trim().to_string()).filter(|r| !r.is_empty())),
