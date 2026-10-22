@@ -1630,6 +1630,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     compare and set. A task's record starts with none; a fork copies `opened` and `taint` and the run cut at the fork
     point (`fork::data_through`). `session.data` rows (`opened_row`, `tainted_row`; their callers are later rows);
     `turn.inspect`'s `data` line, for a private place. Tests: `tests_data_state.rs`, `tests_fork.rs`, `tests_layouts.rs`.
+  - **The Google private mark** (`google/private.rs`): the META mark a Google result writes; `scoped`/`bound` carry it to
+    the floor; it follows recalled nodes and a task's parent; and text a marked session authored for others (a kept
+    standing record, by its `capture:` source) is held back, listed `shown: false`, from a request to a restricted
+    profile (`standing_step.rs`, `authored`), milestone reminders with it (`commitments.rs`), while the task view and
+    project slice are already outside the open view. The mark never spreads to the readers. Tests:
+    `tests_private_authored.rs`.
   - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
     `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
     session's directory is within them) makes `content_class()` the shared class: every content reader on the compile

@@ -24,6 +24,7 @@
 //!
 //! With no `[google]` nothing here reads the store.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -128,6 +129,32 @@ pub fn any_node<S: AsRef<str>>(
                 Some((_, n)) => session(store, cfg, &n.session_id),
                 None => true,
             })
+}
+
+/// The ids of `records` a session holding the mark authored: a record kept
+/// from a message (`source` `capture:<node>`) whose node's session holds it.
+/// Nothing is read with no `[google]`; a node the store cannot read counts
+/// as private (`any_node`).
+pub fn authored<'a>(
+    store: &Store,
+    cfg: &crate::Config,
+    records: impl IntoIterator<Item = &'a theseus_protocol::StandingRecord>,
+) -> HashSet<String> {
+    if cfg.google.is_empty() {
+        return HashSet::new();
+    }
+    // Any other source is a surface the owner typed on: the owner's own words.
+    let mut private_node: std::collections::HashMap<&str, bool> = Default::default();
+    records
+        .into_iter()
+        .filter_map(|r| Some((r, r.source.strip_prefix("capture:")?)))
+        .filter(|(_, node)| {
+            *private_node
+                .entry(node)
+                .or_insert_with(|| any_node(store, cfg, [node]))
+        })
+        .map(|(r, _)| r.id.clone())
+        .collect()
 }
 
 /// The first of `recalled` (node id, session id) whose session holds the

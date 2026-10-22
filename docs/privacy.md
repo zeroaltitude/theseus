@@ -49,7 +49,10 @@ conversation that has not read anything from Google is not affected. The backgro
 content carry the mark the same way: the keep-warm read of its cache, the memory pass, the learning loop, the people and
 naming calls, cards, replays, the census's exact count, and the finding said from the memory pass. A request that
 holds content from several conversations (a memory note's sources, the learning writer's cases) is private when any
-one of them is, and a task a private conversation starts is private from its first call.
+one of them is, and a task a private conversation starts is private from its first call. What a private conversation
+wrote for other conversations to see is left out of every request to a model of China or unknown origin: a standing
+order Theseus kept from its words, and any milestone reminder, since a milestone's title does not record who wrote it.
+Requests to models of US origin carry them as before, and a conversation is not made private by seeing them.
 
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
 assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's

@@ -417,7 +417,7 @@ impl TurnRunner {
         spec.defer = self.deferral(sid, false, &spec);
         // The standing block, as the turn puts it (theseus-rr15: it was left
         // out, so a session with a record recompiled here and was never read).
-        if let Some(b) = self.standing_block(sid, place.class) {
+        if let Some(b) = self.standing_block(sid, place.class, self.restricted(&target.profile)) {
             b.apply(&mut spec);
         }
         let built = (|| -> anyhow::Result<_> {

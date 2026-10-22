@@ -403,6 +403,8 @@ mod tests_personal_warn;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]
+mod tests_private_authored;
+#[cfg(test)]
 mod tests_private_background;
 #[cfg(test)]
 mod tests_private_recall;
