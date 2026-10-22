@@ -754,9 +754,22 @@ async fn a_private_address_card_from_a_shared_channel_says_where_the_page_goes()
         .expect("the card in the DM");
     assert!(
         card.content.contains(&format!(
-            "wants to **fetch** `{url}`\nrisk: network · why it asks: you set this kind of call to ask first"
+            "wants to **fetch** `{url}`\nrisk: network · why it asks: "
         )),
         "{}",
+        card.content
+    );
+    assert!(
+        card.content
+            .contains("this is a shared place, so the page joins a conversation others can read"),
+        "the card says where the page goes: {}",
+        card.content
+    );
+    assert!(
+        !card
+            .content
+            .contains("you set this kind of call to ask first"),
+        "a private address is not the owner's posture: {}",
         card.content
     );
 }

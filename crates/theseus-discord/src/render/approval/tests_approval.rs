@@ -80,7 +80,11 @@ fn an_approval_card_names_no_spec_clause() {
     let mut plain = request(json!({})).plain.unwrap();
     plain.held = "it touches Theseus's own state or a secret, which always asks".into();
     let floor = json!({"floor": true, "plain": plain});
-    for extra in [json!({}), outside_text(), floor] {
+    let private = json!({"tool": "http.fetch", "input": {"url": "http://10.0.0.5/notes"},
+        "reason": "fetch http://10.0.0.5/notes: http.fetch — approve (§4.2: 10.0.0.5 is a private address, \
+                   and a private address waits for approval; this is a shared place, so the page joins a \
+                   conversation others can read)"});
+    for extra in [json!({}), outside_text(), floor, private] {
         let c = card(&request(extra), &Route::Here, "with `theseus answer`");
         assert!(
             !c.content.contains('§') && !c.line.contains('§'),
@@ -88,6 +92,52 @@ fn an_approval_card_names_no_spec_clause() {
             c.content
         );
         assert!(!c.content.contains("fs.write"), "{}", c.content);
+    }
+}
+
+/// A hold that is not the owner's posture says its own rule, not the posture's words: a private
+/// address fetched from a shared place keeps the notice of where the page goes.
+#[test]
+fn a_private_address_card_says_its_own_rule() {
+    let c = card(
+        &request(
+            json!({"tool": "http.fetch", "input": {"url": "http://10.0.0.5/notes"},
+            "reason": "fetch http://10.0.0.5/notes: http.fetch — approve (10.0.0.5 is a private \
+                       address, and a private address waits for approval; this is a shared place, \
+                       so the page joins a conversation others can read)"}),
+        ),
+        &Route::Here,
+        "",
+    );
+    assert!(
+        c.content.contains(
+            "why it asks: 10.0.0.5 is a private address, and a private address waits for approval; \
+             this is a shared place, so the page joins a conversation others can read"
+        ),
+        "{}",
+        c.content
+    );
+    assert!(
+        !c.content.contains("you set this kind of call to ask first"),
+        "{}",
+        c.content
+    );
+    for posture in [
+        "enforcement = approve",
+        "[policy.tools] \"http.fetch\" = approve",
+        "§3.9",
+    ] {
+        let c = card(
+            &request(json!({"reason": format!("the call: fs.write — approve ({posture})")})),
+            &Route::Here,
+            "",
+        );
+        assert!(
+            c.content
+                .contains("why it asks: you set this kind of call to ask first"),
+            "{posture}: {}",
+            c.content
+        );
     }
 }
 
