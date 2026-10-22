@@ -229,7 +229,12 @@ async fn jev_late_or_unreachable_falls_back_to_the_named_rule() {
     let ask = "Call aws_whoami and tell me in one line which account you are on.";
     let jev = FakeJev::start().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let (r, haiku) = rig_on(&jev, dir.path(), 2, |_| {});
+    // The judge's own timeouts are far past RELEASE's half, so a starved turn that reaches its wait
+    // late finds the call held, never timed out into an answer.
+    let (r, haiku) = rig_on(&jev, dir.path(), 2, |c| {
+        c.judge.connect_secs = 120;
+        c.judge.total_secs = 120;
+    });
     // Only the families state has `holds`: the route's call answers.
     jev.hold_when("\"holds\":");
     let late = jev.clone();
