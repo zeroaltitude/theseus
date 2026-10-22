@@ -47,6 +47,9 @@ unknown origin carries only what the open request cleared for that one request: 
 open, with none of the owner's private files, facts, preferences or memories, no home directory in a path, and no tool
 that would start work later. Any other request to such a model is refused before it is sent.
 
+Such a model only drafts code: in its own copy of an open repository, with no programs, and a Claude model reviews and
+fixes the draft before anything is applied.
+
 Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
 then on that conversation's requests, including the summary that shortens it, go only to models of US origin, by the
 same allowlist: the route skips every other model, and a request that would reach one is refused before it is sent. A

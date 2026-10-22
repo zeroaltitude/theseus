@@ -435,10 +435,23 @@ impl RoutingConfig {
     }
 }
 
+/// The China-origin guidance is real (theseus-a1wvq.12): a draft for routine coding, the pair deep coding keeps
+/// off by default, and the trivial class's GLM after Haiku.
+#[cfg(test)]
+fn the_templates_china_origin_guidance(cfg: &crate::Config) {
+    let classes = &cfg.routing.classes;
+    assert_eq!(classes.routine_coding.cn_draft.as_deref(), Some("dsflash"));
+    assert_eq!(classes.routine_coding.final_review, ["sonnet"]);
+    assert_eq!(classes.deep_coding.cn_draft.as_deref(), Some("dsflashmax"));
+    assert_eq!(classes.deep_coding.final_review, ["sonnethi", "opus"]);
+    assert_eq!(classes.trivial.cn_profiles, ["glm"]);
+}
+
 /// The template's `[routing]`, un-commented: its defaults, and the
 /// profiles its classes name configured.
 #[cfg(test)]
 pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
+    the_templates_china_origin_guidance(cfg);
     let r = &cfg.routing;
     assert!(r.enabled);
     assert_eq!(r.mode, RoutingMode::Live);

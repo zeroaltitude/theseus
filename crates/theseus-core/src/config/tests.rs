@@ -53,6 +53,23 @@ fn example_template_parses_and_validates() {
     assert_eq!(cfg.telemetry.otlp_endpoint, None);
 }
 
+/// The template's draft guidance is commented (theseus-a1wvq.12): with no `cn_draft` in any class, nothing drafts.
+#[test]
+fn the_templates_draft_guidance_is_off_by_default() {
+    let c = &Config::example().routing.classes;
+    for class in [
+        &c.trivial,
+        &c.quick,
+        &c.chat,
+        &c.sophisticated,
+        &c.deep_coding,
+        &c.routine_coding,
+        &c.review,
+    ] {
+        assert!(class.cn_draft.is_none() && class.final_review.is_empty());
+    }
+}
+
 /// theseus-0hufe: the template's three caps of a response's calls are the
 /// defaults a config without them gets, so neither drifts from the other
 /// (a planted default of 8 for `parallel_runs` passed every test before).

@@ -2535,6 +2535,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     corrected (`route.corrected`), the one-sided Wilson floor at 90% of the match rate, the replays' cost against the
     originals', and `movable = spend × floor × (1 − cost ratio)`; the replays' cost today against the cap. The
     cockpit's Benchmarks view has a "Your work" panel over it; `theseus model bench [--week]`.
+  The report's draft columns (theseus-a1wvq.12; `own_bench/drafts.rs`, read only): one `DraftCell` per (draft model,
+  review model) from the `task.draft` rows (drafts, applied, reviewed, both costs, measured `lines_changed`, `total_usd`;
+  the reviewer's reported "tests fixed" is never summed), and `draft_skips`, the turns per `draft_skip` word of
+  `route.decided`; `theseus model bench` prints a line per cell and one `draft skips:` line, and nothing without them.
   Tests: `own_bench/tests.rs` (blocks, the rebuild's golden `first_request.golden.json`, refusals, the replay's row,
   `compare.v1` through the fake Jev), `tests_sampler.rs` (the cap, the rung, shared places, attachments),
   `report::tests`, `rung::tests`.
@@ -2967,6 +2971,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
   announced once that frame is written (`Rec::announce`).
 
+- **The data rule.** A model of restricted origin (`cn` or `unknown`) sees only an open request: the open run and the
+  open view; the provider refuses a request to one without a `DataPass` for that exact request's digest; origin is
+  judged by endpoint and family as well as by catalog row; `[privacy] sensitive_names` go only to models of US origin;
+  a China-origin model only drafts code, in its own tree, with no programs, and nothing it drafts is applied or
+  reported before a Claude review (`final`). The passages: "The restricted-origin floor", "The open view", "The open
+  request, per request", "Sensitive names" and "Drafts" under the judge.
+
 ## Tests
 
 - In-process suites in `src/`: `tests_m3.rs` (turns through the whole core), `tests_continuations.rs`,
@@ -3034,3 +3045,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Tools`, never in place. Tests: `tests_send_path.rs` (counts catalogs made and tool JSON walked; no timing), `tool_set::tests`.
 - `cargo test -p theseus-core` builds a second copy of every dependency. Use
   `cargo nextest run --workspace -E 'package(theseus-core)'`.
+- **The data rule's traps** (theseus-a1wvq.12). DeepSeek's Anthropic endpoint serves a `claude*` model id with a DeepSeek
+  model, so origin comes from the endpoint as well as the id (`catalog::origin_of`). A config row cannot loosen a
+  built-in China-origin row's origin (`Config::validate`). `deepseek-flash` is a floating alias: its served model can
+  change under the same id. A later loop whose request leaves the open run moves to the `[model]` default (`data_move`).
+  `final` without `cn_draft` fails the load, so deep_coding's pair goes on together. `[routing.data] private_topics` was
+  renamed `[privacy] sensitive_names`.
