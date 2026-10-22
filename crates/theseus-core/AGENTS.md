@@ -657,9 +657,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   each other thread it drew on (live, unsealed, not merged, not linked, never the place's own conversation) is counted once a
   recall, in a spawned blocking task after the recall (META `thread.link_seen.<a>.<b>`, the slugs sorted: `{recalls, asked}`; no
   frame of any turn's). At a pair's second recall, with the owner's DM bound, one frame holds the record with `asked`, a
-  `thread.link_proposed` row and one outbox post to the owner's DM: Discord's `onto_card` with `undo: false` and no `write`, a text
-  card with no button (`theseus thread link a b` is in its words); a pair is asked once, whatever the owner did. Off, nothing is
-  counted, written or posted. Not yet: a card with Link / Not needed buttons and a Discord `/thread link` (theseus-98bz.12).
+  `thread.link_proposed` row and one outbox post to the owner's DM: `{kind: "link_card", text, here, other}` (theseus-98bz.12),
+  which Discord draws with **Link these threads** (`thread.link` as the presser, judged as `theseus thread link` is) and **Not
+  needed** (writes nothing); its words end with the CLI form, `theseus thread link a b`. A pair is asked once, whatever the owner
+  did. Off, nothing is counted, written or posted. Discord's `/thread link` and `/thread unlink` are the same calls.
   Tests: `rpc/tests_thread_link.rs`, the layouts' format-47 thread sample.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's

@@ -41,7 +41,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the presser's ids, which the core judges. The command is registered after `/extensions`, before the voice ones.
   `/thread new slug: [title:]` and `/thread list` (`runtime/thread.rs`, theseus-nhew): `thread.new` and `thread.list` as the presser
   (ephemeral), which the core judges: threads are private always, so only the owner, from a private place, makes or lists
-  them. Registered after `/orders`; answered in the `revokable_interaction` chain.
+  them. Registered after `/orders`; answered in the `revokable_interaction` chain. `/thread link a: b:` and `/thread unlink a: b:`
+  (theseus-98bz.12; `thread_link_said`) are `thread.link` and `thread.unlink` as the presser, which the core judges the same way.
+  **The link card** (`runtime/seal/link.rs`, `Buttons::Link`): the core's `link_card` post (a thread-link proposal, to the owner's
+  DM only) gets **Link these threads** and **Not needed** (`link:<yes|no>:<here>:<other>`, at most 90 chars); a press is
+  `thread.link` as the presser with its place, so a copy pressed in a shared channel is refused and writes nothing; **Not needed**
+  writes nothing (the core marked the pair asked when it posted). Tests: `tests_gateway/link.rs`, `seal/link.rs`'s.
   **Threads on Discord** (theseus-sjzm; `runtime/thread_bind.rs`, `runtime/guild_thread.rs`, `courier/persona.rs`,
   `courier/thread.rs`). `/thread bind slug:` and `/thread unbind` (`runtime/thread.rs`): a channel the bindings file names
   private, or a Discord thread under one (or under `[threads] discord_channel`), runs the thread as its place (the core
@@ -331,7 +336,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     post staged before the thread exists (an approval card the task asks in its first moments) goes where the task's records
     send it, the channel, as it did before threads. The task's **report** (`📋 Task … finished`) stays in the channel: it is the
     conversation's news, posted to the place the task reports to. The board's rows link the thread (`Parts.links`,
-    `TaskThreads::url_of`, kept in memory after the place goes). A task born and over since this binding began that no sync saw running is owed its one thread or post, made in its final state (`TaskThreads::owed`, `next`'s `(None, true)`, the forum worker's index card; theseus-hzdlf); a task from before the binding began is never given one, and a task that had one this run is not given a second (`Inner.born`). Tests: `tests_task_threads.rs`, `runtime/threads.rs`'s, `runtime/threads/tests_owed.rs`, `tests_task_owed.rs`.
+    `TaskThreads::url_of`, kept in memory after the place goes). A task born and over since this binding began that no sync saw running is owed its one thread or post, made in its final state (`TaskThreads::owed`, `next`'s `(None, true)`, the forum worker's index card; theseus-hzdlf); a task from before the binding began is never given one, and a task that had one this run is not given a second (`Inner.born`, task -> birth ms; an entry older than `DONE_SHOWN_MS`
+    plus the row's grace with no `made` row is dropped at the next add, theseus-stpqg). `Tasks::snapshot` drops an ended view older
+    than `DONE_SHOWN_MS` and applies a `work.watch` answer only if its ticket (taken before the call) is newer than the last applied
+    (theseus-0mq02, theseus-x4s7g). Tests: `tests_task_threads.rs`, `runtime/threads.rs`'s, `runtime/threads/tests_owed.rs`, `tests_task_owed.rs`.
   - **A message in the thread** is an operator message to the task (`Place::task_message`, then `Place::join_task`, which a
     reply to a Follow mirror shares; theseus-esxyb): `turn.submit` on its session. **The owner's goes to the task whatever it is
     doing** (the core steers it into a running task at its next step); a guest's goes there only while the kernel's rule takes it
