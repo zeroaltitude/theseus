@@ -219,6 +219,8 @@ mod tests_approvals;
 #[cfg(test)]
 mod tests_arrangement;
 #[cfg(test)]
+mod tests_arrangement_quote;
+#[cfg(test)]
 mod tests_ask;
 #[cfg(test)]
 mod tests_audit;

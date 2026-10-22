@@ -258,7 +258,7 @@ async fn quotes_resolve_to_one_node_of_this_session_or_fail_with_the_reason() {
         let quote = match last_user(req).as_str() {
             "AMBIGUOUS, please" => "harbour wall needs new granite blocks",
             "NO MATCH, please" => "harbour wall needs old granite blocks",
-            "SHORT, please" => "granite",
+            "SHORT, please" => "the",
             "ELSEWHERE, please" => "the tide tables for the outer buoy",
             "UNIQUE, please" => "new  granite blocks\non the north side",
             _ => return Scripted::text("Noted."),
@@ -307,7 +307,7 @@ async fn quotes_resolve_to_one_node_of_this_session_or_fail_with_the_reason() {
     }
     assert!(ambiguous.contains("the operator (test)"), "{ambiguous}");
     assert!(got[1].1.contains("matches no message"), "{}", got[1].1);
-    assert!(got[2].1.contains("under the 20"), "{}", got[2].1);
+    assert!(got[2].1.contains("under the 4"), "{}", got[2].1);
     // Another session's words are not this one's: the place rule.
     assert!(got[3].1.contains("matches no message"), "{}", got[3].1);
     let classes: Vec<String> = rows(&r.core, "task.arrangement_refused")

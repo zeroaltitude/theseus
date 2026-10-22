@@ -565,12 +565,15 @@ async fn a_late_jev_leaves_the_routers_guess_and_the_timeout_is_counted() {
 
 // ------------------------------------------------------------------ the ask
 
-/// Below the confirm bar the router asks in one line and the turn waits; the
+/// Two threads named, each with evidence and close, the router asks in one
+/// line and the turn waits (theseus-e31an: a lone weak lean is no contest); the
 /// answer routes it; a question nobody answers runs the message at home.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_message() {
     let jev = FakeJev::start().unwrap();
-    thread_answer(&jev, "security-fix", 0.45);
+    // Two contend: the message names the security fix's repo, and Jev
+    // leans to the pr round (theseus-e31an: a lone lean is no contest).
+    thread_answer(&jev, "pr-round", 0.55);
     let r = rig_on(texts(4), Some(&jev), |c| {
         inbound_only(c);
         c.judge.total_secs = 5;
@@ -584,7 +587,7 @@ async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_messa
     let id = w
         .send(
             method::TURN_SUBMIT,
-            params(&dm, "why is the build red", None),
+            params(&dm, "why is the build red in vault", None),
         )
         .await;
     let asked = w.notice("thread.asked").await;
@@ -600,7 +603,7 @@ async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_messa
         .map(|o| o["key"].as_str().unwrap())
         .collect();
     assert_eq!(keys, ["1", "2", "home"]);
-    assert_eq!(asked["message"], "why is the build red");
+    assert_eq!(asked["message"], "why is the build red in vault");
     // The turn waits: no thread has a session yet.
     assert!(c.threads().get("pr-round").unwrap().session_id.is_none());
     // The owner answers "2" over a connection of their own.
@@ -651,7 +654,7 @@ async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_messa
     let id2 = w2
         .send(
             method::TURN_SUBMIT,
-            params(&dm, "why is the build red again", None),
+            params(&dm, "why is the build red again in vault", None),
         )
         .await;
     let _ = w2.notice("thread.asked").await;
@@ -1335,7 +1338,9 @@ async fn a_session_named_with_ask_s_is_never_placed_in_a_thread() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_chat_that_types_then_sends_a_long_message_frees_it_by_answering_on_its_connection() {
     let jev = FakeJev::start().unwrap();
-    thread_answer(&jev, "security-fix", 0.45);
+    // Two contend: the message names the security fix's repo, and Jev
+    // leans to the pr round (theseus-e31an: a lone lean is no contest).
+    thread_answer(&jev, "pr-round", 0.55);
     let r = rig_on(texts(4), Some(&jev), |c| {
         inbound_only(c);
         c.judge.total_secs = 5;
@@ -1354,7 +1359,7 @@ async fn a_chat_that_types_then_sends_a_long_message_frees_it_by_answering_on_it
         .await;
     assert!(w.response(typing).await["result"].is_object());
     let long = format!(
-        "why is the build red? {}",
+        "why is the build red in vault? {}",
         "and the weather is fine ".repeat(7)
     );
     assert!(long.len() >= 160, "the length that hung: {}", long.len());
@@ -1390,4 +1395,39 @@ async fn wait_for(mut cond: impl FnMut() -> bool) {
         assert!(t0.elapsed() < Duration::from_secs(20), "timed out waiting");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+/// A plainly new, self-contained request that no thread claims runs at home
+/// at once, with no "which thread?" card (theseus-e31an: the walkthrough's
+/// step 1 was asked about at route confidence 0.38).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_request_no_thread_claims_runs_at_home_without_asking() {
+    let jev = FakeJev::start().unwrap();
+    thread_answer(&jev, "security-fix", 0.38);
+    let r = rig_on(texts(2), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.threads.route_wait_ms = 3000;
+        c.threads.ask_wait_secs = 2;
+    });
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(
+                &dm,
+                "start two tasks: a census of the disk, and a slow load",
+                None,
+            ),
+        )
+        .await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(res.session_id, dm);
+    assert_eq!(tag(&res).how, RouteHow::Home);
+    assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
+    assert!(!w.heard.iter().any(|n| n["method"] == "thread.asked"));
 }
