@@ -30,6 +30,8 @@ mod songbird_io;
 mod speech;
 mod unclear;
 mod vad;
+#[cfg(feature = "voice")]
+mod warm;
 
 pub use audio::{read_wav, write_wav, Audio, WavError, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
 pub use deepgram::{DeepgramSettings, DeepgramSpeech};
@@ -53,3 +55,5 @@ pub use unclear::{
 pub use songbird;
 #[cfg(feature = "voice")]
 pub use songbird_io::{clip_input, manager, songbird_config, Link, SongbirdIo, SsrcCount};
+#[cfg(feature = "voice")]
+pub use warm::LeadIn;

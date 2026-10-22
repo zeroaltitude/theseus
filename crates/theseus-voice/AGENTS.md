@@ -30,8 +30,11 @@ is under 1.5 s or its transcript is under 3 words; a long, clear one is a turn. 
 words, so the chime over the greeting never stops it. One or two words that are a fuzzy head
 or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "Theseus here") are an echo. Both are
 `Config::join_guard`, off in the engine so its own tests read as before, on from `[voice] join_guard` (default true).
-`songbird_io` sends `[voice] lead_in_ms` (400 ms, in whole frames rounded up, given to `SongbirdIo::join`; 0 is off) of silence before the first clip after quiet (`Spell`), so
-the head of the greeting isn't eaten; the next sentence of a reply gets none. A quiet listener closes an utterance after
+`songbird_io` sends `[voice] lead_in_ms` (600 ms, in whole frames rounded up, given to `SongbirdIo::join` as `LeadIn`; 0 is off) of silence before the first clip after quiet (`Spell`), so
+the head of the greeting isn't eaten. Inside a spell the stream stays warm (theseus-9d9aq, `src/warm.rs`): each clip plays beside a
+paused silent track that its end starts (`WARM`, 700 ms, past `SPELL_GAP`), whose own end the engine never hears, and a stop ends it; a
+later sentence that starts under it gets no lead-in, and one that starts with nothing warm gets `[voice] gap_lead_in_ms` (200 ms).
+`VoiceIo::lead_in` says whichever silence led the clip. A quiet listener closes an utterance after
 `[voice] pause_ms` (1200 ms; `Config::end_of_utterance`, which the engine's own default leaves at 700, set only by the binding's
 `engine_config`), since a natural pause inside a sentence runs 0.7 to 1.2 s (theseus-bp0lp).
 An utterance whose transcript has no `.`, `?` or `!` at its end waits `Config::merge` (`[voice] merge_ms`, 1500 ms; zero, the engine's
