@@ -225,7 +225,7 @@ impl TurnRunner {
         let (mut spec, _) = self.request_spec(target, session.kind, view);
         spec.session_text = self.session_block(session.dir.as_deref(), view);
         spec.walk = self.walk(sid, class);
-        if let Some(b) = self.standing_block(sid, class) {
+        if let Some(b) = self.standing_block(sid, class, self.restricted(&target.profile)) {
             b.apply(&mut spec);
         }
         // The thread's tools as a turn takes them; its card is the owner's.

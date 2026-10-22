@@ -64,6 +64,7 @@ impl TurnRunner {
         crate::commitments::attach(
             t.tc.commitments,
             &routines,
+            self.restricted_profile(&t.target.profile),
             self.kernel.now_ms(),
             compiled,
             &|w| crate::watch::run::shown_value(&self.kernel, w),

@@ -161,22 +161,32 @@ fn line(
 /// `at` reads; none when there are none. Pure: the clock and the zone are
 /// passed in.
 pub fn render(wakes: &[PendingWake], now_ms: u64, at: &dyn Fn(u64) -> Local) -> Option<Shown> {
-    render_with(wakes, &[], now_ms, at, &|_| None)
+    render_with(wakes, &[], false, now_ms, at, &|_| None)
 }
 
 /// `render`, with the routines this conversation made after the wakes
 /// (theseus-pvm5c; `routine::lines`: `🔁 a41d04 weekdays 08:00 Morning digest
 /// (next Fri)`), and what a watch's line says of its value (`shown`,
-/// theseus-f2r2b), under the same bounds.
+/// theseus-f2r2b), under the same bounds. With `restricted` (a request bound
+/// for a model of restricted origin) every milestone's reminder is left out
+/// before the bound is counted: a milestone's title does not record who wrote
+/// it, so it cannot be shown to be free of a Google-private session's words.
 pub fn render_with(
     wakes: &[PendingWake],
     routines: &[String],
+    restricted: bool,
     now_ms: u64,
     at: &dyn Fn(u64) -> Local,
     shown: &dyn Fn(&PendingWake) -> Option<String>,
 ) -> Option<Shown> {
     let all: Vec<String> = wakes
         .iter()
+        .filter(|w| {
+            !(restricted
+                && w.purpose == Purpose::Remind
+                && w.note
+                    .starts_with(theseus_protocol::notices::MILESTONE_MARK))
+        })
         .map(|w| line(w, now_ms, at, shown))
         .chain(routines.iter().cloned())
         .collect();
@@ -226,11 +236,19 @@ pub fn render_with(
 pub fn attach(
     pending: &Pending,
     routines: &[String],
+    restricted: bool,
     now_ms: u64,
     compiled: &mut crate::compiler::Compiled,
     watch_value: &dyn Fn(&PendingWake) -> Option<String>,
 ) -> Option<Shown> {
-    let shown = render_with(&pending.get(), routines, now_ms, &local, watch_value)?;
+    let shown = render_with(
+        &pending.get(),
+        routines,
+        restricted,
+        now_ms,
+        &local,
+        watch_value,
+    )?;
     crate::task_graph::view::attach_text(&mut compiled.request, &shown.text);
     let t = shown.tokens;
     compiled.est_tokens += t;

@@ -27,6 +27,7 @@
 //!   whose system lacks a record of the turn's scope it should show.
 //!   Tests: `tests_standing.rs`.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::Result;
@@ -176,7 +177,19 @@ impl Block {
         class: PlaceClass,
         now_ms: u64,
     ) -> Option<Block> {
-        Self::render(all, scope, class, now_ms, false)
+        Self::of_held(all, scope, class, now_ms, &HashSet::new())
+    }
+
+    /// [`Block::of`], with the records `held` listed unshown: their text is
+    /// never written, and nothing says one was held.
+    pub fn of_held(
+        all: &[StandingRecord],
+        scope: Scope<'_>,
+        class: PlaceClass,
+        now_ms: u64,
+        held: &HashSet<String>,
+    ) -> Option<Block> {
+        Self::render(all, scope, class, now_ms, false, held)
     }
 
     /// The tail block of the records scoped to the turn's surface: "Standing
@@ -188,7 +201,18 @@ impl Block {
         class: PlaceClass,
         now_ms: u64,
     ) -> Option<Block> {
-        Self::render(all, scope, class, now_ms, true)
+        Self::here_held(all, scope, class, now_ms, &HashSet::new())
+    }
+
+    /// [`Block::here`], with the records `held` listed unshown.
+    pub fn here_held(
+        all: &[StandingRecord],
+        scope: Scope<'_>,
+        class: PlaceClass,
+        now_ms: u64,
+        held: &HashSet<String>,
+    ) -> Option<Block> {
+        Self::render(all, scope, class, now_ms, true, held)
     }
 
     fn render(
@@ -197,12 +221,15 @@ impl Block {
         class: PlaceClass,
         now_ms: u64,
         here: bool,
+        held: &HashSet<String>,
     ) -> Option<Block> {
-        let held: Vec<&StandingRecord> = live(all, Some(scope), now_ms)
+        // `held` is applied below, after `live`: `live` drops what another
+        // record ends, so a held edit never brings its older half back.
+        let in_scope: Vec<&StandingRecord> = live(all, Some(scope), now_ms)
             .into_iter()
             .filter(|r| matches!(r.scope, StandingScope::Surface(_)) == here)
             .collect();
-        if held.is_empty() {
+        if in_scope.is_empty() {
             return None;
         }
         let shared = class == PlaceClass::Shared;
@@ -211,8 +238,8 @@ impl Block {
         // (`local`, theseus-rr15): in the header they would make two sessions'
         // first layers differ.
         let (everywhere, own): (Vec<&StandingRecord>, Vec<&StandingRecord>) = match here {
-            true => (held, vec![]),
-            false => held
+            true => (in_scope, vec![]),
+            false => in_scope
                 .into_iter()
                 .partition(|r| r.scope == StandingScope::Everywhere),
         };
@@ -222,7 +249,7 @@ impl Block {
             if records.is_empty() {
                 return String::new();
             }
-            let (text, w) = render(records, head, shared, &mut used);
+            let (text, w) = render(records, head, shared, held, &mut used);
             withheld |= w;
             text
         };
@@ -242,6 +269,9 @@ impl Block {
     pub fn attach_here(&self, compiled: &mut Compiled) {
         #[cfg(test)]
         if DROP_THE_TAIL.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        if self.text.is_empty() {
             return;
         }
         crate::task_graph::view::attach_text(&mut compiled.request, &self.text);
@@ -272,11 +302,14 @@ impl Block {
 }
 
 /// The lines of `records` under `head`, each kind under its title; a shared
-/// place's preferences and facts are one line saying they are withheld.
+/// place's preferences and facts are one line saying they are withheld. A
+/// record in `held` is listed unshown and its text never written; a block of
+/// nothing but held records is no text.
 fn render(
     records: &[&StandingRecord],
     head: &str,
     shared: bool,
+    held: &HashSet<String>,
     used: &mut Vec<StandingUsed>,
 ) -> (String, bool) {
     let mut text = String::from(head);
@@ -293,10 +326,17 @@ fn render(
         let hidden = shared && kind != StandingKind::Order;
         used.extend(of_kind.iter().map(|r| StandingUsed {
             id: r.id.clone(),
-            shown: !hidden,
+            shown: !hidden && !held.contains(&r.id),
         }));
         if hidden {
             withheld = true;
+            continue;
+        }
+        let of_kind: Vec<_> = of_kind
+            .into_iter()
+            .filter(|r| !held.contains(&r.id))
+            .collect();
+        if of_kind.is_empty() {
             continue;
         }
         text.push_str(&format!("\n{title}:"));
@@ -306,6 +346,9 @@ fn render(
     }
     if withheld {
         text.push_str(&format!("\n{WITHHELD}"));
+    }
+    if text == head {
+        text.clear();
     }
     (text, withheld)
 }
@@ -661,5 +704,32 @@ mod tests {
             b.local
         );
         assert!(Block::of(&all, at(None), PlaceClass::Private, 100).is_none());
+    }
+
+    /// A held record is listed unshown and its text never written, and the
+    /// older half an edit ended stays ended (the set is applied after `live`).
+    #[test]
+    fn a_held_record_is_listed_unshown_and_its_older_half_stays_ended() {
+        let older = rec("std_1", StandingKind::Order, "Reply by noon", 10);
+        let mut newer = rec("std_2", StandingKind::Order, "Reply by 3 pm", 20);
+        newer.ends = Some("std_1".into());
+        let all = vec![older, newer];
+        let scope = Scope {
+            session: "ses_me",
+            place: None,
+            surface: None,
+            persona: None,
+        };
+        let held = HashSet::from(["std_2".to_string()]);
+        let b = Block::of_held(&all, scope, PlaceClass::Private, 100, &held).unwrap();
+        let text = format!("{}\n{}", b.text, b.local);
+        assert!(!text.contains("Reply by"), "{text}");
+        assert_eq!(
+            b.used,
+            [StandingUsed {
+                id: "std_2".into(),
+                shown: false
+            }]
+        );
     }
 }
