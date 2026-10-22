@@ -673,9 +673,27 @@ fn rig_haiku() -> Rig {
 async fn a_model_that_never_calls_tools_find_still_reaches_the_family_the_message_names() {
     let r = rig_haiku();
     let sid = session(&r.core, None);
-    // theseus-3bs4e: a family the message names is counted on the whole request, and at the cli the
-    // terminals' (1,264 tokens) no longer fit beside the default families, so the test names the
-    // projects' (153), which do; a model without tool search still reaches it with no `tools_find`.
+    let res = say(&r.core, &sid, "open a terminal and run true").await;
+    let req = &r.requests()[0];
+    assert!(
+        offered(req).contains(&"term_open".to_string()),
+        "{:?}",
+        offered(req)
+    );
+    assert_eq!(res.tool_calls, 1, "the call reached the tool");
+    assert!(rows(&r.core, "tools.missed").is_empty());
+    // The conversation's next turn holds the set still: no cache rewrite.
+    let first = tool_bytes(req);
+    say(&r.core, &sid, "and another terminal").await;
+    assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
+}
+
+/// theseus-3bs4e's variant: a family small enough to fit under the cli's budget (the projects', 153
+/// tokens) is reached the same way, with no raise.
+#[tokio::test]
+async fn a_model_that_never_calls_tools_find_reaches_a_small_family_the_message_names() {
+    let r = rig_haiku();
+    let sid = session(&r.core, None);
     let res = say(&r.core, &sid, "detach the project from this conversation").await;
     let req = &r.requests()[0];
     assert!(

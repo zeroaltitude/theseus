@@ -81,6 +81,7 @@ pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
 mod fallback_step;
+mod families_step;
 mod fill_step;
 pub(crate) mod home_size_step;
 mod inbound_step;
@@ -1748,6 +1749,7 @@ impl TurnRunner {
         spec.walk = self.walk(sid, t.tc.class);
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
+        self.families_ready(t, &spec.model).await;
         self.defer_tools(t, &mut spec);
         self.observe_persona(t, target, &spec);
         for u in &unreadable {
@@ -3291,12 +3293,13 @@ impl TurnRunner {
             outside_roots: None,
             nudged: t.nudge.result(t.tool_calls),
             files: self.files_left(&t),
+            raised: None,
             cites,
             thread: None,
             filed: None,
             inspect_url: self.cfg.cockpit.turn_link(t.tc.session_id, t.tc.turn_id),
         };
-        self.defer_ended(&mut t);
+        result.raised = self.defer_ended(&mut t);
         self.initiative_rows(&mut t, &result);
         t.record(&fact::turn::TurnBooked {
             result: &result,

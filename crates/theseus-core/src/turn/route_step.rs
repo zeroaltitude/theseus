@@ -121,6 +121,8 @@ pub(super) struct RouteState {
     /// The turn is a task's first, and the verdict on its brief picks the
     /// task's base (theseus-ypnxt.7, `brief_step`).
     pub(super) brief: bool,
+    /// Jev's families judgment of the message, pending or taken (theseus-xlri5).
+    pub(super) families: super::families_step::Judged,
 }
 
 /// Where an effort is decided: the session (its base profile), whether the
@@ -607,7 +609,7 @@ impl TurnRunner {
         if d.detour {
             Self::detouring(t, verdict.as_ref(), steering.as_ref());
         }
-        self.route_to(t, session, spec, slot, target, &d)?;
+        self.routed_to(t, session, spec, slot, target, &d).await?;
         *provider = Some(p);
         if d.detour {
             return self.compile_detour(t, session, spec, i);

@@ -19,7 +19,15 @@
 //!    named entity decides alone: stickiness and the chain are priors, capped
 //!    below the act bar together (0.88), since in the owner's DMs a third to
 //!    a half of consecutive messages switch concern, and a follow-up that
-//!    reads like a fragment ("and the tests too") is Jev's to tell.
+//!    reads like a fragment ("and the tests too") is Jev's to tell. Then
+//!    **the directory rule** ([`apart_by_dir`], theseus-vw8k7): when the
+//!    turn's directory is known and a thread has roots, none of which holds
+//!    it or lies under it, that thread keeps only its entity score: the
+//!    priors and a learned correction name nothing of it, and the message
+//!    comes from somewhere else; a file or root it names by a bare or
+//!    relative name is another directory's file, and counts only when named
+//!    by its absolute path. A thread with no roots, or a turn with no
+//!    directory, is scored as before.
 //! 3. **Fusion** with `classify.v2`'s `thread` answer (the pick `p`): the
 //!    picked thread scores `1 - (1 - 0.8·pre)(1 - p)`; every other thread
 //!    keeps `0.85·pre`; `new_thread` and `home` score `p` when picked. A weighted
@@ -38,8 +46,12 @@
 //! one-off runs in the place's own conversation ("home") and never makes a
 //! thread.
 
+use std::path::{Path, PathBuf};
+
 use theseus_protocol::thread_route::{AskOption, RouteHow, ThreadTag};
 use theseus_protocol::threads::{ThreadInfo, WorkingSet};
+
+use crate::toolrun::misroute::{fold, normal};
 
 /// The classify pack's bars for the `thread` question.
 pub const ACT: f64 = 0.90;
@@ -463,6 +475,25 @@ pub struct Pre {
     pub learned: bool,
 }
 
+/// A thread's entity score from its hits, `hitting` threads hit in all.
+fn entity_of(h: &[(Kind, String)], hitting: usize) -> f64 {
+    // Each specific hit is evidence; a repo and a root are one (they
+    // name the same place in two words).
+    let mut strengths: Vec<f64> = h
+        .iter()
+        .filter(|(k, _)| k.strength() >= STRONG)
+        .map(|(k, _)| k.strength())
+        .collect();
+    if h.iter().any(|(k, _)| k.strength() < STRONG) {
+        strengths.push(WEAK);
+    }
+    let entity = noisy_or(&strengths);
+    match hitting > 1 {
+        true => entity * SHARED,
+        false => entity,
+    }
+}
+
 /// Score every thread from the message, the place's last exchange and the
 /// clock.
 pub fn pre_route(
@@ -481,20 +512,7 @@ pub fn pre_route(
         .iter()
         .zip(&hits)
         .map(|(t, h)| {
-            // Each specific hit is evidence; a repo and a root are one (they
-            // name the same place in two words).
-            let mut strengths: Vec<f64> = h
-                .iter()
-                .filter(|(k, _)| k.strength() >= STRONG)
-                .map(|(k, _)| k.strength())
-                .collect();
-            if h.iter().any(|(k, _)| k.strength() < STRONG) {
-                strengths.push(WEAK);
-            }
-            let mut entity = noisy_or(&strengths);
-            if hitting > 1 {
-                entity *= SHARED;
-            }
+            let entity = entity_of(h, hitting);
             // A thread the message names nothing of loses stickiness and the
             // chain when another thread's entity is named.
             let other_named = hitting > 0 && h.is_empty();
@@ -523,6 +541,101 @@ pub fn pre_route(
             }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------- the directory rule
+
+/// A working set's path entry as a path, read with no filesystem: `~`
+/// expanded by `home`, `.` and `..` folded; a relative entry lies under
+/// `dir`, and is none without it.
+pub fn entry_path(e: &str, dir: Option<&str>, home: Option<&Path>) -> Option<PathBuf> {
+    let e = e.trim();
+    if e.is_empty() {
+        return None;
+    }
+    let p = normal(e, home);
+    match p.is_absolute() {
+        true => Some(p),
+        false => dir.map(|d| fold(&Path::new(d).join(&p))),
+    }
+}
+
+/// Whether `p` is one of the thread's `files` or lies under one of its
+/// `roots` (by components), relative entries read under `dir`.
+pub fn holds_path(t: &ThreadInfo, p: &Path, dir: Option<&str>, home: Option<&Path>) -> bool {
+    let w = &t.working_set;
+    w.files
+        .iter()
+        .filter_map(|f| entry_path(f, dir, home))
+        .any(|f| f == p)
+        || w.roots
+            .iter()
+            .filter_map(|r| entry_path(r, dir, home))
+            .any(|r| p.starts_with(r))
+}
+
+/// The directory rule (theseus-vw8k7): a thread whose roots are known keeps
+/// only the evidence that names it when the turn runs in a directory apart
+/// from all of them. With the turn's directory known (absolute after `~`),
+/// a thread that has roots (each read under `base(thread)`, the directory
+/// its relative roots were taken in; a relative one with none is unread)
+/// none of which holds the directory or lies under it loses stickiness, the
+/// reply chain and a learned correction, and a file or root hit counts only
+/// where the message names the entry's absolute path whole: a bare or
+/// relative name (`slow.sh`, which a working set grows from a message) names
+/// another file from another directory. Its score is what entity score is
+/// left. Jev's pick still fuses afterwards. A thread with no readable root,
+/// or a turn with no directory, is left as it was. Returns the threads whose
+/// evidence was dropped.
+pub fn apart_by_dir<'b>(
+    pre: &mut [Pre],
+    threads: &[&ThreadInfo],
+    text: &str,
+    dir: Option<&str>,
+    base: impl Fn(&ThreadInfo) -> Option<&'b str>,
+    home: Option<&Path>,
+) -> Vec<String> {
+    let Some(here) = dir.and_then(|d| entry_path(d, None, home)) else {
+        return Vec::new();
+    };
+    let lower = text.to_lowercase();
+    let hitting = pre.iter().filter(|p| !p.hits.is_empty()).count();
+    let mut dropped = Vec::new();
+    for p in pre.iter_mut() {
+        let Some(t) = threads.iter().find(|t| t.slug == p.slug) else {
+            continue;
+        };
+        let roots: Vec<PathBuf> = t
+            .working_set
+            .roots
+            .iter()
+            .filter_map(|r| entry_path(r, base(t), home))
+            .collect();
+        let near = roots
+            .iter()
+            .any(|r| here.starts_with(r) || r.starts_with(&here));
+        if roots.is_empty() || near {
+            continue;
+        }
+        let named_whole = |e: &str| {
+            entry_path(e, None, home).is_some() && has_token(&lower, &e.trim().to_lowercase())
+        };
+        let kept: Vec<(Kind, String)> = entity_hits(text, &t.working_set)
+            .into_iter()
+            .filter(|(k, e)| !matches!(k, Kind::File | Kind::Root) || named_whole(e))
+            .collect();
+        let had = p.sticky > 0.0 || p.chain > 0.0 || p.learned || kept.len() < p.hits.len();
+        p.entity = entity_of(&kept, hitting);
+        p.hits = kept.into_iter().map(|(_, e)| e).collect();
+        p.sticky = 0.0;
+        p.chain = 0.0;
+        p.learned = false;
+        p.score = noisy_or(&[p.entity]);
+        if had {
+            dropped.push(p.slug.clone());
+        }
+    }
+    dropped
 }
 
 /// The two best of `scores`: (index, score), (index, score).
@@ -624,18 +737,21 @@ pub fn new_entities(text: &str, threads: &[&ThreadInfo]) -> usize {
 /// Stickiness alone does not overrule Jev (theseus-eqp1v): a top thread whose
 /// score stands on no entity and no learned correction, which Jev did not
 /// pick, is held just below the confirm bar.
-fn hold_sticky(ranked: &mut [(Choice, f64)], pre: &[Pre], jev: &Jev) {
+/// Whether it held one: the ask that follows is the cap's (theseus-q3ggn).
+fn hold_sticky(ranked: &mut [(Choice, f64)], pre: &[Pre], jev: &Jev) -> bool {
     let Some((Choice::Thread(slug), score)) = ranked.first_mut() else {
-        return;
+        return false;
     };
     let alone = pre
         .iter()
         .find(|p| &p.slug == slug)
         .is_some_and(|p| p.entity <= 0.0 && !p.learned);
-    if alone && jev.pick != Pick::Thread(slug.clone()) {
-        *score = score.min(STICKY_CAP);
+    let held = alone && jev.pick != Pick::Thread(slug.clone()) && *score > STICKY_CAP;
+    if held {
+        *score = STICKY_CAP;
         ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
     }
+    held
 }
 
 /// Every choice's fused score, best first.
@@ -857,9 +973,10 @@ pub fn decide(
     rules: Rules,
 ) -> Decision {
     let mut ranked = fuse(pre, jev);
-    if let (true, Voice::Jev, Some(j)) = (rules.sticky_alone_asks, voice, jev) {
-        hold_sticky(&mut ranked, pre, j);
-    }
+    let held = match (rules.sticky_alone_asks, voice, jev) {
+        (true, Voice::Jev, Some(j)) => hold_sticky(&mut ranked, pre, j),
+        _ => false,
+    };
     let top = ranked[0].clone();
     let second = ranked
         .iter()
@@ -899,9 +1016,10 @@ pub fn decide(
         }
         _ => {
             // A new thread is an option when Jev raised it, or when the
-            // message names two or more entities no live thread holds.
-            let raised = ranked.iter().any(|(c, _)| *c == Choice::New)
-                || (rules.sticky_alone_asks && rules.new_entities >= 2);
+            // stickiness cap made this ask and the message names two or
+            // more entities no live thread holds (theseus-q3ggn).
+            let raised =
+                ranked.iter().any(|(c, _)| *c == Choice::New) || (held && rules.new_entities >= 2);
             if contenders < 2 && !raised {
                 // No two threads contend: nothing to ask about (theseus-e31an).
                 let home = ranked
@@ -943,6 +1061,24 @@ pub fn decide_single(threads: &[&ThreadInfo], pre: &[Pre]) -> ThreadTag {
         ),
         _ => tag(threads, &Choice::Home, RouteHow::Home, 1.0, false),
     }
+}
+
+/// A place with one live thread offers a new one (theseus-98bz.7): when the
+/// thread's score is below the confirm bar and the message names two or more
+/// entities no working set holds (`new_entities`), the owner is asked: the
+/// thread, a new one titled `new_title`, or home. Otherwise none, and
+/// [`decide_single`] decides as before.
+pub fn lone_offer(
+    threads: &[&ThreadInfo],
+    pre: &[Pre],
+    new_entities: usize,
+    new_title: &str,
+    every: bool,
+) -> Option<Decision> {
+    let p = pre.first()?;
+    (p.score < CONFIRM && new_entities >= 2).then(|| Decision::Ask {
+        options: ask_options(threads, &fuse(pre, None), Some(new_title), every),
+    })
 }
 
 /// A title and a slug for a new thread, from the message: its first few
@@ -1670,6 +1806,46 @@ mod tests {
         assert_eq!((h.how, h.slug), (RouteHow::Home, None));
     }
 
+    /// A lone thread offers a new one (theseus-98bz.7): below the confirm bar,
+    /// with two entities no working set holds, the ask lists the thread, a new
+    /// one and home; a message the thread holds, or one naming fewer new
+    /// entities, is left to `decide_single` as before.
+    #[test]
+    fn a_lone_thread_offers_a_new_one_beside_it() {
+        let tarn = ws(&[], &[], &[], &[], &[], &["tarnlib"]);
+        let all = [th("tarnlib-work", "tarnlib work", tarn)];
+        let t = refs(&all);
+        let msg = "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214";
+        let pre = pre_route(msg, &t, None, 0, 600_000);
+        assert!(pre[0].score < CONFIRM);
+        let n = new_entities(msg, &t);
+        assert_eq!(n, 2);
+        let Some(Decision::Ask { options }) = lone_offer(&t, &pre, n, "homesvc maintenance", true)
+        else {
+            panic!("an ask")
+        };
+        let keys: Vec<&str> = options.iter().map(|o| o.option.key.as_str()).collect();
+        assert_eq!(keys, ["1", "new", "home"]);
+        assert_eq!(options[0].choice, Choice::Thread("tarnlib-work".into()));
+        assert_eq!(
+            options[1].option.label,
+            "New thread \u{ab}homesvc maintenance\u{bb}"
+        );
+        let held = "retry the flaky test in tarnlib";
+        let pre = pre_route(held, &t, None, 0, 600_000);
+        assert_eq!(
+            lone_offer(&t, &pre, new_entities(held, &t), "retry", true),
+            None
+        );
+        let v = decide_single(&t, &pre);
+        assert_eq!(
+            (v.slug.as_deref(), v.how),
+            (Some("tarnlib-work"), RouteHow::Visible)
+        );
+        let low = pre_with(&[("tarnlib-work", 0.2)]);
+        assert_eq!(lone_offer(&t, &low, 1, "x", true), None);
+    }
+
     #[test]
     fn the_question_is_one_line_and_the_options_are_keyed() {
         let all = [pr_round(), security_fix()];
@@ -1779,5 +1955,198 @@ mod tests {
         };
         let d = decide(&t, &both, Some(&rival), Voice::Jev, None, ON);
         assert!(matches!(d, Decision::Ask { .. }), "{d:?}");
+    }
+
+    /// The directory rule (theseus-vw8k7), pure: a thread whose roots lie
+    /// apart from the turn's directory keeps its entity score and nothing
+    /// else; under a root, above one, with no roots or no directory, nothing
+    /// changes.
+    #[test]
+    fn a_thread_apart_from_the_turns_directory_keeps_only_its_entities() {
+        let home = Path::new("/h");
+        let dev = th(
+            "dev",
+            "lighthouse dev",
+            ws(
+                &["#412"],
+                &[],
+                &[],
+                &[],
+                &[],
+                &["~/projects/lighthouse", "crates"],
+            ),
+        );
+        let ops = th("ops", "ops rota", ws(&["#977"], &[], &[], &[], &[], &[]));
+        let rel = th(
+            "rel",
+            "relative",
+            ws(&["#3"], &[], &[], &[], &[], &["docs"]),
+        );
+        let t = [&dev, &ops, &rel];
+        let last = Last {
+            slug: Some("dev".into()),
+            at_ms: 1_000,
+            replied_ms: Some(1_000),
+        };
+        let scored = |text: &str| {
+            let mut pre = pre_route(text, &t, Some(&last), 1_000, 600_000);
+            pre[0].score = pre[0].score.max(LEARNED);
+            pre[0].learned = true;
+            pre
+        };
+        let fresh = scored("[dry-run] Start 2 tasks: bash slow.sh census 2");
+        let base = |t: &ThreadInfo| (t.slug == "dev").then_some("/h/projects/lighthouse");
+        let apart = |text: &str, dir: Option<&str>| {
+            let mut pre = scored(text);
+            let dropped = apart_by_dir(&mut pre, &t, text, dir, base, Some(home));
+            (pre, dropped)
+        };
+        // Apart (`~` read as home): the prior and the correction are gone,
+        // the other threads untouched.
+        let (pre, dropped) = apart(
+            "[dry-run] Start 2 tasks: bash slow.sh census 2",
+            Some("~/projects/walkthrough"),
+        );
+        assert_eq!(dropped, ["dev"]);
+        assert_eq!(
+            (pre[0].score, pre[0].sticky, pre[0].chain, pre[0].learned),
+            (0.0, 0.0, 0.0, false),
+            "{pre:?}"
+        );
+        assert_eq!(
+            pre[1..],
+            fresh[1..],
+            "a thread with no roots, or roots unread, as before"
+        );
+        // An entity the message names still counts.
+        let (pre, _) = apart("what about #412", Some("/h/projects/walkthrough"));
+        assert!(
+            pre[0].score > 0.0 && pre[0].score == pre[0].entity,
+            "{pre:?}"
+        );
+        assert!(!pre[0].learned);
+        // Under a root (absolute, or a relative one read under its base),
+        // above one, or no directory: as before.
+        for dir in [
+            Some("/h/projects/lighthouse/src"),
+            Some("/h/projects/lighthouse/crates/core"),
+            Some("/h/projects"),
+            None,
+            Some("relative/dir"),
+        ] {
+            let (pre, dropped) = apart("[dry-run] Start 2 tasks: bash slow.sh census 2", dir);
+            assert!(dropped.is_empty(), "{dir:?}");
+            assert_eq!(pre, fresh, "{dir:?}");
+        }
+        // A thread whose only roots are relative, with no base, is unread.
+        let mut pre = pre_route("census", &[&rel], None, 1_000, 600_000);
+        pre[0].score = LEARNED;
+        pre[0].learned = true;
+        let before = pre.clone();
+        apart_by_dir(
+            &mut pre,
+            &[&rel],
+            "census",
+            Some("/h/elsewhere"),
+            |_| None,
+            Some(home),
+        );
+        assert_eq!(pre, before);
+    }
+
+    /// The directory rule's file hits (theseus-vw8k7): a file named bare, as
+    /// a working set grows it from a message, is another directory's; named
+    /// by its absolute path, it counts.
+    #[test]
+    fn a_bare_file_name_from_another_directory_is_no_hit() {
+        let home = Path::new("/h");
+        let tool = th(
+            "tool",
+            "census tool",
+            ws(
+                &[],
+                &[],
+                &[],
+                &["slow.sh", "/h/projects/lighthouse/bin/fast.sh"],
+                &[],
+                &["~/projects/lighthouse"],
+            ),
+        );
+        let one = [&tool];
+        for (text, hit) in [
+            ("bash slow.sh census 2", false),
+            ("bash fast.sh census 2", false),
+            ("bash /h/projects/lighthouse/bin/fast.sh census 2", true),
+        ] {
+            let mut pre = pre_route(text, &one, None, 1_000, 600_000);
+            assert!(pre[0].entity > 0.0, "{text}: {pre:?}");
+            apart_by_dir(
+                &mut pre,
+                &one,
+                text,
+                Some("/h/projects/walkthrough"),
+                |_| None,
+                Some(home),
+            );
+            assert_eq!(pre[0].entity > 0.0, hit, "{text}: {pre:?}");
+            assert_eq!(pre[0].score, pre[0].entity);
+        }
+    }
+
+    /// The `new` option rides only the ask the stickiness cap made
+    /// (theseus-q3ggn): two new entities beside a capped sticky thread offer
+    /// it; the same entities in an ask of two close threads do not, unless
+    /// Jev raised it.
+    #[test]
+    fn the_new_offer_rides_only_the_ask_the_cap_made() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let keys = |d: &Decision| match d {
+            Decision::Ask { options } => options
+                .iter()
+                .map(|o| o.option.key.clone())
+                .collect::<Vec<_>>(),
+            other => panic!("not an ask: {other:?}"),
+        };
+        let rules = Rules {
+            new_entities: 2,
+            ..ON
+        };
+        // Capped: the place's sticky thread, Jev elsewhere.
+        let last = Last {
+            slug: Some("pr-round".into()),
+            at_ms: 1_000,
+            replied_ms: Some(1_000),
+        };
+        let text = "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214";
+        let sticky = pre_route(text, &t, Some(&last), 1_000, 600_000);
+        let other = Jev {
+            pick: Pick::Thread("security-fix".into()),
+            p: 0.3,
+        };
+        let d = decide(
+            &t,
+            &sticky,
+            Some(&other),
+            Voice::Jev,
+            Some("homesvc"),
+            rules,
+        );
+        assert!(keys(&d).contains(&"new".to_string()), "{d:?}");
+        // No cap: two threads within CLOSE on entities.
+        let close = pre_with(&[("pr-round", 0.70), ("security-fix", 0.65)]);
+        let low = Jev {
+            pick: Pick::Thread("security-fix".into()),
+            p: 0.2,
+        };
+        let d = decide(&t, &close, Some(&low), Voice::Jev, Some("homesvc"), rules);
+        assert_eq!(keys(&d), ["1", "2", "home"], "no cap, no new: {d:?}");
+        // Jev raising it still offers it.
+        let new = Jev {
+            pick: Pick::New,
+            p: 0.5,
+        };
+        let d = decide(&t, &close, Some(&new), Voice::Jev, Some("homesvc"), rules);
+        assert!(keys(&d).contains(&"new".to_string()), "{d:?}");
     }
 }

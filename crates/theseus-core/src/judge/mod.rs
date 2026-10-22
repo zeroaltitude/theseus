@@ -34,6 +34,7 @@ pub mod citation;
 pub mod compare;
 pub mod compile;
 pub mod cross;
+pub mod families;
 pub mod gate;
 pub mod heard;
 pub mod inbound;
@@ -107,6 +108,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),
     (cross::CROSS_PACK, PackMode::Live),
+    (families::FAMILIES_PACK, PackMode::Live),
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
     (citation::CITATION_PACK, PackMode::Shadow),
@@ -465,12 +467,18 @@ impl JudgeService {
                 name: self.cfg.key_secret.clone(),
             }),
         )?;
-        // Rerank's failures and timeouts move only its own breaker (32d):
-        // five slow reranks in a row stop no other pack.
+        // Rerank's failures and timeouts move only its own breaker (32d),
+        // and the cross judge's only its own (theseus-pt7lt): five slow
+        // answers in a row of either stop no other pack.
         let judge = JevJudge::new(client, self.prices.clone(), BreakerConfig::default())
             .with_breaker(
                 rerank::BREAKER,
                 &[rerank::RERANK_PACK],
+                BreakerConfig::default(),
+            )
+            .with_breaker(
+                cross::BREAKER,
+                &[cross::CROSS_PACK],
                 BreakerConfig::default(),
             );
         let channel = sink::Channel::new(self.queue.clone());

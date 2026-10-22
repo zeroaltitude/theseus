@@ -55,6 +55,9 @@ pub const TWO_THINGS_VERSION: u32 = 1;
 /// `recall_cross.v1`'s builder (module `cross`, theseus-98bz.10).
 pub const RECALL_CROSS_VERSION: u32 = 1;
 
+/// `families.v1`'s builder (module `families`, theseus-xlri5).
+pub const FAMILIES_VERSION: u32 = 1;
+
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
 pub const SECURITY_CALLS: usize = 5;
@@ -400,6 +403,9 @@ pub enum Input {
     /// `recall_cross.v1`'s (theseus-98bz.10): the message and another
     /// stream's notes near the bar.
     RecallCross(CrossInput),
+    /// `families.v1`'s (theseus-xlri5): the message and the tool families its
+    /// request hides.
+    Families(FamiliesInput),
 }
 
 impl Input {
@@ -423,6 +429,7 @@ impl Input {
             Input::SameThing(_) => Builder::SameThing,
             Input::TwoThings(_) => Builder::TwoThings,
             Input::RecallCross(_) => Builder::RecallCross,
+            Input::Families(_) => Builder::Families,
         }
     }
 
@@ -447,6 +454,7 @@ impl Input {
             Builder::SameThing => Input::SameThing(serde_json::from_str(json)?),
             Builder::TwoThings => Input::TwoThings(serde_json::from_str(json)?),
             Builder::RecallCross => Input::RecallCross(serde_json::from_str(json)?),
+            Builder::Families => Input::Families(serde_json::from_str(json)?),
         })
     }
 }
@@ -488,6 +496,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::SameThing(i) => sweep::same_thing(i, cap, scrub),
         Input::TwoThings(i) => sweep::two_things(i, cap, scrub),
         Input::RecallCross(i) => cross::cross(i, cap, scrub),
+        Input::Families(i) => families::families(i, cap, scrub),
     })
 }
 
@@ -687,6 +696,7 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 mod citation;
 mod compare;
 mod cross;
+mod families;
 mod heard;
 mod memory;
 mod people;
@@ -697,6 +707,7 @@ mod sweep;
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
 pub use cross::{CrossInput, CrossNote, CROSS_NOTES};
+pub use families::{FamiliesInput, FamilyItem, FamilyTool, FAMILIES_MAX, FAMILY_TOOLS};
 pub use heard::{HeardInput, HeardOverlap, SAID};
 pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use people::{HeldPerson, PeopleInput, PeopleSeenInput, PersonCandidate, PEOPLE, SEEN};
@@ -1261,6 +1272,7 @@ pub(crate) mod tests {
             "same_thing.v1",
             "two_things.v1",
             "recall_cross.v1",
+            "families.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

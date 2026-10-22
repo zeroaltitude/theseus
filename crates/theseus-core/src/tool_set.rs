@@ -223,6 +223,7 @@ mod tests {
             loaded: [name.to_string()].into(),
             resolved: false,
             added: Default::default(),
+            raised: None,
         };
         let mut made = 0;
         let first = tools.resolved(&d("x"), |l| {

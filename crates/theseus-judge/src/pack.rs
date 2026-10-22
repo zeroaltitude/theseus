@@ -77,6 +77,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "recall_cross.v1",
         include_str!("../packs/recall_cross.v1.toml"),
     ),
+    ("families.v1", include_str!("../packs/families.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -140,6 +141,9 @@ pub enum Builder {
     /// `recall_cross.v1`'s: the message and the notes the thread lens dropped
     /// near the bar (theseus-98bz.10).
     RecallCross,
+    /// `families.v1`'s: the message and the tool families its request hides
+    /// (theseus-xlri5).
+    Families,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -244,6 +248,10 @@ pub enum Source {
     /// first ten, and the rest (a per-item Noul asks at most ten).
     Sessions,
     MoreSessions,
+    /// The tool families a request hides (`families.v1`, theseus-xlri5): the
+    /// first ten, and the next ten (a per-item Noul asks at most ten).
+    Families,
+    MoreFamilies,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1463,10 +1471,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            25,
+            26,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
-             onto.v1, same_thing.v1, two_things.v1 and recall_cross.v1"
+             onto.v1, same_thing.v1, two_things.v1, recall_cross.v1 and families.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

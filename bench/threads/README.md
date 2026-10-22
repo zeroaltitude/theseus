@@ -49,7 +49,9 @@ From the shapes the owner described, not from what favours threads (`th_generate
 - **Interleaving**: a Markov chain over the streams, stay with p = 0.64, runs of 1 to 8 messages; the next stream is
   drawn by how much work it has left. The first message is the sealed stream's, which states the embargo.
 - **Gaps**: log-normal with a median of 6.2 minutes and 55% over 5 minutes (sigma 1.711), clipped at 90 minutes inside
-  a day; three days, with a 10 to 14 hour gap at each boundary. The drivers do not sleep them: the scorer re-prices.
+  a day; three days, with a 10 to 14 hour gap at each boundary. The drivers do not sleep them: each `ask` carries its
+  message's plan time (`--route-at-ms`, taken under the scratch daemon's `[threads] bench_clock`), so the router's
+  stickiness and reply chain read the plan's gaps, and the scorer re-prices the cache.
 - **Cues and ambiguity**: about 40% of messages carry a human cue ("Back to the PR:"), more when the stream just
   changed; about 10% name no stream at all (deliberately ambiguous).
 - **Personas**: five (`security`, `builder`, `research`, `ops`, `generalist`), each a ~60-token card; each message is

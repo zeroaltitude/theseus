@@ -63,6 +63,7 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
 pub mod modes;
+mod nodes;
 pub mod notices;
 pub mod nudge;
 mod ontology;
@@ -97,6 +98,7 @@ pub mod term;
 #[cfg(test)]
 mod tests_task_info;
 pub mod thread_cache;
+mod thread_placed;
 pub mod thread_route;
 pub mod threads;
 pub mod threads_import;
@@ -141,6 +143,7 @@ pub use initiative::{Initiative, Proactive};
 pub use job_follow::*;
 pub use ledger::*;
 pub use ledger_verify::*;
+pub use nodes::*;
 pub use ontology::*;
 pub use outbox::OutboxStatus;
 pub use persona::{
@@ -160,6 +163,7 @@ pub use standing_proposals::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use tasks::{TaskDetail, TaskListParams, TaskListResult};
 pub use term::{TerminalInfo, TerminalLeft};
+pub use thread_placed::*;
 pub use time::now_unix_ms;
 pub use toolinfo::{ToolInfo, ToolListResult};
 pub use wakes::*;
@@ -268,7 +272,7 @@ pub mod method {
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
         /// The owner's standing orders, preferences and facts (theseus-a7vi, `standing::StandingListParams`): a read, and the owner's two writes.
-        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", CARD_PROPOSE = "card.propose", CARD_LIST = "card.list", CARD_ANSWER = "card.answer", CARD_DONE = "card.done", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", THREAD_SPLIT_PLAN = "thread.split_plan", THREAD_UNSPLIT = "thread.unsplit", THREAD_LINK = "thread.link", THREAD_UNLINK = "thread.unlink", PREFIX_REPORT = "prefix.report",
+        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", CARD_PROPOSE = "card.propose", CARD_LIST = "card.list", CARD_ANSWER = "card.answer", CARD_DONE = "card.done", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", THREAD_SPLIT_PLAN = "thread.split_plan", THREAD_UNSPLIT = "thread.unsplit", THREAD_LINK = "thread.link", THREAD_UNLINK = "thread.unlink", THREAD_UNCLAIM = "thread.unclaim", PREFIX_REPORT = "prefix.report",
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list", PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm", // an agent's workspace carried over as a persona, and its card kept (theseus-a8n7)
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
@@ -481,6 +485,8 @@ pub mod notify {
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
         /// A thread changed (theseus-sjzm, `threads::ThreadChanged`); the router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
         THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
+        /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it.
+        THREAD_PLACED = "thread.placed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
         /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`, to every connection that watches
@@ -2177,6 +2183,9 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub files: Option<files_left::FilesLeft>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub raised: Option<route::ToolsRaised>,
     /// The sources of the handles the reply cites, resolved against this
     /// turn's recall (theseus-ejdk); none when it cited none, and none a
     /// shared place may not show.
@@ -2206,190 +2215,6 @@ fn is_zero_u32(n: &u32) -> bool {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionRef {
     pub session_id: String,
-}
-
-/// One node as clients render it (a message, a tool call, a tool result).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct NodeInfo {
-    pub node_id: String,
-    /// `user_message`, `assistant_message`, `tool_call`, `tool_result`.
-    pub kind: String,
-    pub session_id: String,
-    pub position: u64,
-    pub at_unix_ms: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub loop_index: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub author: Option<String>,
-    /// Text for display (user text; assistant text blocks; tool result content).
-    #[serde(default)]
-    pub text: String,
-    /// Thinking summaries (assistant), when the provider returned them.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub thinking: String,
-    /// Kind-specific fields: model/usage/cost (assistant), tool/input/gate
-    /// (tool call), tool/status/is_error/bytes (tool result).
-    #[serde(default)]
-    #[cfg_attr(test, ts(type = "Record<string, unknown> | null"))]
-    pub detail: Value,
-    #[serde(default)]
-    pub bytes: u64,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SessionRecompileParams {
-    pub session_id: String,
-    /// `fresh` (start over) or `transcript` (keep everything, thinking stripped).
-    pub strategy: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct NodeListParams {
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub n: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct NodeListResult {
-    pub nodes: Vec<NodeInfo>,
-    pub total: u64,
-}
-
-/// `node.reach` (theseus-n4m, step 12a; design stage2 §2.11).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct NodeReachParams {
-    /// A node's whole id, or its last 6 or more characters, or the cockpit's
-    /// `msg·a1b2c3`, when one node ends so (theseus-glyw).
-    pub node_id: String,
-    /// How many generations of copies to follow: 3 by default, at most 16.
-    /// 0 answers the node's own session only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub max_generations: Option<u32>,
-}
-
-/// A compilation whose prefix (`includes`) holds a node.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ReachCompilation {
-    pub compilation_id: String,
-    /// `transcript`, `fresh`, or `ring`.
-    pub strategy: String,
-    pub created_at_ms: u64,
-}
-
-/// Where a node was seen in its own session: the compilations that hold it,
-/// and the loops whose context held it (a model call made after it was
-/// written, whose compilation holds it or left it in the tail). A context is
-/// a compilation or a loop. The first and last exposure are absent when it
-/// was never seen.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ReachExposure {
-    pub compilations: Vec<ReachCompilation>,
-    pub loops: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub first_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub last_ms: Option<u64>,
-}
-
-/// A copy of the node in another session, found by walking the edges into
-/// it: generation 1 copies the node, generation 2 a copy, and so on.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ReachDescendant {
-    pub node_id: String,
-    pub session_id: String,
-    pub position: u64,
-    pub generation: u32,
-    /// The edge's kind: `derived_from`.
-    pub via: String,
-    /// The route that wrote the edge: `report` or `brief`.
-    pub route: String,
-    /// The node it copies, one generation up.
-    pub from: String,
-    #[serde(flatten)]
-    pub exposure: ReachExposure,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ReachTotals {
-    /// Every compilation and loop, the node's and its copies'.
-    pub contexts: u64,
-    /// The sessions the node and its copies are in.
-    pub sessions: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct NodeReachResult {
-    pub node_id: String,
-    pub session_id: String,
-    pub position: u64,
-    pub direct: ReachExposure,
-    pub descendants: Vec<ReachDescendant>,
-    /// The forks that took it by reference (theseus-2qzx), generation by
-    /// generation; absent when none.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub forks: Vec<ReachFork>,
-    pub totals: ReachTotals,
-    /// The walk stopped short: a node at `max_generations` has copies of
-    /// its own, or the walk reached its cap of copies.
-    pub partial: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct CompilationListParams {
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub n: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct CompilationInfo {
-    pub compilation_id: String,
-    pub session_id: String,
-    pub created_at_ms: u64,
-    pub trigger: String,
-    pub strategy: String,
-    pub as_of: u64,
-    pub includes: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub derived_from: Option<String>,
-    /// The manifest as stored (model, provider, digests, catalog version, strip_thinking).
-    #[cfg_attr(test, ts(type = "Record<string, unknown>"))]
-    pub manifest: Value,
-    /// This is the session's current compilation.
-    #[serde(default)]
-    pub current: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct CompilationListResult {
-    pub compilations: Vec<CompilationInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

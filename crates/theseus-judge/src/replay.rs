@@ -21,9 +21,9 @@ use crate::band::{band, Band};
 use crate::builders::{prepare, InboundInput, Input};
 use crate::builders::{
     ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTINUE_VERSION,
-    HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION, MEMORY_VERSION, PEOPLE_SEEN_VERSION,
-    PEOPLE_VERSION, PROBE_VERSION, RECALL_CROSS_VERSION, RERANK_VERSION, SAME_THING_VERSION,
-    SECURITY2_VERSION, SECURITY_VERSION, TWO_THINGS_VERSION,
+    FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION, MEMORY_VERSION,
+    PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION, RECALL_CROSS_VERSION, RERANK_VERSION,
+    SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION, TWO_THINGS_VERSION,
 };
 use crate::client::{Answer, Urgency};
 use crate::judge::{AnswerRecord, Ask, DecisionPoint, Judge, Mode, StateRecord};
@@ -91,6 +91,7 @@ pub fn builder_identity(b: Builder) -> (&'static str, u32) {
         Builder::SameThing => ("same_thing", SAME_THING_VERSION),
         Builder::TwoThings => ("two_things", TWO_THINGS_VERSION),
         Builder::RecallCross => ("recall_cross", RECALL_CROSS_VERSION),
+        Builder::Families => ("families", FAMILIES_VERSION),
     }
 }
 

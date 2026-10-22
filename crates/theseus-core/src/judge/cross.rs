@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use theseus_judge::band::{Band, Top};
+use theseus_judge::breaker::Status;
 use theseus_judge::builders::{CrossInput, CrossNote};
 use theseus_judge::{
     Ask, DecisionPoint, Input, Judge, Judgment, JudgmentSink, Mode, Outcome, Pack, Urgency,
@@ -30,6 +31,10 @@ use crate::trace::Trace;
 
 /// The pack (theseus-98bz.10).
 pub const CROSS_PACK: &str = "recall_cross.v1";
+
+/// The cross judge's own breaker (theseus-pt7lt): its failures move only it,
+/// so a flaky cross judge stops neither `classify` nor routing.
+pub const BREAKER: &str = "recall_cross";
 
 /// What the turn asks about.
 pub struct Cross {
@@ -65,7 +70,7 @@ impl JudgeService {
         if c.notes.is_empty() || self.mode_for(CROSS_PACK, &c.session_id).mode == PackMode::Off {
             return None;
         }
-        if self.jev_unreachable() {
+        if self.jev_unreachable() || self.cross_breaker_open() {
             return None;
         }
         let pack = theseus_judge::pack::by_name(CROSS_PACK)?;
@@ -92,6 +97,19 @@ impl JudgeService {
                    "answered": got.is_some(), "wait_ms": wait.as_millis() as u64}),
         );
         got
+    }
+
+    /// Whether the cross judge's own breaker is open: read without a write,
+    /// as `rerank_no_wait` reads rerank's, so no call is made and nothing is
+    /// waited for.
+    fn cross_breaker_open(&self) -> bool {
+        self.built.get().is_some_and(|b| {
+            b.judge
+                .inner()
+                .own_breakers()
+                .into_iter()
+                .any(|(n, s)| n == BREAKER && matches!(s, Status::Open { .. }))
+        })
     }
 
     /// The blocking half: the state, its blob, the ask and the reservation.

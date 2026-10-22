@@ -622,6 +622,34 @@ pub struct ThreadUnsplitResult {
     pub retired: bool,
 }
 
+/// `thread.unclaim`: a claim undone, by its id (`claim_…`, which `theseus history` and the
+/// `thread.claimed` row name, theseus-98bz.6). A home turn's nodes go back to no thread, but a
+/// node a later split took keeps the split's.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadUnclaimParams {
+    pub claim: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadUnclaimResult {
+    pub claim: String,
+    pub thread: String,
+    /// The home session the turn ran in.
+    pub session: String,
+    /// The nodes that belong to no thread again.
+    pub restored: u32,
+    /// The nodes a split took since, left as the split put them.
+    pub kept: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

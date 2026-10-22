@@ -803,6 +803,7 @@ impl Place {
                 opened_from: None,
                 thread: Some(slug),
                 in_reply_to: None,
+                route_at_ms: None,
                 speaking: Some(Speaking {
                     discord: origin,
                     answer_at: Some(answer_at),

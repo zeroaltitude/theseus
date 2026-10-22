@@ -544,6 +544,7 @@ impl Place {
                         thread: None,
                         speaking: None,
                         in_reply_to: None,
+                        route_at_ms: None,
                         via: None,
                     },
                 )

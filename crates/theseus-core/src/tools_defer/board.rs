@@ -52,6 +52,12 @@ struct Convo {
     searches: Vec<Search>,
     /// This turn's misses, until the turn's row.
     misses: Vec<Miss>,
+    /// What this turn's request admitted past the place's budget, until the
+    /// turn's row (theseus-xlri5).
+    raised: Option<theseus_protocol::route::ToolsRaised>,
+    /// Jev's last families judgment of the conversation's prompt: the prompt's
+    /// digest and the families it found relevant (theseus-xlri5), memory only.
+    judged: Option<(u64, Vec<(String, f64)>)>,
 }
 
 /// One search of a turn.
@@ -82,6 +88,9 @@ pub struct TurnUse {
     pub unused: Vec<String>,
     pub searches: Vec<Search>,
     pub misses: Vec<Miss>,
+    /// The families that raised the request past the place's budget
+    /// (theseus-xlri5); none when nothing did.
+    pub raised: Option<theseus_protocol::route::ToolsRaised>,
 }
 
 #[derive(Default)]
@@ -221,6 +230,23 @@ impl Board {
         c.hidden = hidden;
     }
 
+    /// What the turn's request admitted past the place's budget (theseus-xlri5),
+    /// for its row: the last loop's request says.
+    pub fn note_raised(&self, session: &str, raised: Option<theseus_protocol::route::ToolsRaised>) {
+        self.st().convo(session).raised = raised;
+    }
+
+    /// Jev's last families judgment of the conversation's prompt (theseus-xlri5):
+    /// its digest and the relevant set, which a turn with no new message, or the
+    /// same prompt again, reuses.
+    pub fn judged(&self, session: &str) -> Option<(u64, Vec<(String, f64)>)> {
+        self.st().convos.get(session).and_then(|c| c.judged.clone())
+    }
+
+    pub fn set_judged(&self, session: &str, digest: u64, relevant: Vec<(String, f64)>) {
+        self.st().convo(session).judged = Some((digest, relevant));
+    }
+
     /// The tools this conversation's request hides, for `tools_find`.
     pub fn hidden(&self, session: &str) -> Vec<HiddenTool> {
         self.st()
@@ -326,7 +352,7 @@ impl Board {
     pub fn end_turn(&self, session: &str, fallback: PlaceKind, now_ms: u64) -> TurnUse {
         let mut st = self.st();
         st.live_since.get_or_insert(now_ms);
-        let (kind, mechanism, loaded, deferred, searches, misses, unused, called) = {
+        let (kind, mechanism, loaded, deferred, searches, misses, unused, called, raised) = {
             let c = st.convo(session);
             let kind = c.kind.unwrap_or(fallback);
             let deferred: BTreeSet<String> = c.hidden.iter().map(|h| h.family.clone()).collect();
@@ -345,6 +371,7 @@ impl Board {
                 std::mem::take(&mut c.misses),
                 unused,
                 std::mem::take(&mut c.turn_called),
+                c.raised.take(),
             )
         };
         let searched: BTreeSet<String> = searches.iter().flat_map(|s| s.families.clone()).collect();
@@ -359,6 +386,7 @@ impl Board {
             unused,
             searches,
             misses,
+            raised,
         };
         Self::count(st.kinds.entry(kind).or_default(), &turn, &used, now_ms);
         turn
@@ -419,6 +447,7 @@ impl Board {
             // The searches and misses are their own rows.
             searches: vec![],
             misses: vec![],
+            raised: None,
         };
         let mut st = self.st();
         if st.live_since.is_some_and(|l| at_ms >= l) {

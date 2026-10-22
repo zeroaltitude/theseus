@@ -210,6 +210,8 @@ pub struct Chat {
     /// the operator's answers are refused there.
     pub job_session: Option<String>,
     pub(super) mine: HashSet<String>,
+    /// What the router's placements brought in (`thread_ask.rs`).
+    pub(super) placed: super::thread_ask::Placed,
     pub(super) ended: HashSet<String>,
     pub(super) answered_text: HashSet<String>,
     pub(super) proposed: std::collections::HashMap<String, (String, Value)>,
@@ -291,6 +293,7 @@ impl Chat {
             board: Default::default(),
             job_session: None,
             mine: HashSet::new(),
+            placed: Default::default(),
             ended: HashSet::new(),
             answered_text: HashSet::new(),
             proposed: Default::default(),

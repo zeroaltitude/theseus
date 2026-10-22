@@ -232,4 +232,91 @@ async fn no_call_when_the_digest_fired() {
         "near misses Jev would have read: {:?}",
         m.dropped
     );
+    // One of them above the cross judge's bar, as `cross_step` reads it, or
+    // the check above guards nothing (theseus-1uiiu).
+    let bar = c.cfg.threads.cross_recall_bar;
+    assert!(
+        m.dropped
+            .iter()
+            .any(|d| d.reason.starts_with("thread_") && d.share.is_some_and(|s| s > bar)),
+        "no thread drop above the bar {bar}, so no call was owed: {:?}",
+        m.dropped
+    );
+}
+
+/// The cross judge's failures move only its own breaker (theseus-pt7lt):
+/// five cross calls that never answer open `recall_cross` (a `judge.circuit`
+/// row naming it), the shared breaker stays closed and `classify` still
+/// judges, and the next turn's near misses are not sent at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failing_cross_judge_opens_only_its_own_breaker() {
+    let jev = FakeJev::start().unwrap();
+    jev.script(
+        "scope",
+        Jev::Choice {
+            option: "thread".into(),
+            confidence: 0.95,
+        },
+    );
+    // Only a cross request holds the port note: it waits past its deadline.
+    jev.hold_when("8453");
+    let r = rigged(&jev, |c| {
+        pack_mode(c, crate::judge::inbound::CLASSIFY_PACK, PackMode::Live);
+    });
+    let c = &r.core;
+    let pipe = world(c, 0);
+    let circuits = || {
+        c.store
+            .ledger_tail::<crate::ledger::LedgerRow>(5000)
+            .unwrap()
+            .into_iter()
+            .map(|(_, r)| r)
+            .filter(|r| r.kind == "judge.circuit")
+            .collect::<Vec<_>>()
+    };
+    for i in 1..=5 {
+        turn(c, &pipe, "Regenerate the report with the new cutoff.").await;
+        assert_eq!(cross_requests(&jev).len(), i, "asked on turn {i}");
+    }
+    let t0 = std::time::Instant::now();
+    while circuits().is_empty() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "the breaker never moved"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let opened = circuits();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert_eq!(opened[0].data["breaker"], "recall_cross");
+    assert_eq!(opened[0].data["transition"]["circuit"], "opened");
+    let h = c.health().judge.unwrap();
+    assert_eq!(h.breaker, "closed", "the shared breaker");
+    assert!(
+        h.breakers
+            .iter()
+            .any(|b| b.starts_with("recall_cross: open")),
+        "{:?}",
+        h.breakers
+    );
+    // The sixth turn sends no cross request, and classify still answers.
+    let classified = || {
+        jev.seen()
+            .iter()
+            .filter(|s| {
+                serde_json::to_string(&s.body)
+                    .unwrap()
+                    .contains("classify.v4/")
+            })
+            .count()
+    };
+    let before = classified();
+    turn(c, &pipe, "Regenerate the report with the new cutoff.").await;
+    assert_eq!(cross_requests(&jev).len(), 5, "skipped with no request");
+    assert!(
+        classified() > before,
+        "classify judged on the shared breaker"
+    );
+    assert_eq!(circuits().len(), 1);
+    jev.release();
 }

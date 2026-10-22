@@ -604,6 +604,8 @@ facts![
     thread::ThreadUnmerged<'static>,
     thread::ThreadSplit<'static>,
     thread::ThreadUnsplit<'static>,
+    thread::ThreadClaimed<'static>,
+    thread::ThreadUnclaimed<'static>,
     thread::ThreadLinked<'static>,
     thread::ThreadUnlinked<'static>,
     thread::ThreadLinkProposed<'static>,

@@ -4,6 +4,7 @@ import type { FilesLeft } from "./FilesLeft";
 import type { Later } from "./Later";
 import type { Span } from "./Span";
 import type { ThreadTag } from "./ThreadTag";
+import type { ToolsRaised } from "./ToolsRaised";
 import type { TurnFallback } from "./TurnFallback";
 import type { TurnNudge } from "./TurnNudge";
 import type { TurnRoute } from "./TurnRoute";
@@ -87,7 +88,7 @@ nudged?: TurnNudge,
 /**
  * What the turn's file tools changed and its commands left (theseus-53ujg.1); none in a shared place.
  */
-files?: FilesLeft, 
+files?: FilesLeft, raised?: ToolsRaised, 
 /**
  * The sources of the handles the reply cites, resolved against this
  * turn's recall (theseus-ejdk); none when it cited none, and none a

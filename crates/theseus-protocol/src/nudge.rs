@@ -50,6 +50,7 @@ impl TurnSubmitResult {
         fell.into_iter()
             .chain(nudged)
             .chain(self.files_line())
+            .chain(self.raised.as_ref().map(crate::route::ToolsRaised::line))
             .collect()
     }
 }
@@ -106,6 +107,29 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("declined"), "{lines:?}");
         assert!(lines[1].ends_with("the model answered without acting."));
+        // theseus-xlri5: the families that raised the request close the lines.
+        r.raised = Some(crate::route::ToolsRaised {
+            budget: 8_000,
+            ceiling: 16_000,
+            tokens: 9_612,
+            families: vec![
+                crate::route::RaisedFamily {
+                    family: "aws".into(),
+                    tokens: 1_012,
+                    by: "named".into(),
+                },
+                crate::route::RaisedFamily {
+                    family: "terminals".into(),
+                    tokens: 1_264,
+                    by: "jev".into(),
+                },
+            ],
+        });
+        assert_eq!(
+            r.harness_lines().last().unwrap(),
+            "Tools raised the request to 9,612 tokens (budget 8,000, ceiling 16,000): \
+             aws +1,012 (named), terminals +1,264 (Jev)."
+        );
         let v = serde_json::to_value(r.nudged.unwrap()).unwrap();
         assert_eq!(v["loop"], 0);
     }

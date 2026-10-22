@@ -428,7 +428,8 @@ impl Core {
                 .store
                 .get_meta(&moved::moved_of_key(id))
                 .map_err(invalid)?;
-            if let Some(Some(m)) = to {
+            // A claim (theseus-98bz.6) is weaker than a move: the split takes the node over.
+            if let Some(Some(m)) = to.filter(|m| !m.as_ref().is_some_and(MovedTo::is_claim)) {
                 return Err(invalid(format!(
                     "the part chosen holds {id}, which split {} moved to «{}» already: choose \
                      other turns, or `theseus thread unsplit {}` first",

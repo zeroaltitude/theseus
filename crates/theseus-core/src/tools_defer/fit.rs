@@ -9,6 +9,12 @@
 //! deferred, largest first, one `tool_search` from loaded again. The
 //! defaults, the always-loaded families and what a search or a message asked
 //! for are never demoted here.
+//!
+//! A family a message names, or Jev judges relevant, may take the request past
+//! the budget (theseus-xlri5, `want::extra`): by exactly its own size, while the
+//! whole stays under `ceiling`. The learned families stay held to the budget
+//! plus that raise: admitting one neither evicts a learned family nor lets one
+//! ride the raise.
 
 use std::collections::BTreeMap;
 
@@ -27,6 +33,11 @@ const BLOCK_TOKENS: u64 = crate::provider::MESSAGE_TOKENS;
 pub struct Fit {
     /// The place kind's budget for a whole first request, in tokens.
     pub budget: u64,
+    /// The hard ceiling admitted families may raise it to:
+    /// `floor(budget × [tools.defer] admit_ceiling)`.
+    pub ceiling: u64,
+    /// What the admitted families took the request past the budget, in tokens.
+    pub raised: u64,
     /// The system's text, in tokens.
     pub system: u64,
     /// What deferring costs: the search tool and the deferred tools' constant.
@@ -36,8 +47,15 @@ pub struct Fit {
 }
 
 impl Fit {
-    /// The fit of a request on `spec` in a `kind` of place, at the model's `rates`.
-    pub fn of(kind: PlaceKind, spec: &RequestSpec, rates: TokenRates, how: Mechanism) -> Fit {
+    /// The fit of a request on `spec` in a `kind` of place, at the model's
+    /// `rates`, under a ceiling of `multiple` times the place's budget.
+    pub fn of(
+        kind: PlaceKind,
+        spec: &RequestSpec,
+        rates: TokenRates,
+        how: Mechanism,
+        multiple: f64,
+    ) -> Fit {
         let at = |bytes: u64, per: f64| (bytes as f64 / per).ceil() as u64;
         let texts = [
             &spec.system_text,
@@ -64,15 +82,18 @@ impl Fit {
             let bytes = serde_json::to_string(t).map_or(0, |s| s.len() as u64);
             *cost.entry(family::of_wire(name)).or_default() += at(bytes, rates.json);
         }
+        let budget = kind.tools_budget_tokens();
         Fit {
-            budget: kind.tools_budget_tokens(),
+            budget,
+            ceiling: (budget as f64 * multiple).floor() as u64,
+            raised: 0,
             system,
             held: at(held, rates.json),
             cost,
         }
     }
 
-    fn tokens(&self, family: &str) -> u64 {
+    pub fn tokens(&self, family: &str) -> u64 {
         self.cost.get(family).copied().unwrap_or(0)
     }
 
@@ -82,11 +103,11 @@ impl Fit {
         self.system + self.held + families.into_iter().map(|f| self.tokens(f)).sum::<u64>()
     }
 
-    /// Demote the learned families of `sel` until what it loads fits: the
-    /// largest first, the least used of equals.
+    /// Demote the learned families of `sel` until what it loads fits the
+    /// budget and the raise: the largest first, the least used of equals.
     pub fn demote(&self, sel: &mut Selection) {
         let mut total = self.total(&sel.loaded());
-        while total > self.budget {
+        while total > self.budget + self.raised {
             let next = sel
                 .families
                 .iter()
@@ -124,6 +145,8 @@ mod tests {
     fn fit(budget: u64, costs: &[(&str, u64)]) -> Fit {
         Fit {
             budget,
+            ceiling: budget * 2,
+            raised: 0,
             system: 900,
             held: 100,
             cost: costs.iter().map(|(f, n)| (f.to_string(), *n)).collect(),
@@ -162,5 +185,56 @@ mod tests {
         fit(4_500, &costs).demote(&mut sel);
         assert!(matches!(sel.families["aws"], Why::OverBudget { .. }));
         assert!(matches!(sel.families["tasks"], Why::Learned { .. }));
+    }
+
+    /// theseus-xlri5: with and without 1,200 tokens admitted past the budget,
+    /// the same learned families load: the raise is the admitted family's,
+    /// never a learned one's, and admitting it evicts none.
+    #[test]
+    fn a_raise_never_evicts_or_admits_a_learned_family() {
+        let costs = [
+            ("files", 4_000),
+            ("memory", 500),
+            ("tasks", 3_000),
+            ("aws", 1_200),
+            ("terminals", 1_200),
+        ];
+        // 1,000 + 4,000 + 500 + 1,200 is 6,700 with the learned aws: tasks would pass 8,000.
+        let alone = {
+            let mut sel = learned(&[("tasks", 0.3), ("aws", 0.2)]);
+            fit(8_000, &costs).demote(&mut sel);
+            sel
+        };
+        assert!(alone.loaded().contains("aws") && !alone.loaded().contains("tasks"));
+        // The terminals admitted (as `want::extra` adds them, Extra): 7,900, under the
+        // budget, raises nothing; the same learned set loads.
+        let admitted = |raised: u64, base: u64| {
+            let mut sel = learned(&[("tasks", 0.3), ("aws", 0.2)]);
+            sel.families.insert("terminals".into(), Why::Extra);
+            let mut f = fit(base, &costs);
+            f.raised = raised;
+            f.demote(&mut sel);
+            sel
+        };
+        let learned_of = |sel: &Selection| -> Vec<String> {
+            sel.families
+                .iter()
+                .filter(|(_, w)| matches!(w, Why::Learned { .. }))
+                .map(|(f, _)| f.clone())
+                .collect()
+        };
+        assert_eq!(learned_of(&admitted(0, 8_000)), learned_of(&alone));
+        // At a budget of 6,700 the terminals take the request 1,200 past it: raised by
+        // exactly that, aws stays and tasks does not ride the raise.
+        let base = {
+            let mut sel = learned(&[("tasks", 0.3), ("aws", 0.2)]);
+            fit(6_700, &costs).demote(&mut sel);
+            sel
+        };
+        assert_eq!(learned_of(&base), learned_of(&alone));
+        let raised = admitted(1_200, 6_700);
+        assert_eq!(learned_of(&raised), learned_of(&base));
+        assert!(raised.loaded().contains("terminals"));
+        assert!(!raised.loaded().contains("tasks"));
     }
 }

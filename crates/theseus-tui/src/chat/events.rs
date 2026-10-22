@@ -82,10 +82,7 @@ impl Chat {
                 // The turn's end came as an event; the result is the same
                 // end, taken once.
                 self.released = false;
-                if let Ok(r) = serde_json::from_value::<TurnSubmitResult>(v) {
-                    self.turn_ended(&r);
-                }
-                Vec::new()
+                serde_json::from_value(v).map_or_else(|_| Vec::new(), |r| self.submit_ended(&r))
             }
             Purpose::Stop => {
                 if let Ok(r) = serde_json::from_value::<ExecutionStopResult>(v) {
@@ -417,7 +414,7 @@ impl Chat {
         let mut effects = Vec::new();
         self.note_away(&event);
         match event {
-            Event::TurnStarted(t) if self.ours(&t.session_id) => {
+            Event::TurnStarted(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
                 if self.mine.len() > KEPT {
                     self.mine.clear();
                 }
@@ -447,13 +444,19 @@ impl Chat {
                     self.say_reply(&d.text);
                 }
             }
-            Event::ToolProposed(p) if self.ours(&p.session_id) => {
+            Event::ToolProposed(p) if self.ours_in(&p.session_id, Some(&p.turn_id)) => {
                 self.proposed.insert(p.tool_use_id, (p.tool, p.input));
             }
-            Event::ToolStarted(t) if self.ours(&t.session_id) => self.tool_started(&t),
-            Event::ToolEnded(t) if self.ours(&t.session_id) => self.tool_ended(&t),
-            Event::ConfirmRequested(c) if self.ours(&c.session_id) => self.ask(c),
-            Event::ThreadAsked(a) => self.thread_asked(a),
+            Event::ToolStarted(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
+                self.tool_started(&t);
+            }
+            Event::ToolEnded(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
+                self.tool_ended(&t);
+            }
+            Event::ConfirmRequested(c) if self.ours_in(&c.session_id, None) => self.ask(c),
+            e @ (Event::ThreadAsked(_) | Event::ThreadPlaced(_)) => {
+                effects.extend(self.thread_event(e));
+            }
             // The mode or the plan moved (theseus-lyxy): the status line
             // follows, and the checklist goes into the transcript.
             Event::SessionMode(m) if self.ours(&m.session_id) => self.moded(&m),
@@ -477,11 +480,15 @@ impl Chat {
                     }
                 }
             }
-            Event::TaskChanged(t) if self.ours(&t.session_id) => self.task_changed(&t),
+            Event::TaskChanged(t) if self.ours_in(&t.session_id, None) => self.task_changed(&t),
             Event::WorkChanged(c) => self.work_changed(c),
             Event::WorkNotice(n) => effects = self.work_notice(&n),
-            Event::TurnFailed(f) if self.ours(&f.session_id) => self.turn_failed(&f),
-            Event::TurnEnded(r) if self.ours(&r.session_id) => self.turn_ended(&r),
+            Event::TurnFailed(f) if self.ours_in(&f.session_id, f.turn_id.as_deref()) => {
+                self.turn_failed(&f);
+            }
+            Event::TurnEnded(r) if self.ours_in(&r.session_id, Some(&r.turn_id)) => {
+                self.turn_ended(&r);
+            }
             Event::EventsLost(_) => self.say_plain(
                 Sty::Yellow,
                 "(some updates were missed; the daemon has the whole record)",
@@ -672,7 +679,11 @@ impl Chat {
         if self.live.turn.as_ref().is_some_and(|t| t.id == r.turn_id) {
             self.live.turn = None;
         }
-        self.placed_line(r);
+        if let Some(tag) = r.thread.as_ref() {
+            if self.placed.told.insert(r.turn_id.clone()) {
+                self.placed_line(tag, &r.session_id);
+            }
+        }
         // The loops' answers were told as they ended; a turn told nothing
         // shows its output now.
         if !self.answered_text.remove(&r.turn_id) && !r.output.trim().is_empty() {
@@ -685,20 +696,29 @@ impl Chat {
         {
             self.cost = c;
         }
-        if !r.model.is_empty() {
+        // A held turn ran no model: its line says so, and the status line
+        // keeps the last real one (theseus-fzt4v).
+        let held = r.stop_reason == "held";
+        if !r.model.is_empty() && !held {
             self.model = Some(r.model.clone());
         }
         if !r.profile.is_empty() {
             self.profile = Some(r.profile.clone());
         }
-        let mut parts = vec![took(r.elapsed_ms), model_words(&r.model)];
+        let mut parts = vec![took(r.elapsed_ms)];
+        parts.push(match held {
+            true => "held: no model ran".to_string(),
+            false => model_words(&r.model),
+        });
         if let Some(c) = r.cost_words() {
             parts.push(c);
         }
-        if !matches!(
-            r.stop_reason.as_str(),
-            "" | "done" | "end_turn" | "no_tool_calls"
-        ) {
+        if !held
+            && !matches!(
+                r.stop_reason.as_str(),
+                "" | "done" | "end_turn" | "no_tool_calls"
+            )
+        {
             parts.push(r.stop_reason.clone());
         }
         self.say_plain(Sty::Dim, &format!("  {}", parts.join(" · ")));

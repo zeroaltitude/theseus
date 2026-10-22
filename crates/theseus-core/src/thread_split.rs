@@ -178,11 +178,22 @@ fn refs_in(text: &str, out: &mut Vec<String>) {
 
 /// What the calls named, as the working set of the thread that takes them.
 fn working_set_of(nodes: &Transcript, idx: &[usize], texts: &[&str]) -> WorkingSet {
+    let mut w = touched(idx.iter().filter_map(|i| match &nodes[*i].1.body {
+        Body::ToolCall { input, .. } => Some(input),
+        _ => None,
+    }));
+    for t in texts {
+        refs_in(t, &mut w.refs);
+    }
+    w
+}
+
+/// What tool calls' inputs name, as written: the paths (`path`, `paths`,
+/// `file`, `files`), the directories (`cwd`, `dir`) and the hosts of the
+/// URLs. A thread's own turns grow its set from it too (`thread_grow`).
+pub(crate) fn touched<'a>(inputs: impl IntoIterator<Item = &'a Value>) -> WorkingSet {
     let mut w = WorkingSet::default();
-    for i in idx {
-        let Body::ToolCall { input, .. } = &nodes[*i].1.body else {
-            continue;
-        };
+    for input in inputs {
         let Some(o) = input.as_object() else { continue };
         for (k, v) in o {
             let strs: Vec<&str> = match v {
@@ -203,9 +214,6 @@ fn working_set_of(nodes: &Transcript, idx: &[usize], texts: &[&str]) -> WorkingS
                 }
             }
         }
-    }
-    for t in texts {
-        refs_in(t, &mut w.refs);
     }
     w
 }

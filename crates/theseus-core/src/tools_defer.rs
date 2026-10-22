@@ -101,6 +101,10 @@ pub struct Deferral {
     /// of the turn carries the found tools, and the new compilation records
     /// them for the turns after.
     pub added: BTreeSet<String>,
+    /// The families admitted past the place's budget for this turn's message
+    /// (theseus-xlri5), when any were: the fresh choice's alone, so an append
+    /// over a recorded set raises nothing.
+    pub raised: Option<theseus_protocol::route::ToolsRaised>,
 }
 
 impl Deferral {
@@ -114,8 +118,38 @@ impl Deferral {
                 .chain(self.added.iter().cloned())
                 .collect(),
             resolved: false,
+            raised: None,
             ..self.clone()
         }
+    }
+}
+
+/// The raise of a request whose base is `base` tokens and whole `whole` with
+/// the `admitted` families (theseus-xlri5): the families that took it past the
+/// budget, in the order admitted; one admitted under the budget is not named.
+pub fn raised(
+    fit: &fit::Fit,
+    base: u64,
+    whole: u64,
+    admitted: &[want::Admitted],
+) -> theseus_protocol::route::ToolsRaised {
+    let mut at = base;
+    let families = admitted
+        .iter()
+        .filter_map(|a| {
+            at += a.tokens;
+            (at > fit.budget).then(|| theseus_protocol::route::RaisedFamily {
+                family: a.family.clone(),
+                tokens: a.tokens,
+                by: a.by.as_str().to_string(),
+            })
+        })
+        .collect();
+    theseus_protocol::route::ToolsRaised {
+        budget: fit.budget,
+        ceiling: fit.ceiling,
+        tokens: whole,
+        families,
     }
 }
 
