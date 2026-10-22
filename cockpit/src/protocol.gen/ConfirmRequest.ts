@@ -12,7 +12,12 @@ import type { TaskRef } from "./TaskRef";
  * A tool call waiting for the operator (spec §3.9: confirmation is bound to
  * the exact tool, arguments, resource, and an expiry).
  */
-export type ConfirmRequest = { correlation_id: string, session_id: string, execution_id: string, tool: string, input: unknown, resource?: string, 
+export type ConfirmRequest = { correlation_id: string, session_id: string, execution_id: string, 
+/**
+ * The turn whose call asks, when a turn made the call: an execution holds many turns of its
+ * session, so a chat that follows a thread's session shows only the questions of its own.
+ */
+turn_id?: string, tool: string, input: unknown, resource?: string, 
 /**
  * Why policy asks (e.g. "write under /home/x/projects", "run cargo test").
  */

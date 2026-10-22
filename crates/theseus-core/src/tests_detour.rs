@@ -356,3 +356,26 @@ async fn a_detour_naming_a_family_stays_within_its_place_budget() {
         row[0]
     );
 }
+
+/// theseus-nfrlj: a turn the owner's words steer to the quick mode detours with
+/// no recall (a steered turn sends none): its row says so, and `why` lists
+/// the line about its own recall, which a quick detour's row without the field
+/// would have left out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_steered_detour_names_its_kind_and_its_left_out_recall() {
+    use crate::tests_route_correct::{ask, owned};
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let (r, _haiku) = rig_haiku(&jev, 3, owned);
+    let one = ask(&r.core, None, "Which mooring did we survey first?").await;
+    let sid = one.session_id;
+    let two = ask(&r.core, Some(&sid), "that should have been on quick").await;
+    let row = rows(&r.core, "context.detoured").pop().expect("a detour");
+    assert_eq!(row["turn_id"], two.turn_id);
+    assert_eq!(row["kind"], "quick");
+    assert_eq!(row["recall"], false, "{row}");
+    let lines = why(&r.core, &explain(&r.core, &sid, None)).join("\n");
+    assert!(lines.contains("ran as a quick detour"), "{lines}");
+    assert!(!lines.contains("a  detour"), "{lines}");
+    assert!(lines.contains("this turn's own recall"), "{lines}");
+}

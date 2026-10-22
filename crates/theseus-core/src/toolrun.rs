@@ -1348,6 +1348,7 @@ impl ToolRuntime {
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
             execution_id: tc.execution_id.into(),
+            turn_id: Some(tc.turn_id.into()),
             tool: tool.into(),
             input: call.input.clone(),
             resource: g.proposal.resource,

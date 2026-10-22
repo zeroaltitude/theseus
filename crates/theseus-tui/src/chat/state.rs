@@ -377,7 +377,7 @@ impl Chat {
                     json!({ "session_id": sid }),
                     Purpose::Watch,
                 ),
-                Self::watch_work(&main),
+                Self::watch_with(&main, &self.placed.also),
             ];
             if main != sid {
                 out.push(call(

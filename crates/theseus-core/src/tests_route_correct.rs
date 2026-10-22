@@ -23,7 +23,7 @@ const OWNER: u64 = 100_000_000_000_000_001;
 /// A guild channel nobody bound private: a shared place.
 const LAB: &str = "900000000000000123";
 
-fn owned(c: &mut crate::Config) {
+pub(crate) fn owned(c: &mut crate::Config) {
     c.places.owner = Some(vec![format!("discord:{OWNER}")]);
 }
 

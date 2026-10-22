@@ -270,3 +270,34 @@ fn a_detoured_turn_says_it_detoured_and_what_it_left_out() {
         "{lines}"
     );
 }
+
+/// theseus-nfrlj: a row stored with no kind says `steered`, never a double
+/// space; a row that says whether its request carried the turn's own recall
+/// is believed over its kind's habit, and a row that says nothing reads as
+/// before (the golden above).
+#[test]
+fn a_detours_words_follow_its_row() {
+    let lines = |kind: &str, recall: Option<bool>| {
+        let mut x = detour_explain();
+        let d = x.detour.as_mut().unwrap();
+        d.kind = kind.into();
+        d.recall = recall;
+        why_lines(&WhyInput {
+            explain: &x,
+            policy: None,
+            route: None,
+            tools: &[],
+            hide_sources: false,
+        })
+        .join("\n")
+    };
+    let steered = lines("", None);
+    assert!(
+        steered.contains("ran as a steered detour on haiku"),
+        "{steered}"
+    );
+    let own = "this turn's own recall";
+    assert!(lines("quick", Some(false)).contains(own));
+    assert!(!lines("trivial", Some(true)).contains(own));
+    assert!(!lines("quick", None).contains(own));
+}

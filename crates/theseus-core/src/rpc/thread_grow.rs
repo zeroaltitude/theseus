@@ -21,7 +21,7 @@ use crate::fact;
 use crate::fact::thread::ThreadEdited;
 use crate::node::{Body, Node};
 use crate::session::SessionRecord;
-use crate::thread_grow::{grow, touched_in};
+use crate::thread_grow::{added_by, grow, paths_only, touched_in, without};
 
 /// The row of a set the harness grew.
 fn grown(t: &ThreadInfo) -> ThreadEdited<'_> {
@@ -68,7 +68,7 @@ impl Core {
             session: session.session_id.clone(),
             dir: self.tools.cwd_for(session.dir.as_deref()),
             from: self.store.last_position(),
-            named: crate::threads_import::extract::working_set([text]),
+            named: paths_only(crate::threads_import::extract::working_set([text])),
         })
     }
 
@@ -83,6 +83,7 @@ impl Core {
             }
         };
         let touched = touched_in(&crate::thread_split::touched(&calls), &g.dir);
+        let added = std::sync::Mutex::new(WorkingSet::default());
         let written = self.runner.threads.write(
             &self.store,
             |board| {
@@ -98,6 +99,8 @@ impl Core {
                 if set == cur.working_set {
                     return Ok(vec![]);
                 }
+                *added.lock().unwrap_or_else(|e| e.into_inner()) =
+                    added_by(&cur.working_set, &set, &g.named);
                 Ok(vec![ThreadInfo {
                     working_set: set,
                     ..cur.clone()
@@ -113,10 +116,52 @@ impl Core {
             Ok(ts) => {
                 for t in &ts {
                     self.announce_thread(&t.slug, &grown(t));
+                    let added = added.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    self.runner.threads.route.grew(turn_id, &t.slug, added);
                 }
             }
             Err(e) => {
                 tracing::warn!(thread = %g.slug, error = %format!("{e:#}"), "a thread's working set was not written");
+            }
+        }
+    }
+
+    /// The owner moved the message of `turn` to another thread: what its
+    /// words grew into the thread it ran in is taken back (what the turn
+    /// touched stays: those files were worked on there), in one frame with a
+    /// `thread.edited` row. The destination grows from the message's own
+    /// resubmitted turn. Nothing is taken that the message did not add.
+    pub(super) fn thread_ungrow(&self, turn: &str) {
+        let Some((slug, added)) = self.runner.threads.route.take_grew(turn) else {
+            return;
+        };
+        let written = self.runner.threads.write(
+            &self.store,
+            |board| {
+                let Some(cur) = board.get(&slug).filter(|t| t.state != ThreadState::Done) else {
+                    return Ok(vec![]);
+                };
+                let set = without(&cur.working_set, &added);
+                if set == cur.working_set {
+                    return Ok(vec![]);
+                }
+                Ok(vec![ThreadInfo {
+                    working_set: set,
+                    ..cur.clone()
+                }])
+            },
+            |_, ts| {
+                ts.iter()
+                    .map(|t| fact::row(&grown(t), None, Some(turn)))
+                    .collect()
+            },
+        );
+        match written {
+            Ok(ts) => ts
+                .iter()
+                .for_each(|t| self.announce_thread(&t.slug, &grown(t))),
+            Err(e) => {
+                tracing::warn!(thread = %slug, error = %format!("{e:#}"), "a moved message's growth was not taken back");
             }
         }
     }

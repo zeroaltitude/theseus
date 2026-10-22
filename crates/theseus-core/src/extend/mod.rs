@@ -833,6 +833,7 @@ pub fn confirm_request(
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),
+        turn_id: None,
         tool: ACK.into(),
         reason: args["question"].as_str().unwrap_or_default().to_string(),
         input: args,

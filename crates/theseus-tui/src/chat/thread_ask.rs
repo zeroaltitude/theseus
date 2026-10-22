@@ -224,7 +224,7 @@ const ALSO: usize = 8;
 #[derive(Default)]
 pub(super) struct Placed {
     /// Sessions of turns placed in threads for this chat, the last `ALSO`.
-    also: Vec<String>,
+    pub(super) also: Vec<String>,
     /// Turns whose placement was told, so it is told once.
     pub(super) told: std::collections::HashSet<String>,
 }

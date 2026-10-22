@@ -473,6 +473,9 @@ pub struct Pre {
     /// The owner moved a message like this one to the thread: its score was
     /// lifted to [`LEARNED`] (`rpc/thread_flow.rs`'s `learned_thread`).
     pub learned: bool,
+    /// The raw (stickiness, chain), before another thread's hit took any
+    /// of it: what the directory rule rescores from.
+    standing: (f64, f64),
 }
 
 /// A thread's entity score from its hits, `hitting` threads hit in all.
@@ -494,6 +497,25 @@ fn entity_of(h: &[(Kind, String)], hitting: usize) -> f64 {
     }
 }
 
+/// Every thread's (entity, stickiness, chain) from its hits and its raw
+/// (stickiness, chain): one thread's entity counts less when another is
+/// hit too, and a thread the message names nothing of loses half its
+/// stickiness and its chain when another thread's entity is named.
+fn settle(hits: &[Vec<(Kind, String)>], raw: &[(f64, f64)]) -> Vec<(f64, f64, f64)> {
+    let hitting = hits.iter().filter(|h| !h.is_empty()).count();
+    hits.iter()
+        .zip(raw)
+        .map(|(h, &(sticky, chain))| {
+            let other_named = hitting > 0 && h.is_empty();
+            (
+                entity_of(h, hitting),
+                if other_named { sticky * 0.5 } else { sticky },
+                if hitting == 0 { chain } else { 0.0 },
+            )
+        })
+        .collect()
+}
+
 /// Score every thread from the message, the place's last exchange and the
 /// clock.
 pub fn pre_route(
@@ -507,38 +529,34 @@ pub fn pre_route(
         .iter()
         .map(|t| entity_hits(text, &t.working_set))
         .collect();
-    let hitting = hits.iter().filter(|h| !h.is_empty()).count();
+    let standing: Vec<(f64, f64)> = threads
+        .iter()
+        .map(|t| {
+            let mine = last.filter(|l| l.slug.as_deref() == Some(&t.slug));
+            (
+                mine.map_or(0.0, |l| {
+                    sticky(now_ms.saturating_sub(l.at_ms), half_life_ms)
+                }),
+                mine.and_then(|l| l.replied_ms)
+                    .map_or(0.0, |r| chain(now_ms.saturating_sub(r), half_life_ms)),
+            )
+        })
+        .collect();
+    let settled = settle(&hits, &standing);
     threads
         .iter()
-        .zip(&hits)
-        .map(|(t, h)| {
-            let entity = entity_of(h, hitting);
-            // A thread the message names nothing of loses stickiness and the
-            // chain when another thread's entity is named.
-            let other_named = hitting > 0 && h.is_empty();
-            let mine = last.filter(|l| l.slug.as_deref() == Some(&t.slug));
-            let sticky = mine.map_or(0.0, |l| {
-                let s = sticky(now_ms.saturating_sub(l.at_ms), half_life_ms);
-                if other_named {
-                    s * 0.5
-                } else {
-                    s
-                }
-            });
-            let chain = mine
-                .and_then(|l| l.replied_ms)
-                .filter(|_| hitting == 0)
-                .map_or(0.0, |r| chain(now_ms.saturating_sub(r), half_life_ms));
-            Pre {
-                slug: t.slug.clone(),
-                title: t.title.clone(),
-                entity,
-                sticky,
-                chain,
-                score: noisy_or(&[entity, sticky, chain]),
-                hits: h.iter().map(|(_, e)| e.clone()).collect(),
-                learned: false,
-            }
+        .zip(hits)
+        .zip(standing.into_iter().zip(settled))
+        .map(|((t, h), (standing, (entity, sticky, chain)))| Pre {
+            slug: t.slug.clone(),
+            title: t.title.clone(),
+            entity,
+            sticky,
+            chain,
+            score: noisy_or(&[entity, sticky, chain]),
+            hits: h.into_iter().map(|(_, e)| e).collect(),
+            learned: false,
+            standing,
         })
         .collect()
 }
@@ -599,10 +617,12 @@ pub fn apart_by_dir<'b>(
         return Vec::new();
     };
     let lower = text.to_lowercase();
-    let hitting = pre.iter().filter(|p| !p.hits.is_empty()).count();
     let mut dropped = Vec::new();
-    for p in pre.iter_mut() {
+    let mut apart = vec![false; pre.len()];
+    let mut hits = Vec::with_capacity(pre.len());
+    for (p, apart) in pre.iter().zip(&mut apart) {
         let Some(t) = threads.iter().find(|t| t.slug == p.slug) else {
+            hits.push(Vec::new());
             continue;
         };
         let roots: Vec<PathBuf> = t
@@ -614,25 +634,45 @@ pub fn apart_by_dir<'b>(
         let near = roots
             .iter()
             .any(|r| here.starts_with(r) || r.starts_with(&here));
-        if roots.is_empty() || near {
-            continue;
+        let mut h = entity_hits(text, &t.working_set);
+        if !roots.is_empty() && !near {
+            let named_whole = |e: &str| {
+                entry_path(e, None, home).is_some() && has_token(&lower, &e.trim().to_lowercase())
+            };
+            h.retain(|(k, e)| !matches!(k, Kind::File | Kind::Root) || named_whole(e));
+            *apart = true;
+            if p.sticky > 0.0 || p.chain > 0.0 || p.learned || h.len() < p.hits.len() {
+                dropped.push(p.slug.clone());
+            }
         }
-        let named_whole = |e: &str| {
-            entry_path(e, None, home).is_some() && has_token(&lower, &e.trim().to_lowercase())
-        };
-        let kept: Vec<(Kind, String)> = entity_hits(text, &t.working_set)
-            .into_iter()
-            .filter(|(k, e)| !matches!(k, Kind::File | Kind::Root) || named_whole(e))
-            .collect();
-        let had = p.sticky > 0.0 || p.chain > 0.0 || p.learned || kept.len() < p.hits.len();
-        p.entity = entity_of(&kept, hitting);
-        p.hits = kept.into_iter().map(|(_, e)| e).collect();
-        p.sticky = 0.0;
-        p.chain = 0.0;
-        p.learned = false;
-        p.score = noisy_or(&[p.entity]);
-        if had {
-            dropped.push(p.slug.clone());
+        hits.push(h);
+    }
+    if !apart.contains(&true) {
+        return dropped;
+    }
+    // What is left is scored as `pre_route` would have, had the dropped hits
+    // never been there: another thread's entity counts less only while
+    // another thread is still hit, and stickiness is halved only while
+    // another thread is still named.
+    let raw: Vec<(f64, f64)> = pre
+        .iter()
+        .zip(&apart)
+        .map(|(p, &a)| if a { (0.0, 0.0) } else { p.standing })
+        .collect();
+    let settled = settle(&hits, &raw);
+    for (((p, h), (entity, sticky, chain)), apart) in
+        pre.iter_mut().zip(hits).zip(settled).zip(apart)
+    {
+        p.entity = entity;
+        p.sticky = sticky;
+        p.chain = chain;
+        p.hits = h.into_iter().map(|(_, e)| e).collect();
+        p.score = noisy_or(&[entity, sticky, chain]);
+        match apart {
+            true => p.learned = false,
+            // The owner's correction lifted this score past what it stands on.
+            false if p.learned => p.score = p.score.max(LEARNED),
+            false => {}
         }
     }
     dropped
@@ -1482,6 +1522,7 @@ mod tests {
                 score: *p,
                 hits: vec![],
                 learned: false,
+                standing: (0.0, 0.0),
             })
             .collect()
     }
@@ -2091,6 +2132,76 @@ mod tests {
             assert_eq!(pre[0].entity > 0.0, hit, "{text}: {pre:?}");
             assert_eq!(pre[0].score, pre[0].entity);
         }
+    }
+
+    /// The directory rule scores what is left as `pre_route` would have, had
+    /// the dropped hits never been there (theseus-ax4dp): another thread's
+    /// entity no longer counts less for a hit that was dropped, and a thread
+    /// is no longer treated as beside another's named entity when the only
+    /// one named was a dropped file.
+    #[test]
+    fn the_directory_rule_recounts_what_it_dropped() {
+        let home = Path::new("/h");
+        let dir = Some("/h/projects/walkthrough");
+        let base = |_: &ThreadInfo| None;
+        let apart = th(
+            "apart",
+            "lighthouse dev",
+            WorkingSet {
+                files: vec!["slow.sh".into()],
+                branches: vec!["feat-x".into()],
+                ..ws(&[], &[], &[], &[], &[], &["/h/projects/lighthouse"])
+            },
+        );
+        let near = th(
+            "near",
+            "walkthrough",
+            ws(
+                &[],
+                &[],
+                &["feat-y"],
+                &[],
+                &[],
+                &["/h/projects/walkthrough"],
+            ),
+        );
+        let last = Last {
+            slug: Some("near".into()),
+            at_ms: 1_000,
+            replied_ms: Some(1_000),
+        };
+        let t = [&apart, &near];
+        let run = |text: &str| {
+            let mut pre = pre_route(text, &t, Some(&last), 1_000, 600_000);
+            apart_by_dir(&mut pre, &t, text, dir, base, Some(home));
+            pre
+        };
+        // The apart thread's hit is its bare file, dropped: the near
+        // thread's branch hit no longer shares the message.
+        let pre = run("bash slow.sh on feat-y");
+        assert_eq!(pre[0].entity, 0.0, "{pre:?}");
+        assert_eq!(
+            pre[1].entity,
+            entity_of(&[(Kind::Branch, "feat-y".into())], 1)
+        );
+        // The apart thread keeps its branch hit, scored alone; a branch of
+        // its own is still another thread's entity named, as before.
+        let pre = run("bash slow.sh on feat-x");
+        assert_eq!(
+            pre[0].entity,
+            entity_of(&[(Kind::Branch, "feat-x".into())], 1)
+        );
+        assert_eq!(pre[0].hits, ["feat-x"]);
+        assert_eq!(pre[1].sticky, sticky(0, 600_000) * 0.5, "{pre:?}");
+        // Only the dropped file is named: nothing names a thread, so the
+        // near thread keeps its whole stickiness and chain.
+        let pre = run("bash slow.sh census");
+        let plain = pre_route("census", &[&near], Some(&last), 1_000, 600_000);
+        assert_eq!(
+            (pre[1].sticky, pre[1].chain, pre[1].score),
+            (plain[0].sticky, plain[0].chain, plain[0].score),
+            "{pre:?}"
+        );
     }
 
     /// The `new` option rides only the ask the stickiness cap made

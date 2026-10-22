@@ -485,7 +485,7 @@ pub mod notify {
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
         /// A thread changed (theseus-sjzm, `threads::ThreadChanged`); the router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
         THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
-        /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it.
+        /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it and to every watcher of the home session.
         THREAD_PLACED = "thread.placed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
@@ -2185,6 +2185,8 @@ pub struct TurnSubmitResult {
     pub files: Option<files_left::FilesLeft>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
+    /// The deferred-tool families this turn's first request loaded past its place's budget, each with its tokens and
+    /// who admitted it (`named` or `jev`), under `[tools.defer] admit_ceiling` (theseus-xlri5); none when nothing passed.
     pub raised: Option<route::ToolsRaised>,
     /// The sources of the handles the reply cites, resolved against this
     /// turn's recall (theseus-ejdk); none when it cited none, and none a
@@ -2255,6 +2257,11 @@ pub struct ConfirmRequest {
     pub correlation_id: String,
     pub session_id: String,
     pub execution_id: String,
+    /// The turn whose call asks, when a turn made the call: an execution holds many turns of its
+    /// session, so a chat that follows a thread's session shows only the questions of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub turn_id: Option<String>,
     pub tool: String,
     #[cfg_attr(test, ts(type = "unknown"))]
     pub input: Value,

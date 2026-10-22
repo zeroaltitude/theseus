@@ -46,6 +46,7 @@ impl Change {
             session_id: self.session_id.clone(),
             verb: verb.into(),
             task: self.task.clone(),
+            turn_id: None,
         })
     }
 

@@ -639,6 +639,7 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),
+        turn_id: None,
         tool: PROMOTE.into(),
         reason: args["question"].as_str().unwrap_or_default().to_string(),
         input: args,

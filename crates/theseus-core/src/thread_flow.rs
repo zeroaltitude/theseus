@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use theseus_protocol::thread_route::RouteHow;
+use theseus_protocol::threads::WorkingSet;
 
 use crate::approval::Answerer;
 use crate::judge::inbound::Early;
@@ -79,6 +80,9 @@ struct Recent {
     /// (turn, thread slug) of turns that ran in a thread, newest last.
     turns: VecDeque<(String, String)>,
     routed: VecDeque<Routed>,
+    /// (turn, thread slug, what the turn's message grew into it) of turns
+    /// whose message named something new, newest last: a move takes it back.
+    grew: VecDeque<(String, String, WorkingSet)>,
 }
 
 /// The router's memory.
@@ -125,6 +129,23 @@ impl State {
         while r.turns.len() > TURNS {
             r.turns.pop_front();
         }
+    }
+
+    /// The turn's message grew `added` into the thread `slug`.
+    pub fn grew(&self, turn: &str, slug: &str, added: WorkingSet) {
+        let mut r = lock(&self.recent);
+        r.grew
+            .push_back((turn.to_string(), slug.to_string(), added));
+        while r.grew.len() > TURNS {
+            r.grew.pop_front();
+        }
+    }
+
+    /// What the turn's message grew, once: the thread and the entries.
+    pub fn take_grew(&self, turn: &str) -> Option<(String, WorkingSet)> {
+        let mut r = lock(&self.recent);
+        let i = r.grew.iter().position(|(t, _, _)| t == turn)?;
+        r.grew.remove(i).map(|(_, s, w)| (s, w))
     }
 
     /// The thread a turn ran in.

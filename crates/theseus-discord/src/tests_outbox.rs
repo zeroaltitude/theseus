@@ -1411,6 +1411,7 @@ async fn a_change_from_an_unwatched_session_reaches_its_homes_board() {
         session_id: "ses_0000000000000000000000terminal".into(),
         verb: "created".into(),
         task: t,
+        turn_id: None,
     });
     // The binding's watch of every session is a task of its start's.
     let c = core.clone();

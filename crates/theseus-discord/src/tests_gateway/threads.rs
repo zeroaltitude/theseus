@@ -687,6 +687,7 @@ async fn a_threads_task_board_lands_in_its_discord_thread() {
         session_id: "ses_0000000000000000000000terminal".into(),
         verb: "created".into(),
         task,
+        turn_id: None,
     });
     r.until("the binding hears every session", || {
         r.core.bus.watching_all() > 0

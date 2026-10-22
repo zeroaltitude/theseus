@@ -22,4 +22,9 @@ class: string, est_tokens: number, parts: Array<DetourPart>,
 /**
  * The tool families the request loaded.
  */
-families: Array<string>, };
+families: Array<string>, 
+/**
+ * Whether the request carried the turn's own recall; rows from before
+ * this field say nothing (a quick detour did, a trivial one did not).
+ */
+recall?: boolean, };

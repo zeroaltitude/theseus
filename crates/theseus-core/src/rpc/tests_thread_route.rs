@@ -1603,14 +1603,18 @@ async fn a_file_named_from_another_directory_is_not_the_threads() {
         let jev = FakeJev::start().unwrap();
         let r = rig(&jev, 8);
         let c = &r.core;
-        thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], &[ROOT]));
+        // The thread holds `slow.sh` as an owner or an import gave it: growth
+        // no longer adds a bare file name (theseus-iw50k).
+        let mut dev = ws(&["#412"], &[], &[ROOT]);
+        dev.files = vec!["slow.sh".into()];
+        thread(c, "dev", "lighthouse dev", dev);
         thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
         let dm = home(c, Some(&format!("dm:{OWNER}")));
         thread_answer(&jev, "dev", 0.75);
         let first = submit(c, &dm, &dry(1)).await;
         assert_eq!(first.session_id, session_of(c, "dev"));
         let files = c.threads().get("dev").unwrap().working_set.files.clone();
-        assert!(files.iter().any(|f| f == "slow.sh"), "grown: {files:?}");
+        assert_eq!(files, ["slow.sh"], "grown: {files:?}");
         thread_answer(&jev, "home", 0.95);
         let mut p = params(&dm, &dry(2), None);
         p.dir = Some(dir.into());
@@ -1626,4 +1630,55 @@ async fn a_file_named_from_another_directory_is_not_the_threads() {
         };
         assert_eq!(res.session_id, want, "{dir}: {last}");
     }
+}
+
+/// A message the owner moved grows the thread it was moved to, and not the
+/// one it ran in (theseus-iw50k): what its words grew into the wrong thread
+/// is taken back before the message runs again, so the right thread, which
+/// would not take an entity another live thread holds, grows from it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_moved_message_grows_the_thread_it_was_moved_to() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 8);
+    let c = &r.core;
+    thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], &[]));
+    thread(c, "ops", "ops rota", ws(&["#977"], &[], &[]));
+    let dm = home(c, Some(&format!("dm:{OWNER}")));
+    thread_answer(&jev, "ops", 0.75);
+    let first = submit(c, &dm, "look at OPS-4214 for the census").await;
+    assert_eq!(first.session_id, session_of(c, "ops"));
+    let refs = |slug: &str| c.threads().get(slug).unwrap().working_set.refs.clone();
+    assert!(
+        refs("ops").iter().any(|e| e == "OPS-4214"),
+        "{:?}",
+        refs("ops")
+    );
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::THREAD_MOVE,
+            ThreadMoveParams {
+                session_id: dm.clone(),
+                to: "dev".into(),
+                turn_id: None,
+                author: None,
+                discord: None,
+            },
+        )
+        .await;
+    w.response(id).await;
+    assert!(
+        refs("dev").iter().any(|e| e == "OPS-4214"),
+        "{:?}",
+        refs("dev")
+    );
+    assert!(
+        !refs("ops").iter().any(|e| e == "OPS-4214"),
+        "{:?}",
+        refs("ops")
+    );
+    assert!(
+        refs("ops").iter().any(|e| e == "#977"),
+        "what it held stays"
+    );
 }

@@ -85,6 +85,48 @@ fn held(sets: &[&WorkingSet], e: &str) -> bool {
     })
 }
 
+/// `named` with its bare file names dropped: a working set grows a file only
+/// from a path (`tools/slow.sh`), since a bare name (`slow.sh`) names a file
+/// of whatever directory the message came from.
+pub fn paths_only(mut named: WorkingSet) -> WorkingSet {
+    named.files.retain(|f| f.contains('/'));
+    named
+}
+
+/// The entries `named` gave that `next` holds and `current` did not: what a
+/// message's growth added, to be taken back if the message is moved.
+pub fn added_by(current: &WorkingSet, next: &WorkingSet, named: &WorkingSet) -> WorkingSet {
+    let pick = |c: &[String], n: &[String], by: &[String]| -> Vec<String> {
+        n.iter()
+            .filter(|e| !c.contains(e) && by.iter().any(|b| b.eq_ignore_ascii_case(e)))
+            .cloned()
+            .collect()
+    };
+    WorkingSet {
+        roots: pick(&current.roots, &next.roots, &named.roots),
+        repos: pick(&current.repos, &next.repos, &named.repos),
+        branches: pick(&current.branches, &next.branches, &named.branches),
+        refs: pick(&current.refs, &next.refs, &named.refs),
+        files: pick(&current.files, &next.files, &named.files),
+        hosts: pick(&current.hosts, &next.hosts, &named.hosts),
+    }
+}
+
+/// `current` less the entries of `taken`.
+pub fn without(current: &WorkingSet, taken: &WorkingSet) -> WorkingSet {
+    let keep = |c: &[String], t: &[String]| -> Vec<String> {
+        c.iter().filter(|e| !t.contains(e)).cloned().collect()
+    };
+    WorkingSet {
+        roots: keep(&current.roots, &taken.roots),
+        repos: keep(&current.repos, &taken.repos),
+        branches: keep(&current.branches, &taken.branches),
+        refs: keep(&current.refs, &taken.refs),
+        files: keep(&current.files, &taken.files),
+        hosts: keep(&current.hosts, &taken.hosts),
+    }
+}
+
 /// `current` with what the turn `touched` and what its message `named` added
 /// (touched first), but for what `elsewhere` (every other live thread's set)
 /// holds; each list takes nothing past [`MAX_SET`].
@@ -212,6 +254,30 @@ mod tests {
         let w = grow(&cur, &touched, &WorkingSet::default(), &[]);
         assert_eq!(w.files, full);
         assert_eq!(w.roots, ["tarnlib"]);
+    }
+
+    /// A set grows a file from a path, never from a bare name; and what a
+    /// message's growth added is exactly what taking it back removes.
+    #[test]
+    fn a_bare_file_name_does_not_grow_a_set() {
+        let named = |f: &str| {
+            paths_only(WorkingSet {
+                files: vec![f.into()],
+                ..Default::default()
+            })
+        };
+        let none = WorkingSet::default();
+        assert_eq!(grow(&none, &none, &named("slow.sh"), &[]), none);
+        assert_eq!(
+            grow(&none, &none, &named("tools/slow.sh"), &[]).files,
+            ["tools/slow.sh"]
+        );
+        let cur = ws(&[], &["OPS-1"], &[]);
+        let n = ws(&[], &["OPS-1", "OPS-2"], &[]);
+        let next = grow(&cur, &none, &n, &[]);
+        let added = added_by(&cur, &next, &n);
+        assert_eq!(added.refs, ["OPS-2"]);
+        assert_eq!(without(&next, &added), cur);
     }
 
     /// Nothing new leaves the set as it was, byte for byte.

@@ -142,7 +142,7 @@ impl TurnRunner {
 
     /// This turn's own verdict's `personal` answer, when it warns: the warning
     /// to the owner's DM and its row.
-    fn personal_warn(&self, t: &mut Turn<'_>, v: Option<&Verdict>) {
+    pub(super) fn personal_warn(&self, t: &mut Turn<'_>, v: Option<&Verdict>) {
         let Some(v) = v.filter(|v| v.turn == t.tc.turn_id) else {
             return;
         };

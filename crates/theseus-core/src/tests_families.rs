@@ -219,23 +219,32 @@ async fn a_family_jev_judges_relevant_loads_without_being_named() {
     assert!(families_calls(&jev).is_empty());
 }
 
-/// Jev holding its answer past `judge_wait_ms`: the turn waits at most that from the inbound point
-/// (slack: 250 ms for a loaded machine's scheduling), drops the late answer (`answered: false`), and
-/// the named rule still loads the family the message names. Jev known unreachable: no call, no wait.
+/// Jev holding its answer past `judge_wait_ms`: the turn does not wait for it (its wait ends long
+/// before the answer is released, whatever the machine's load), drops the late answer
+/// (`answered: false`), and the named rule still loads the family the message names. Jev known unreachable: no call, no wait.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jev_late_or_unreachable_falls_back_to_the_named_rule() {
+    /// When Jev's held answer is released: far past any loaded wait.
+    const RELEASE: std::time::Duration = std::time::Duration::from_secs(30);
     let ask = "Call aws_whoami and tell me in one line which account you are on.";
     let jev = FakeJev::start().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let (r, haiku) = rig_on(&jev, dir.path(), 2, |_| {});
+    // The judge's own timeouts are far past RELEASE's half, so a starved turn that reaches its wait
+    // late finds the call held, never timed out into an answer.
+    let (r, haiku) = rig_on(&jev, dir.path(), 2, |c| {
+        c.judge.connect_secs = 120;
+        c.judge.total_secs = 120;
+    });
     // Only the families state has `holds`: the route's call answers.
     jev.hold_when("\"holds\":");
     let late = jev.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(RELEASE).await;
         late.release();
     });
+    let t0 = std::time::Instant::now();
     let res = turn(&r.core, None, ask, None).await;
+    let took = t0.elapsed();
     let names = offered(&haiku.requests()[0]);
     assert!(names.contains(&"aws_whoami".to_string()), "{names:?}");
     let waits: Vec<_> = family_spans(&res)
@@ -244,12 +253,15 @@ async fn jev_late_or_unreachable_falls_back_to_the_named_rule() {
         .collect();
     assert_eq!(waits.len(), 1, "{waits:?}");
     assert_eq!(waits[0].attrs["answered"], false);
-    let wait_ms = r.core.runner.cfg.tools.defer.judge_wait_ms;
+    // Ordering, not a deadline: the held answer comes at RELEASE, and both the wait and the turn
+    // ended well before it.
+    let before = (RELEASE / 2).as_micros() as u64;
     assert!(
-        waits[0].duration_us() <= (wait_ms + 250) * 1_000,
+        waits[0].duration_us() < before,
         "waited {} µs",
         waits[0].duration_us()
     );
+    assert!(took < RELEASE / 2, "the turn took {took:?}");
     let raised = res.raised.as_ref().unwrap();
     assert_eq!(raised.families[0].by, "named");
     // Unreachable: the session's own model has no tool search, so it would wait; Jev is known

@@ -3,4 +3,8 @@
 /**
  * How a turn ran when it detoured: on `profile`, in a request of its own.
  */
-export type ContextDetour = { kind: string, profile: string, model: string, };
+export type ContextDetour = { kind: string, profile: string, model: string, 
+/**
+ * As [`ContextDetoured::recall`].
+ */
+recall?: boolean, };
