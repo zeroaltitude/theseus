@@ -536,15 +536,7 @@ impl TurnRunner {
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
-            Err(f) => {
-                // A failed compile still holds a reach for the owner's
-                // personal details: the requester gets the fixed line, not
-                // the failure (theseus-cljlz).
-                let last = session.last_turn_id.as_deref();
-                let (verdict, _) = self.read_verdict(t, got, live, rx, last, unreachable);
-                self.personal_warn(t, verdict.as_ref());
-                return Ok(Err(f));
-            }
+            Err(f) => return Ok(Err(self.held(t, f, (got, live, unreachable), rx, session))),
         };
         let base = t.target.profile.clone();
         let (verdict, reason) = self.read_verdict(
@@ -623,6 +615,23 @@ impl TurnRunner {
             return self.compile_detour(t, session, spec, i);
         }
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
+    }
+
+    /// A failed compile still holds a reach for the owner's personal details:
+    /// the verdict is read and the privacy check run, and `f` goes on as it
+    /// was; the turn loop then ends the turn held (theseus-cljlz).
+    fn held(
+        &self,
+        t: &mut Turn<'_>,
+        f: Failure,
+        (got, live, unreachable): (Got, bool, bool),
+        rx: RouteWait,
+        session: &SessionRecord,
+    ) -> Failure {
+        let last = session.last_turn_id.as_deref();
+        let (verdict, _) = self.read_verdict(t, got, live, rx, last, unreachable);
+        self.personal_warn(t, verdict.as_ref());
+        f
     }
 
     /// The turn detours: its record keeps the session's own target, and the
