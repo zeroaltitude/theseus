@@ -44,7 +44,7 @@ struct Rig {
 /// stop nudge on (the default), and `proc.run` in process with a notice;
 /// then `tweak`.
 fn rig(script: Vec<Scripted>, jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch::tempdir();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = Config::example();

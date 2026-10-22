@@ -349,6 +349,22 @@ class TheRustRule(unittest.TestCase):
                          (len('{"name":"t"}') + len("fs_read") + len('{"path":"a"}') + 240, 99, 4, 3, 2))
         self.assertEqual(c.tokens(tk.RATES["CLAUDE"]), math.ceil(c.json / 2.4) + 30 + 4 * 3 + 3 + 2 * 15)
 
+    def test_deferred_tools_cost_one_constant_as_the_daemon_counts_them(self):
+        """theseus-93lkm: a request that hides tools (`defer_loading`) is
+        counted with a constant for all of them and the search tool's own,
+        as tools_defer.rs counts it, so the stand-in's count is the daemon's."""
+        src = self.src("theseus-core/src/tools_defer.rs")
+        for name, value in (("DEFERRED_BYTES", tk.DEFERRED_BYTES), ("SEARCH_BYTES", tk.SEARCH_BYTES)):
+            self.assertEqual(int(re.search(rf"pub const {name}: u64 = (\d+);", src).group(1)), value)
+        self.assertIn(f'pub const SEARCH_TOOL: &str = "{tk.SEARCH_TOOL}";', src)
+        loaded = {"name": "fs_read", "input_schema": {"type": "object"}}
+        tools = [{"name": tk.SEARCH_TOOL}, loaded, {"name": "a", "defer_loading": True},
+                 {"name": "b" * 900, "defer_loading": True}]
+        self.assertEqual(tk.tools_bytes(tools), tk.SEARCH_BYTES + len(json.dumps(loaded, separators=(",", ":")))
+                         + tk.DEFERRED_BYTES)
+        self.assertEqual(tk.tools_bytes([loaded]), len(json.dumps(loaded, separators=(",", ":"))))
+        self.assertEqual(tk.census_of_request({"tools": tools}).json, tk.tools_bytes(tools))
+
 
 class Names(unittest.TestCase):
     def test_no_generated_name_or_value_is_in_exam_v2(self):

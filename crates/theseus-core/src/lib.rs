@@ -208,6 +208,8 @@ pub fn id_ms(id: &str) -> Option<u64> {
 }
 
 #[cfg(test)]
+mod scratch;
+#[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
 mod tests_activation;

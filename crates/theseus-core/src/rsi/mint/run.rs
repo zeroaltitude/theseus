@@ -473,6 +473,11 @@ struct Tmp(PathBuf);
 
 impl Tmp {
     fn new(tag: &str) -> Result<Self> {
+        // A test's core is leaked with its tasks, so this may never drop:
+        // the test helper removes it at exit.
+        #[cfg(test)]
+        let dir = crate::scratch::dir(tag);
+        #[cfg(not(test))]
         let dir = std::env::temp_dir().join(format!("{tag}-{}", crate::new_id("fx")));
         std::fs::create_dir_all(&dir)?;
         Ok(Self(dir))

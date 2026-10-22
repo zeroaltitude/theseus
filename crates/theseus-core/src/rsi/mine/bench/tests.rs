@@ -211,7 +211,7 @@ fn bench_trials_are_never_mixed_with_a_repository() {
 
 #[test]
 fn a_directory_of_trials_is_read_newest_first_by_the_trial_name() {
-    let d = std::env::temp_dir().join(format!("theseus-bench-{}", crate::new_id("b")));
+    let d = crate::scratch::dir("bench");
     for (i, task) in ["alpha", "beta"].iter().enumerate() {
         let a = d.join(format!("job1/{task}__x{i}/agent"));
         std::fs::create_dir_all(&a).unwrap();
