@@ -142,6 +142,12 @@ pub struct PackReport {
     pub latency: Vec<LatencyRow>,
     pub questions: Vec<QuestionReport>,
     pub holdout: Holdout,
+    /// The ontology pack's alone (`onto.v1`, theseus-2tqqs): per kind, Jev's
+    /// writes in the 7 days to the report and the share the owner took back
+    /// (`ontology.undo`). Absent for every other pack.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<crate::judge_runs::UndoRate>>", optional))]
+    pub undo: Vec<crate::judge_runs::UndoRate>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

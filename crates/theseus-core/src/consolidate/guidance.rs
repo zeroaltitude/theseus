@@ -16,7 +16,9 @@
 //!   sampled sessions last used, and a category whose sessions disagree
 //!   waits, counted. The request holds the category's name and path, and for
 //!   its newest [`SAMPLE`] sessions the title and the first and last message
-//!   the person wrote, each cut to [`TEXT_CHARS`] characters and scrubbed.
+//!   the person wrote, each cut to [`TEXT_CHARS`] characters and scrubbed. A
+//!   session whose first or last message cannot be read is left out, and the
+//!   category waits only when fewer than [`MIN_SESSIONS`] remain.
 //! - **Money**: no new budget. The worst case is reserved at the profile's
 //!   prices first, and the night stops before a call would pass `[memory]
 //!   synth_limit_usd_per_day`, counting consolidation's spend today and these
@@ -29,7 +31,8 @@
 //!   write is in the morning note.
 //!
 //! Never run by the owner's `memory.consolidate`: only the nightly tender calls
-//! it.
+//! it, and only while `[ontology] dream_guidance` is on (the default; off is
+//! its rollback: nothing is read, called or written).
 
 use std::sync::Arc;
 
@@ -221,7 +224,8 @@ impl Core {
     /// The request for `id`'s newest sessions, and where to send it: the
     /// profile's target and provider. `None` when the category waits: its
     /// sessions last used different profiles, the profile or its provider is
-    /// not there, a session's text cannot be read, or the model has no price.
+    /// not there, fewer than [`MIN_SESSIONS`] of them have text that can be
+    /// read, or the model has no price.
     fn dream_request(
         &self,
         o: &Ontology,
@@ -242,18 +246,24 @@ impl Core {
             .resolve_target(&live, Some(&profile), None, None)
             .ok()?;
         let provider = self.runner.providers.get(&target.provider).cloned()?;
+        // A session whose first or last human text cannot be read is left out
+        // of the call (theseus-23wd8); the category waits only when fewer than
+        // [`MIN_SESSIONS`] readable ones remain.
         let seen: Vec<Seen> = theseus_store::blocking(|| {
             sample
                 .iter()
-                .map(|s| {
+                .filter_map(|s| {
                     Some(Seen {
                         title: cut(s.title.as_deref().unwrap_or_default()),
                         first: cut(&self.human_end(&s.session_id, true)?),
                         last: cut(&self.human_end(&s.session_id, false)?),
                     })
                 })
-                .collect::<Option<Vec<Seen>>>()
-        })?;
+                .collect()
+        });
+        if seen.len() < MIN_SESSIONS {
+            return None;
+        }
         let path = o
             .path(id)
             .iter()
@@ -272,6 +282,9 @@ impl Core {
     /// for, a call under the day's limit and a write of the answer.
     pub async fn dream_guidance(&self, now_ms: u64) -> Result<Dreamed> {
         let mut out = Dreamed::default();
+        if !self.runner.cfg.ontology.dream_guidance {
+            return Ok(out);
+        }
         let limit = usd_to_micros(self.runner.memory.cfg().synth_limit_usd_per_day);
         let today = spend::local_day(now_ms);
         let stored: Option<DreamMark> = theseus_store::blocking(|| self.store.get_meta(MARK))?;
@@ -283,7 +296,8 @@ impl Core {
         let mut spent = consolidated + usd_to_micros(mark.spent_usd);
         let o = self.runner.ontology.snapshot(&self.store)?;
         let mut called = 0;
-        for (id, sessions) in self.dream_wanted(&o) {
+        let wanted = theseus_store::blocking(|| self.dream_wanted(&o));
+        for (id, sessions) in wanted {
             if called >= PER_NIGHT || self.outbox.stopping() {
                 break;
             }

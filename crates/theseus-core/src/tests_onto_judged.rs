@@ -457,3 +457,56 @@ fn the_packs_names_are_mined_from_the_titles() {
     assert!(names.contains(&"Ledger".to_string()), "{names:?}");
     assert!(names.contains(&"Beacon".to_string()), "{names:?}");
 }
+
+/// The sweep's mark is written after each paid question (theseus-23wd8): a
+/// run stopped while its second question waits (the daemon's stop drops the
+/// run's future) keeps the first question's spend and its asked key, so the
+/// next run neither spends it again nor asks it again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_sweep_mark_survives_a_stop() {
+    let jev = FakeJev::start().unwrap();
+    jev.script("same_thing", Scripted::Noul(0.7));
+    let r = rig(jev, |_| {});
+    plant_pair(&r.core);
+    let at = fresh();
+    session(&r.core, "g1", "Bed rotation plan", at);
+    machine(
+        &r.core,
+        "j-0002",
+        vec![
+            topic("topic:garden-notes", "garden notes"),
+            topic("topic:garden-notebook", "garden notebook"),
+            held("g1", "topic:garden-notes", at),
+        ],
+    );
+    let o = snapshot(&r.core);
+    let pairs = o.merge_pairs();
+    assert_eq!(pairs.len(), 2, "{pairs:?}");
+    // The second question waits until the test lets it go.
+    r.jev.hold_when(&o.category(&pairs[1].0).unwrap().name);
+    let core = r.core.clone();
+    let run = tokio::spawn(async move {
+        let mut swept = core.onto_sweep(fresh()).unwrap();
+        core.onto_sweep_judged(fresh(), &mut swept).await
+    });
+    let waited = std::time::Instant::now();
+    while r.jev.seen().len() < 2 {
+        assert!(
+            waited.elapsed().as_secs() < 30,
+            "the second question never came"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    run.abort();
+    assert!(run.await.unwrap_err().is_cancelled());
+    r.jev.release();
+    let kept: Mark = r
+        .core
+        .store
+        .get_meta(MARK)
+        .unwrap()
+        .expect("the mark was written before the stop");
+    let first = format!("pair {} {}", pairs[0].0, pairs[0].1);
+    assert_eq!(kept.asked.keys().collect::<Vec<_>>(), [&first]);
+    assert!(kept.spent_usd > 0.0, "{kept:?}");
+}

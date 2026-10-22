@@ -2,6 +2,7 @@
 import type { Holdout } from "./Holdout";
 import type { LatencyRow } from "./LatencyRow";
 import type { QuestionReport } from "./QuestionReport";
+import type { UndoRate } from "./UndoRate";
 
 /**
  * One pack version's report: every judgment of it up to the run, and its
@@ -31,4 +32,10 @@ agreement: number | null, disagreements: number, cost_usd: number,
  * Latency per workload class (`task`, `reply`, `tools`, `inbound`, …):
  * each call that reached Jev, whole (`timing.total_ms`).
  */
-latency: Array<LatencyRow>, questions: Array<QuestionReport>, holdout: Holdout, };
+latency: Array<LatencyRow>, questions: Array<QuestionReport>, holdout: Holdout, 
+/**
+ * The ontology pack's alone (`onto.v1`, theseus-2tqqs): per kind, Jev's
+ * writes in the 7 days to the report and the share the owner took back
+ * (`ontology.undo`). Absent for every other pack.
+ */
+undo?: Array<UndoRate>, };

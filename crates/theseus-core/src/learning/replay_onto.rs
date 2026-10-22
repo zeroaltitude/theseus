@@ -10,6 +10,13 @@
 //!   would have judged it (`judge::inbound::input` and `onto::onto_input`)
 //!   against the ontology as it stands; its labels are the import's
 //!   memberships, which `hide_labels` keeps out of the state.
+//! - **The state is the session's at its first message** (theseus-bpsnj),
+//!   when it held no category: every membership of the session is hidden,
+//!   the import's, Jev's and the operator's alike (no pool item says
+//!   `session`), a category's last use (`used_ms`) leaves out the session's
+//!   own lists, and the naming call's suggested names, all made after a
+//!   judgment of the session's, are not offered (`as_at_first`). The other
+//!   sessions' lists stay as they stand now.
 //! - **The run** is [`replay`](super::replay)'s: each call a `judge.call` row
 //!   (`purpose: replay`) scoped `judge.replay:<pack id>`, the run a
 //!   `judge.replay` row in the same frame, spend priced and reserved against
@@ -22,7 +29,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context as _};
 use serde_json::json;
-use theseus_judge::builders::ONTO_KINDS;
+use theseus_judge::builders::{OntoInput, ONTO_KINDS};
 use theseus_judge::price::{micros_to_usd, usd_to_micros};
 use theseus_judge::replay::{
     onto_asks, onto_markdown, onto_report, onto_scored, KindScore, LabelledCase, OntoReplay,
@@ -134,22 +141,22 @@ impl Core {
         }
         let mut left_out = left_out;
         let mut judgments: Vec<Judgment> = Vec::new();
-        for (case, a) in cases.iter().zip(&asks) {
+        for a in &asks {
             let mut ask = a.ask.clone();
             ask.id = Some(theseus_judge::new_id());
             match caller.ask(ask) {
                 Some(j) => judgments.push(j),
-                None => {
-                    left_out.push(ReplayLeftOut {
-                        judgment: case.session.clone(),
-                        reason: caller.left_reason(),
-                    });
-                    break;
-                }
+                None => break,
             }
         }
-        // A run cut short by its limit scores the sessions it reached.
+        // A run cut short by its limit scores the sessions it reached, and
+        // leaves out every one after, each with the limit's words.
         let reached = judgments.len();
+        let why = caller.left_reason();
+        left_out.extend(cases[reached..].iter().map(|case| ReplayLeftOut {
+            judgment: case.session.clone(),
+            reason: why.clone(),
+        }));
         let scored = onto_scored(&cases[..reached], &asks[..reached], &judgments);
         let now = theseus_protocol::now_unix_ms();
         let undo = match rows_since(&self.store, now.saturating_sub(WINDOW_MS))? {
@@ -272,7 +279,9 @@ impl Core {
             attachments: Vec::new(),
         };
         let mut input = inbound::input(&upto, &msg, Vec::new());
-        input.onto = Some(Box::new(crate::judge::onto::onto_input(self, o, &msg)));
+        let mut onto = crate::judge::onto::onto_input(self, o, &msg);
+        as_at_first(o, sid, &mut onto);
+        input.onto = Some(Box::new(onto));
         Ok(LabelledCase {
             session: sid.into(),
             input,
@@ -318,6 +327,57 @@ impl Core {
         self.rec(None).announce(&f);
         Ok(())
     }
+}
+
+/// What `--onto` refuses, since its run would ignore it (theseus-hdqkt): the
+/// set of a report or of ids. `candidate` and `pack_text` it honours. A
+/// client that calls the method itself is told as the CLI's parse tells.
+pub(crate) fn ignored_with_onto(p: &JudgeReplayParams) -> Option<String> {
+    let (flag, what) = if p.split.is_some() {
+        ("--split", "is for a report's holdout")
+    } else if p.errors {
+        (
+            "--errors",
+            "is for a report's judgments the incumbent got wrong",
+        )
+    } else if !p.judgments.is_empty() {
+        ("--judgments", "names judgments by id")
+    } else if p.report.is_some() {
+        ("--report", "names a report whose holdout is the set")
+    } else {
+        return None;
+    };
+    Some(format!(
+        "--onto replays the import's labelled sessions; {flag} {what} and is not used with \
+         it. Nothing was sent."
+    ))
+}
+
+/// The state as it stood at the session's first message, when the session
+/// held no category: no pool item is the session's, whatever the
+/// membership's origin; a category's last use leaves out the session's own
+/// lists; and no name a naming call suggested (each made after a judgment of
+/// the session's) is offered.
+pub(crate) fn as_at_first(o: &theseus_ontology::Ontology, sid: &str, input: &mut OntoInput) {
+    let own: BTreeSet<String> = o
+        .lists()
+        .filter(|l| l.session == sid)
+        .flat_map(|l| l.members.iter().map(|m| m.category.to_string()))
+        .collect();
+    let mut used: BTreeMap<String, u64> = BTreeMap::new();
+    for l in o.lists().filter(|l| l.session != sid) {
+        for m in &l.members {
+            let at = used.entry(m.category.to_string()).or_default();
+            *at = (*at).max(m.as_of_ms);
+        }
+    }
+    for item in input.kinds.iter_mut().flat_map(|k| k.pool.iter_mut()) {
+        item.session = false;
+        if own.contains(&item.id) {
+            item.used_ms = used.get(&item.id).copied().unwrap_or(0);
+        }
+    }
+    input.suggested.clear();
 }
 
 fn score(k: &KindScore) -> OntoKindScore {

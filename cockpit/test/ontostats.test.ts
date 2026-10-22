@@ -1,10 +1,12 @@
-// The ontology pack's line (theseus-wzvxp, R7d; the learning report's, theseus-0vhyn, R7e): judgments, acts, confirms and
-// undos counted from the ledger's `judge.call`, `onto.filed` and `ontology.undo` rows, in `src/lib/ontostats.ts`. Run by
-// `npm test` with node alone. Invented rows.
+// The ontology pack's line (theseus-wzvxp, R7d; the learning report's, theseus-0vhyn, R7e): judgments, acts and confirms
+// counted from the ledger's `judge.call` and `onto.filed` rows, in `src/lib/ontostats.ts`; the undo rate per kind is the
+// stored report's (theseus-ukmbn, theseus-2tqqs), which the daemon's `onto_undo::undo_rates` computes and its tests hold
+// (a distinct write, a sweep's not counted, a repeat once, a write of two kinds once for each), and the cockpit words.
+// Run by `npm test` with node alone. Invented rows.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import type { LedgerEntry } from '@protocol'
+import type { LedgerEntry, UndoRate } from '@protocol'
 import { ONTO_PACK, ontoKindWords, ontoLine, ontoStatsOf } from '../src/lib/ontostats.ts'
 
 let pos = 0
@@ -42,7 +44,8 @@ test('an act is a judgment that filed or attached; a confirm is one that only as
 })
 
 test('an undo is a distinct write of the pack’s that was taken back; a sweep’s write and a repeat are not', () => {
-  assert.equal(ontoStatsOf(ledger).undos, 1)
+  // That rule is the daemon's alone now (`onto_undo::undo_rates`): the day line counts no undo, so its rows change nothing.
+  assert.deepEqual(ontoStatsOf(ledger), ontoStatsOf(ledger.filter((r) => r.kind !== 'ontology.undo')))
 })
 
 test('a filing row whose judgment the history does not hold is not counted, so the parts never exceed the whole', () => {
@@ -52,14 +55,14 @@ test('a filing row whose judgment the history does not hold is not counted, so t
 
 test('an empty ledger has nothing, and the line says so without a rate', () => {
   const s = ontoStatsOf([])
-  assert.deepEqual([s.judgments, s.acts, s.confirms, s.undos], [0, 0, 0, 0])
+  assert.deepEqual([s.judgments, s.acts, s.confirms], [0, 0, 0])
   assert.equal(ontoLine(s), 'ontology: no judgments yet')
 })
 
-test('the line counts judgments, acts, confirms and undos, and the undo rate over the acts', () => {
-  assert.equal(ontoLine(ontoStatsOf(ledger)), 'ontology: 7 judgments · 4 acts · 1 confirm · 1 undo (25% of acts)')
+test('the line counts judgments, acts and confirms, the day’s activity, with no undo count or rate of its own', () => {
+  assert.equal(ontoLine(ontoStatsOf(ledger)), 'ontology: 7 judgments · 4 acts · 1 confirm')
   const plural = ontoStatsOf([call('a', 1), filed('a', 1, { kind: 'topic', outcome: 'asked' }), call('b', 2), filed('b', 2, { kind: 'topic', outcome: 'asked' })])
-  assert.equal(ontoLine(plural), 'ontology: 2 judgments · 0 acts · 2 confirms · 0 undos')
+  assert.equal(ontoLine(plural), 'ontology: 2 judgments · 0 acts · 2 confirms')
 })
 
 test('the Judgment view draws the line under the ontology pack’s row from the shared ledger history', () => {
@@ -80,41 +83,44 @@ const two: LedgerEntry[] = [
   undo('k2', at(0)),
 ]
 
+// What the daemon stores for `two` (`onto_undo::undo_rates`): k2's write is one of each kind it wrote, and k3's project
+// attach is no write (it carries no undo row, so `ontology.undo` cannot take it back).
+const stored: UndoRate[] = [
+  { kind: 'person', writes: 1, undone: 1, rate: 1 },
+  { kind: 'topic', writes: 2, undone: 1, rate: 0.5 },
+]
+
 test('each kind’s acts and undos are counted, a write that acted on two kinds once for each', () => {
   const s = ontoStatsOf(two)
-  assert.deepEqual(s.kinds, [
-    { kind: 'person', acts: 1, undos: 1, rate: 1 },
-    { kind: 'project', acts: 1, undos: 0, rate: 0 },
-    { kind: 'topic', acts: 2, undos: 1, rate: 0.5 },
-  ])
+  assert.equal(ontoKindWords(stored, '2026-10-20'), "undo rate by kind (Jev's writes, 7 days to 2026-10-20): person 1 of 1 (100%) · topic 1 of 2 (50%)")
   assert.equal(s.acts, 3, 'the writes are 3 though the kind acts are 4')
-  assert.equal(s.undos, 1)
+  assert.ok(!('kinds' in s) && !('undos' in s), 'the cockpit keeps no tally of its own')
 })
 
 test('a kind whose acts were never taken back has a rate of zero, and a ledger with no acts has no kinds', () => {
-  assert.deepEqual(ontoStatsOf([]).kinds, [])
-  assert.deepEqual(ontoStatsOf([call('a', 1), filed('a', 1, { kind: 'topic', outcome: 'asked' })]).kinds, [])
+  assert.equal(ontoKindWords([{ kind: 'topic', writes: 3, undone: 0, rate: 0 }], '2026-10-20'), "undo rate by kind (Jev's writes, 7 days to 2026-10-20): topic 0 of 3 (0%)")
+  assert.equal(ontoKindWords([], '2026-10-20'), '')
 })
 
-test('the report’s day keeps the judgments made that local day, with their filings and the undos of them whenever they came', () => {
+test('the report’s day keeps the judgments made that local day, with their filings whenever they came', () => {
   const day = (daysAgo: number) => `2026-10-${String(20 - daysAgo).padStart(2, '0')}`
   const a = ontoStatsOf(ledger, { day: day(3) })
-  assert.deepEqual([a.judgments, a.acts, a.confirms, a.undos], [2, 2, 0, 1], 'j1 and j2; j2’s undo came on a later day')
+  assert.deepEqual([a.judgments, a.acts, a.confirms], [2, 2, 0], 'j1 and j2')
   const b = ontoStatsOf(ledger, { day: day(2) })
-  assert.deepEqual([b.judgments, b.acts, b.confirms, b.undos], [2, 0, 1, 0])
+  assert.deepEqual([b.judgments, b.acts, b.confirms], [2, 0, 1])
   assert.equal(ontoStatsOf(ledger, { day: '2025-01-01' }).judgments, 0)
   assert.equal(ontoStatsOf(ledger, {}).judgments, 7, 'no day: the whole ledger')
 })
 
-test('the undo rate per kind reads as words, kinds by name, and nothing when there were no acts', () => {
-  assert.equal(ontoKindWords(ontoStatsOf(two)), 'undo rate by kind: person 1 of 1 (100%) · project 0 of 1 (0%) · topic 1 of 2 (50%)')
-  assert.equal(ontoKindWords(ontoStatsOf([])), '')
+test('the undo rate per kind reads as words, with its window, kinds as the report holds them, and nothing when there were no acts', () => {
+  assert.equal(ontoKindWords(stored, '2026-10-21'), "undo rate by kind (Jev's writes, 7 days to 2026-10-21): person 1 of 1 (100%) · topic 1 of 2 (50%)")
+  assert.equal(ontoKindWords([], '2026-10-21'), '')
 })
 
-test('the learning report draws the pack’s line, and the rate by kind, from the ledger for the report’s day', () => {
+test('the learning report draws the pack’s line from the ledger for the report’s day, and the rate by kind from the report', () => {
   const v = readFileSync(new URL('../src/components/LearningReport.tsx', import.meta.url), 'utf8')
   assert.match(v, /ontoStatsOf\([^)]*day: date/)
   assert.match(v, /ontoLine\(/)
-  assert.match(v, /ontoKindWords\(/)
+  assert.match(v, /ontoKindWords\(p\.undo \?\? \[\], date\)/)
   assert.match(v, /p\.pack === ONTO_PACK/)
 })

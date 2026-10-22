@@ -38,7 +38,8 @@ pub struct ReplayArgs {
     judgments: Vec<String>,
     /// Replay `onto.v1` (or the named version) over the sessions the import
     /// labelled, scored against its labels. Sends your history to Jev.
-    #[arg(long)]
+    /// The set is the import's, so a report's or ids' flags are refused.
+    #[arg(long, conflicts_with_all = ["report", "split", "errors", "judgments"])]
     onto: bool,
     /// With `--onto`: at most this many sessions, newest first (50).
     #[arg(long, requires = "onto")]
@@ -227,4 +228,48 @@ pub async fn learn(conn: &mut Conn, json: bool, a: LearnArgs) -> Result<()> {
         print(proposal_lines(&r));
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::ReplayArgs;
+
+    #[derive(Parser)]
+    struct Replay {
+        #[command(flatten)]
+        a: ReplayArgs,
+    }
+
+    fn parse(args: &[&str]) -> Result<ReplayArgs, clap::Error> {
+        Replay::try_parse_from(std::iter::once("replay").chain(args.iter().copied())).map(|r| r.a)
+    }
+
+    /// `--onto` replays the import's labelled sessions, so the flags that name
+    /// another set are refused at the parse, never ignored (theseus-hdqkt).
+    #[test]
+    fn onto_refuses_flags_it_ignores() {
+        for args in [
+            &["--onto", "--split", "train"][..],
+            &["--onto", "--errors"],
+            &["--onto", "--judgments", "jdg_a"],
+            &["--onto", "--report", "rpt_2026-10-04_onto.v1"],
+        ] {
+            let e = parse(args)
+                .err()
+                .unwrap_or_else(|| panic!("{args:?} parsed"));
+            assert_eq!(
+                e.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{args:?}"
+            );
+            assert!(e.to_string().contains("--onto"), "{e}");
+        }
+        let a = parse(&["--onto", "--limit", "5"]).unwrap();
+        assert!(a.onto);
+        assert_eq!(a.limit, Some(5));
+        // What the onto run honours: the candidate.
+        assert!(parse(&["onto.v1", "--onto"]).unwrap().onto);
+    }
 }

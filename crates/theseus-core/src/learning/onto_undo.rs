@@ -1,11 +1,15 @@
 //! How much of Jev's ontology filing the owner took back (theseus-nngor): per
 //! kind, the writes Jev made in a window and the share an `ontology.undo`
-//! names. Pure over ledger rows, so the learning report's line can call it.
+//! names. Pure over ledger rows. It is the one definition of the undo rate
+//! (theseus-ukmbn): the replay's report and the stored learning report's
+//! `onto.v1` line read it, and the cockpit draws the stored line.
 //!
 //! A write is Jev's when its records' rows carry `undo.write` naming a
 //! judgment (`jdg_…`); the sweep's and the dream's writes carry theirs under
 //! other ids and are not counted. A write's kind is its records' kind, so a
-//! judgment that filed a topic and a resource is one write of each.
+//! judgment that filed a topic and a resource is one write of each. A
+//! project attach is no write here: it sets the session's record and carries
+//! no undo row, so `ontology.undo` cannot take it back.
 
 use std::collections::{BTreeMap, BTreeSet};
 

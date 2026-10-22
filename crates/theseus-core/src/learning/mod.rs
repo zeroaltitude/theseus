@@ -37,6 +37,8 @@ pub mod system;
 pub mod tender;
 #[cfg(test)]
 mod tests_replay_onto;
+#[cfg(test)]
+mod tests_report_undo;
 
 use std::collections::{BTreeMap, HashMap};
 

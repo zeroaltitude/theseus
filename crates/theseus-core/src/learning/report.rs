@@ -367,6 +367,8 @@ pub fn pack_report_of(
             &answered,
             labels,
         ),
+        // The ontology pack's undo line is the run's to fill: it reads the store.
+        undo: Vec::new(),
     }
 }
 

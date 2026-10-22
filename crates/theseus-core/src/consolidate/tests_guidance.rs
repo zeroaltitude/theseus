@@ -237,3 +237,67 @@ async fn a_category_whose_sessions_last_used_two_profiles_waits() {
         (0, 1, 0)
     );
 }
+
+/// A session whose person's text cannot be read is left out of the call, and
+/// the category is still written for from the five that can (theseus-23wd8):
+/// one unreadable session no longer makes the whole category wait.
+#[tokio::test]
+async fn the_dream_skips_an_unreadable_session() {
+    let r = rig(ANSWER, |_| {});
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    // A sixth, the newest, that holds the category and has no message.
+    let mut rec: SessionRecord = r.core.store.get_session("harbour-0").unwrap().unwrap();
+    rec.session_id = "harbour-quiet".into();
+    rec.title = Some("harbour session quiet".into());
+    rec.last_active_ms = now_unix_ms() + 60_000;
+    r.core.store.put_session("harbour-quiet", &rec).unwrap();
+    r.core
+        .ontology_machine_write(
+            Origin::Jev,
+            "j-0002",
+            vec![Record::Members(MemberList {
+                session: "harbour-quiet".into(),
+                kind: "topic".into(),
+                members: vec![Membership {
+                    category: id("topic:harbour"),
+                    origin: Origin::Jev,
+                    confidence: Some(0.9),
+                    as_of_ms: now_unix_ms(),
+                }],
+            })],
+        )
+        .unwrap();
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!((done.written.len(), done.waiting), (1, 0), "{done:?}");
+    let request = r
+        .model
+        .requests()
+        .into_iter()
+        .find(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
+        .expect("the call");
+    let content = request.messages[0]["content"][0]["text"].as_str().unwrap();
+    assert!(!content.contains("harbour session quiet"), "{content}");
+    assert!(content.contains("[5] harbour session"), "{content}");
+    assert!(!content.contains("[6]"), "{content}");
+}
+
+/// `[ontology] dream_guidance = false` is the dream's rollback: no call, and
+/// nothing written.
+#[tokio::test]
+async fn dream_guidance_off_writes_nothing() {
+    let r = rig(ANSWER, |c| c.ontology.dream_guidance = false);
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let before = snapshot(&r.core);
+    let last = r.core.store.last_position();
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!(done, super::guidance::Dreamed::default());
+    assert_eq!(asked(&r.model), 0);
+    assert_eq!(*snapshot(&r.core), *before);
+    assert_eq!(r.core.store.last_position(), last, "a record was written");
+    assert!(r
+        .core
+        .store
+        .get_meta::<super::guidance::DreamMark>(MARK)
+        .unwrap()
+        .is_none());
+}

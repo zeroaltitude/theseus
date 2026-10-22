@@ -2,6 +2,7 @@
 //! learning report, per pack version and question, with its holdout. Apart
 //! from `render.rs`, whose length the shape budget caps.
 
+use theseus_protocol::judge_runs::UndoRate;
 use theseus_protocol::learning::{
     Calibration, Holdout, JudgeLabelResult, LearningReport, PackReport, QuestionReport,
 };
@@ -89,6 +90,27 @@ fn holdout_lines(h: &Holdout, date: &str, out: &mut Vec<String>) {
     ));
 }
 
+/// The ontology pack's undo rate per kind, with its window (theseus-2tqqs), in
+/// the cockpit's words (`ontoKindWords`): `undo rate by kind (Jev's writes, 7
+/// days to 2026-10-21): person 1 of 1 (100%) · topic 1 of 2 (50%)`. None for a
+/// pack that carries none.
+pub fn undo_words(undo: &[UndoRate], date: &str) -> Option<String> {
+    if undo.is_empty() {
+        return None;
+    }
+    let kinds: Vec<String> = undo
+        .iter()
+        .map(|u| {
+            let pct = (u.rate.unwrap_or(0.0) * 100.0).round();
+            format!("{} {} of {} ({pct}%)", u.kind, u.undone, u.writes)
+        })
+        .collect();
+    Some(format!(
+        "undo rate by kind (Jev's writes, 7 days to {date}): {}",
+        kinds.join(" · ")
+    ))
+}
+
 fn pack_lines(p: &PackReport, date: &str, out: &mut Vec<String>) {
     out.push(format!(
         "{}: {} calls ({} answered, {} failed, {} skipped) · {} labeled · agrees with the \
@@ -103,6 +125,9 @@ fn pack_lines(p: &PackReport, date: &str, out: &mut Vec<String>) {
         share(p.agreement),
         p.cost_usd
     ));
+    if let Some(words) = undo_words(&p.undo, date) {
+        out.push(format!("  {words}"));
+    }
     for l in &p.latency {
         out.push(format!(
             "  latency {} ({}): p50 {} · p95 {} · p99 {}",
@@ -141,4 +166,55 @@ pub fn learning_report_lines(r: &LearningReport) -> Vec<String> {
         "(* decides; holdouts need 200 labeled per deciding question, 30 per acting class)".into(),
     );
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_protocol::judge_runs::UndoRate;
+    use theseus_protocol::learning::{LearningReport, PackReport};
+
+    use super::learning_report_lines;
+
+    fn rate(kind: &str, writes: u32, undone: u32) -> UndoRate {
+        UndoRate {
+            kind: kind.into(),
+            writes,
+            undone,
+            rate: Some(f64::from(undone) / f64::from(writes)),
+        }
+    }
+
+    /// The stored report's `onto.v1` line is printed under its pack, with its
+    /// window, in the cockpit's words; a pack with none prints no such line.
+    #[test]
+    fn the_onto_packs_undo_line_is_printed_with_its_window() {
+        let r = LearningReport {
+            date: "2026-10-21".into(),
+            packs: vec![
+                PackReport {
+                    pack: "onto.v1".into(),
+                    undo: vec![rate("person", 1, 1), rate("topic", 2, 1)],
+                    ..PackReport::default()
+                },
+                PackReport {
+                    pack: "loop.v1".into(),
+                    ..PackReport::default()
+                },
+            ],
+            ..LearningReport::default()
+        };
+        let lines = learning_report_lines(&r);
+        let undo: Vec<&String> = lines.iter().filter(|l| l.contains("undo rate")).collect();
+        assert_eq!(
+            undo,
+            [
+                "  undo rate by kind (Jev's writes, 7 days to 2026-10-21): person 1 of 1 (100%) · \
+              topic 1 of 2 (50%)"
+            ]
+        );
+        let at = |p: &str| lines.iter().position(|l| l.starts_with(p)).unwrap();
+        let line = lines.iter().position(|l| l.contains("undo rate")).unwrap();
+        assert_eq!(line, at("onto.v1") + 1, "the line is the onto pack's");
+        assert!(at("loop.v1") > line);
+    }
 }
