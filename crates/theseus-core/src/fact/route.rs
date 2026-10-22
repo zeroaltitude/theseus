@@ -49,6 +49,30 @@ pub struct RouteDecided<'a> {
     /// `task checkpoint`, and this says why it was asked, where, and what a
     /// switch cost.
     pub checkpoint: Option<Checkpointed<'a>>,
+    /// Where the profile runs, and its origin (theseus-a1wvq.11).
+    pub ran: Ran<'a>,
+    /// The data rule's part: absent on a checkpoint's row.
+    pub data: Option<RouteData<'a>>,
+}
+
+/// The provider, model and origin of the profile the row's turn runs on: a
+/// profile that does not resolve has no provider or model and origin `unknown`.
+pub struct Ran<'a> {
+    pub provider: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub origin: &'a str,
+}
+
+/// The data rule on a turn's route row. `gate` is an open word: why the rule
+/// kept the turn off a restricted-origin profile, written only when it did.
+pub struct RouteData<'a> {
+    /// Jev's data answer and its confidence, when the verdict carried one.
+    pub verdict: Option<(&'a str, f64)>,
+    /// `admitted` or `closed`: the turn's admission, never a request's pass.
+    pub clearance: &'a str,
+    pub gate: Option<&'a str>,
+    /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13).
+    pub draft_skip: Option<&'a str>,
 }
 
 /// What a task checkpoint's `route.decided` row adds to the turn's own.
@@ -77,6 +101,22 @@ impl Fact for RouteDecided<'_> {
             "effort_reason": self.effort_reason, "effort_applied": self.effort_applied,
             "effort_ran": self.effort_ran,
         });
+        row["provider"] = json!(self.ran.provider);
+        row["model"] = json!(self.ran.model);
+        row["origin"] = json!(self.ran.origin);
+        if let Some(d) = &self.data {
+            if let Some((choice, confidence)) = d.verdict {
+                row["data"] = json!(choice);
+                row["data_confidence"] = json!(confidence);
+            }
+            row["clearance"] = json!(d.clearance);
+            if let Some(g) = d.gate {
+                row["data_gate"] = json!(g);
+            }
+            if let Some(w) = d.draft_skip {
+                row["draft_skip"] = json!(w);
+            }
+        }
         if let Some(s) = self.effort_sent {
             row["effort_sent"] = json!(s);
         }
@@ -142,7 +182,11 @@ impl Fact for RouteDecided<'_> {
                 self.profile, self.reason
             ),
         };
-        say.line(Model, format!("{line}{effort}"));
+        let gate = match self.data.as_ref().and_then(|d| d.gate) {
+            Some(g) => format!(" Kept off a restricted-origin model: {g}."),
+            None => String::new(),
+        };
+        say.line(Model, format!("{line}{effort}{gate}"));
     }
 }
 

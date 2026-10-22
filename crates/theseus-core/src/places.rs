@@ -38,7 +38,7 @@
 //!   offered the two tools, since the rule asks wherever it must.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
@@ -337,6 +337,7 @@ impl PlaceRule {
             voice: class == PlaceClass::Private
                 && target.is_some_and(|t| t.starts_with("discord:"))
                 && self.voice_bound.load(std::sync::atomic::Ordering::Relaxed),
+            open: None,
         }
     }
 
@@ -639,13 +640,25 @@ pub fn private_fetch(class: PlaceClass, plan: &Plan, mut d: Decision) -> Decisio
     d
 }
 
-/// The public trees, for the model.
+/// The public trees, for the model: each under the home directory as `~/…`,
+/// so no root names the owner's user (theseus-mhqlm F4).
 pub fn shown(public: &[PathBuf]) -> String {
     public
         .iter()
-        .map(|p| p.display().to_string())
+        .map(|p| home_shown(p))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// A path as a model or a question shows it: under the home directory as
+/// `~/…`, any other as it is.
+pub fn home_shown(p: &Path) -> String {
+    match std::env::var_os("HOME").map(PathBuf::from) {
+        Some(h) if p.starts_with(&h) && p != h => {
+            format!("~/{}", p.strip_prefix(&h).unwrap_or(p).display())
+        }
+        _ => p.display().to_string(),
+    }
 }
 
 /// `public_paths`, expanded and canonical.
@@ -963,5 +976,23 @@ mod tests {
             refusal(PlaceClass::Private, "proc.run", &plan(&readme), &[]),
             None
         );
+    }
+
+    /// A root under the home directory reaches the model as `~/…`, so no
+    /// request names the owner's user; a root outside it is shown as it is
+    /// (theseus-mhqlm F4).
+    #[test]
+    fn a_root_under_home_is_shown_under_the_tilde() {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let outside = Path::new("/nonexistent-widgetco/notes");
+        assert!(!outside.starts_with(&home));
+        let roots = [home.join("widgetco/notes"), outside.to_path_buf()];
+        assert_eq!(
+            shown(&roots),
+            "~/widgetco/notes, /nonexistent-widgetco/notes"
+        );
+        assert_eq!(home_shown(&home), home.display().to_string(), "home itself");
     }
 }

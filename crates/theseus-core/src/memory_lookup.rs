@@ -324,6 +324,27 @@ struct Item {
 }
 
 async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
+    let mut out = page(&core, &session, a).await?;
+    // A note of a private session in the answer makes the answer private, so
+    // the frame that writes it marks the asker (theseus-39dj0).
+    let read = out.meta["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(Some(&out.meta["session"]))
+        .filter_map(Value::as_str);
+    let google = &core.cfg.google;
+    if crate::google::private::recalled_from(&core.store, google, &session, read.map(|s| (s, s)))
+        .is_some()
+    {
+        out.meta[crate::google::private::KEY] = true.into();
+    }
+    Ok(out)
+}
+
+/// The answer's page: `lookup`'s, before its mark.
+async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, String> {
+    let (core, session) = (core.clone(), session.to_string());
     if !matches!(core.runner.place_of(&session), Place::Private) {
         return Err(SHARED.into());
     }

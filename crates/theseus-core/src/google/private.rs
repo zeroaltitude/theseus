@@ -8,12 +8,32 @@
 //! is restricted, is the data-routing lane's (`ModelOrigin::restricted`), never
 //! asked here.
 //!
+//! The mark is carried to the floor by [`scoped`] around the call being made;
+//! a step that holds a provider and calls it later takes [`bound`] instead, so
+//! the mark is set as each call is made. Every provider call that holds a
+//! session's content takes one of the two: the turn's and compaction's by
+//! `scoped`, the background steps' (keep-warm, the memory pass, learning, the
+//! people judge, cards, naming, replays, the census) by `bound`.
+//!
+//! The mark follows recalled nodes (theseus-39dj0): a request that recall
+//! fills with a node of a marked session holds private content, so the
+//! asking session is marked too ([`followed`]), at the one point recall's
+//! notes join a turn (`hold_node`, which every recall path of a turn and a
+//! compaction ends in), and on `memory.lookup`'s answer, a tool result that
+//! [`record`] marks.
+//!
 //! With no `[google]` nothing here reads the store.
+
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_store::{kinds, NewRecord};
 
 use crate::node::{Body, Node};
+use crate::provider::{
+    CountFuture, DeltaSink, Provider, ProviderFuture, ProviderRequest, WarmFuture,
+};
 use crate::store::Store;
 
 tokio::task_local! {
@@ -27,6 +47,12 @@ tokio::task_local! {
 /// scoped, since the floor decides before any byte is sent.
 pub fn scoped<R>(private: bool, f: impl FnOnce() -> R) -> R {
     SESSION_PRIVATE.sync_scope(private, f)
+}
+
+/// Await `f`, a step whose provider calls are for a session that is (or is not)
+/// private: the mark is set while `f` runs, across its awaits.
+pub async fn within<F: std::future::Future>(private: bool, f: F) -> F::Output {
+    SESSION_PRIVATE.scope(private, f).await
 }
 
 /// Whether the call being made is a private session's.
@@ -59,12 +85,248 @@ pub fn record(node: &Node, session_id: &str) -> Option<NewRecord> {
 }
 
 /// Whether `session_id` has read a Google result. Nothing is read when the
-/// config binds no account.
+/// config binds no account. A mark that cannot be read is a mark: the
+/// session is held as private until it can be.
 pub fn session(store: &Store, cfg: &crate::Config, session_id: &str) -> bool {
+    session_on(store, &cfg.google, session_id)
+}
+
+/// [`session`], for a caller that holds only the `[google]` table (a tool's
+/// call, theseus-a1wvq.6).
+pub fn session_on(store: &Store, google: &crate::config::GoogleConfig, session_id: &str) -> bool {
+    !google.is_empty()
+        && match store.get_meta::<String>(&meta_key(session_id)) {
+            Ok(mark) => mark.is_some(),
+            Err(_) => true,
+        }
+}
+
+/// Whether `session_id` or any task above it has read a Google result: a mark
+/// a task's ancestor took after the task started reaches it (theseus-y8k3u).
+/// A record the store cannot read, or a chain deeper than 16, counts as private.
+pub fn lineage(store: &Store, cfg: &crate::Config, session_id: &str) -> bool {
+    if cfg.google.is_empty() {
+        return false;
+    }
+    let mut at = session_id.to_string();
+    for _ in 0..16 {
+        if session(store, cfg, &at) {
+            return true;
+        }
+        match store.get_session::<crate::session::SessionRecord>(&at) {
+            Ok(Some(r)) => match r.task {
+                Some(k) => at = k.parent_session,
+                None => return false,
+            },
+            Ok(None) => return false,
+            Err(_) => return true,
+        }
+    }
+    true
+}
+
+/// Whether any of `sessions` has read a Google result: the mark of a request
+/// that holds content from several of them (fail closed: one is enough).
+pub fn any_session<S: AsRef<str>>(
+    store: &Store,
+    cfg: &crate::Config,
+    sessions: impl IntoIterator<Item = S>,
+) -> bool {
     !cfg.google.is_empty()
-        && store
-            .get_meta::<String>(&meta_key(session_id))
-            .ok()
-            .flatten()
-            .is_some()
+        && sessions
+            .into_iter()
+            .any(|s| session(store, cfg, s.as_ref()))
+}
+
+/// Whether any of the nodes `ids` is in a session that has read a Google
+/// result. A node the store cannot read leaves its session unknown, and an
+/// unknown session cannot be cleared: it counts as private.
+pub fn any_node<S: AsRef<str>>(
+    store: &Store,
+    cfg: &crate::Config,
+    ids: impl IntoIterator<Item = S>,
+) -> bool {
+    !cfg.google.is_empty()
+        && ids
+            .into_iter()
+            .any(|id| match store.get_node(id.as_ref()).ok().flatten() {
+                Some((_, n)) => session(store, cfg, &n.session_id),
+                None => true,
+            })
+}
+
+/// The ids of `records` a session holding the mark authored: a record kept
+/// from a message (`source` `capture:<node>`) whose node's session holds it.
+/// Nothing is read with no `[google]`; a node the store cannot read counts
+/// as private (`any_node`).
+pub fn authored<'a>(
+    store: &Store,
+    cfg: &crate::Config,
+    records: impl IntoIterator<Item = &'a theseus_protocol::StandingRecord>,
+) -> HashSet<String> {
+    if cfg.google.is_empty() {
+        return HashSet::new();
+    }
+    // Any other source is a surface the owner typed on: the owner's own words.
+    let mut private_node: std::collections::HashMap<&str, bool> = Default::default();
+    records
+        .into_iter()
+        .filter_map(|r| Some((r, r.source.strip_prefix("capture:")?)))
+        .filter(|(_, node)| {
+            *private_node
+                .entry(node)
+                .or_insert_with(|| any_node(store, cfg, [node]))
+        })
+        .map(|(r, _)| r.id.clone())
+        .collect()
+}
+
+/// The first of `recalled` (node id, session id) whose session holds the
+/// mark, other than `asker`'s: the node that makes a request of `asker` hold
+/// private content (theseus-39dj0). Nothing is read with no `[google]`; an
+/// unreadable mark is a mark.
+pub fn recalled_from<'a>(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    asker: &str,
+    recalled: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<&'a str> {
+    if google.is_empty() {
+        return None;
+    }
+    recalled
+        .into_iter()
+        .find(|(_, s)| *s != asker && session_on(store, google, s))
+        .map(|(node, _)| node)
+}
+
+/// The META record that makes `asker` private because recall put into its
+/// request a node of a session that holds the mark (theseus-39dj0): the mark
+/// follows recalled nodes, so every later call of `asker` carries it. None
+/// with no `[google]` (nothing is read), when `asker` holds the mark already,
+/// or when no recalled node's session does.
+pub fn followed<'a>(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    asker: &str,
+    recalled: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<NewRecord> {
+    if google.is_empty() || session_on(store, google, asker) {
+        return None;
+    }
+    let node = recalled_from(store, google, asker, recalled)?;
+    NewRecord::json(kinds::META, Some(&meta_key(asker)), &node).ok()
+}
+
+/// The META record that makes `child` private because `parent` is: written in
+/// the frame that opens a task, so the task reads as private from its first
+/// call. None when the parent is not private.
+pub fn inherited(
+    store: &Store,
+    cfg: &crate::Config,
+    parent: &str,
+    child: &str,
+) -> anyhow::Result<Option<NewRecord>> {
+    inherited_on(store, &cfg.google, parent, child)
+}
+
+/// [`inherited`], for a caller that holds only the `[google]` table.
+pub fn inherited_on(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    parent: &str,
+    child: &str,
+) -> anyhow::Result<Option<NewRecord>> {
+    if !session_on(store, google, parent) {
+        return Ok(None);
+    }
+    Ok(Some(NewRecord::json(
+        kinds::META,
+        Some(&meta_key(child)),
+        &parent,
+    )?))
+}
+
+/// `provider`, whose every call is made for `session` (a refusal's row names
+/// it) and, when `private`, for a session that read a Google result. For the
+/// steps that hold the provider and call it later, or on another task, where
+/// a scope around the call's creation would not reach: the mark is set as
+/// each call is made, inside this wrapper. A provider of no session and no
+/// mark is returned as it is.
+pub fn bound(
+    provider: Arc<dyn Provider>,
+    session: Option<&str>,
+    private: bool,
+) -> Arc<dyn Provider> {
+    if session.is_none() && !private {
+        return provider;
+    }
+    Arc::new(Bound {
+        inner: provider,
+        session: session.map(str::to_string),
+        private,
+    })
+}
+
+/// `provider` for a call made for `session` alone: its mark, read now, holds
+/// the call, and a refusal's row names it.
+pub fn for_session(
+    provider: Arc<dyn Provider>,
+    store: &Store,
+    cfg: &crate::Config,
+    session_id: &str,
+) -> Arc<dyn Provider> {
+    bound(provider, Some(session_id), session(store, cfg, session_id))
+}
+
+/// `provider` for a call whose request holds content from every one of
+/// `sessions`: private when any one of them is.
+pub fn over_sessions<S: AsRef<str>>(
+    provider: Arc<dyn Provider>,
+    store: &Store,
+    cfg: &crate::Config,
+    sessions: impl IntoIterator<Item = S>,
+) -> Arc<dyn Provider> {
+    bound(provider, None, any_session(store, cfg, sessions))
+}
+
+struct Bound {
+    inner: Arc<dyn Provider>,
+    session: Option<String>,
+    private: bool,
+}
+
+impl Bound {
+    fn scope<R>(&self, f: impl FnOnce() -> R) -> R {
+        let marked = || {
+            if self.private {
+                scoped(true, f)
+            } else {
+                f()
+            }
+        };
+        match &self.session {
+            Some(s) => crate::data_gate::for_session(s, marked),
+            None => marked(),
+        }
+    }
+}
+
+impl Provider for Bound {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        self.scope(|| self.inner.stream_message(req, on_delta))
+    }
+    fn warm(&self) -> WarmFuture<'_> {
+        self.inner.warm()
+    }
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        self.scope(|| self.inner.count_tokens(req))
+    }
 }

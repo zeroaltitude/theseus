@@ -182,7 +182,7 @@ mod tests_thread_grow;
 #[cfg(test)]
 mod tests_thread_home;
 #[cfg(test)]
-mod tests_thread_import;
+pub(crate) mod tests_thread_import;
 #[cfg(test)]
 mod tests_thread_join;
 #[cfg(test)]
@@ -731,8 +731,9 @@ impl Core {
         );
         let admission = Arc::new(tokio::sync::Notify::new());
         let catalog = Arc::new(Catalog::with_overrides(&cfg.catalog));
-        // The floor under the sensitive names: every provider, behind one check.
-        let providers = crate::data_gate::guard(providers, &cfg, &catalog);
+        // The data floor: every provider, behind one check (restricted
+        // origin, the sensitive names).
+        let providers = crate::data_gate::guard(providers, &cfg, &catalog, &store);
         for (name, p) in cfg.all_profiles() {
             if catalog.get(&p.model).is_none() {
                 tracing::warn!(profile = %name, model = %p.model, "model is not in the catalog: it runs, but cost is unknown and limits are defaults");

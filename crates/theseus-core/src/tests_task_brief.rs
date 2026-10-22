@@ -11,7 +11,7 @@ use theseus_protocol::task_start::{TaskStartParams, TaskStartResult};
 use crate::approval::{Answerer, Surface};
 use crate::places::BoundPlace;
 use crate::session::{SessionRecord, TargetRef};
-use crate::tests_route::{decided, mode, rig, session, Rig};
+use crate::tests_route::{decided, mode, session, Rig};
 use crate::tests_tasks::{exec, until};
 use theseus_protocol::PlaceCeiling;
 
@@ -26,7 +26,17 @@ pub(crate) fn cli() -> Answerer {
 
 /// A rig whose Home last ran on `parent`, with the driver taking tasks' turns.
 fn rig_from(jev: Option<&FakeJev>, parent: &str, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
-    let r = rig(jev, 4, tweak);
+    rig_from_parts(jev, parent, tweak, |_| {})
+}
+
+/// [`rig_from`], with `parts` edited after the load's check.
+fn rig_from_parts(
+    jev: Option<&FakeJev>,
+    parent: &str,
+    tweak: impl FnOnce(&mut crate::Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
+    let r = crate::tests_route::rig_parts(jev, 4, tweak, parts);
     tokio::spawn(crate::harness::drive(r.core.clone()));
     let home = r.core.home().unwrap();
     let (live, _) = r.core.live_profile();
@@ -128,10 +138,14 @@ async fn a_trivial_brief_runs_on_haiku() {
 async fn a_brief_that_names_a_sensitive_name_skips_restricted_profiles() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "deep_coding", 0.95);
-    let r = rig_from(Some(&jev), "fable", |c| {
-        c.privacy.sensitive_names = vec!["Examplecorp".into()];
-        c.routing.classes.deep_coding.profiles = vec!["glm53".into(), "sonnet".into()];
-    });
+    // The list after the load's check, which refuses a restricted profile in
+    // a mode's list (theseus-a1wvq.4): the floor holds on one anyway.
+    let r = rig_from_parts(
+        Some(&jev),
+        "fable",
+        |c| c.privacy.sensitive_names = vec!["Examplecorp".into()],
+        |p| p.cfg.routing.classes.deep_coding.profiles = vec!["glm53".into(), "sonnet".into()],
+    );
     let brief = "Fix the typo in Examplecorp's quay notice.";
     let (_, rec) = run(&r, &params(brief, None)).await;
     assert_eq!(ran_on(&r), "claude-sonnet-5-5");

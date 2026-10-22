@@ -124,6 +124,12 @@ pub(crate) const TASK_BEFORE_PROJECTS: &str = r#"{"id":"tsk_00000000000000000000
 /// for byte. By hand, in the layout the build before theseus-n5ui2 writes.
 pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_00000000000000000000000000000311","kind":"conversation","label":null,"created_at_unix_ms":1790000000311,"turns":2,"last_turn_id":"turn_00000000000000000000000000000313","usage":{"input_tokens":700,"output_tokens":90,"cache_read_input_tokens":200,"cache_creation_input_tokens":50},"execution_id":"exe_00000000000000000000000000000311","compilation_id":"cmp_00000000000000000000000000000312","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000319,"cost_usd":0.0066,"tool_calls":0,"title":"Plan the harbour survey","dir":"/work/harbour"}"#;
 
+/// A session as format 47 wrote it (unchanged since 45: its project),
+/// before its data state (`data`, format 48, theseus-a1wvq.5). It reads with
+/// none, the private view with no open run, and writes back byte for byte. By
+/// hand, in the layout the build before theseus-a1wvq.5 writes.
+pub(crate) const SESSION_BEFORE_DATA: &str = r#"{"session_id":"ses_00000000000000000000000000000481","kind":"conversation","label":null,"created_at_unix_ms":1790000000481,"turns":3,"last_turn_id":"turn_00000000000000000000000000000483","usage":{"input_tokens":900,"output_tokens":140,"cache_read_input_tokens":300,"cache_creation_input_tokens":60},"execution_id":"exe_00000000000000000000000000000481","compilation_id":"cmp_00000000000000000000000000000482","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000489,"cost_usd":0.0091,"tool_calls":1,"title":"Chart the breakwater","dir":"/work/harbour","project":"tsk_00000000000000000000000000000480"}"#;
+
 /// A kind row as format 45 wrote it, an `onto:kind:` META record: the topic
 /// seed, before a kind's retirement, examples and mined sources
 /// (`retired_ms`, `examples`, `mined_from`, format 46, theseus-e3mjc). It
@@ -133,6 +139,12 @@ pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_0000000000
 pub(crate) const KIND_BEFORE_ONTO_CORE: &str = r#"{"name":"topic","basis":"interpreted","assigned_by":["operator","import"],"per_session":3,"parent":"topic","precedence":40,"rule":"chain","description":"What a session is about, declared by the operator, or by the import from an imported session's labels. Topics nest.","version":1,"added_by":"seed"}"#;
 
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 47 (theseus-q9b85's; unchanged since 45): before its data state (48, theseus-a1wvq.5)",
+        bytes: SESSION_BEFORE_DATA,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::META,
         layout: "an ontology kind row at format 45 (theseus-n5ui2's): before its retirement, examples and mined sources (46, theseus-e3mjc)",
@@ -1307,4 +1319,39 @@ fn a_format_44_task_reads_as_an_item_and_a_project_round_trips() {
     let s: SessionRecord = serde_json::from_str(SESSION_BEFORE_PROJECT).unwrap();
     assert_eq!(s.project, None);
     assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_PROJECT);
+}
+
+/// A format-47 session reads with no data state (the private view, no open
+/// run: no migration) and writes back byte for byte; one with a state round
+/// trips, and a write-back's merge of a record with none keeps none.
+#[test]
+fn a_format_47_session_reads_with_no_data_state_and_takes_one() {
+    use crate::data::{DataState, DataWhy, OpenHow, OpenRun, Opened, Taint};
+    let mut s: SessionRecord = serde_json::from_str(SESSION_BEFORE_DATA).unwrap();
+    assert!(s.data.is_none());
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_DATA);
+    let turn = s.clone();
+    s.take_turns_fields(&turn);
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_DATA);
+    s.data = Some(Box::new(DataState::new(
+        Some(Opened {
+            how: OpenHow::Task,
+            at_ms: 1_790_000_000_490,
+        }),
+        Some(OpenRun {
+            from: "msg_00000000000000000000000000000484".into(),
+            through: "msg_00000000000000000000000000000486".into(),
+        }),
+        Some(Taint {
+            why: DataWhy::Sealed,
+            node: None,
+            at_ms: 1_790_000_000_491,
+        }),
+    )));
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(text.ends_with(r#","data":{"opened":{"how":"task","at_ms":1790000000490},"run":{"from":"msg_00000000000000000000000000000484","through":"msg_00000000000000000000000000000486"},"taint":{"why":"sealed","at_ms":1790000000491}}}"#), "{text}");
+    assert_eq!(
+        serde_json::from_str::<SessionRecord>(&text).unwrap().data,
+        s.data
+    );
 }

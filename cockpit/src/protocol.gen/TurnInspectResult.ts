@@ -26,4 +26,9 @@ rows: Array<InspectRow>, trace: Span | null, prev_turn: string | null, next_turn
 /**
  * Why text was left out (a surface that does not read private places).
  */
-withheld: string | null, ms: number, };
+withheld: string | null, 
+/**
+ * The session's data state in a line (theseus-a1wvq.5: opened, the open
+ * run's ends, the taint), for a private place; absent with none.
+ */
+data?: string, ms: number, };

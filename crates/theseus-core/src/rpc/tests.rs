@@ -1482,7 +1482,7 @@ async fn per_turn_provider_and_model_selection() {
     );
     let core = Core::build(Parts {
         providers,
-        ..Parts::for_tests(Config::example(), Arc::new(FakeProvider::default()), store)
+        ..Parts::for_tests(second_model(), Arc::new(FakeProvider::default()), store)
     })
     .unwrap();
     let msgs = roundtrip(
@@ -1524,7 +1524,7 @@ async fn per_turn_provider_and_model_selection() {
                     input: "hi".into(),
                     profile: None,
                     provider: Some("zai".into()),
-                    model: Some("glm-5.3-flash".into()),
+                    model: Some(crate::config::UNRESTRICTED_SECOND.into()),
                     author: None,
                     attachments: vec![],
                     reply_to: None,
@@ -1587,7 +1587,7 @@ async fn per_turn_provider_and_model_selection() {
     .unwrap();
     assert_eq!(r2.provider, "zai");
     assert_eq!(r2.output, "from zai");
-    assert_eq!(r2.model, "glm-5.3-flash");
+    assert_eq!(r2.model, crate::config::UNRESTRICTED_SECOND);
     let e3 = rs
         .iter()
         .find(|r| r.id == Id::Num(3))
@@ -1597,6 +1597,14 @@ async fn per_turn_provider_and_model_selection() {
         .unwrap();
     assert_eq!(e3.code, error_code::INVALID_PARAMS);
     assert!(core.health().providers.contains(&"zai".to_string()));
+}
+
+/// The template, its `glm` profile on `zai` an unrestricted model: `zai` is
+/// only a second provider here (theseus-a1wvq.3).
+fn second_model() -> Config {
+    let mut c = Config::example();
+    c.serve_glm_unrestricted();
+    c
 }
 
 #[tokio::test]
@@ -1622,7 +1630,7 @@ async fn live_profile_switch_persists_and_routes() {
         );
         Core::build(Parts {
             providers,
-            ..Parts::for_tests(Config::example(), Arc::new(FakeProvider::default()), store)
+            ..Parts::for_tests(second_model(), Arc::new(FakeProvider::default()), store)
         })
         .unwrap()
     };
@@ -1695,7 +1703,7 @@ async fn live_profile_switch_persists_and_routes() {
     assert_eq!(get(1).output, "from anthropic");
     assert_eq!(get(3).profile, "glm");
     assert_eq!(get(3).provider, "zai");
-    assert_eq!(get(3).model, "glm-5.3-flash");
+    assert_eq!(get(3).model, crate::config::UNRESTRICTED_SECOND);
     assert_eq!(get(3).output, "from zai");
     assert_eq!(get(4).profile, "sonnet", "explicit profile beats live");
     let bad = rs.iter().find(|r| r.id == Id::Num(5)).unwrap();
@@ -1723,7 +1731,7 @@ async fn live_profile_switch_persists_and_routes() {
         ("glm".to_string(), "runtime".to_string())
     );
     assert_eq!(core2.health().profile, "glm");
-    assert_eq!(core2.health().model, "glm-5.3-flash");
+    assert_eq!(core2.health().model, crate::config::UNRESTRICTED_SECOND);
 }
 
 #[tokio::test]

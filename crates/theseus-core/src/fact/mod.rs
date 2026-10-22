@@ -47,8 +47,10 @@ pub mod capture;
 pub mod card;
 pub mod check;
 pub mod compaction;
+pub mod data;
 pub mod detour;
 pub mod disk;
+pub mod draft;
 pub mod driver;
 pub mod durability;
 pub mod extend;
@@ -313,6 +315,9 @@ facts![
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,
+    data::DataGateBlocked<'static>,
+    data::SessionDataOpened,
+    data::SessionDataTainted<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,
@@ -399,6 +404,7 @@ facts![
     arrangement::TaskArrangementRefused<'static>,
     check::TaskCheckOpened<'static>,
     check::TaskCheckRefused<'static>,
+    draft::TaskDraft<'static>,
     task_graph::TaskCreated<'static>,
     task_graph::TaskUpdated<'static>,
     task_graph::TaskSplit<'static>,

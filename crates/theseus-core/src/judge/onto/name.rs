@@ -113,6 +113,7 @@ fn request(model: &str, kind: &str, said: &str, scrub: &dyn Fn(&str) -> String) 
         betas: Vec::new(),
         extra,
         image_tokens: 0,
+        data_pass: None,
     }
 }
 
@@ -181,6 +182,9 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .ok_or_else(|| format!("no provider {:?} for {profile}", target.provider))?;
+        // What the session said is sent: its mark holds the call.
+        let provider =
+            crate::google::private::for_session(provider, &self.store, &self.cfg, session);
         let scrubber = self.runner.judge.scrubber.clone();
         let request = request(&target.model, kind, said, &|t| scrubber.scrub(t).0);
         let need = self

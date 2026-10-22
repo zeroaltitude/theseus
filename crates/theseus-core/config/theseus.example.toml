@@ -1653,7 +1653,10 @@ max_switches = 2                        # moves per task, up or down
 # session Jev moved up from its own profile goes back to it after two verdicts in a row
 # whose class is its own profile or cheaper (chat, routine_coding); you moving it is yours.
 # [routing.classes.trivial]
-# profiles = ["haiku", "glm", "cheapest"]
+# profiles = ["haiku", "cheapest"]
+# China-origin profiles, only for a request that carries open content; trivial only
+# cn_profiles = ["glm"]
+# cn_after = "haiku"
 # switch_confidence = 0.4
 # [routing.classes.quick]                 # a quick question a short, direct answer settles
 # profiles = ["haiku"]
@@ -1682,6 +1685,9 @@ max_switches = 2                        # moves per task, up or down
 # else; a message is judged by what it carries. The private ones are `[privacy]` below.
 # [routing.data]
 # open_topics = []                      # e.g. an open-source project of yours
+# open_paths = []                       # trees of open data (~/ or absolute): an open request's
+#                                       # file tools reach these alone, and its programs run only
+#                                       # in a session whose directory is under one
 
 # Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
 # whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any

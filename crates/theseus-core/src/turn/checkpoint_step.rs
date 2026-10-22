@@ -373,7 +373,7 @@ impl TurnRunner {
             .flatten()
             .map_or(u64::MAX, |e| e.budget.available());
         if left < RESERVE_MICROS {
-            Self::record_checkpoint(t, a, Skipped(&trigger), index);
+            self.record_checkpoint(t, a, Skipped(&trigger), index);
             return;
         }
         let plan: Vec<(String, &str)> = a.plan.iter().map(|(n, s)| (n.clone(), s.name())).collect();
@@ -503,7 +503,7 @@ impl TurnRunner {
         let cold = target
             .as_ref()
             .map(|(to, _)| self.cold_of(t, session, a.est, to));
-        Self::record_checkpoint(
+        self.record_checkpoint(
             t,
             a,
             Verdicted {
@@ -563,6 +563,7 @@ impl TurnRunner {
         from: String,
         (effort, applied): (Option<&EffortDecision>, Option<Effort>),
     ) {
+        let had = t.route.result.take();
         t.route.result = Some(TurnRoute {
             mode: Some(v.mode.clone()),
             reason: d.reason.as_str().into(),
@@ -571,7 +572,8 @@ impl TurnRunner {
             effort: v.effort.as_ref().map(|e| e.level.clone()),
             effort_reason: effort.map(|e| e.reason.as_str().into()),
             effort_applied: applied.map(|e| effort::name(e).into()),
-            persona: t.route.result.take().and_then(|r| r.persona),
+            persona: had.as_ref().and_then(|r| r.persona.clone()),
+            data: had.and_then(|r| r.data),
         });
     }
 
@@ -584,7 +586,7 @@ impl TurnRunner {
         a: &Active,
         v: &Verdict,
     ) -> Decision {
-        let profiles = self.route_profiles(t.route.sensitive);
+        let profiles = self.route_profiles(t.route.floor());
         let cap = Self::place_cap(t, &profiles);
         let ask = |est_tokens| {
             cp::decide(
@@ -637,7 +639,7 @@ impl TurnRunner {
     }
 
     /// The checkpoint's one `route.decided` row.
-    fn record_checkpoint(t: &mut Turn<'_>, a: &Active, what: impl Row, loop_index: u32) {
+    fn record_checkpoint(&self, t: &mut Turn<'_>, a: &Active, what: impl Row, loop_index: u32) {
         let (v, d, trigger, (ef, applied), cold, cost, moved) = what.parts();
         let cur = t.target.profile.clone();
         let profile = d.map_or(cur.as_str(), |d| d.profile.as_str());
@@ -670,6 +672,8 @@ impl TurnRunner {
                 cold,
                 cost_usd: cost as f64 / 1e6,
             }),
+            ran: self.ran_of(profile),
+            data: None,
         });
     }
 }

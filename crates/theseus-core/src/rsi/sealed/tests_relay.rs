@@ -445,3 +445,26 @@ async fn a_call_that_outlives_its_item_is_not_charged_to_the_next() {
     );
     assert!(relay.spent_usd() > 0.0, "but the run's meter has it");
 }
+
+/// The relay sends past the data floor's chokepoint, so a profile of
+/// restricted origin gets no relay at all (theseus-82jhp): the example's
+/// `glm` (GLM on z.ai, China origin) is refused when the relay is made, and
+/// the profile under test, of US origin, still is served.
+#[tokio::test(flavor = "current_thread")]
+async fn a_profile_of_restricted_origin_gets_no_relay() {
+    let r = rig(
+        Answers::Whole {
+            input: 1,
+            output: 1,
+        },
+        |_| {},
+    )
+    .await;
+    let origin = r.core.cfg.profile_origin("glm", &r.core.catalog);
+    assert!(origin.restricted(), "{origin:?}");
+    let refused = Relay::new(&r.core, "glm", "self/tide", "t.relay.invalid");
+    let said = format!("{:#}", refused.err().expect("refused"));
+    assert!(said.contains("restricted origin"), "{said}");
+    assert!(untouched(&r), "the provider was never asked");
+    assert_eq!(new_relay(&r).model(), r.model);
+}

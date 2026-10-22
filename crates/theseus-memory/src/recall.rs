@@ -17,7 +17,9 @@
 //! place draws only on that place's own sessions, and a turn in a private
 //! place on any session (m6 §2.15, as the rule was decided; theseus-1is6).
 //! A candidate whose place cannot be read is dropped in a shared place, and
-//! a turn whose own place cannot be read draws on nothing.
+//! a turn whose own place cannot be read draws on nothing. A request in the
+//! open view (theseus-a1wvq.7) draws only on what open sessions wrote before
+//! their taint (`Place::Open`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,17 +37,34 @@ pub enum Place {
     Shared(String),
     /// Its place could not be read: shared, and no place's own.
     Unknown,
+    /// An open session (theseus-a1wvq.7): its nodes are open until its
+    /// taint, at this time (ms) when it has one. A turn compiled in the open
+    /// view asks as `Open(None)`.
+    Open(Option<u64>),
 }
 
 impl Place {
     /// Whether a turn speaking here may draw on a session speaking at `from`:
-    /// a private place on any; a shared place on its own sessions alone.
+    /// a private place on any; a shared place on its own sessions alone; an
+    /// open request on open sessions alone.
     pub fn may_draw_on(&self, from: &Place) -> bool {
         match (self, from) {
             (Place::Private, _) => true,
             (Place::Shared(here), Place::Shared(there)) => here == there,
+            (Place::Open(_), Place::Open(_)) => true,
             _ => false,
         }
+    }
+
+    /// `may_draw_on`, for a node written at `time_ms` there: an open request
+    /// draws on an open session's node only from before its taint, and on
+    /// none whose time is unknown (0) once it is tainted.
+    pub fn may_draw_at(&self, from: &Place, time_ms: u64) -> bool {
+        self.may_draw_on(from)
+            && match (self, from) {
+                (Place::Open(_), Place::Open(Some(taint))) => time_ms > 0 && time_ms < *taint,
+                _ => true,
+            }
     }
 }
 
@@ -403,7 +422,7 @@ fn filter(
     p: &Params,
     science: &dyn MemoryScience,
 ) -> Option<(Reason, Option<Distant>)> {
-    if !asker.place.may_draw_on(&c.place) {
+    if !asker.place.may_draw_at(&c.place, c.time_ms) {
         return Some((Reason::Place, None));
     }
     if let Some(l) = asker.threads {
@@ -1137,6 +1156,8 @@ mod tests {
             Just(Place::Unknown),
             (0u8..4).prop_map(|i| Place::Shared(format!("discord:channel:{i}"))),
             (0u8..2).prop_map(|i| Place::Shared(format!("discord:dm:{i}"))),
+            Just(Place::Open(None)),
+            (1u64..4).prop_map(|t| Place::Open(Some(t * 1_000))),
         ]
     }
 
@@ -1145,25 +1166,31 @@ mod tests {
         /// in a shared place, nothing from a private place's session, from
         /// another shared place, or from a place that cannot be read is
         /// admitted, and each is dropped for its place alone; a private place
-        /// drops nothing for its place; and a turn whose place cannot be
-        /// read draws on nothing.
+        /// drops nothing for its place; a turn whose place cannot be
+        /// read draws on nothing; and an open request draws only on open
+        /// sessions, each from before its taint (theseus-a1wvq.7).
         #[test]
         fn the_place_rule_holds_for_every_pack(
             here in place_strategy(),
             places in proptest::collection::vec(place_strategy(), 1..30),
             scores in proptest::collection::vec(0.0f64..1.0, 30),
+            times in proptest::collection::vec(0u64..5_000, 30),
         ) {
             let cands: Vec<_> = places
                 .iter()
                 .enumerate()
-                .map(|(i, pl)| cand(&format!("n{i}"), &format!("ses_{i}"), pl.clone(), scores[i]))
+                .map(|(i, pl)| {
+                    let mut c = cand(&format!("n{i}"), &format!("ses_{i}"), pl.clone(), scores[i]);
+                    c.time_ms = times[i];
+                    c
+                })
                 .collect();
             let pack = run(&here, &[], cands, &Params { max_items: 40, budget_tokens: 100_000, ..Params::default() });
             for a in &pack.admitted {
                 prop_assert!(here.may_draw_on(&a.candidate.place), "{here:?} admitted {:?}", a.candidate.place);
             }
             for d in &pack.dropped {
-                if !here.may_draw_on(&d.candidate.place) {
+                if !here.may_draw_at(&d.candidate.place, d.candidate.time_ms) {
                     prop_assert_eq!(d.reason, Reason::Place);
                 }
             }
@@ -1173,6 +1200,11 @@ mod tests {
                     (Place::Shared(_), other) => prop_assert!(false, "a shared place drew on {other:?}"),
                     (Place::Private, _) => {}
                     (Place::Unknown, other) => prop_assert!(false, "an unknown place drew on {other:?}"),
+                    (Place::Open(_), Place::Open(Some(taint))) => {
+                        prop_assert!(c.candidate.time_ms > 0 && c.candidate.time_ms < *taint)
+                    }
+                    (Place::Open(_), Place::Open(None)) => {}
+                    (Place::Open(_), other) => prop_assert!(false, "an open request drew on {other:?}"),
                 }
             }
             if here == Place::Private {

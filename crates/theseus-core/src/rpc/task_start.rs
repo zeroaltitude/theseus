@@ -134,7 +134,8 @@ impl Core {
             arrangement.as_ref(),
             &home_session,
             &brief_node.id,
-        );
+        )
+        .map(|h| if p.open { crate::external::bare(h) } else { h });
         let (by, via) = (who.who(), who.via());
         let common = Common {
             title: &title,
@@ -169,6 +170,7 @@ impl Core {
             available: parent.budget.available(),
             expect: p.expect,
             private,
+            open: p.open,
         };
         let opened =
             self.kernel
@@ -227,7 +229,7 @@ impl Core {
 
     /// The conversation the task goes under: the one `home` names, else the
     /// owner's Home. Its id, its execution, its record, and Home's DM target.
-    fn parent_of(
+    fn home_of(
         &self,
         p: &TaskStartParams,
     ) -> Result<(String, String, SessionRecord, Option<String>), RpcFailure> {
@@ -261,6 +263,19 @@ impl Core {
                 Ok((h.session_id, h.execution_id, rec, h.target))
             }
         }
+    }
+
+    /// [`Self::home_of`], for this task: an open task's input is judged open,
+    /// so a session that read private content starts none (theseus-a1wvq.6).
+    fn parent_of(
+        &self,
+        p: &TaskStartParams,
+    ) -> Result<(String, String, SessionRecord, Option<String>), RpcFailure> {
+        let got = self.home_of(p)?;
+        if p.open && crate::google::private::session(&self.store, &self.cfg, &got.0) {
+            return Err(refused(crate::task::PRIVATE_OPEN_REFUSAL.into()));
+        }
+        Ok(got)
     }
 
     /// The model the task starts on: the profile asked for (a pin), else the
@@ -314,6 +329,8 @@ struct Draft<'a> {
     available: theseus_kernel::Micros,
     expect: Option<theseus_protocol::task_start::Expect>,
     private: bool,
+    /// An open task (theseus-a1wvq.6): its session says it was opened open.
+    open: bool,
 }
 
 impl Core {
@@ -345,6 +362,10 @@ impl Core {
             check: None,
             notify_done: false,
         });
+        let opened = d
+            .open
+            .then(|| crate::data::open_task(&mut rec, crate::data::OpenHow::Task, d.now))
+            .transpose()?;
         let mut records = match d.hold {
             Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),
             None => vec![NewRecord::json(
@@ -353,10 +374,20 @@ impl Core {
                 &rec,
             )?],
         };
+        records.extend(opened);
         records.push(d.brief_node.record()?);
         if d.private {
             let key = crate::google::private::meta_key(&task.session_id);
             records.push(NewRecord::json(kinds::META, Some(&key), &d.brief_node.id)?);
+        } else {
+            // A task of a private session is private from its first call: its
+            // brief and quotes came from there.
+            records.extend(crate::google::private::inherited(
+                &self.store,
+                &self.cfg,
+                d.common.home_session,
+                &task.session_id,
+            )?);
         }
         if d.by_brief {
             records.push(crate::turn::brief_step::mark(&task.session_id)?);
@@ -485,6 +516,11 @@ fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
         if !(b.is_finite() && b > 0.0) {
             return Err(invalid(format!("budget_usd must be more than $0, not {b}")));
         }
+    }
+    if p.open && !p.quotes.is_empty() {
+        return Err(invalid(
+            "an open task carries only its brief: leave out `quotes`",
+        ));
     }
     Ok(brief)
 }

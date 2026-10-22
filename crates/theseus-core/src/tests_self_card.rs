@@ -26,6 +26,7 @@ fn runtime(cfg: &Config) -> ToolRuntime {
 fn private(voice: bool) -> PlaceView {
     PlaceView {
         voice,
+        open: None,
         ..PlaceClass::Private.into()
     }
 }
@@ -70,6 +71,7 @@ fn a_shared_place_hears_only_what_it_may_use() {
     let rt = runtime(&cfg);
     let view = PlaceView {
         voice: false,
+        open: None,
         ..PlaceClass::Shared.into()
     };
     assert_eq!(card(&cfg, &rt, view), WAKES);

@@ -48,6 +48,29 @@ fn board() -> Arc<SecretBoard> {
 /// China-origin endpoint), with `[google]` pointed at `fake`, and the
 /// Anthropic fake scripted by `script`.
 fn rig(jev: Option<&FakeJev>, fake: &Fake, script: Vec<Scripted>) -> (RouteRig, Arc<FakeProvider>) {
+    rig_on(jev, fake, script, false)
+}
+
+/// [`rig`], with `zai`'s `glm53` a Claude served from a host vouched EU when
+/// `eu`: of no restricted origin, so only the floor for private content
+/// keeps a turn off it (theseus-a1wvq.3 keeps every request off GLM itself).
+fn rig_on(
+    jev: Option<&FakeJev>,
+    fake: &Fake,
+    script: Vec<Scripted>,
+    eu: bool,
+) -> (RouteRig, Arc<FakeProvider>) {
+    rig_tweaked(jev, fake, script, eu, |_| {})
+}
+
+/// [`rig_on`], with `tweak` applied to its config last.
+fn rig_tweaked(
+    jev: Option<&FakeJev>,
+    fake: &Fake,
+    script: Vec<Scripted>,
+    eu: bool,
+    tweak: impl FnOnce(&mut crate::Config) + 'static,
+) -> (RouteRig, Arc<FakeProvider>) {
     let claude = Arc::new(FakeProvider::scripted(script));
     let dir = tempfile::tempdir().unwrap();
     let google = config(dir.path(), fake, "file:/tmp/unused-google-refresh-token").google;
@@ -66,9 +89,16 @@ fn rig(jev: Option<&FakeJev>, fake: &Fake, script: Vec<Scripted>) -> (RouteRig, 
                 "google_refresh_token".into(),
                 "file:/tmp/unused-google-refresh-token".into(),
             );
-            c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+            if eu {
+                c.serve_glm_unrestricted();
+                c.vouch_zai(crate::catalog::ModelOrigin::Eu);
+            }
+            tweak(c);
         },
         move |p| {
+            // After the load's check, which refuses a restricted profile in a
+            // mode's list (theseus-a1wvq.4): the floor holds on one anyway.
+            p.cfg.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
             p.secrets = board();
             p.providers.insert("anthropic".into(), c2);
         },
@@ -161,14 +191,15 @@ async fn a_google_result_makes_the_session_private_and_the_floor_refuses_a_restr
     let _ = ACCOUNT;
 }
 
-/// The route's data answer is `private`: with a restricted profile first in
-/// the mode's list, a private session's message goes to the second.
+/// The route's data answer is `private`: with a profile not of US origin
+/// (an EU one) first in the mode's list, a private session's message goes to
+/// the second, though a plain session's takes the first.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_session_is_routed_off_restricted_profiles() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     let fake = Fake::start().await;
-    let (r, _) = rig(Some(&jev), &fake, vec![]);
+    let (r, _) = rig_on(Some(&jev), &fake, vec![], true);
     let plain = new_session(&r.core);
     let private = new_session(&r.core);
     r.core
@@ -190,4 +221,43 @@ async fn a_private_session_is_routed_off_restricted_profiles() {
         1,
         "only the plain session reached it"
     );
+}
+
+/// A turn whose recall admits a note of a private session is private in
+/// that same turn (theseus-39dj0), before its frame writes the mark: the
+/// route skips the EU profile first in the mode's list and runs on the US
+/// one, as a marked session's does. A plain note's turn takes the first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_recalls_a_private_note_is_routed_off_restricted_profiles() {
+    for marked in [false, true] {
+        let jev = FakeJev::start().unwrap();
+        mode(&jev, "routine_coding", 0.95);
+        let fake = Fake::start().await;
+        let (r, _) = rig_tweaked(Some(&jev), &fake, vec![], true, |c| {
+            c.memory.mode = crate::config::MemoryMode::Canary;
+            c.memory.canary_fraction = 1.0;
+        });
+        let note = "Remember: the billing module's call sites live in ledger.rs.";
+        let a = crate::tests_recall::session(&r.core, None, &[note]);
+        if marked {
+            r.core
+                .store
+                .put_meta(&super::private::meta_key(&a), &"nd_test")
+                .unwrap();
+        }
+        let b = new_session(&r.core);
+        r.core
+            .runner
+            .memory
+            .set_ask(crate::tests_recall::index_of(&r.core, vec![a]));
+        let msg = "Rename the call sites in the billing module.";
+        let res = run_on(&r.core, &b, msg, None).await.unwrap();
+        assert_eq!(res.recalled, 1, "marked={marked}");
+        let want = if marked { "sonnet" } else { "glm53" };
+        assert_eq!(res.profile, want, "marked={marked}: {}", res.output);
+        assert_eq!(
+            super::private::session(&r.core.store, &r.core.cfg, &b),
+            marked
+        );
+    }
 }

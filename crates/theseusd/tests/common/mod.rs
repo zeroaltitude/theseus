@@ -49,6 +49,20 @@ impl Drop for Daemon {
 }
 
 /// The table at `key`, made if it is not there.
+/// The model a test's GLM profiles run where GLM is only a second
+/// provider: no request reaches a model of restricted origin without a pass
+/// for its data (theseus-a1wvq.3).
+pub const UNRESTRICTED_SECOND: &str = "claude-haiku-5-5";
+
+/// The note's `glm` and `glm53` profiles on [`UNRESTRICTED_SECOND`], on their
+/// own provider still.
+pub fn unrestricted_glm(t: &mut toml::Table) {
+    let profiles = table(t, "profiles");
+    for name in ["glm", "glm53"] {
+        table(profiles, name).insert("model".into(), UNRESTRICTED_SECOND.into());
+    }
+}
+
 pub fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
     t.entry(key)
         .or_insert_with(|| toml::Value::Table(Default::default()))

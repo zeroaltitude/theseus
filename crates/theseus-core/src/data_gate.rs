@@ -1,61 +1,157 @@
-//! The floor under the sensitive names (theseus-oejh3, theseus-xs5ah): a
-//! request that holds one of `[privacy] sensitive_names` goes only to a model
-//! of US origin (`ModelOrigin::cleared_for_sensitive`, an allowlist), so one
-//! to a model of any other origin, `cn`, `eu` or `unknown`, is refused before
-//! a byte is sent.
+//! The provider chokepoint (theseus-oejh3, theseus-xs5ah, theseus-a1wvq.3):
+//! every provider is wrapped once, when the core is built ([`guard`]), so one
+//! place covers every caller (the turn, compaction, keep-warm, replay, the
+//! background calls). It refuses, before a byte is sent:
 //!
-//! One place covers every caller (the turn, compaction, keep-warm, replay, the
-//! background calls): each provider is wrapped once, when the core is built
-//! ([`guard`]). With the list empty nothing is wrapped, so a plain turn does
-//! no work here; a request to a cleared model is passed on without a look at
-//! its text. The matcher is `theseus_judge::names`; the walk is over each JSON
-//! string value of the system blocks, the messages and the tool definitions,
-//! never the serialized body, whose escapes (`\n`) would glue words together.
+//! - a request to a model of restricted origin (`cn` or `unknown`) that does
+//!   not carry a [`DataPass`](crate::data::DataPass) covering its own digest.
+//!   Only an open request's own clearance mints one (theseus-a1wvq.8,
+//!   `turn/open_step.rs`); each refusal is a `data_gate.blocked` row;
+//! - a request that holds one of `[privacy] sensitive_names`, or is made for a
+//!   session that read private content, to a model not of US origin
+//!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). A pass never lifts
+//!   this.
+//!
+//! An unrestricted model's request costs one lookup of its model's origin,
+//! memoised per model; a US model's is passed on without a look at its text,
+//! and with no names configured no text is read at all. The digest is taken
+//! only for a restricted model. The matcher is `theseus_judge::names`; the
+//! walk is over each JSON string value of the system blocks, the messages and
+//! the tool definitions, never the serialized body, whose escapes (`\n`)
+//! would glue words together.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
 use theseus_judge::names::Names;
 
-use crate::catalog::{cleared_for_sensitive, Catalog, ModelOrigin};
+use crate::catalog::{cleared_for_sensitive, origin_of, Catalog, ModelOrigin};
 use crate::config::Config;
 use crate::provider::{
     CountFuture, DeltaSink, Provider, ProviderError, ProviderFuture, ProviderRequest, WarmFuture,
 };
+use crate::store::Store;
 
 /// The class of a request the floor refused.
 pub const DATA_GATE_CLASS: &str = "data_gate";
 
+tokio::task_local! {
+    /// The session a provider call is made for, which a refusal's row names.
+    static CALLER: String;
+}
+
+/// Run `f`, the making of a provider call, for `session`. The floor reads it
+/// at the call, as `google::private::scoped`'s mark is read.
+pub fn for_session<R>(session: &str, f: impl FnOnce() -> R) -> R {
+    CALLER.sync_scope(session.to_string(), f)
+}
+
 /// A provider and the origin its models are served from.
 struct Gated {
     inner: Arc<dyn Provider>,
+    /// Its name in the config, which a refusal's row names.
+    name: String,
     names: Names,
     catalog: Arc<Catalog>,
     api_base: String,
     vouched: Option<ModelOrigin>,
+    /// Each model's origin, worked out at its first request.
+    origins: RwLock<HashMap<String, ModelOrigin>>,
+    /// Where a refusal's row is written (none in a unit test).
+    store: Option<Store>,
 }
 
 impl Gated {
+    fn new(
+        name: &str,
+        inner: Arc<dyn Provider>,
+        names: Names,
+        catalog: Arc<Catalog>,
+        (api_base, vouched): (String, Option<ModelOrigin>),
+        store: Option<Store>,
+    ) -> Self {
+        Self {
+            inner,
+            name: name.into(),
+            names,
+            catalog,
+            api_base,
+            vouched,
+            origins: RwLock::default(),
+            store,
+        }
+    }
+
+    fn origin(&self, model: &str) -> ModelOrigin {
+        let known = self.origins.read().ok().and_then(|o| o.get(model).copied());
+        known.unwrap_or_else(|| {
+            let o = origin_of(&self.api_base, self.vouched, model, self.catalog.get(model));
+            if let Ok(mut m) = self.origins.write() {
+                m.insert(model.into(), o);
+            }
+            o
+        })
+    }
+
     fn cleared(&self, model: &str) -> bool {
         cleared_for_sensitive(&self.api_base, self.vouched, model, self.catalog.get(model))
     }
 
     /// The refusal, when the request may not go to this model.
     fn refuse(&self, req: &ProviderRequest) -> Option<anyhow::Error> {
-        if self.cleared(&req.model)
-            || !(crate::google::private::in_scope() || names_in(req, &self.names))
+        let origin = self.origin(&req.model);
+        let message = if origin.restricted()
+            && !req
+                .data_pass
+                .as_ref()
+                .is_some_and(|p| p.covers(&req.digest()))
+        {
+            self.blocked(&req.model, origin);
+            format!(
+                "{} is of restricted origin ({}) and this request has no pass for its data; \
+                 nothing was sent",
+                req.model,
+                word(origin)
+            )
+        } else if self.cleared(&req.model)
+            || !(crate::google::private::in_scope()
+                || (!self.names.is_empty() && names_in(req, &self.names)))
         {
             return None;
+        } else {
+            "this request names something in `[privacy] sensitive_names`, or its session read \
+             private content, and its model is not of US origin; nothing was sent"
+                .into()
+        };
+        Some(ProviderError::DataGate { message }.into())
+    }
+
+    /// The refusal's `data_gate.blocked` row, with the session the call is
+    /// made for, when it is a session's.
+    fn blocked(&self, model: &str, origin: ModelOrigin) {
+        let Some(store) = &self.store else { return };
+        let session = CALLER.try_with(Clone::clone).ok();
+        let fact = crate::fact::data::DataGateBlocked {
+            provider: &self.name,
+            model,
+            origin: word(origin),
+        };
+        let written = crate::fact::row(&fact, session.as_deref(), None)
+            .and_then(|r| theseus_store::blocking(|| store.defer(r)));
+        if let Err(e) = written {
+            tracing::warn!(error = %e, "data_gate.blocked: the row was not written");
         }
-        let message = "this request names something in `[privacy] sensitive_names`, or its \
-                       session read private content, and its model is not of US origin; nothing was sent";
-        Some(
-            ProviderError::DataGate {
-                message: message.into(),
-            }
-            .into(),
-        )
+    }
+}
+
+/// An origin's word, as the config and the rows write it.
+pub(crate) fn word(o: ModelOrigin) -> &'static str {
+    match o {
+        ModelOrigin::Us => "us",
+        ModelOrigin::Eu => "eu",
+        ModelOrigin::Cn => "cn",
+        ModelOrigin::Unknown => "unknown",
     }
 }
 
@@ -103,27 +199,28 @@ pub fn names_in(req: &ProviderRequest, names: &Names) -> bool {
         .any(|v| value_names(v, names))
 }
 
-/// The providers, each behind the floor; the same map when the list is empty.
+/// The providers, each behind the floor, always: a restricted model is refused
+/// whatever the config names. A refusal's row is written to `store`.
 pub fn guard(
     providers: BTreeMap<String, Arc<dyn Provider>>,
     cfg: &Config,
     catalog: &Arc<Catalog>,
+    store: &Store,
 ) -> BTreeMap<String, Arc<dyn Provider>> {
     let names = cfg.privacy.names();
-    if names.is_empty() && cfg.google.is_empty() {
-        return providers;
-    }
     providers
         .into_iter()
         .map(|(name, inner)| {
             let conf = cfg.all_providers().get(&name);
-            let gated: Arc<dyn Provider> = Arc::new(Gated {
+            let base = conf.map(|p| p.api_base.clone()).unwrap_or_default();
+            let gated: Arc<dyn Provider> = Arc::new(Gated::new(
+                &name,
                 inner,
-                names: names.clone(),
-                catalog: catalog.clone(),
-                api_base: conf.map(|p| p.api_base.clone()).unwrap_or_default(),
-                vouched: conf.and_then(|p| p.origin),
-            });
+                names.clone(),
+                catalog.clone(),
+                (base, conf.and_then(|p| p.origin)),
+                Some(store.clone()),
+            ));
             (name, gated)
         })
         .collect()
@@ -138,13 +235,14 @@ mod tests {
     fn gated(api_base: &str, names: &[&str]) -> (Gated, Arc<FakeProvider>) {
         let fake = Arc::new(FakeProvider::default());
         let names: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
-        let g = Gated {
-            inner: fake.clone(),
-            names: Names::new(&names),
-            catalog: Arc::new(Catalog::builtin()),
-            api_base: api_base.into(),
-            vouched: None,
-        };
+        let g = Gated::new(
+            "fake",
+            fake.clone(),
+            Names::new(&names),
+            Arc::new(Catalog::builtin()),
+            (api_base.into(), None),
+            None,
+        );
         (g, fake)
     }
 
@@ -165,6 +263,7 @@ mod tests {
             betas: vec![],
             extra: Default::default(),
             image_tokens: 0,
+            data_pass: None,
         }
     }
 
@@ -179,16 +278,24 @@ mod tests {
         }
     }
 
-    /// A request that names a configured name is refused for a restricted
-    /// model with nothing sent (the fake records every send), and goes to an
-    /// unrestricted one; a request that names nothing goes to both.
+    /// A request to a restricted model goes only with a pass for its own
+    /// digest (theseus-a1wvq.3), and a pass never lifts a name: a named
+    /// request with one is refused with nothing sent (the fake records every
+    /// send); a US model is sent a named request and needs no pass.
     #[tokio::test]
     async fn a_restricted_model_is_never_sent_a_sensitive_name() {
-        let named = request("deepseek-v4", "Draft the Examplecorp's budget\nmemo.");
-        let plain = request("deepseek-v4", "Draft a budget memo.");
+        let mut named = request("deepseek-v4", "Draft the Examplecorp's budget\nmemo.");
+        let mut plain = request("deepseek-v4", "Draft a budget memo.");
         let (cn, sent) = gated("https://api.deepseek.com/anthropic", &["Examplecorp"]);
-        assert_eq!(send(&cn, &named).await, Err("data_gate".into()));
+        assert_eq!(send(&cn, &plain).await, Err("data_gate".into()), "no pass");
+        named.data_pass = Some(crate::data::DataPass::for_test(&named.digest()));
+        assert_eq!(
+            send(&cn, &named).await,
+            Err("data_gate".into()),
+            "a pass lifts no name"
+        );
         assert!(sent.requests().is_empty(), "nothing was sent");
+        plain.data_pass = Some(crate::data::DataPass::for_test(&plain.digest()));
         assert_eq!(send(&cn, &plain).await, Ok(()));
         assert_eq!(sent.requests().len(), 1);
         let (us, sent) = gated("https://api.anthropic.com", &["Examplecorp"]);

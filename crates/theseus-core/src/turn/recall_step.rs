@@ -66,6 +66,10 @@ pub(crate) struct Recalled {
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
+    /// It admitted a note of a session that holds the Google `private` mark
+    /// (theseus-39dj0): this turn's calls are private before the plan frame
+    /// writes the session's own mark, which rides with the node.
+    pub private: bool,
 }
 
 impl Recalled {
@@ -218,7 +222,10 @@ impl TurnRunner {
                 tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
                 BTreeSet::new()
             });
-        let place = self.place_of(t.tc.session_id);
+        let place = match t.tc.open {
+            Some(_) => theseus_memory::Place::Open(None),
+            None => self.place_of(t.tc.session_id),
+        };
         let threads = self.thread_scene(Some(t.tc.session_id), message, true);
         let category = self.category_scene(
             Some(t.tc.session_id),
@@ -278,11 +285,12 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.query);
+        let open = t.tc.open.is_some();
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
             answer,
-            |s| self.place_of(s),
+            |s| self.drawn_place(open, s),
             |ids| crate::recall::links(&self.store, ids),
             false,
         );
@@ -584,6 +592,9 @@ impl TurnRunner {
         let Body::Recall { items, .. } = &node.body else {
             return;
         };
+        // The one point recalled notes join a request, for every recall path
+        // (theseus-39dj0): a note of a private session makes the asker private.
+        rides.extend(self.follow_private(t, items));
         t.recall.count = items.len() as u32;
         t.recall.items = items.clone();
         t.recall.recall_id = node.id.clone();
@@ -594,6 +605,23 @@ impl TurnRunner {
             .unwrap_or_default();
         t.recall.rides = rides;
         t.recall.pending = Some(node);
+    }
+
+    /// The asker's Google `private` mark when `items` hold a note of a
+    /// session that holds it (`google::private::followed`); the turn's own
+    /// calls are private from now on.
+    fn follow_private(&self, t: &mut Turn<'_>, items: &[RecalledRef]) -> Option<NewRecord> {
+        let recalled = items
+            .iter()
+            .map(|r| (r.node_id.as_str(), r.session_id.as_str()));
+        let mark = crate::google::private::followed(
+            t.tc.store,
+            &self.cfg.google,
+            t.tc.session_id,
+            recalled,
+        )?;
+        t.recall.private = true;
+        Some(mark)
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node

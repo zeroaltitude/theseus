@@ -292,6 +292,10 @@ impl Core {
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {
             return fail(format!("no provider {:?} for {profile}", target.provider));
         };
+        // The card's request holds every episode: it is private when any
+        // episode's session is.
+        let of = episodes.iter().map(|e| e.session_id.as_str());
+        let provider = crate::google::private::over_sessions(provider, &self.store, &self.cfg, of);
         let scrubber = self.tools.scrubber.clone();
         let request = card::request(&target.model, title, episodes, &|t| scrubber.scrub(t).0);
         let Some(need) = self.audit_reserve(&request) else {

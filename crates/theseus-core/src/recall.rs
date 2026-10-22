@@ -1075,12 +1075,13 @@ pub fn links(store: &crate::store::Store, ids: &[String]) -> Vec<Link> {
     out
 }
 
-/// `private`, or `shared:<target>`.
+/// `private`, `shared:<target>`, `unknown`, or `open`.
 pub fn place_words(p: &Place) -> String {
     match p {
         Place::Private => "private".into(),
         Place::Shared(t) => format!("shared:{t}"),
         Place::Unknown => "unknown".into(),
+        Place::Open(_) => "open".into(),
     }
 }
 
@@ -1247,6 +1248,28 @@ impl TurnRunner {
                     "where a session speaks cannot be read: recall draws on none of it");
                 Place::Unknown
             }
+        }
+    }
+
+    /// Where a turn's recall reads `session_id`'s nodes: as `place_of` does,
+    /// or, for a turn in the open view (theseus-a1wvq.7), as open only when
+    /// its session is (`data.opened`), with its taint's time; anything else
+    /// is `Unknown`, which an open request draws on none of: a private
+    /// session, a record that cannot be read, and an imported episode (none
+    /// carries a `public` label yet).
+    pub fn drawn_place(&self, open: bool, session_id: &str) -> Place {
+        if !open {
+            return self.place_of(session_id);
+        }
+        if crate::import::is_imported(session_id) {
+            return Place::Unknown;
+        }
+        let rec = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session_id);
+        match rec.ok().flatten().and_then(|r| r.data) {
+            Some(d) if d.opened.is_some() => Place::Open(d.taint.map(|t| t.at_ms)),
+            _ => Place::Unknown,
         }
     }
 

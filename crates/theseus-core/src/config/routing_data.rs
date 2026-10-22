@@ -1,6 +1,7 @@
 //! `[routing.data]` (theseus-a1wvq): the owner's data rule. For now only the
 //! names Jev reads with a message, as the route pack's `data_names`. The private
-//! ones are `[privacy] sensitive_names` (theseus-oejh3), not a list here.
+//! ones are `[privacy] sensitive_names` (theseus-oejh3), not a list here. And
+//! the trees an open request's tools may reach (`open_paths`, theseus-a1wvq.7).
 
 use super::privacy::PrivacyConfig;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,26 @@ pub struct RoutingData {
     /// the owner's trust.
     #[serde(default)]
     pub open_topics: Vec<String>,
+    /// Trees open data lives in, `~/` or absolute: an open request's file
+    /// tools reach these alone, and its programs run only in a session
+    /// whose directory is under one (`open_view::open_roots`). Default none.
+    #[serde(default, deserialize_with = "rooted")]
+    pub open_paths: Vec<String>,
+}
+
+/// `open_paths`, each absolute or under `~/`: a relative path would be the
+/// daemon's directory's, so it is refused.
+fn rooted<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    let paths = Vec::<String>::deserialize(d)?;
+    match paths
+        .iter()
+        .find(|p| !(p.starts_with('/') || p.starts_with("~/")))
+    {
+        Some(p) => Err(serde::de::Error::custom(format!(
+            "open_paths entry {p:?} must be an absolute path or start with ~/"
+        ))),
+        None => Ok(paths),
+    }
 }
 
 impl RoutingData {
@@ -46,6 +67,34 @@ mod tests {
         assert_eq!(names.open, ["Widgetco"]);
         assert_eq!(names.private, ["Acme", "Acme payroll"]);
         assert!(toml::from_str::<RoutingConfig>("[data]\nopen = [\"x\"]").is_err());
+    }
+
+    /// `open_paths` parses, defaults empty, refuses a relative entry, and is
+    /// expanded and canonical as the open roots; an unknown key is refused.
+    #[test]
+    fn open_paths_parse() {
+        let d: RoutingConfig = toml::from_str("[data]").unwrap();
+        assert!(d.data.open_paths.is_empty(), "none by default");
+        let c: RoutingConfig =
+            toml::from_str("[data]\nopen_paths = [\"~/src/widgetco\", \"/srv/open\"]").unwrap();
+        assert_eq!(c.data.open_paths, ["~/src/widgetco", "/srv/open"]);
+        let e = toml::from_str::<RoutingConfig>("[data]\nopen_paths = [\"src\"]")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("must be an absolute path"), "{e}");
+        let e = toml::from_str::<RoutingConfig>("[data]\nopen_roots = [\"/srv\"]")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("open_roots"), "{e}");
+        let mut cfg = crate::Config::example();
+        cfg.routing.data = c.data;
+        let home = crate::config::expand("~/");
+        let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Task, None);
+        let roots = crate::open_view::open_roots(&cfg, &rec);
+        assert_eq!(roots.len(), 2);
+        assert!(roots[0].starts_with(theseus_tools::paths::canonical_best_effort(&home)));
+        assert!(roots[0].ends_with("src/widgetco"), "{roots:?}");
+        assert_eq!(roots[1], std::path::Path::new("/srv/open"));
     }
 
     /// The private list moved to `[privacy] sensitive_names`; the old key is

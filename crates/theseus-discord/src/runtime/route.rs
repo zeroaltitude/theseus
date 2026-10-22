@@ -162,11 +162,16 @@ pub(crate) fn routed(r: &theseus_protocol::TurnSubmitResult) -> Option<String> {
         }
         (src, mode) => src.map(str::to_string).or_else(|| mode.clone()),
     };
-    match (who, what) {
+    let words = match (who, what) {
         (Some(w), Some(m)) => Some(format!("routed: {w} · {m}")),
         (Some(w), None) => Some(format!("routed: {w}")),
         (None, Some(m)) => Some(format!("routed: {m}")),
         (None, None) => None,
+    };
+    match (words, t.data.as_ref().and_then(|d| d.footer())) {
+        (Some(w), Some(d)) => Some(format!("{w} · {d}")),
+        (None, Some(d)) => Some(format!("routed: {d}")),
+        (w, None) => w,
     }
 }
 
@@ -333,6 +338,56 @@ mod tests {
             routed(&r).as_deref(),
             Some("routed: deep_coding (turn checkpoint: failing)")
         );
+    }
+
+    /// The data rule's words end the route words (theseus-a1wvq.11): `open` when
+    /// a request carried a pass, `data gate: <why>` when it kept the turn off a
+    /// restricted-origin model; a result without them words as it always did.
+    #[test]
+    fn the_footer_says_when_a_request_went_open_or_the_data_gate_held_it() {
+        let data = |clearance: &str, gate: Option<&str>| {
+            Some(theseus_protocol::route::TurnData {
+                verdict: None,
+                clearance: clearance.into(),
+                gate: gate.map(Into::into),
+                origin: "us".into(),
+            })
+        };
+        let mut r = theseus_protocol::TurnSubmitResult {
+            route: Some(theseus_protocol::route::TurnRoute {
+                mode: Some("trivial".into()),
+                reason: "verdict".into(),
+                from: "sonnet".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut say = |d, mode: Option<&str>| {
+            let t = r.route.as_mut().unwrap();
+            (t.data, t.mode) = (d, mode.map(Into::into));
+            routed(&r)
+        };
+        assert_eq!(
+            say(None, Some("trivial")).as_deref(),
+            Some("routed: trivial")
+        );
+        assert_eq!(
+            say(data("admitted", None), Some("trivial")).as_deref(),
+            Some("routed: trivial")
+        );
+        assert_eq!(
+            say(data("open", None), Some("trivial")).as_deref(),
+            Some("routed: trivial \u{b7} open")
+        );
+        assert_eq!(
+            say(data("closed", Some("verdict_private")), Some("trivial")).as_deref(),
+            Some("routed: trivial \u{b7} data gate: verdict_private")
+        );
+        assert_eq!(
+            say(data("open", None), None).as_deref(),
+            Some("routed: open")
+        );
+        assert_eq!(say(data("closed", None), None), None);
     }
 
     #[test]

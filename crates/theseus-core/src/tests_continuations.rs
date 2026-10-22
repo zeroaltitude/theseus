@@ -31,7 +31,7 @@ struct Rig {
     core: Arc<Core>,
     /// The live profile's provider (`anthropic`, claude-sonnet-5-5).
     sonnet: Arc<FakeProvider>,
-    /// The `glm` profile's provider (`zai`, glm-5.3-flash).
+    /// The `glm` profile's provider (`zai`, an unrestricted model here).
     glm: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
@@ -43,6 +43,10 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.roots = vec![];
     cfg.tools.proc_sync_secs = 1;
     cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+    // `zai` is only the second provider here: its `glm` profile runs an
+    // unrestricted model (theseus-a1wvq.3); thinking stays with the
+    // provider that wrote it all the same.
+    cfg.serve_glm_unrestricted();
     cfg
 }
 

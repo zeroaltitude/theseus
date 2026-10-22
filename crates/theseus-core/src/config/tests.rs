@@ -1258,9 +1258,14 @@ fn a_config_table_cannot_loosen_a_builtin_cn_origin() {
         }
         with(id, ModelOrigin::Cn).unwrap();
     }
-    // Tightening a Claude row is allowed.
-    with("claude-sonnet-5-5", ModelOrigin::Cn).unwrap();
-    with("claude-sonnet-5-5", ModelOrigin::Unknown).unwrap();
+    // Tightening a Claude row is allowed: one no class names loads, and one a
+    // class lists is refused only by routing's own check (theseus-a1wvq.4).
+    with("claude-opus-5", ModelOrigin::Cn).unwrap();
+    with("claude-opus-5", ModelOrigin::Unknown).unwrap();
+    for tight in [ModelOrigin::Cn, ModelOrigin::Unknown] {
+        let e = format!("{:#}", with("claude-sonnet-5-5", tight).unwrap_err());
+        assert!(e.contains("is of restricted origin"), "{tight:?}: {e}");
+    }
     // A word that is none of the four fails the load.
     let toml = format!(
         "{}\n[catalog.\"glm-5.3\"]\norigin = \"china\"\n",

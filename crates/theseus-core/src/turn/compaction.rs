@@ -30,6 +30,10 @@ use theseus_kernel::{
 };
 use theseus_protocol::memory::{BudgetDrop, BudgetRange};
 
+mod gate;
+
+/// The profile the `[model]` section builds: where a restricted background call falls back.
+pub(crate) use super::data_step::DEFAULT_PROFILE;
 use super::{Failure, Target, Turn, TurnRunner};
 use crate::catalog::ThinkingMode;
 use crate::compiler::{self, compaction, CompileInput, Compiled};
@@ -129,7 +133,17 @@ impl TurnRunner {
         let own = (word == SUMMARY_SESSION).then(|| t.target.clone());
         let profile = own.as_ref().map_or(word, |o| o.profile.clone());
         let t0 = t.trace.now_us();
-        let attempt = self.summarize(t, &ring, base, &profile, own, i).await?;
+        // A restricted summary profile gets the range only if its run clears
+        // it (theseus-a1wvq.10, `gate.rs`).
+        let route = match self.summary_route(t, &ring, base.nodes, (profile.clone(), own)) {
+            Ok(r) => r,
+            Err(why) => {
+                Self::rang(t, &profile, Fallback::new(why), t0, i);
+                return Ok(ring);
+            }
+        };
+        let (profile, joins) = (route.profile.clone(), route.is_cleared());
+        let attempt = self.summarize(t, &ring, base, route, i).await?;
         let (summary, done) = match attempt {
             Ok(s) => s,
             Err(f) => {
@@ -137,6 +151,9 @@ impl TurnRunner {
                 return Ok(ring);
             }
         };
+        if joins {
+            t.data.summaries.push(summary.id.clone());
+        }
         // The assembled prefix (30c): its recall section, the summary, the
         // kept turns, as of the summary's frame; without the section when
         // the section is what would not fit.
@@ -372,11 +389,11 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         ring: &Compiled,
         base: CompileInput<'_>,
-        profile: &str,
-        own: Option<Target>,
+        route: gate::Route,
         i: u32,
     ) -> anyhow::Result<Result<(Node, Done), Fallback>> {
-        let p = match self.plan_summary(ring, base.nodes, profile, own) {
+        let profile = route.profile.as_str();
+        let p = match self.plan_summary(ring, base.nodes, profile, route.own.clone()) {
             Ok(p) => p,
             Err(f) => return Ok(Err(f)),
         };
@@ -392,14 +409,22 @@ impl TurnRunner {
             Ok(a) => a,
             Err(why) => return fail(why),
         };
-        let (target, provider, request) = (&p.target, &p.provider, &p.request);
+        let (target, provider) = (&p.target, &p.provider);
+        // A cleared range's call carries its own pass; the digest is the
+        // request's, never changed by it.
+        let mut request = p.request.clone();
+        request.data_pass = route
+            .cleared
+            .as_ref()
+            .and_then(|c| c.pass(&request.digest()));
+        let request = &request;
         let started_ms = theseus_protocol::now_unix_ms();
         let started = Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
         // A summary of a private session is that session's request too.
         let private = self.private_session(t);
-        let answered = crate::google::private::scoped(private, || {
-            provider.stream_message(request, &mut quiet)
+        let answered = crate::data_gate::for_session(t.tc.session_id, || {
+            crate::google::private::scoped(private, || provider.stream_message(request, &mut quiet))
         })
         .await;
         let resp = match answered {
@@ -417,6 +442,7 @@ impl TurnRunner {
             resp,
             started,
             started_ms,
+            note: route.note,
         };
         self.settle_summary(t, &p, ring, base.nodes, profile, call, i)
     }
@@ -440,6 +466,7 @@ impl TurnRunner {
             resp,
             started,
             started_ms,
+            note,
         } = call;
         let (range, messages, target, price) = (&p.range, p.messages, &p.target, &p.price);
         let cost_usd = self
@@ -477,9 +504,10 @@ impl TurnRunner {
             } else {
                 "ring"
             },
-            why: summary
-                .is_none()
-                .then_some("the summary call answered with no text"),
+            why: match summary.is_none() {
+                true => Some("the summary call answered with no text"),
+                false => note.as_deref(),
+            },
             profile,
             model: Some(&resp.model),
             messages,
@@ -570,6 +598,8 @@ struct Call {
     resp: crate::provider::ModelResponse,
     started: Instant,
     started_ms: u64,
+    /// Why the data gate moved the call, for its row.
+    note: Option<String>,
 }
 
 /// A summary call, planned.
@@ -809,6 +839,7 @@ fn request_for(
         betas: Vec::new(),
         extra: Default::default(),
         image_tokens: 0,
+        data_pass: None,
     }
 }
 

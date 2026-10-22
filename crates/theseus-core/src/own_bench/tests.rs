@@ -466,3 +466,65 @@ fn a_reply_is_the_wires_own_type_and_serialises_as_it_always_did() {
         r#"{"model":"m","text":"t","tool_calls":["fs.read"],"input_tokens":3,"output_tokens":4,"cost_usd":0.5}"#
     );
 }
+
+/// A replay sends the turn's own request again: the mark of the turn's
+/// session holds it (theseus-a1wvq.10).
+#[tokio::test]
+async fn a_replay_of_a_private_sessions_turn_is_refused_by_the_floor() {
+    let rig = crate::tests_recall::rig_with_secrets(
+        MemoryMode::Off,
+        board(),
+        crate::tests_private_background::private_on,
+    );
+    script(&rig, &[ORIGINAL, REPLAYED]);
+    let (sid, t) = asked(&rig).await;
+    crate::tests_private_background::mark(&rig.core, &sid);
+    let sent = rig.model.requests().len();
+    let refused = rig.core.turn_replay(params(&sid, &t, "haiku"), "cli").await;
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(rig.model.requests().len(), sent, "nothing was sent");
+}
+
+/// A replay to a profile of restricted origin is refused in words before the
+/// rebuild, in both scopes: nothing is sent, no `turn.replayed` row and no
+/// blocked row is written, and a replay of the same turn to a profile of US
+/// origin still runs (theseus-a1wvq.10).
+#[tokio::test]
+async fn a_replay_to_a_restricted_profile_is_refused_in_words() {
+    let zai = Arc::new(crate::provider::FakeProvider::default());
+    let given = zai.clone();
+    let rig = crate::tests_recall::rig_built(
+        MemoryMode::Off,
+        |c| c.copy_profile("dsflash", "glm"),
+        move |p| {
+            p.secrets = board();
+            p.providers.insert("zai".into(), given);
+        },
+    );
+    script(&rig, &[ORIGINAL, REPLAYED]);
+    let (sid, t) = asked(&rig).await;
+    let sent = rig.model.requests().len();
+    for scope in [None, Some("whole_turn")] {
+        let mut p = params(&sid, &t, "dsflash");
+        p.scope = scope.map(Into::into);
+        let err = rig.core.turn_replay(p, "cli").await.unwrap_err();
+        let said = format!("{err:#}");
+        assert!(said.contains("restricted origin"), "{scope:?}: {said}");
+        assert!(said.contains("not replayed on `dsflash`"), "{said}");
+        assert!(
+            err.downcast_ref::<super::replay::Crossing>().is_some(),
+            "refused as a crossing is"
+        );
+    }
+    assert!(zai.requests().is_empty(), "nothing was sent");
+    assert_eq!(rig.model.requests().len(), sent);
+    assert!(rows(&rig.core, LedgerKind::TurnReplayed).is_empty());
+    assert!(crate::tests_judge::kinds(&rig.core.store, "data_gate.blocked").is_empty());
+    let ok = rig
+        .core
+        .turn_replay(params(&sid, &t, "haiku"), "cli")
+        .await
+        .unwrap();
+    assert_eq!(ok.replay.text, REPLAYED);
+    assert_eq!(rows(&rig.core, LedgerKind::TurnReplayed).len(), 1);
+}

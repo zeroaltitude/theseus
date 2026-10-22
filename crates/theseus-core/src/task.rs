@@ -71,6 +71,11 @@ pub const MAX_BRIEF_CHARS: usize = 32_000;
 /// The most of a report's text the parent's node carries, in characters.
 pub const REPORT_NODE_CHARS: usize = 8_000;
 
+/// `open` from a session that read a Google result (theseus-a1wvq.6): both
+/// task paths refuse it with these words.
+pub const PRIVATE_OPEN_REFUSAL: &str = "Not started: an open task carries nothing of a private \
+    conversation, and this one read private content. Start it without `open`.";
+
 /// What a task says to a model that asks it to start one (depth one).
 pub const DEPTH_REFUSAL: &str = "Refused: this session is itself a task, and a task cannot start \
     tasks (depth one). Do the work here, or finish and say in your report what should be started \
@@ -127,6 +132,9 @@ struct Input {
     /// A check's model: a profile's name (M5 28a). Only a check takes one.
     #[serde(default)]
     profile: Option<String>,
+    /// An open task (theseus-a1wvq.6): its brief alone, no arrangement.
+    #[serde(default)]
+    open: bool,
     /// A deferred task (theseus-rcgph): it opens asleep and starts then.
     #[serde(default)]
     start_at: Option<String>,
@@ -165,6 +173,9 @@ fn parse_kind(i: &Input) -> Result<theseus_protocol::tasks::TaskKind, String> {
 fn input_of(input: &Value) -> Result<Input, String> {
     let i: Input = parse(input)?;
     let Some(brief) = &i.brief else {
+        if i.open {
+            return Err("`open` is for a task session: give it a `brief`".into());
+        }
         if i.check_of.is_some() || i.profile.is_some() {
             return Err("a check (`check_of`) is a task session: give it a `brief`".into());
         }
@@ -189,6 +200,12 @@ fn input_of(input: &Value) -> Result<Input, String> {
     }
     if brief.trim().is_empty() {
         return Err("the brief is empty: say what the task should do".into());
+    }
+    if i.open && i.check_of.is_some() {
+        return Err("an open task cannot be a check: a check reads its task's claim, which is not judged open".into());
+    }
+    if i.open && i.arrangement.is_some() {
+        return Err("an open task carries only its brief: leave out `arrangement` and write what it needs into `brief`".into());
     }
     if i.profile.is_some() && i.check_of.is_none() {
         return Err(
@@ -331,6 +348,7 @@ impl Tool for TaskCreate {
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
                 "check_of": {"type": "string", "description": "Check this task (its id or its end): one this conversation started that has reported."},
                 "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
+                "open": {"type": "boolean", "description": "Brief only, no arrangement; compiled without owner material; may leave Claude."},
                 "start_after": {"type": "string", "description": "Start this long from now: 2h, 1d (1 second to 365 days)."},
                 "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (`objective`, `milestones`, a weekly `review` or `none`, which waits for the owner's yes) or `milestone` (`parent` a project, `due`; the owner is reminded)."},
                 "due": {"type": "string", "description": "A date: `2026-11-03`, `fri 09:00`, `in 3d`."},
@@ -475,7 +493,7 @@ pub fn create<'a>(
         &std::collections::BTreeMap<String, TargetRef>,
         crate::project::Ext<'_>,
     ),
-    forecasts: &crate::forecast::Book,
+    (forecasts, google): (&crate::forecast::Book, &crate::config::GoogleConfig),
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -506,6 +524,9 @@ pub fn create<'a>(
     if parent.parent.is_some() || parent.kind == SessionKind::Task {
         return Err(DEPTH_REFUSAL.into());
     }
+    if i.open && crate::google::private::session_on(tc.store, google, tc.session_id) {
+        return Err(PRIVATE_OPEN_REFUSAL.into());
+    }
     let nodes = tc
         .store
         .transcript(tc.session_id)
@@ -530,8 +551,10 @@ pub fn create<'a>(
         )?),
         None => None,
     };
+    // An open task carries its brief alone (theseus-a1wvq.6).
     let (pieces, humans) = match &check {
         Some(c) => (c.pieces.clone(), 0),
+        None if i.open => (Vec::new(), 0),
         None => arranged(tc, &i, &nodes, holder.as_deref())?,
     };
     let left = parent.budget.available();
@@ -599,14 +622,17 @@ pub fn create<'a>(
                 model: t.model.clone(),
             });
             let author = format!("session:{}", tc.session_id);
-            let mut arrangement =
-                Node::arrangement(&task.session_id, &author, pieces.clone(), i.fidelity_ack);
+            let mut arrangement = (!i.open).then(|| {
+                Node::arrangement(&task.session_id, &author, pieces.clone(), i.fidelity_ack)
+            });
             // A check runs on its profile, and reads its claim (M5 28a).
             if let Some(c) = &check {
                 if let Some(t) = &c.target {
                     rec.last_target = Some(t.clone());
                 }
-                if let Body::Arrangement { claim, .. } = &mut arrangement.body {
+                if let Some(Body::Arrangement { claim, .. }) =
+                    arrangement.as_mut().map(|a| &mut a.body)
+                {
                     *claim = Some(c.claim.clone());
                 }
             }
@@ -615,20 +641,30 @@ pub fn create<'a>(
                 parent_execution: tc.execution_id.into(),
                 by: correlation_id.into(),
                 target: target.clone(),
-                arrangement: Some(arrangement.id.clone()),
+                arrangement: arrangement.as_ref().map(|a| a.id.clone()),
                 check: check.as_ref().map(|c| c.basis.clone()),
                 notify_done: i.notify_done,
             });
             let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
+            // A task never inherits its parent's open run: its brief is its
+            // only start (theseus-a1wvq.5).
+            rec.data = None;
+            let opened_row = i
+                .open
+                .then(|| crate::data::open_task(&mut rec, crate::data::OpenHow::Task, now))
+                .transpose()?;
             let mut records = match &parent_hold {
                 Some(h) => {
-                    let taken = crate::external::taken(
+                    let mut taken = crate::external::taken(
                         h,
                         tc.session_id,
                         crate::external::VIA_TASK,
                         &brief.id,
                         theseus_protocol::now_unix_ms(),
                     );
+                    if i.open {
+                        taken = crate::external::bare(taken);
+                    }
                     crate::external::hold(rec, taken, None)?.unwrap_or_default()
                 }
                 None => vec![NewRecord::json(
@@ -637,7 +673,16 @@ pub fn create<'a>(
                     &rec,
                 )?],
             };
+            records.extend(opened_row);
             records.push(brief.record()?);
+            // A task of a private session is private from its first call, as
+            // task.start's (theseus-a1wvq.10).
+            records.extend(crate::google::private::inherited_on(
+                tc.store,
+                google,
+                tc.session_id,
+                &task.session_id,
+            )?);
             if let Some(reply) = &holder {
                 records.push(
                     crate::graph::Edge::new(
@@ -651,28 +696,30 @@ pub fn create<'a>(
             }
             // The arrangement reads after the brief, and copies each piece's
             // node (M5 27).
-            records.push(arrangement.record()?);
-            for p in &pieces {
-                records.push(
-                    crate::graph::Edge::new(
-                        crate::graph::EdgeKind::DerivedFrom,
-                        &arrangement.id,
-                        &p.node,
-                        crate::graph::VIA_ARRANGEMENT,
-                    )
-                    .record()?,
-                );
-            }
-            if let Some(c) = &check {
-                records.push(
-                    crate::graph::Edge::new(
-                        crate::graph::EdgeKind::DerivedFrom,
-                        &arrangement.id,
-                        &c.claim.node,
-                        crate::graph::VIA_CLAIM,
-                    )
-                    .record()?,
-                );
+            if let Some(arrangement) = &arrangement {
+                records.push(arrangement.record()?);
+                for p in &pieces {
+                    records.push(
+                        crate::graph::Edge::new(
+                            crate::graph::EdgeKind::DerivedFrom,
+                            &arrangement.id,
+                            &p.node,
+                            crate::graph::VIA_ARRANGEMENT,
+                        )
+                        .record()?,
+                    );
+                }
+                if let Some(c) = &check {
+                    records.push(
+                        crate::graph::Edge::new(
+                            crate::graph::EdgeKind::DerivedFrom,
+                            &arrangement.id,
+                            &c.claim.node,
+                            crate::graph::VIA_CLAIM,
+                        )
+                        .record()?,
+                    );
+                }
             }
             if let Some(t) = &target {
                 records.push(tc.outbox.task_record(&task.session_id, t)?);
@@ -720,14 +767,16 @@ pub fn create<'a>(
             pieces: pieces.len(),
             starts_at_ms: start,
         });
-        tc.record(&crate::fact::arrangement::TaskArranged {
-            short: &s,
-            session_id: &task.session_id,
-            pieces: &pieces,
-            fidelity_ack: i.fidelity_ack,
-            humans,
-            brief_chars: brief.trim().chars().count(),
-        });
+        if !i.open {
+            tc.record(&crate::fact::arrangement::TaskArranged {
+                short: &s,
+                session_id: &task.session_id,
+                pieces: &pieces,
+                fidelity_ack: i.fidelity_ack,
+                humans,
+                brief_chars: brief.trim().chars().count(),
+            });
+        }
         if let Some(c) = &check {
             tc.record(&crate::fact::check::TaskCheckOpened {
                 short: &s,
@@ -795,16 +844,20 @@ pub fn create<'a>(
             task.session_id
         )
     };
-    let text = format!(
-        "{text}\n\nIts arrangement, {}, which it reads whole after the brief:\n{}{}",
-        crate::narrative::count(pieces.len() as u64, "piece", "pieces"),
-        crate::arrangement::resolved_lines(&pieces),
-        if i.fidelity_ack {
-            "\nThe fidelity check was acknowledged (`fidelity_ack`), and the task's lines say so."
-        } else {
-            ""
-        }
-    );
+    let text = if i.open {
+        format!("{text}\n\nIt is an open task: it reads its brief alone.")
+    } else {
+        format!(
+            "{text}\n\nIts arrangement, {}, which it reads whole after the brief:\n{}{}",
+            crate::narrative::count(pieces.len() as u64, "piece", "pieces"),
+            crate::arrangement::resolved_lines(&pieces),
+            if i.fidelity_ack {
+                "\nThe fidelity check was acknowledged (`fidelity_ack`), and the task's lines say so."
+            } else {
+                ""
+            }
+        )
+    };
     let meta = json!({
         "task_id": task.session_id,
         "short": s,
@@ -860,8 +913,12 @@ fn graph_record(
             return Err(format!("no task is named `{d}` (deps name tasks by id)"));
         }
     }
-    let (objective, acceptance) =
-        g::tools::from_pieces(pieces, i.objective.as_deref(), &i.acceptance, title);
+    // An open task has no pieces: its objective is its brief.
+    let objective = i
+        .objective
+        .as_deref()
+        .or(i.open.then_some(i.brief.as_deref()).flatten());
+    let (objective, acceptance) = g::tools::from_pieces(pieces, objective, &i.acceptance, title);
     Ok(g::NewTask {
         id: g::of_session(task_session),
         title,
@@ -1368,6 +1425,10 @@ pub fn cancelled_report(
         return Ok((vec![], None));
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
+    // A draft's cancel is told by its review (theseus-a1wvq.13).
+    if rec.as_ref().is_some_and(crate::draft::is_draft) {
+        return Ok((vec![], None));
+    }
     let Some(target) = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone()) else {
         return Ok((vec![], None));
     };

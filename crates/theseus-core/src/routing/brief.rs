@@ -115,6 +115,7 @@ mod tests {
                     short_cost: Some(short_cost(&e)),
                     input_per_mtok: Some(e.input_per_mtok),
                     vision: e.vision,
+                    restricted: false,
                 },
             );
         }

@@ -38,7 +38,10 @@ fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mut Config)) 
     inbound_only(&mut cfg);
     cfg.judge.packs.remove(crate::judge::onto::ONTO_PACK);
     cfg.ontology.judge = true;
+    // The namer is only a second provider here; it reads the session's text,
+    // so it runs an unrestricted model (theseus-a1wvq.3).
     cfg.ontology.name_profile = "glm".into();
+    cfg.serve_glm_unrestricted();
     more(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();

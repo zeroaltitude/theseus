@@ -39,9 +39,11 @@ pub mod context_parts;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
+pub mod data;
 pub mod data_gate;
 pub mod day_ceiling;
 pub mod disk;
+pub mod draft;
 pub mod egress;
 pub mod engage;
 pub mod extend;
@@ -80,6 +82,7 @@ pub mod node;
 pub mod node_cache;
 pub mod one_shot;
 pub mod ontology;
+pub mod open_view;
 pub mod outbound;
 pub mod outbox;
 pub mod outputs;
@@ -228,6 +231,8 @@ mod tests_audit;
 #[cfg(test)]
 mod tests_backfill;
 #[cfg(test)]
+mod tests_bg_gate;
+#[cfg(test)]
 mod tests_books;
 #[cfg(test)]
 mod tests_budget_loop;
@@ -252,6 +257,8 @@ mod tests_checkpoint_effort;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
+mod tests_cn_follow;
+#[cfg(test)]
 mod tests_commitments;
 #[cfg(test)]
 mod tests_compaction;
@@ -268,7 +275,11 @@ mod tests_continue;
 #[cfg(test)]
 mod tests_continue_slow;
 #[cfg(test)]
+mod tests_data_floor;
+#[cfg(test)]
 mod tests_data_gate;
+#[cfg(test)]
+mod tests_data_state;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
@@ -281,6 +292,8 @@ mod tests_defer;
 mod tests_detour;
 #[cfg(test)]
 mod tests_disk_watch;
+#[cfg(test)]
+mod tests_draft;
 #[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
@@ -372,6 +385,8 @@ mod tests_money;
 #[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
+mod tests_observability;
+#[cfg(test)]
 mod tests_offer;
 #[cfg(test)]
 mod tests_one_turn;
@@ -396,6 +411,12 @@ mod tests_ontology_bind;
 #[cfg(test)]
 mod tests_ontology_undo;
 #[cfg(test)]
+mod tests_open_request;
+#[cfg(test)]
+mod tests_open_task;
+#[cfg(test)]
+mod tests_open_view;
+#[cfg(test)]
 mod tests_output;
 #[cfg(test)]
 mod tests_outside_text;
@@ -415,6 +436,12 @@ mod tests_personal_hold;
 mod tests_personal_warn;
 #[cfg(test)]
 mod tests_places;
+#[cfg(test)]
+mod tests_private_authored;
+#[cfg(test)]
+mod tests_private_background;
+#[cfg(test)]
+mod tests_private_recall;
 #[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
@@ -579,6 +606,8 @@ mod tests_term;
 mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
+#[cfg(test)]
+mod tests_tool_screen;
 #[cfg(test)]
 mod tests_tool_words;
 #[cfg(test)]

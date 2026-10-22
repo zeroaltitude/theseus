@@ -222,9 +222,32 @@ fn two_providers() -> (Rig, Arc<FakeProvider>) {
     let z = zai.clone();
     let r = crate::tests_recall::rig_built(
         crate::config::MemoryMode::Off,
-        |_| {},
+        // Only a second provider here: a replay to a restricted-origin
+        // profile is refused earlier (theseus-a1wvq.10).
+        |c| {
+            // Dearer than Haiku and cheaper than Sonnet, so it is the rung
+            // down from the turn's model.
+            c.serve_glm_as("claude-sonnet-5");
+            c.catalog.insert(
+                "claude-sonnet-5".into(),
+                crate::catalog::CatalogRow {
+                    input_per_mtok: Some(1.0),
+                    output_per_mtok: Some(5.0),
+                    ..Default::default()
+                },
+            );
+        },
         move |p| {
             p.providers.insert("zai".into(), z);
+            // The sampler's ladder is the modes' lists. Since theseus-a1wvq.4
+            // no default list names GLM and the load refuses one that does, so
+            // the rung on another provider goes in after the load's check.
+            p.cfg
+                .routing
+                .classes
+                .trivial
+                .profiles
+                .insert(1, "glm".into());
         },
     );
     (r, zai)

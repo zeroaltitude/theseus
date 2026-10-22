@@ -52,7 +52,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-use theseus_protocol::route::TurnRoute;
+use theseus_protocol::route::{TurnData, TurnRoute};
 
 use super::*;
 use crate::config::PackMode;
@@ -97,6 +97,16 @@ pub(super) struct RouteState {
     /// The message names one of `[privacy] sensitive_names`: a profile not of
     /// US origin is unusable for the turn (`data_step.rs`).
     pub(super) sensitive: bool,
+    /// The turn's input judged open, and its open run, or why not
+    /// (theseus-a1wvq.8, `data::admits`). Unchecked at the turn's start; it
+    /// never mints a pass: each request's own `data::clearance` does.
+    pub(super) admitted: super::open_step::Admitted,
+    /// The ids of the result nodes this turn screened and passed
+    /// (`screen_step.rs`): carried as the loop's own.
+    pub(super) screened: Vec<String>,
+    /// Why the floor moved the turn off a restricted-origin profile, for its
+    /// route row (`data_step`, theseus-a1wvq.11).
+    pub(super) gated: Option<&'static str>,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -123,6 +133,11 @@ pub(super) struct RouteState {
     pub(super) brief: bool,
     /// Jev's families judgment of the message, pending or taken (theseus-xlri5).
     pub(super) families: super::families_step::Judged,
+    /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13), for the
+    /// route row; and the line of a turn that opened a draft instead of a
+    /// model call (`draft_step.rs`).
+    pub(super) draft_skip: Option<&'static str>,
+    pub(super) drafted: Option<String>,
 }
 
 /// Where an effort is decided: the session (its base profile), whether the
@@ -180,8 +195,10 @@ pub struct Waited {
     pub answered: Option<tokio::time::Instant>,
 }
 
-/// The row's times (theseus-ddbi).
-struct Timed {
+/// The row's times (theseus-ddbi), and the compile's estimate it was made at.
+#[derive(Default)]
+pub(super) struct Timed {
+    est_tokens: u64,
     waited: Duration,
     late: bool,
     answered_ms: Option<u64>,
@@ -338,7 +355,7 @@ impl TurnRunner {
     ///
     /// With `sensitive`, a profile not of US origin is unusable (`data_gate`):
     /// routing then picks the next usable one (theseus-oejh3, theseus-xs5ah).
-    pub(super) fn route_profiles(&self, sensitive: bool) -> routing::Profiles {
+    pub(super) fn route_profiles(&self, floor: super::data_step::Floor) -> routing::Profiles {
         let states = self.secrets.states();
         self.cfg
             .all_profiles()
@@ -361,7 +378,7 @@ impl TurnRunner {
                     Some("key")
                 } else if entry.is_none() {
                     Some("unpriced")
-                } else if sensitive && self.uncleared_profile(name) {
+                } else if self.floor_refuses(floor, name).is_some() {
                     Some("data_gate")
                 } else {
                     None
@@ -375,6 +392,7 @@ impl TurnRunner {
                         short_cost: entry.map(routing::short_cost),
                         input_per_mtok: entry.map(|e| e.input_per_mtok),
                         vision: entry.is_some_and(|e| e.vision),
+                        restricted: self.restricted_profile(name),
                     },
                 )
             })
@@ -405,7 +423,27 @@ impl TurnRunner {
         // The compile step's future is boxed (situations' join fix, 35a):
         // inline, the turn's future overflowed a 2 MiB stack in debug builds.
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
-            return Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
+            // A turn that asked no route meets the data floor here.
+            if i == 0 {
+                self.data_admit_unrouted(t, session);
+            }
+            let floored = match i {
+                0 => match self.floor_unrouted(t, session, spec, provider, slot)? {
+                    Ok(d) => d,
+                    Err(f) => return Ok(Err(f)),
+                },
+                _ => None,
+            };
+            let compiled =
+                Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
+            if let (Some(d), Ok(Ok(c))) = (&floored, &compiled) {
+                let timed = Timed {
+                    est_tokens: c.est_tokens,
+                    ..Timed::default()
+                };
+                self.record_route(t, None, Some(d), None, timed, None);
+            }
+            return compiled;
         };
         let mut compiled = self
             .compile_first(
@@ -518,7 +556,7 @@ impl TurnRunner {
         // A steered turn runs where the owner said: it waits for no verdict.
         let steering = t.route.steer.take().filter(|_| live);
         t.route.defer_persist = live;
-        let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
+        let max_wait = self.route_wait(t);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
         let wait = (live && !unreachable && steering.is_none()) || self.judge.pins_wait();
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
@@ -548,22 +586,24 @@ impl TurnRunner {
             unreachable,
         );
         let ask = (&steering, &verdict, reason);
-        let decision = match self.decide_floored(t, session, ask, &compiled) {
+        let decision = match self.decide_floored(t, session, ask, (live, late), &compiled) {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
+        let drafting = self.draft_check(t, session, verdict.as_ref().filter(|_| reason.is_none()));
+        let drafting = drafting.await;
         let at = EffortAt::inbound(session, reason.is_none());
         t.route.effort = verdict.as_ref().and_then(|v| {
             self.route_effort(t, v, decision.as_ref(), (&*spec, compiled.est_tokens), at)
         });
         self.verdict_asides(t, verdict.as_ref());
-        Self::record_route(
+        self.record_route(
             t,
             verdict.as_ref(),
             decision.as_ref(),
             reason,
-            &compiled,
             Timed {
+                est_tokens: compiled.est_tokens,
                 waited,
                 late,
                 answered_ms,
@@ -571,6 +611,10 @@ impl TurnRunner {
             steering.as_ref(),
         );
         self.note_routed(t, verdict.as_ref(), decision.as_ref());
+        if self.draft_open(t, drafting) {
+            self.drop_first(t, &compiled);
+            return Ok(Ok(compiled));
+        }
         if live {
             // A routed turn: the owner's pin of another profile within 10
             // minutes after it counts on route.v1's ladder (26a).
@@ -582,15 +626,7 @@ impl TurnRunner {
         let Some(d) = decision else {
             return self.keep_first(t, session, compiled, spec, i);
         };
-        let routed = session.routed.get_or_insert_with(Default::default);
-        match &d.hold {
-            HoldNext::Keep => {}
-            HoldNext::Clear => routed.hold = None,
-            HoldNext::Set(h) => routed.hold = Some(h.clone()),
-        }
-        if session.routed.as_deref() == Some(&Default::default()) {
-            session.routed = None;
-        }
+        Self::hold_next(session, &d.hold);
         if d.profile == base {
             return self.keep_first(t, session, compiled, spec, i);
         }
@@ -615,6 +651,20 @@ impl TurnRunner {
             return self.compile_detour(t, session, spec, i);
         }
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
+    }
+
+    /// The decision's hold on the session's routed record, which goes once it
+    /// holds nothing.
+    fn hold_next(session: &mut SessionRecord, hold: &HoldNext) {
+        let routed = session.routed.get_or_insert_with(Default::default);
+        match hold {
+            HoldNext::Keep => {}
+            HoldNext::Clear => routed.hold = None,
+            HoldNext::Set(h) => routed.hold = Some(h.clone()),
+        }
+        if session.routed.as_deref() == Some(&Default::default()) {
+            session.routed = None;
+        }
     }
 
     /// The turn detours: its record keeps the session's own target, and the
@@ -668,7 +718,7 @@ impl TurnRunner {
                 let judge = self.judge.clone();
                 let s = sid.to_string();
                 // A brief's late verdict picks nothing, now or for a later message.
-                let keep = !t.route.brief;
+                let keep = !t.route.brief && !t.data.brief;
                 tokio::spawn(async move {
                     if let Ok(Answered {
                         verdict: Some(v), ..
@@ -689,18 +739,27 @@ impl TurnRunner {
     }
 
     /// The decision the turn's verdict (or steer) makes, kept off restricted
-    /// profiles when the request names a sensitive name (theseus-oejh3).
+    /// profiles when the request names a sensitive name (theseus-oejh3), and
+    /// on one only for a turn its verdict admits open (theseus-a1wvq.8; a
+    /// steered turn has none).
     fn decide_floored(
         &self,
         t: &mut Turn<'_>,
         session: &SessionRecord,
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
+        (live, late): (bool, bool),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
+        let judged = verdict
+            .as_ref()
+            .filter(|_| steering.is_none() && reason.is_none());
+        self.data_admit(t, session, judged, live, late);
         t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decision = match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
+            // An open task's brief asked for its data alone picks nothing.
+            (None, Some(_), None) if t.data.brief && !t.route.brief => None,
             (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
             _ => None,
         };
@@ -718,7 +777,7 @@ impl TurnRunner {
         if t.route.brief {
             return self.decide_brief(t, v);
         }
-        let profiles = self.route_profiles(t.route.sensitive);
+        let profiles = self.route_profiles(t.route.floor());
         let cap = Self::place_cap(t, &profiles);
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         // Jev's own move up from the base is what a step back down undoes.
@@ -739,6 +798,7 @@ impl TurnRunner {
                     from,
                     images: t.route.images,
                     cap,
+                    cleared: t.route.floor().cleared,
                 },
             )
         };
@@ -761,12 +821,12 @@ impl TurnRunner {
     }
 
     /// The `route.decided` row, and what the turn's result says.
-    fn record_route(
+    pub(super) fn record_route(
+        &self,
         t: &mut Turn<'_>,
         verdict: Option<&Verdict>,
         decision: Option<&Decision>,
         reason: Option<Reason>,
-        compiled: &Compiled,
         timed: Timed,
         steering: Option<&Steering>,
     ) {
@@ -781,6 +841,18 @@ impl TurnRunner {
         let applied = e
             .filter(EffortDecision::applied)
             .and_then(|e| e.sent.or(e.ran));
+        let mode = verdict.map(|v| v.mode.as_str());
+        let gate = self.data_gate_why(t, mode);
+        if let Some(why) = gate {
+            self.judge.record_data_gate("route", why);
+        }
+        let answered = verdict.and_then(|v| v.data.as_deref());
+        // Jev's admission: the floor's `private_view` turns an admitted turn
+        // closed for the request, not for the verdict.
+        let admitted = t.route.admitted.0.is_ok() || gate == Some("private_view");
+        let clearance = if admitted { "admitted" } else { "closed" };
+        let ran = self.ran_of(&profile);
+        let origin = ran.origin;
         t.record(&fact::route::RouteDecided {
             mode: verdict.map(|v| v.mode.as_str()),
             confidence: verdict.map(|v| v.confidence),
@@ -790,7 +862,7 @@ impl TurnRunner {
             reason: reason.as_str(),
             detour: decision.is_some_and(|d| d.detour),
             switch: decision.is_some_and(|d| d.switch),
-            est_tokens: compiled.est_tokens,
+            est_tokens: timed.est_tokens,
             wait_ms: timed.waited.as_millis() as u64,
             late: timed.late,
             answered_ms: timed.answered_ms,
@@ -803,8 +875,20 @@ impl TurnRunner {
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
             effort_sent: e.and_then(|e| e.sent).map(effort::name),
             checkpoint: None,
+            ran,
+            data: Some(fact::route::RouteData {
+                verdict: answered.map(|a| (a.choice.as_str(), a.confidence)),
+                clearance,
+                gate,
+                draft_skip: t.route.draft_skip,
+            }),
         });
-        let persona_shown = t.route.result.take().and_then(|r| r.persona);
+        let prior = t.route.result.take();
+        let opened = prior
+            .as_ref()
+            .and_then(|r| r.data.as_ref())
+            .is_some_and(|d| d.clearance == "open");
+        let persona_shown = prior.and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
             reason: reason.as_str().into(),
@@ -814,6 +898,12 @@ impl TurnRunner {
             effort_reason: e.map(|e| e.reason.as_str().into()),
             effort_applied: applied.map(|e| effort::name(e).into()),
             persona: persona_shown,
+            data: Some(TurnData {
+                verdict: answered.map(|a| a.choice.clone()),
+                clearance: if opened { "open" } else { clearance }.into(),
+                gate: gate.map(Into::into),
+                origin: origin.into(),
+            }),
         });
     }
 
@@ -890,7 +980,7 @@ impl TurnRunner {
         }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
         s.session_text = self.session_block(t.tc.dir, t.tc.place());
-        s.walk = self.walk(t.tc.session_id, t.tc.class);
+        s.walk = self.walk(t.tc.session_id, t.tc.place().content_class());
         self.stand(t, &mut s);
         self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
         self.defer_tools(t, &mut s);
@@ -933,6 +1023,9 @@ impl TurnRunner {
         spec: &RequestSpec,
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
+        if let Some(run) = self.open_detour(t) {
+            return self.compile_open_detour(t, session, &run, i);
+        }
         let sid = t.tc.session_id;
         let nodes = t.tc.store.transcript(sid)?;
         let from = detour_start(&nodes, self.cfg.routing.trivial_context_turns);
@@ -1066,6 +1159,25 @@ pub fn detour_start(nodes: &[(u64, crate::stub::Stub)], turns: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each routing profile carries its model's origin, so routing's own gate
+    /// keeps a restricted one off an uncleared ask even where the floor lets
+    /// it be usable (theseus-a1wvq.4 at the floor's join).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn route_profiles_carry_each_profiles_origin() {
+        let r = crate::tests_route::rig(None, 1, crate::tests_route::restricted_placements);
+        let cleared = super::super::data_step::Floor {
+            sensitive: false,
+            cleared: true,
+        };
+        let ps = r.core.runner.route_profiles(cleared);
+        assert_eq!(
+            ps["glm"].unusable, None,
+            "the floor lets a cleared turn use it"
+        );
+        assert!(ps["glm"].restricted, "GLM is of restricted origin");
+        assert!(!ps["sonnet"].restricted, "Claude is not");
+    }
 
     fn v(mode: &str) -> Verdict {
         Verdict {

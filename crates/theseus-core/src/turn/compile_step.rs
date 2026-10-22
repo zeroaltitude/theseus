@@ -31,7 +31,7 @@ impl TurnRunner {
             nodes,
             point,
             first: i == 0,
-            class: t.tc.class,
+            class: t.tc.place().content_class(),
         };
         self.prefix_spec(spec, at)
     }
@@ -49,7 +49,11 @@ impl TurnRunner {
         Option<theseus_protocol::projects::ProjectSliceSummary>,
     ) {
         // A check sees the task it checks by title and state (theseus-w8ys).
-        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled);
+        // The owner's graph and project are not open (theseus-a1wvq.7).
+        let open = t.tc.open.is_some();
+        let tasks = (!open)
+            .then(|| crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled))
+            .flatten();
         // The wakes this conversation has pending, in the same last block
         // (theseus-lherl): from the turn's list, never a read of its own.
         // And the routines it made, from memory (theseus-pvm5c).
@@ -60,6 +64,7 @@ impl TurnRunner {
         crate::commitments::attach(
             t.tc.commitments,
             &routines,
+            self.restricted_profile(&t.target.profile),
             self.kernel.now_ms(),
             compiled,
             &|w| crate::watch::run::shown_value(&self.kernel, w),
@@ -71,7 +76,9 @@ impl TurnRunner {
         // The place's other threads, for a turn that asks across them (theseus-98bz.9).
         Self::digest_line(t, compiled);
         // The project this conversation serves, last of all (theseus-n5ui2).
-        let project = crate::project::slice::attach(&self.store, &self.kernel, session, compiled);
+        let project = (!open)
+            .then(|| crate::project::slice::attach(&self.store, &self.kernel, session, compiled))
+            .flatten();
         (tasks, project)
     }
 

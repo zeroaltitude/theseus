@@ -77,6 +77,7 @@ mod defer_step;
 mod deferred_step;
 mod detour_step;
 mod digest_step;
+mod draft_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
@@ -89,6 +90,7 @@ mod join_step;
 mod later_step;
 mod noop_step;
 pub mod nudge_step;
+mod open_step;
 mod persona_engage;
 mod persona_step;
 pub(crate) mod personal_step;
@@ -101,6 +103,7 @@ mod rerank_step;
 mod retract_step;
 mod retry_step;
 mod route_step;
+mod screen_step;
 mod self_budget_step;
 pub(crate) mod situation_step;
 mod spec_step;
@@ -112,7 +115,7 @@ mod surface_step;
 mod title_step;
 
 pub use request::TurnRequest;
-pub use route_step::{LiveSwitched, SWITCHED};
+pub use route_step::{detour_start, LiveSwitched, SWITCHED};
 
 /// The built-in persona at the front of the system prompt of a session whose
 /// persona in play has no readable file of its own (theseus-slvl.2): the
@@ -444,6 +447,8 @@ struct Turn<'a> {
     fill: fill_step::Fill,
     /// The standing blocks the turn's spec and tail carry, and its surface.
     standing: standing_step::Held,
+    /// Its open requests' clearances (theseus-a1wvq.8).
+    data: open_step::Held,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -576,6 +581,7 @@ impl<'a> Turn<'a> {
             end_note: end_note_step::Held::of(execution_id),
             fill: fill_step::Fill::default(),
             standing: standing_step::Held::default(),
+            data: open_step::Held::default(),
         }
     }
 
@@ -823,7 +829,7 @@ impl TurnRunner {
     ) -> RequestSpec {
         // A shared place carries only the files marked public (the place
         // rule): the rest are their headers and why.
-        if place.class == crate::places::PlaceClass::Shared {
+        if place.content_class() == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
         let (system_text, persona_text, context_text) = self.system_blocks(target, &files, place);
@@ -1319,6 +1325,9 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        if session_ended && task_of.is_some() {
+            self.draft_ended(&failure_sink.session_id).await;
+        }
         self.keep_warm.turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
@@ -1566,7 +1575,7 @@ impl TurnRunner {
             .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
         // Where routing moves the turn (25e), a refusal (theseus-7gir.18), and
         // a task's checkpoints (theseus-ypnxt.9).
-        let slots = (OnceLock::new(), OnceLock::new(), checkpoint_step::slots());
+        let slots = open_step::slots();
         // What this turn runs on is the session's target from the turn's
         // start (theseus-kol): its copy carries it into every session write
         // the turn makes (a recompile's, a failure's, its end's), and an
@@ -1605,6 +1614,7 @@ impl TurnRunner {
             // Taken again once the turn has read its wakes and reports.
             class: place.class,
             ceiling: place.ceiling,
+            open: None,
             places: crate::places::Places {
                 rule: &self.place_rule,
                 cfg: &self.cfg,
@@ -1621,8 +1631,7 @@ impl TurnRunner {
             });
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
-        t.reply_to = reply_to;
-        t.answer_at = answer_at;
+        (t.reply_to, t.answer_at) = (reply_to, answer_at);
         t.standing.surface = surface;
         t.route.read = read;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
@@ -1639,7 +1648,7 @@ impl TurnRunner {
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
         match boxed(|| {
-            let fork = (&slots.0, &slots.1, &slots.2);
+            let fork = (&slots.0, &slots.1, &slots.2, &slots.3);
             self.turn_body(&mut t, &mut session, provider.as_ref(), asked, fork)
         })
         .await
@@ -1662,10 +1671,11 @@ impl TurnRunner {
         session: &mut SessionRecord,
         provider: &dyn Provider,
         asked: Asked,
-        (routed, fallback, moves): (
+        (routed, fallback, moves, data_moved): (
             &'a OnceLock<Target>,
             &'a OnceLock<Target>,
             &'a checkpoint_step::Slots,
+            &'a OnceLock<Target>,
         ),
     ) -> Result<Next> {
         let Asked {
@@ -1687,7 +1697,7 @@ impl TurnRunner {
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
         let here = self.view_of(sid);
-        (t.tc.class, t.tc.ceiling) = (here.class, here.ceiling);
+        (t.tc.class, t.tc.ceiling, t.tc.open) = (here.class, here.ceiling, self.open_of(session));
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
@@ -1746,7 +1756,7 @@ impl TurnRunner {
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
         spec.session_text = self.session_block(t.tc.dir, t.tc.place());
-        spec.walk = self.walk(sid, t.tc.class);
+        spec.walk = self.walk(sid, t.tc.place().content_class());
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         self.families_ready(t, &spec.model).await;
@@ -1820,6 +1830,11 @@ impl TurnRunner {
                 {
                     return Ok(Next::Fail(f));
                 }
+                if let Some(f) =
+                    self.data_move(t, session, &mut spec, &mut routed_to, data_moved)?
+                {
+                    return Ok(Next::Fail(f));
+                }
                 self.defer_found(t, &mut spec);
             }
             let i = t.loops;
@@ -1838,7 +1853,7 @@ impl TurnRunner {
                 }
                 _ => None,
             };
-            let compiled = match self
+            let mut compiled = match self
                 .compile_routed(
                     t,
                     session,
@@ -1864,6 +1879,9 @@ impl TurnRunner {
                 Self::hold_reply(t, i)?;
                 break;
             }
+            if Self::drafted(t) {
+                break;
+            }
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.
@@ -1874,6 +1892,8 @@ impl TurnRunner {
             }
             let said_before = (t.output.len(), t.said.len());
             self.spend_checked(t, session)?;
+            Self::data_pass(t, &mut compiled);
+            self.note_open(t, &compiled);
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             self.self_settled(t, &called);
@@ -1996,6 +2016,7 @@ impl TurnRunner {
             }
             self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
+            self.screen_loop(t, session, &uses);
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the
             // cut answer out; so does the reply. A retry cut too fails the turn.
@@ -2475,8 +2496,11 @@ impl TurnRunner {
         let outcome = {
             // The provider floor reads the session's mark as the call is made.
             let private = self.private_session(t);
-            let mut stream = std::pin::pin!(crate::google::private::scoped(private, || {
-                provider.stream_message(&compiled.request, &mut on_delta)
+            let sid = t.tc.session_id;
+            let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
+                crate::google::private::scoped(private, || {
+                    provider.stream_message(&compiled.request, &mut on_delta)
+                })
             }));
             let mut sent = false;
             loop {
@@ -2729,6 +2753,13 @@ impl TurnRunner {
             correlation_id: &action.correlation_id,
             settled_micros: cost,
             s0: t.trace.now_us(),
+            origin: self.ran_of(&target.profile).origin,
+            sent: self
+                .restricted_profile(&target.profile)
+                .then(|| fact::turn::Sent {
+                    pass: compiled.request.data_pass.is_some(),
+                    run_nodes: t.data.run_nodes,
+                }),
         };
         // The call's `provider.call` row rides in its completion's frame, after
         // the node (theseus-qa0).
@@ -3236,6 +3267,7 @@ impl TurnRunner {
             Ok(end) => end,
             Err(e) => return Err(Self::fault(t, session, e)),
         };
+        self.data_end(&mut t, session);
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();

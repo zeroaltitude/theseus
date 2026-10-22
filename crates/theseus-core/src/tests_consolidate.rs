@@ -912,3 +912,177 @@ async fn a_form_rejections_retry_that_passes_is_kept() {
     let again = consolidate(c, true).await;
     assert!(again.clusters.is_empty(), "{again:?}");
 }
+
+/// A cluster's sources are read from several sessions: when any one of them
+/// read a Google result the synthesis request holds private content, and the
+/// floor refuses it to a model that is not of US origin, whichever of the
+/// sources it is (theseus-a1wvq.10). Nothing is sent; the cluster fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_source_keeps_a_synthesis_off_a_non_us_model() {
+    for private in 0..FACTS.len() {
+        let r = rig(
+            MemoryMode::Shadow,
+            None,
+            crate::tests_private_background::private_on,
+        );
+        let c = &r.core;
+        let facts = kestrel(c).await;
+        crate::tests_private_background::mark(c, &facts[private]);
+        let calls = r.model.requests().len();
+        r.model
+            .script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::text(SYNTHESIS));
+        let out = consolidate(c, false).await;
+        assert_eq!(out.clusters.len(), 1, "source {private}: {out:?}");
+        assert_eq!(out.clusters[0].outcome, "failed", "source {private}");
+        assert_eq!(r.model.requests().len(), calls, "nothing was sent");
+        assert!(syntheses(c).is_empty());
+    }
+}
+
+/// The negative: sources that read nothing are synthesized on the same model.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn plain_sources_are_still_synthesized_on_a_non_us_model() {
+    let r = rig(
+        MemoryMode::Shadow,
+        None,
+        crate::tests_private_background::private_on,
+    );
+    let c = &r.core;
+    kestrel(c).await;
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text(SYNTHESIS));
+    let out = consolidate(c, false).await;
+    assert_eq!(out.clusters.len(), 1, "{out:?}");
+    assert_eq!(out.clusters[0].outcome, "unchecked", "{out:?}");
+}
+
+/// A core whose `zai` fake records what reaches the restricted profiles
+/// (`glm` is of restricted origin: the suite never serves it unrestricted).
+fn rig_zai(tweak: impl FnOnce(&mut crate::Config)) -> (Rig, Arc<crate::provider::FakeProvider>) {
+    let zai = Arc::new(crate::provider::FakeProvider::default());
+    let given = zai.clone();
+    let r = crate::tests_recall::rig_built(
+        MemoryMode::Shadow,
+        |c| {
+            c.memory.recall_deadline_ms = 2000;
+            tweak(c);
+        },
+        move |p| {
+            p.providers.insert("zai".into(), given);
+        },
+    );
+    (r, zai)
+}
+
+/// The session last used `profile`, as a turn there would leave it.
+fn stamp_as(core: &Core, sid: &str, profile: &str) {
+    let mut rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
+    let (live, _) = core.live_profile();
+    let t = core
+        .runner
+        .resolve_target(&live, Some(profile), None, None)
+        .unwrap();
+    rec.last_target = Some(TargetRef {
+        profile: t.profile,
+        provider: t.provider,
+        model: t.model,
+    });
+    core.store.put_session(sid, &rec).unwrap();
+}
+
+fn blocked_rows(core: &Core) -> usize {
+    crate::tests_judge::kinds(&core.store, "data_gate.blocked").len()
+}
+
+/// T23c (theseus-a1wvq.10). Restricted consolidation always falls back: one
+/// request holds many sessions' text, which no pass covers. With every
+/// source's session last on a restricted profile and `synth_profile =
+/// "session"`, or with a named restricted one, the restricted fake gets no
+/// request and the `[model]` default writes the synthesis; a dry run reports
+/// the default. With the default restricted too, the cluster is skipped and
+/// nothing goes anywhere.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restricted_synthesis_falls_back() {
+    for word in ["session", "glm"] {
+        let (r, zai) = rig_zai(|c| c.memory.synth_profile = word.into());
+        let c = &r.core;
+        let facts = kestrel(c).await;
+        for s in &facts {
+            stamp_as(c, s, "glm");
+        }
+        r.model
+            .script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::text(SYNTHESIS));
+        let calls = r.model.requests().len();
+        let dry = consolidate(c, true).await;
+        let report = &dry.clusters[0];
+        assert_eq!(report.outcome, "would_propose", "{word}: {dry:?}");
+        assert_eq!(report.profile, "default", "{word}: a dry run says where");
+        assert!(
+            report
+                .why
+                .as_deref()
+                .unwrap_or("")
+                .contains("restricted origin"),
+            "{word}: {report:?}"
+        );
+        let out = consolidate(c, false).await;
+        let report = &out.clusters[0];
+        assert_eq!(report.profile, "default", "{word}: {out:?}");
+        assert_eq!(report.outcome, "unchecked", "{word}: {out:?}");
+        assert!(
+            report
+                .why
+                .as_deref()
+                .unwrap_or("")
+                .contains("restricted origin"),
+            "{word}: {report:?}"
+        );
+        assert_eq!(
+            r.model.requests().len(),
+            calls + 1,
+            "{word}: default wrote it"
+        );
+        assert!(
+            zai.requests().is_empty(),
+            "{word}: the restricted fake got none"
+        );
+        assert_eq!(blocked_rows(c), 0, "{word}");
+    }
+
+    // The `[model]` default restricted too: the turns run on `glm` (served
+    // unrestricted), and a named restricted profile has nowhere to fall.
+    let (r, zai) = rig_zai(|c| {
+        c.copy_profile("dsflash", "glm");
+        c.serve_glm_unrestricted();
+        c.catalog.insert(
+            "claude-sonnet-5-5".into(),
+            crate::catalog::CatalogRow {
+                origin: Some(crate::catalog::ModelOrigin::Cn),
+                ..Default::default()
+            },
+        );
+        c.memory.synth_profile = "dsflash".into();
+    });
+    let c = &r.core;
+    crate::tests_route::call(c, "profile.use", serde_json::json!({"name": "glm"})).await;
+    kestrel(c).await;
+    let calls = (r.model.requests().len(), zai.requests().len());
+    let out = consolidate(c, false).await;
+    assert!(out.clusters.is_empty(), "{out:?}");
+    assert_eq!(out.skipped.get("restricted_origin"), Some(&1), "{out:?}");
+    assert_eq!(
+        (r.model.requests().len(), zai.requests().len()),
+        calls,
+        "no request went anywhere"
+    );
+    assert_eq!(blocked_rows(c), 0);
+}

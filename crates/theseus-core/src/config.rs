@@ -25,6 +25,7 @@ mod index;
 pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
+mod data_floor;
 pub mod earned;
 pub(crate) mod import;
 mod judge;
@@ -44,6 +45,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
+mod routing_cn;
 mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
@@ -1519,6 +1521,7 @@ impl Config {
         self.people.validate()?;
         self.card.validate()?;
         self.ontology.validate()?;
+        self.validate_data_floor()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1710,6 +1713,7 @@ impl Config {
                 );
             }
         }
+        routing_cn::validate(self, &catalog)?;
         // The web UI has no auth yet (§3.14): whoever reaches it is the
         // operator, so it listens on loopback only (theseus-2fo).
         let bind = &self.web.bind;
@@ -1802,6 +1806,68 @@ impl Config {
         let p = p.expect("the implicit provider");
         p.api_base = "https://api.example.eu/anthropic".into();
         p.origin = Some(crate::catalog::ModelOrigin::Eu);
+    }
+
+    /// A test whose GLM profiles were only a second, cheaper model
+    /// (theseus-a1wvq.3): the `zai` provider served from a host vouched `us`,
+    /// and `glm` and `glm53` on Claude Haiku 5.5, so the data floor lets them
+    /// run. The profiles' names, their provider and its fake stay.
+    #[cfg(test)]
+    pub(crate) fn serve_glm_unrestricted(&mut self) {
+        let z = self
+            .resolved
+            .providers
+            .get_mut("zai")
+            .expect("the zai provider");
+        z.api_base = "https://llm-proxy.example.com/anthropic".into();
+        z.origin = Some(crate::catalog::ModelOrigin::Us);
+        for name in ["glm", "glm53"] {
+            let p = self.resolved.profiles.get_mut(name).expect("the profile");
+            p.model = UNRESTRICTED_SECOND.into();
+        }
+    }
+
+    /// A test's profile `name`, a copy of `like` (theseus-a1wvq.8's
+    /// `dsflash`, GLM's model on the `zai` fake).
+    #[cfg(test)]
+    pub(crate) fn copy_profile(&mut self, name: &str, like: &str) {
+        let p = self.resolved.profiles[like].clone();
+        self.resolved.profiles.insert(name.into(), p);
+    }
+
+    /// A test's `glm` profile on `model` (US origin, on the `zai` fake), a
+    /// second provider with a model of its own (theseus-a1wvq.10).
+    #[cfg(test)]
+    pub(crate) fn serve_glm_as(&mut self, model: &str) {
+        self.serve_glm_unrestricted();
+        self.resolved
+            .profiles
+            .get_mut("glm")
+            .expect("the profile")
+            .model = model.into();
+    }
+
+    /// A test's `zai` provider vouched of `origin`.
+    #[cfg(test)]
+    pub(crate) fn vouch_zai(&mut self, origin: crate::catalog::ModelOrigin) {
+        let z = self
+            .resolved
+            .providers
+            .get_mut("zai")
+            .expect("the zai provider");
+        z.origin = Some(origin);
+    }
+
+    /// A test's profile on a model the catalog does not price, so routing
+    /// finds it unusable (theseus-a1wvq.3).
+    #[cfg(test)]
+    pub(crate) fn unprice_profile(&mut self, profile: &str) {
+        let p = self
+            .resolved
+            .profiles
+            .get_mut(profile)
+            .expect("the profile");
+        p.model = "claude-unlisted-9".into();
     }
 
     /// Every profile by name, with the implicit `default` synthesized from
@@ -1960,6 +2026,11 @@ impl Config {
         Self::from_toml(Self::EXAMPLE_TOML).expect("the bundled example config parses")
     }
 }
+
+/// The model a test's GLM profiles run once `serve_glm_unrestricted` moves
+/// them.
+#[cfg(test)]
+pub(crate) const UNRESTRICTED_SECOND: &str = "claude-haiku-5-5";
 
 /// A configured path with `~` and environment variables read as a shell
 /// reads them (review 2's consideration 5, in place of `shellexpand`, whose

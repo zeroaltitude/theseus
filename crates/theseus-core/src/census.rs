@@ -170,11 +170,16 @@ impl TurnRunner {
             None::<&[theseus_ontology::MembershipUsed]>,
         );
         if rec.is_some() {
-            spec.walk = self.walk(&sid, view.class);
+            spec.walk = self.walk(&sid, view.content_class());
         } else {
             notes.push("a fresh session has no category guidance yet".to_string());
         }
-        let standing = self.census_standing(&sid, target.persona.as_deref(), view.class, &mut spec);
+        let standing = self.census_standing(
+            &sid,
+            target.persona.as_deref(),
+            view.content_class(),
+            &mut spec,
+        );
         let mut nodes = match rec {
             Some(r) => self.store.transcript(&r.session_id)?,
             None => Vec::new(),
@@ -280,9 +285,13 @@ impl TurnRunner {
     ) -> (SessionKind, PlaceView, String, Vec<String>) {
         let mut notes = Vec::new();
         match rec {
+            // An open session's next request is the open view's (theseus-a1wvq.7).
             Some(r) => (
                 r.kind,
-                self.view_of(&r.session_id),
+                PlaceView {
+                    open: self.open_of(r),
+                    ..self.view_of(&r.session_id)
+                },
                 r.session_id.clone(),
                 notes,
             ),
@@ -539,6 +548,7 @@ impl crate::rpc::Core {
     ) -> Result<ContextCensusResult> {
         let core = self.clone();
         let exact = p.exact;
+        let session = p.session_id.clone();
         let (mut out, request, provider) =
             tokio::task::spawn_blocking(move || core.context_census(&p)).await??;
         if !exact {
@@ -548,6 +558,11 @@ impl crate::rpc::Core {
             out.exact_error = Some("the model's provider is not configured".to_string());
             return Ok(out);
         };
+        // The counter is sent the session's whole request: its mark holds it.
+        let private = session
+            .as_deref()
+            .is_some_and(|s| crate::google::private::session(&self.store, &self.cfg, s));
+        let provider = crate::google::private::bound(provider, session.as_deref(), private);
         match exact_counts(provider.as_ref(), &request).await {
             Ok(e) => out.exact = Some(e),
             Err(e) => out.exact_error = Some(format!("{e:#}")),

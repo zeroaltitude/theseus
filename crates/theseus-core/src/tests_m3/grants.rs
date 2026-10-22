@@ -335,6 +335,7 @@ fn ordered(
             class,
             ceiling: None,
             voice: false,
+            open: None,
         },
         held: &held,
         mcp: &mcp,

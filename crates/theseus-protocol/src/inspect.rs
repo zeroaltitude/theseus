@@ -178,5 +178,10 @@ pub struct TurnInspectResult {
     pub next_turn: Option<String>,
     /// Why text was left out (a surface that does not read private places).
     pub withheld: Option<String>,
+    /// The session's data state in a line (theseus-a1wvq.5: opened, the open
+    /// run's ends, the taint), for a private place; absent with none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub data: Option<String>,
     pub ms: f64,
 }

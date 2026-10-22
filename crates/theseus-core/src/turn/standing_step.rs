@@ -30,9 +30,10 @@ impl TurnRunner {
     pub(super) fn stand(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
         (t.standing.block, t.standing.here) = self.standing_blocks(
             t.tc.session_id,
-            t.tc.class,
+            t.tc.place().content_class(),
             t.standing.surface,
             t.target.persona.as_deref(),
+            self.restricted_profile(&t.target.profile),
         );
         if let Some(block) = &t.standing.block {
             block.apply(spec);
@@ -42,10 +43,12 @@ impl TurnRunner {
     /// The block of `session_id`'s scope in a place of `class`, from memory:
     /// what its next turn's system carries (the keep-warm read builds that
     /// spec too, theseus-rr15). A surface's records are never in it.
+    /// `restricted`: the request goes to a model of restricted origin.
     pub(crate) fn standing_block(
         &self,
         session_id: &str,
         class: crate::places::PlaceClass,
+        restricted: bool,
     ) -> Option<Block> {
         // The session's persona, as its next turn speaks as (theseus-a8n7).
         let persona = self
@@ -54,18 +57,27 @@ impl TurnRunner {
             .ok()
             .flatten()
             .and_then(|s| self.persona_of(&s));
-        self.standing_blocks(session_id, class, None, persona.as_deref())
+        self.standing_blocks(session_id, class, None, persona.as_deref(), restricted)
             .0
     }
 
+    /// Whether `profile`'s model is of restricted origin (`restricted_profile`,
+    /// for the callers outside `turn`).
+    pub(crate) fn restricted(&self, profile: &str) -> bool {
+        self.restricted_profile(profile)
+    }
+
     /// The system's block and the tail's (the records of `surface`) of
-    /// `session_id`'s scope in a place of `class`, from memory.
+    /// `session_id`'s scope in a place of `class`, from memory. For a
+    /// `restricted` target the records a Google-private session authored are
+    /// listed and not shown (`google::private::authored`).
     fn standing_blocks(
         &self,
         session_id: &str,
         class: crate::places::PlaceClass,
         surface: Option<&'static str>,
         persona: Option<&str>,
+        restricted: bool,
     ) -> (Option<Block>, Option<Block>) {
         let all = match self.standing.all(&self.store) {
             Ok(a) => a,
@@ -83,9 +95,18 @@ impl TurnRunner {
             persona,
         };
         let now = theseus_protocol::now_unix_ms();
+        let held = if restricted {
+            crate::google::private::authored(
+                &self.store,
+                &self.cfg,
+                crate::standing::live(&all, Some(scope), now),
+            )
+        } else {
+            Default::default()
+        };
         (
-            Block::of(&all, scope, class, now),
-            Block::here(&all, scope, class, now),
+            Block::of_held(&all, scope, class, now, &held),
+            Block::here_held(&all, scope, class, now, &held),
         )
     }
 

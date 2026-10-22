@@ -99,6 +99,8 @@ impl Rig {
                 .unwrap()
                 .insert("system".into(), PROFILE_SYSTEM.into());
         }
+        // `zai` is only the second provider here (theseus-a1wvq.3).
+        common::unrestricted_glm(&mut t);
         table(&mut t, "policy").insert("enforcement".into(), "notify".into());
         let file = |p: &str| toml::Value::Array(vec![path(p).display().to_string().into()]);
         let context = table(&mut t, "context");

@@ -299,6 +299,30 @@ impl Core {
         }
     }
 
+    /// Restricted consolidation always falls back (theseus-a1wvq.10): one
+    /// request holds many sessions' text, which no pass can cover. A profile
+    /// of restricted origin becomes the `[model]` default, said in the
+    /// report; none when that is restricted too.
+    fn unrestricted(&self, profile: String, report: &mut SynthesisReport) -> Option<String> {
+        let restricted = |p: &str| {
+            self.cfg
+                .profile_origin(p, &self.runner.catalog)
+                .restricted()
+        };
+        if !restricted(&profile) {
+            return Some(profile);
+        }
+        let said =
+            format!("synth_profile `{profile}` is of restricted origin; written with `default`");
+        let why = report
+            .why
+            .take()
+            .map_or(said.clone(), |w| format!("{w}; {said}"));
+        report.why = Some(why);
+        let default = crate::turn::compaction::DEFAULT_PROFILE;
+        (!restricted(default)).then(|| default.to_string())
+    }
+
     /// The run's plan, read and computed off the runtime: the recall rows,
     /// the day's spend, the clusters, and each one's sources and profile.
     fn consolidate_plan(&self, dry: bool) -> anyhow::Result<Plan> {
@@ -382,6 +406,10 @@ impl Core {
                     tracing::debug!(cluster = %c.digest, why = %words, "consolidation: a cluster waits");
                     continue;
                 }
+            };
+            let Some(profile) = self.unrestricted(profile, &mut report) else {
+                skip(&mut r, "restricted_origin");
+                continue;
             };
             report.profile.clone_from(&profile);
             if dry {
@@ -478,6 +506,10 @@ impl Core {
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {
             return Ok(Step::Skip("no_provider"));
         };
+        // One request holds every source: it is private when any source's
+        // session is, as it names its sessions' content together.
+        let of = sources.iter().map(|s| s.node.session_id.as_str());
+        let provider = crate::google::private::over_sessions(provider, &self.store, &self.cfg, of);
         let request = request_for(&target.model, sources);
         let Some(need) = self.audit_reserve(&request) else {
             return Ok(Step::Skip("no_price"));
@@ -527,7 +559,10 @@ impl Core {
             Verdict::Rejected(..) => None,
         };
         report.outcome = verdict.word().into();
-        report.why = verdict.why();
+        report.why = match (report.why.take(), verdict.why()) {
+            (Some(note), Some(why)) => Some(format!("{note}; {why}")),
+            (note, why) => why.or(note),
+        };
         // What was kept, or the answer refused, as it was said.
         report.text = Some(match &verdict {
             Verdict::Checked(_) => entry.text.to_string(),
@@ -930,6 +965,7 @@ fn request_for(model: &str, sources: &[Source]) -> ProviderRequest {
         betas: Vec::new(),
         extra: Default::default(),
         image_tokens: 0,
+        data_pass: None,
     }
 }
 

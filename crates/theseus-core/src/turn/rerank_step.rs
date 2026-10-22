@@ -39,6 +39,7 @@ impl TurnRunner {
         answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
+        let open = t.tc.open.is_some();
         let mut scene = self.scene(t, mode, arm, &begun.query);
         scene.activation = activation;
         let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
@@ -47,7 +48,7 @@ impl TurnRunner {
                 &scene,
                 begun,
                 answer,
-                |s| self.place_of(s),
+                |s| self.drawn_place(open, s),
                 |ids| crate::recall::links(&self.store, ids),
                 true,
             );
@@ -56,7 +57,7 @@ impl TurnRunner {
             &scene,
             begun,
             answer,
-            |s| self.place_of(s),
+            |s| self.drawn_place(open, s),
             |ids| crate::recall::links(&self.store, ids),
             true,
         );

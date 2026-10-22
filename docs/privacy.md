@@ -42,12 +42,22 @@ and so is a model the built-in catalog does not itself list as of US origin, wha
 turn whose request contains one of those names runs on a model of US origin, or ends before any model is called; and
 any request to a model of another origin that contains one of those names is refused before it is sent.
 
+The floor beneath these rules is always on, and there is no switch to turn it off. A request to a model of China or
+unknown origin carries only what the open request cleared for that one request: the part of the conversation judged
+open, with none of the owner's private files, facts, preferences or memories, no home directory in a path, and no tool
+that would start work later. Any other request to such a model is refused before it is sent.
+
 Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
 then on that conversation's requests, including the summary that shortens it, go only to models of US origin, by the
 same allowlist: the route skips every other model, and a request that would reach one is refused before it is sent. A
-conversation that has not read anything from Google is not affected. Theseus's other background steps do not yet
-carry the mark, so an owner who wants none of it to reach a model of another origin configures no provider of any other
-origin.
+conversation that has not read anything from Google is not affected. The background steps that send a conversation's
+content carry the mark the same way: the keep-warm read of its cache, the memory pass, the learning loop, the people and
+naming calls, cards, replays, the census's exact count, and the finding said from the memory pass. A request that
+holds content from several conversations (a memory note's sources, the learning writer's cases) is private when any
+one of them is, and a task a private conversation starts is private from its first call. What a private conversation
+wrote for other conversations to see is left out of every request to a model of China or unknown origin: a standing
+order Theseus kept from its words, and any milestone reminder, since a milestone's title does not record who wrote it.
+Requests to models of US origin carry them as before, and a conversation is not made private by seeing them.
 
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
 assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's

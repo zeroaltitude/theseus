@@ -8,6 +8,8 @@
 //! the verdict and routes nothing. Every key has a default, so a sparse note
 //! holds only what differs.
 
+use std::borrow::Cow;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -147,6 +149,25 @@ pub struct ClassProfiles {
     /// [`TRIVIAL_CONFIDENCE`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switch_confidence: Option<f64>,
+    /// Restricted (China-origin or unknown-origin) profiles this class may
+    /// use, only for an ask that an open request can be built for
+    /// (theseus-a1wvq.4). `trivial` alone takes any; they never enter by
+    /// `profiles`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cn_profiles: Vec<String>,
+    /// The entry of `profiles` the `cn_profiles` go right after; unset, they
+    /// go first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cn_after: Option<String>,
+    /// A restricted profile that drafts this class's coding asks in a tree of
+    /// its own, never applied until a `final` profile has reviewed it
+    /// (theseus-a1wvq.13): `routine_coding` and `deep_coding` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cn_draft: Option<String>,
+    /// The Claude profiles that review and finish every draft: the first
+    /// usable runs. Required with `cn_draft`, refused without it.
+    #[serde(default, rename = "final", skip_serializing_if = "Vec::is_empty")]
+    pub final_review: Vec<String>,
 }
 
 /// `trivial`'s bar when its table sets none (theseus-6n5j, the owner's
@@ -225,13 +246,15 @@ fn dear_tier_max_tokens() -> u64 {
 fn list(names: &[&str]) -> ClassProfiles {
     ClassProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
-        switch_confidence: None,
+        ..Default::default()
     }
 }
-/// Haiku 5.5 first, then GLM-5.3 Flash, then the cheapest usable profile, so
-/// a config without either still detours as it did before (theseus-3okf).
+/// Haiku 5.5, then the cheapest usable profile, so a config without Haiku
+/// still detours as it did before (theseus-3okf). GLM-5.3 Flash comes back
+/// only through `cn_profiles`, for a request that carries open content,
+/// behind Haiku (theseus-a1wvq.4).
 fn trivial() -> ClassProfiles {
-    list(&["haiku", "glm", CHEAPEST])
+    list(&["haiku", CHEAPEST])
 }
 /// Haiku 5.5 alone: a config without it runs a quick message on the
 /// session's own profile, as it did while `chat` held them.
@@ -287,6 +310,24 @@ impl RoutingClasses {
     /// A mode's profiles; `other` and any unknown mode are `chat`'s.
     pub fn of(&self, mode: &str) -> &[String] {
         &self.table(mode).profiles
+    }
+
+    /// The list a verdict walks: `profiles`, and for a cleared ask the
+    /// `cn_profiles` too, first or right after `cn_after`. Borrowed whenever
+    /// nothing is added (theseus-a1wvq.4).
+    pub fn effective(&self, mode: &str, cleared: bool) -> Cow<'_, [String]> {
+        let t = self.table(mode);
+        if !cleared || t.cn_profiles.is_empty() {
+            return Cow::Borrowed(&t.profiles);
+        }
+        let at = t
+            .cn_after
+            .as_ref()
+            .and_then(|a| t.profiles.iter().position(|p| p == a))
+            .map_or(0, |i| i + 1);
+        let mut out = t.profiles.clone();
+        out.splice(at..at, t.cn_profiles.iter().cloned());
+        Cow::Owned(out)
     }
 }
 
@@ -451,7 +492,7 @@ mod tests {
     fn the_defaults_are_the_steps_table() {
         let d = cfg("").unwrap();
         assert_eq!(d, RoutingConfig::default());
-        assert_eq!(d.classes.of("trivial"), ["haiku", "glm", "cheapest"]);
+        assert_eq!(d.classes.of("trivial"), ["haiku", "cheapest"]);
         assert_eq!(d.classes.of("quick"), ["haiku"]);
         assert!(d.classes.of("chat").is_empty());
         assert_eq!(d.classes.of("other"), d.classes.of("chat"));
@@ -575,7 +616,7 @@ mod tests {
         let c = cfg("[classes.quick]\nprofiles = [\"glm\"]\nswitch_confidence = 0.7").unwrap();
         assert_eq!(c.classes.of("quick"), ["glm"]);
         assert_eq!(c.confidence_for("quick"), 0.7);
-        assert_eq!(c.classes.of("trivial"), ["haiku", "glm", "cheapest"]);
+        assert_eq!(c.classes.of("trivial"), ["haiku", "cheapest"]);
         c.validate(|_| false).unwrap();
     }
 

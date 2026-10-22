@@ -112,7 +112,7 @@ impl Core {
     ) -> Result<TurnInspectResult> {
         let t0 = Instant::now();
         let (sid, tid) = (p.session_id.as_str(), p.turn_id.as_str());
-        let _: crate::session::SessionRecord = self
+        let session: crate::session::SessionRecord = self
             .store
             .get_session(sid)?
             .ok_or_else(|| anyhow!("no session is named {sid}"))?;
@@ -139,6 +139,7 @@ impl Core {
             prev_turn,
             next_turn,
             withheld: (!private).then(|| WITHHELD.to_string()),
+            data: session.data.filter(|_| private).map(|d| d.line()),
             ..TurnInspectResult::default()
         };
         assemble(&mut out, rows, nodes, private);

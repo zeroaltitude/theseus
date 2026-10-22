@@ -181,7 +181,14 @@ impl Relay {
     /// The relay for `profile` on `branch`, naming itself `host`
     /// (`<name>:80`'s name): the profile's model is the only one it serves,
     /// its provider the upstream. Call it from the runtime that will serve it.
+    /// A profile of restricted origin is refused (theseus-82jhp): the relay
+    /// sends past the data floor's chokepoint, so it sends nothing there.
     pub fn new(core: &Arc<Core>, profile: &str, branch: &str, host: &str) -> Result<Arc<Self>> {
+        if core.cfg.profile_origin(profile, &core.catalog).restricted() {
+            anyhow::bail!(
+                "profile {profile} is a model of restricted origin: the relay serves none"
+            );
+        }
         let p = core.cfg.profile(profile)?;
         let provider = core
             .cfg
