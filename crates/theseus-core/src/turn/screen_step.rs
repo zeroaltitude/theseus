@@ -49,6 +49,7 @@ impl TurnRunner {
                 continue;
             };
             let redactions = meta.get("redactions").and_then(|r| r.as_u64()).unwrap_or(0);
+            let final_url = meta.get("final_url").and_then(|u| u.as_str());
             let verdict = match t.tc.open {
                 None => Err(data::Unscreened::Tool),
                 Some(open) => {
@@ -56,7 +57,7 @@ impl TurnRunner {
                         .tool_by_wire(&u.name)
                         .map_or(Err(data::Unscreened::Tool), |tool| {
                             let plan = tool.plan(&u.input, &self.tools.ctx_in(&t.tc)).ok();
-                            data::screen(tool.name(), plan.as_ref(), redactions, open)
+                            data::screen(tool.name(), plan.as_ref(), redactions, final_url, open)
                         })
                 }
             };
@@ -70,6 +71,10 @@ impl TurnRunner {
             return;
         };
         tracing::info!(turn = %turn, node = %node, word = why.as_str(), "a tool result failed the screen");
+        t.record(&crate::fact::data::SessionDataScreened {
+            node: &node,
+            word: why.as_str(),
+        });
         if self.open_of(session).is_some() {
             t.data.taint.get_or_insert_with(|| Taint {
                 why: DataWhy::ToolResult,

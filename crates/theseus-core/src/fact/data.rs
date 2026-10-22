@@ -81,3 +81,26 @@ impl Fact for SessionDataTainted<'_> {
         );
     }
 }
+
+/// `session.data`, `screened`: a tool result failed the tool screen, with the
+/// screen's word (`Unscreened::as_str`). The run ends there; the row is the
+/// record of why (theseus-lm38z).
+pub struct SessionDataScreened<'a> {
+    pub node: &'a str,
+    pub word: &'a str,
+}
+
+impl Fact for SessionDataScreened<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SessionData);
+
+    fn row(&self) -> Value {
+        json!({"row": "screened", "node": self.node, "word": self.word})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!("Data: a tool result failed the screen ({}).", self.word),
+        );
+    }
+}
