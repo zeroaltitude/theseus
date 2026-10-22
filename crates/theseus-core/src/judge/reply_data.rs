@@ -81,6 +81,7 @@ impl JudgeService {
             minutes_since_last_message: None,
             live_tasks: vec![],
             live_threads: vec![],
+            in_thread: false,
             personas: vec![],
             speaker: None,
             thread_now: None,
