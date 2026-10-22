@@ -148,6 +148,11 @@ pub struct PackReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(test, ts(as = "Option<Vec<crate::judge_runs::UndoRate>>", optional))]
     pub undo: Vec<crate::judge_runs::UndoRate>,
+    /// The days `undo` counts back from the report's day; 0 where the report
+    /// stored none (a report from before it: 7).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(test, ts(as = "Option<u32>", optional))]
+    pub undo_days: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -219,6 +224,10 @@ pub struct ReliabilityBin {
     pub n: u32,
     pub mean_p: f64,
     pub frequency: f64,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// The holdout: a closed window of judgment times, `[start, end)`, the

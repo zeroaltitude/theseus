@@ -3,7 +3,7 @@
 // ledger's own rows, so the Judgment view, whose `judge.list` reads only a window, can show the pack's whole record: a
 // `judge.call` row per judgment and an `onto.filed` row per judgment that filed or asked. How much of it the owner took back
 // is not counted here (theseus-ukmbn): the undo rate has one definition, the daemon's (`onto_undo::undo_rates`: Jev's
-// writes per kind in the 7 days to the report, and the share an `ontology.undo` names), stored on the learning report's
+// writes per kind in the report's window of 7 days to its day, and the share an `ontology.undo` names), stored on the learning report's
 // `onto.v1` pack as `undo`, and `ontoKindWords` words it. Pure, with no import but the protocol's types, so `node --test`
 // runs its test (`cockpit/test/ontostats.test.ts`) as it is.
 import type { LedgerEntry, UndoRate } from '@protocol'
@@ -66,8 +66,9 @@ export function ontoLine(s: OntoStats): string {
 
 /** The stored report's undo rate per kind as one line, with its window, in the CLI's words (`theseus judge report`):
  *  `undo rate by kind (Jev's writes, 7 days to 2026-10-21): person 1 of 1 (100%) · topic 1 of 2 (50%)`; nothing when the
- *  report holds none. `end` is the report's day, where the window ends. */
-export function ontoKindWords(undo: readonly UndoRate[], end: string): string {
+ *  report holds none. `end` is the report's day, where the window ends; `days` the report's `undo_days` (a report stored
+ *  before it has none, and counted 7). */
+export function ontoKindWords(undo: readonly UndoRate[], end: string, days = 7): string {
   if (!undo.length) return ''
-  return `undo rate by kind (Jev's writes, 7 days to ${end}): ${undo.map((u) => `${u.kind} ${u.undone} of ${u.writes} (${Math.round((u.rate ?? 0) * 100)}%)`).join(' · ')}`
+  return `undo rate by kind (Jev's writes, ${days || 7} days to ${end}): ${undo.map((u) => `${u.kind} ${u.undone} of ${u.writes} (${Math.round((u.rate ?? 0) * 100)}%)`).join(' · ')}`
 }

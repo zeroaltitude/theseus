@@ -38,4 +38,9 @@ latency: Array<LatencyRow>, questions: Array<QuestionReport>, holdout: Holdout,
  * writes in the 7 days to the report and the share the owner took back
  * (`ontology.undo`). Absent for every other pack.
  */
-undo?: Array<UndoRate>, };
+undo?: Array<UndoRate>, 
+/**
+ * The days `undo` counts back from the report's day; 0 where the report
+ * stored none (a report from before it: 7).
+ */
+undo_days?: number, };

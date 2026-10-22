@@ -58,7 +58,7 @@ function PackBlock({ p, date }: { p: PackReport; date: string }) {
         <span>{usd(p.cost_usd, 6)}</span>
       </div>
       {onto && <div className="num text-[11px] text-ink-faint">{ontoLine(onto)}</div>}
-      {ontoKindWords(p.undo ?? [], date) && <div className="num text-[11px] text-ink-faint">{ontoKindWords(p.undo ?? [], date)}</div>}
+      {ontoKindWords(p.undo ?? [], date, p.undo_days) && <div className="num text-[11px] text-ink-faint">{ontoKindWords(p.undo ?? [], date, p.undo_days)}</div>}
       {p.latency.map((l) => (
         <div key={l.class} className="num text-[11px] text-ink-faint">latency {l.class} ({l.n}): p50 {ms(l.p50_ms)} · p95 {ms(l.p95_ms)} · p99 {ms(l.p99_ms)}</div>
       ))}
