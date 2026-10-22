@@ -21,7 +21,7 @@ use crate::routing::effort::{self, EffortDecision, EffortReason};
 const REFUSAL_HOLDS_MS: u64 = 3_600_000;
 
 /// The models this daemon found to refuse per-message effort, each with the
-/// wall-clock time (ms) it was marked.
+/// kernel clock's time (ms) it was marked.
 #[derive(Default)]
 pub struct EffortRefusals(Mutex<BTreeMap<String, u64>>);
 
@@ -40,17 +40,10 @@ impl EffortRefusals {
     }
 }
 
-/// The wall clock, in ms since the epoch.
-fn wall_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
-
 impl TurnRunner {
     /// The models a request spec says take no per-message effort.
     pub(super) fn effort_refused(&self) -> Vec<String> {
-        self.effort_refusals.all(wall_ms())
+        self.effort_refusals.all(self.kernel.now_ms())
     }
 
     /// Whether the loop asks again without per-message effort: `failure` is
@@ -73,7 +66,7 @@ impl TurnRunner {
         }
         *asked = true;
         let model = compiled.request.model.clone();
-        self.effort_refusals.mark(&model, wall_ms());
+        self.effort_refusals.mark(&model, self.kernel.now_ms());
         if !spec.effort_refused.contains(&model) {
             spec.effort_refused.push(model.clone());
         }
