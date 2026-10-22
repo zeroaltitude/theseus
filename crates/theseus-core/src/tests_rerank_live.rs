@@ -144,9 +144,16 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
     assert_eq!(opened(), [json!({"event": "breaker_opened", "day": day})]);
     let h = c.health().judge.unwrap();
     assert_eq!(h.breaker, "closed", "the shared breaker");
-    assert_eq!(h.breakers.len(), 1);
+    // Two breakers of their own: rerank's, open, and the cross judge's
+    // (theseus-pt7lt), which rerank's failures leave closed.
+    assert_eq!(h.breakers.len(), 2, "{:?}", h.breakers);
     assert!(
-        h.breakers[0].starts_with("rerank: open"),
+        h.breakers.iter().any(|b| b.starts_with("rerank: open")),
+        "{:?}",
+        h.breakers
+    );
+    assert!(
+        h.breakers.iter().any(|b| b.starts_with("recall_cross: closed")),
         "{:?}",
         h.breakers
     );

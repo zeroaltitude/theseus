@@ -467,12 +467,18 @@ impl JudgeService {
                 name: self.cfg.key_secret.clone(),
             }),
         )?;
-        // Rerank's failures and timeouts move only its own breaker (32d):
-        // five slow reranks in a row stop no other pack.
+        // Rerank's failures and timeouts move only its own breaker (32d),
+        // and the cross judge's only its own (theseus-pt7lt): five slow
+        // answers in a row of either stop no other pack.
         let judge = JevJudge::new(client, self.prices.clone(), BreakerConfig::default())
             .with_breaker(
                 rerank::BREAKER,
                 &[rerank::RERANK_PACK],
+                BreakerConfig::default(),
+            )
+            .with_breaker(
+                cross::BREAKER,
+                &[cross::CROSS_PACK],
                 BreakerConfig::default(),
             );
         let channel = sink::Channel::new(self.queue.clone());
