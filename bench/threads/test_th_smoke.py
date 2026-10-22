@@ -392,12 +392,15 @@ class TheseusSmoke(unittest.TestCase):
 
 
 def with_home(prog: tf.Progression) -> tf.Progression:
-    """The smoke progression with one of its plain messages (7: a status question that touches no fact) made a
-    `home` message, so the explicit arm has one that is not any stream's."""
+    """The smoke progression with one of its plain messages (7, which touches no fact) made a `home` errand, so the
+    explicit arm has one that is not any stream's. Its text changes too: 7 was the pipeline's status question, which
+    names datatidy, and since a thread's working set grows from its turns (theseus-98bz.5) the router rightly places
+    a message naming a thread's entity in that thread, home tag or not. The errand names no stream's entity."""
     import copy
     p = copy.deepcopy(prog)
     p.streams.append(next(s for s in gen.build(11, "standard").streams if s.id == "home"))
-    p.messages[7].stream = "home"
+    m = p.messages[7]
+    m.stream, m.persona, m.beat, m.text = "home", "generalist", "home.1", "Unrelated: what's 72 F in Celsius?"
     tf.validate(p)
     return p
 
@@ -457,13 +460,18 @@ class ThreadsSmoke(TheseusSmoke):
             recs = [json.loads(x) for x in (out / "routing.jsonl").read_text().splitlines()]
             self.assertEqual([r["msg"] for r in recs], [m.index for m in SMOKE.messages], "one record per message")
             self.assertTrue(all(not r["addressed"] for r in recs))
-            # Nothing is live at the first message, so no offer is made: the owner starts each stream's thread by hand.
-            self.assertEqual(meta["owner"]["started_by_hand"], len(SMOKE.streams))
+            # Every stream gets its thread once: the owner starts it by hand when the product offered none (nothing
+            # is live at the first message), or answers `new` when the product asks beside a lone thread
+            # (theseus-98bz.7: a question whose options are the thread, `new` and `home`).
+            taken = sum(1 for x in meta["owner"]["answers"] if x["choice"] == "new")
+            self.assertEqual(meta["owner"]["started_by_hand"] + taken, len(SMOKE.streams))
+            self.assertLess(meta["owner"]["started_by_hand"], len(SMOKE.streams), "a lone thread offers a new one")
             self.assertEqual(meta["reopen_not_driven"], 0)
             sc = ts.score_run(ts.load_run(out))
             self.assertEqual(sorted(sc["routing"]), ["asked_on_ambiguous", "asked_on_clear", "top1"])
             self.assertEqual(sc["routing"]["top1"]["n"], sum(1 for m in SMOKE.messages if not m.ambiguous and m.role != "correction"))
-            self.assertEqual(sc["routing"]["asked_on_clear"]["k"], 0)
+            # the only question on a clear message is that lone-thread offer, on a stream's first message
+            self.assertEqual(sc["routing"]["asked_on_clear"]["k"], taken)
             self.assertEqual(sc["embargo"]["leak_count"], 0)
             self.assertEqual(sc["oracle_mean"], 1.0)
             # the threads arms render in the report, on the design's names
