@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  BLOCKS, PAGE, anatomy, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, namedParams, ontologyPaths, paramsOf, tabOf, thenWords,
+  BLOCKS, PAGE, anatomy, anatomyNote, hasBytes, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, namedParams, ontologyPaths, paramsOf, tabOf, thenWords,
   shortIds, topicTree, veiled, when,
 } from '../src/lib/explorer.ts'
 
@@ -113,4 +113,16 @@ test('a moment says its year, and a note’s long ids read as people name them',
   assert.equal(shortIds(`this turn's recall rcl_${id}: node imp_${id}_6 of session ses_ep${id}`),
     "this turn's recall rcl·b1c2d3: node imp·b1c2d3 of session ses·b1c2d3")
   assert.equal(shortIds('turn trn_short stays'), 'turn trn_short stays')
+})
+
+test('a detour’s parts table has no bytes column and says its parts are token counts; a compiled turn’s keeps both', () => {
+  const detour = { detour: { kind: 'quick', profile: 'haiku', model: 'm' }, compiled: null }
+  assert.equal(hasBytes(detour), false)
+  assert.match(anatomyNote(detour)!, /detour’s row’s token counts/)
+  const compiled = { compiled: { est_tokens: 1234, estimate: { method: 'counted' } } }
+  assert.equal(hasBytes(compiled), true)
+  assert.equal(
+    anatomyNote(compiled),
+    'Every part is counted from its bytes at the model’s figures, the conversation as the turn’s request less the parts above. The turn’s last loop itself estimated 1,234 tokens, part of it the provider’s own count.',
+  )
 })

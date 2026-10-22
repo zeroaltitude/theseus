@@ -259,9 +259,14 @@ fn ran(i: &WhyInput) -> Vec<String> {
 /// conversation's compilation and never stored, so the parts below are the
 /// ones its `context.detoured` row names.
 pub fn detour_words(d: &ContextDetour) -> String {
+    let kind = if d.kind.is_empty() {
+        "steered"
+    } else {
+        &d.kind
+    };
     format!(
-        "detour: ran as a {} detour on {} ({}); its request was built outside the conversation's compilation",
-        d.kind, d.profile, d.model
+        "detour: ran as a {kind} detour on {} ({}); its request was built outside the conversation's compilation",
+        d.profile, d.model
     )
 }
 
@@ -275,7 +280,7 @@ fn detour_left(d: &ContextDetour) -> Vec<String> {
             .to_string(),
         "  earlier recall: a detour carries none".to_string(),
     ];
-    if d.kind != "quick" {
+    if !d.recall.unwrap_or(d.kind == "quick") {
         out.push("  this turn's own recall: a trivial detour carries none".to_string());
     }
     out

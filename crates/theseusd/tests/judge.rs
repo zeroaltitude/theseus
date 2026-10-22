@@ -176,6 +176,50 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
     rig.stop(d);
 }
 
+/// `text` with the time a turn's prompt leads with (`[Terminal · Wed
+/// 2026-10-21 07:13 -07:00] …`, written by `surface::lead`) replaced by
+/// `<now>`: two turns a minute apart are otherwise the same request.
+fn unstamped(text: &str) -> String {
+    const HEAD: &str = "[Terminal · ";
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find(HEAD) {
+        let (head, tail) = rest.split_at(i + HEAD.len());
+        out.push_str(head);
+        match tail.find(']') {
+            Some(j) => {
+                out.push_str("<now>");
+                rest = &tail[j..];
+            }
+            None => {
+                rest = tail;
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The stamp is all `unstamped` takes out: a minute or a day apart compares
+/// equal, one other byte does not.
+#[test]
+fn the_time_a_prompt_leads_with_is_named_and_nothing_else() {
+    let at = |s: &str| format!(r#"{{"text":"[Terminal · {s}] Say done."}}"#);
+    let (a, b) = (
+        at("Wed 2026-10-21 07:13 -07:00"),
+        at("Wed 2026-10-21 07:14 -07:00"),
+    );
+    assert_eq!(unstamped(&a), unstamped(&b));
+    let (late, early) = (
+        at("Wed 2026-10-21 23:59 -07:00"),
+        at("Thu 2026-10-22 00:00 -07:00"),
+    );
+    assert_eq!(unstamped(&late), unstamped(&early));
+    assert_ne!(unstamped(&a), unstamped(&a.replace("Say done", "Say dune")));
+    assert_ne!(unstamped(&a), unstamped(&a.replace("Terminal", "Termina1")));
+}
+
 /// One turn is judged once, after it, with its cost in health's block; the
 /// model was asked the same bytes as with the judge off.
 #[test]
@@ -213,11 +257,12 @@ fn a_turn_is_judged_after_it_and_asks_the_model_the_same_bytes() {
     off.ask("Say done.");
     assert_eq!(off.judge()["enabled"], false);
     off.stop(d);
-    // Each rig's own temp dir is the one byte that differs, and is named.
+    // Each rig's own temp dir and its turn's minute are all that differ, and are named.
     let bytes = |r: &Rig| {
         let raw = r.model.raw_requests();
         assert_eq!(raw.len(), 1);
-        String::from_utf8_lossy(&raw[0]).replace(&r.dir.path().display().to_string(), "<dir>")
+        let text = String::from_utf8_lossy(&raw[0]);
+        unstamped(&text.replace(&r.dir.path().display().to_string(), "<dir>"))
     };
     assert_eq!(
         bytes(&on),

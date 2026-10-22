@@ -15,7 +15,11 @@ block: string,
  * file's path; a category's id (`preamble` for the guidance's first
  * section); a recalled source's header.
  */
-name: string, bytes: number, 
+name: string, 
+/**
+ * Its UTF-8 length; `0` on a detour's parts, whose row records tokens only.
+ */
+bytes: number, 
 /**
  * Its tokens at the model's figures (`TokenRates`), as the compiler
  * estimates a request; the conversation's are the rest of the turn's

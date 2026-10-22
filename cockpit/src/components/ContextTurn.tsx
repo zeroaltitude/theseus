@@ -14,7 +14,7 @@ import { useMode } from '@/lib/mode'
 import { daylightColor } from '@/lib/daylight'
 import { Empty, Field, Panel, Pill } from './ui'
 import { ChartPanel, Swatch, TipArea, TipBody, TipTarget, type LegendItem } from './ChartPanel'
-import { BLOCKS, anatomy, contextHref, count, episodeHref, namedParams, sensitivityWords, shortIds, thenWords, veiled, when, type BlockKey } from '@/lib/explorer'
+import { BLOCKS, anatomy, anatomyNote, hasBytes, contextHref, count, episodeHref, namedParams, sensitivityWords, shortIds, thenWords, veiled, when, type BlockKey } from '@/lib/explorer'
 import { useSearchParams } from 'react-router'
 
 type SetParams = (patch: Record<string, string | null | undefined>) => void
@@ -117,7 +117,7 @@ function Anatomy({ x }: { x: ContextExplainResult }) {
   const mark = useMark()
   const blocks = anatomy(x.parts)
   const total = blocks.reduce((a, b) => a + b.tokens, 0)
-  const est = x.compiled?.est_tokens
+  const note = anatomyNote(x)
   const legend: LegendItem[] = blocks.map((b) => ({ key: b.key, label: b.word, color: BLOCK_COLOR[b.key], mark: 'rect' }))
   return (
     <ChartPanel id="anatomy" help="context.anatomy" title={<>what the turn sees · {count(total)} tokens{x.window ? ` of a ${count(x.window)} window` : ''}</>} icon={<Layers size={13} />} legend={legend}
@@ -128,7 +128,7 @@ function Anatomy({ x }: { x: ContextExplainResult }) {
           { key: 'b', label: 'block', cell: (p) => p.block },
           { key: 'n', label: 'part', cell: (p) => p.name, className: 'max-w-[40ch] truncate', title: (p) => p.name },
           { key: 't', label: 'tokens', num: true, cell: (p) => count(p.tokens) },
-          { key: 'y', label: 'bytes', num: true, cell: (p) => (p.bytes ? count(p.bytes) : '') },
+          ...(hasBytes(x) ? [{ key: 'y', label: 'bytes', num: true, cell: (p: ContextPart) => (p.bytes ? count(p.bytes) : '') }] : []),
           { key: 's', label: 'share', num: true, cell: (p) => (total ? `${((p.tokens / total) * 100).toFixed(1)}%` : '') },
           { key: 'w', label: 'against the turn', cell: (p) => thenWords(p.then) },
         ],
@@ -144,7 +144,7 @@ function Anatomy({ x }: { x: ContextExplainResult }) {
         <div className="num flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-dim">
           {blocks.map((b) => <span key={b.key} className="flex items-center gap-1.5"><Swatch color={BLOCK_COLOR[b.key]} />{b.word} <span className="text-ink">{count(b.tokens)}</span><span className="text-ink-faint">{((b.tokens / total) * 100).toFixed(0)}%</span></span>)}
         </div>
-        {est != null && <div className="text-[11px] text-ink-faint">Every part is counted from its bytes at the model’s figures, the conversation as the turn’s request less the parts above. The turn’s last loop itself estimated {count(est)} tokens{x.compiled?.estimate?.method === 'counted' ? ', part of it the provider’s own count' : ', from its bytes'}.</div>}
+        {note && <div className="text-[11px] text-ink-faint">{note}</div>}
       </TipArea>
     </ChartPanel>
   )
