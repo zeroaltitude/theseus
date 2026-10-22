@@ -367,3 +367,113 @@ async fn every_sheets_and_slides_tool_is_deferred_and_small() {
         assert_eq!(def["defer_loading"], true, "{name}");
     }
 }
+
+#[tokio::test]
+async fn a_failed_notes_batch_on_an_existing_deck_does_not_claim_it_made_it() {
+    let r = rig(vec![]).await;
+    let id = made(&r, "slides.write", json!({"title": "Harbour"}))
+        .await
+        .meta["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // The batch that adds the slide goes through (its id kept for the notes'
+    // read); the notes' batch is refused.
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let slide = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let (n, kept) = (calls.clone(), slide.clone());
+    r.fake.route(
+        "POST",
+        &format!("/v1/presentations/{id}:batchUpdate"),
+        move |req| {
+            if n.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
+                return Reply::json(400, json!({"error": {"code": 400, "message": "bad notes"}}));
+            }
+            let body = req.json();
+            let made = body["requests"][0]["createSlide"]["objectId"]
+                .as_str()
+                .unwrap_or("");
+            *kept.lock().unwrap() = made.to_string();
+            Reply::json(200, json!({"replies": [{}]}))
+        },
+    );
+    r.fake
+        .route("GET", &format!("/v1/presentations/{id}"), move |_| {
+            let made = slide.lock().unwrap().clone();
+            Reply::json(
+                200,
+                json!({"slides": [{"objectId": made, "slideProperties": {"notesPage": {
+                "notesProperties": {"speakerNotesObjectId": format!("{made}_notes")}}}}]}),
+            )
+        });
+    let f = run(
+        &r,
+        "slides.write",
+        json!({"id": id, "slides": [{"title": "Dredging", "notes": "Mention the dredging"}]}),
+    )
+    .await
+    .unwrap_err();
+    assert!(!f.message.contains("was made"), "{}", f.message);
+    assert!(f.message.contains("bad notes"), "{}", f.message);
+    // A new deck whose batch fails still says it made the deck.
+    r.fake.route("POST", "/v1/presentations/*", |_| {
+        Reply::json(400, json!({"error": {"code": 400, "message": "refused"}}))
+    });
+    let f = run(
+        &r,
+        "slides.write",
+        json!({"title": "Fresh", "slides": [{"title": "One"}]}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        f.message.contains("was made, but the call then failed"),
+        "{}",
+        f.message
+    );
+}
+
+#[tokio::test]
+async fn a_create_answer_with_no_id_is_refused() {
+    let r = rig(vec![]).await;
+    r.fake.route("POST", "/v4/spreadsheets", |_| {
+        Reply::json(200, json!({"properties": {"title": "Odd"}}))
+    });
+    let f = run(
+        &r,
+        "sheets.write",
+        json!({"title": "Odd", "values": [["a"]]}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        f.message.contains("named no spreadsheet id"),
+        "{}",
+        f.message
+    );
+    assert_eq!(
+        f.meta["google_called"]["method"],
+        "sheets.spreadsheets.create"
+    );
+    assert!(
+        r.fake
+            .log()
+            .iter()
+            .all(|l| !l.path.contains("spreadsheets//")),
+        "no values call was made"
+    );
+}
+
+#[tokio::test]
+async fn three_rows_make_three_ledger_rows() {
+    let r = rig(vec![]).await;
+    let row = |m: &str| json!({"tool": "drive.read", "method": m, "class": "read"});
+    let meta = json!({
+        "google_called_also": [row("one"), row("two")],
+        "google_called": row("three"),
+    });
+    crate::fact::google::of_result(&r.core.rec(None), &meta);
+    let rows = ledgered(&r.core, "google.called");
+    let said: Vec<_> = rows.iter().map(|r| r["method"].as_str().unwrap()).collect();
+    assert_eq!(said, ["one", "two", "three"], "{rows:?}");
+}

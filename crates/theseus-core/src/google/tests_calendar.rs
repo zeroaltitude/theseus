@@ -611,3 +611,53 @@ fn both_tools_are_deferred_in_the_calendar_family_and_small() {
         }
     }
 }
+
+#[tokio::test]
+async fn a_gmail_added_event_is_outside_text() {
+    let r = rig_open(vec![]).await;
+    let own = |id: &str| {
+        json!({"id": id, "summary": "Design review", "eventType": "default",
+            "organizer": {"email": "owner@example.test", "self": true},
+            "creator": {"email": "owner@example.test", "self": true},
+            "start": {"dateTime": "2026-10-22T15:00:00Z"}, "end": {"dateTime": "2026-10-22T16:00:00Z"}})
+    };
+    let external = |items: Vec<Value>| {
+        let r = &r;
+        async move {
+            r.fake.json("GET", EVENTS_PATH, json!({ "items": items }));
+            let t = r
+                .core
+                .tools
+                .registry
+                .get("calendar.events")
+                .unwrap()
+                .clone();
+            let (_, ext) = t
+                .run_async(&json!({}), &ToolCtx::for_tests(r.dir.path()))
+                .await
+                .unwrap_or_else(|e| panic!("{}", e.message));
+            ext.is_some()
+        }
+    };
+    assert!(
+        !external(vec![own("own1")]).await,
+        "the account's own event"
+    );
+    let mut mailed = own("fl1");
+    mailed["eventType"] = "fromGmail".into();
+    assert!(
+        external(vec![mailed]).await,
+        "an event Gmail added from mail"
+    );
+    let mut theirs = own("cr1");
+    theirs["creator"] = json!({"email": "stranger@example.test"});
+    assert!(
+        external(vec![theirs]).await,
+        "an event another address created"
+    );
+    // A creator written in another case is still the account.
+    let mut cased = own("cs1");
+    cased["creator"] = json!({"email": "Owner@Example.test"});
+    cased["organizer"] = json!({"email": "Owner@Example.test"});
+    assert!(!external(vec![cased]).await);
+}

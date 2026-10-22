@@ -235,6 +235,7 @@ impl Tool for Write {
             let mut run = Run {
                 g,
                 id: a.id.clone().unwrap_or_default(),
+                created: false,
                 rows: Vec::new(),
             };
             let mut requests = built.requests.clone();
@@ -285,6 +286,8 @@ fn edit_url(id: &str) -> String {
 struct Run {
     g: Arc<Google>,
     id: String,
+    /// This call made the deck.
+    created: bool,
     rows: Vec<Value>,
 }
 
@@ -327,6 +330,7 @@ impl Run {
             .call(("slides.presentations.create", "write"), req, "")
             .await?;
         self.id = made["presentationId"].as_str().unwrap_or("").to_string();
+        self.created = true;
         Ok(made["slides"][0]["objectId"].as_str().map(String::from))
     }
 
@@ -347,11 +351,10 @@ impl Run {
 
     /// What a failure says when the deck was made by this very call.
     fn after_create(&self) -> String {
-        match self.rows.len() {
-            n if n > 0 && !self.id.is_empty() => {
-                format!("The deck {} was made, but the call then failed: ", self.id)
-            }
-            _ => String::new(),
+        if self.created && !self.id.is_empty() {
+            format!("The deck {} was made, but the call then failed: ", self.id)
+        } else {
+            String::new()
         }
     }
 
